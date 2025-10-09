@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from tabrepo.benchmark.models.ag.prep_lgb import PrepLGBModel
+from tabrepo.benchmark.models.ag.prep_lgb.prep_lgb_model import PrepLGBModel
 from ConfigSpace import Categorical, ConfigurationSpace, Float, Integer
 
 from tabrepo.benchmark.experiment import YamlExperimentSerializer
 from tabrepo.models.utils import convert_numpy_dtypes
 from tabrepo.utils.config_utils import CustomAGConfigGenerator
 
+from tabprep.presets.lgb_presets import get_lgb_presets
 
 def generate_configs_lightgbm(num_random_configs=200) -> list:
     search_space = ConfigurationSpace(
@@ -30,23 +31,38 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
         ],
         seed=1234,
     )
-
+    
     configs = search_space.sample_configuration(num_random_configs)
     if num_random_configs == 1:
         configs = [configs]
     configs = [dict(config) for config in configs]
+    
+    r_num = 1
+    for i in range(len(configs)):
+        if 'prep_params' not in configs[i]:
+            configs[i]['prep_params'] = {}
+        if 'preset_name' not in configs[i]:
+            configs[i]['preset_name'] = f'r{r_num}'
+            r_num += 1
     return [convert_numpy_dtypes(config) for config in configs]
 
+presets = get_lgb_presets()
+manual_configs = []
 
-gen_lightgbm = CustomAGConfigGenerator(
+for k, v in presets.items():
+    v.update({'preset_name': k})
+    manual_configs.append(v)
+
+gen_prep_lightgbm = CustomAGConfigGenerator(
     model_cls=PrepLGBModel,
     search_space_func=generate_configs_lightgbm,
-    manual_configs=[{}],
+    manual_configs=manual_configs,
 )
 
 
 if __name__ == "__main__":
-    experiments = gen_lightgbm.generate_all_bag_experiments(num_random_configs=200)
+    experiments = gen_prep_lightgbm.generate_all_bag_experiments(num_random_configs=25)
     YamlExperimentSerializer.to_yaml(
-        experiments=experiments, path="configs_lightgbm_alt.yaml"
+        experiments=experiments, path="configs_prep_lightgbm_alt.yaml"
     )
+    print(f"Generated {len(experiments)} experiments.")
