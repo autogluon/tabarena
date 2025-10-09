@@ -20,7 +20,7 @@ from autogluon.core.constants import BINARY, MULTICLASS, QUANTILE, REGRESSION, S
 from autogluon.core.models import AbstractModel
 from autogluon.core.models._utils import get_early_stopping_rounds
 
-from .. import lgb_utils
+from autogluon.tabular.models.lgb import lgb_utils
 from autogluon.tabular.models.lgb.hyperparameters.parameters import DEFAULT_NUM_BOOST_ROUND, get_lgb_objective, get_param_baseline
 from autogluon.tabular.models.lgb.hyperparameters.searchspaces import get_default_searchspace
 from autogluon.tabular.models.lgb.lgb_utils import construct_dataset, train_lgb_model
@@ -56,6 +56,7 @@ class PrepLGBModel(AbstractModel):
 
     def _set_default_params(self):
         default_params = get_param_baseline(problem_type=self.problem_type)
+        default_params['prep_params'] = {}
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
@@ -128,12 +129,12 @@ class PrepLGBModel(AbstractModel):
         approx_mem_size_req = data_mem_usage_bytes + histogram_mem_usage_bytes + mem_size_estimators
         return approx_mem_size_req
 
-    def _get_random_seed_from_hyperparameters(self, hyperparameters: dict) -> int | None | str:
-        if "seed_value" in hyperparameters:
-            return hyperparameters["seed_value"]
-        if "seed" in hyperparameters:
-            return hyperparameters["seed"]
-        return "N/A"
+    # def _get_random_seed_from_hyperparameters(self, hyperparameters: dict) -> int | None | str:
+    #     if "seed_value" in hyperparameters:
+    #         return hyperparameters["seed_value"]
+    #     if "seed" in hyperparameters:
+    #         return hyperparameters["seed"]
+    #     return "N/A"
 
     def _fit(self, X, y, X_val=None, y_val=None, time_limit=None, num_gpus=0, num_cpus=0, sample_weight=None, sample_weight_val=None, verbosity=2, **kwargs):
         try_import_lightgbm()  # raise helpful error message if LightGBM isn't installed
@@ -190,7 +191,7 @@ class PrepLGBModel(AbstractModel):
         valid_names = []
         valid_sets = []
         if dataset_val is not None:
-            from .callbacks import early_stopping_custom
+            from autogluon.tabular.models.lgb.callbacks import early_stopping_custom
 
             # TODO: Better solution: Track trend to early stop when score is far worse than best score, or score is trending worse over time
             early_stopping_rounds = ag_params.get("early_stop", "adaptive")
@@ -233,9 +234,9 @@ class PrepLGBModel(AbstractModel):
             callbacks.append(log_evaluation(period=log_period))
 
         train_params = {
-            "params": params,
+            "params": {key: value for key, value in params.items() if key != "prep_params"},
             "train_set": dataset_train,
-            "num_boost_round": num_boost_round,
+            "num_boost_round": num_boost_round, # NOTE: Need to check whether n_estimators is synonym in AG
             "valid_names": valid_names,
             "valid_sets": valid_sets,
             "callbacks": callbacks,
@@ -292,7 +293,10 @@ class PrepLGBModel(AbstractModel):
         elif self.problem_type == QUANTILE:
             train_params["params"]["quantile_levels"] = self.quantile_levels
 
-        train_params["params"]["seed"] = self.random_seed
+        # if hasattr(self, "random_seed"):
+        # train_params["params"]["seed"] = self.random_seed
+        # else:
+        #     train_params["params"]["seed"] = 0  # FIXME: Find out where this actually should have happened - AbstractModel has init_random_seed
 
         # Train LightGBM model:
         # Note that self.model contains a <class 'lightgbm.basic.Booster'> not a LightBGMClassifier or LightGBMRegressor object
@@ -329,7 +333,7 @@ class PrepLGBModel(AbstractModel):
                         )
                     train_params["params"]["device"] = "cpu"
                     self.model = train_lgb_model(early_stopping_callback_kwargs=early_stopping_callback_kwargs, **train_params)
-            retrain = False
+            retrain = False # FIXME: Does this prevent retraining in general?
             if train_params["params"].get("boosting_type", "") == "dart":
                 if dataset_val is not None and dart_retrain and (self.model.best_iteration != num_boost_round):
                     retrain = True
@@ -402,6 +406,47 @@ class PrepLGBModel(AbstractModel):
             else:  # Should this ever happen?
                 return y_pred_proba[:, 1]
 
+    def get_preprocessors(self, prep_params: dict = None) -> list:
+        from tabprep.preprocessors.preprocessor_map import get_preprocessor
+        if prep_params is None:
+            return []
+        
+        preprocessors = []
+        for prep_name, init_params in prep_params.items():
+            preprocessor_class = get_preprocessor(prep_name)
+            if preprocessor_class is not None:
+                preprocessors.append(preprocessor_class(target_type=self.problem_type, **init_params))
+            else:
+                raise ValueError(f"Preprocessor {prep_name} not recognized.")
+
+        return preprocessors
+
+    def _preprocess(self, X, y = None, is_train=False, prep_params: dict = None, **kwargs):
+        X_out = X.copy()
+        if is_train:
+            self.preprocessors = self.get_preprocessors(prep_params=prep_params)
+            for prep in self.preprocessors:
+                X_out = prep.fit_transform(X_out, y)
+        else:
+            for prep in self.preprocessors:
+                X_out = prep.transform(X_out)
+
+        return X_out
+    
+    def _preprocess_y(self, X, y = None, is_train=False, prep_params: dict = None, **kwargs):
+        # TODO
+        X_out = X.copy()
+        if is_train:
+            self.preprocessors = self.get_preprocessors(prep_params=prep_params)
+            for prep in self.preprocessors:
+                X_out = prep.fit_transform(X_out, y)
+        else:
+            for prep in self.preprocessors:
+                X_out = prep.transform(X_out)
+
+        return X_out
+
+
     def _preprocess_nonadaptive(self, X, is_train=False, **kwargs):
         X = super()._preprocess_nonadaptive(X=X, **kwargs)
 
@@ -443,7 +488,7 @@ class PrepLGBModel(AbstractModel):
         lgb_dataset_params_keys = ["two_round"]  # Keys that are specific to lightGBM Dataset object construction.
         data_params = {key: params[key] for key in lgb_dataset_params_keys if key in params}.copy()
 
-        X = self.preprocess(X, is_train=True)
+        X = self.preprocess(X=X, y=y, is_train=True, prep_params=params['prep_params'])
         if X_val is not None:
             X_val = self.preprocess(X_val)
         if X_test is not None:
