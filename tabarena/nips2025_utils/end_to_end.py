@@ -328,6 +328,47 @@ class EndToEndResults:
 
         return pd.concat(hpo_results_lst, ignore_index=True)
 
+    # FIXME: WIP (add more)
+    def leaderboard(self) -> pd.DataFrame:
+        from tabarena.tabarena.tabarena import TabArena
+        results = self.get_results(
+            # new_result_prefix=new_result_prefix,
+            # use_artifact_name_in_prefix=use_artifact_name_in_prefix,
+            # use_model_results=use_model_results,
+            # fillna=not only_valid_tasks,
+        )
+
+        tabarena = TabArena(
+            method_col="method",
+            task_col="dataset",
+            seed_column="fold",
+            error_col="metric_error",
+            columns_to_agg_extra=[
+                "time_train_s",
+                "time_infer_s",
+                # "imputed",
+            ],
+            groupby_columns=[
+                "metric",
+                "problem_type",
+            ],
+        )
+
+        leaderboard_kwargs = {}
+        leaderboard_kwargs.setdefault("include_elo", True)
+        leaderboard_kwargs.setdefault("include_winrate", True)
+        leaderboard_kwargs.setdefault("include_mrr", True)
+        leaderboard_kwargs.setdefault("include_rank_counts", True)
+        # leaderboard_kwargs.setdefault("baseline_method", calibration_framework)
+        # leaderboard_kwargs.setdefault("elo_kwargs", elo_kwargs)
+        # leaderboard_kwargs.setdefault("average_seeds", average_seeds)
+
+        leaderboard = tabarena.leaderboard(
+            data=results,
+            **leaderboard_kwargs,
+        )
+        return leaderboard
+
     def compare_on_tabarena(
         self,
         output_dir: str | Path,

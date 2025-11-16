@@ -454,6 +454,20 @@ class MethodMetadata:
         )
         return repo
 
+    # FIXME: TMP, pre-calculate and cache this in MethodMetadata!
+    def get_config_default(self, repo: EvaluationRepository | None = None):
+        if repo is None:
+            repo = self.load_processed()
+        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
+        if self.config_type is None:
+            config_types = repo.config_types()
+            assert len(config_types) == 1
+            config_type = repo.config_types()[0]
+        else:
+            config_type = self.config_type
+        config_default = PaperRunTabArena(repo=repo)._config_default(config_type=config_type, use_first_if_missing=True)
+        return config_default
+
     def generate_repo(
         self,
         results_lst: list[BaselineResult] = None,

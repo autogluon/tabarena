@@ -218,7 +218,7 @@ class TabArenaEvaluator:
         average_seeds: bool = True,
         tmp_treat_tasks_independently: bool = False,  # FIXME: Need to make a weighted elo logic
         leaderboard_kwargs: dict | None = None,
-        plot_pareto_with_baselines: bool = False,
+        plot_with_baselines: bool = False,
     ) -> pd.DataFrame:
         if leaderboard_kwargs is None:
             leaderboard_kwargs = {}
@@ -448,17 +448,21 @@ class TabArenaEvaluator:
             method_types = results_per_task[self.method_col].map(method_info["config_type"]).fillna(results_per_task[self.method_col])
 
             tuned_ens_types = method_types[tune_methods == 'tuned_ensemble']
-            results_te_per_task = results_per_task[(tune_methods == 'tuned_ensemble') | (
-                        (tune_methods == 'default') & ~method_types.isin(tuned_ens_types))]
+            per_task_filter = (tune_methods == 'tuned_ensemble') | ((tune_methods == 'default') & ~method_types.isin(tuned_ens_types))
 
-            # rename model part
+            tune_methods_split = results_per_split[self.method_col].map(method_info["method_subtype"])
+            method_types_split = results_per_split[self.method_col].map(method_info["config_type"]).fillna(results_per_split[self.method_col])
+            tuned_ens_types_split = method_types_split[tune_methods_split == 'tuned_ensemble']
+            per_split_filter = (tune_methods_split == 'tuned_ensemble') | ((tune_methods_split == 'default') & ~method_types_split.isin(tuned_ens_types_split))
+
+            if plot_with_baselines:
+                per_task_filter = per_task_filter | results_per_task[self.method_col].isin(baselines)
+                per_split_filter = per_split_filter | results_per_split[self.method_col].isin(baselines)
+
+            results_te_per_task = results_per_task[per_task_filter]
+            results_te_per_split = results_per_split[per_split_filter]
+
             results_te_per_task.loc[:, self.method_col] = results_te_per_task[self.method_col].map(rename_model)
-
-            tune_methods = results_per_split[self.method_col].map(method_info["method_subtype"])
-            method_types = results_per_split[self.method_col].map(method_info["config_type"]).fillna(results_per_split[self.method_col])
-            tuned_ens_types = method_types[tune_methods == 'tuned_ensemble']
-            results_te_per_split = results_per_split[(tune_methods == 'tuned_ensemble') | (
-                        (tune_methods == 'default') & ~method_types.isin(tuned_ens_types))]
             results_te_per_split.loc[:, self.method_col] = results_te_per_split[self.method_col].map(rename_model)
 
             if average_seeds:
@@ -497,7 +501,7 @@ class TabArenaEvaluator:
             self.plot_pareto(
                 leaderboard=leaderboard,
                 framework_types=framework_types,
-                with_baselines=plot_pareto_with_baselines,
+                with_baselines=plot_with_baselines,
             )
 
         if plot_other:

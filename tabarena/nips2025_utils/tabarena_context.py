@@ -216,6 +216,30 @@ class TabArenaContext:
         df_results_family_hpo["method"] = f"HPO-N{n_configs}-{method}"
         return df_results_family_hpo
 
+    # FIXME: WIP
+    def _run_compare_pca(
+        self,
+        configs: list[str] | None = None,
+        repo: EvaluationRepository | None = None,
+        config_fallback: str | None = None,
+    ):
+        if repo is None:
+            repo = self.load_repo(config_fallback=config_fallback)
+        if configs is None:
+            configs = self._get_config_defaults()
+
+        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+        simulator.evaluator.compute_avg_config_prediction_delta(configs=configs)
+
+    # FIXME: WIP
+    def _get_config_defaults(self):
+        config_defaults = []
+        for m in self.method_metadata_collection.method_metadata_lst:
+            if m.method_type != "config":
+                continue
+            config_defaults.append(m.get_config_default())
+        return config_defaults
+
     def simulate_portfolio_from_configs(
         self,
         configs: list[str],
