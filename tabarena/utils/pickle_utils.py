@@ -81,6 +81,7 @@ def fetch_all_pickles(
     dir_path: str | Path | list[str | Path],
     suffix: str = ".pkl",
     max_files: int | None = None,
+    **kwargs,
 ) -> list[Path]:
     """Recursively find every file ending in “.pkl” under *dir_path*
     and un‑pickle its contents.

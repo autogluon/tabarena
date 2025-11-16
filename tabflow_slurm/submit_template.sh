@@ -76,18 +76,27 @@ echo "Task ID: TASK_ID"
 echo "Fold: $FOLD"
 echo "Repeat: $REPEAT"
 
-$PYTHON_PATH $RUNSCRIPT \
-    --task_id $TASK_ID \
-    --fold $FOLD \
-    --repeat $REPEAT \
-    --config_index $CONFIG_INDEX \
-    --configs_yaml_file $CONFIGS_YAML_FILE \
-    --openml_cache_dir $OPENML_CACHE_DIR \
-    --tabrepo_cache_dir $TABREPO_CACHE_DIR \
-    --output_dir $OUTPUT_DIR \
-    --num_cpus $NUM_CPUS \
-    --num_gpus $NUM_GPUS \
-    --memory_limit $MEMORY_LIMIT \
-    --setup_ray_for_slurm_shared_resources_environment $SETUP_RAY \
-    --ignore_cache $IGNORE_CACHE \
-    --sequential_local_fold_fitting $SEQUENTIAL_LOCAL_FOLD_FITTING
+
+
+# Split CONFIG_INDEX into individual elements and loop
+IFS=',' read -ra CONFIG_ARRAY <<< "$CONFIG_INDEX"
+
+for CI in "${CONFIG_ARRAY[@]}"; do
+    echo "Running config_index=$CI"
+
+    $PYTHON_PATH $RUNSCRIPT \
+        --task_id $TASK_ID \
+        --fold $FOLD \
+        --repeat $REPEAT \
+        --config_index $CI \
+        --configs_yaml_file $CONFIGS_YAML_FILE \
+        --openml_cache_dir $OPENML_CACHE_DIR \
+        --tabrepo_cache_dir $TABREPO_CACHE_DIR \
+        --output_dir $OUTPUT_DIR \
+        --num_cpus $NUM_CPUS \
+        --num_gpus $NUM_GPUS \
+        --memory_limit $MEMORY_LIMIT \
+        --setup_ray_for_slurm_shared_resources_environment $SETUP_RAY \
+        --ignore_cache $IGNORE_CACHE \
+        --sequential_local_fold_fitting $SEQUENTIAL_LOCAL_FOLD_FITTING
+done
