@@ -43,8 +43,8 @@ def run_eval_for_new_models(
 
     # Import here such that env var above is used correctly
     from tabarena.nips2025_utils.end_to_end import EndToEndResults
-    from tabarena.tabarena.website_format import format_leaderboard
     from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
+    from tabarena.tabarena.website_format import format_leaderboard
 
     for model in models:
         if not model.only_load_cache:
@@ -71,10 +71,11 @@ def run_eval_for_new_models(
         print(leaderboard_website.to_markdown(index=False))
 
     plot_plots(fig_output_dir)
-    for subset in extra_subsets:
-        print("\n\n###############")
-        print("\t Subset Description:", subset)
-        plot_plots(fig_output_dir / "subsets" / "_".join(subset), subset)
+    if extra_subsets is not None:
+        for subset in extra_subsets:
+            print("\n\n###############")
+            print("\t Subset Description:", subset)
+            plot_plots(fig_output_dir / "subsets" / "_".join(subset), subset)
 
 
 if __name__ == "__main__":
@@ -84,11 +85,11 @@ if __name__ == "__main__":
     run_eval_for_new_models(
         [
             ModelMetadata(
-                path_raw=out_dir / "tabpfnv25_output_07112025",
+                path_raw=out_dir / "tabpfnv25_hpo_14112025",
                 method="RealTabPFN-v2.5",
             ),
         ],
         extra_subsets=[["tabpfn"]],
-        fig_output_dir=fig_dir / "tabpfnv25",
+        fig_output_dir=fig_dir / "tabpfnv25_submission",
         cache_path="/work/dlclarge2/purucker-tabarena/output/tabarena_cache",
     )
