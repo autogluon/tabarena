@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from autogluon.tabular import TabularDataset
-from fasteval.tabarena import TabArena
+from bencheval.tabarena import TabArena
 
 
 if __name__ == '__main__':

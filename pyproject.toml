@@ -1,6 +1,6 @@
 [tool.uv.workspace]
-members = ["tabarena", "fasteval"]
+members = ["tabarena", "bencheval"]
 
 [tool.uv.sources]
 tabarena = { workspace = true }
-fasteval = { workspace = true }
+bencheval = { workspace = true }

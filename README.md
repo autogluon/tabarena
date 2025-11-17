@@ -87,7 +87,7 @@ uv pip install --prerelease=allow -e ./tabarena
 #### PIP Install (not recommended)
 
 ```
-pip install -e ./fasteval
+pip install -e ./bencheval
 pip install -e ./tabarena
 ```
 

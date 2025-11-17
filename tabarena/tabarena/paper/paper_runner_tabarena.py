@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from .paper_runner import PaperRun
-from fasteval.tabarena import TabArena
+from bencheval.tabarena import TabArena
 
 
 class PaperRunTabArena(PaperRun):

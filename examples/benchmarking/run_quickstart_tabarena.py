@@ -8,7 +8,7 @@ import pandas as pd
 from tabarena.benchmark.experiment import AGModelBagExperiment, ExperimentBatchRunner
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
-from fasteval.website_format import format_leaderboard
+from bencheval.website_format import format_leaderboard
 
 
 if __name__ == '__main__':

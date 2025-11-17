@@ -42,7 +42,7 @@ def run_eval_for_new_models(
 
     # Import here such that env var above is used correctly
     from tabarena.nips2025_utils.end_to_end import EndToEndResults
-    from fasteval.website_format import format_leaderboard
+    from bencheval.website_format import format_leaderboard
     from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
 
     for model in models:

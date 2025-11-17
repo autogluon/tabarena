@@ -9,7 +9,7 @@ import pandas as pd
 import seaborn as sns
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
-from fasteval.tabarena import TabArena
+from bencheval.tabarena import TabArena
 from autogluon.common.loaders import load_pd
 
 from tabarena.paper.paper_utils import get_method_rename_map
