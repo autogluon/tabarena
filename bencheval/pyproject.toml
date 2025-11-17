@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bencheval"
+version = "0.0.1"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "AutoGluon Community" }]
+dependencies = [
+    "scipy",
+    "numpy",
+    "pandas",
+    "tqdm",
+    "typing-extensions>=4.11,<5",  # used for `Self` type hint
+    "scikit-learn",
+    "seaborn==0.13.2",
+    "matplotlib==3.10.1",
+    "plotly>=6.3.0",
+    "kaleido>=0.2.1,<1",  # for winrate matrix
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bencheval*"]
+
+#[tool.setuptools]
+#package-dir = {}
+#packages = ["bencheval"]
+
+[project.urls]
+Homepage = "https://github.com/autogluon/tabarena"

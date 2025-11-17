@@ -48,7 +48,7 @@ jobs:
 
           # Allow prerelease versions of AutoGluon
           # Install your package in editable/develop mode
-          uv pip install --system --prerelease=allow -e .
+          uv pip install --system --prerelease=allow -e ./tabarena
 
           # Optional tools
           uv pip install --system flake8 pytest

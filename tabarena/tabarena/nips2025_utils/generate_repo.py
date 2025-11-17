@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from tabarena import EvaluationRepository
+from tabarena.repository import EvaluationRepository
 from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.benchmark.result import BaselineResult, ConfigResult, ExperimentResults
 

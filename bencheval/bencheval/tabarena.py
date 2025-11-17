@@ -10,9 +10,9 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 from scipy.stats import gmean
 
-from tabarena.tabarena.elo_utils import EloHelper
-from tabarena.tabarena.mean_utils import compute_weighted_mean_by_task
-from tabarena.tabarena.winrate_utils import compute_winrate, compute_winrate_matrix
+from .elo_utils import EloHelper
+from .mean_utils import compute_weighted_mean_by_task
+from .winrate_utils import compute_winrate, compute_winrate_matrix
 
 RANK = "rank"
 IMPROVABILITY = "improvability"

@@ -10,7 +10,7 @@ import traceback
 from tabarena.benchmark.result import BaselineResult, ExperimentResults
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper, OpenMLS3TaskWrapper
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle, CacheFunctionDummy
-from tabarena import EvaluationRepository
+from tabarena.repository import EvaluationRepository
 from tabarena.benchmark.experiment.experiment_constructor import Experiment
 
 

@@ -10,7 +10,7 @@ import pandas as pd
 from tabarena.benchmark.result import BaselineResult
 from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
-from tabarena import EvaluationRepository, EvaluationRepositoryCollection
+from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection
 from tabarena.repository.abstract_repository import AbstractRepository
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_paths
 from tabarena.paper.paper_runner_tabarena import PaperRunTabArena

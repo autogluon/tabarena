@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from tabarena import EvaluationRepository
+from tabarena.repository import EvaluationRepository
 from tabarena.utils.normalized_scorer import NormalizedScorer
 from tabarena.utils.rank_utils import RankScorer
 

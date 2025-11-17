@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tabarena"
+version = "0.0.1"
+description = "Dataset of model evaluations supporting ensembling and simulation"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "AutoGluon Community" }]
+requires-python = ">=3.10"
+
+# NOTE: To allow pre-release resolution of AutoGluon with uv, install with:
+#   uv pip install --prerelease=allow .
+dependencies = [
+  # TODO: To use `uv`, you need to do `uv pip install --prerelease=allow .` so it recognizes pre-release AutoGluon
+  "autogluon>=1.4.1b20250910,<1.5",  # TODO: Remove after moving `benchmark` code elsewhere
+  "bencheval",
+  "openml>=0.14.1",  # consider making optional
+  "pyyaml",
+  "pytest",
+  "tqdm",
+  "typing-extensions>=4.11,<5",  # used for `Self` type hint
+  "huggingface-hub",
+  "numpy",
+  "pandas",
+
+  # TODO: For 2025 paper, consider making optional
+  "tueplots",
+  "autorank==1.2.1",
+  "seaborn==0.13.2",
+  "matplotlib==3.10.1",
+  "plotly>=6.3.0",
+  "kaleido>=0.2.1,<1",  # for winrate matrix
+]
+
+[project.optional-dependencies]
+tabpfn = [
+  "tabpfn>=2.0.9",       # We used version 2.0.9
+  "numba>=0.57,<1.0",    # Required by kditransform
+]
+tabicl = ["tabicl>=0.1.1"]
+ebm = ["interpret-core>=0.7.3"]
+search_spaces = ["configspace>=1.2,<2.0"]
+realmlp = ["pytabkit>=1.5.0,<2.0"]
+tabdpt = ["tabdpt>=1.1.7"]
+tabm = ["torch"]
+modernnca = ["category_encoders"]
+xrfm = ["xrfm[cu12]"]
+
+# union of all above extras (mirrors your "benchmark" extra)
+benchmark = [
+  "tabpfn>=2.0.9",
+  "numba>=0.57,<1.0",
+  "tabicl>=0.1.1",
+  "interpret-core>=0.7.3",
+  "configspace>=1.2,<2.0",
+  "pytabkit>=1.5.0,<2.0",
+  "tabdpt>=1.1.7",
+  "torch",
+  "category_encoders",
+  "xrfm[cu12]",
+]
+
+[project.urls]
+Homepage = "https://github.com/autogluon/tabarena"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tabarena*"]
+
+[tool.setuptools.package-data]
+tabarena = [
+  "metrics/_roc_auc_cpp/compile.sh",
+  "metrics/_roc_auc_cpp/cpp_auc.cpp",
+  "nips2025_utils/metadata/task_metadata_tabarena51.csv",
+]

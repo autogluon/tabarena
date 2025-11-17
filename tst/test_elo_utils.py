@@ -1,5 +1,5 @@
 import pytest
-from tabarena.tabarena.elo_utils import EloHelper
+from bencheval.elo_utils import EloHelper
 import pandas as pd
 
 

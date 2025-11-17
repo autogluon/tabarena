@@ -5,7 +5,8 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from tabarena import EvaluationRepository, Evaluator
+from tabarena.evaluation.evaluator import Evaluator
+from tabarena.repository import EvaluationRepository
 
 
 class PaperRun:

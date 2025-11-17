@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from tabarena.nips2025_utils.end_to_end_single import EndToEndResultsSingle, EndToEndSingle
-from tabarena.tabarena.website_format import format_leaderboard
+from bencheval.website_format import format_leaderboard
 
 if __name__ == "__main__":
     path_raw = Path(__file__).parent / "tabarena_out" / "custom_model"

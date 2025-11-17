@@ -119,7 +119,7 @@ if __name__ == '__main__':
 
     calibration_framework = "RF (default)"
 
-    from tabarena.tabarena.tabarena import TabArena
+    from bencheval.tabarena import TabArena
     tabarena = TabArena(
         method_col="method",
         task_col="dataset",
