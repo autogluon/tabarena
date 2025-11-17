@@ -11,7 +11,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
+# FIXME: the model uses some kind of parallel backend that does not work on shared hardware
+# FIXME: model is not pickable
+# FIXME: predict proba output is weird
 class SAPRPTOSSModel(AbstractModel):
     """ConTextTab Model: https://github.com/SAP-samples/sap-rpt-1-oss."""
 
