@@ -58,7 +58,7 @@ class BenchmarkSetup:
     """OpenML cache directory. This is used to store dataset and tasks data from OpenML."""
     tabrepo_cache_dir_from_base_path: str = "input_data/tabrepo"
     """TabRepo cache directory."""
-    slurm_log_output_from_base_path: str = "slurm_out/new_runs"
+    slurm_log_output_from_base_path: str = "slurm_out/runs_1711"
     """Directory for the SLURM output logs. This is used to store the output logs from the
     SLURM jobs."""
     output_dir_base_from_base_path: str = "output/"
@@ -354,7 +354,9 @@ class BenchmarkSetup:
             mem = f"--mem-per-cpu={self.memory_limit//self.num_cpus}G"
         script = str(Path(__file__).parent / self.slurm_script)
 
-        return f"{partition} {gres} {time_in_h} {cpus} {mem} {script}"
+        slurm_logs = f"-oe {self.slurm_log_output}/%A/slurm-%A_%a.out"
+
+        return f"{partition} {gres} {time_in_h} {cpus} {mem} {slurm_logs} {script}"
 
     def get_jobs_to_run(self):  # noqa: C901
         """Determine all jobs to run by checking the cache and filtering

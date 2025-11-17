@@ -4,8 +4,6 @@
 #SBATCH --export=ALL
 #SBATCH --requeue
 #SBATCH --propagate=NONE
-#SBATCH -o /work/dlclarge2/purucker-tabarena/slurm_out/new_runs/%A/slurm-%A_%a.out
-#SBATCH -e /work/dlclarge2/purucker-tabarena/slurm_out/new_runs/%A/slurm-%A_%a.out
 
 #### Set by outer script
 ## For GPU

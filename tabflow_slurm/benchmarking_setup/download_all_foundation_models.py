@@ -52,3 +52,11 @@ if __name__ == "__main__":
         print("LimiXModel not found. Skipping downloading its models.")
     else:
         LimiXModel.download_model()
+
+    # SAP RPT-1 OSS (Gated, requires accepting terms on Hugging Face!)
+    try:
+        from tabarena.benchmark.models.ag.sap_rpt_oss.sap_rpt_oss_model import pre_download_model
+    except ImportError:
+        print("SAP RPT-1 OSS model not found. Skipping downloading its model.")
+    else:
+        pre_download_model()
