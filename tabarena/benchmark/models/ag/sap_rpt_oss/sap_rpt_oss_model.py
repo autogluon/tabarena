@@ -20,6 +20,8 @@ class SAPRPTOSSModel(AbstractModel):
     ag_priority = 65
     seed_name = "random_state"
 
+    # TODO: Figure out if num_cpus could be used somewhere
+    # TODO: Pre-download the used LM checkpoint used for the embeddings
     def _fit(
         self,
         X: pd.DataFrame,

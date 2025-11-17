@@ -354,7 +354,7 @@ class BenchmarkSetup:
             mem = f"--mem-per-cpu={self.memory_limit//self.num_cpus}G"
         script = str(Path(__file__).parent / self.slurm_script)
 
-        slurm_logs = f"-oe {self.slurm_log_output}/%A/slurm-%A_%a.out"
+        slurm_logs = f"--output={self.slurm_log_output}/%A/slurm-%A_%a.out"
 
         return f"{partition} {gres} {time_in_h} {cpus} {mem} {slurm_logs} {script}"
 
