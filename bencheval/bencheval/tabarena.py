@@ -263,7 +263,6 @@ class TabArena:
         datasets = list(data[self.task_col].unique())
         num_datasets = len(datasets)
 
-        counts = data[[self.method_col, self.task_col]].value_counts()
         task_cols = [self.task_col]
         if self.seed_column is not None:
             task_cols.append(self.seed_column)
@@ -345,8 +344,6 @@ class TabArena:
         return data
 
     # FIXME: Cleanup
-    # FIXME: Other fill methods
-    # FIXME: What about fill value of other columns besides self.error_col?
     def fillna_data(
         self,
         data: pd.DataFrame,
@@ -741,7 +738,7 @@ class TabArena:
         results_winrate = 1 - ((results_rank - 1) / (len(results)-1))
         results_rank = len(results_winrate) - results_winrate * (len(results_winrate) - 1)
         """
-        if self.seed_column is not None and self.seed_column not in results_per_task:
+        if self.seed_column is not None and self.seed_column not in results_per_task.columns:
             seed_col = None
         else:
             seed_col = self.seed_column
@@ -771,7 +768,7 @@ class TabArena:
             Square DataFrame indexed and columned by methods.
             Entry (i, j) = win-rate of method i vs method j.
         """
-        if self.seed_column is not None and self.seed_column not in results_per_task:
+        if self.seed_column is not None and self.seed_column not in results_per_task.columns:
             seed_col = None
         else:
             seed_col = self.seed_column
@@ -784,15 +781,13 @@ class TabArena:
         )
         return winrate_matrix
 
+    @staticmethod
     def plot_winrate_matrix(
-        self,
         winrate_matrix: pd.DataFrame,
         save_path: str | None,
     ):
         import plotly.express as px
         winrate_matrix = winrate_matrix.copy()
-        winrate_matrix.index = [i.replace('tuned + ensembled', 'T+E') for i in winrate_matrix.index]
-        winrate_matrix.columns = [i.replace('tuned + ensembled', 'T+E') for i in winrate_matrix.columns]
         winrate_matrix = (winrate_matrix*100).round().astype('Int64')
         
         fig = px.imshow(
@@ -852,6 +847,8 @@ class TabArena:
         ----------
         df : pd.DataFrame
             Must contain task_groupby_cols, self.error_col.
+        task_groupby_cols : list[str]
+            The groupby columns for calculating rank.
 
         Returns
         -------
@@ -917,10 +914,10 @@ class TabArena:
         df = df.merge(base, on=task_groupby_cols, how="left")
 
         # Denominator: max(baseline_error, this_row_error) per row
-        denom = df[[self.error_col, "baseline_error"]].max(axis=1).replace(0, pd.NA)
+        denominator = df[[self.error_col, "baseline_error"]].max(axis=1).replace(0, pd.NA)
 
         # Baseline advantage: (baseline - current) / denom
-        baseline_advantage = ((df["baseline_error"] - df[self.error_col]) / denom).fillna(0)
+        baseline_advantage = ((df["baseline_error"] - df[self.error_col]) / denominator).fillna(0)
 
         baseline_advantage.name = "baseline_advantage"
         baseline_advantage.index = results_per_task.index  # preserve original alignment
@@ -936,7 +933,7 @@ class TabArena:
         return loss_rescaled
 
     def compute_rank(self, results_per_task: pd.DataFrame) -> pd.Series:
-        if self.seed_column is not None and self.seed_column not in results_per_task:
+        if self.seed_column is not None and self.seed_column not in results_per_task.columns:
             seed_col = None
         else:
             seed_col = self.seed_column
@@ -971,7 +968,7 @@ class TabArena:
             result = autorank(data, alpha=0.05, verbose=False, order="ascending", force_mode="nonparametric")
 
             try:
-                ax = cd_diagram(result, reverse=reverse, ax=ax, width=6)
+                _ = cd_diagram(result, reverse=reverse, ax=ax, width=6)
             except KeyError:
                 print(f"Not enough methods to generate cd_diagram, skipping...")
                 return

@@ -1436,6 +1436,7 @@ class TabArenaEvaluator:
                     plt.savefig(fig_save_path, dpi=300)
                 if show:
                     plt.show()
+                plt.close()
 
     def plot_tabarena_times(self, df: pd.DataFrame, output_dir: Path | str,
                             only_datasets_for_method: dict[str, list[str]] | None = None, show: bool = True):

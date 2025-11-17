@@ -392,6 +392,7 @@ def plot_pareto(
         plt.savefig(save_path, bbox_inches="tight", dpi=600)
     if show:
         plt.show()
+    plt.close()
 
 
 def plot_optimal_arrow(
