@@ -114,8 +114,26 @@ git clone https://github.com/autogluon/tabarena.git
 uv pip install --prerelease=allow -e ./tabarena[benchmark]
 ```
 
+Recommended workflow:
+Creating a custom virtual environment:
+```
+pip install uv
+uv venv --seed --python 3.11 ~/.venvs/tabarena
+source ~/.venvs/tabarena/bin/activate
+
+git clone https://github.com/autogluon/autogluon.git
+./autogluon/full_install.sh
+
+git clone https://github.com/autogluon/tabarena.git
+uv pip install -U -e tabarena/[benchmark]
+```
+
+In PyCharm, make sure to set the directory of `tabarena/` and each `src/` subdirectory of `autogluon/` as 
+"Sources Root" for the IDE to find the imports.
+
 ### Example Install + Run
 
+Creating a project:
 ```
 pip install uv
 uv init -p 3.11
@@ -155,6 +173,7 @@ If you use TabArena in a scientific publication, we would appreciate a reference
 Nick Erickson, Lennart Purucker, Andrej Tschalzev, David Holzmüller, Prateek Mutalik Desai, David Salinas, Frank Hutter, Preprint., 2025
 
 Link to publication: [arXiv](https://arxiv.org/abs/2506.16791)
+
 Link to NeurIPS'2025: [Conference Poster and Video](https://neurips.cc/virtual/2025/loc/san-diego/poster/121499)
 
 Bibtex entry:

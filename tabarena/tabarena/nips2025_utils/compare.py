@@ -17,6 +17,7 @@ def compare_on_tabarena(
     subset: str | list[str] | None = None,
     folds: list[int] | None = None,
     tabarena_context: TabArenaContext | None = None,
+    tabarena_context_kwargs: dict | None = None,
     fillna: str | pd.DataFrame | None = "RF (default)",
     score_on_val: bool = False,
     average_seeds: bool = True,
@@ -25,7 +26,9 @@ def compare_on_tabarena(
 ) -> pd.DataFrame:
     output_dir = Path(output_dir)
     if tabarena_context is None:
-        tabarena_context = TabArenaContext()
+        if tabarena_context_kwargs is None:
+            tabarena_context_kwargs = {}
+        tabarena_context = TabArenaContext(**tabarena_context_kwargs)
     task_metadata = tabarena_context.task_metadata
 
     paper_results = tabarena_context.load_results_paper(

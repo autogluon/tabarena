@@ -24,7 +24,7 @@ def run_eval_for_new_models(
     models: list[ModelMetadata],
     *,
     fig_output_dir: Path,
-    subset: str | None | list[str] = None,
+    extra_subsets: None | list[list[str]] = None,
     cache_path: str | None = None,
 ) -> None:
     """Run evaluation for a custom model on TabArena.
@@ -32,7 +32,8 @@ def run_eval_for_new_models(
     Args:
         models: List of ModelMetadata instances for each custom model to be evaluated.
         fig_output_dir: Path to the directory where evaluation artifacts will be saved.
-        subset: Optional subset of the TabArena dataset to evaluate on.
+        extra_subsets: list of optional subsets of the TabArena dataset to evaluate on.
+            Each element is a subset description as a list of strings.
         cache_path: Optional path to the cache directory on the filesystem.
 
     """
@@ -42,8 +43,8 @@ def run_eval_for_new_models(
 
     # Import here such that env var above is used correctly
     from tabarena.nips2025_utils.end_to_end import EndToEndResults
-    from bencheval.website_format import format_leaderboard
     from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
+    from bencheval.website_format import format_leaderboard
 
     for model in models:
         if not model.only_load_cache:
@@ -56,14 +57,25 @@ def run_eval_for_new_models(
 
     end_to_end_results = EndToEndResults.from_cache(
         # TODO: check if "+ model.new_result_prefix" is correct here
-        methods=[(m.method + m.new_result_prefix, m.new_result_prefix) for m in models]
+        # methods=[(m.method + m.new_result_prefix, m.new_result_prefix) for m in models]
+        methods=[m.method for m in models]
     )
-    leaderboard = end_to_end_results.compare_on_tabarena(
-        output_dir=fig_output_dir,
-        subset=subset,
-    )
-    leaderboard_website = format_leaderboard(df_leaderboard=leaderboard)
-    print(leaderboard_website.to_markdown(index=False))
+
+    def plot_plots(_fig_output_dir, _subset=None):
+        leaderboard = end_to_end_results.compare_on_tabarena(
+            output_dir=_fig_output_dir,
+            subset=_subset,
+            tabarena_context_kwargs=dict(include_unverified=True),
+        )
+        leaderboard_website = format_leaderboard(df_leaderboard=leaderboard)
+        print(leaderboard_website.to_markdown(index=False))
+
+    plot_plots(fig_output_dir)
+    if extra_subsets is not None:
+        for subset in extra_subsets:
+            print("\n\n###############")
+            print("\t Subset Description:", subset)
+            plot_plots(fig_output_dir / "subsets" / "_".join(subset), subset)
 
 
 if __name__ == "__main__":
@@ -73,11 +85,11 @@ if __name__ == "__main__":
     run_eval_for_new_models(
         [
             ModelMetadata(
-                path_raw=out_dir / "tabdpt_16102025",
-                method="TabDPT",
-                new_result_prefix="_[New]",
+                path_raw=out_dir / "tabpfnv25_hpo_14112025",
+                method="RealTabPFN-v2.5",
             ),
         ],
-        fig_output_dir=fig_dir / "tabdpt",
+        extra_subsets=[["tabpfn"]],
+        fig_output_dir=fig_dir / "tabpfnv25_submission",
         cache_path="/work/dlclarge2/purucker-tabarena/output/tabarena_cache",
     )

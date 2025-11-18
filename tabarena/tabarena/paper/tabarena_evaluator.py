@@ -1118,7 +1118,7 @@ class TabArenaEvaluator:
                 if use_y:
                     pos = metric
                     y = framework_col
-                    figsize = (3.5, 3)
+                    figsize = (4, 5)
                     xlim = lim
 
                     framework_type_order.reverse()
@@ -1127,7 +1127,7 @@ class TabArenaEvaluator:
                     pos = framework_col
                     y = metric
                     ylim = lim
-                    figsize = (7, 2.7)
+                    figsize = (0.5*len(framework_types), 2.7)
                     # figsize = None
 
                 fig, ax = plt.subplots(1, 1, figsize=figsize)

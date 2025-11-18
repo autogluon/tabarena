@@ -3,15 +3,17 @@ from __future__ import annotations
 from huggingface_hub import hf_hub_download
 
 if __name__ == "__main__":
-    # TabPFNv2
+    # TabPFN
+    # Note: models from version 2.5 are gated! You need to accept the terms and
+    # conditions on Hugging Face and login on your device with the Hugging Face CLI
+    # to download the weights.
     try:
-        from tabpfn.model.loading import download_all_models, resolve_model_path
+        from tabpfn.model_loading import download_all_models, resolve_model_path
     except ImportError:
-        print("TabPFNv2 not installed. Skipping downloading its models.")
+        print("TabPFN not installed. Skipping downloading its models.")
     else:
-        # TODO: need to hardcode the model names as names have changed in the code below...
         _, model_dir, _, _ = resolve_model_path(model_path=None, which="classifier")
-        download_all_models(to=model_dir)
+        download_all_models(to=model_dir[0])
 
     # TabICL
     try:

@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING
 
 import ray
 import yaml
-
 from tabarena.benchmark.experiment.experiment_utils import check_cache_hit
 from tabarena.utils.cache import CacheFunctionPickle
 from tabarena.utils.ray_utils import ray_map_list, to_batch_list
@@ -49,10 +48,10 @@ class BenchmarkSetup:
             - slurm_out         -- contains all SLURM output logs
             - .openml-cache     -- contains the OpenML cache
     """
-    python_from_base_path: str = "venvs/tabarena_1610/bin/python"
+    python_from_base_path: str = "venvs/tabarena_07112025/bin/python"
     """Python executable and environment to use for the SLURM jobs. This should point to a Python
     executable within a (virtual) environment."""
-    run_script_from_base_path: str = "code/tabarena_benchmarking_examples/tabflow_slurm/run_tabarena_experiment.py"
+    run_script_from_base_path: str = "code/tabarena_new/tabarena/tabflow_slurm/run_tabarena_experiment.py"
     """Python script to run the benchmark. This should point to the script that runs the benchmark
     for TabArena."""
     openml_cache_from_base_path: str = ".openml-cache"
@@ -64,11 +63,11 @@ class BenchmarkSetup:
     SLURM jobs."""
     output_dir_base_from_base_path: str = "output/"
     """Output directory for the benchmark. In this folder a `benchmark_name` folder will be created."""
-    configs_path_from_base_path: str = "code/tabarena_benchmarking_examples/tabflow_slurm/benchmark_configs_"
+    configs_path_from_base_path: str = "code/tabarena_new/tabarena/tabflow_slurm/benchmark_configs_"
     """YAML file with the configs to run. Generated from parameters above in code below.
     File path is f"{self.base_path}{self.configs_path_from_base_path}{self.benchmark_name}.yaml"
     """
-    slurm_script: str = "submit_template_gpu.sh"
+    slurm_script: str = "submit_template.sh"
     """Name of the SLURM (array) script that to run on the cluster (only used to print the command
      to run)."""
     slurm_gpu_partition: str = "alldlc2_gpu-l40s"
@@ -116,14 +115,11 @@ class BenchmarkSetup:
     # ------------------
     """Problem types to run in the benchmark. Adjust as needed to run only specific problem types."""
     num_cpus: int = 8
-    """Number of CPUs to use for the SLURM jobs. The number of CPUs available on the node and in
-    sync with the slurm_script."""
+    """Number of CPUs to use for the SLURM jobs. The number of CPUs available on the node."""
     num_gpus: int = 0
-    """Number of GPUs to use for the SLURM jobs. The number of GPUs available on the node and in
-    sync with the slurm_script."""
+    """Number of GPUs to use for the SLURM jobs. The number of GPUs available on the node."""
     memory_limit: int = 32
-    """Memory limit for the SLURM jobs. The memory limit available on the node and in sync with
-    the slurm_script."""
+    """Memory/RAM limit for the SLURM jobs in GB. The memory limit available on the node."""
     time_limit: int = 3600
     """Time limit for each fit (all 8 folds) of a model in seconds. By default, 3600 seconds is used."""
     n_random_configs: int = 200
@@ -196,6 +192,7 @@ class BenchmarkSetup:
         - "max_n_features": int
             Maximal number of features.
         - "max_n_samples_train_per_fold": int
+        - "min_n_samples_train_per_fold": int
         - "max_n_classes": int
             Maximal number of classes.
         - "regression_support": bool
@@ -209,7 +206,7 @@ class BenchmarkSetup:
                     "max_n_samples_train_per_fold": 10_000,
                     "max_n_features": 500,
                     "max_n_classes": 10,
-            }
+            },
             "TABICL": {
                     "max_n_samples_train_per_fold": 100_000,
                     "max_n_features": 500,
@@ -253,16 +250,45 @@ class BenchmarkSetup:
     default to "fold-config-wise" now to better capture variability across different
     folds and configurations in benchmarking.
     """
+    fake_memory_for_estimates: int | None = None
+    """Experimental parameter that is to be ignored!
+
+    If not None, we use this value to fake the amount of available (CPU) memory
+    such that the memory estimates for a model are compared this value instead
+    of the actually available memory on the system.
+
+    Values in GB as `memory_limit`.
+
+    This can be useful if:
+        - To test or overrule (bad) memory estimates.
+        - For models that use CPU memory as a proxy for GPU memory (e.g. most TFMs),
+          this can be used if the job has much more VRAM than CPU memory.
+    """
+    # TODO: solve this properly in the future.
+    parallel_benchmark_fix: str | None = None
+    """Experimental parameter that is to be ignored!
+
+    Set this is to some string value to make sure you can run parallel jobs for the same
+    benchmark name.
+    """
+
+    @property
+    def _safe_benchmark_name(self) -> str:
+        """Safe benchmark name for file paths."""
+        benchmark_name = self.benchmark_name
+        if self.parallel_benchmark_fix is not None:
+            benchmark_name += f"_{self.parallel_benchmark_fix}"
+        return benchmark_name
 
     @property
     def slurm_job_json(self) -> str:
         """JSON file with the job data to run used by SLURM. This is generated from the configs and metadata."""
-        return f"slurm_run_data_{self.benchmark_name}.json"
+        return f"slurm_run_data_{self._safe_benchmark_name}.json"
 
     @property
     def configs(self) -> str:
         """YAML file with the configs to run. Generated from parameters above in code below."""
-        return f"{self.base_path}{self.configs_path_from_base_path}{self.benchmark_name}.yaml"
+        return f"{self.base_path}{self.configs_path_from_base_path}{self._safe_benchmark_name}.yaml"
 
     @property
     def output_dir(self) -> str:
@@ -322,7 +348,10 @@ class BenchmarkSetup:
         time_in_h = self.time_limit // 3600 * self.configs_per_job + 1
         time_in_h = f"--time={time_in_h}:00:00"
         cpus = f"--cpus-per-task={self.num_cpus}"
-        mem = f"--mem-per-cpu={self.num_cpus // self.memory_limit}G"
+        if is_gpu_job:
+            mem = f"--mem-per-gpu={self.memory_limit}G"
+        else:
+            mem = f"--mem-per-cpu={self.memory_limit//self.num_cpus}G"
         script = str(Path(__file__).parent / self.slurm_script)
 
         return f"{partition} {gres} {time_in_h} {cpus} {mem} {script}"
@@ -337,9 +366,11 @@ class BenchmarkSetup:
         Path(self.slurm_log_output).mkdir(parents=True, exist_ok=True)
 
         if self.custom_metadata is None:
-            from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
+            from tabarena.nips2025_utils.fetch_metadata import (
+                load_curated_task_metadata,
+            )
 
-            metadata = load_task_metadata()
+            metadata = load_curated_task_metadata()
         else:
             metadata = deepcopy(self.custom_metadata)
 
@@ -350,21 +381,21 @@ class BenchmarkSetup:
 
         def yield_all_jobs():
             for row in metadata.itertuples():
+                task_id = row.task_id
+                n_samples_train_per_fold = int(row.num_instances - int(row.num_instances / row.num_folds))
+                n_features = int(row.num_features)
+                n_classes = int(row.num_classes) if row.problem_type in ["binary", "multiclass"] else 0
+
+                # Quick, model independent skip.
+                if row.problem_type not in self.problem_types_to_run:
+                    continue
+
                 repeats_folds = product(range(int(row.tabarena_num_repeats)), range(int(row.num_folds)))
                 if self.tabarena_lite:  # Filter to only first split.
                     repeats_folds = list(repeats_folds)[:1]
 
                 for repeat_i, fold_i in repeats_folds:
                     for config_index, config in list(enumerate(configs)):
-                        task_id = row.task_id
-                        n_samples_train_per_fold = int(row.num_instances - int(row.num_instances / row.num_folds))
-                        n_features = int(row.num_features)
-                        n_classes = int(row.num_classes) if row.problem_type in ["binary", "multiclass"] else 0
-
-                        # Quick, model independent skip.
-                        if row.problem_type not in self.problem_types_to_run:
-                            continue
-
                         yield {
                             "config_index": config_index,
                             "config": config,
@@ -393,7 +424,7 @@ class BenchmarkSetup:
                 "cache_path_format": self.cache_path_format,
                 "cache_cls": self.cache_cls,
                 "cache_cls_kwargs": self.cache_cls_kwargs,
-                "model_to_constraints": self.model_to_constraints,
+                "models_to_constraints": self.models_to_constraints,
             },
             track_progress=True,
             tqdm_kwargs={"desc": "Checking Cache and Filter Invalid Jobs"},
@@ -499,6 +530,12 @@ class BenchmarkSetup:
     def get_jobs_dict(self):
         """Get the jobs to run as a dictionary with default arguments and jobs."""
         jobs = list(self.get_jobs_to_run())
+
+        # Fake memory limit for estimates if needed
+        memory_limit = self.memory_limit
+        if self.fake_memory_for_estimates is not None:
+            memory_limit = self.fake_memory_for_estimates
+
         default_args = {
             "python": self.python,
             "run_script": self.run_script,
@@ -508,7 +545,7 @@ class BenchmarkSetup:
             "output_dir": self.output_dir,
             "num_cpus": self.num_cpus,
             "num_gpus": self.num_gpus,
-            "memory_limit": self.memory_limit,
+            "memory_limit": memory_limit,
             "setup_ray_for_slurm_shared_resources_environment": self.setup_ray_for_slurm_shared_resources_environment,
             "ignore_cache": self.ignore_cache,
             "sequential_local_fold_fitting": self.sequential_local_fold_fitting,
@@ -529,7 +566,7 @@ class BenchmarkSetup:
             json.dump(jobs_dict, f)
 
         print(
-            f"##### Setup Jobs for {self.benchmark_name}"
+            f"##### Setup Jobs for {self._safe_benchmark_name}"
             "\nRun the following command to start the jobs:"
             f"\nsbatch --array=0-{n_jobs - 1}%100 {self.slurm_base_command} {self.slurm_job_json}"
             "\n"
@@ -547,6 +584,7 @@ class BenchmarkSetup:
                 - "max_n_features": int
                     Maximal number of features.
                 - "max_n_samples_train_per_fold": int
+                - "min_n_samples_train_per_fold": int
                 - "max_n_classes": int
                     Maximal number of classes.
                 - "regression_support": bool
@@ -582,7 +620,7 @@ class BenchmarkSetup:
     @staticmethod
     def are_model_constraints_valid(
         *,
-        model_name: str,
+        model_cls: str,
         n_features: int,
         n_classes: int,
         n_samples_train_per_fold: int,
@@ -592,8 +630,8 @@ class BenchmarkSetup:
 
         Arguments:
         ----------
-        model_name: str
-            The name of the model to check. AG key of abstract model class.
+        model_cls: str
+            The name of the model class to check. AG key of abstract model class.
         n_features: int
             The number of features in the dataset.
         n_classes: int
@@ -609,7 +647,7 @@ class BenchmarkSetup:
         model_is_valid: bool
             True if the model can be run on the dataset, False otherwise.
         """
-        model_constraints = models_to_constraints.get(model_name)
+        model_constraints = models_to_constraints.get(model_cls)
         if model_constraints is None:
             return True  # No constraints for this model
 
@@ -623,6 +661,10 @@ class BenchmarkSetup:
 
         max_n_samples_train_per_fold = model_constraints.get("max_n_samples_train_per_fold", None)
         if (max_n_samples_train_per_fold is not None) and (n_samples_train_per_fold > max_n_samples_train_per_fold):
+            return False
+
+        min_n_samples_train_per_fold = model_constraints.get("min_n_samples_train_per_fold", None)
+        if (min_n_samples_train_per_fold is not None) and (n_samples_train_per_fold < min_n_samples_train_per_fold):
             return False
 
         max_n_classes = model_constraints.get("max_n_classes", None)
@@ -663,9 +705,9 @@ def should_run_job(
 
     # Filter out-of-constraints datasets
     if not BenchmarkSetup.are_model_constraints_valid(
-        model_name=config["name"],
-        n_features=config["n_features"],
-        n_classes=config["n_classes"],
+        model_cls=config["model_cls"],
+        n_features=input_data["n_features"],
+        n_classes=input_data["n_classes"],
         n_samples_train_per_fold=input_data["n_samples_train_per_fold"],
         models_to_constraints=models_to_constraints,
     ):

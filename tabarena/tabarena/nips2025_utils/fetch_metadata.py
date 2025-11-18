@@ -124,7 +124,7 @@ def load_curated_task_metadata() -> pd.DataFrame:
         "problem_type": str
             The problem type of the task. Options: "binary", "regression", "multiclass"
     """
-    path = str(Path(tabarena.__file__).parent / "metadata" / "curated_tabarena_dataset_metadata.csv")
+    path = str(Path(__file__).parent.resolve() / "metadata" / "curated_tabarena_dataset_metadata.csv")
 
     return load_pd.load(path=path)
 

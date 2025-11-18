@@ -46,6 +46,7 @@ def get_configs_generator_from_name(model_name: str):
         "XGBoost": lambda: importlib.import_module("tabarena.models.xgboost.generate").gen_xgboost,
         "Mitra": lambda: importlib.import_module("tabarena.models.mitra.generate").gen_mitra,
         "xRFM": lambda: importlib.import_module("tabarena.models.xrfm.generate").gen_xrfm,
+        "RealTabPFN-v2.5": lambda: importlib.import_module("tabarena.models.tabpfnv2_5.generate").gen_realtabpfnv25,
     }
 
     if model_name not in name_to_import_map:
