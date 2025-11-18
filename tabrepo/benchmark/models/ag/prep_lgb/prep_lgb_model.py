@@ -12,26 +12,43 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame, Series
 
-from autogluon.common.features.types import R_BOOL, R_CATEGORY, R_FLOAT, R_INT
-from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
-from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.common.utils.try_import import try_import_lightgbm
 from autogluon.core.constants import BINARY, MULTICLASS, QUANTILE, REGRESSION, SOFTCLASS
-from autogluon.core.models import AbstractModel
-from autogluon.core.models._utils import get_early_stopping_rounds
 
 from autogluon.tabular.models.lgb import lgb_utils
 from autogluon.tabular.models.lgb.hyperparameters.parameters import DEFAULT_NUM_BOOST_ROUND, get_lgb_objective, get_param_baseline
-from autogluon.tabular.models.lgb.hyperparameters.searchspaces import get_default_searchspace
 from autogluon.tabular.models.lgb.lgb_utils import construct_dataset, train_lgb_model
 
 warnings.filterwarnings("ignore", category=UserWarning, message="Starting from version")  # lightGBM brew libomp warning
 warnings.filterwarnings("ignore", category=FutureWarning, message="Dask dataframe query")  # lightGBM dask-expr warning
 logger = logging.getLogger(__name__)
 
+from scipy.special import softmax
+from autogluon.tabular.models.lgb.lgb_model import LGBModel
+from tabprep.proxy_models import GroupedLinearInitScore, LinearInitScore, OOFKNNInitScore, OOFLinearInitScore
+
+def construct_dataset(x: DataFrame, y: Series, location=None, reference=None, params=None, save=False, weight=None, init_score=None):
+    # FIXME: Copied function from AG and added init_score - should rather be added to AG
+    try_import_lightgbm()
+    import lightgbm as lgb
+
+    dataset = lgb.Dataset(data=x, label=y, reference=reference, free_raw_data=True, params=params, weight=weight, init_score=init_score)
+
+    if save:
+        assert location is not None
+        saving_path = f"{location}.bin"
+        if os.path.exists(saving_path):
+            os.remove(saving_path)
+
+        os.makedirs(os.path.dirname(saving_path), exist_ok=True)
+        dataset.save_binary(saving_path)
+        # dataset_binary = lgb.Dataset(location + '.bin', reference=reference, free_raw_data=False)# .construct()
+
+    return dataset
+
 
 # TODO: Save dataset to binary and reload for HPO. This will avoid the memory spike overhead when training each model and instead it will only occur once upon saving the dataset.
-class PrepLGBModel(AbstractModel):
+class PrepLGBModel(LGBModel):
     """
     LightGBM model: https://lightgbm.readthedocs.io/en/latest/
 
@@ -42,99 +59,23 @@ class PrepLGBModel(AbstractModel):
     """
     ag_key = "prep_GBM"
     ag_name = "prep_LightGBM"
-    # ag_priority = 90
-    # ag_priority_by_problem_type = MappingProxyType({
-    #     SOFTCLASS: 100
-    # })
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-        self._features_internal_map = None
-        self._features_internal_list = None
-        self._requires_remap = None
+    ag_priority = 90
+    ag_priority_by_problem_type = MappingProxyType({
+        SOFTCLASS: 100
+    })
+    seed_name = "seed"
+    seed_name_alt = ["seed_value", "random_seed", "random_state"]
 
     def _set_default_params(self):
         default_params = get_param_baseline(problem_type=self.problem_type)
         default_params['prep_params'] = {}
+        default_params['use_residuals'] = False
+        default_params['max_dataset_size_for_residuals'] = 1000
+        default_params['residual_type'] = 'oof'
+        default_params['residual_init_kwargs'] = {'scaler': 'squashing'}
+
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
-
-    def _get_default_searchspace(self):
-        return get_default_searchspace(problem_type=self.problem_type)
-
-    # Use specialized LightGBM metric if available (fast), otherwise use custom func generator
-    def _get_stopping_metric_internal(self):
-        stopping_metric = lgb_utils.convert_ag_metric_to_lgbm(ag_metric_name=self.stopping_metric.name, problem_type=self.problem_type)
-        if stopping_metric is None:
-            stopping_metric = lgb_utils.func_generator(
-                metric=self.stopping_metric, is_higher_better=True, needs_pred_proba=not self.stopping_metric.needs_pred, problem_type=self.problem_type
-            )
-            stopping_metric_name = self.stopping_metric.name
-        else:
-            stopping_metric_name = stopping_metric
-        return stopping_metric, stopping_metric_name
-
-    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
-        hyperparameters = self._get_model_params()
-        return self.estimate_memory_usage_static(X=X, problem_type=self.problem_type, num_classes=self.num_classes, hyperparameters=hyperparameters, **kwargs)
-
-    # FIXME: Don't use `hyperparameters.get("max_bins", 255)`, instead get the defaults all at once!
-    @classmethod
-    def _estimate_memory_usage_static(
-        cls,
-        *,
-        X: DataFrame,
-        hyperparameters: dict = None,
-        num_classes: int = 1,
-        **kwargs,
-    ) -> int:
-        """
-        Returns the expected peak memory usage in bytes of the LightGBM model during fit.
-
-        The memory usage of LightGBM is primarily made up of three sources:
-
-        1. The size of the data
-        2. The size of the histogram cache
-            Scales roughly by 5100*num_features*num_leaves bytes
-            For 10000 features and 128 num_leaves, the histogram would be 6.5 GB.
-        3. The size of the model
-            Scales linearly with the number of estimators, number of classes, and number of leaves.
-            Memory usage peaks during model saving, with the peak consuming approximately 2-4x the size of the model in memory.
-        """
-        if hyperparameters is None:
-            hyperparameters = {}
-        num_classes = num_classes if num_classes else 1  # num_classes could be None after initialization if it's a regression problem
-        data_mem_usage = get_approximate_df_mem_usage(X).sum()
-        data_mem_usage_bytes = data_mem_usage * 5 + data_mem_usage / 4 * num_classes  # TODO: Extremely crude approximation, can be vastly improved
-
-        n_trees_per_estimator = num_classes if num_classes > 2 else 1
-
-        max_bins = hyperparameters.get("max_bins", 255)
-        num_leaves = hyperparameters.get("num_leaves", 31)
-        # Memory usage of histogram based on https://github.com/microsoft/LightGBM/issues/562#issuecomment-304524592
-        histogram_mem_usage_bytes = 20 * max_bins * len(X.columns) * num_leaves
-        histogram_mem_usage_bytes_max = hyperparameters.get("histogram_pool_size", None)
-        if histogram_mem_usage_bytes_max is not None:
-            histogram_mem_usage_bytes_max *= 1e6  # Convert megabytes to bytes, `histogram_pool_size` is in MB.
-            if histogram_mem_usage_bytes > histogram_mem_usage_bytes_max:
-                histogram_mem_usage_bytes = histogram_mem_usage_bytes_max
-        histogram_mem_usage_bytes *= 1.2  # Add a 20% buffer
-
-        mem_size_per_estimator = n_trees_per_estimator * num_leaves * 100  # very rough estimate
-        n_estimators = hyperparameters.get("num_boost_round", DEFAULT_NUM_BOOST_ROUND)
-        n_estimators_min = min(n_estimators, 1000)
-        mem_size_estimators = n_estimators_min * mem_size_per_estimator  # memory estimate after fitting up to 1000 estimators
-
-        approx_mem_size_req = data_mem_usage_bytes + histogram_mem_usage_bytes + mem_size_estimators
-        return approx_mem_size_req
-
-    # def _get_random_seed_from_hyperparameters(self, hyperparameters: dict) -> int | None | str:
-    #     if "seed_value" in hyperparameters:
-    #         return hyperparameters["seed_value"]
-    #     if "seed" in hyperparameters:
-    #         return hyperparameters["seed"]
-    #     return "N/A"
 
     def _fit(self, X, y, X_val=None, y_val=None, time_limit=None, num_gpus=0, num_cpus=0, sample_weight=None, sample_weight_val=None, verbosity=2, **kwargs):
         try_import_lightgbm()  # raise helpful error message if LightGBM isn't installed
@@ -180,6 +121,11 @@ class PrepLGBModel(AbstractModel):
             params["num_classes"] = self.num_classes
         if "verbose" not in params:
             params["verbose"] = -1
+
+        if X.shape[0] > params.get("max_dataset_size_for_residuals", 1000):
+            params["use_residuals"] = False
+        self.use_residuals = params.get("use_residuals", False) # NOTE: Added to be used at inference time, since params seems not to be available then.
+        self.residual_init_kwargs = params.pop("residual_init_kwargs", {})
 
         num_rows_train = len(X)
         dataset_train, dataset_val, dataset_test = self.generate_datasets(
@@ -234,9 +180,9 @@ class PrepLGBModel(AbstractModel):
             callbacks.append(log_evaluation(period=log_period))
 
         train_params = {
-            "params": {key: value for key, value in params.items() if key != "prep_params"},
+            "params": {key: value for key, value in params.items() if key not in ["prep_params"]},
             "train_set": dataset_train,
-            "num_boost_round": num_boost_round, # NOTE: Need to check whether n_estimators is synonym in AG
+            "num_boost_round": num_boost_round,
             "valid_names": valid_names,
             "valid_sets": valid_sets,
             "callbacks": callbacks,
@@ -293,11 +239,6 @@ class PrepLGBModel(AbstractModel):
         elif self.problem_type == QUANTILE:
             train_params["params"]["quantile_levels"] = self.quantile_levels
 
-        # if hasattr(self, "random_seed"):
-        # train_params["params"]["seed"] = self.random_seed
-        # else:
-        #     train_params["params"]["seed"] = 0  # FIXME: Find out where this actually should have happened - AbstractModel has init_random_seed
-
         # Train LightGBM model:
         # Note that self.model contains a <class 'lightgbm.basic.Booster'> not a LightBGMClassifier or LightGBMRegressor object
         from lightgbm.basic import LightGBMError
@@ -333,7 +274,7 @@ class PrepLGBModel(AbstractModel):
                         )
                     train_params["params"]["device"] = "cpu"
                     self.model = train_lgb_model(early_stopping_callback_kwargs=early_stopping_callback_kwargs, **train_params)
-            retrain = False # FIXME: Does this prevent retraining in general?
+            retrain = False
             if train_params["params"].get("boosting_type", "") == "dart":
                 if dataset_val is not None and dart_retrain and (self.model.best_iteration != num_boost_round):
                     retrain = True
@@ -379,9 +320,18 @@ class PrepLGBModel(AbstractModel):
             self.params_trained["num_boost_round"] = self.model.current_iteration()
 
     def _predict_proba(self, X, num_cpus=0, **kwargs) -> np.ndarray:
-        X = self.preprocess(X, **kwargs)
-
-        y_pred_proba = self.model.predict(X, num_threads=num_cpus)
+        if self.use_residuals:
+            y_pred_linear = self.lin_init.init_score(X, is_train=False)
+            X = self.preprocess(X, **kwargs)
+            y_pred_lgb = self.model.predict(X, num_threads=num_cpus, raw_score=True)
+            y_pred_proba = y_pred_lgb + y_pred_linear
+            if self.problem_type == 'binary':
+                y_pred_proba = 1 / (1 + np.exp(-y_pred_proba))
+            elif self.problem_type in ['multiclass', 'softclass']:
+                y_pred_proba = softmax(y_pred_proba, axis=1)
+        else:
+            X = self.preprocess(X, **kwargs)
+            y_pred_proba = self.model.predict(X, num_threads=num_cpus)
         if self.problem_type == QUANTILE:
             # y_pred_proba is a pd.DataFrame, need to convert
             y_pred_proba = y_pred_proba.to_numpy()
@@ -433,44 +383,6 @@ class PrepLGBModel(AbstractModel):
 
         return X_out
     
-    def _preprocess_y(self, X, y = None, is_train=False, prep_params: dict = None, **kwargs):
-        # TODO
-        X_out = X.copy()
-        if is_train:
-            self.preprocessors = self.get_preprocessors(prep_params=prep_params)
-            for prep in self.preprocessors:
-                X_out = prep.fit_transform(X_out, y)
-        else:
-            for prep in self.preprocessors:
-                X_out = prep.transform(X_out)
-
-        return X_out
-
-
-    def _preprocess_nonadaptive(self, X, is_train=False, **kwargs):
-        X = super()._preprocess_nonadaptive(X=X, **kwargs)
-
-        if is_train:
-            self._requires_remap = False
-            for column in X.columns:
-                if isinstance(column, str):
-                    new_column = re.sub(r'[",:{}[\]]', "", column)
-                    if new_column != column:
-                        self._features_internal_map = {feature: i for i, feature in enumerate(list(X.columns))}
-                        self._requires_remap = True
-                        break
-            if self._requires_remap:
-                self._features_internal_list = np.array([self._features_internal_map[feature] for feature in list(X.columns)])
-            else:
-                self._features_internal_list = self._features_internal
-
-        if self._requires_remap:
-            X_new = X.copy(deep=False)
-            X_new.columns = self._features_internal_list
-            return X_new
-        else:
-            return X
-
     def generate_datasets(
         self,
         X: DataFrame,
@@ -488,11 +400,6 @@ class PrepLGBModel(AbstractModel):
         lgb_dataset_params_keys = ["two_round"]  # Keys that are specific to lightGBM Dataset object construction.
         data_params = {key: params[key] for key in lgb_dataset_params_keys if key in params}.copy()
 
-        X = self.preprocess(X=X, y=y, is_train=True, prep_params=params['prep_params'])
-        if X_val is not None:
-            X_val = self.preprocess(X_val)
-        if X_test is not None:
-            X_test = self.preprocess(X_test)
         # TODO: Try creating multiple Datasets for subsets of features, then combining with Dataset.add_features_from(), this might avoid memory spike
 
         y_og = None
@@ -508,9 +415,33 @@ class PrepLGBModel(AbstractModel):
                 y_test_og = np.array(y_test)
                 y_test = None
 
+        if 'use_residuals' in params and params['use_residuals']:
+            if params['residual_type'] == 'grouped':
+                self.lin_init = GroupedLinearInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs)
+            elif params['residual_type'] == 'oof':
+                self.lin_init = OOFLinearInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs)
+            elif params['residual_type'] == 'knn':
+                self.lin_init = OOFKNNInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs)
+            else:
+                self.lin_init = LinearInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs)
+            self.lin_init.fit(X, y)
+            init_train = self.lin_init.init_score(X, is_train=True)
+            init_valid = self.lin_init.init_score(X_val, is_train=False) if X_val is not None else None
+            init_test = self.lin_init.init_score(X_test, is_train=False) if X_test is not None else None
+        else:
+            init_train = None
+            init_valid = None
+            init_test = None
+        
+        X = self.preprocess(X=X, y=y, is_train=True, prep_params=params['prep_params'])
+        if X_val is not None:
+            X_val = self.preprocess(X_val)
+        if X_test is not None:
+            X_test = self.preprocess(X_test)
+        
         # X, W_train = self.convert_to_weight(X=X)
         dataset_train = construct_dataset(
-            x=X, y=y, location=os.path.join("self.path", "datasets", "train"), params=data_params, save=save, weight=sample_weight
+            x=X, y=y, location=os.path.join("self.path", "datasets", "train"), params=data_params, save=save, weight=sample_weight, init_score=init_train
         )
         # dataset_train = construct_dataset_lowest_memory(X=X, y=y, location=self.path + 'datasets/train', params=data_params)
         if X_val is not None:
@@ -523,6 +454,7 @@ class PrepLGBModel(AbstractModel):
                 params=data_params,
                 save=save,
                 weight=sample_weight_val,
+                init_score=init_valid,
             )
             # dataset_val = construct_dataset_lowest_memory(X=X_val, y=y_val, location=self.path + 'datasets/val', reference=dataset_train, params=data_params)
         else:
@@ -537,6 +469,7 @@ class PrepLGBModel(AbstractModel):
                 params=data_params,
                 save=save,
                 weight=sample_weight_test,
+                init_score=init_test,
             )
         else:
             dataset_test = None
@@ -549,103 +482,3 @@ class PrepLGBModel(AbstractModel):
             if y_test_og is not None:
                 dataset_test.softlabels = y_test_og
         return dataset_train, dataset_val, dataset_test
-
-    def _get_train_loss_name(self):
-        if self.problem_type == BINARY:
-            train_loss_name = "binary_logloss"
-        elif self.problem_type == MULTICLASS:
-            train_loss_name = "multi_logloss"
-        elif self.problem_type == REGRESSION:
-            train_loss_name = "l2"
-        else:
-            raise ValueError(f"unknown problem_type for LGBModel: {self.problem_type}")
-        return train_loss_name
-
-    def _get_early_stopping_rounds(self, num_rows_train, strategy="auto"):
-        return get_early_stopping_rounds(num_rows_train=num_rows_train, strategy=strategy)
-
-    def _get_default_auxiliary_params(self) -> dict:
-        default_auxiliary_params = super()._get_default_auxiliary_params()
-        extra_auxiliary_params = dict(
-            valid_raw_types=[R_BOOL, R_INT, R_FLOAT, R_CATEGORY],
-        )
-        default_auxiliary_params.update(extra_auxiliary_params)
-        return default_auxiliary_params
-
-    @staticmethod
-    def _is_gpu_lgbm_installed():
-        # Taken from https://github.com/microsoft/LightGBM/issues/3939
-        try_import_lightgbm()
-        import lightgbm
-
-        rng = np.random.RandomState(42)
-        data = rng.rand(25, 2)
-        label = rng.randint(2, size=25)
-
-        try:
-            train_data = lightgbm.Dataset(data, label=label)
-            params = {
-                "device": "gpu",
-                "verbose": -1,
-            }
-            gbm = lightgbm.train(params, num_boost_round=10, train_set=train_data)
-            return True
-        except Exception as e:
-            return False
-
-    @staticmethod
-    def _is_cuda_lgbm_installed():
-        # Taken from https://github.com/microsoft/LightGBM/issues/3939
-        try_import_lightgbm()
-        import lightgbm
-
-        rng = np.random.RandomState(42)
-        data = rng.rand(25, 2)
-        label = rng.randint(2, size=25)
-
-        try:
-            train_data = lightgbm.Dataset(data, label=label)
-            params = {
-                "device": "cuda",
-                "verbose": -1,
-            }
-            gbm = lightgbm.train(params, num_boost_round=10, train_set=train_data)
-            return True
-        except Exception as e:
-            return False
-
-    def get_minimum_resources(self, is_gpu_available=False):
-        minimum_resources = {
-            "num_cpus": 1,
-        }
-        if is_gpu_available:
-            minimum_resources["num_gpus"] = 0.5
-        return minimum_resources
-
-    def _get_default_resources(self):
-        # only_physical_cores=True is faster in training
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-        num_gpus = 0
-        return num_cpus, num_gpus
-
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression", "quantile", "softclass"]
-
-    @property
-    def _features(self):
-        return self._features_internal_list
-
-    def _ag_params(self) -> set:
-        return {"early_stop", "generate_curves", "curve_metrics", "use_error_for_curve_metrics"}
-
-    @classmethod
-    def _class_tags(cls):
-        return {
-            "can_estimate_memory_usage_static": True,
-            "supports_learning_curves": True,
-        }
-
-    def _more_tags(self):
-        # `can_refit_full=True` because num_boost_round is communicated at end of `_fit`
-        return {"can_refit_full": True}
