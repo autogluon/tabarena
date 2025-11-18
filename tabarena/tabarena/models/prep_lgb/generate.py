@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from tabrepo.benchmark.models.ag.prep_lgb.prep_lgb_model import PrepLGBModel
+from tabarena.benchmark.models.ag.prep_lgb.prep_lgb_model import PrepLGBModel
 from ConfigSpace import Categorical, ConfigurationSpace, Float, Integer
 
-from tabrepo.benchmark.experiment import YamlExperimentSerializer
-from tabrepo.models.utils import convert_numpy_dtypes
-from tabrepo.utils.config_utils import CustomAGConfigGenerator
+from tabarena.benchmark.experiment import YamlExperimentSerializer
+from tabarena.models.utils import convert_numpy_dtypes
+from tabarena.utils.config_utils import CustomAGConfigGenerator
 
 import numpy as np
 
@@ -53,7 +53,7 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
 
             # Preprocessing hyperparameters
             Categorical("use_arithmetic_preprocessor", [True, False]),
-            Categorical("use_linear_residuals", [True, False]),
+            Categorical("use_linear_residuals", [True]),
             Categorical("use_cat_fe", [True, False]),
         ],
         seed=1234,
@@ -75,6 +75,8 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
             configs[i]['prep_params'].update({
                 'ArithmeticPreprocessor': {'cat_as_num': False}
             })
+
+        # Currently: always train on linear residuals for small datasets (N<1000)
         if configs[i].pop('use_linear_residuals') == True:
             configs[i]['use_residuals'] = True
             configs[i]['residual_type'] = 'oof'
