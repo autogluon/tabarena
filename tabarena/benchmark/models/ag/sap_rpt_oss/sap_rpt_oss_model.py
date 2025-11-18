@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-
+# FIXME: model is for some reason super slow for 200 features and 50k samples (363616)
 class SAPRPTOSSModel(AbstractModel):
     """ConTextTab Model: https://github.com/SAP-samples/sap-rpt-1-oss."""
 
