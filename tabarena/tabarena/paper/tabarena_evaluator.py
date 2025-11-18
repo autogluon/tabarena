@@ -21,7 +21,7 @@ from autogluon.common.savers import save_pd
 
 from tabarena.utils.normalized_scorer import NormalizedScorer
 from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
-from tabarena.tabarena.tabarena import TabArena
+from bencheval.tabarena import TabArena
 from tabarena.paper.paper_utils import get_framework_type_method_names, get_method_rename_map, get_f_map_suffix_plots
 from tabarena.plot.dataset_analysis import plot_train_time_deep_dive
 from tabarena.plot.plot_ens_weights import create_heatmap
@@ -1436,6 +1436,7 @@ class TabArenaEvaluator:
                     plt.savefig(fig_save_path, dpi=300)
                 if show:
                     plt.show()
+                plt.close()
 
     def plot_tabarena_times(self, df: pd.DataFrame, output_dir: Path | str,
                             only_datasets_for_method: dict[str, list[str]] | None = None, show: bool = True):

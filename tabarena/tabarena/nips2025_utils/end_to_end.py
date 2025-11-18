@@ -20,6 +20,7 @@ from tabarena.nips2025_utils.method_processor import (
     load_all_artifacts,
 )
 from tabarena.nips2025_utils.load_metadata_from_raw import load_from_raw_all_metadata
+from bencheval.tabarena import TabArena
 from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.utils.ray_utils import ray_map_list
 

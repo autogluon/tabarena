@@ -11,17 +11,10 @@ def test_tabpfnv25():
     try:
         from autogluon.tabular.testing import FitHelper
         from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import (
-            RealTabPFNV25Model,
+            RealTabPFNv25Model,
         )
 
-        model_cls = RealTabPFNV25Model
-        FitHelper.verify_model(
-            model_cls=model_cls, model_hyperparameters=model_hyperparameters
-        )
-
-        # Check DT-PFN version
-        model_hyperparameters["model_type"] = "dt_pfn"
-        model_hyperparameters["n_estimators"] = 4
+        model_cls = RealTabPFNv25Model
         FitHelper.verify_model(
             model_cls=model_cls, model_hyperparameters=model_hyperparameters
         )

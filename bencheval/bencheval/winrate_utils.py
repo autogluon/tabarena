@@ -51,8 +51,16 @@ def compute_winrate_matrix(
             idx = g[method_col].map(midx).to_numpy()
             err = g[error_col].to_numpy()
 
-            diff = err[:, None] - err[None, :]
-            block_wins = (diff < 0).astype(np.float32) + 0.5 * (diff == 0)
+            # this logic ensures infinity values are handled correctly
+            err_i = err[:, None]
+            err_j = err[None, :]
+
+            # win: err_i < err_j
+            wins = (err_i < err_j).astype(np.float32)
+            # tie: err_i == err_j
+            ties = (err_i == err_j).astype(np.float32)
+
+            block_wins = wins + 0.5 * ties
             np.fill_diagonal(block_wins, 0.0)
 
             block_matches = np.ones((len(idx), len(idx)), dtype=np.float32)

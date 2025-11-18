@@ -6,7 +6,7 @@ from typing import Any
 import pandas as pd
 
 from tabarena.benchmark.result import AGBagResult, BaselineResult, ConfigResult
-from tabarena import EvaluationRepository
+from tabarena.repository import EvaluationRepository
 
 
 # TODO: Inspect artifact folder to load all results without needing to specify them explicitly

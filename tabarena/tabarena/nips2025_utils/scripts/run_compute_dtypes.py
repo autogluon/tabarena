@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 import autogluon.common.loaders.load_json
-from tabarena import EvaluationRepository
+from tabarena.repository import EvaluationRepository
 from autogluon.common.loaders import load_pd
 from autogluon.common.savers import save_pd
 from autogluon.features import AutoMLPipelineFeatureGenerator, AsTypeFeatureGenerator

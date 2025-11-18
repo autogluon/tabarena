@@ -7,7 +7,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from tabarena import EvaluationRepository
+from tabarena.repository import EvaluationRepository
 from tabarena.plot.plot_utils import figure_path, save_latex_table
 
 
