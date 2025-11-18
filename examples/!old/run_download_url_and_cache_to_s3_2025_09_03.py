@@ -6,6 +6,7 @@ from pathlib import Path
 from tabarena.nips2025_utils.artifacts.method_artifact_manager import MethodArtifactManager
 
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_10_20 import tabdpt_metadata
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_12 import realtabpfn25_metadata
 
 
 """
@@ -109,8 +110,16 @@ if __name__ == '__main__':
         **path_args,
     )
 
+    # 11 GB
+    realtabpfn25_info = MethodArtifactManager.from_method_metadata(
+        method_metadata=realtabpfn25_metadata,
+        path_suffix=Path("leaderboard_submissions") / "data_RealTabPFN-v2.5_17112025.zip",
+        **path_args,
+    )
+
     # Uncomment whichever artifacts you want to process
     method_infos = [
+        # realtabpfn25_info,
         # xrfm_info,
         # mitra_info,
         # ebm_info,

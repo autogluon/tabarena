@@ -259,6 +259,8 @@ class TabArenaEvaluator:
             calibration_framework = _rename_dict.get(calibration_framework, calibration_framework)
 
         self.assert_no_duplicates(df_results=df_results)
+        self.assert_no_nan_methods(df_results=df_results)
+
         df_results = self.filter_results(df_results=df_results)
         framework_types = self._get_config_types(df_results=df_results[~df_results["method"].isin(baselines)])
 
@@ -538,6 +540,15 @@ class TabArenaEvaluator:
                 f"{duplicated_methods.to_string()}\n"
                 f"The following {len(dupes)} rows are duplicates:\n"
                 f"{dupes.to_string(index=False)}"
+            )
+
+    def assert_no_nan_methods(self, df_results: pd.DataFrame):
+        if df_results[self.method_col].isna().any():
+            missing_count = df_results[self.method_col].isna().sum()
+            missing_percent = missing_count / len(df_results)
+            raise AssertionError(
+                f"Found NaN values in '{self.method_col}' column: "
+                f"{missing_count}/{len(df_results)} ({missing_percent * 100:.1f}%) were NaN."
             )
 
     def filter_results(self, df_results: pd.DataFrame):
