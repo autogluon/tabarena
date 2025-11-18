@@ -52,6 +52,7 @@ _methods_paper = [
     # "LimiX_GPU",
     # "BetaTabPFN_GPU",
     # "TabFlex_GPU",
+    "RealTabPFN-v2.5",
 ]
 
 

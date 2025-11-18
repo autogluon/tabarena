@@ -31,6 +31,8 @@ from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_01 impo
     methods_2025_11_01_ag,
 )
 
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_12 import realtabpfn25_metadata
+
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_misc import (
     gbm_aio_0808_metadata
 )
@@ -93,6 +95,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(method_metadata_l
     methods_2025_10_20 +
     methods_2025_11_01_keep +
     [tabdpt_metadata] +
+    [realtabpfn25_metadata] +
     methods_misc,
 )
 
@@ -103,6 +106,7 @@ tabarena_method_metadata_complete_collection = MethodMetadataCollection(method_m
     methods_2025_10_20 +
     methods_2025_11_01_ag +
     [tabdpt_metadata] +
+    [realtabpfn25_metadata] +
     methods_misc,
 )
 
