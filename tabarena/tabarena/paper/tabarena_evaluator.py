@@ -247,7 +247,7 @@ class TabArenaEvaluator:
             df_results.drop(columns=["method_metadata"], inplace=True)
         if "imputed" not in df_results.columns:
             df_results["imputed"] = False
-        df_results["imputed"] = df_results["imputed"].astype("boolean").fillna(False).astype(bool)
+        df_results["imputed"] = df_results["imputed"].astype(int).fillna(0).astype(bool)
 
         # rename methods
         _rename_dict = self._rename_dict()

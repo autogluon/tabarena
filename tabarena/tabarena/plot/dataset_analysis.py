@@ -288,31 +288,16 @@ def plot_train_time_deep_dive(df: pd.DataFrame, expname_outdir: str, only_per_me
 
     ax = axes[cur_idx]
     cur_idx += 1
-    
-    palette = [
-        '#1f77b4',  # blue
-        '#ff7f0e',  # orange
-        '#2ca02c',  # green
-        '#d62728',  # red
-        '#9467bd',  # purple
-        '#8c564b',  # brown
-        '#e377c2',  # pink
-        '#7f7f7f',  # gray
-        '#bcbd22',  # yellow-green
-        '#17becf',  # cyan
-        '#aec7e8',  # light blue
-        '#ffbb78',  # light orange
-        '#98df8a',  # light green
-        '#ff9896',  # light red
-        '#c5b0d5',  # light purple
-        '#c49c94',  # light brown
-        '#f7b6d2',  # light pink
-        '#c7c7c7',  # light gray
-        '#dbdb8d',  # light yellow-green
-        '#9edae5',  # light cyan
-    ]
 
-    hue_order = sorted(list(df[family_col].unique()))
+    # Build a 60-color palette from tab20 / tab20b / tab20c
+    palette = (
+        list(sns.color_palette("tab20", 20))
+        + list(sns.color_palette("tab20b", 20))
+        + list(sns.color_palette("tab20c", 20))
+    )
+
+    hue_order = list(df.groupby(family_col)["time_train_s"].sum().sort_values(ascending=False).index)
+
     n_colors = len(hue_order)
     sns.lineplot(
         data=df_sorted_by_time,
@@ -327,7 +312,7 @@ def plot_train_time_deep_dive(df: pd.DataFrame, expname_outdir: str, only_per_me
     ax.set_yscale('log')
     ax.grid()
     ax.hlines(3600, xmin=0, xmax=df_sorted_by_time["group_index"].max(), color="black", label="3600 Seconds", ls="--")
-    ax.legend()
+    ax.legend(loc="upper left")
     ax.set_xlabel("Proportion of Model Configurations", fontdict={'size': title_size})
     ax.set_ylabel("Training runtime (s)", fontdict={'size': title_size})
     ax.set_title("Model runtime distribution", fontdict={'size': title_size})
@@ -352,8 +337,7 @@ def plot_train_time_deep_dive(df: pd.DataFrame, expname_outdir: str, only_per_me
 
     ax = axes[cur_idx]
     cur_idx += 1
-    
-    hue_order = sorted(list(df[family_col].unique()))
+
     n_colors = len(hue_order)
     
     sns.lineplot(
@@ -361,13 +345,13 @@ def plot_train_time_deep_dive(df: pd.DataFrame, expname_outdir: str, only_per_me
         x="group_index",
         y="group_time_train_s_cumsum",
         hue=family_col,
-        hue_order=sorted(list(df[family_col].unique())),
+        hue_order=hue_order,
         linewidth=3,
         palette=palette[:n_colors],
         ax=ax,
+        legend=False,
     )
     ax.set_yscale('log')
-    # ax.legend()
     ax.grid()
     ax.set_xlabel("Proportion of Model Configurations", fontdict={'size': title_size})
     ax.set_ylabel("Cumulative training runtime (s)", fontdict={'size': title_size})

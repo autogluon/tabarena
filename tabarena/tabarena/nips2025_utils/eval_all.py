@@ -6,14 +6,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 
 
 def evaluate_all(
     df_results: pd.DataFrame,
     eval_save_path: str | Path,
-    df_results_configs: pd.DataFrame = None,
     elo_bootstrap_rounds: int = 200,
     use_latex: bool = False,
 ):
@@ -27,33 +25,19 @@ def evaluate_all(
     eval_save_path = Path(eval_save_path)
 
     # TODO: Avoid hardcoding baselines
-    _baselines = [
+    baselines = [
         "AutoGluon 1.4 (best, 4h)",
         "AutoGluon 1.4 (extreme, 4h)",
     ]
-    _baseline_colors = [
+    baseline_colors = [
         "black",
-        "tab:purple"
+        "tab:purple",
     ]
 
     df_results = df_results.copy(deep=True)
     if "imputed" not in df_results.columns:
         df_results["imputed"] = False
     df_results["imputed"] = df_results["imputed"].fillna(0)
-
-    if df_results_configs is not None:
-        config_types_valid = df_results["config_type"].dropna().unique()
-        df_results_configs_only_valid = df_results_configs[df_results_configs["config_type"].isin(config_types_valid)]
-        plotter_runtime = TabArenaEvaluator(
-            output_dir=eval_save_path / "ablation" / "all-runtimes",
-            **evaluator_kwargs,
-        )
-        plotter_runtime.generate_runtime_plot(df_results=df_results_configs_only_valid)
-
-    get_per_dataset_tables(
-        df_results=df_results,
-        save_path=eval_save_path / "per_dataset",
-    )
 
     use_imputation_lst = [False, True]
     problem_type_lst = ["all", "classification", "regression", "binary", "multiclass"]
@@ -86,10 +70,10 @@ def evaluate_all(
             dataset_subset=dataset_subset,
             lite=lite,
             average_seeds=average_seeds,
-            baselines=_baselines,
-            baseline_colors=_baseline_colors,
             eval_save_path=eval_save_path,
             evaluator_kwargs=evaluator_kwargs,
+            baselines=baselines,
+            baseline_colors=baseline_colors,
             elo_bootstrap_rounds=elo_bootstrap_rounds,
         )
 
@@ -102,10 +86,10 @@ def evaluate_single(
     dataset_subset,
     lite,
     average_seeds,
-    baselines,
-    baseline_colors,
     eval_save_path,
     evaluator_kwargs,
+    baselines: list[str] | None = None,
+    baseline_colors: list[str] | None = None,
     elo_bootstrap_rounds: int = 200,
 ):
     from tabarena.nips2025_utils.compare import subset_tasks
@@ -142,15 +126,14 @@ def evaluate_single(
         baseline_colors = []
         folder_name = folder_name + "-nobaselines"
 
-    datasets = list(df_results["dataset"].unique())
-
     imputed_freq = df_results.groupby(by=["ta_name", "ta_suite"])["imputed"].transform("mean")
     if not use_imputation:
         df_results = df_results.loc[imputed_freq <= 0]
     else:
         df_results = df_results.loc[imputed_freq < 1]  # always filter out methods that are imputed 100% of the time
 
-    if len(datasets) == 0:
+    if len(df_results) == 0:
+        print(f"\tNo results after filtering, skipping...")
         return
 
     if lite:
@@ -160,18 +143,22 @@ def evaluate_single(
 
     plotter = TabArenaEvaluator(
         output_dir=eval_save_path / folder_name,
-        datasets=datasets,
         elo_bootstrap_rounds=elo_bootstrap_rounds,
         **evaluator_kwargs,
     )
 
+    eval_kwargs = {}
+    if baselines is not None:
+        eval_kwargs["baselines"] = baselines
+    if baseline_colors is not None:
+        eval_kwargs["baseline_colors"] = baseline_colors
+
     plotter.eval(
         df_results=df_results,
-        baselines=baselines,
-        baseline_colors=baseline_colors,
         plot_extra_barplots=False,
         include_norm_score=True,
         plot_times=True,
         plot_other=False,
         average_seeds=average_seeds,
+        **eval_kwargs,
     )

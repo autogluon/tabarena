@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
@@ -11,8 +12,18 @@ if __name__ == "__main__":
     use_latex: bool = False  # Set to True if you have the appropriate latex packages installed for nicer figure style
 
     include_unverified = True
+    run_ablations = True
 
     tabarena_context = TabArenaContext(include_unverified=include_unverified)
+
+    if run_ablations:
+        tabarena_context.plot_runtime_per_method(
+            save_path=Path(save_path) / "ablation" / "all-runtimes",
+        )
+
+        tabarena_context.generate_per_dataset_tables(
+            save_path=Path(save_path) / "per_dataset",
+        )
 
     tabarena_context.evaluate_all(
         save_path=save_path,
