@@ -34,27 +34,49 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
     search_space = ConfigurationSpace(
         space=[
             Float("learning_rate", (5e-3, 1e-1), log=True),
-            Float("feature_fraction", (0.4, 1.0)),
+
+            # Float("feature_fraction", (0.4, 1.0)),
+            # NOTE: With feature engineering, we can probably add more aggressive feature bagging
+            Categorical("feature_fraction", [0.1,0.25,0.5,0.75,1.0]),
+
             Float("bagging_fraction", (0.7, 1.0)),
             Categorical("bagging_freq", [1]),
+
             # Integer("num_leaves", (2, 200), log=True),
+            # NOTE: Smaller num_leaves is not necessarily desirable and often hurts if a dataset has fine-granular patterns, i.e. high-cardinality numericals.
+            # Hence, we shouldn't use log. Use a weighted grid instead.
             Categorical("num_leaves", num_leaves, weights=normal_pdf_points(len(num_leaves), border_density=0.10)),
-            Integer("min_data_in_leaf", (1, 64), log=True),
+
+            # Integer("min_data_in_leaf", (1, 64), log=True),
+            # NOTE: Smaller min_data_in_leaf is not necessarily better, so use a weighted grid
+            Categorical("min_data_in_leaf", [1,4,8,16,32,64,128], weights=normal_pdf_points(7, border_density=0.10)),
+
+            # NOTE: Unsure whether we still need extra_trees if we have linear init
             Categorical("extra_trees", [False, True]),
+
             # categorical hyperparameters
+            # NOTE: Likely not that important anymore since it mainly concerns high-cardinality categoricals which we expect to be handled via preprocessing
             Integer("min_data_per_group", (2, 100), log=True),
             Float("cat_l2", (5e-3, 2), log=True),
             Float("cat_smooth", (1e-3, 100), log=True),
             Integer("max_cat_to_onehot", (8, 100), log=True),
+
             # these seem to help a little bit but can also make things slower
-            Float("lambda_l1", (1e-4, 1.0)),
-            Float("lambda_l2", (1e-4, 2.0)),
+            # Float("lambda_l1", (1e-4,  1.0)),
+            # Float("lambda_l2", (1e-4,  2.0)),
+            # NOTE: With more features added in the preprocessing, we can test stronger regularization
+            Categorical("lambda_l1", [1e-4, 1e-2, 1, 2, 5, 10.0]),# 1.0)),
+            Categorical("lambda_l2", [1e-4, 1e-2, 1, 2, 5, 10.0]),# 2.0)),
             # could search max_bin but this is expensive
 
             # Preprocessing hyperparameters
             Categorical("use_arithmetic_preprocessor", [True, False]),
-            Categorical("use_linear_residuals", [True]),
             Categorical("use_cat_fe", [True, False]),
+            Categorical("use_residuals", [True, False]),
+            Categorical("residual_type", ['oof']),
+            Categorical("residual_init_kwargs", [residual_init_kwargs]),
+            Categorical("max_dataset_size_for_residuals", [1000]), # NOTE: Currently: always only consider linear residuals for small datasets (N<1000)
+
         ],
         seed=1234,
     )
@@ -76,13 +98,6 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
                 'ArithmeticPreprocessor': {'cat_as_num': False}
             })
 
-        # Currently: always train on linear residuals for small datasets (N<1000)
-        if configs[i].pop('use_linear_residuals') == True:
-            configs[i]['use_residuals'] = True
-            configs[i]['residual_type'] = 'oof'
-            configs[i]['max_dataset_size_for_residuals'] = 1000
-            configs[i]['residual_init_kwargs'] = residual_init_kwargs
-
         if configs[i].pop('use_cat_fe') == True:
             configs[i]['prep_params'].update({
                 'CatIntAdder': cat_int_kwargs, 
@@ -97,12 +112,41 @@ gen_lightgbm = CustomAGConfigGenerator(
     search_space_func=generate_configs_lightgbm,
     manual_configs=[
         {
-        'preset_name': 'arithmetic_catfe_oofte_linresoof',
+        'preset_name': 'all_preprocessors',
         'prep_params': {
             'ArithmeticPreprocessor': {'cat_as_num': False},
             'CatIntAdder': cat_int_kwargs, 
             'OOFTargetEncoder': {'alpha': 10}
                     },
+        'use_residuals': True,
+        'residual_type': 'oof',
+        'max_dataset_size_for_residuals': 1000,
+        'residual_init_kwargs': residual_init_kwargs,
+        },
+        {
+        'preset_name': 'only_arithmetic',
+        'prep_params': {
+            'ArithmeticPreprocessor': {'cat_as_num': False},
+                    },
+        'use_residuals': False,
+        'residual_type': 'oof',
+        'max_dataset_size_for_residuals': 1000,
+        'residual_init_kwargs': residual_init_kwargs,
+        },
+        {
+        'preset_name': 'only_cat_fe',
+        'prep_params': {
+            'CatIntAdder': cat_int_kwargs, 
+            'OOFTargetEncoder': {'alpha': 10}
+                    },
+        'use_residuals': False,
+        'residual_type': 'oof',
+        'max_dataset_size_for_residuals': 1000,
+        'residual_init_kwargs': residual_init_kwargs,
+        },        
+        {
+        'preset_name': 'only_linear_residuals',
+        'prep_params': {},
         'use_residuals': True,
         'residual_type': 'oof',
         'max_dataset_size_for_residuals': 1000,
