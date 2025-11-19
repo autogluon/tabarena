@@ -440,16 +440,24 @@ class TabArenaContext:
 
     def evaluate_all(
         self,
-        df_results: pd.DataFrame,
         save_path: str | Path,
+        df_results: pd.DataFrame = None,
         df_results_holdout: pd.DataFrame = None,
         df_results_cpu: pd.DataFrame = None,
         configs_hyperparameters: dict[str, dict] = None,
         include_portfolio: bool = False,
-        elo_bootstrap_rounds: int = 100,
+        elo_bootstrap_rounds: int = 200,
         use_latex: bool = False,
-        realmlp_cpu: bool = False,
+        fillna_method: str | None = "RF (default)",  # FIXME: Don't hardcode
     ):
+        if df_results is None:
+            df_results = self.load_results_paper(download_results="auto")
+
+        if fillna_method is not None:
+            df_results = TabArenaContext.fillna_metrics(
+                df_to_fill=df_results,
+                df_fillna=df_results[df_results["method"] == fillna_method],
+            )
 
         ta_names = list(df_results["ta_name"].unique())
         if df_results_cpu is not None:
@@ -467,15 +475,12 @@ class TabArenaContext:
 
         evaluate_all(
             df_results=df_results,
-            df_results_holdout=df_results_holdout,
-            df_results_cpu=df_results_cpu,
+            # df_results_holdout=df_results_holdout,  # TODO: Add back later
             df_results_configs=df_results_configs,
-            configs_hyperparameters=configs_hyperparameters,
-            include_portfolio=include_portfolio,
+            # configs_hyperparameters=configs_hyperparameters,  # TODO: Add back later
             eval_save_path=save_path,
             elo_bootstrap_rounds=elo_bootstrap_rounds,
             use_latex=use_latex,
-            realmlp_cpu=realmlp_cpu,
         )
 
     def find_missing(self, method: str):

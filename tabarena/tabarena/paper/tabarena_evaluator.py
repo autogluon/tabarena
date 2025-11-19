@@ -204,7 +204,6 @@ class TabArenaEvaluator:
         include_norm_score: bool = False,
         use_gmean: bool = False,
         imputed_names: list[str] | None = None,
-        only_datasets_for_method: dict[str, list[str]] | None = None,
         baselines: list[str] | str | None = "auto",
         baseline_colors: list[str] | None = None,
         plot_tune_types: list[str] | None = None,
@@ -258,6 +257,11 @@ class TabArenaEvaluator:
         if calibration_framework is not None:
             calibration_framework = _rename_dict.get(calibration_framework, calibration_framework)
 
+        if imputed_names is None:
+            # TODO: This is a hack
+            from tabarena.nips2025_utils.compare import get_imputed_names
+            imputed_names = get_imputed_names(df_results=df_results, method_col=self.method_col)
+
         self.assert_no_duplicates(df_results=df_results)
         self.assert_no_nan_methods(df_results=df_results)
 
@@ -286,9 +290,8 @@ class TabArenaEvaluator:
         df_results_rank_compare['time_infer_s_per_1K'] = df_results_rank_compare['time_infer_s'] * 1000 / df_results_rank_compare["dataset"].map(
             dataset_to_n_samples_test)
 
-        if only_datasets_for_method is not None and plot_times:
-            self.plot_tabarena_times(df=df_results_rank_compare, output_dir=self.output_dir,
-                                     only_datasets_for_method=only_datasets_for_method, show=False)
+        if plot_times:
+            self.plot_tabarena_times(df=df_results_rank_compare, output_dir=self.output_dir, show=False)
 
         # TODO: Move this into the `.leaderboard` call
         if "normalized-error-dataset" not in df_results_rank_compare.columns:
@@ -1449,12 +1452,13 @@ class TabArenaEvaluator:
                     plt.show()
                 plt.close()
 
-    def plot_tabarena_times(self, df: pd.DataFrame, output_dir: Path | str,
-                            only_datasets_for_method: dict[str, list[str]] | None = None, show: bool = True):
-        # filter to only common datasets
-        if only_datasets_for_method is not None:
-            for datasets in only_datasets_for_method.values():
-                df = df[df["dataset"].isin(datasets)]
+    def plot_tabarena_times(self, df: pd.DataFrame, output_dir: Path | str, show: bool = True):
+        df = df.copy()
+
+        datasets_impute_freq = df.groupby("dataset")["imputed"].mean()
+        datasets_no_impute = list(datasets_impute_freq[datasets_impute_freq <= 0].index)
+
+        df = df[df["dataset"].isin(datasets_no_impute)]
 
         framework_types = self._get_config_types(df_results=df)
 
@@ -1469,15 +1473,6 @@ class TabArenaEvaluator:
         df.loc[:, "framework_type"] = df["framework_type"].map(f_map_type_name).fillna(df["framework_type"])
 
         gpu_methods = ['TabICL', 'TabDPT', 'TabPFNv2', "ModernNCA", "TabM"]
-
-        if only_datasets_for_method is not None:
-            for method, datasets in only_datasets_for_method.items():
-                mask = (df['framework_type'] == method) & (~df['dataset'].isin(datasets))
-                # print(f"{df[mask]=}")
-                df.loc[mask, 'time_train_s_per_1K'] = np.nan
-                df.loc[mask, 'time_infer_s_per_1K'] = np.nan
-                # print(f"{df[mask]['time_train_s_per_1K']=}")
-                # print(f"{df[mask]['time_infer_s_per_1K']=}")
 
         # add device name
         framework_types = df["framework_type"].unique()
