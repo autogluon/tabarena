@@ -32,6 +32,7 @@ def get_method_rename_map() -> dict:
         "XRFM_GPU": "xRFM",
         "BETA_GPU": "BetaTabPFN",
         "TABFLEX_GPU": "TabFlex",
+        "REALTABPFN-V2.5": "RealTabPFN-2.5",
     }
 
 

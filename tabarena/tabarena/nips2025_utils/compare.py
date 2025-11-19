@@ -208,9 +208,9 @@ def subset_tasks(df_results: pd.DataFrame, subset: list[str], folds: list[int] =
     return df_results
 
 
-def get_imputed_names(df_results: pd.DataFrame) -> list[str]:
+def get_imputed_names(df_results: pd.DataFrame, method_col="method") -> list[str]:
     # Handle imputation of names
-    imputed_names = list(df_results["method"][df_results["imputed"] > 0].unique())
+    imputed_names = list(df_results[method_col][df_results["imputed"] > 0].unique())
     if len(imputed_names) == 0:
         return []
 
@@ -220,7 +220,5 @@ def get_imputed_names(df_results: pd.DataFrame) -> list[str]:
     imputed_names = [n.split(" (")[0] for n in imputed_names]
     imputed_names = [get_method_rename_map().get(n, n) for n in imputed_names]
     imputed_names = list(set(imputed_names))
-    if "KNN" in imputed_names:
-        imputed_names.remove("KNN")
     print(f"Model for which results were imputed: {imputed_names}")
     return imputed_names
