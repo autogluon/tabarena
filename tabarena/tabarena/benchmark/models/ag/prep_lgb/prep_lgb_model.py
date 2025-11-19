@@ -365,7 +365,7 @@ class PrepLGBModel(LGBModel):
         for prep_name, init_params in prep_params.items():
             preprocessor_class = get_preprocessor(prep_name)
             if preprocessor_class is not None:
-                preprocessors.append(preprocessor_class(target_type=self.problem_type, **init_params))
+                preprocessors.append(preprocessor_class(target_type=self.problem_type, **init_params, random_state=self.random_seed))
             else:
                 raise ValueError(f"Preprocessor {prep_name} not recognized.")
 
@@ -417,13 +417,13 @@ class PrepLGBModel(LGBModel):
 
         if 'use_residuals' in params and params['use_residuals']:
             if params['residual_type'] == 'grouped':
-                self.lin_init = GroupedLinearInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs)
+                self.lin_init = GroupedLinearInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs, random_state=self.random_seed)
             elif params['residual_type'] == 'oof':
-                self.lin_init = OOFLinearInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs)
+                self.lin_init = OOFLinearInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs, random_state=self.random_seed)
             elif params['residual_type'] == 'knn':
-                self.lin_init = OOFKNNInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs)
+                self.lin_init = OOFKNNInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs, random_state=self.random_seed)
             else:
-                self.lin_init = LinearInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs)
+                self.lin_init = LinearInitScore(target_type=self.problem_type, init_kwargs=self.residual_init_kwargs, random_state=self.random_seed)
             self.lin_init.fit(X, y)
             init_train = self.lin_init.init_score(X, is_train=True)
             init_valid = self.lin_init.init_score(X_val, is_train=False) if X_val is not None else None
