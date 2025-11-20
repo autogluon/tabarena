@@ -88,6 +88,7 @@ class PaperRun:
         time_limit: float | None = None,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
+        **kwargs,
     ) -> pd.DataFrame:
         # FIXME: Don't recompute this each call, implement `self.repo.configs(config_types=[config_type])`
         config_type_groups = self.get_config_type_groups()
@@ -107,6 +108,7 @@ class PaperRun:
             seed=0,
             time_limit=time_limit,
             backend=self.backend,
+            **kwargs,
         )
         df_results_family_hpo = df_results_family_hpo.reset_index()
         df_results_family_hpo["method_type"] = "hpo"

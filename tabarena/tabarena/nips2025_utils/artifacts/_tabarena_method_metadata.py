@@ -77,6 +77,7 @@ replaced_methods = [
     "ExplainableBM",
     "RealMLP_GPU",
     "TabDPT_GPU",
+    "AutoGluon_v130",
 ]
 updated_methods_camera_ready = [
     "LinearModel",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Dict, List, Optional, Tuple, Type, Union, TYPE_CHECKING
+from typing import Dict, Optional, Tuple, Type, Union, TYPE_CHECKING
 
 import numpy as np
 
@@ -92,18 +92,18 @@ class EnsembleScorer:
             eval_metric = get_metric(metric=metric_name, problem_type=problem_type)
         return eval_metric
 
-    def get_preds_from_models(self, dataset: str, fold: int, models: List[str]):
+    def get_preds_from_models(self, dataset: str, fold: int, models: list[str]):
         pred_val = self.repo.predict_val_multi(dataset=dataset, fold=fold, configs=models)
         pred_test = self.repo.predict_test_multi(dataset=dataset, fold=fold, configs=models)
         return pred_val, pred_test
 
-    def filter_models(self, dataset: str, fold: int, models: List[str]) -> List[str]:
+    def filter_models(self, dataset: str, fold: int, models: list[str]) -> list[str]:
         """
         Filters models by user-defined logic. Used in class extensions.
         """
         return models
 
-    def evaluate_task(self, dataset: str, fold: int, models: List[str]) -> dict[str, object]:
+    def evaluate_task(self, dataset: str, fold: int, models: list[str]) -> dict[str, object]:
         n_models = len(models)
         task_metadata = self.task_metrics_metadata[dataset]
         metric_name = task_metadata["metric"]
@@ -251,7 +251,7 @@ class EnsembleScorerMaxModels(EnsembleScorer):
         self.max_models = max_models
         self.max_models_per_type = max_models_per_type
 
-    def filter_models(self, dataset: str, fold: int, models: List[str]) -> List[str]:
+    def filter_models(self, dataset: str, fold: int, models: list[str]) -> list[str]:
         """
         Filters models by user-defined logic. Used in class extensions.
         """
@@ -306,7 +306,7 @@ class EnsembleScorerMaxModels(EnsembleScorer):
 # FIXME: Add temperature scaling!!
 class EnsembleSelectionConfigScorer(ConfigurationListScorer):
     def __init__(self,
-                 tasks: List[str],
+                 tasks: list[str],
                  repo: "EvaluationRepository",
                  ranker: RankScorer,
                  tid_to_dataset_name_dict: Dict[int, str],
@@ -341,6 +341,7 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
         super().__init__(tasks=tasks)
         if ensemble_kwargs is None:
             ensemble_kwargs = {}
+        ensemble_kwargs = ensemble_kwargs.copy()
         self.repo = repo
         self.ranker = ranker
         self.tid_to_dataset_name_dict = tid_to_dataset_name_dict
@@ -350,7 +351,7 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
         self.ensemble_selection_kwargs = ensemble_selection_kwargs
         assert backend in ['native', 'ray']
         self.backend = backend
-        self.use_fast_metrics = use_fast_metrics
+        self.use_fast_metrics = ensemble_kwargs.pop("use_fast_metrics", use_fast_metrics)
         if proxy_fit_metric_map is None:
             proxy_fit_metric_map = {}
         elif isinstance(proxy_fit_metric_map, str):
@@ -366,7 +367,7 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
             task_metrics_metadata=task_metrics_metadata,
             ensemble_method_kwargs=ensemble_selection_kwargs,
             proxy_fit_metric_map=proxy_fit_metric_map,
-            use_fast_metrics=use_fast_metrics,
+            use_fast_metrics=self.use_fast_metrics,
             **ensemble_kwargs,
         )
 
@@ -391,7 +392,7 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
             **kwargs,
         )
 
-    def evaluate_task(self, task: str, models: List[str]) -> dict[str, object]:
+    def evaluate_task(self, task: str, models: list[str]) -> dict[str, object]:
         tid, fold = task_to_tid_fold(task=task)
         dataset = self.tid_to_dataset_name_dict[tid]
         return self.ensemble_scorer.evaluate_task(dataset=dataset, fold=fold, models=models)
@@ -444,12 +445,12 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
         average_rank = np.mean(list(ranks.values()))
         return average_rank
 
-    def score(self, configs: List[str]) -> float:
+    def score(self, configs: list[str]) -> float:
         errors, ensemble_weights = self.compute_errors(configs=configs)
         rank = self.compute_rank_mean(errors)
         return rank
 
-    def score_per_dataset(self, configs: List[str]) -> Dict[str, float]:
+    def score_per_dataset(self, configs: list[str]) -> Dict[str, float]:
         errors, ensemble_weights = self.compute_errors(configs=configs)
         return self.compute_ranks(errors=errors)
 

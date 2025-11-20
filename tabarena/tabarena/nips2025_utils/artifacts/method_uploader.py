@@ -117,6 +117,10 @@ class MethodUploaderS3:
         for path_local in file_names:
             self._upload_to_s3(path_local=path_local)
 
+    def upload_results_hpo_trajectories(self, holdout: bool = False):
+        path_local = self.method_metadata.path_results_hpo_trajectories(holdout=holdout)
+        self._upload_to_s3(path_local=path_local)
+
     # TODO: Move to util file
     def _zip(self, path: Path) -> io.BytesIO:
         """

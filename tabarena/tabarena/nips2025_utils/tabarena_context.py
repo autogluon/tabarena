@@ -109,6 +109,7 @@ class TabArenaContext:
         score_on_val: bool = False,
         average_seeds: bool = True,
         fillna: str | pd.DataFrame | None = "RF (default)",
+        remove_imputed: bool = False,
         tmp_treat_tasks_independently: bool = False,
         leaderboard_kwargs: dict | None = None,
     ) -> pd.DataFrame:
@@ -123,6 +124,7 @@ class TabArenaContext:
             score_on_val=score_on_val,
             average_seeds=average_seeds,
             fillna=fillna,
+            remove_imputed=remove_imputed,
             tmp_treat_tasks_independently=tmp_treat_tasks_independently,
             leaderboard_kwargs=leaderboard_kwargs,
         )
