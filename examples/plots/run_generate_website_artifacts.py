@@ -10,11 +10,13 @@ if __name__ == "__main__":
     elo_bootstrap_rounds = 200  # 1 for toy, 200 for official
     save_path = "output_website_artifacts"  # folder to save all figures and tables
     use_latex: bool = False  # Set to True if you have the appropriate latex packages installed for nicer figure style
+    download_results = True  # Set to False to avoid re-download
 
     include_unverified = True
     run_ablations = True
 
     tabarena_context = TabArenaContext(include_unverified=include_unverified)
+    tabarena_context.load_results_paper(download_results=download_results)
 
     if run_ablations:
         tabarena_context.plot_runtime_per_method(
@@ -29,6 +31,7 @@ if __name__ == "__main__":
         save_path=save_path,
         elo_bootstrap_rounds=elo_bootstrap_rounds,
         use_latex=use_latex,
+        use_website_folder_names=True,
     )
 
     zip_results = True

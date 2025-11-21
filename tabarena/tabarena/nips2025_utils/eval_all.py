@@ -14,6 +14,7 @@ def evaluate_all(
     eval_save_path: str | Path,
     elo_bootstrap_rounds: int = 200,
     use_latex: bool = False,
+    use_website_folder_names: bool = False,
 ):
     banned_pareto_methods = ["KNN", "LR"]
 
@@ -61,6 +62,15 @@ def evaluate_all(
     # plots for sub-benchmarks, with and without imputation
     for i, (use_imputation, problem_type, with_baselines, dataset_subset, lite, average_seeds) in enumerate(all_combinations):
         print(f"Running figure generation {i+1}/{n_combinations}... {(time.time() - ts):.1f}s elapsed...")
+        custom_folder_name = None
+
+        if use_website_folder_names:
+            custom_folder_name = "website_data"
+            custom_folder_name += "/" + ("imputation_yes" if use_imputation else "imputation_no")
+            custom_folder_name += "/" + ("splits_lite" if lite else "splits_all")
+            custom_folder_name += f"/tasks_{problem_type}"
+            dataset_subset_name = dataset_subset if dataset_subset is not None else "all"
+            custom_folder_name += f"/datasets_{dataset_subset_name}"
 
         evaluate_single(
             df_results=df_results,
@@ -75,6 +85,7 @@ def evaluate_all(
             baselines=baselines,
             baseline_colors=baseline_colors,
             elo_bootstrap_rounds=elo_bootstrap_rounds,
+            custom_folder_name=custom_folder_name,
         )
 
 
@@ -91,6 +102,7 @@ def evaluate_single(
     baselines: list[str] | None = None,
     baseline_colors: list[str] | None = None,
     elo_bootstrap_rounds: int = 200,
+    custom_folder_name: str | None = None,
 ):
     from tabarena.nips2025_utils.compare import subset_tasks
     df_results = df_results.copy()
@@ -140,6 +152,9 @@ def evaluate_single(
         folder_name = str(Path("lite") / folder_name)
     if not average_seeds:
         folder_name = str(Path("no_average_seeds") / folder_name)
+
+    if custom_folder_name is not None:
+        folder_name = custom_folder_name
 
     plotter = TabArenaEvaluator(
         output_dir=eval_save_path / folder_name,
