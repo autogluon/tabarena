@@ -85,7 +85,13 @@ updated_methods_camera_ready = [
     "Portfolio-N200-4h",
 ]
 replaced_methods += updated_methods_camera_ready
-methods_2025_06_12_keep = [m for m in methods_2025_06_12 if m.method not in replaced_methods]
+removed_cpu_methods = [
+    "ModernNCA",
+    "TabM",
+    "RealMLP",
+]
+
+methods_2025_06_12_keep = [m for m in methods_2025_06_12 if m.method not in replaced_methods and m.method not in removed_cpu_methods]
 methods_2025_10_20_camera_ready = [m for m in methods_2025_06_12 if m.method not in updated_methods_camera_ready] + methods_2025_10_20
 
 
