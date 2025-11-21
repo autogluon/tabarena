@@ -58,7 +58,7 @@ COPY tabarena/ tabarena/
 # Install TabArena, then prune once all installs are done
 # Delete uv cache to save ~3.5 GB of space
 RUN set -ex && \
-    uv pip install -e ./tabarena/[benchmark] && \
+    uv pip install -e ./tabarena/tabarena/[benchmark] && \
     uv pip install -e ./tabarena/tabflow/ && \
     uv cache clean && \
     uv cache prune && \
