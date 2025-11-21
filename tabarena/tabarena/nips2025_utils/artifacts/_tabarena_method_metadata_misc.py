@@ -12,6 +12,7 @@ gbm_aio_0808_metadata = MethodMetadata(
     compute="cpu",
     date="2025-08-08",
     ag_key="GBM",
+    model_key="GBM_aio_0808",
     config_default="LightGBM_aio_0808_c1_BAG_L1",
     name_suffix=None,
     has_raw=True,
