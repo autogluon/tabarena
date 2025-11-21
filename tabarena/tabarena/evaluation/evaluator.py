@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from typing import Type
+
 import numpy as np
 import pandas as pd
 
 from tabarena.evaluation.evaluate_utils import make_scorers
+from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer, EnsembleScorerMaxModels
 from tabarena.portfolio.greedy_portfolio_generator import zeroshot_results
 from ..repository import EvaluationRepository, EvaluationRepositoryCollection
 from ..repository.repo_utils import convert_time_infer_s_from_sample_to_batch
@@ -268,6 +271,8 @@ class Evaluator:
         n_ensemble_in_name: bool = True,
         n_max_models_per_type: int | str | None = None,
         n_eval_folds: int | None = None,
+        ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
+        ensemble_kwargs: dict = None,
     ) -> pd.DataFrame:
         repo = self.repo
 
@@ -292,6 +297,8 @@ class Evaluator:
             n_eval_folds=n_eval_folds,
             configs=configs,
             engine=engine,
+            ensemble_cls=ensemble_cls,
+            ensemble_kwargs=ensemble_kwargs,
         )
 
         df_zeroshot_portfolio = pd.DataFrame(a)

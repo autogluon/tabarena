@@ -104,7 +104,7 @@ class TabArenaContext:
         output_dir: str | Path,
         new_results: pd.DataFrame | None = None,
         only_valid_tasks: bool = False,
-        subset: str | None = None,
+        subset: str | list[str] | None = None,
         folds: list[int] | None = None,
         score_on_val: bool = False,
         average_seeds: bool = True,
@@ -334,6 +334,7 @@ class TabArenaContext:
         n_portfolio: int,
         n_ensemble: int | None = None,
         time_limit: int | None = None,
+        **kwargs,
     ) -> pd.DataFrame:
         simulator = PaperRunTabArena(repo=repo, backend=self.backend)
         cur_result = simulator.run_zs_from_types(
@@ -342,6 +343,7 @@ class TabArenaContext:
             n_ensemble=n_ensemble,
             n_ensemble_in_name=True,
             time_limit=time_limit,
+            **kwargs,
         )
         return cur_result
 

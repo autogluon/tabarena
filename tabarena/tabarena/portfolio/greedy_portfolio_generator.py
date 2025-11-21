@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import itertools
-from typing import List
+from typing import List, Type
 
 import numpy as np
 from dataclasses import dataclass
 
+from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer, EnsembleScorerMaxModels
 from tabarena.portfolio.zeroshot_selection import zeroshot_configs
 from tabarena.repository import EvaluationRepository
 from tabarena.utils.parallel_for import parallel_for
@@ -41,6 +42,7 @@ def evaluate_configs(
         folds: List[int],
         method: str,
         ensemble_size: int = default_ensemble_size,
+        ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
         ensemble_kwargs=None,
         time_limit: float | None = None,
         fit_order="original",
@@ -72,6 +74,7 @@ def evaluate_configs(
             fit_order=fit_order,
             seed=seed,
             ensemble_size=ensemble_size,
+            ensemble_cls=ensemble_cls,
             ensemble_kwargs=ensemble_kwargs,
             time_limit=time_limit,
             rank=False,
@@ -189,6 +192,8 @@ def zeroshot_results(
         seeds: list = [0],
         method_prefix: str = None,
         n_ensemble_in_name: bool = False,
+        ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
+        ensemble_kwargs: dict = None,
 ) -> list[ResultRow]:
     """
     :param dataset_names: list of dataset to use when fitting zeroshot
@@ -223,6 +228,7 @@ def zeroshot_results(
         rank_scorer,
         normalized_scorer,
         model_frameworks,
+        ensemble_kwargs: dict | None,
     ) -> list[ResultRow]:
         method_name = zeroshot_name(
             n_portfolio=n_portfolio,
@@ -296,10 +302,16 @@ def zeroshot_results(
         # if max_runtime is None:
         #     max_runtime = default_runtime
 
-        ensemble_kwargs = {
+        _ensemble_kwargs = ensemble_kwargs
+        if _ensemble_kwargs is None:
+            _ensemble_kwargs = {}
+        _ensemble_kwargs = _ensemble_kwargs.copy()
+        _ensemble_kwargs_extra = {
             "max_models": max_models,
             "max_models_per_type": max_models_per_type,
         }
+
+        _ensemble_kwargs.update(_ensemble_kwargs_extra)
 
         if test_folds is None:
             test_folds = repo.dataset_to_folds(dataset=test_dataset)
@@ -312,7 +324,8 @@ def zeroshot_results(
             normalized_scorer=normalized_scorer,
             configs=portfolio_configs,
             ensemble_size=n_ensemble,
-            ensemble_kwargs=ensemble_kwargs,
+            ensemble_cls=ensemble_cls,
+            ensemble_kwargs=_ensemble_kwargs,
             tid=test_tid,
             time_limit=max_runtime,
             method=method_name,
@@ -368,7 +381,7 @@ def zeroshot_results(
         evaluate_dataset,
         inputs=inputs,
         context=dict(repo=repo, df_rank=df_rank, rank_scorer=rank_scorer, normalized_scorer=normalized_scorer,
-                     model_frameworks=model_frameworks),
+                     model_frameworks=model_frameworks, ensemble_kwargs=ensemble_kwargs),
         engine=engine,
     )
     return [x for l in list_rows for x in l]
