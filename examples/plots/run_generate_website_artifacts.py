@@ -10,7 +10,12 @@ from run_plot_pareto_over_tuning_time import plot_tuning_trajectories
 if __name__ == "__main__":
     elo_bootstrap_rounds = 200  # 1 for toy, 200 for official
     save_path = "output_website_artifacts"  # folder to save all figures and tables
-    use_latex: bool = False  # Set to True if you have the appropriate latex packages installed for nicer figure style
+
+    # Set to True if you have the appropriate latex packages installed for nicer figure style
+    # TODO: use_latex=True makes some of the plots look worse, but makes the tuning-impact-elo figures look better.
+    #  To avoid needing 2 people to compute this properly, we should selectively disable `use_latex` for certain figures.
+    #  Alternatively, make all figures without `use_latex` look nice, and drop the latex logic entirely.
+    use_latex: bool = False
 
     include_unverified = True
     run_ablations = True
@@ -26,9 +31,18 @@ if __name__ == "__main__":
             save_path=Path(save_path) / "per_dataset",
         )
 
+        # extend this to get tuning_trajectories for different subsets
+        subset_map = {
+            "all": [],
+            "medium": ["medium"],
+            "small": ["small"],
+            "tabpfn": ["tabpfn"],
+        }
+
         # will take a few minutes
         plot_tuning_trajectories(
             tabarena_context=tabarena_context,
+            subset_map=subset_map,
             fig_save_dir=Path(save_path) / "tuning_trajectories",
             average_seeds=False,
             exclude_imputed=True,

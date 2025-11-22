@@ -331,6 +331,7 @@ def compute_tuning_trajectories_leaderboard(
 
 def plot_tuning_trajectories(
     tabarena_context: TabArenaContext = None,
+    subset_map: dict[str, list[str]] | None = None,
     fig_save_dir: str | Path = Path("plots") / "n_configs",
     average_seeds: bool = False,
     exclude_imputed: bool = True,
@@ -338,6 +339,11 @@ def plot_tuning_trajectories(
     include_portfolio: bool = False,  # TODO: True not yet supported
     file_ext: str = ".pdf",
 ):
+    if subset_map is None:
+        subset_map = {
+            "all": [],
+        }
+
     if tabarena_context is None:
         tabarena_context = TabArenaContext(
             include_unverified=True,
@@ -401,13 +407,6 @@ def plot_tuning_trajectories(
         dataset_to_n_samples_test)
 
     methods_map = results_hpo[["method", "n_configs", "n_ensemble", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
-
-    subset_map = {
-        "all": [],
-        "medium": ["medium"],
-        "small": ["small"],
-        "tabpfn": ["tabpfn"],
-    }
 
     for subset_name, subset in subset_map.items():
         leaderboard = compute_tuning_trajectories_leaderboard(
