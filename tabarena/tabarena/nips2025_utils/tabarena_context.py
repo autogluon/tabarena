@@ -466,6 +466,7 @@ class TabArenaContext:
             )
 
         evaluate_all(
+            tabarena_context=self,  # FIXME: Don't do this in future, clean up
             df_results=df_results,
             # df_results_holdout=df_results_holdout,  # TODO: Add back later
             # configs_hyperparameters=configs_hyperparameters,  # TODO: Add back later

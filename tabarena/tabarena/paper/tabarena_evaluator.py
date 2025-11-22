@@ -62,6 +62,7 @@ class TabArenaEvaluator:
         keep_best: bool = False,
         figure_file_type: str = "pdf",
         use_latex: bool = False,
+        tabarena_context=None,  # FIXME: Remove this and refactor after leaderboard v0.2 upload, this is purely to get things working fast
     ):
         """
 
@@ -133,6 +134,16 @@ class TabArenaEvaluator:
             "Tuned, Holdout": "<",
             "Tuned + Ens., Holdout": ">",
         }
+
+        if tabarena_context is not None:
+            self.method_metadata_info = tabarena_context.method_metadata_collection.info()
+            self.method_metadata_info = self.method_metadata_info.rename(columns={
+                "method": "ta_name",
+                "artifact_name": "ta_suite",
+            })
+            self.method_metadata_info = self.method_metadata_info.drop(columns=["method_type"])
+        else:
+            self.method_metadata_info = None
 
     def compute_normalized_error_dynamic(self, df_results: pd.DataFrame) -> pd.DataFrame:
         df_results = df_results.copy(deep=True)
@@ -269,6 +280,9 @@ class TabArenaEvaluator:
         # ----- end removing unused methods -----
 
         method_info: pd.DataFrame = self.get_method_info(df=df_results_rank_compare)
+        if self.method_metadata_info is not None:
+            method_info_full = pd.merge(left=method_info.reset_index(), right=self.method_metadata_info, on=["ta_name", "ta_suite"])
+            save_pd.save(path=self.output_dir / "method_info.csv", df=method_info_full)
         save_pd.save(path=self.output_dir / "results_per_split.csv", df=df_results_rank_compare)
 
         # ----- add times per 1K samples -----

@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from autogluon.common import TabularDataset
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from run_plot_pareto_over_tuning_time import plot_tuning_trajectories
 
@@ -21,6 +22,13 @@ if __name__ == "__main__":
     run_ablations = True
 
     tabarena_context = TabArenaContext(include_unverified=include_unverified)
+
+    method_metadata_info = tabarena_context.method_metadata_collection.info()
+    method_metadata_info = method_metadata_info.rename(columns={
+        "method": "ta_name",
+        "artifact_name": "ta_suite",
+    })
+    TabularDataset.save(path=Path(save_path) / "method_metadata_info.csv", df=method_metadata_info)
 
     if run_ablations:
         tabarena_context.plot_runtime_per_method(
