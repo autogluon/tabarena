@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import time
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from bencheval.tabarena import TabArena
@@ -15,7 +16,10 @@ from autogluon.common.loaders import load_pd
 from tabarena.paper.paper_utils import get_method_rename_map
 from tabarena.plot.plot_pareto_frontier import plot_optimal_arrow
 from tabarena.nips2025_utils.compare import subset_tasks
-
+from tabarena.nips2025_utils.eval_all import (
+    get_website_folder_name,
+    get_all_subset_combinations,
+)
 
 def plot_hpo(
     df: pd.DataFrame,
@@ -328,6 +332,61 @@ def compute_tuning_trajectories_leaderboard(
     leaderboard['Inference time per 1K samples (s) (median)'] = leaderboard["median_time_infer_s_per_1K"]
     return leaderboard
 
+
+def plot_tuning_trajectories_all(
+    tabarena_context: TabArenaContext = None,
+    fig_save_dir: str | Path = Path("plots") / "n_configs",
+    ban_bad_methods: bool = True,
+    file_ext: str = ".pdf",
+):
+    if isinstance(fig_save_dir, str):
+        fig_save_dir = Path(fig_save_dir)
+    fig_save_dir.mkdir(parents=True, exist_ok=True)
+
+    all_combinations = get_all_subset_combinations()
+    n_combinations = len(all_combinations)
+    ts = time.time()
+    # plots for sub-benchmarks, with and without imputation
+    for i, (
+        use_imputation,
+        problem_type,
+        _,
+        dataset_subset,
+        lite,
+        average_seeds,
+    ) in enumerate(all_combinations):
+        print(
+            f"Running tuning trajectories generation {i + 1}/{n_combinations}... {(time.time() - ts):.1f}s elapsed..."
+        )
+
+        # will take a few minutes
+        custom_folder_name = get_website_folder_name(
+            use_imputation=use_imputation,
+            problem_type=problem_type,
+            dataset_subset=dataset_subset,
+            lite=lite,
+        )
+        subset_list = []
+        if problem_type != "all":
+            subset_list.append(problem_type)
+        if dataset_subset is not None:
+            subset_list.append(dataset_subset)
+        if lite:
+            subset_list.append("lite")
+        (fig_save_dir / custom_folder_name).mkdir(parents=True, exist_ok=True)
+
+        plot_tuning_trajectories(
+            subset_map={
+                "placeholder_name": subset_list
+            },
+            average_seeds=average_seeds,
+            exclude_imputed=not use_imputation,
+            # Meta
+            tabarena_context=tabarena_context,
+            fig_save_dir=fig_save_dir / custom_folder_name / "tuning_trajectories",
+            ban_bad_methods=ban_bad_methods,
+            file_ext=file_ext,
+        )
 
 def plot_tuning_trajectories(
     tabarena_context: TabArenaContext = None,
