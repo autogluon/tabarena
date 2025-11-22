@@ -7,44 +7,6 @@ from bencheval.tabarena import TabArena
 
 
 class PaperRunTabArena(PaperRun):
-    def __init__(
-            self,
-            *,
-            methods: list[str] | None = None,
-            folds: list[int] | None = None,
-            datasets: list[str] | None = None,
-            problem_types: list[str] | None = None,
-            banned_model_types: list[str] | None = None,
-            elo_bootstrap_rounds: int = 100,
-            keep_best: bool = False,
-            **kwargs,
-    ):
-        """
-
-        Parameters
-        ----------
-        methods
-            filter methods
-        folds
-            filter folds
-        datasets
-            filter datasets
-        problem_types
-            filter problem_types
-        elo_bootstrap_rounds
-            10 = toy
-            100 = paper
-        kwargs
-        """
-        super().__init__(**kwargs)
-        self.datasets = datasets
-        self.problem_types = problem_types
-        self.methods = methods
-        self.folds = folds
-        self.elo_bootstrap_rounds = elo_bootstrap_rounds
-        self.banned_model_types = banned_model_types
-        self.keep_best = keep_best
-
     # FIXME: Temp
     def run_portfolio_search(
         self,
