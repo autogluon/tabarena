@@ -203,6 +203,116 @@ def plot_hpo(
     fig.savefig(str(save_path))
 
 
+def compute_tuning_trajectories_leaderboard(
+    combined_data,
+    methods_map,
+    calibration_framework: str,
+    exclude_imputed: bool,
+    elo_bootstrap_rounds: int = 1,
+    average_seeds: bool = False,
+):
+    tabarena_init_kwargs = dict(
+        task_col="dataset",
+        columns_to_agg_extra=[
+            "time_train_s",
+            "time_infer_s",
+            "time_train_s_per_1K",
+            "time_infer_s_per_1K",
+        ],
+        groupby_columns=["problem_type", "metric"],
+        seed_column="fold",
+    )
+
+    arena = TabArena(
+        **tabarena_init_kwargs,
+        error_col="metric_error",
+    )
+
+    arena_val = TabArena(
+        **tabarena_init_kwargs,
+        error_col="metric_error_val",
+    )
+
+    # FIXME: This isn't correct
+    # combined_data = arena.fillna_data(
+    #     data=combined_data,
+    #     fillna_method=calibration_framework,
+    # )
+    # FIXME: Using this since it does it correctly
+    combined_data = TabArenaContext.fillna_metrics(
+        df_to_fill=combined_data,
+        df_fillna=combined_data[combined_data["method"] == calibration_framework],
+    )
+
+    if exclude_imputed:
+        imputed_methods_count = combined_data.groupby("method")["imputed"].sum()
+        imputed_methods = sorted(list(imputed_methods_count[imputed_methods_count > 0].index))
+        print(f"Excluding {len(imputed_methods)} imputed methods: {imputed_methods}")
+        combined_data = combined_data[~combined_data["method"].isin(imputed_methods)]
+
+    results_per_task = arena.compute_results_per_task(data=combined_data)
+
+    leaderboard = arena.leaderboard(
+        data=combined_data,
+        include_elo=True,
+        elo_kwargs=dict(
+            calibration_framework=calibration_framework,
+            calibration_elo=1000,
+            BOOTSTRAP_ROUNDS=elo_bootstrap_rounds,
+        ),
+        average_seeds=average_seeds,
+        include_baseline_advantage=True,
+    )
+
+    leaderboard_val = arena_val.leaderboard(
+        data=combined_data,
+        include_elo=True,
+        elo_kwargs=dict(
+            calibration_framework=calibration_framework,
+            calibration_elo=1000,
+            BOOTSTRAP_ROUNDS=elo_bootstrap_rounds,
+        ),
+        average_seeds=average_seeds,
+        include_baseline_advantage=True,
+    )
+
+    leaderboard["elo_val"] = leaderboard_val["elo"]
+    leaderboard["improvability_val"] = leaderboard_val["improvability"]
+    leaderboard["baseline_advantage_val"] = leaderboard_val["baseline_advantage"]
+
+    leaderboard = leaderboard.reset_index(drop=False)
+
+    with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
+        print(leaderboard)
+
+    leaderboard = leaderboard[leaderboard["method"].isin(methods_map.index)]
+    leaderboard["n_configs"] = leaderboard["method"].map(methods_map["n_configs"])
+    leaderboard["config_type"] = leaderboard["method"].map(methods_map["config_type"])
+
+    leaderboard["name"] = leaderboard["config_type"]
+
+    leaderboard = leaderboard.sort_values(by=["config_type", "n_configs"])
+
+    leaderboard["Elo"] = leaderboard["elo"]
+    leaderboard["Elo (Test)"] = leaderboard["Elo"]
+    leaderboard["Elo (Val)"] = leaderboard["elo_val"]
+    leaderboard["Elo (Val) - Elo (Test)"] = leaderboard["Elo (Val)"] - leaderboard["Elo (Test)"]
+    leaderboard["Improvability (%)"] = leaderboard["improvability"] * 100
+    leaderboard["Improvability (%) (Test)"] = leaderboard["Improvability (%)"]
+    leaderboard["Improvability (%) (Val)"] = leaderboard["improvability_val"] * 100
+    leaderboard["Improvability (%) (Test) - Improvability (%) (Val)"] = leaderboard["Improvability (%) (Test)"] - leaderboard["Improvability (%) (Val)"]
+
+    leaderboard["Baseline Advantage (%)"] = leaderboard["baseline_advantage"] * 100
+    leaderboard["Baseline Advantage (%) (Test)"] = leaderboard["Baseline Advantage (%)"]
+    leaderboard["Baseline Advantage (%) (Val)"] = leaderboard["baseline_advantage_val"] * 100
+    leaderboard["Baseline Advantage (%) (Test - Val)"] = (leaderboard["baseline_advantage"] - leaderboard[
+        "baseline_advantage_val"]) * 100
+
+    leaderboard['Train time per 1K samples (s) (median)'] = leaderboard["median_time_train_s_per_1K"]
+    leaderboard['Inference time per 1K samples (s) (median)'] = leaderboard["median_time_infer_s_per_1K"]
+    return leaderboard
+
+
 def plot_pareto_n_configs(
     fig_save_dir: str | Path = Path("plots") / "n_configs",
     average_seeds: bool = False,
@@ -273,108 +383,16 @@ def plot_pareto_n_configs(
     combined_data['time_infer_s_per_1K'] = combined_data['time_infer_s'] * 1000 / combined_data["dataset"].map(
         dataset_to_n_samples_test)
 
-    tabarena_init_kwargs = dict(
-        task_col="dataset",
-        columns_to_agg_extra=[
-            "time_train_s",
-            "time_infer_s",
-            "time_train_s_per_1K",
-            "time_infer_s_per_1K",
-        ],
-        groupby_columns=["problem_type", "metric"],
-        seed_column="fold",
-    )
-
-    arena = TabArena(
-        **tabarena_init_kwargs,
-        error_col="metric_error",
-    )
-
-    arena_val = TabArena(
-        **tabarena_init_kwargs,
-        error_col="metric_error_val",
-    )
-
-    combined_data = combined_data[~combined_data["metric_error_val"].isna()]
-
-    # FIXME: This isn't correct
-    # combined_data = arena.fillna_data(
-    #     data=combined_data,
-    #     fillna_method=calibration_framework,
-    # )
-    # FIXME: Using this since it does it correctly
-    combined_data = tabarena_context.fillna_metrics(
-        df_to_fill=combined_data,
-        df_fillna=combined_data[combined_data["method"] == calibration_framework],
-    )
-
-    if exclude_imputed:
-        imputed_methods_count = combined_data.groupby("method")["imputed"].sum()
-        imputed_methods = sorted(list(imputed_methods_count[imputed_methods_count > 0].index))
-        print(f"Excluding {len(imputed_methods)} imputed methods: {imputed_methods}")
-        combined_data = combined_data[~combined_data["method"].isin(imputed_methods)]
-
-    results_per_task = arena.compute_results_per_task(data=combined_data)
-
-    leaderboard = arena.leaderboard(
-        data=combined_data,
-        include_elo=True,
-        elo_kwargs=dict(
-            calibration_framework=calibration_framework,
-            calibration_elo=1000,
-            BOOTSTRAP_ROUNDS=elo_bootstrap_rounds,
-        ),
-        average_seeds=average_seeds,
-        include_baseline_advantage=True,
-    )
-
-    leaderboard_val = arena_val.leaderboard(
-        data=combined_data,
-        include_elo=True,
-        elo_kwargs=dict(
-            calibration_framework=calibration_framework,
-            calibration_elo=1000,
-            BOOTSTRAP_ROUNDS=elo_bootstrap_rounds,
-        ),
-        average_seeds=average_seeds,
-        include_baseline_advantage=True,
-    )
-
-    leaderboard["elo_val"] = leaderboard_val["elo"]
-    leaderboard["improvability_val"] = leaderboard_val["improvability"]
-    leaderboard["baseline_advantage_val"] = leaderboard_val["baseline_advantage"]
-
-    leaderboard = leaderboard.reset_index(drop=False)
-
-    with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
-        print(leaderboard)
-
     methods_map = results_hpo[["method", "n_configs", "n_ensemble", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
-    leaderboard = leaderboard[leaderboard["method"].isin(methods_map.index)]
-    leaderboard["n_configs"] = leaderboard["method"].map(methods_map["n_configs"])
-    leaderboard["config_type"] = leaderboard["method"].map(methods_map["config_type"])
+    leaderboard = compute_tuning_trajectories_leaderboard(
+        combined_data=combined_data,
+        methods_map=methods_map,
+        calibration_framework=calibration_framework,
+        exclude_imputed=exclude_imputed,
+        elo_bootstrap_rounds=elo_bootstrap_rounds,
+        average_seeds=average_seeds,
 
-    leaderboard["name"] = leaderboard["config_type"]
-
-    leaderboard = leaderboard.sort_values(by=["config_type", "n_configs"])
-
-    leaderboard["Elo"] = leaderboard["elo"]
-    leaderboard["Elo (Test)"] = leaderboard["Elo"]
-    leaderboard["Elo (Val)"] = leaderboard["elo_val"]
-    leaderboard["Elo (Val) - Elo (Test)"] = leaderboard["Elo (Val)"] - leaderboard["Elo (Test)"]
-    leaderboard["Improvability (%)"] = leaderboard["improvability"] * 100
-    leaderboard["Improvability (%) (Test)"] = leaderboard["Improvability (%)"]
-    leaderboard["Improvability (%) (Val)"] = leaderboard["improvability_val"] * 100
-    leaderboard["Improvability (%) (Test) - Improvability (%) (Val)"] = leaderboard["Improvability (%) (Test)"] - leaderboard["Improvability (%) (Val)"]
-
-    leaderboard["Baseline Advantage (%)"] = leaderboard["baseline_advantage"] * 100
-    leaderboard["Baseline Advantage (%) (Test)"] = leaderboard["Baseline Advantage (%)"]
-    leaderboard["Baseline Advantage (%) (Val)"] = leaderboard["baseline_advantage_val"] * 100
-    leaderboard["Baseline Advantage (%) (Test - Val)"] = (leaderboard["baseline_advantage"] - leaderboard[
-        "baseline_advantage_val"]) * 100
-
-    leaderboard['Train time per 1K samples (s) (median)'] = leaderboard["median_time_train_s_per_1K"]
-    leaderboard['Inference time per 1K samples (s) (median)'] = leaderboard["median_time_infer_s_per_1K"]
+    )
 
     leaderboard["name"] = leaderboard["name"].map(method_rename_map).fillna(leaderboard["name"])
 
