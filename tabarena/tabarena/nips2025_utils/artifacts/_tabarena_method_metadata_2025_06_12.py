@@ -13,6 +13,7 @@ common_kwargs = dict(
     has_raw=True,
     has_processed=True,
     has_results=True,
+    # FIXME: technically GBDTs and baselines are not verified
     verified=True,
 )
 
@@ -197,6 +198,42 @@ methods_gpu_ablation = [
     "RealMLP_GPU",
 ]
 
+verified_methods = [
+    "ExplainableBM",
+    "ModernNCA",
+    "NeuralNetFastAI",
+    "NeuralNetTorch",
+    "RealMLP",
+    "TabM",
+    "ModernNCA_GPU",
+    "RealMLP_GPU",
+    "TabDPT_GPU",
+    "TabICL_GPU",
+    "TabM_GPU",
+    "TabPFNv2_GPU",
+]
+
+methods_to_url_map = {
+    "RealMLP_GPU": "https://arxiv.org/abs/2407.04491",
+    "RealMLP": "https://arxiv.org/abs/2407.04491",
+    "TabDPT_GPU": "https://arxiv.org/abs/2410.18164",
+    "TabM_GPU": "https://arxiv.org/abs/2410.24210",
+    "TabM": "https://arxiv.org/abs/2410.24210",
+    "LightGBM": "https://papers.nips.cc/paper_files/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html",
+    "CatBoost": "https://arxiv.org/abs/1706.09516",
+    "ModernNCA_GPU": "https://arxiv.org/abs/2407.03257",
+    "ModernNCA": "https://arxiv.org/abs/2407.03257",
+    "XGBoost": "https://arxiv.org/abs/1603.02754",
+    "TabPFNv2_GPU": "https://www.nature.com/articles/s41586-024-08328-6",
+    "TabICL_GPU": "https://arxiv.org/abs/2502.05564",
+    "NeuralNetTorch": "https://arxiv.org/abs/2003.06505",
+    "NeuralNetFastAI": "https://arxiv.org/abs/2003.06505",
+    "ExplainableBM": "https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
+    "RandomForest": "https://link.springer.com/article/10.1023/A:1010933404324",
+    "KNeighbors": "https://scikit-learn.org/stable/modules/neighbors.html",
+    "ExtraTrees": "https://link.springer.com/article/10.1007/s10994-006-6226-1",
+    "LinearModel": "https://scikit-learn.org/stable/modules/linear_model.html",
+}
 
 tabarena_method_metadata_map_2025_06_12: dict[str, MethodMetadata] = {}
 
@@ -216,6 +253,8 @@ for method in methods:
     else:
         can_hpo = True
 
+    reference_url = methods_to_url_map.get(method, None)
+
     method_kwargs = copy.deepcopy(method_kwargs)
 
     method_metadata = MethodMetadata(
@@ -225,6 +264,7 @@ for method in methods:
         is_bag=is_bag,
         can_hpo=can_hpo,
         upload_as_public=upload_as_public,
+        reference_url=reference_url,
         **method_kwargs,
         **s3_cache_kwargs,
     )

@@ -51,6 +51,7 @@ class MethodMetadata:
         s3_bucket: str = None,
         s3_prefix: str = None,
         upload_as_public: bool = False,
+        reference_url: str | None = None,
     ):
         self.method = method
         if artifact_name is None:
@@ -87,6 +88,7 @@ class MethodMetadata:
             raise AssertionError(f"Cannot specify `name` for method_type: 'config'.")
         if self.name is not None and self.name_suffix is not None:
             raise AssertionError(f"Must only specify one of `name` and `name_suffix`.")
+        self.reference_url = reference_url
 
     @property
     def config_type(self) -> str | None:

@@ -20,6 +20,7 @@ ag_140_metadata = MethodMetadata(
     compute="gpu",
     date="2025-09-03",
     verified=True,
+    reference_url="https://arxiv.org/abs/2003.06505",
     **_common_kwargs,
 )
 mitra_metadata = MethodMetadata(
@@ -33,6 +34,7 @@ mitra_metadata = MethodMetadata(
     can_hpo=False,
     is_bag=True,
     verified=True,
+    reference_url="https://arxiv.org/abs/2510.21204",
     **_common_kwargs,
 )
 limix_metadata = MethodMetadata(
@@ -46,6 +48,7 @@ limix_metadata = MethodMetadata(
     can_hpo=False,
     is_bag=False,
     verified=False,
+    reference_url="https://arxiv.org/abs/2509.03505",
     **_common_kwargs,
 )
 realmlp_gpu_metadata = MethodMetadata(
@@ -59,6 +62,7 @@ realmlp_gpu_metadata = MethodMetadata(
     can_hpo=True,
     is_bag=True,
     verified=True,
+    reference_url="https://arxiv.org/abs/2407.04491",
     **_common_kwargs,
 )
 ebm_metadata = MethodMetadata(
@@ -71,6 +75,7 @@ ebm_metadata = MethodMetadata(
     can_hpo=True,
     is_bag=True,
     verified=True,
+    reference_url="https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
     **_common_kwargs,
 )
 xrfm_metadata = MethodMetadata(
@@ -84,6 +89,7 @@ xrfm_metadata = MethodMetadata(
     can_hpo=True,
     is_bag=True,
     verified=True,
+    reference_url="https://arxiv.org/abs/2508.10053",
     **_common_kwargs,
 )
 tabflex_metadata = MethodMetadata(
@@ -97,6 +103,7 @@ tabflex_metadata = MethodMetadata(
     can_hpo=False,
     is_bag=False,
     verified=False,
+    reference_url="https://arxiv.org/abs/2506.05584",
     **_common_kwargs,
 )
 betatabpfn_metadata = MethodMetadata(
@@ -110,5 +117,6 @@ betatabpfn_metadata = MethodMetadata(
     can_hpo=False,
     is_bag=True,
     verified=False,
+    reference_url="https://arxiv.org/abs/2502.02527",
     **_common_kwargs,
 )

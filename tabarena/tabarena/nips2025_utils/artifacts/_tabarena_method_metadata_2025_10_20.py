@@ -9,6 +9,7 @@ _common_kwargs = dict(
     upload_as_public=True,
     has_results=True,
     name_suffix=None,
+    # FIXME: technically LR and kNN are not verified
     verified=True,
 )
 
@@ -23,6 +24,7 @@ lr_metadata = MethodMetadata(
     is_bag=True,
     has_raw=True,
     has_processed=True,
+    reference_url="https://scikit-learn.org/stable/modules/linear_model.html",
     **_common_kwargs,
 )
 knn_metadata = MethodMetadata(
@@ -36,6 +38,7 @@ knn_metadata = MethodMetadata(
     is_bag=False,
     has_raw=True,
     has_processed=True,
+    reference_url="https://scikit-learn.org/stable/modules/neighbors.html",
     **_common_kwargs,
 )
 tabdpt_metadata = MethodMetadata(
@@ -50,6 +53,7 @@ tabdpt_metadata = MethodMetadata(
     is_bag=False,
     has_raw=True,
     has_processed=True,
+    reference_url="https://arxiv.org/abs/2410.18164",
     **_common_kwargs,
 )
 portfolio_metadata_paper_cr = MethodMetadata(
