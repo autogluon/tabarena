@@ -13,7 +13,7 @@ def compare_on_tabarena(
     output_dir: str | Path,
     new_results: pd.DataFrame | None = None,
     *,
-    only_valid_tasks: bool = False,
+    only_valid_tasks: bool | str | list[str] = False,
     subset: str | list[str] | None = None,
     folds: list[int] | None = None,
     tabarena_context: TabArenaContext | None = None,
@@ -41,16 +41,32 @@ def compare_on_tabarena(
         if "method_subtype" not in new_results:
             new_results["method_subtype"] = np.nan
 
-        if only_valid_tasks:
-            paper_results = filter_to_valid_tasks(
-                df_to_filter=paper_results,
-                df_filter=new_results,
-            )
-
     if new_results is not None:
         df_results = pd.concat([paper_results, new_results], ignore_index=True)
     else:
         df_results = paper_results
+
+    if isinstance(only_valid_tasks, str):
+        only_valid_tasks = [only_valid_tasks]
+
+    if isinstance(only_valid_tasks, list):
+        for filter_method in only_valid_tasks:
+            # Filter to tasks present in a specific method
+            df_filter = df_results[df_results["method"] == filter_method]
+            if "imputed" in df_filter.columns:
+                df_filter = df_filter[df_filter["imputed"] != True]
+            assert len(df_filter) != 0, \
+                (f"No method named '{filter_method}' remains to filter to!\n"
+                 f"Available tasks: {list(df_results['method'].unique())}")
+            df_results = filter_to_valid_tasks(
+                df_to_filter=df_results,
+                df_filter=df_filter,
+            )
+    elif only_valid_tasks and new_results is not None:
+        df_results = filter_to_valid_tasks(
+            df_to_filter=df_results,
+            df_filter=new_results,
+        )
 
     if subset is not None or folds is not None:
         if subset is None:
@@ -86,13 +102,13 @@ def compare(
     remove_imputed: bool = False,
 ):
     df_results = df_results.copy()
-    if "method_type" not in df_results:
+    if "method_type" not in df_results.columns:
         df_results["method_type"] = "baseline"
-    if "method_subtype" not in df_results:
+    if "method_subtype" not in df_results.columns:
         df_results["method_subtype"] = np.nan
-    if "config_type" not in df_results:
-        df_results["config_type"] = None
-    if "imputed" not in df_results:
+    if "config_type" not in df_results.columns:
+        df_results["config_type"] = np.nan
+    if "imputed" not in df_results.columns:
         df_results["imputed"] = False
 
     if isinstance(fillna, str):
@@ -116,13 +132,6 @@ def compare(
 
     imputed_names = get_imputed_names(df_results=df_results)
 
-    baselines = list(
-        df_results[
-            df_results["method_type"].isin(['baseline', 'portfolio']) |
-            ((df_results["method_type"] == "config") & df_results["method_subtype"].isna())
-        ]["method"].unique()
-    )
-
     plotter = TabArenaEvaluator(
         output_dir=output_dir,
         task_metadata=task_metadata,
@@ -131,7 +140,6 @@ def compare(
 
     return plotter.eval(
         df_results=df_results,
-        baselines=baselines,
         imputed_names=imputed_names,
         plot_extra_barplots=False,
         plot_times=True,

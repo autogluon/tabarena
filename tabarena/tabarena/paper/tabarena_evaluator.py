@@ -224,23 +224,6 @@ class TabArenaEvaluator:
         leaderboard_kwargs = leaderboard_kwargs.copy()
         if calibration_framework is not None and calibration_framework == "auto":
             calibration_framework = "RF (default)"
-        if baselines is None:
-            baselines = []
-        elif baselines == "auto":
-            baselines = list(
-                df_results[df_results["method_type"].isin(["baseline", "portfolio"])][self.method_col].unique()
-            )
-        if baseline_colors is None:
-            default_baseline_colors = [
-                "black",
-                "purple",
-                "darkgray",
-                "blue",
-                "red",
-            ]
-            # Assign colors dynamically, cycling if baselines > baseline_colors
-            baseline_colors = list(itertools.islice(itertools.cycle(default_baseline_colors), len(baselines)))
-        assert len(baselines) == len(baseline_colors)
         df_results = df_results.copy(deep=True)
         if "method_metadata" in df_results.columns:
             # currently no need to use this column
@@ -252,8 +235,6 @@ class TabArenaEvaluator:
         # rename methods
         _rename_dict = self._rename_dict()
         df_results[self.method_col] = df_results[self.method_col].map(_rename_dict).fillna(df_results[self.method_col])
-        baselines = [_rename_dict.get(b, b) for b in baselines]
-        assert len(baselines) == len(list(set(baselines))), f"Duplicates keys found in baselines: {baselines}"
         if calibration_framework is not None:
             calibration_framework = _rename_dict.get(calibration_framework, calibration_framework)
 
@@ -266,6 +247,15 @@ class TabArenaEvaluator:
         self.assert_no_nan_methods(df_results=df_results)
 
         df_results = self.filter_results(df_results=df_results)
+
+        if isinstance(baselines, list):
+            baselines = [_rename_dict.get(b, b) for b in baselines]
+        baselines, baseline_colors = self._process_baselines(
+            df_results=df_results,
+            baselines=baselines,
+            baseline_colors=baseline_colors,
+        )
+
         framework_types = self._get_config_types(df_results=df_results[~df_results["method"].isin(baselines)])
 
         df_results_rank_compare = copy.deepcopy(df_results)
@@ -1672,6 +1662,45 @@ class TabArenaEvaluator:
         )
 
         return df
+
+    def _process_baselines(
+        self,
+        df_results: pd.DataFrame, baselines: list[str] | None | str,
+        baseline_colors: list[str] | None,
+    ) -> tuple[list[str], list[str]]:
+        methods = df_results[self.method_col].unique()
+
+        if baselines is None:
+            baselines = []
+        elif baselines == "auto":
+            baselines = list(
+                df_results[
+                    df_results["method_type"].isin(["baseline", "portfolio"]) |
+                    ((df_results["method_type"] == "config") & df_results["method_subtype"].isna())
+                ][self.method_col].unique()
+            )
+        else:
+            missing_baselines = [b for b in baselines if b not in methods]
+            if missing_baselines:
+                print(f"Missing specified baselines: {missing_baselines}")
+        if baseline_colors is None:
+            default_baseline_colors = [
+                "black",
+                "purple",
+                "blue",
+                "red",
+                "darkgray",
+            ]
+            # Assign colors dynamically, cycling if baselines > baseline_colors
+            baseline_colors = list(itertools.islice(itertools.cycle(default_baseline_colors), len(baselines)))
+        assert len(baselines) == len(baseline_colors)
+        assert len(baselines) == len(list(set(baselines))), f"Duplicates keys found in baselines: {baselines}"
+        # Filter both baselines and baseline_colors using the same mask
+        filtered = [(b, c) for b, c in zip(baselines, baseline_colors) if b in methods]
+
+        baselines = [b for b, _ in filtered]
+        baseline_colors = [c for _, c in filtered]
+        return baselines, baseline_colors
 
     @classmethod
     def _get_ensemble_weights(
