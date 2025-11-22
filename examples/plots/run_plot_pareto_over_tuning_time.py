@@ -58,6 +58,8 @@ def plot_hpo(
         If provided, sorts each method’s points by this numeric column (ascending),
         and highlights the point with the highest value of this column using a different marker.
     """
+    if sort_col is not None:
+        assert sort_col in df.columns
     # Build a 60-color palette from tab20 / tab20b / tab20c
     colors60 = (
         list(sns.color_palette("tab20", 20))
@@ -203,7 +205,7 @@ def plot_hpo(
 
 def plot_pareto_n_configs(
     fig_save_dir: str | Path = Path("plots") / "n_configs",
-    average_seeds: bool = True,
+    average_seeds: bool = False,
     exclude_imputed: bool = True,
     ban_bad_methods: bool = True,
 ):
@@ -216,52 +218,20 @@ def plot_pareto_n_configs(
 
     fig_save_dir = Path(fig_save_dir)
 
-    # Hardcoded for the paper to match the other plots
-    method_order = [
-        'RealMLP',
-        'TabM',
-        'CatBoost',
-        'ModernNCA',
-        'LightGBM',
-        'XGBoost',
-        'TorchMLP',
-        'TabDPT',
-        'FastaiMLP',
-        'EBM',
-        'ExtraTrees',
-        'RandomForest',
-    ]
+    tabarena_context = TabArenaContext()
+
+    method_metadata_lst = tabarena_context.method_metadata_collection.method_metadata_lst
+    method_metadata_lst = [m for m in method_metadata_lst if m.method_type == "config"]
+    results_hpo_lst = []
+    for m in method_metadata_lst:
+        results_hpo_trajectory = m.load_hpo_trajectories()
+        results_hpo_lst.append(results_hpo_trajectory)
+    results_hpo = pd.concat(results_hpo_lst, ignore_index=True)
 
     method_rename_map = get_method_rename_map()
-    method_rename_map["REALMLP"] = "RealMLP"
-    framework_types = list(method_rename_map.keys())
-
-    # results_file = "hpo_new_lb.parquet"
-    # s3_path = "s3://tabarena/tmp/camera_ready/hpo_new_lb.parquet"
-
-    results_file = "hpo_camera_ready_lb.parquet"
-    s3_path = "s3://tabarena/tmp/camera_ready/hpo_camera_ready_lb.parquet"
-    from autogluon.common.savers import save_pd
-
-    try:
-        results_hpo = load_pd.load(path=results_file)
-    except:
-        print(f"Downloading from s3: {s3_path}")
-        # download from s3 if missing
-        results_hpo = load_pd.load(path=s3_path)
-        save_pd.save(path=results_file, df=results_hpo)
-        results_hpo = load_pd.load(path=results_file)
-    # save_pd.save(path=s3_path, df=results_hpo)
 
     if exclude_imputed:
         results_hpo = results_hpo[~results_hpo["config_type"].isin(imputed_methods)]
-
-    use_old_lb = True
-    if use_old_lb:
-        methods_lst = [m for m in tabarena_method_metadata_2025_06_12_collection_main.method_metadata_lst if m.method_type != "portfolio"]
-        tabarena_context = TabArenaContext(methods=methods_lst)
-    else:
-        tabarena_context = TabArenaContext()
 
     calibration_framework = "RF (default)"
     elo_bootstrap_rounds = 1
@@ -288,7 +258,7 @@ def plot_pareto_n_configs(
     if include_portfolio:
         results_portfolio = load_pd.load(path="rebuttal_portfolio_n_configs.parquet")
         results_portfolio["config_type"] = results_portfolio["method"]
-        results_portfolio["method"] = results_portfolio["method"] + "-" + results_portfolio["n_portfolio"].astype(str)
+        results_portfolio["method"] = results_portfolio["method"] + "-" + results_portfolio["n_configs"].astype(str)
         results_lst.append(results_portfolio)
 
     results_hpo = pd.concat(results_lst, ignore_index=True)
@@ -367,14 +337,14 @@ def plot_pareto_n_configs(
     with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
         print(leaderboard)
 
-    methods_map = results_hpo[["method", "n_portfolio", "n_ensemble", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
+    methods_map = results_hpo[["method", "n_configs", "n_ensemble", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
     leaderboard = leaderboard[leaderboard["method"].isin(methods_map.index)]
-    leaderboard["n_portfolio"] = leaderboard["method"].map(methods_map["n_portfolio"])
+    leaderboard["n_configs"] = leaderboard["method"].map(methods_map["n_configs"])
     leaderboard["config_type"] = leaderboard["method"].map(methods_map["config_type"])
 
     leaderboard["name"] = leaderboard["config_type"]
 
-    leaderboard = leaderboard.sort_values(by=["config_type", "n_portfolio"])
+    leaderboard = leaderboard.sort_values(by=["config_type", "n_configs"])
 
     leaderboard["Elo"] = leaderboard["elo"]
     leaderboard["Elo (Test)"] = leaderboard["Elo"]
@@ -403,8 +373,7 @@ def plot_pareto_n_configs(
         leaderboard = leaderboard[~leaderboard["config_type"].isin(bad_methods)]
 
     plot_kwargs = {
-        "sort_col": "n_portfolio",
-        "method_order": method_order,
+        "sort_col": "n_configs",
     }
 
     plot_hpo(
