@@ -13,6 +13,7 @@ common_kwargs = dict(
     has_raw=True,
     has_processed=True,
     has_results=True,
+    verified=True,
 )
 
 s3_cache_kwargs = dict(

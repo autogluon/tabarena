@@ -13,8 +13,8 @@ from bencheval.tabarena import TabArena
 from autogluon.common.loaders import load_pd
 
 from tabarena.paper.paper_utils import get_method_rename_map
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata import tabarena_method_metadata_2025_06_12_collection_main
 from tabarena.plot.plot_pareto_frontier import plot_optimal_arrow
+from tabarena.nips2025_utils.compare import subset_tasks
 
 
 def plot_hpo(
@@ -27,6 +27,7 @@ def plot_hpo(
     method_col: str = "name",
     xlog: bool = True,
     color_by_rank: bool = True,
+    rank_by_y: bool = True,
     sort_col: str | None = None,
     method_order: list[str] | None = None,
     optimal_arrow: bool = True,
@@ -58,6 +59,8 @@ def plot_hpo(
         If provided, sorts each method’s points by this numeric column (ascending),
         and highlights the point with the highest value of this column using a different marker.
     """
+    if sort_col is not None:
+        assert sort_col in df.columns
     # Build a 60-color palette from tab20 / tab20b / tab20c
     colors60 = (
         list(sns.color_palette("tab20", 20))
@@ -68,13 +71,21 @@ def plot_hpo(
     method_names = list(df[method_col].unique())
 
     # Determine peak per method (max if max_Y else min)
-    if max_Y:
-        peak_per_method = {m: df.loc[df[method_col] == m, ylabel].max() for m in method_names}
+    if rank_by_y:
+        if max_Y:
+            peak_per_method = {m: df.loc[df[method_col] == m, ylabel].max() for m in method_names}
+        else:
+            peak_per_method = {m: df.loc[df[method_col] == m, ylabel].min() for m in method_names}
+        reverse_sort = max_Y
     else:
-        peak_per_method = {m: df.loc[df[method_col] == m, ylabel].min() for m in method_names}
+        if max_X:
+            peak_per_method = {m: df.loc[df[method_col] == m, xlabel].max() for m in method_names}
+        else:
+            peak_per_method = {m: df.loc[df[method_col] == m, xlabel].min() for m in method_names}
+        reverse_sort = max_X
 
     # Sort by peak and create a stable color map (alphabetical)
-    sorted_methods = sorted(method_names, key=lambda m: peak_per_method[m], reverse=max_Y)
+    sorted_methods = sorted(method_names, key=lambda m: peak_per_method[m], reverse=reverse_sort)
     base_methods_for_colors = sorted_methods if color_by_rank else sorted(method_names)
 
     if method_order:
@@ -201,107 +212,20 @@ def plot_hpo(
     fig.savefig(str(save_path))
 
 
-def plot_pareto_n_configs(
-    fig_save_dir: str | Path = Path("plots") / "n_configs",
-    average_seeds: bool = True,
-    exclude_imputed: bool = True,
-    ban_bad_methods: bool = True,
+def compute_tuning_trajectories_leaderboard(
+    combined_data: pd.DataFrame,
+    methods_map: pd.DataFrame,
+    calibration_framework: str,
+    exclude_imputed: bool,
+    elo_bootstrap_rounds: int = 1,
+    average_seeds: bool = False,
+    subset: str | list[str] | None = None,
 ):
-    include_portfolio = False
-    include_hpo_seeds = False
-    imputed_methods = [
-        "TABPFNV2_GPU",
-        "TABICL_GPU",
-    ]
-
-    fig_save_dir = Path(fig_save_dir)
-
-    # Hardcoded for the paper to match the other plots
-    method_order = [
-        'RealMLP',
-        'TabM',
-        'CatBoost',
-        'ModernNCA',
-        'LightGBM',
-        'XGBoost',
-        'TorchMLP',
-        'TabDPT',
-        'FastaiMLP',
-        'EBM',
-        'ExtraTrees',
-        'RandomForest',
-    ]
-
-    method_rename_map = get_method_rename_map()
-    method_rename_map["REALMLP"] = "RealMLP"
-    framework_types = list(method_rename_map.keys())
-
-    # results_file = "hpo_new_lb.parquet"
-    # s3_path = "s3://tabarena/tmp/camera_ready/hpo_new_lb.parquet"
-
-    results_file = "hpo_camera_ready_lb.parquet"
-    s3_path = "s3://tabarena/tmp/camera_ready/hpo_camera_ready_lb.parquet"
-    from autogluon.common.savers import save_pd
-
-    try:
-        results_hpo = load_pd.load(path=results_file)
-    except:
-        print(f"Downloading from s3: {s3_path}")
-        # download from s3 if missing
-        results_hpo = load_pd.load(path=s3_path)
-        save_pd.save(path=results_file, df=results_hpo)
-        results_hpo = load_pd.load(path=results_file)
-    # save_pd.save(path=s3_path, df=results_hpo)
-
-    if exclude_imputed:
-        results_hpo = results_hpo[~results_hpo["config_type"].isin(imputed_methods)]
-
-    use_old_lb = True
-    if use_old_lb:
-        methods_lst = [m for m in tabarena_method_metadata_2025_06_12_collection_main.method_metadata_lst if m.method_type != "portfolio"]
-        tabarena_context = TabArenaContext(methods=methods_lst)
-    else:
-        tabarena_context = TabArenaContext()
-
-    calibration_framework = "RF (default)"
-    elo_bootstrap_rounds = 1
-
-    result_baselines = tabarena_context.load_results_paper()
-    task_metadata = tabarena_context.task_metadata
-
-    results_hpo_mean = results_hpo.copy().groupby(["method", "dataset", "fold", "problem_type", "metric", "config_type"]).mean(
-        numeric_only=True
-    ).drop(columns=["seed"]).reset_index()
-
-    results_lst = [
-        results_hpo_mean,
-    ]
-
-    if include_hpo_seeds:
-        results_hpo_seeds = results_hpo.copy()
-        results_hpo_seeds["method"] = results_hpo_seeds["method"] + "-" + results_hpo_seeds["seed"].astype(str)
-        results_hpo_seeds["config_type"] = results_hpo_seeds["config_type"] + "-" + results_hpo_seeds["seed"].astype(str)
-        results_hpo_seeds = results_hpo_seeds.groupby(["method", "dataset", "fold", "problem_type", "metric", "config_type"]).mean(
-            numeric_only=True).reset_index()
-        results_lst.append(results_hpo_seeds)
-
-    if include_portfolio:
-        results_portfolio = load_pd.load(path="rebuttal_portfolio_n_configs.parquet")
-        results_portfolio["config_type"] = results_portfolio["method"]
-        results_portfolio["method"] = results_portfolio["method"] + "-" + results_portfolio["n_portfolio"].astype(str)
-        results_lst.append(results_portfolio)
-
-    results_hpo = pd.concat(results_lst, ignore_index=True)
-    combined_data = pd.concat([result_baselines, results_hpo], ignore_index=True)
-
-    # ----- add times per 1K samples -----
-    dataset_to_n_samples_train = tabarena_context.task_metadata.set_index("name")["n_samples_train_per_fold"].to_dict()
-    dataset_to_n_samples_test = tabarena_context.task_metadata.set_index("name")["n_samples_test_per_fold"].to_dict()
-
-    combined_data['time_train_s_per_1K'] = combined_data['time_train_s'] * 1000 / combined_data["dataset"].map(
-        dataset_to_n_samples_train)
-    combined_data['time_infer_s_per_1K'] = combined_data['time_infer_s'] * 1000 / combined_data["dataset"].map(
-        dataset_to_n_samples_test)
+    combined_data = combined_data.copy()
+    if subset is not None:
+        if isinstance(subset, str):
+            subset = [subset]
+        combined_data = subset_tasks(df_results=combined_data, subset=subset)
 
     tabarena_init_kwargs = dict(
         task_col="dataset",
@@ -325,12 +249,22 @@ def plot_pareto_n_configs(
         error_col="metric_error_val",
     )
 
-    combined_data = combined_data[~combined_data["metric_error_val"].isna()]
-
-    combined_data = arena.fillna_data(
-        data=combined_data,
-        fillna_method=calibration_framework,
+    # FIXME: This isn't correct
+    # combined_data = arena.fillna_data(
+    #     data=combined_data,
+    #     fillna_method=calibration_framework,
+    # )
+    # FIXME: Using this since it does it correctly
+    combined_data = TabArenaContext.fillna_metrics(
+        df_to_fill=combined_data,
+        df_fillna=combined_data[combined_data["method"] == calibration_framework],
     )
+
+    if exclude_imputed:
+        imputed_methods_count = combined_data.groupby("method")["imputed"].sum()
+        imputed_methods = sorted(list(imputed_methods_count[imputed_methods_count > 0].index))
+        print(f"Excluding {len(imputed_methods)} imputed methods: {imputed_methods}")
+        combined_data = combined_data[~combined_data["method"].isin(imputed_methods)]
 
     results_per_task = arena.compute_results_per_task(data=combined_data)
 
@@ -367,14 +301,13 @@ def plot_pareto_n_configs(
     with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
         print(leaderboard)
 
-    methods_map = results_hpo[["method", "n_portfolio", "n_ensemble", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
     leaderboard = leaderboard[leaderboard["method"].isin(methods_map.index)]
-    leaderboard["n_portfolio"] = leaderboard["method"].map(methods_map["n_portfolio"])
+    leaderboard["n_configs"] = leaderboard["method"].map(methods_map["n_configs"])
     leaderboard["config_type"] = leaderboard["method"].map(methods_map["config_type"])
 
     leaderboard["name"] = leaderboard["config_type"]
 
-    leaderboard = leaderboard.sort_values(by=["config_type", "n_portfolio"])
+    leaderboard = leaderboard.sort_values(by=["config_type", "n_configs"])
 
     leaderboard["Elo"] = leaderboard["elo"]
     leaderboard["Elo (Test)"] = leaderboard["Elo"]
@@ -393,18 +326,122 @@ def plot_pareto_n_configs(
 
     leaderboard['Train time per 1K samples (s) (median)'] = leaderboard["median_time_train_s_per_1K"]
     leaderboard['Inference time per 1K samples (s) (median)'] = leaderboard["median_time_infer_s_per_1K"]
+    return leaderboard
 
-    leaderboard["name"] = leaderboard["name"].map(method_rename_map).fillna(leaderboard["name"])
 
-    file_ext = ".pdf"
+def plot_tuning_trajectories(
+    tabarena_context: TabArenaContext = None,
+    subset_map: dict[str, list[str]] | None = None,
+    fig_save_dir: str | Path = Path("plots") / "n_configs",
+    average_seeds: bool = False,
+    exclude_imputed: bool = True,
+    ban_bad_methods: bool = True,
+    include_portfolio: bool = False,  # TODO: True not yet supported
+    file_ext: str = ".pdf",
+):
+    if subset_map is None:
+        subset_map = {
+            "all": [],
+        }
 
-    if ban_bad_methods:
-        bad_methods = ["KNN", "LR"]
-        leaderboard = leaderboard[~leaderboard["config_type"].isin(bad_methods)]
+    if tabarena_context is None:
+        tabarena_context = TabArenaContext(
+            include_unverified=True,
+        )
+    include_hpo_seeds = False
 
+    fig_save_dir = Path(fig_save_dir)
+
+    calibration_framework = "RF (default)"
+    elo_bootstrap_rounds = 1
+    method_rename_map = get_method_rename_map()  # TODO: avoid hard-coding
+
+    method_metadata_lst = tabarena_context.method_metadata_collection.method_metadata_lst
+    method_metadata_lst = [m for m in method_metadata_lst if m.method_type == "config"]
+    results_hpo_lst = []
+    for m in method_metadata_lst:
+        results_hpo_trajectory = m.load_hpo_trajectories()
+        results_hpo_lst.append(results_hpo_trajectory)
+    results_hpo = pd.concat(results_hpo_lst, ignore_index=True)
+
+    result_baselines = tabarena_context.load_results_paper()
+    task_metadata = tabarena_context.task_metadata
+
+    results_hpo_mean = results_hpo.copy().groupby(["method", "dataset", "fold", "problem_type", "metric", "config_type"]).mean(
+        numeric_only=True
+    ).drop(columns=["seed"]).reset_index()
+    results_hpo_mean["imputed"] = 0
+    results_hpo_mean["imputed"] = results_hpo_mean["imputed"].astype(bool)
+
+    results_lst = [
+        results_hpo_mean,
+    ]
+
+    if include_hpo_seeds:
+        results_hpo_seeds = results_hpo.copy()
+        results_hpo_seeds["method"] = results_hpo_seeds["method"] + "-" + results_hpo_seeds["seed"].astype(str)
+        results_hpo_seeds["config_type"] = results_hpo_seeds["config_type"] + "-" + results_hpo_seeds["seed"].astype(str)
+        results_hpo_seeds = results_hpo_seeds.groupby(["method", "dataset", "fold", "problem_type", "metric", "config_type"]).mean(
+            numeric_only=True).reset_index()
+        results_lst.append(results_hpo_seeds)
+
+    if include_portfolio:  # TODO: This only works if you have legacy files, add general support for portfolio
+        results_portfolio = load_pd.load(path="../tabarena/advanced/rebuttal/rebuttal_portfolio_n_configs.parquet")
+        results_portfolio["config_type"] = results_portfolio["method"]
+        results_portfolio = results_portfolio.rename(columns={
+            "n_portfolio": "n_configs",
+            "n_ensembles": "n_iterations",
+        })
+        results_portfolio["method"] = results_portfolio["method"] + "-" + results_portfolio["n_configs"].astype(str)
+        results_portfolio["imputed"] = 0
+        results_portfolio["imputed"] = results_portfolio["imputed"].astype(bool)
+        results_lst.append(results_portfolio)
+
+    results_hpo = pd.concat(results_lst, ignore_index=True)
+    combined_data = pd.concat([result_baselines, results_hpo], ignore_index=True)
+
+    # ----- add times per 1K samples -----
+    dataset_to_n_samples_train = tabarena_context.task_metadata.set_index("name")["n_samples_train_per_fold"].to_dict()
+    dataset_to_n_samples_test = tabarena_context.task_metadata.set_index("name")["n_samples_test_per_fold"].to_dict()
+
+    combined_data['time_train_s_per_1K'] = combined_data['time_train_s'] * 1000 / combined_data["dataset"].map(
+        dataset_to_n_samples_train)
+    combined_data['time_infer_s_per_1K'] = combined_data['time_infer_s'] * 1000 / combined_data["dataset"].map(
+        dataset_to_n_samples_test)
+
+    methods_map = results_hpo[["method", "n_configs", "n_iterations", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
+
+    for subset_name, subset in subset_map.items():
+        leaderboard = compute_tuning_trajectories_leaderboard(
+            combined_data=combined_data,
+            methods_map=methods_map,
+            calibration_framework=calibration_framework,
+            exclude_imputed=exclude_imputed,
+            elo_bootstrap_rounds=elo_bootstrap_rounds,
+            average_seeds=average_seeds,
+            subset=subset,
+        )
+        leaderboard["name"] = leaderboard["name"].map(method_rename_map).fillna(leaderboard["name"])
+
+        if ban_bad_methods:
+            bad_methods = ["KNN", "LR"]
+            leaderboard = leaderboard[~leaderboard["config_type"].isin(bad_methods)]
+
+        fig_save_dir_subset = fig_save_dir / subset_name
+        plot_tuning_trajectories_from_leaderboard(
+            leaderboard=leaderboard,
+            fig_save_dir=fig_save_dir_subset,
+            file_ext=file_ext,
+        )
+
+
+def plot_tuning_trajectories_from_leaderboard(
+    leaderboard: pd.DataFrame,
+    fig_save_dir: Path,
+    file_ext: str = ".pdf",
+):
     plot_kwargs = {
-        "sort_col": "n_portfolio",
-        "method_order": method_order,
+        "sort_col": "n_configs",
     }
 
     plot_hpo(
@@ -511,6 +548,18 @@ def plot_pareto_n_configs(
 
     plot_hpo(
         df=leaderboard,
+        xlabel="Baseline Advantage (%) (Test)",
+        ylabel="Baseline Advantage (%) (Test - Val)",
+        save_path=fig_save_dir / f"pareto_n_configs_adv_overfit_v2{file_ext}",
+        max_Y=True,
+        max_X=True,
+        xlog=False,
+        rank_by_y=False,
+        **plot_kwargs,
+    )
+
+    plot_hpo(
+        df=leaderboard,
         xlabel="Train time per 1K samples (s) (median)",
         ylabel="Elo (Val) - Elo (Test)",
         save_path=fig_save_dir / f"pareto_n_configs_elo_overfit{file_ext}",
@@ -529,4 +578,4 @@ def plot_pareto_n_configs(
 
 
 if __name__ == "__main__":
-    plot_pareto_n_configs()
+    plot_tuning_trajectories()

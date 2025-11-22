@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from tabarena.nips2025_utils.artifacts.method_uploader import MethodUploaderS3
 
 
+# FIXME: Implement `best` and `best-N`
 class MethodMetadata:
     def __init__(
         self,
@@ -45,6 +46,7 @@ class MethodMetadata:
         has_raw: bool = False,
         has_processed: bool = False,
         has_results: bool = False,
+        verified: bool = False,
         use_artifact_name_in_prefix: bool = False,
         s3_bucket: str = None,
         s3_prefix: str = None,
@@ -68,6 +70,7 @@ class MethodMetadata:
         self.has_raw = has_raw
         self.has_processed = has_processed
         self.has_results = has_results
+        self.verified = verified
         self.use_artifact_name_in_prefix = use_artifact_name_in_prefix
         if can_hpo is None:
             can_hpo = self.method_type == "config"
@@ -661,6 +664,45 @@ class MethodMetadata:
             save_pd.save(path=self.path_results_hpo_trajectories(holdout=holdout), df=df_results_hpo_combined)
 
         return df_results_hpo_combined
+
+    def load_hpo_trajectories(self, holdout: bool = False, download: bool | str = "auto") -> pd.DataFrame:
+        path_local = self.path_results_hpo_trajectories(holdout=holdout)
+        if download == "auto":
+            download = not path_local.exists()
+            if download:
+                print(f"Downloading hpo trajectories for {self.method}...")
+        if download:
+            self.method_downloader().download_results_hpo_trajectories(holdout=holdout)
+        return pd.read_parquet(path=path_local)
+
+    def generate_best(
+        self,
+        repo: EvaluationRepository = None,
+        n_configs: int = 1,
+        n_iterations: int = 40,
+        backend: Literal["ray", "native"] = "ray",
+        holdout: bool = False,
+        time_limit: float = None,
+        **kwargs,
+    ):
+        if repo is None:
+            repo = self.load_processed(as_holdout=holdout)
+        simulator = PaperRunTabArena(repo=repo, backend=backend)
+        df_results_best = simulator.run_zs(
+            n_portfolios=n_configs,
+            n_ensemble=n_iterations,
+            n_ensemble_in_name=True,
+            time_limit=time_limit,
+            **kwargs,
+        )
+        df_results_best = df_results_best.rename(columns={"framework": "method"})
+        df_results_best["method"] = f"{self.config_type} (best)"
+        df_results_best["method_subtype"] = "best"
+        df_results_best["n_configs"] = n_configs
+        df_results_best["n_iterations"] = n_iterations
+        df_results_best["ta_name"] = self.method
+        df_results_best["ta_suite"] = self.artifact_name
+        return df_results_best
 
     @property
     def path_metadata(self) -> Path:

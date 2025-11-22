@@ -62,6 +62,7 @@ class TabArenaEvaluator:
         keep_best: bool = False,
         figure_file_type: str = "pdf",
         use_latex: bool = False,
+        tabarena_context=None,  # FIXME: Remove this and refactor after leaderboard v0.2 upload, this is purely to get things working fast
     ):
         """
 
@@ -133,6 +134,16 @@ class TabArenaEvaluator:
             "Tuned, Holdout": "<",
             "Tuned + Ens., Holdout": ">",
         }
+
+        if tabarena_context is not None:
+            self.method_metadata_info = tabarena_context.method_metadata_collection.info()
+            self.method_metadata_info = self.method_metadata_info.rename(columns={
+                "method": "ta_name",
+                "artifact_name": "ta_suite",
+            })
+            self.method_metadata_info = self.method_metadata_info.drop(columns=["method_type"])
+        else:
+            self.method_metadata_info = None
 
     def compute_normalized_error_dynamic(self, df_results: pd.DataFrame) -> pd.DataFrame:
         df_results = df_results.copy(deep=True)
@@ -224,23 +235,6 @@ class TabArenaEvaluator:
         leaderboard_kwargs = leaderboard_kwargs.copy()
         if calibration_framework is not None and calibration_framework == "auto":
             calibration_framework = "RF (default)"
-        if baselines is None:
-            baselines = []
-        elif baselines == "auto":
-            baselines = list(
-                df_results[df_results["method_type"].isin(["baseline", "portfolio"])][self.method_col].unique()
-            )
-        if baseline_colors is None:
-            default_baseline_colors = [
-                "black",
-                "purple",
-                "darkgray",
-                "blue",
-                "red",
-            ]
-            # Assign colors dynamically, cycling if baselines > baseline_colors
-            baseline_colors = list(itertools.islice(itertools.cycle(default_baseline_colors), len(baselines)))
-        assert len(baselines) == len(baseline_colors)
         df_results = df_results.copy(deep=True)
         if "method_metadata" in df_results.columns:
             # currently no need to use this column
@@ -252,8 +246,6 @@ class TabArenaEvaluator:
         # rename methods
         _rename_dict = self._rename_dict()
         df_results[self.method_col] = df_results[self.method_col].map(_rename_dict).fillna(df_results[self.method_col])
-        baselines = [_rename_dict.get(b, b) for b in baselines]
-        assert len(baselines) == len(list(set(baselines))), f"Duplicates keys found in baselines: {baselines}"
         if calibration_framework is not None:
             calibration_framework = _rename_dict.get(calibration_framework, calibration_framework)
 
@@ -266,6 +258,15 @@ class TabArenaEvaluator:
         self.assert_no_nan_methods(df_results=df_results)
 
         df_results = self.filter_results(df_results=df_results)
+
+        if isinstance(baselines, list):
+            baselines = [_rename_dict.get(b, b) for b in baselines]
+        baselines, baseline_colors = self._process_baselines(
+            df_results=df_results,
+            baselines=baselines,
+            baseline_colors=baseline_colors,
+        )
+
         framework_types = self._get_config_types(df_results=df_results[~df_results["method"].isin(baselines)])
 
         df_results_rank_compare = copy.deepcopy(df_results)
@@ -279,6 +280,9 @@ class TabArenaEvaluator:
         # ----- end removing unused methods -----
 
         method_info: pd.DataFrame = self.get_method_info(df=df_results_rank_compare)
+        if self.method_metadata_info is not None:
+            method_info_full = pd.merge(left=method_info.reset_index(), right=self.method_metadata_info, on=["ta_name", "ta_suite"])
+            save_pd.save(path=self.output_dir / "method_info.csv", df=method_info_full)
         save_pd.save(path=self.output_dir / "results_per_split.csv", df=df_results_rank_compare)
 
         # ----- add times per 1K samples -----
@@ -1672,6 +1676,45 @@ class TabArenaEvaluator:
         )
 
         return df
+
+    def _process_baselines(
+        self,
+        df_results: pd.DataFrame, baselines: list[str] | None | str,
+        baseline_colors: list[str] | None,
+    ) -> tuple[list[str], list[str]]:
+        methods = df_results[self.method_col].unique()
+
+        if baselines is None:
+            baselines = []
+        elif baselines == "auto":
+            baselines = list(
+                df_results[
+                    df_results["method_type"].isin(["baseline", "portfolio"]) |
+                    ((df_results["method_type"] == "config") & df_results["method_subtype"].isna())
+                ][self.method_col].unique()
+            )
+        else:
+            missing_baselines = [b for b in baselines if b not in methods]
+            if missing_baselines:
+                print(f"Missing specified baselines: {missing_baselines}")
+        if baseline_colors is None:
+            default_baseline_colors = [
+                "black",
+                "purple",
+                "blue",
+                "red",
+                "darkgray",
+            ]
+            # Assign colors dynamically, cycling if baselines > baseline_colors
+            baseline_colors = list(itertools.islice(itertools.cycle(default_baseline_colors), len(baselines)))
+        assert len(baselines) == len(baseline_colors)
+        assert len(baselines) == len(list(set(baselines))), f"Duplicates keys found in baselines: {baselines}"
+        # Filter both baselines and baseline_colors using the same mask
+        filtered = [(b, c) for b, c in zip(baselines, baseline_colors) if b in methods]
+
+        baselines = [b for b, _ in filtered]
+        baseline_colors = [c for _, c in filtered]
+        return baselines, baseline_colors
 
     @classmethod
     def _get_ensemble_weights(

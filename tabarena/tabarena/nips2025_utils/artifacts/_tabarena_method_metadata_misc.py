@@ -23,4 +23,5 @@ gbm_aio_0808_metadata = MethodMetadata(
     is_bag=True,
     s3_bucket="tabarena",
     s3_prefix="cache_aio",
+    verified=False,
 )

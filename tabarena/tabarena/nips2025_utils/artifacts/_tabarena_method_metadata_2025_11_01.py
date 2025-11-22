@@ -13,6 +13,7 @@ _common_kwargs = dict(
     method_type="baseline",
     name_suffix=None,
     date="2025-11-01",
+    verified=True,
 )
 
 _gpu_kwargs = dict(

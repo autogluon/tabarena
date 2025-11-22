@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from run_plot_pareto_over_tuning_time import plot_pareto_n_configs
+from run_plot_pareto_over_tuning_time import plot_tuning_trajectories
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
@@ -29,12 +29,12 @@ if __name__ == "__main__":
     )
 
     if plot_n_configs:
-        plot_pareto_n_configs(
+        plot_tuning_trajectories(
             fig_save_dir=Path(save_path) / "n_configs",
             average_seeds=True,
         )
 
-        plot_pareto_n_configs(
+        plot_tuning_trajectories(
             fig_save_dir=Path(save_path) / "no_average_seeds" / "n_configs",
             average_seeds=False,
         )

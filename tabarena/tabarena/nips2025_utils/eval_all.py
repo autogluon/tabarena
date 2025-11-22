@@ -10,6 +10,7 @@ from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 
 
 def evaluate_all(
+    tabarena_context,
     df_results: pd.DataFrame,
     eval_save_path: str | Path,
     elo_bootstrap_rounds: int = 200,
@@ -73,6 +74,7 @@ def evaluate_all(
             custom_folder_name += f"/datasets_{dataset_subset_name}"
 
         evaluate_single(
+            tabarena_context=tabarena_context,
             df_results=df_results,
             use_imputation=use_imputation,
             problem_type=problem_type,
@@ -90,6 +92,7 @@ def evaluate_all(
 
 
 def evaluate_single(
+    tabarena_context,
     df_results,
     use_imputation,
     problem_type,
@@ -159,6 +162,7 @@ def evaluate_single(
     plotter = TabArenaEvaluator(
         output_dir=eval_save_path / folder_name,
         elo_bootstrap_rounds=elo_bootstrap_rounds,
+        tabarena_context=tabarena_context,
         **evaluator_kwargs,
     )
 

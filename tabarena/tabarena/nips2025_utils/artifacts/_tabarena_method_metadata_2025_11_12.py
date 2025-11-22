@@ -18,4 +18,5 @@ realtabpfn25_metadata = MethodMetadata(
     upload_as_public=True,
     has_results=True,
     name_suffix=None,
+    verified=True,
 )
