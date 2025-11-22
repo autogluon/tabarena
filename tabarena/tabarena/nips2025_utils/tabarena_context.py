@@ -51,9 +51,9 @@ _methods_paper = [
     "TabPFNv2_GPU",
 
     "xRFM_GPU",
-    # "LimiX_GPU",
-    # "BetaTabPFN_GPU",
-    # "TabFlex_GPU",
+    "LimiX_GPU",
+    "BetaTabPFN_GPU",
+    "TabFlex_GPU",
     "RealTabPFN-v2.5",
 ]
 
@@ -74,15 +74,18 @@ class TabArenaContext:
             if methods != "tabarena":
                 raise ValueError(f"Unknown methods preset '{methods}'.")
             methods = copy.deepcopy(_methods_paper)
-            if include_unverified:
-                methods.extend([
-                    "LimiX_GPU",
-                    "BetaTabPFN_GPU",
-                    "TabFlex_GPU",
-                ])
             method_metadata_lst: list[MethodMetadata] = copy.deepcopy(
                 tabarena_method_metadata_collection.method_metadata_lst
             )
+
+            method_metadata_lst = [m for m in method_metadata_lst if m.method in methods]
+
+            if not include_unverified:
+                method_metadata_lst = [m for m in method_metadata_lst if m.verified]
+
+            method_metadata_name_set = {m.method for m in method_metadata_lst}
+            methods = [m for m in methods if m in method_metadata_name_set]
+
         else:
             method_metadata_lst = methods
             methods = [m.method for m in method_metadata_lst]

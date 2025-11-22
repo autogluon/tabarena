@@ -388,7 +388,10 @@ def plot_tuning_trajectories(
     if include_portfolio:  # TODO: This only works if you have legacy files, add general support for portfolio
         results_portfolio = load_pd.load(path="../tabarena/advanced/rebuttal/rebuttal_portfolio_n_configs.parquet")
         results_portfolio["config_type"] = results_portfolio["method"]
-        results_portfolio = results_portfolio.rename(columns={"n_portfolio": "n_configs"})
+        results_portfolio = results_portfolio.rename(columns={
+            "n_portfolio": "n_configs",
+            "n_ensembles": "n_iterations",
+        })
         results_portfolio["method"] = results_portfolio["method"] + "-" + results_portfolio["n_configs"].astype(str)
         results_portfolio["imputed"] = 0
         results_portfolio["imputed"] = results_portfolio["imputed"].astype(bool)
@@ -406,7 +409,7 @@ def plot_tuning_trajectories(
     combined_data['time_infer_s_per_1K'] = combined_data['time_infer_s'] * 1000 / combined_data["dataset"].map(
         dataset_to_n_samples_test)
 
-    methods_map = results_hpo[["method", "n_configs", "n_ensemble", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
+    methods_map = results_hpo[["method", "n_configs", "n_iterations", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
 
     for subset_name, subset in subset_map.items():
         leaderboard = compute_tuning_trajectories_leaderboard(
