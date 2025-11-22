@@ -211,14 +211,12 @@ def plot_pareto_n_configs(
 ):
     include_portfolio = False
     include_hpo_seeds = False
-    imputed_methods = [
-        "TABPFNV2_GPU",
-        "TABICL_GPU",
-    ]
 
     fig_save_dir = Path(fig_save_dir)
 
-    tabarena_context = TabArenaContext()
+    tabarena_context = TabArenaContext(
+        include_unverified=True,
+    )
 
     method_metadata_lst = tabarena_context.method_metadata_collection.method_metadata_lst
     method_metadata_lst = [m for m in method_metadata_lst if m.method_type == "config"]
@@ -230,9 +228,6 @@ def plot_pareto_n_configs(
 
     method_rename_map = get_method_rename_map()
 
-    if exclude_imputed:
-        results_hpo = results_hpo[~results_hpo["config_type"].isin(imputed_methods)]
-
     calibration_framework = "RF (default)"
     elo_bootstrap_rounds = 1
 
@@ -242,6 +237,8 @@ def plot_pareto_n_configs(
     results_hpo_mean = results_hpo.copy().groupby(["method", "dataset", "fold", "problem_type", "metric", "config_type"]).mean(
         numeric_only=True
     ).drop(columns=["seed"]).reset_index()
+    results_hpo_mean["imputed"] = 0
+    results_hpo_mean["imputed"] = results_hpo_mean["imputed"].astype(bool)
 
     results_lst = [
         results_hpo_mean,
@@ -258,7 +255,10 @@ def plot_pareto_n_configs(
     if include_portfolio:
         results_portfolio = load_pd.load(path="rebuttal_portfolio_n_configs.parquet")
         results_portfolio["config_type"] = results_portfolio["method"]
+        results_portfolio = results_portfolio.rename(columns={"n_portfolio": "n_configs"})
         results_portfolio["method"] = results_portfolio["method"] + "-" + results_portfolio["n_configs"].astype(str)
+        results_portfolio["imputed"] = 0
+        results_portfolio["imputed"] = results_portfolio["imputed"].astype(bool)
         results_lst.append(results_portfolio)
 
     results_hpo = pd.concat(results_lst, ignore_index=True)
@@ -297,10 +297,22 @@ def plot_pareto_n_configs(
 
     combined_data = combined_data[~combined_data["metric_error_val"].isna()]
 
-    combined_data = arena.fillna_data(
-        data=combined_data,
-        fillna_method=calibration_framework,
+    # FIXME: This isn't correct
+    # combined_data = arena.fillna_data(
+    #     data=combined_data,
+    #     fillna_method=calibration_framework,
+    # )
+    # FIXME: Using this since it does it correctly
+    combined_data = tabarena_context.fillna_metrics(
+        df_to_fill=combined_data,
+        df_fillna=combined_data[combined_data["method"] == calibration_framework],
     )
+
+    if exclude_imputed:
+        imputed_methods_count = combined_data.groupby("method")["imputed"].sum()
+        imputed_methods = sorted(list(imputed_methods_count[imputed_methods_count > 0].index))
+        print(f"Excluding {len(imputed_methods)} imputed methods: {imputed_methods}")
+        combined_data = combined_data[~combined_data["method"].isin(imputed_methods)]
 
     results_per_task = arena.compute_results_per_task(data=combined_data)
 
