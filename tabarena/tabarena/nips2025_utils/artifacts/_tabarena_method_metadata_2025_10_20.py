@@ -9,6 +9,7 @@ _common_kwargs = dict(
     upload_as_public=True,
     has_results=True,
     name_suffix=None,
+    verified=True,
 )
 
 lr_metadata = MethodMetadata(

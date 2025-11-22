@@ -45,6 +45,7 @@ class MethodMetadata:
         has_raw: bool = False,
         has_processed: bool = False,
         has_results: bool = False,
+        verified: bool = False,
         use_artifact_name_in_prefix: bool = False,
         s3_bucket: str = None,
         s3_prefix: str = None,
@@ -68,6 +69,7 @@ class MethodMetadata:
         self.has_raw = has_raw
         self.has_processed = has_processed
         self.has_results = has_results
+        self.verified = verified
         self.use_artifact_name_in_prefix = use_artifact_name_in_prefix
         if can_hpo is None:
             can_hpo = self.method_type == "config"
