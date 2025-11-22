@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+from run_plot_pareto_over_tuning_time import plot_tuning_trajectories
 
 
 if __name__ == "__main__":
@@ -23,6 +24,15 @@ if __name__ == "__main__":
 
         tabarena_context.generate_per_dataset_tables(
             save_path=Path(save_path) / "per_dataset",
+        )
+
+        # will take a few minutes
+        plot_tuning_trajectories(
+            tabarena_context=tabarena_context,
+            fig_save_dir=Path(save_path) / "tuning_trajectories",
+            average_seeds=False,
+            exclude_imputed=True,
+            ban_bad_methods=True,
         )
 
     tabarena_context.evaluate_all(
