@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from tabarena.nips2025_utils.artifacts.method_uploader import MethodUploaderS3
 
 
+# FIXME: Implement `best` and `best-N`
 class MethodMetadata:
     def __init__(
         self,
@@ -45,10 +46,12 @@ class MethodMetadata:
         has_raw: bool = False,
         has_processed: bool = False,
         has_results: bool = False,
+        verified: bool = False,
         use_artifact_name_in_prefix: bool = False,
         s3_bucket: str = None,
         s3_prefix: str = None,
         upload_as_public: bool = False,
+        reference_url: str | None = None,
     ):
         self.method = method
         if artifact_name is None:
@@ -68,6 +71,7 @@ class MethodMetadata:
         self.has_raw = has_raw
         self.has_processed = has_processed
         self.has_results = has_results
+        self.verified = verified
         self.use_artifact_name_in_prefix = use_artifact_name_in_prefix
         if can_hpo is None:
             can_hpo = self.method_type == "config"
@@ -84,6 +88,7 @@ class MethodMetadata:
             raise AssertionError(f"Cannot specify `name` for method_type: 'config'.")
         if self.name is not None and self.name_suffix is not None:
             raise AssertionError(f"Must only specify one of `name` and `name_suffix`.")
+        self.reference_url = reference_url
 
     @property
     def config_type(self) -> str | None:
@@ -309,6 +314,10 @@ class MethodMetadata:
     def path_results_portfolio(self, holdout: bool = False) -> Path:
         path_prefix = self.path_results_holdout if holdout else self.path_results
         return path_prefix / "portfolio_results.parquet"
+
+    def path_results_hpo_trajectories(self, holdout: bool = False) -> Path:
+        path_prefix = self.path_results_holdout if holdout else self.path_results
+        return path_prefix / "hpo_trajectories.parquet"
 
     def relative_to_cache_root(self, path: Path) -> Path:
         return path.relative_to(self.path_cache_root)
@@ -559,6 +568,143 @@ class MethodMetadata:
             save_pd.save(path=save_file_model, df=model_results)
 
         return hpo_results, model_results
+
+    def generate_hpo_result(
+        self,
+        repo: EvaluationRepository = None,
+        n_iterations: int = 40,
+        n_configs: int | None = None,
+        time_limit: float | None = None,
+        fit_order: Literal["original", "random"] = "random",
+        holdout: bool = False,
+        backend: Literal["ray", "native"] = "ray",
+        seed: int = 0,
+        **kwargs,
+    ) -> pd.DataFrame:
+        if repo is None:
+            repo = self.load_processed(as_holdout=holdout)
+        assert self.config_type is not None
+        config_type = self.config_type
+        simulator = PaperRunTabArena(repo=repo, backend=backend)
+        df_results_hpo = simulator.run_ensemble_config_type(
+            config_type=config_type,
+            n_iterations=n_iterations,
+            n_configs=n_configs,
+            time_limit=time_limit,
+            fit_order=fit_order,
+            seed=seed,
+            **kwargs,
+        )
+        df_results_hpo = df_results_hpo.rename(columns={
+            "framework": "method",
+        })
+        df_results_hpo["method"] = f"HPO-N{n_configs}-{self.config_type}"
+        df_results_hpo["n_configs"] = n_configs
+        df_results_hpo["n_iterations"] = n_iterations
+        df_results_hpo["seed"] = seed
+        df_results_hpo["ta_name"] = self.method
+        df_results_hpo["ta_suite"] = self.artifact_name
+        return df_results_hpo
+
+    def generate_hpo_trajectories(
+        self,
+        n_configs: list[int | None] | str = "auto",
+        seeds: int | list[int] = 20,
+        n_iterations: int = 40,
+        fit_order: Literal["original", "random"] = "random",
+        time_limit: float | None = None,
+        backend: Literal["ray", "native"] = "ray",
+        holdout: bool = False,
+        cache: bool = False,
+    ) -> pd.DataFrame:
+        if n_configs == "auto":
+            n_configs = [
+                1,
+                2,
+                5,
+                10,
+                25,
+                50,
+                100,
+                150,
+                None,  # all configs
+            ]
+        if isinstance(seeds, int):
+            seeds = [i for i in range(seeds)]
+
+        df_results_hpo_lst = []
+        repo = self.load_processed(as_holdout=holdout)
+
+        # FIXME: Breaks for holdout, need to find a way to get self.config_default(holdout=True)
+        # FIXME: Needed for TabPFN-2.5
+        repo.set_config_fallback(config_fallback=self.config_default)
+
+        n_config_total = repo.n_configs()
+
+        n_configs = [n_config if n_config is not None else n_config_total for n_config in n_configs]
+        n_configs = [n_config for n_config in n_configs if n_config <= n_config_total]
+        n_configs = sorted(list(set(n_configs)))
+
+        for n_config in n_configs:
+            print(f"Running n_config={n_config} ({self.method})")
+            assert n_config <= n_config_total
+            for seed in seeds:
+                df_results_hpo = self.generate_hpo_result(
+                    repo=repo,
+                    n_configs=n_config,
+                    seed=seed,
+                    n_iterations=n_iterations,
+                    fit_order=fit_order,
+                    time_limit=time_limit,
+                    backend=backend,
+                    holdout=holdout,
+                )
+                df_results_hpo_lst.append(df_results_hpo)
+        df_results_hpo_combined = pd.concat(df_results_hpo_lst, ignore_index=True)
+
+        if cache:
+            save_pd.save(path=self.path_results_hpo_trajectories(holdout=holdout), df=df_results_hpo_combined)
+
+        return df_results_hpo_combined
+
+    def load_hpo_trajectories(self, holdout: bool = False, download: bool | str = "auto") -> pd.DataFrame:
+        path_local = self.path_results_hpo_trajectories(holdout=holdout)
+        if download == "auto":
+            download = not path_local.exists()
+            if download:
+                print(f"Downloading hpo trajectories for {self.method}...")
+        if download:
+            self.method_downloader().download_results_hpo_trajectories(holdout=holdout)
+        return pd.read_parquet(path=path_local)
+
+    def generate_best(
+        self,
+        repo: EvaluationRepository = None,
+        n_configs: int = 1,
+        n_iterations: int = 40,
+        backend: Literal["ray", "native"] = "ray",
+        holdout: bool = False,
+        time_limit: float = None,
+        **kwargs,
+    ):
+        if repo is None:
+            repo = self.load_processed(as_holdout=holdout)
+        simulator = PaperRunTabArena(repo=repo, backend=backend)
+        df_results_best = simulator.run_zs(
+            n_portfolios=n_configs,
+            n_ensemble=n_iterations,
+            n_ensemble_in_name=True,
+            time_limit=time_limit,
+            **kwargs,
+        )
+        df_results_best = df_results_best.rename(columns={"framework": "method"})
+        df_results_best["method"] = f"{self.config_type} (best)"
+        df_results_best["method_subtype"] = "best"
+        df_results_best["n_configs"] = n_configs
+        df_results_best["n_iterations"] = n_iterations
+        df_results_best["ta_name"] = self.method
+        df_results_best["ta_suite"] = self.artifact_name
+        return df_results_best
 
     @property
     def path_metadata(self) -> Path:

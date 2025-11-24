@@ -19,6 +19,8 @@ ag_140_metadata = MethodMetadata(
     method_type="baseline",
     compute="gpu",
     date="2025-09-03",
+    verified=True,
+    reference_url="https://arxiv.org/abs/2003.06505",
     **_common_kwargs,
 )
 mitra_metadata = MethodMetadata(
@@ -31,6 +33,8 @@ mitra_metadata = MethodMetadata(
     config_default="Mitra_GPU_c1_BAG_L1",
     can_hpo=False,
     is_bag=True,
+    verified=True,
+    reference_url="https://arxiv.org/abs/2510.21204",
     **_common_kwargs,
 )
 limix_metadata = MethodMetadata(
@@ -43,6 +47,8 @@ limix_metadata = MethodMetadata(
     config_default="LimiX_GPU_c1_BAG_L1",
     can_hpo=False,
     is_bag=False,
+    verified=False,
+    reference_url="https://arxiv.org/abs/2509.03505",
     **_common_kwargs,
 )
 realmlp_gpu_metadata = MethodMetadata(
@@ -55,6 +61,8 @@ realmlp_gpu_metadata = MethodMetadata(
     config_default="RealMLP_GPU_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,
+    verified=True,
+    reference_url="https://arxiv.org/abs/2407.04491",
     **_common_kwargs,
 )
 ebm_metadata = MethodMetadata(
@@ -66,6 +74,8 @@ ebm_metadata = MethodMetadata(
     config_default="ExplainableBM_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,
+    verified=True,
+    reference_url="https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
     **_common_kwargs,
 )
 xrfm_metadata = MethodMetadata(
@@ -78,6 +88,8 @@ xrfm_metadata = MethodMetadata(
     config_default="xRFM_GPU_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,
+    verified=True,
+    reference_url="https://arxiv.org/abs/2508.10053",
     **_common_kwargs,
 )
 tabflex_metadata = MethodMetadata(
@@ -90,6 +102,8 @@ tabflex_metadata = MethodMetadata(
     config_default="TabFlex_GPU_c1_BAG_L1",
     can_hpo=False,
     is_bag=False,
+    verified=False,
+    reference_url="https://arxiv.org/abs/2506.05584",
     **_common_kwargs,
 )
 betatabpfn_metadata = MethodMetadata(
@@ -102,5 +116,7 @@ betatabpfn_metadata = MethodMetadata(
     config_default="BetaTabPFN_GPU_c1_BAG_L1",
     can_hpo=False,
     is_bag=True,
+    verified=False,
+    reference_url="https://arxiv.org/abs/2502.02527",
     **_common_kwargs,
 )

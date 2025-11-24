@@ -97,6 +97,11 @@ class MethodDownloaderS3:
             s3_key = self.local_to_s3_path(path_local=path_local)
             self._download_to_local_if_exists(s3_key=s3_key, path_local=path_local)
 
+    def download_results_hpo_trajectories(self, holdout: bool = False):
+        path_local = self.method_metadata.path_results_hpo_trajectories(holdout=holdout)
+        s3_key = self.local_to_s3_path(path_local=path_local)
+        self._download_to_local_if_exists(s3_key=s3_key, path_local=path_local)
+
     # --------------
     # Helper methods
     # --------------

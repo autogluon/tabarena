@@ -10,10 +10,12 @@ import pandas as pd
 from tabarena.benchmark.result import BaselineResult
 from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
+from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
 from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection
 from tabarena.repository.abstract_repository import AbstractRepository
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_paths
 from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
+from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
 from tabarena.nips2025_utils.artifacts.method_metadata_collection import MethodMetadataCollection
@@ -49,9 +51,9 @@ _methods_paper = [
     "TabPFNv2_GPU",
 
     "xRFM_GPU",
-    # "LimiX_GPU",
-    # "BetaTabPFN_GPU",
-    # "TabFlex_GPU",
+    "LimiX_GPU",
+    "BetaTabPFN_GPU",
+    "TabFlex_GPU",
     "RealTabPFN-v2.5",
 ]
 
@@ -72,15 +74,18 @@ class TabArenaContext:
             if methods != "tabarena":
                 raise ValueError(f"Unknown methods preset '{methods}'.")
             methods = copy.deepcopy(_methods_paper)
-            if include_unverified:
-                methods.extend([
-                    "LimiX_GPU",
-                    "BetaTabPFN_GPU",
-                    "TabFlex_GPU",
-                ])
             method_metadata_lst: list[MethodMetadata] = copy.deepcopy(
                 tabarena_method_metadata_collection.method_metadata_lst
             )
+
+            method_metadata_lst = [m for m in method_metadata_lst if m.method in methods]
+
+            if not include_unverified:
+                method_metadata_lst = [m for m in method_metadata_lst if m.verified]
+
+            method_metadata_name_set = {m.method for m in method_metadata_lst}
+            methods = [m for m in methods if m in method_metadata_name_set]
+
         else:
             method_metadata_lst = methods
             methods = [m.method for m in method_metadata_lst]
@@ -102,11 +107,12 @@ class TabArenaContext:
         output_dir: str | Path,
         new_results: pd.DataFrame | None = None,
         only_valid_tasks: bool = False,
-        subset: str | None = None,
+        subset: str | list[str] | None = None,
         folds: list[int] | None = None,
         score_on_val: bool = False,
         average_seeds: bool = True,
         fillna: str | pd.DataFrame | None = "RF (default)",
+        remove_imputed: bool = False,
         tmp_treat_tasks_independently: bool = False,
         leaderboard_kwargs: dict | None = None,
     ) -> pd.DataFrame:
@@ -121,6 +127,7 @@ class TabArenaContext:
             score_on_val=score_on_val,
             average_seeds=average_seeds,
             fillna=fillna,
+            remove_imputed=remove_imputed,
             tmp_treat_tasks_independently=tmp_treat_tasks_independently,
             leaderboard_kwargs=leaderboard_kwargs,
         )
@@ -330,6 +337,7 @@ class TabArenaContext:
         n_portfolio: int,
         n_ensemble: int | None = None,
         time_limit: int | None = None,
+        **kwargs,
     ) -> pd.DataFrame:
         simulator = PaperRunTabArena(repo=repo, backend=self.backend)
         cur_result = simulator.run_zs_from_types(
@@ -338,6 +346,7 @@ class TabArenaContext:
             n_ensemble=n_ensemble,
             n_ensemble_in_name=True,
             time_limit=time_limit,
+            **kwargs,
         )
         return cur_result
 
@@ -440,43 +449,83 @@ class TabArenaContext:
 
     def evaluate_all(
         self,
-        df_results: pd.DataFrame,
         save_path: str | Path,
+        df_results: pd.DataFrame = None,
         df_results_holdout: pd.DataFrame = None,
         df_results_cpu: pd.DataFrame = None,
         configs_hyperparameters: dict[str, dict] = None,
         include_portfolio: bool = False,
-        elo_bootstrap_rounds: int = 100,
+        elo_bootstrap_rounds: int = 200,
         use_latex: bool = False,
-        realmlp_cpu: bool = False,
+        fillna_method: str | None = "RF (default)",  # FIXME: Don't hardcode
+        use_website_folder_names: bool = False,
     ):
+        if df_results is None:
+            df_results = self.load_results_paper(download_results="auto")
 
-        ta_names = list(df_results["ta_name"].unique())
-        if df_results_cpu is not None:
-            ta_names_cpu = list(df_results_cpu["ta_name"].unique())
-            ta_names += ta_names_cpu
-            ta_names = list(set(ta_names))
-        ta_names = [c for c in ta_names if c != np.nan]
-
-        df_results_configs_lst = []
-        for method_key in ta_names:
-            metadata = self.method_metadata(method=method_key)
-            if metadata.method_type == "config":
-                df_results_configs_lst.append(self.load_config_results(method_key))
-        df_results_configs = pd.concat(df_results_configs_lst, ignore_index=True)
+        if fillna_method is not None:
+            df_results = TabArenaContext.fillna_metrics(
+                df_to_fill=df_results,
+                df_fillna=df_results[df_results["method"] == fillna_method],
+            )
 
         evaluate_all(
+            tabarena_context=self,  # FIXME: Don't do this in future, clean up
             df_results=df_results,
-            df_results_holdout=df_results_holdout,
-            df_results_cpu=df_results_cpu,
-            df_results_configs=df_results_configs,
-            configs_hyperparameters=configs_hyperparameters,
-            include_portfolio=include_portfolio,
+            # df_results_holdout=df_results_holdout,  # TODO: Add back later
+            # configs_hyperparameters=configs_hyperparameters,  # TODO: Add back later
             eval_save_path=save_path,
             elo_bootstrap_rounds=elo_bootstrap_rounds,
             use_latex=use_latex,
-            realmlp_cpu=realmlp_cpu,
+            use_website_folder_names=use_website_folder_names,
         )
+
+    def plot_runtime_per_method(self, save_path: str | Path, df_results_configs: pd.DataFrame = None):
+        if df_results_configs is None:
+            df_results_configs = self.load_config_results_multi()
+        else:
+            df_results_configs = df_results_configs.copy()
+        if "imputed" in df_results_configs.columns:
+            # Remove imputed results
+            df_results_configs["imputed"] = df_results_configs["imputed"].fillna(0)
+            df_results_configs = df_results_configs[df_results_configs["imputed"] == 0]
+
+        evaluator = TabArenaEvaluator(output_dir=save_path)
+        evaluator.generate_runtime_plot(df_results=df_results_configs)
+
+    def generate_per_dataset_tables(
+        self,
+        save_path: str | Path,
+        df_results: pd.DataFrame = None,
+        fillna_method: str | None = "RF (default)",  # FIXME: Don't hardcode
+    ):
+        if df_results is None:
+            df_results = self.load_results_paper(download_results="auto")
+
+        if fillna_method is not None:
+            df_results = TabArenaContext.fillna_metrics(
+                df_to_fill=df_results,
+                df_fillna=df_results[df_results["method"] == fillna_method],
+            )
+
+        get_per_dataset_tables(
+            df_results=df_results,
+            save_path=Path(save_path),
+        )
+
+    def load_config_results_multi(
+        self,
+        method_metadata_lst: list[MethodMetadata] | None = None,
+        holdout: bool = False,
+    ) -> pd.DataFrame:
+        if method_metadata_lst is None:
+            method_metadata_lst = self.method_metadata_collection.method_metadata_lst
+        df_results_configs_lst = []
+        for method_metadata in method_metadata_lst:
+            if method_metadata.method_type == "config":
+                df_results_configs_lst.append(method_metadata.load_model_results(holdout=holdout))
+        df_results_configs = pd.concat(df_results_configs_lst, ignore_index=True)
+        return df_results_configs
 
     def find_missing(self, method: str):
         metadata = self.method_metadata(method=method)
@@ -598,6 +647,7 @@ class TabArenaContext:
         if "imputed" not in df_filled.columns:
             df_filled["imputed"] = False
         df_filled.loc[nan_vals, "imputed"] = True
+        df_filled["imputed"] = df_filled["imputed"].fillna(0).astype(bool)
 
         df_filled = df_filled.reset_index(drop=False)
 

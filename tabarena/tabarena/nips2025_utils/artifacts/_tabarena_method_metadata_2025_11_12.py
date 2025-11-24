@@ -18,4 +18,6 @@ realtabpfn25_metadata = MethodMetadata(
     upload_as_public=True,
     has_results=True,
     name_suffix=None,
+    verified=True,
+    reference_url="https://arxiv.org/abs/2511.08667",
 )

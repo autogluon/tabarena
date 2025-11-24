@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import partial
+
 import pandas as pd
 
 
@@ -7,10 +9,9 @@ class Constants:
     col_name: str = "method_type"
     tree: str = "Tree-based"
     foundational: str = "Foundation Model"
-    neural_network: str ="Neural Network"
+    neural_network: str = "Neural Network"
     baseline: str = "Baseline"
-    reference: str ="Reference Pipeline"
-    # Not Used
+    reference: str = "Reference Pipeline"
     other: str = "Other"
 
 
@@ -19,7 +20,6 @@ model_type_emoji = {
     Constants.foundational: "🧠⚡",
     Constants.neural_network: "🧠🔁",
     Constants.baseline: "📏",
-    # Not used
     Constants.other: "❓",
     Constants.reference: "📊",
 }
@@ -28,10 +28,28 @@ model_type_emoji = {
 def get_model_family(model_name: str) -> str:
     prefixes_mapping = {
         Constants.reference: ["AutoGluon"],
-        Constants.neural_network: ["REALMLP", "TABM", "FASTAI", "MNCA", "NN_TORCH", "MITRA", "LIMIX"],
-        Constants.tree: ["GBM", "CAT", "EBM", "XGB", "XT", "RF", "XRFM"],
-        Constants.foundational: ["TABDPT", "TABICL", "TABPFN", "MITRA", "LIMIX", "BETA", "TABFLEX"],
+        Constants.neural_network: [
+            "REALMLP",
+            "TABM",
+            "FASTAI",
+            "MNCA",
+            "NN_TORCH",
+            "MITRA",
+            "LIMIX",
+        ],
+        Constants.tree: ["GBM", "CAT", "EBM", "XGB", "XT", "RF"],
+        Constants.foundational: [
+            "TABDPT",
+            "TABICL",
+            "TABPFN",
+            "MITRA",
+            "LIMIX",
+            "BETA",
+            "TABFLEX",
+            "REALTABPFN-V2.5",
+        ],
         Constants.baseline: ["KNN", "LR"],
+        Constants.other: ["XRFM"],
     }
 
     for method_type, prefixes in prefixes_mapping.items():
@@ -64,6 +82,7 @@ def rename_map(model_name: str) -> str:
         "XRFM": "xRFM",
         "TABFLEX": "TabFlex",
         "BETA": "BetaTabPFN",
+        "REALTABPFN-V2.5": "RealTabPFN-v2.5",
     }
 
     # Sort keys by descending length so longest prefixes are matched first
@@ -71,26 +90,63 @@ def rename_map(model_name: str) -> str:
         if model_name.startswith(prefix):
             if model_name == prefix:
                 return rename_map[prefix]
-            else:
-                return model_name.replace(prefix, rename_map[prefix], 1)
+            return model_name.replace(prefix, rename_map[prefix], 1)
 
     return model_name
 
 
-def compute_map(method: str) -> str:
-    _compute_map = {
-        "AutoGluon 1.3 (4h)": "CPU",
-        "AutoGluon 1.4 (4h)": "GPU",
-        "LimiX (default)": "GPU",
-    }
-    gpu_postfix = "_GPU"
-    if method in _compute_map:
-        return _compute_map[method]
-    return "CPU" if gpu_postfix not in method else "GPU"
+def add_metadata(row, metadata_df: pd.DataFrame):
+    model_name = row["method"]
+    if ", 4h)" in model_name:
+        metadata_key_from_model_name = model_name
+        is_reference_model = True
+    else:
+        metadata_key_from_model_name = model_name.split(" (")[0]
+        is_reference_model = False
+
+    try:
+        metadata = metadata_df[
+            metadata_df["name" if is_reference_model else "model_key"]
+            == metadata_key_from_model_name
+        ]
+        assert len(metadata) == 1
+    except AssertionError:
+        metadata_key_from_model_name = metadata_key_from_model_name.replace("_GPU", "")
+        metadata = metadata_df[
+            metadata_df["name" if is_reference_model else "model_key"]
+            == metadata_key_from_model_name
+        ]
+        assert len(metadata) == 1
+
+    metadata = metadata.iloc[0]
+
+    return pd.Series(
+        {
+            "Hardware": metadata["compute"].upper(),
+            "Verified": metadata["verified"],
+            "ReferenceURL": metadata["reference_url"],
+        }
+    )
 
 
-def format_leaderboard(df_leaderboard: pd.DataFrame, include_type: bool = False) -> pd.DataFrame:
+def format_leaderboard(
+    df_leaderboard: pd.DataFrame,
+    *,
+    method_metadata_info: pd.DataFrame | None = None,
+    include_type: bool = False,
+) -> pd.DataFrame:
     df_leaderboard = df_leaderboard.copy(deep=True)
+
+    # Add metadata
+    if method_metadata_info is None:
+        df_leaderboard["Hardware"] = "Unknown"
+        df_leaderboard["Verified"] = "Unknown"
+    else:
+        df_leaderboard[["Hardware", "Verified", "ReferenceURL"]] = df_leaderboard.apply(
+            partial(add_metadata, metadata_df=method_metadata_info),
+            result_type="expand",
+            axis=1,
+        )
 
     # Add Model Family Information
     df_leaderboard["Type"] = df_leaderboard.loc[:, "method"].apply(
@@ -129,10 +185,20 @@ def format_leaderboard(df_leaderboard: pd.DataFrame, include_type: bool = False)
         df_leaderboard["imputed_bool"] = None
         df_leaderboard["imputed"] = None
 
-    # Resolve GPU postfix
-    gpu_postfix = "_GPU"
-    df_leaderboard["Hardware"] = df_leaderboard["method"].apply(compute_map)
-    df_leaderboard["method"] = df_leaderboard["method"].str.replace(gpu_postfix, "")
+    # FIXME: move to lb generation!
+    df_leaderboard["method"] = df_leaderboard["method"].str.replace(
+        "(tuned + ensemble)", "(tuned + ensembled)"
+    )
+
+    if method_metadata_info is not None:
+        gpu_postfix = "_GPU"
+        df_leaderboard["method"] = df_leaderboard["method"].str.replace(gpu_postfix, "")
+        df_leaderboard["method"] = (
+            "[" + df_leaderboard["method"] + "](" + df_leaderboard["ReferenceURL"] + ")"
+        )
+        df_leaderboard["Verified"] = df_leaderboard["Verified"].apply(
+            lambda v: "✔️" if v else "➖"
+        )
 
     df_leaderboard = df_leaderboard.loc[
         :,
@@ -140,6 +206,7 @@ def format_leaderboard(df_leaderboard: pd.DataFrame, include_type: bool = False)
             "Type",
             "TypeName",
             "method",
+            "Verified",
             "elo",
             "Elo 95% CI",
             "normalized-score",

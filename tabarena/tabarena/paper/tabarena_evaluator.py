@@ -62,6 +62,7 @@ class TabArenaEvaluator:
         keep_best: bool = False,
         figure_file_type: str = "pdf",
         use_latex: bool = False,
+        tabarena_context=None,  # FIXME: Remove this and refactor after leaderboard v0.2 upload, this is purely to get things working fast
     ):
         """
 
@@ -134,6 +135,16 @@ class TabArenaEvaluator:
             "Tuned + Ens., Holdout": ">",
         }
 
+        if tabarena_context is not None:
+            self.method_metadata_info = tabarena_context.method_metadata_collection.info()
+            self.method_metadata_info = self.method_metadata_info.rename(columns={
+                "method": "ta_name",
+                "artifact_name": "ta_suite",
+            })
+            self.method_metadata_info = self.method_metadata_info.drop(columns=["method_type"])
+        else:
+            self.method_metadata_info = None
+
     def compute_normalized_error_dynamic(self, df_results: pd.DataFrame) -> pd.DataFrame:
         df_results = df_results.copy(deep=True)
         df_results_og = df_results.copy(deep=True)
@@ -204,7 +215,6 @@ class TabArenaEvaluator:
         include_norm_score: bool = False,
         use_gmean: bool = False,
         imputed_names: list[str] | None = None,
-        only_datasets_for_method: dict[str, list[str]] | None = None,
         baselines: list[str] | str | None = "auto",
         baseline_colors: list[str] | None = None,
         plot_tune_types: list[str] | None = None,
@@ -225,41 +235,38 @@ class TabArenaEvaluator:
         leaderboard_kwargs = leaderboard_kwargs.copy()
         if calibration_framework is not None and calibration_framework == "auto":
             calibration_framework = "RF (default)"
-        if baselines is None:
-            baselines = []
-        elif baselines == "auto":
-            baselines = list(
-                df_results[df_results["method_type"].isin(["baseline", "portfolio"])][self.method_col].unique()
-            )
-        if baseline_colors is None:
-            default_baseline_colors = [
-                "black",
-                "purple",
-                "darkgray",
-                "blue",
-                "red",
-            ]
-            # Assign colors dynamically, cycling if baselines > baseline_colors
-            baseline_colors = list(itertools.islice(itertools.cycle(default_baseline_colors), len(baselines)))
-        assert len(baselines) == len(baseline_colors)
         df_results = df_results.copy(deep=True)
         if "method_metadata" in df_results.columns:
             # currently no need to use this column
             df_results.drop(columns=["method_metadata"], inplace=True)
         if "imputed" not in df_results.columns:
             df_results["imputed"] = False
-        df_results["imputed"] = df_results["imputed"].astype("boolean").fillna(False).astype(bool)
+        df_results["imputed"] = df_results["imputed"].astype(int).fillna(0).astype(bool)
 
         # rename methods
         _rename_dict = self._rename_dict()
         df_results[self.method_col] = df_results[self.method_col].map(_rename_dict).fillna(df_results[self.method_col])
-        baselines = [_rename_dict.get(b, b) for b in baselines]
-        assert len(baselines) == len(list(set(baselines))), f"Duplicates keys found in baselines: {baselines}"
         if calibration_framework is not None:
             calibration_framework = _rename_dict.get(calibration_framework, calibration_framework)
 
+        if imputed_names is None:
+            # TODO: This is a hack
+            from tabarena.nips2025_utils.compare import get_imputed_names
+            imputed_names = get_imputed_names(df_results=df_results, method_col=self.method_col)
+
         self.assert_no_duplicates(df_results=df_results)
+        self.assert_no_nan_methods(df_results=df_results)
+
         df_results = self.filter_results(df_results=df_results)
+
+        if isinstance(baselines, list):
+            baselines = [_rename_dict.get(b, b) for b in baselines]
+        baselines, baseline_colors = self._process_baselines(
+            df_results=df_results,
+            baselines=baselines,
+            baseline_colors=baseline_colors,
+        )
+
         framework_types = self._get_config_types(df_results=df_results[~df_results["method"].isin(baselines)])
 
         df_results_rank_compare = copy.deepcopy(df_results)
@@ -273,6 +280,9 @@ class TabArenaEvaluator:
         # ----- end removing unused methods -----
 
         method_info: pd.DataFrame = self.get_method_info(df=df_results_rank_compare)
+        if self.method_metadata_info is not None:
+            method_info_full = pd.merge(left=method_info.reset_index(), right=self.method_metadata_info, on=["ta_name", "ta_suite"])
+            save_pd.save(path=self.output_dir / "method_info.csv", df=method_info_full)
         save_pd.save(path=self.output_dir / "results_per_split.csv", df=df_results_rank_compare)
 
         # ----- add times per 1K samples -----
@@ -284,9 +294,8 @@ class TabArenaEvaluator:
         df_results_rank_compare['time_infer_s_per_1K'] = df_results_rank_compare['time_infer_s'] * 1000 / df_results_rank_compare["dataset"].map(
             dataset_to_n_samples_test)
 
-        if only_datasets_for_method is not None and plot_times:
-            self.plot_tabarena_times(df=df_results_rank_compare, output_dir=self.output_dir,
-                                     only_datasets_for_method=only_datasets_for_method, show=False)
+        if plot_times:
+            self.plot_tabarena_times(df=df_results_rank_compare, output_dir=self.output_dir, show=False)
 
         # TODO: Move this into the `.leaderboard` call
         if "normalized-error-dataset" not in df_results_rank_compare.columns:
@@ -538,6 +547,15 @@ class TabArenaEvaluator:
                 f"{duplicated_methods.to_string()}\n"
                 f"The following {len(dupes)} rows are duplicates:\n"
                 f"{dupes.to_string(index=False)}"
+            )
+
+    def assert_no_nan_methods(self, df_results: pd.DataFrame):
+        if df_results[self.method_col].isna().any():
+            missing_count = df_results[self.method_col].isna().sum()
+            missing_percent = missing_count / len(df_results)
+            raise AssertionError(
+                f"Found NaN values in '{self.method_col}' column: "
+                f"{missing_count}/{len(df_results)} ({missing_percent * 100:.1f}%) were NaN."
             )
 
     def filter_results(self, df_results: pd.DataFrame):
@@ -1438,12 +1456,13 @@ class TabArenaEvaluator:
                     plt.show()
                 plt.close()
 
-    def plot_tabarena_times(self, df: pd.DataFrame, output_dir: Path | str,
-                            only_datasets_for_method: dict[str, list[str]] | None = None, show: bool = True):
-        # filter to only common datasets
-        if only_datasets_for_method is not None:
-            for datasets in only_datasets_for_method.values():
-                df = df[df["dataset"].isin(datasets)]
+    def plot_tabarena_times(self, df: pd.DataFrame, output_dir: Path | str, show: bool = True):
+        df = df.copy()
+
+        datasets_impute_freq = df.groupby("dataset")["imputed"].mean()
+        datasets_no_impute = list(datasets_impute_freq[datasets_impute_freq <= 0].index)
+
+        df = df[df["dataset"].isin(datasets_no_impute)]
 
         framework_types = self._get_config_types(df_results=df)
 
@@ -1458,15 +1477,6 @@ class TabArenaEvaluator:
         df.loc[:, "framework_type"] = df["framework_type"].map(f_map_type_name).fillna(df["framework_type"])
 
         gpu_methods = ['TabICL', 'TabDPT', 'TabPFNv2', "ModernNCA", "TabM"]
-
-        if only_datasets_for_method is not None:
-            for method, datasets in only_datasets_for_method.items():
-                mask = (df['framework_type'] == method) & (~df['dataset'].isin(datasets))
-                # print(f"{df[mask]=}")
-                df.loc[mask, 'time_train_s_per_1K'] = np.nan
-                df.loc[mask, 'time_infer_s_per_1K'] = np.nan
-                # print(f"{df[mask]['time_train_s_per_1K']=}")
-                # print(f"{df[mask]['time_infer_s_per_1K']=}")
 
         # add device name
         framework_types = df["framework_type"].unique()
@@ -1666,6 +1676,45 @@ class TabArenaEvaluator:
         )
 
         return df
+
+    def _process_baselines(
+        self,
+        df_results: pd.DataFrame, baselines: list[str] | None | str,
+        baseline_colors: list[str] | None,
+    ) -> tuple[list[str], list[str]]:
+        methods = df_results[self.method_col].unique()
+
+        if baselines is None:
+            baselines = []
+        elif baselines == "auto":
+            baselines = list(
+                df_results[
+                    df_results["method_type"].isin(["baseline", "portfolio"]) |
+                    ((df_results["method_type"] == "config") & df_results["method_subtype"].isna())
+                ][self.method_col].unique()
+            )
+        else:
+            missing_baselines = [b for b in baselines if b not in methods]
+            if missing_baselines:
+                print(f"Missing specified baselines: {missing_baselines}")
+        if baseline_colors is None:
+            default_baseline_colors = [
+                "black",
+                "purple",
+                "blue",
+                "red",
+                "darkgray",
+            ]
+            # Assign colors dynamically, cycling if baselines > baseline_colors
+            baseline_colors = list(itertools.islice(itertools.cycle(default_baseline_colors), len(baselines)))
+        assert len(baselines) == len(baseline_colors)
+        assert len(baselines) == len(list(set(baselines))), f"Duplicates keys found in baselines: {baselines}"
+        # Filter both baselines and baseline_colors using the same mask
+        filtered = [(b, c) for b, c in zip(baselines, baseline_colors) if b in methods]
+
+        baselines = [b for b, _ in filtered]
+        baseline_colors = [c for _, c in filtered]
+        return baselines, baseline_colors
 
     @classmethod
     def _get_ensemble_weights(
