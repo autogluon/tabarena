@@ -458,6 +458,7 @@ class TabArenaContext:
         elo_bootstrap_rounds: int = 200,
         use_latex: bool = False,
         fillna_method: str | None = "RF (default)",  # FIXME: Don't hardcode
+        use_website_folder_names: bool = False,
     ):
         if df_results is None:
             df_results = self.load_results_paper(download_results="auto")
@@ -476,6 +477,7 @@ class TabArenaContext:
             eval_save_path=save_path,
             elo_bootstrap_rounds=elo_bootstrap_rounds,
             use_latex=use_latex,
+            use_website_folder_names=use_website_folder_names,
         )
 
     def plot_runtime_per_method(self, save_path: str | Path, df_results_configs: pd.DataFrame = None):
