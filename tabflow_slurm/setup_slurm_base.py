@@ -51,7 +51,9 @@ class BenchmarkSetup:
     python_from_base_path: str = "venvs/tabarena_07112025/bin/python"
     """Python executable and environment to use for the SLURM jobs. This should point to a Python
     executable within a (virtual) environment."""
-    run_script_from_base_path: str = "code/tabarena_new/tabarena/tabflow_slurm/run_tabarena_experiment.py"
+    run_script_from_base_path: str = (
+        "code/tabarena_new/tabarena/tabflow_slurm/run_tabarena_experiment.py"
+    )
     """Python script to run the benchmark. This should point to the script that runs the benchmark
     for TabArena."""
     openml_cache_from_base_path: str = ".openml-cache"
@@ -63,7 +65,9 @@ class BenchmarkSetup:
     SLURM jobs."""
     output_dir_base_from_base_path: str = "output/"
     """Output directory for the benchmark. In this folder a `benchmark_name` folder will be created."""
-    configs_path_from_base_path: str = "code/tabarena_new/tabarena/tabflow_slurm/benchmark_configs_"
+    configs_path_from_base_path: str = (
+        "code/tabarena_new/tabarena/tabflow_slurm/benchmark_configs_"
+    )
     """YAML file with the configs to run. Generated from parameters above in code below.
     File path is f"{self.base_path}{self.configs_path_from_base_path}{self.benchmark_name}.yaml"
     """
@@ -214,6 +218,12 @@ class BenchmarkSetup:
             }
         }
     """
+    model_agnostic_preprocessing: bool = True
+    """Whether to use model-agnostic preprocessing or not.
+    By default, we use AutoGluon's automatic preprocessing for all models.
+    This can be disabled by setting this to False. Warning: the model then needs
+    to be able to handle this!
+    """
 
     # Misc Settings
     # -------------
@@ -222,7 +232,9 @@ class BenchmarkSetup:
     cache_cls: CacheFunctionPickle = CacheFunctionPickle
     """How to save the cache. Pickle is the current recommended default. This option and the two
     below must be in sync with the cache method in run_script."""
-    cache_cls_kwargs: dict = field(default_factory=lambda: {"include_self_in_call": True})
+    cache_cls_kwargs: dict = field(
+        default_factory=lambda: {"include_self_in_call": True}
+    )
     """Arguments for the cache class. This is used to setup the cache class for the benchmark."""
     cache_path_format: str = "name_first"
     """Path format for the cache. This is used to setup the cache path format for the benchmark."""
@@ -293,7 +305,9 @@ class BenchmarkSetup:
     @property
     def output_dir(self) -> str:
         """Output directory for the benchmark."""
-        return self.base_path + self.output_dir_base_from_base_path + self.benchmark_name
+        return (
+            self.base_path + self.output_dir_base_from_base_path + self.benchmark_name
+        )
 
     @property
     def metadata(self) -> str:
@@ -351,7 +365,7 @@ class BenchmarkSetup:
         if is_gpu_job:
             mem = f"--mem-per-gpu={self.memory_limit}G"
         else:
-            mem = f"--mem-per-cpu={self.memory_limit//self.num_cpus}G"
+            mem = f"--mem-per-cpu={self.memory_limit // self.num_cpus}G"
         script = str(Path(__file__).parent / self.slurm_script)
 
         slurm_logs = f"--output={self.slurm_log_output}/%A/slurm-%A_%a.out"
@@ -384,15 +398,23 @@ class BenchmarkSetup:
         def yield_all_jobs():
             for row in metadata.itertuples():
                 task_id = row.task_id
-                n_samples_train_per_fold = int(row.num_instances - int(row.num_instances / row.num_folds))
+                n_samples_train_per_fold = int(
+                    row.num_instances - int(row.num_instances / row.num_folds)
+                )
                 n_features = int(row.num_features)
-                n_classes = int(row.num_classes) if row.problem_type in ["binary", "multiclass"] else 0
+                n_classes = (
+                    int(row.num_classes)
+                    if row.problem_type in ["binary", "multiclass"]
+                    else 0
+                )
 
                 # Quick, model independent skip.
                 if row.problem_type not in self.problem_types_to_run:
                     continue
 
-                repeats_folds = product(range(int(row.tabarena_num_repeats)), range(int(row.num_folds)))
+                repeats_folds = product(
+                    range(int(row.tabarena_num_repeats)), range(int(row.num_folds))
+                )
                 if self.tabarena_lite:  # Filter to only first split.
                     repeats_folds = list(repeats_folds)[:1]
 
@@ -431,7 +453,9 @@ class BenchmarkSetup:
             track_progress=True,
             tqdm_kwargs={"desc": "Checking Cache and Filter Invalid Jobs"},
         )
-        output = [item for sublist in output for item in sublist]  # Flatten the batched list
+        output = [
+            item for sublist in output for item in sublist
+        ]  # Flatten the batched list
         to_run_job_map = {}
         for run_job, job_data in zip(output, jobs_to_check, strict=True):
             if run_job:
@@ -476,7 +500,11 @@ class BenchmarkSetup:
         experiments_lst = []
         method_kwargs = {}
         if self.model_artifacts_base_path is not None:
-            method_kwargs["init_kwargs"] = {"default_base_path": self.model_artifacts_base_path}
+            method_kwargs["init_kwargs"] = {
+                "default_base_path": self.model_artifacts_base_path
+            }
+        if not self.model_agnostic_preprocessing:
+            method_kwargs["fit_kwargs"] = {"feature_generator": None}
 
         print(
             "Generating experiments for models...",
@@ -661,12 +689,20 @@ class BenchmarkSetup:
         if (max_n_features is not None) and (n_features > max_n_features):
             return False
 
-        max_n_samples_train_per_fold = model_constraints.get("max_n_samples_train_per_fold", None)
-        if (max_n_samples_train_per_fold is not None) and (n_samples_train_per_fold > max_n_samples_train_per_fold):
+        max_n_samples_train_per_fold = model_constraints.get(
+            "max_n_samples_train_per_fold", None
+        )
+        if (max_n_samples_train_per_fold is not None) and (
+            n_samples_train_per_fold > max_n_samples_train_per_fold
+        ):
             return False
 
-        min_n_samples_train_per_fold = model_constraints.get("min_n_samples_train_per_fold", None)
-        if (min_n_samples_train_per_fold is not None) and (n_samples_train_per_fold < min_n_samples_train_per_fold):
+        min_n_samples_train_per_fold = model_constraints.get(
+            "min_n_samples_train_per_fold", None
+        )
+        if (min_n_samples_train_per_fold is not None) and (
+            n_samples_train_per_fold < min_n_samples_train_per_fold
+        ):
             return False
 
         max_n_classes = model_constraints.get("max_n_classes", None)
@@ -703,7 +739,9 @@ def should_run_job(
     try:
         task_id = int(task_id)
     except ValueError:
-        task_id = task_id.split("|", 2)[1]  # Extract the local task ID if it is a UserTask.task_id_str
+        task_id = task_id.split("|", 2)[
+            1
+        ]  # Extract the local task ID if it is a UserTask.task_id_str
 
     # Filter out-of-constraints datasets
     if not BenchmarkSetup.are_model_constraints_valid(

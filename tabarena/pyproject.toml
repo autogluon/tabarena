@@ -47,7 +47,7 @@ tabdpt = ["tabdpt>=1.1.7"]
 tabm = ["torch"]
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
-sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@1ac43ca5a0393812f64b324c08eca2c7ef5a1d6b"]
+sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa"]
 
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [
@@ -60,7 +60,7 @@ benchmark = [
   "torch",
   "category_encoders",
   "xrfm[cu12]",
-  "sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@1ac43ca5a0393812f64b324c08eca2c7ef5a1d6b"
+  "sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa"
 ]
 
 [project.urls]
