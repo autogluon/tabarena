@@ -7,6 +7,7 @@ from functools import reduce
 
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_integer_dtype, is_float_dtype
 from typing_extensions import Self
 
 from .abstract_repository import AbstractRepository
@@ -281,18 +282,7 @@ def merge_zeroshot(zeroshot_contexts: list[ZeroshotSimulatorContext], require_ma
     df_metadata_lst = [z.df_metadata for z in zeroshot_contexts]
     df_metadata_lst = [df_metadata for df_metadata in df_metadata_lst if df_metadata is not None and len(df_metadata) > 0]
     if df_metadata_lst:
-        # The merge operation combines all available information in the metadata from different contexts, without loss of information.
-        df_metadata = reduce(
-            lambda left, right: pd.merge(
-                left,
-                right,
-                on=[col for col in left.columns if col in right.columns],
-                how='outer'
-            ),
-            df_metadata_lst
-        )
-        
-        df_metadata = df_metadata.drop_duplicates(ignore_index=True)
+        df_metadata = merge_metadata_frames(df_list=df_metadata_lst)
     else:
         df_metadata = None
 
@@ -359,3 +349,100 @@ def merge_ground_truth(ground_truths: list[GroundTruth]) -> GroundTruth:
             label_val_dict[d].update(gt._label_val_dict[d])
     ground_truth_merged = GroundTruth(label_test_dict=label_test_dict, label_val_dict=label_val_dict)
     return ground_truth_merged
+
+
+def merge_metadata_frames(df_list: list[pd.DataFrame]) -> pd.DataFrame:
+    """
+    Merge a list of metadata DataFrames such that:
+    - Only well-defined instance key columns are used as join keys.
+    - For non-key columns:
+        * If one side is NaN and the other has a value, the value is used.
+        * If both have the same non-NaN value, that value is used.
+        * If both have different non-NaN values, this is treated as a conflict.
+          (By default we raise; you can change to keep multiple rows if you want.)
+
+    Result:
+        - There is at most one row per instance unless there is a true conflict.
+        - NaN vs value does NOT create duplicate rows.
+    """
+    if not df_list:
+        return pd.DataFrame()
+
+    # Decide your instance keys here.
+    # This is often something like ['dataset', 'task', 'seed'] or similar.
+    # For now, we use columns shared by all frames:
+    join_cols = list(set.intersection(*(set(df.columns) for df in df_list)))
+    if not join_cols:
+        raise ValueError("No common columns found to use as join keys.")
+
+    def merge_pair(left: pd.DataFrame, right: pd.DataFrame) -> pd.DataFrame:
+        overlapping_non_keys = (set(left.columns) & set(right.columns)) - set(join_cols)
+
+        merged = pd.merge(
+            left,
+            right,
+            on=join_cols,
+            how="outer",
+            suffixes=("_left", "_right"),
+            sort=False,
+        )
+
+        for col in overlapping_non_keys:
+            col_l = f"{col}_left"
+            col_r = f"{col}_right"
+
+            has_l = col_l in merged.columns
+            has_r = col_r in merged.columns
+
+            # Was this column ever integer-like in any input DF?
+            orig_int_like = False
+            if col in left.columns and is_integer_dtype(left[col].dtype):
+                orig_int_like = True
+            if col in right.columns and is_integer_dtype(right[col].dtype):
+                orig_int_like = True
+
+            if has_l and has_r:
+                s_l = merged[col_l]
+                s_r = merged[col_r]
+
+                # 1) detect conflicts (both non-null and different)
+                mask_both_notnull = s_l.notna() & s_r.notna()
+                mask_conflict = mask_both_notnull & (s_l != s_r)
+                if mask_conflict.any():
+                    conflict_examples = merged.loc[mask_conflict, join_cols + [col_l, col_r]]
+                    raise ValueError(
+                        f"Conflict detected in column '{col}' for some instances.\n"
+                        f"Examples:\n{conflict_examples}"
+                    )
+
+                # 2) coalesce WITHOUT combine_first to avoid FutureWarning
+                s_out = s_l.copy()
+                mask_na = s_out.isna()
+                # where left is NaN, take right
+                s_out[mask_na] = s_r[mask_na]
+                merged[col] = s_out
+
+                merged = merged.drop(columns=[col_l, col_r])
+
+            elif has_l:
+                merged = merged.rename(columns={col_l: col})
+            elif has_r:
+                merged = merged.rename(columns={col_r: col})
+
+            # 3) If it was an integer column originally, try to cast back to nullable Int64
+            if orig_int_like and col in merged.columns:
+                s = merged[col]
+                # pandas will often have upcast to float because of NaNs; check if values are integer-like
+                if is_float_dtype(s.dtype):
+                    non_na = s.dropna()
+                    if (non_na % 1 == 0).all():
+                        merged[col] = s.astype("Int64")
+
+        return merged
+
+    df_metadata = reduce(merge_pair, df_list)
+
+    # Remove any exact duplicates that might remain
+    df_metadata = df_metadata.drop_duplicates(ignore_index=True)
+
+    return df_metadata
