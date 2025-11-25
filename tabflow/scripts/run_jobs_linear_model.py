@@ -36,7 +36,7 @@ https://us-west-2.console.aws.amazon.com/sagemaker/home?region=us-west-2#/jobs
 https://us-west-2.console.aws.amazon.com/s3/buckets/{s3_bucket}?prefix={experiment_name}/
 
 # 7. Download the artifacts to local
-from s3_downloader import copy_s3_prefix_to_local
+from tabarena.utils.s3_downloader import copy_s3_prefix_to_local
 copy_s3_prefix_to_local(
     bucket=s3_bucket,
     prefix=experiment_name,

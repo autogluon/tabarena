@@ -4,6 +4,7 @@ import pandas as pd
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle, EndToEndResultsSingle
+from tabarena.utils.s3_downloader import copy_s3_prefix_to_local
 
 
 """
@@ -13,7 +14,7 @@ if __name__ == '__main__':
     bucket = "prateek-ag"
     prefix = "tabarena-lr-2025-10-16"
     local_dir =  Path(f"/home/ubuntu/workspace/data/{prefix}/")
-    from s3_downloader import copy_s3_prefix_to_local
+
     copy_s3_prefix_to_local(
         bucket=bucket,
         prefix=prefix,

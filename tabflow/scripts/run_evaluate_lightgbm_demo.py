@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle, EndToEndResultsSingle
-from s3_downloader import copy_s3_prefix_to_local
+from tabarena.utils.s3_downloader import copy_s3_prefix_to_local
 
 
 """
