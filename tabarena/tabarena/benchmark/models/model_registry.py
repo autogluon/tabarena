@@ -15,7 +15,6 @@ from tabarena.benchmark.models.ag import (
     TabICLModel,
     TabMModel,
     XRFMModel,
-    KNNNewModel,
     PrepLGBModel,
 )
 
