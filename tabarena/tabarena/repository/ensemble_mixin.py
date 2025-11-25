@@ -332,17 +332,17 @@ class EnsembleMixin:
         return df_out, df_ensemble_weights
 
     def evaluate_ensembles_per(
-            self,
-            df_info: pd.DataFrame,
-            *,
-            ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
-            ensemble_kwargs: dict = None,
-            ensemble_size: int = 100,
-            time_limit: float = None,
-            fit_order: Literal["original", "random"] = "original",
-            seed: int = 0,
-            rank: bool = False,
-            backend: Literal["ray", "native"] = "ray",
+        self,
+        df_info: pd.DataFrame,
+        *,
+        ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
+        ensemble_kwargs: dict = None,
+        ensemble_size: int = 100,
+        time_limit: float = None,
+        fit_order: Literal["original", "random"] = "original",
+        seed: int = 0,
+        rank: bool = False,
+        backend: Literal["ray", "native"] = "ray",
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Identical to calling `evaluate_ensemble` once for each row in df_info,

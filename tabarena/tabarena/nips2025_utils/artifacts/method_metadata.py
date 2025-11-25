@@ -575,6 +575,7 @@ class MethodMetadata:
         n_iterations: int = 40,
         n_configs: int | None = None,
         time_limit: float | None = None,
+        fixed_configs: list[str] | None = None,
         fit_order: Literal["original", "random"] = "random",
         holdout: bool = False,
         backend: Literal["ray", "native"] = "ray",
@@ -591,6 +592,7 @@ class MethodMetadata:
             n_iterations=n_iterations,
             n_configs=n_configs,
             time_limit=time_limit,
+            fixed_configs=fixed_configs,
             fit_order=fit_order,
             seed=seed,
             **kwargs,
@@ -611,6 +613,7 @@ class MethodMetadata:
         n_configs: list[int | None] | str = "auto",
         seeds: int | list[int] = 20,
         n_iterations: int = 40,
+        always_include_default: bool = True,
         fit_order: Literal["original", "random"] = "random",
         time_limit: float | None = None,
         backend: Literal["ray", "native"] = "ray",
@@ -645,6 +648,12 @@ class MethodMetadata:
         n_configs = [n_config for n_config in n_configs if n_config <= n_config_total]
         n_configs = sorted(list(set(n_configs)))
 
+        fixed_configs = None
+        if always_include_default:
+            config_default = self.config_default
+            assert config_default is not None
+            fixed_configs = [config_default]
+
         for n_config in n_configs:
             print(f"Running n_config={n_config} ({self.method})")
             assert n_config <= n_config_total
@@ -654,11 +663,13 @@ class MethodMetadata:
                     n_configs=n_config,
                     seed=seed,
                     n_iterations=n_iterations,
+                    fixed_configs=fixed_configs,
                     fit_order=fit_order,
                     time_limit=time_limit,
                     backend=backend,
                     holdout=holdout,
                 )
+                df_results_hpo["always_include_default"] = always_include_default
                 df_results_hpo_lst.append(df_results_hpo)
         df_results_hpo_combined = pd.concat(df_results_hpo_lst, ignore_index=True)
 

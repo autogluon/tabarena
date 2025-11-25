@@ -85,6 +85,7 @@ class PaperRun:
         config_type: str,
         n_iterations: int,
         n_configs: int = None,
+        fixed_configs: list[str] | None = None,
         time_limit: float | None = None,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
@@ -94,11 +95,18 @@ class PaperRun:
         config_type_groups = self.get_config_type_groups()
         configs = config_type_groups[config_type]
 
+        if fixed_configs is not None:
+            for c in fixed_configs:
+                assert c in configs, f"config {c!r} missing from configs (config_type={config_type!r}!"
+            configs = [c for c in configs if c not in fixed_configs]
+
         if fit_order == "random":
             # randomly shuffle the configs
             rng = np.random.default_rng(seed=seed)
-            configs = list(rng.permuted(configs))
+            configs = [str(x) for x in rng.permuted(configs)]
 
+        if fixed_configs is not None:
+            configs = fixed_configs + configs
         if n_configs is not None:
             configs = configs[:n_configs]
         df_results_family_hpo, _ = self.repo.evaluate_ensembles(
