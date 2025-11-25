@@ -169,6 +169,41 @@ class PaperRun:
 
         return df_results
 
+    def evaluate_ensembles_per(
+        self,
+        df_info: pd.DataFrame,
+        time_limit: float | None = None,
+        n_iterations: int = 40,
+        fit_order: Literal["original", "random"] = "original",
+        seed: int = 0,
+    ) -> pd.DataFrame:
+        df_results, _ = self.repo.evaluate_ensembles_per(
+            df_info=df_info,
+            fit_order=fit_order,
+            ensemble_size=n_iterations,
+            seed=seed,
+            time_limit=time_limit,
+            backend=self.backend,
+        )
+        df_results = df_results.reset_index()
+        df_results["method_type"] = "portfolio"
+
+        if n_iterations == 1:
+            method_subtype = "tuned"
+        else:
+            method_subtype = "tuned_ensemble"
+        df_results["method_subtype"] = method_subtype
+
+        method_metadata = dict(
+            n_iterations=n_iterations,
+            time_limit=time_limit,
+            fit_order=fit_order,
+        )
+
+        df_results["method_metadata"] = [method_metadata] * len(df_results)
+
+        return df_results
+
     def run_zs(
             self,
             n_portfolios: int = 200,

@@ -265,6 +265,23 @@ class TabArenaContext:
         results = results.rename(columns={"framework": "method"})
         return results
 
+    def simulate_portfolio_from_configs_per(
+        self,
+        df_info: pd.DataFrame,
+        config_fallback: str | None = None,
+        repo: EvaluationRepositoryCollection = None,
+    ):
+        if repo is None:
+            repo = self.load_repo(config_fallback=config_fallback)
+        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+
+        results = simulator.evaluate_ensembles_per(
+            df_info=df_info,
+        )
+
+        results = results.rename(columns={"framework": "method"})
+        return results
+
     def simulate_portfolio_search(
         self,
         methods: list[str],

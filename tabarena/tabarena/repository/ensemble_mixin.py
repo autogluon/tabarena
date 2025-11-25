@@ -217,7 +217,6 @@ class EnsembleMixin:
 
         return df_out, df_ensemble_weights
 
-    # TODO: Docstring
     def evaluate_ensembles(
         self,
         datasets: list[str] = None,
@@ -329,6 +328,100 @@ class EnsembleMixin:
 
         df_out = pd.concat([l[0] for l in list_rows], axis=0)
         df_ensemble_weights = pd.concat([l[1] for l in list_rows], axis=0)  # FIXME: Is this guaranteed same columns in each?
+
+        return df_out, df_ensemble_weights
+
+    def evaluate_ensembles_per(
+            self,
+            df_info: pd.DataFrame,
+            *,
+            ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
+            ensemble_kwargs: dict = None,
+            ensemble_size: int = 100,
+            time_limit: float = None,
+            fit_order: Literal["original", "random"] = "original",
+            seed: int = 0,
+            rank: bool = False,
+            backend: Literal["ray", "native"] = "ray",
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Identical to calling `evaluate_ensemble` once for each row in df_info,
+        however this method will be much faster due to parallelization.
+
+        Parameters
+        ----------
+        df_info: pd.DataFrame, default = None
+            A DataFrame with columns `configs` (list[str]), dataset (str), fold (int).
+            Indicates which configs will be run for a given dataset and fold.
+        time_limit: float, default = None
+            The time limit of the ensemble.
+            Will only consider the first N models in `configs` whose cumulative time limit is less than `time_limit`.
+        ensemble_cls: Type[EnsembleScorer], default = EnsembleScorerMaxModels
+            The ensemble method to use.
+        ensemble_kwargs: dict, default = None
+            The ensemble method kwargs.
+        ensemble_size: int, default = 100
+            The number of ensemble iterations.
+        rank: bool, default = False
+            If True, additionally calculates the rank of the ensemble result.
+        fit_order: Literal["original", "random"], default = "original"
+            Whether to simulate the models being fit in their original order sequentially or randomly.
+        seed: int, default = 0
+            The random seed used to shuffle `configs` if `fit_order="random"`.
+        backend: Literal["ray", "native"], default = "ray"
+            The backend to use when running the list of tasks.
+
+        Returns
+        -------
+        result: pd.DataFrame
+            A multi-index (dataset, fold) DataFrame where each row corresponds to a task, with the following columns:
+                metric_error: float
+                    The ensemble's metric test error.
+                metric: str
+                    The target evaluation metric.
+                time_train_s: float
+                    The training time of the ensemble in seconds (the sum of all considered models' time_train_s)
+                time_infer_s: float
+                    The inference time of the ensemble in seconds (the sum of all non-zero weight models' time_infer_s)
+                problem_type: str
+                    The problem type of the task.
+                metric_error_val: float
+                    The ensemble's metric validation error.
+        ensemble_weights: pd.DataFrame
+            A multi-index (dataset, fold) DataFrame with column names equal to `configs`. Each row corresponds to a task.
+            Each config column's value is the weight given to it by the ensemble model.
+            This can be used for debugging purposes and for deeper analysis.
+
+        """
+        if backend == "native":
+            backend = "sequential"
+
+        context = dict(
+            self=self,
+            ensemble_cls=ensemble_cls,
+            ensemble_kwargs=ensemble_kwargs,
+            ensemble_size=ensemble_size,
+            time_limit=time_limit,
+            fit_order=fit_order,
+            seed=seed,
+            rank=rank,
+        )
+
+        inputs = df_info[["dataset", "fold", "configs"]].values
+        inputs = [{"dataset": dataset, "fold": fold, "configs": configs} for dataset, fold, configs in inputs]
+
+        list_rows = parallel_for(
+            self.__class__.evaluate_ensemble,
+            inputs=inputs,
+            context=context,
+            engine=backend,
+            # To reduce log spam in outer parallel mode.
+            progress_bar=backend != "sequential",
+        )
+
+        df_out = pd.concat([l[0] for l in list_rows], axis=0)
+        df_ensemble_weights = pd.concat([l[1] for l in list_rows],
+                                        axis=0)  # FIXME: Is this guaranteed same columns in each?
 
         return df_out, df_ensemble_weights
 
