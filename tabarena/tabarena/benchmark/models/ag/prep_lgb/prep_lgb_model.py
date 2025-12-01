@@ -112,9 +112,12 @@ class PrepLGBModel(LGBModel):
                 prep_cls = OOFTargetEncodingFeatureGenerator(target_type=self.problem_type, **init_params)
                 num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X, self.num_classes)
                 if prep_cls.keep_original:
-                    X = pd.concat([X, pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=[f'oof_te_{i}' for i in range(num_new_feats)])], axis=1)
+                    X_new = pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=['oof_te_' + str(num) for num in range(num_new_feats)])
+                    X = pd.concat([X, X_new], axis=1)
                 else:
-                    X[affected_features] = np.random.random(size=[shape, num_new_feats])
+                    X = X.drop(columns=affected_features)
+                    X_new = pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=['oof_te_' + str(num) for num in range(num_new_feats)])
+                    X = pd.concat([X, X_new], axis=1)
 
         return self.estimate_memory_usage_static(X=X, problem_type=self.problem_type, num_classes=self.num_classes, hyperparameters=hyperparameters, **kwargs)
 
