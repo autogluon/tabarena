@@ -3,7 +3,7 @@ from __future__ import annotations
 import gc
 import logging
 import os
-import re
+
 import time
 import warnings
 from types import MappingProxyType
@@ -19,13 +19,17 @@ from autogluon.tabular.models.lgb import lgb_utils
 from autogluon.tabular.models.lgb.hyperparameters.parameters import DEFAULT_NUM_BOOST_ROUND, get_lgb_objective, get_param_baseline
 from autogluon.tabular.models.lgb.lgb_utils import construct_dataset, train_lgb_model
 
+from autogluon.features import ArithmeticFeatureGenerator
+from autogluon.features import CategoricalInteractionFeatureGenerator
+from autogluon.features import OOFTargetEncodingFeatureGenerator
+
 warnings.filterwarnings("ignore", category=UserWarning, message="Starting from version")  # lightGBM brew libomp warning
 warnings.filterwarnings("ignore", category=FutureWarning, message="Dask dataframe query")  # lightGBM dask-expr warning
 logger = logging.getLogger(__name__)
 
 from scipy.special import softmax
 from autogluon.tabular.models.lgb.lgb_model import LGBModel
-from tabprep.proxy_models import GroupedLinearInitScore, LinearInitScore, OOFKNNInitScore, OOFLinearInitScore
+from .linear_init import GroupedLinearInitScore, LinearInitScore, OOFLinearInitScore
 
 def construct_dataset(x: DataFrame, y: Series, location=None, reference=None, params=None, save=False, weight=None, init_score=None):
     # FIXME: Copied function from AG and added init_score - should rather be added to AG
@@ -76,6 +80,43 @@ class PrepLGBModel(LGBModel):
 
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
+
+    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
+        hyperparameters = self._get_model_params()
+
+        X = X.copy()
+        for preprocessor_cls_name, init_params in hyperparameters['prep_params'].items():
+            if preprocessor_cls_name == 'ArithmeticFeatureGenerator':
+                prep_cls = ArithmeticFeatureGenerator(target_type=self.problem_type, **init_params)
+                num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X)
+                X_new = pd.DataFrame(np.random.random(size=[X.shape[0], num_new_feats]), index=X.index, columns=[f'arithmetic_{i}' for i in range(num_new_feats)]).astype(prep_cls.out_dtype)
+                prep_cls
+                X = pd.concat([X, X_new], axis=1)
+            elif preprocessor_cls_name == 'CategoricalInteractionFeatureGenerator':
+                # TODO: Test whether it is also fine to just do the actual preprocessing and use the X resulting from that
+                prep_cls = CategoricalInteractionFeatureGenerator(target_type=self.problem_type, **init_params)
+                num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X)
+                if prep_cls.only_freq:
+                    X = pd.concat([X, pd.DataFrame(np.random.random(size=[X.shape[0], num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)])], axis=1)
+                elif prep_cls.add_freq:
+                    shape = X.shape[0]
+                    max_card = X.nunique().max()
+                    X_cat_new = pd.DataFrame(np.random.randint(0, int(shape*(max_card/shape)), [shape, num_new_feats]), index=X.index, columns=[f'cat_int{i}' for i in range(num_new_feats)]).astype('category')
+                    X = pd.concat([X, X_cat_new, pd.DataFrame(np.random.random(size=[X.shape[0], num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)])], axis=1)
+                else:
+                    shape = X.shape[0]
+                    max_card = X.nunique().max()
+                    X_cat_new = pd.DataFrame(np.random.randint(0, int(shape*(max_card/shape)), [shape, num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)]).astype('category')
+                    X = pd.concat([X, X_cat_new], axis=1)
+            elif preprocessor_cls_name == 'OOFTargetEncodingFeatureGenerator':
+                prep_cls = OOFTargetEncodingFeatureGenerator(target_type=self.problem_type, **init_params)
+                num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X, self.num_classes)
+                if prep_cls.keep_original:
+                    X = pd.concat([X, pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=[f'oof_te_{i}' for i in range(num_new_feats)])], axis=1)
+                else:
+                    X[affected_features] = np.random.random(size=[shape, num_new_feats])
+
+        return self.estimate_memory_usage_static(X=X, problem_type=self.problem_type, num_classes=self.num_classes, hyperparameters=hyperparameters, **kwargs)
 
     def _fit(self, X, y, X_val=None, y_val=None, time_limit=None, num_gpus=0, num_cpus=0, sample_weight=None, sample_weight_val=None, verbosity=2, **kwargs):
         try_import_lightgbm()  # raise helpful error message if LightGBM isn't installed
@@ -319,6 +360,7 @@ class PrepLGBModel(LGBModel):
         else:
             self.params_trained["num_boost_round"] = self.model.current_iteration()
 
+    
     def _predict_proba(self, X, num_cpus=0, **kwargs) -> np.ndarray:
         if self.use_residuals:
             y_pred_linear = self.lin_init.init_score(X, is_train=False)
@@ -357,13 +399,12 @@ class PrepLGBModel(LGBModel):
                 return y_pred_proba[:, 1]
 
     def get_preprocessors(self, prep_params: dict = None) -> list:
-        from tabprep.preprocessors.preprocessor_map import get_preprocessor
         if prep_params is None:
             return []
         
         preprocessors = []
         for prep_name, init_params in prep_params.items():
-            preprocessor_class = get_preprocessor(prep_name)
+            preprocessor_class = eval(prep_name)
             if preprocessor_class is not None:
                 preprocessors.append(preprocessor_class(target_type=self.problem_type, **init_params, random_state=self.random_seed))
             else:
