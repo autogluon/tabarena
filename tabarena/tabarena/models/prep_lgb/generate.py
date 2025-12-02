@@ -66,13 +66,13 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
             r_num += 1
         if configs[i].pop('use_arithmetic_preprocessor') == True:
             configs[i]['prep_params'].update({
-                'ArithmeticPreprocessor': {}
+                'ArithmeticFeatureGenerator': {}
             })
 
         if configs[i].pop('use_cat_fe') == True:
             configs[i]['prep_params'].update({
-                'CatIntAdder': {}, 
-                'OOFTargetEncoder': {}
+                'CategoricalInteractionFeatureGenerator': {}, 
+                'OOFTargetEncodingFeatureGenerator': {}
                         })
 
     return [convert_numpy_dtypes(config) for config in configs]
