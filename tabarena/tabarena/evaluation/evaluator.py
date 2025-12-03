@@ -5,7 +5,6 @@ from typing import Type
 import numpy as np
 import pandas as pd
 
-from tabarena.evaluation.evaluate_utils import make_scorers
 from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer, EnsembleScorerMaxModels
 from tabarena.portfolio.greedy_portfolio_generator import zeroshot_results
 from ..repository import EvaluationRepository, EvaluationRepositoryCollection
@@ -276,8 +275,6 @@ class Evaluator:
     ) -> pd.DataFrame:
         repo = self.repo
 
-        rank_scorer, normalized_scorer = make_scorers(repo)
-
         if configs is None:
             configs = repo.configs()
 
@@ -292,8 +289,6 @@ class Evaluator:
             max_runtimes=[time_limit],
             n_ensemble_in_name=n_ensemble_in_name,
             n_max_models_per_type=[n_max_models_per_type],
-            rank_scorer=rank_scorer,
-            normalized_scorer=normalized_scorer,
             n_eval_folds=n_eval_folds,
             configs=configs,
             engine=engine,
@@ -305,15 +300,11 @@ class Evaluator:
 
         if rename_columns:
             df_zeroshot_portfolio = df_zeroshot_portfolio.rename(columns={
-                "test_error": "metric_error",
-                "method": "framework",
                 "metadata": "method_metadata",
             })
             datasets_info = repo.datasets_info()
 
             df_zeroshot_portfolio["problem_type"] = df_zeroshot_portfolio["dataset"].map(datasets_info["problem_type"])
             df_zeroshot_portfolio["metric"] = df_zeroshot_portfolio["dataset"].map(datasets_info["metric"])
-
-        df_zeroshot_portfolio = df_zeroshot_portfolio.drop(columns=["normalized_error", "rank"])
 
         return df_zeroshot_portfolio

@@ -69,8 +69,10 @@ class EnsembleScorer:
         self.optimize_on = optimize_on
         self.return_metric_error_val = return_metric_error_val
 
-    def _get_metric_from_name(self, metric_name: str, problem_type: str) -> Scorer:
-        if self.use_fast_metrics:
+    def _get_metric_from_name(self, metric_name: str, problem_type: str, use_fast_metrics: bool = None) -> Scorer:
+        if use_fast_metrics is None:
+            use_fast_metrics = self.use_fast_metrics
+        if use_fast_metrics:
             return self._get_fast_metric_if_exist(metric_name=metric_name, problem_type=problem_type)
         else:
             return get_metric(metric=metric_name, problem_type=problem_type)

@@ -21,7 +21,6 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
         self.calibrator_type = calibrator_type
         self.calibrate_per_model = calibrate_per_model
         self.calibrate_after_ens = calibrate_after_ens
-        self.use_fast_metrics = False  # FIXME: Don't hard-code this?
 
     def get_calibrator(self):
         from probmetrics.calibrators import get_calibrator
@@ -30,21 +29,26 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
         return calibrator
 
     def evaluate_task(self, dataset: str, fold: int, models: list[str]) -> dict[str, object]:
-
-
         n_models = len(models)
         task_metadata = self.task_metrics_metadata[dataset]
         metric_name = task_metadata["metric"]
         problem_type = task_metadata["problem_type"]
 
         if problem_type == "multiclass" and self.calibrator_type is not None:
+            use_fast_metrics = False
             calibrator = self.get_calibrator()
             calibrate_after_ens = self.calibrate_after_ens
             calibrate_per_model = self.calibrate_per_model
         else:
+            use_fast_metrics = self.use_fast_metrics
             calibrator = None
             calibrate_after_ens = False
             calibrate_per_model = False
+
+        fit_metric_name = self.proxy_fit_metric_map.get(metric_name, metric_name)
+
+        eval_metric = self._get_metric_from_name(metric_name=metric_name, problem_type=problem_type, use_fast_metrics=use_fast_metrics)
+        fit_eval_metric = self._get_metric_from_name(metric_name=fit_metric_name, problem_type=problem_type, use_fast_metrics=use_fast_metrics)
 
         y_val_og = self.repo.labels_val(dataset=dataset, fold=fold)
         y_test = self.repo.labels_test(dataset=dataset, fold=fold)
@@ -92,11 +96,6 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
                 pred_val = pred_val[:, :, 1]
             if len(pred_test.shape) == 3:
                 pred_test = pred_test[:, :, 1]
-
-        fit_metric_name = self.proxy_fit_metric_map.get(metric_name, metric_name)
-
-        eval_metric = self._get_metric_from_name(metric_name=metric_name, problem_type=problem_type)
-        fit_eval_metric = self._get_metric_from_name(metric_name=fit_metric_name, problem_type=problem_type)
 
         if hasattr(fit_eval_metric, 'preprocess_bulk'):
             y_val, pred_val = fit_eval_metric.preprocess_bulk(y_val, pred_val)

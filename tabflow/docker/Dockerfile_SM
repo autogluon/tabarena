@@ -68,6 +68,9 @@ RUN set -ex && \
 
 RUN rm -rf /root/.cache/pip
 
+# Saves 2 GB
+RUN rm -rf /opt/nvidia
+
 # GPU images can come pre-installed with flash-attn, uncomment this to ensure it isn't installed
 # RUN pip uninstall flash-attn -y
 

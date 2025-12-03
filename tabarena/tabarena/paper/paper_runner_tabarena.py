@@ -40,13 +40,9 @@ class PaperRunTabArena(PaperRun):
                     n_ensemble=n_ensemble,
                     n_ensemble_in_name=False,
                     time_limit=time_limit,
-                    # n_eval_folds=n_eval_folds,
                 )
-                cur_result["framework"] = model_type
-                cur_result["method"] = cur_result["framework"]
-                cur_result = cur_result.drop(columns=["framework"])
+                cur_result["method"] = model_type
                 results_dict_cur_round[model_type] = cur_result
-                # print(cur_result)
 
             combined_data_cur_round = pd.concat([v for v in results_dict_cur_round.values()], ignore_index=True)
             combined_data = pd.concat([result_baselines, combined_data_cur_round], ignore_index=True)

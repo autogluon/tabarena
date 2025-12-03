@@ -106,7 +106,7 @@ class TabArenaContext:
         self,
         output_dir: str | Path,
         new_results: pd.DataFrame | None = None,
-        only_valid_tasks: bool = False,
+        only_valid_tasks: bool | str | list[str] = False,
         subset: str | list[str] | None = None,
         folds: list[int] | None = None,
         score_on_val: bool = False,
@@ -270,6 +270,7 @@ class TabArenaContext:
         df_info: pd.DataFrame,
         config_fallback: str | None = None,
         repo: EvaluationRepositoryCollection = None,
+        **kwargs,
     ):
         if repo is None:
             repo = self.load_repo(config_fallback=config_fallback)
@@ -277,6 +278,7 @@ class TabArenaContext:
 
         results = simulator.evaluate_ensembles_per(
             df_info=df_info,
+            **kwargs,
         )
 
         results = results.rename(columns={"framework": "method"})
@@ -327,9 +329,6 @@ class TabArenaContext:
             n_ensemble_in_name=True,
             time_limit=time_limit,
         )
-        cur_result = cur_result.rename(columns={
-            "framework": "method",
-        })
         return cur_result
 
     def simulate_portfolio(self, methods: list[str], config_fallback: str, repo: EvaluationRepositoryCollection = None):
@@ -343,8 +342,6 @@ class TabArenaContext:
             df_results_n_portfolio.append(
                 simulator.run_zs(n_portfolios=n_portfolio, n_ensemble=None, n_ensemble_in_name=False))
         results = pd.concat(df_results_n_portfolio, ignore_index=True)
-
-        results = results.rename(columns={"framework": "method"})
         return results
 
     def run_portfolio_from_config_types(

@@ -184,6 +184,7 @@ class PaperRun:
         n_iterations: int = 40,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
+        **kwargs,
     ) -> pd.DataFrame:
         df_results, _ = self.repo.evaluate_ensembles_per(
             df_info=df_info,
@@ -192,6 +193,7 @@ class PaperRun:
             seed=seed,
             time_limit=time_limit,
             backend=self.backend,
+            **kwargs,
         )
         df_results = df_results.reset_index()
         df_results["method_type"] = "portfolio"
@@ -213,13 +215,13 @@ class PaperRun:
         return df_results
 
     def run_zs(
-            self,
-            n_portfolios: int = 200,
-            n_ensemble: int = None,
-            n_ensemble_in_name: bool = True,
-            n_max_models_per_type: int | str | None = None,
-            time_limit: float | None = 14400,
-            **kwargs,
+        self,
+        n_portfolios: int = 200,
+        n_ensemble: int = None,
+        n_ensemble_in_name: bool = True,
+        n_max_models_per_type: int | str | None = None,
+        time_limit: float | None = 14400,
+        **kwargs,
     ) -> pd.DataFrame:
         df_zeroshot_portfolio = self.evaluator.zeroshot_portfolio(
             n_portfolios=n_portfolios,

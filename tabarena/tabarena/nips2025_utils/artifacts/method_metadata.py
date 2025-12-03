@@ -708,7 +708,6 @@ class MethodMetadata:
             time_limit=time_limit,
             **kwargs,
         )
-        df_results_best = df_results_best.rename(columns={"framework": "method"})
         df_results_best["method"] = f"{self.config_type} (best)"
         df_results_best["method_subtype"] = "best"
         df_results_best["n_configs"] = n_configs

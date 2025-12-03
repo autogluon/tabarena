@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from collections import Counter
 from pathlib import Path
 
 import pandas as pd
@@ -117,6 +118,22 @@ def load_raw(
     -------
 
     """
-    file_paths_method = fetch_all_pickles(dir_path=path_raw, suffix="results.pkl")
+
+    suffix = "results.pkl"
+    file_paths_method = fetch_all_pickles(dir_path=path_raw, suffix=suffix)
+    if len(file_paths_method) == 0:
+        # Look at every file to provide debugging info
+        all_files = [p for p in Path(path_raw).rglob("*") if p.is_file()]
+
+        # Root name = filename with extension
+        roots = [p.name for p in all_files]
+
+        counter = Counter(roots).most_common(10)
+        common_str = ", ".join(f"{name} ({count})" for name, count in counter) or "None"
+
+        raise AssertionError(
+            f"No valid {suffix!r} files found under path: {path_raw!r}!\n"
+            f"Most common file root names:\n{common_str}"
+        )
     results_lst = load_all_artifacts(file_paths=file_paths_method, engine=engine, convert_to_holdout=as_holdout)
     return results_lst

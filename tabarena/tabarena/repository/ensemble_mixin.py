@@ -230,6 +230,7 @@ class EnsembleMixin:
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
         rank: bool = False,
+        backend_group_folds: bool = False,
         backend: Literal["ray", "native"] = "ray",
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
@@ -315,10 +316,22 @@ class EnsembleMixin:
                     inputs.append((dataset, fold))
         else:
             inputs = list(itertools.product(datasets, folds))
-        inputs = [{"dataset": dataset, "fold": fold} for dataset, fold in inputs]
+
+        if backend_group_folds:
+            inputs_dict = {}
+            for dataset, fold in inputs:
+                if dataset not in inputs_dict:
+                    inputs_dict[dataset] = []
+                inputs_dict[dataset].append(fold)
+            inputs = [{"datasets": [dataset], "folds": folds} for dataset, folds in inputs_dict.items()]
+            context.update({"backend": "native", "backend_group_folds": False})
+            par_func = self.__class__.evaluate_ensembles
+        else:
+            inputs = [{"dataset": dataset, "fold": fold} for dataset, fold in inputs]
+            par_func = self.__class__.evaluate_ensemble
 
         list_rows = parallel_for(
-            self.__class__.evaluate_ensemble,
+            par_func,
             inputs=inputs,
             context=context,
             engine=backend,
@@ -333,7 +346,7 @@ class EnsembleMixin:
 
     def evaluate_ensembles_per(
         self,
-        df_info: pd.DataFrame,
+        df_info: pd.DataFrame | list[dict[str]],
         *,
         ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
         ensemble_kwargs: dict = None,
@@ -342,6 +355,7 @@ class EnsembleMixin:
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
         rank: bool = False,
+        backend_group_folds: bool = True,
         backend: Literal["ray", "native"] = "ray",
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
@@ -407,16 +421,32 @@ class EnsembleMixin:
             rank=rank,
         )
 
-        inputs = df_info[["dataset", "fold", "configs"]].values
-        inputs = [{"dataset": dataset, "fold": fold, "configs": configs} for dataset, fold, configs in inputs]
+        if isinstance(df_info, pd.DataFrame):
+            inputs = df_info[["dataset", "fold", "configs"]].values
+            inputs = [{"dataset": dataset, "fold": fold, "configs": configs} for dataset, fold, configs in inputs]
+        else:
+            inputs = df_info
+
+        if backend_group_folds:
+            inputs_dict = {}
+            for input_dict in inputs:
+                dataset = input_dict["dataset"]
+                if dataset not in inputs_dict:
+                    inputs_dict[dataset] = []
+                inputs_dict[dataset].append(input_dict)
+            inputs = [{"df_info": inputs_dict[dataset]} for dataset in inputs_dict.keys()]
+            context.update({"backend": "native", "backend_group_folds": False})
+            par_func = self.__class__.evaluate_ensembles_per
+        else:
+            par_func = self.__class__.evaluate_ensemble
 
         list_rows = parallel_for(
-            self.__class__.evaluate_ensemble,
+            par_func,
             inputs=inputs,
             context=context,
             engine=backend,
             # To reduce log spam in outer parallel mode.
-            progress_bar=backend != "sequential",
+            progress_bar=backend != "sequential"
         )
 
         df_out = pd.concat([l[0] for l in list_rows], axis=0)

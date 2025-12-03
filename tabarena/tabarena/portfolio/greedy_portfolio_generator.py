@@ -21,9 +21,7 @@ class ResultRow:
     dataset: str
     fold: int
     method: str
-    test_error: float
-    rank: float
-    normalized_error: float
+    metric_error: float
     time_train_s: float
     time_infer_s: float
     metric_error_val: float = None
@@ -36,8 +34,6 @@ class ResultRow:
 def evaluate_configs(
         repo: EvaluationRepository,
         configs: List[str],
-        rank_scorer,
-        normalized_scorer,
         tid: int,
         folds: List[int],
         method: str,
@@ -52,8 +48,6 @@ def evaluate_configs(
 
     :param repo:
     :param configs:
-    :param rank_scorer:
-    :param normalized_scorer:
     :param tid:
     :param method:
     :param ensemble_size:
@@ -97,9 +91,7 @@ def evaluate_configs(
             dataset=dataset,
             fold=fold,
             method=method,
-            test_error=metric_error,
-            rank=rank_scorer.rank(task, metric_error),
-            normalized_error=normalized_scorer.rank(task, metric_error),
+            metric_error=metric_error,
             time_train_s=time_train_s,
             time_infer_s=time_infer_s,
             metric_error_val=metric_error_val,
@@ -175,8 +167,6 @@ def filter_configurations_above_budget(repo, test_tid, configs, max_runtime, qua
 def zeroshot_results(
         repo: EvaluationRepository,
         dataset_names: List[str],
-        rank_scorer,
-        normalized_scorer,
         n_eval_folds: int,
         framework_types: List[str] | None = None,
         configs: list[str] | None = None,
@@ -225,8 +215,6 @@ def zeroshot_results(
         test_folds: list[int] | None,
         repo: EvaluationRepository,
         df_rank,
-        rank_scorer,
-        normalized_scorer,
         model_frameworks,
         ensemble_kwargs: dict | None,
     ) -> list[ResultRow]:
@@ -320,8 +308,6 @@ def zeroshot_results(
 
         results_row_lst: list[ResultRow] = evaluate_configs(
             repo=repo,
-            rank_scorer=rank_scorer,
-            normalized_scorer=normalized_scorer,
             configs=portfolio_configs,
             ensemble_size=n_ensemble,
             ensemble_cls=ensemble_cls,
@@ -380,8 +366,12 @@ def zeroshot_results(
     list_rows = parallel_for(
         evaluate_dataset,
         inputs=inputs,
-        context=dict(repo=repo, df_rank=df_rank, rank_scorer=rank_scorer, normalized_scorer=normalized_scorer,
-                     model_frameworks=model_frameworks, ensemble_kwargs=ensemble_kwargs),
+        context=dict(
+            repo=repo,
+            df_rank=df_rank,
+            model_frameworks=model_frameworks,
+            ensemble_kwargs=ensemble_kwargs,
+        ),
         engine=engine,
     )
     return [x for l in list_rows for x in l]
