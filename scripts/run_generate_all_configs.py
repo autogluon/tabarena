@@ -13,7 +13,6 @@ from tabarena.models.xgboost.generate import gen_xgboost
 from tabarena.models.nn_torch.generate import gen_nn_torch
 from tabarena.models.random_forest.generate import gen_randomforest
 from tabarena.models.lr.generate import gen_linear
-from tabarena.models.tabpfnv2.generate import gen_tabpfnv2
 from tabarena.models.realmlp.generate import gen_realmlp
 from tabarena.models.ebm.generate import gen_ebm
 from tabarena.models.tabm.generate import gen_tabm
@@ -43,7 +42,6 @@ if __name__ == '__main__':
     experiments_tabm = gen_tabm.generate_all_bag_experiments(num_random_configs=n_random_configs)
 
     experiments_tabicl = gen_tabicl.generate_all_bag_experiments(num_random_configs=0)
-    experiments_tabpfnv2 = gen_tabpfnv2.generate_all_bag_experiments(num_random_configs=n_random_configs)
     experiments_tabdpt = gen_tabdpt.generate_all_bag_experiments(num_random_configs=n_random_configs)
     experiments_modernnca = gen_modernnca.generate_all_bag_experiments(num_random_configs=n_random_configs)
 
@@ -64,7 +62,7 @@ if __name__ == '__main__':
         experiments_ebm,
         experiments_realmlp,
         experiments_tabicl,
-        experiments_tabpfnv2,
+        # experiments_tabpfnv2,
         experiments_tabdpt,
         experiments_tabm,
         experiments_modernnca,

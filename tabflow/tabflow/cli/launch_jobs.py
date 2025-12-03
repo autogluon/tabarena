@@ -255,14 +255,21 @@ class JobManager:
             assert dataset in self.datasets_to_tids
         repeats_fold_dict = {}
         for dataset in datasets:
-            cur_repeats = self.task_metadata[self.task_metadata["name"] == dataset].iloc[0]["n_repeats"]
-            cur_folds = self.task_metadata[self.task_metadata["name"] == dataset].iloc[0]["n_folds"]
-            if (cur_repeats, cur_folds) not in repeats_fold_dict.keys():
-                repeats_fold_dict[(cur_repeats, cur_folds)] = []
-            repeats_fold_dict[(cur_repeats, cur_folds)].append(dataset)
+            cur_dataset_metadata = self.task_metadata[self.task_metadata["name"] == dataset].iloc[0]
+            if "batch_size" in self.task_metadata.columns:
+                cur_batch_size = cur_dataset_metadata["batch_size"]
+                if cur_batch_size is None:
+                    cur_batch_size = batch_size
+            else:
+                cur_batch_size = batch_size
+            cur_repeats = cur_dataset_metadata["n_repeats"]
+            cur_folds = cur_dataset_metadata["n_folds"]
+            if (cur_repeats, cur_folds, cur_batch_size) not in repeats_fold_dict.keys():
+                repeats_fold_dict[(cur_repeats, cur_folds, cur_batch_size)] = []
+            repeats_fold_dict[(cur_repeats, cur_folds, cur_batch_size)].append(dataset)
 
         repeats_folds_tasks_dict = dict()
-        for (cur_repeats, cur_folds), cur_datasets in repeats_fold_dict.items():
+        for (cur_repeats, cur_folds, cur_batch_size), cur_datasets in repeats_fold_dict.items():
             repeats = [i for i in range(cur_repeats)]
             folds = [i for i in range(cur_folds)]
             cur_tasks_dense = self.get_tasks_dense(
@@ -271,14 +278,14 @@ class JobManager:
                 folds=folds,
                 methods=methods,
             )
-            repeats_folds_tasks_dict[(cur_repeats, cur_folds)] = cur_tasks_dense
+            repeats_folds_tasks_dict[(cur_repeats, cur_folds, cur_batch_size)] = cur_tasks_dense
 
         tasks_batch_lst = []
 
-        for (cur_repeats, cur_folds), cur_tasks_dense in repeats_folds_tasks_dict.items():
+        for (cur_repeats, cur_folds, cur_batch_size), cur_tasks_dense in repeats_folds_tasks_dict.items():
             if not ignore_cache:
                 cur_tasks_dense = self.filter_to_only_uncached_tasks(tasks=cur_tasks_dense, verbose=True)
-            cur_tasks_batch = self.batch_tasks(tasks=cur_tasks_dense, batch_size=batch_size)
+            cur_tasks_batch = self.batch_tasks(tasks=cur_tasks_dense, batch_size=cur_batch_size)
             tasks_batch_lst.append(cur_tasks_batch)
         tasks_batch_combined = [task_batch for tasks_batch in tasks_batch_lst for task_batch in tasks_batch]
         return tasks_batch_combined
