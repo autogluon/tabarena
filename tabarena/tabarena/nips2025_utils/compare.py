@@ -198,6 +198,17 @@ def subset_tasks(df_results: pd.DataFrame, subset: list[str], folds: list[int] =
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] < 10000]
             valid_datasets = task_metadata["dataset"].unique()
             df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+        elif filter_subset == "tiny":
+            task_metadata = load_task_metadata()
+            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] < 2000]
+            valid_datasets = task_metadata["dataset"].unique()
+            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+        elif filter_subset == "tiny-small":
+            task_metadata = load_task_metadata()
+            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] < 10000]
+            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] >= 2000]
+            valid_datasets = task_metadata["dataset"].unique()
+            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
         elif filter_subset == "lite":
             df_results = df_results[df_results["fold"] == 0]
         elif filter_subset == "tabicl":
