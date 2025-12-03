@@ -50,6 +50,7 @@ tabdpt = [
 tabm = ["torch"]
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
+tabprep = ["skrub"]
 
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [
@@ -63,6 +64,7 @@ benchmark = [
   "torch",
   "category_encoders",
   "xrfm[cu12]",
+  "skrub",
 ]
 
 [project.urls]

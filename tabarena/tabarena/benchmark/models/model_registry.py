@@ -14,6 +14,7 @@ from tabarena.benchmark.models.ag import (
     TabICLModel,
     TabMModel,
     XRFMModel,
+    PrepLGBModel,
 )
 
 tabarena_model_registry: ModelRegistry = copy.deepcopy(ag_model_registry)
@@ -28,6 +29,7 @@ _models_to_add = [
     XRFMModel,
     KNNNewModel,
     RealTabPFNv25Model,
+    PrepLGBModel,
 ]
 
 for _model_cls in _models_to_add:
