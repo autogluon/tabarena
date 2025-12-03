@@ -10,6 +10,7 @@ from tabarena.benchmark.models.ag import (
     ModernNCAModel,
     RealMLPModel,
     RealTabPFNv25Model,
+    SAPRPTOSSModel,
     TabDPTModel,
     TabICLModel,
     TabMModel,
@@ -28,6 +29,7 @@ _models_to_add = [
     XRFMModel,
     KNNNewModel,
     RealTabPFNv25Model,
+    SAPRPTOSSModel,
 ]
 
 for _model_cls in _models_to_add:

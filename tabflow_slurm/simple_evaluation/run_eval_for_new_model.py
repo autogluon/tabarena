@@ -85,11 +85,11 @@ if __name__ == "__main__":
     run_eval_for_new_models(
         [
             ModelMetadata(
-                path_raw=out_dir / "tabpfnv25_hpo_14112025",
-                method="RealTabPFN-v2.5",
+                path_raw=out_dir / "sap_rpt_oss_new_2411",
+                method="SAP-RPT-OSS",
             ),
         ],
         extra_subsets=[["tabpfn"]],
-        fig_output_dir=fig_dir / "tabpfnv25_submission",
+        fig_output_dir=fig_dir / "sap_rpt_oss_new_2411",
         cache_path="/work/dlclarge2/purucker-tabarena/output/tabarena_cache",
     )
