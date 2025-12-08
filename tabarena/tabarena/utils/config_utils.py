@@ -6,7 +6,7 @@ from typing import Type, Literal
 from autogluon.core.searcher.local_random_searcher import LocalRandomSearcher
 from autogluon.core.models import AbstractModel
 
-from tabarena.benchmark.experiment import AGModelBagExperiment
+from tabarena.benchmark.experiment import AGModelBagExperiment, AGModelExperiment
 
 
 def configs_to_name_dict(configs, name_prefix, model_type):
@@ -143,6 +143,37 @@ class AGConfigGenerator(AbstractConfigGenerator):
         )
         return experiments
 
+    def generate_all_holdout_experiments(
+        self,
+        num_random_configs: int,
+        name_id_suffix: str = "",
+        method_kwargs: dict | None = None,
+        **kwargs,
+    ) -> list:
+        """Generate experiments with holdout models for the search space.
+
+        Parameters
+        ----------
+        num_random_configs : int
+            The number of random configurations to generate.
+        name_id_suffix: str
+            A suffix to append to the names of the configuration. Use this to
+            distinguish between different runs or configurations of the same model.
+        method_kwargs: dict | None
+            Additional keyword arguments to pass to the `generate_bag_experiments`
+            function. For example, you can modify the init kwargs of TabularPredictor
+            runner by `method_kwargs=dict(init_kwargs=dict(path="./my_custom_path"))`
+        """
+        configs = self.generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
+        experiments = generate_holdout_experiments(
+            model_cls=self.model_cls,
+            configs=configs,
+            name_suffix_from_ag_args=True,
+            method_kwargs=method_kwargs,
+            **kwargs
+        )
+        return experiments
+
 
 class ConfigGenerator(AGConfigGenerator):
     def __init__(
@@ -252,6 +283,39 @@ def generate_bag_experiments(
             model_hyperparameters=config,
             num_bag_folds=num_bag_folds,
             num_bag_sets=num_bag_sets,
+            time_limit=time_limit,
+            **kwargs,
+        )
+        experiments.append(experiment)
+    return experiments
+
+
+def generate_holdout_experiments(
+    model_cls,
+    configs: list[dict],
+    time_limit: float | None = 3600,
+    name_suffix_from_ag_args: bool = False,
+    name_id_prefix: str = "r",
+    name_id_suffix: str = "",
+    add_name_suffix_to_params: bool = True,
+    **kwargs,
+) -> list[AGModelBagExperiment]:
+    experiments = []
+    if kwargs is None:
+        kwargs = {}
+
+    for i, config in enumerate(configs):
+        if name_suffix_from_ag_args:
+            name_suffix = config.get("ag_args", {}).get("name_suffix", "")
+        else:
+            name_suffix = f"_{name_id_prefix}{i+1}{name_id_suffix}"
+            if add_name_suffix_to_params:
+                config = add_suffix_to_config(config=config, suffix=name_suffix)
+        name = f"{model_cls.ag_name}{name_suffix}"
+        experiment = AGModelExperiment(
+            name=name,
+            model_cls=model_cls,
+            model_hyperparameters=config,
             time_limit=time_limit,
             **kwargs,
         )

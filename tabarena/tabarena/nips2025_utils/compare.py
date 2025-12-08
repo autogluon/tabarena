@@ -46,22 +46,9 @@ def compare_on_tabarena(
     else:
         df_results = paper_results
 
-    if isinstance(only_valid_tasks, str):
-        only_valid_tasks = [only_valid_tasks]
-
-    if isinstance(only_valid_tasks, list):
-        for filter_method in only_valid_tasks:
-            # Filter to tasks present in a specific method
-            df_filter = df_results[df_results["method"] == filter_method]
-            if "imputed" in df_filter.columns:
-                df_filter = df_filter[df_filter["imputed"] != True]
-            assert len(df_filter) != 0, \
-                (f"No method named '{filter_method}' remains to filter to!\n"
-                 f"Available tasks: {list(df_results['method'].unique())}")
-            df_results = filter_to_valid_tasks(
-                df_to_filter=df_results,
-                df_filter=df_filter,
-            )
+    kwargs = {}
+    if isinstance(only_valid_tasks, (str, list)):
+        kwargs["only_valid_tasks"] = only_valid_tasks
     elif only_valid_tasks and new_results is not None:
         df_results = filter_to_valid_tasks(
             df_to_filter=df_results,
@@ -86,6 +73,7 @@ def compare_on_tabarena(
         remove_imputed=remove_imputed,
         tmp_treat_tasks_independently=tmp_treat_tasks_independently,
         leaderboard_kwargs=leaderboard_kwargs,
+        **kwargs,
     )
 
 
@@ -93,6 +81,7 @@ def compare(
     df_results: pd.DataFrame,
     output_dir: str | Path,
     task_metadata: pd.DataFrame = None,
+    only_valid_tasks: str | list[str] | None = None,
     calibration_framework: str | None = None,
     fillna: str | pd.DataFrame | None = None,
     score_on_val: bool = False,
@@ -102,6 +91,23 @@ def compare(
     remove_imputed: bool = False,
 ):
     df_results = df_results.copy()
+
+    if isinstance(only_valid_tasks, str):
+        only_valid_tasks = [only_valid_tasks]
+    if isinstance(only_valid_tasks, list):
+        for filter_method in only_valid_tasks:
+            # Filter to tasks present in a specific method
+            df_filter = df_results[df_results["method"] == filter_method]
+            if "imputed" in df_filter.columns:
+                df_filter = df_filter[df_filter["imputed"] != True]
+            assert len(df_filter) != 0, \
+                (f"No method named '{filter_method}' remains to filter to!\n"
+                 f"Available tasks: {list(df_results['method'].unique())}")
+            df_results = filter_to_valid_tasks(
+                df_to_filter=df_results,
+                df_filter=df_filter,
+            )
+
     if "method_type" not in df_results.columns:
         df_results["method_type"] = "baseline"
     if "method_subtype" not in df_results.columns:

@@ -172,7 +172,7 @@ class AGSingleWrapper(AGWrapper):
 
     def get_metadata_fit(self) -> dict:
         metadata = {}
-        model = self.predictor._trainer.load_model(self.predictor.model_best)
+        model = self._load_model()
         metadata["info"] = model.get_info(include_feature_metadata=False)
         metadata["disk_usage"] = model.disk_usage()
         metadata["num_cpus"] = model.fit_num_cpus
