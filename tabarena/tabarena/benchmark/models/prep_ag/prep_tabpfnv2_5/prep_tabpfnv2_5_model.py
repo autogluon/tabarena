@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 _HAS_LOGGED_TABPFN_LICENSE: bool = False
 
 from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import TabPFNModel
-from tabarena.tabarena.tabarena.benchmark.models.prep_ag.prep_mixin import ModelAgnosticPrepMixin
+from tabarena.benchmark.models.prep_ag.prep_mixin import ModelAgnosticPrepMixin
 
 from autogluon.features import ArithmeticFeatureGenerator
 from autogluon.features import CategoricalInteractionFeatureGenerator

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 from autogluon.tabular.models.xgboost.xgboost_model import XGBoostModel
 
-from tabarena.tabarena.tabarena.benchmark.models.prep_ag.prep_mixin import ModelAgnosticPrepMixin
+from tabarena.benchmark.models.prep_ag.prep_mixin import ModelAgnosticPrepMixin
 
 logger = logging.getLogger(__name__)
 
