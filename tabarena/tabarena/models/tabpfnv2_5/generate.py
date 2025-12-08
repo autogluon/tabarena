@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from autogluon.common.space import Categorical
 
-from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import RealTabPFNv25Model
+from tabarena.benchmark.models.ag.prep_tabpfnv2_5.prep_tabpfnv2_5_model import PrepRealTabPFNv25Model
 from tabarena.utils.config_utils import ConfigGenerator
 
 
@@ -69,10 +69,14 @@ search_space = {
     ),
     "preprocessing/append_original": Categorical(True, False),
     "preprocessing/global": Categorical(None, "svd", "svd_quarter_components"),
+
+    "use_arithmetic_preprocessor": Categorical(True, False),
+    "use_cat_fe": Categorical(True, False),
+
 }
 
 gen_realtabpfnv25 = ConfigGenerator(
-    model_cls=RealTabPFNv25Model,
+    model_cls=PrepRealTabPFNv25Model,
     search_space=search_space,
     manual_configs=[{}],
 )
