@@ -286,8 +286,14 @@ class TabArenaEvaluator:
         save_pd.save(path=self.output_dir / "results_per_split.csv", df=df_results_rank_compare)
 
         # ----- add times per 1K samples -----
-        dataset_to_n_samples_train = self.task_metadata.set_index("name")["n_samples_train_per_fold"].to_dict()
-        dataset_to_n_samples_test = self.task_metadata.set_index("name")["n_samples_test_per_fold"].to_dict()
+        # FIXME: Hack to work in cases where this is not available
+        if "n_samples_train_per_fold" not in self.task_metadata.columns or "n_samples_test_per_fold" not in self.task_metadata.columns:
+            print(f"WARNING: Missing n_samples_train_per_fold and/or n_samples_test_per_fold in task_metadata. Using dummy values...")
+            dataset_to_n_samples_train = self.task_metadata.set_index("name")["NumberOfInstances"].to_dict()
+            dataset_to_n_samples_test = self.task_metadata.set_index("name")["NumberOfInstances"].to_dict()
+        else:
+            dataset_to_n_samples_train = self.task_metadata.set_index("name")["n_samples_train_per_fold"].to_dict()
+            dataset_to_n_samples_test = self.task_metadata.set_index("name")["n_samples_test_per_fold"].to_dict()
 
         df_results_rank_compare['time_train_s_per_1K'] = df_results_rank_compare['time_train_s'] * 1000 / df_results_rank_compare["dataset"].map(
             dataset_to_n_samples_train)
@@ -479,34 +485,36 @@ class TabArenaEvaluator:
             else:
                 _results_to_use_winrate_matrix = results_te_per_split.copy()
 
-            winrate_matrix = tabarena.compute_winrate_matrix(results_per_task=_results_to_use_winrate_matrix)
-            try:
-                tabarena.plot_winrate_matrix(
-                    winrate_matrix=winrate_matrix,
-                    save_path=str(Path(self.output_dir / f"winrate_matrix.{self.figure_file_type}")),
-                )
-            except RuntimeError as e:
-                print(
-                    "Warning: RuntimeError encountered during winrate matrix plotting. "
-                    "This likely means the CLI does not have access to the correct Chromium version..."
-                )
+            if len(_results_to_use_winrate_matrix) != 0:
+                winrate_matrix = tabarena.compute_winrate_matrix(results_per_task=_results_to_use_winrate_matrix)
+                try:
+                    tabarena.plot_winrate_matrix(
+                        winrate_matrix=winrate_matrix,
+                        save_path=str(Path(self.output_dir / f"winrate_matrix.{self.figure_file_type}")),
+                    )
+                except RuntimeError as e:
+                    print(
+                        "Warning: RuntimeError encountered during winrate matrix plotting. "
+                        "This likely means the CLI does not have access to the correct Chromium version..."
+                    )
 
-            try:
-                tabarena.plot_critical_diagrams(
-                    results_per_task=results_te_per_task,
-                    save_path=f"{self.output_dir}/figures/critical-diagram.{self.figure_file_type}",
-                    show=False,
-                )
-            except ValueError as e:
-                print(
-                    f"Warning: ValueError encountered during critical diagram plotting. "
-                    f"This likely means there is too little data to compute critical diagrams. Skipping ..."
-                )
+            if len(results_te_per_task) != 0:
+                try:
+                    tabarena.plot_critical_diagrams(
+                        results_per_task=results_te_per_task,
+                        save_path=f"{self.output_dir}/figures/critical-diagram.{self.figure_file_type}",
+                        show=False,
+                    )
+                except ValueError as e:
+                    print(
+                        f"Warning: ValueError encountered during critical diagram plotting. "
+                        f"This likely means there is too little data to compute critical diagrams. Skipping ..."
+                    )
 
         if plot_runtimes:
             self.generate_runtime_plot(df_results=df_results_rank_compare)
 
-        if plot_pareto:
+        if plot_pareto and (framework_types or plot_with_baselines):
             self.plot_pareto(
                 leaderboard=leaderboard,
                 framework_types=framework_types,

@@ -76,13 +76,14 @@ def load_task_metadata(paper: bool = True, subset: str = None, path: str = None)
 
     task_metadata["n_folds"] = 3
     task_metadata["n_repeats"] = task_metadata["NumberOfInstances"].apply(_get_n_repeats)
-    task_metadata["n_features"] = (task_metadata["NumberOfFeatures"] - 1).astype(int)
-    task_metadata["n_samples_test_per_fold"] = (task_metadata["NumberOfInstances"] / task_metadata["n_folds"]).astype(int)
-    task_metadata["n_samples_train_per_fold"] = (task_metadata["NumberOfInstances"] - task_metadata["n_samples_test_per_fold"]).astype(int)
-    task_metadata["n_classes"] = task_metadata["NumberOfClasses"].astype(int)
-    task_metadata["problem_type"] = task_metadata["n_classes"].apply(_get_problem_type_from_n_classes)
+    task_metadata["n_samples_test_per_fold"] = (
+        task_metadata["NumberOfInstances"] / task_metadata["n_folds"]
+    ).astype(int)
+    task_metadata["n_samples_train_per_fold"] = (
+        task_metadata["NumberOfInstances"] - task_metadata["n_samples_test_per_fold"]
+    ).astype(int)
 
-    task_metadata["dataset"] = task_metadata["name"]
+    task_metadata = add_extra_task_metadata_info(task_metadata=task_metadata)
 
     if subset is None:
         pass
@@ -97,6 +98,16 @@ def load_task_metadata(paper: bool = True, subset: str = None, path: str = None)
     else:
         raise AssertionError(f"Unknown subset: {subset}")
 
+    return task_metadata
+
+
+def add_extra_task_metadata_info(task_metadata: pd.DataFrame) -> pd.DataFrame:
+    task_metadata["n_features"] = (task_metadata["NumberOfFeatures"] - 1).astype(int)
+
+    task_metadata["n_classes"] = task_metadata["NumberOfClasses"].astype(int)
+    task_metadata["problem_type"] = task_metadata["n_classes"].apply(_get_problem_type_from_n_classes)
+
+    task_metadata["dataset"] = task_metadata["name"]
     return task_metadata
 
 

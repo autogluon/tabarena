@@ -538,6 +538,8 @@ def run_experiments(
                         if raise_on_failure:
                             raise
                         print(exc.__class__)
+                        print(f"Exception Info:")
+                        print(exception_info)
                         out = None
                 if out is not None:
                     experiment_success_count += 1

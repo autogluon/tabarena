@@ -9,7 +9,7 @@ import pandas as pd
 
 from tabarena.benchmark.result import BaselineResult
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
-from tabarena.nips2025_utils.compare import compare_on_tabarena
+from tabarena.nips2025_utils.compare import compare, compare_on_tabarena
 from tabarena.nips2025_utils.end_to_end_single import (
     EndToEndResultsSingle,
     EndToEndSingle,
@@ -330,13 +330,15 @@ class EndToEndResults:
         return pd.concat(hpo_results_lst, ignore_index=True)
 
     # FIXME: WIP (add more)
-    def leaderboard(self) -> pd.DataFrame:
-        from tabarena.tabarena.tabarena import TabArena
+    def leaderboard(
+        self,
+    ) -> pd.DataFrame:
+        from bencheval.tabarena import TabArena
         results = self.get_results(
             # new_result_prefix=new_result_prefix,
             # use_artifact_name_in_prefix=use_artifact_name_in_prefix,
             # use_model_results=use_model_results,
-            # fillna=not only_valid_tasks,
+            # fillna=False,
         )
 
         tabarena = TabArena(
@@ -369,6 +371,38 @@ class EndToEndResults:
             **leaderboard_kwargs,
         )
         return leaderboard
+
+    def compare(
+        self,
+        output_dir: str | Path,
+        task_metadata: pd.DataFrame,
+        *,
+        fillna: str | None = None,
+        only_valid_tasks: str | list[str] | None = None,
+        new_result_prefix: str | None = None,
+        use_artifact_name_in_prefix: bool | None = None,
+        use_model_results: bool = False,
+        score_on_val: bool = False,
+        average_seeds: bool = True,
+        leaderboard_kwargs: dict | None = None,
+    ):
+        results = self.get_results(
+            new_result_prefix=new_result_prefix,
+            use_artifact_name_in_prefix=use_artifact_name_in_prefix,
+            use_model_results=use_model_results,
+            fillna=False,
+        )
+
+        return compare(
+            df_results=results,
+            output_dir=output_dir,
+            task_metadata=task_metadata,
+            fillna=fillna,
+            only_valid_tasks=only_valid_tasks,
+            score_on_val=score_on_val,
+            average_seeds=average_seeds,
+            leaderboard_kwargs=leaderboard_kwargs,
+        )
 
     def compare_on_tabarena(
         self,
