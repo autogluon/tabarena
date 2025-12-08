@@ -121,6 +121,15 @@ class PrepLGBModel(LGBModel):
 
         return self.estimate_memory_usage_static(X=X, problem_type=self.problem_type, num_classes=self.num_classes, hyperparameters=hyperparameters, **kwargs)
 
+    @classmethod
+    def _estimate_memory_usage_static(
+        cls,
+        **kwargs,
+    ) -> int:
+        memory_usage = super()._estimate_memory_usage_static(**kwargs)
+        # FIXME: 1.5 runs OOM on kddcup09_appetency fold 2 repeat 0 prep_LightGBM_r49_BAG_L1
+        return memory_usage * 2.0  # FIXME: For some reason this underestimates mem usage without this
+
     def _fit(self, X, y, X_val=None, y_val=None, time_limit=None, num_gpus=0, num_cpus=0, sample_weight=None, sample_weight_val=None, verbosity=2, **kwargs):
         try_import_lightgbm()  # raise helpful error message if LightGBM isn't installed
         start_time = time.time()
@@ -409,7 +418,9 @@ class PrepLGBModel(LGBModel):
         for prep_name, init_params in prep_params.items():
             preprocessor_class = eval(prep_name)
             if preprocessor_class is not None:
-                preprocessors.append(preprocessor_class(target_type=self.problem_type, **init_params, random_state=self.random_seed))
+                _init_params = dict(verbosity=0)
+                _init_params.update(**init_params)
+                preprocessors.append(preprocessor_class(target_type=self.problem_type, **_init_params, random_state=self.random_seed))
             else:
                 raise ValueError(f"Preprocessor {prep_name} not recognized.")
 
