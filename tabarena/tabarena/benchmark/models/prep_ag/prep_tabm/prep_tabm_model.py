@@ -8,7 +8,7 @@ import pandas as pd
 from autogluon.tabular import __version__
 
 from autogluon.tabular.models.tabm.tabm_model import TabMModel
-from tabarena.tabarena.tabarena.benchmark.models.prep_ag.prep_mixin import ModelAgnosticPrepMixin
+from tabarena.benchmark.models.prep_ag.prep_mixin import ModelAgnosticPrepMixin
 
 logger = logging.getLogger(__name__)
 
