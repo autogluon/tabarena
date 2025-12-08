@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.prep_lgb.prep_lgb_model import PrepLGBModel
+from tabarena.benchmark.models.prep_ag.prep_lgb.prep_lgb_model import PrepLGBModel
 from ConfigSpace import Categorical, ConfigurationSpace, Float, Integer
 
 from tabarena.benchmark.experiment import YamlExperimentSerializer
