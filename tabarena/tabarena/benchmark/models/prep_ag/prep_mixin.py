@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-
 import warnings
 
 import numpy as np
@@ -15,7 +14,23 @@ logger = logging.getLogger(__name__)
 from autogluon.features import ArithmeticFeatureGenerator
 from autogluon.features import CategoricalInteractionFeatureGenerator
 from autogluon.features import OOFTargetEncodingFeatureGenerator
+from autogluon.features import BulkFeatureGenerator
+from autogluon.features.generators.abstract import AbstractFeatureGenerator
 
+
+# TODO: In future we can have a feature generator registry like what is done for models
+_feature_generator_class_lst = [
+    ArithmeticFeatureGenerator,
+    CategoricalInteractionFeatureGenerator,
+    OOFTargetEncodingFeatureGenerator,
+]
+
+_feature_generator_class_map = {
+    feature_generator_cls.__name__: feature_generator_cls for feature_generator_cls in _feature_generator_class_lst
+}
+
+
+# TODO: Why is `prep_params` a dict instead of a list?
 class ModelAgnosticPrepMixin:
     def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
         hyperparameters = self._get_model_params()
@@ -61,14 +76,14 @@ class ModelAgnosticPrepMixin:
 
         return self.estimate_memory_usage_static(X=X, problem_type=self.problem_type, num_classes=self.num_classes, hyperparameters=hyperparameters, **kwargs)
 
-    def get_preprocessors(self) -> list:
+    def get_preprocessors(self) -> list[AbstractFeatureGenerator]:
         prep_params = self._get_ag_params().get("prep_params", None)
         if prep_params is None:
             return []
         
         preprocessors = []
         for prep_name, init_params in prep_params.items():
-            preprocessor_class = eval(prep_name)
+            preprocessor_class = _feature_generator_class_map[prep_name]
             if preprocessor_class is not None:
                 _init_params = dict(verbosity=0, random_state=self.random_seed)
                 _init_params.update(**init_params)
@@ -82,10 +97,18 @@ class ModelAgnosticPrepMixin:
         X_out = X.copy()
         if is_train:
             self.preprocessors = self.get_preprocessors()
-            for prep in self.preprocessors:
-                X_out = prep.fit_transform(X_out, y)
-            self.feature_metadata = self.feature_metadata.from_df(X_out) # TODO: Unsure whether that is the appropriate way to set the metadata 
-            self._is_features_in_same_as_ex = True
+            self.preprocessors = [BulkFeatureGenerator(
+                generators=[[preprocessor] for preprocessor in self.preprocessors],
+                verbosity=0,
+            )]
+            if self.preprocessors:
+                feature_metadata_in = self._feature_metadata
+                for prep in self.preprocessors:
+                    X_out = prep.fit_transform(X_out, y, feature_metadata_in=feature_metadata_in)
+                    # FIXME: Nick: This is incorrect because it strips away special dtypes. Need to do this properly by fixing in the preprocessors
+                    feature_metadata_in = prep.feature_metadata
+                self._feature_metadata = feature_metadata_in
+                self._features_internal = self._feature_metadata.get_features()
         else:
             for prep in self.preprocessors:
                 X_out = prep.transform(X_out)

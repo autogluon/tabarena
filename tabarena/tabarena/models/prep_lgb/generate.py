@@ -44,10 +44,10 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
             # Preprocessing hyperparameters
             Categorical("use_arithmetic_preprocessor", [True, False]),
             Categorical("use_cat_fe", [True, False]),
-            Categorical("use_residuals", [True, False]),
-            Categorical("residual_type", ['oof']),
-            Categorical("residual_init_kwargs", [{}]),
-            Categorical("max_dataset_size_for_residuals", [1000]), # NOTE: Currently: always only consider linear residuals for small datasets (N<1000)
+            Categorical("ag.use_residuals", [True, False]),
+            Categorical("ag.residual_type", ['oof']),
+            Categorical("ag.residual_init_kwargs", [{}]),
+            Categorical("ag.max_dataset_size_for_residuals", [1000]), # NOTE: Currently: always only consider linear residuals for small datasets (N<1000)
         ],
         seed=1234,
     )
@@ -59,18 +59,18 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
 
     r_num = 1
     for i in range(len(configs)):
-        if 'prep_params' not in configs[i]:
-            configs[i]['prep_params'] = {}
+        if 'ag.prep_params' not in configs[i]:
+            configs[i]['ag.prep_params'] = {}
         if 'preset_name' not in configs[i]:
             configs[i]['preset_name'] = f'r{r_num}'
             r_num += 1
         if configs[i].pop('use_arithmetic_preprocessor') == True:
-            configs[i]['prep_params'].update({
+            configs[i]['ag.prep_params'].update({
                 'ArithmeticFeatureGenerator': {}
             })
 
         if configs[i].pop('use_cat_fe') == True:
-            configs[i]['prep_params'].update({
+            configs[i]['ag.prep_params'].update({
                 'CategoricalInteractionFeatureGenerator': {}, 
                 'OOFTargetEncodingFeatureGenerator': {}
                         })
@@ -84,15 +84,15 @@ gen_lightgbm = CustomAGConfigGenerator(
     manual_configs=[
         {
         'preset_name': 'all_preprocessors',
-        'prep_params': {
+        'ag.prep_params': {
             'ArithmeticFeatureGenerator': {},
             'CategoricalInteractionFeatureGenerator': {}, 
             'OOFTargetEncodingFeatureGenerator': {}
                     },
-        'use_residuals': True,
-        'residual_type': 'oof',
-        'max_dataset_size_for_residuals': 1000,
-        'residual_init_kwargs': {},
+        'ag.use_residuals': True,
+        'ag.residual_type': 'oof',
+        'ag.max_dataset_size_for_residuals': 1000,
+        'ag.residual_init_kwargs': {},
         },
     ],
 )

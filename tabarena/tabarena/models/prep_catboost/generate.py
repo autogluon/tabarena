@@ -45,15 +45,15 @@ def generate_configs_catboost(num_random_configs=200):
     configs = [dict(config) for config in configs]
 
     for i in range(len(configs)):
-        if 'prep_params' not in configs[i]:
-            configs[i]['prep_params'] = {}
+        if 'ag.prep_params' not in configs[i]:
+            configs[i]['ag.prep_params'] = {}
         if configs[i].pop('use_arithmetic_preprocessor') == True:
-            configs[i]['prep_params'].update({
+            configs[i]['ag.prep_params'].update({
                 'ArithmeticFeatureGenerator': {}
             })
 
         if configs[i].pop('use_cat_fe') == True:
-            configs[i]['prep_params'].update({
+            configs[i]['ag.prep_params'].update({
                 'CategoricalInteractionFeatureGenerator': {}, 
                 'OOFTargetEncodingFeatureGenerator': {}
                         })
@@ -66,7 +66,7 @@ gen_catboost = CustomAGConfigGenerator(
     search_space_func=generate_configs_catboost,
     manual_configs=[
         {
-        'prep_params': {
+        'ag.prep_params': {
             'ArithmeticFeatureGenerator': {},
             'CategoricalInteractionFeatureGenerator': {}, 
             'OOFTargetEncodingFeatureGenerator': {}

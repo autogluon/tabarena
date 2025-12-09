@@ -37,15 +37,15 @@ def generate_configs_xgboost(num_random_configs=200):
     for c in configs:
         c["enable_categorical"] = True
     for i in range(len(configs)):
-        if 'prep_params' not in configs[i]:
-            configs[i]['prep_params'] = {}
+        if 'ag.prep_params' not in configs[i]:
+            configs[i]['ag.prep_params'] = {}
         if configs[i].pop('use_arithmetic_preprocessor') == True:
-            configs[i]['prep_params'].update({
+            configs[i]['ag.prep_params'].update({
                 'ArithmeticFeatureGenerator': {}
             })
 
         if configs[i].pop('use_cat_fe') == True:
-            configs[i]['prep_params'].update({
+            configs[i]['ag.prep_params'].update({
                 'CategoricalInteractionFeatureGenerator': {}, 
                 'OOFTargetEncodingFeatureGenerator': {}
                         })
@@ -57,7 +57,7 @@ gen_xgboost = CustomAGConfigGenerator(
     search_space_func=generate_configs_xgboost,
     manual_configs=[
         {
-        'prep_params': {
+        'ag.prep_params': {
             'ArithmeticFeatureGenerator': {},
             'CategoricalInteractionFeatureGenerator': {}, 
             'OOFTargetEncodingFeatureGenerator': {}
