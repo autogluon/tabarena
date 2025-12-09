@@ -45,7 +45,6 @@ class ModelAgnosticPrepMixin:
                 prep_cls = ArithmeticFeatureGenerator(target_type=self.problem_type, **init_params)
                 num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X)
                 X_new = pd.DataFrame(np.random.random(size=[X.shape[0], num_new_feats]), index=X.index, columns=[f'arithmetic_{i}' for i in range(num_new_feats)]).astype(prep_cls.out_dtype)
-                prep_cls
                 X = pd.concat([X, X_new], axis=1)
             elif preprocessor_cls_name == 'CategoricalInteractionFeatureGenerator':
                 # TODO: Test whether it is also fine to just do the actual preprocessing and use the X resulting from that
@@ -97,11 +96,13 @@ class ModelAgnosticPrepMixin:
         X_out = X.copy()
         if is_train:
             self.preprocessors = self.get_preprocessors()
-            self.preprocessors = [BulkFeatureGenerator(
-                generators=[[preprocessor] for preprocessor in self.preprocessors],
-                verbosity=0,
-            )]
             if self.preprocessors:
+                assert y is not None, f"y must be specified to fit preprocessors... Likely the inheriting class isn't passing `y` in its `preprocess` call."
+                self.preprocessors = [BulkFeatureGenerator(
+                    generators=[[preprocessor] for preprocessor in self.preprocessors],
+                    verbosity=0
+                    # post_drop_duplicates=True,  # FIXME: add `post_drop_useless`, example: anneal has many useless features
+                )]
                 feature_metadata_in = self._feature_metadata
                 for prep in self.preprocessors:
                     X_out = prep.fit_transform(X_out, y, feature_metadata_in=feature_metadata_in)
