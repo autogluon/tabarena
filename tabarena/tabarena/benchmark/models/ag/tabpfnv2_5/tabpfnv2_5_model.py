@@ -44,7 +44,7 @@ class TabPFNModel(AbstractModel):
         self._cat_indices = None
 
     def _preprocess(self, X: pd.DataFrame, is_train=False, **kwargs) -> pd.DataFrame:
-        # X = super()._preprocess(X, **kwargs)
+        X = super()._preprocess(X, **kwargs)
 
         if is_train:
             self._cat_indices = []

@@ -17,15 +17,15 @@ from autogluon.features import CategoricalInteractionFeatureGenerator
 from autogluon.features import OOFTargetEncodingFeatureGenerator
 
 class ModelAgnosticPrepMixin:
-    def _set_default_params(self):
-        super()._set_default_params()
-        self._set_default_param_value("prep_params", {})
-
     def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
         hyperparameters = self._get_model_params()
+        prep_params = self._get_ag_params().get("prep_params", None)
+        if prep_params is None:
+            prep_params = {}
 
-        X = X.copy()
-        for preprocessor_cls_name, init_params in hyperparameters['prep_params'].items():
+        if prep_params:
+            X = X.copy()
+        for preprocessor_cls_name, init_params in prep_params.items():
             if preprocessor_cls_name == 'ArithmeticFeatureGenerator':
                 prep_cls = ArithmeticFeatureGenerator(target_type=self.problem_type, **init_params)
                 num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X)
@@ -69,7 +69,9 @@ class ModelAgnosticPrepMixin:
         for prep_name, init_params in prep_params.items():
             preprocessor_class = eval(prep_name)
             if preprocessor_class is not None:
-                preprocessors.append(preprocessor_class(target_type=self.problem_type, **init_params, random_state=self.random_seed))
+                _init_params = dict(verbosity=0, random_state=self.random_seed)
+                _init_params.update(**init_params)
+                preprocessors.append(preprocessor_class(target_type=self.problem_type, **_init_params))
             else:
                 raise ValueError(f"Preprocessor {prep_name} not recognized.")
 

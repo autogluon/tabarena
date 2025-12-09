@@ -51,15 +51,15 @@ def generate_configs_tabm(num_random_configs=200, seed=1234):
     configs = [generate_single_config_tabm(rng) for _ in range(num_random_configs)]
     
     for i in range(len(configs)):
-        if 'prep_params' not in configs[i]:
-            configs[i]['prep_params'] = {}
+        if 'ag.prep_params' not in configs[i]:
+            configs[i]['ag.prep_params'] = {}
         if configs[i].pop('use_arithmetic_preprocessor') == True:
-            configs[i]['prep_params'].update({
+            configs[i]['ag.prep_params'].update({
                 'ArithmeticFeatureGenerator': {}
             })
 
         if configs[i].pop('use_cat_fe') == True:
-            configs[i]['prep_params'].update({
+            configs[i]['ag.prep_params'].update({
                 'CategoricalInteractionFeatureGenerator': {}, 
                 'OOFTargetEncodingFeatureGenerator': {}
                         })
@@ -71,14 +71,14 @@ gen_tabm = CustomAGConfigGenerator(
     model_cls=PrepTabMModel, search_space_func=generate_configs_tabm, 
     manual_configs=[
         {
-        'prep_params': {
+        'ag.prep_params': {
             'ArithmeticFeatureGenerator': {},
             'CategoricalInteractionFeatureGenerator': {}, 
             'OOFTargetEncodingFeatureGenerator': {}
                     },
         },
         {
-        'prep_params': {
+        'ag.prep_params': {
             'ArithmeticFeatureGenerator': {},
             'CategoricalInteractionFeatureGenerator': {}, 
             'OOFTargetEncodingFeatureGenerator': {}

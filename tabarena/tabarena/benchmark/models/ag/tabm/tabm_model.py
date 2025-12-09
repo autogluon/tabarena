@@ -124,7 +124,7 @@ class TabMModel(AbstractModel):
         """Imputes missing values via the mean and adds indicator columns for numerical features.
         Converts indicator columns to categorical features to avoid them being treated as numerical by RealMLP.
         """
-        # X = super()._preprocess(X, **kwargs)
+        X = super()._preprocess(X, **kwargs)
 
         if is_train:
             self._bool_to_cat = bool_to_cat
