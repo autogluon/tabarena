@@ -61,7 +61,8 @@ class ModelAgnosticPrepMixin:
 
         return self.estimate_memory_usage_static(X=X, problem_type=self.problem_type, num_classes=self.num_classes, hyperparameters=hyperparameters, **kwargs)
 
-    def get_preprocessors(self, prep_params: dict = None) -> list:
+    def get_preprocessors(self) -> list:
+        prep_params = self._get_ag_params().get("prep_params", None)
         if prep_params is None:
             return []
         
@@ -77,10 +78,10 @@ class ModelAgnosticPrepMixin:
 
         return preprocessors
 
-    def _preprocess(self, X, y = None, is_train=False, prep_params: dict = None, **kwargs):
+    def _preprocess(self, X: pd.DataFrame, y = None, is_train: bool = False, **kwargs):
         X_out = X.copy()
         if is_train:
-            self.preprocessors = self.get_preprocessors(prep_params=prep_params)
+            self.preprocessors = self.get_preprocessors()
             for prep in self.preprocessors:
                 X_out = prep.fit_transform(X_out, y)
             self.feature_metadata = self.feature_metadata.from_df(X_out) # TODO: Unsure whether that is the appropriate way to set the metadata 
@@ -89,4 +90,4 @@ class ModelAgnosticPrepMixin:
             for prep in self.preprocessors:
                 X_out = prep.transform(X_out)
 
-        return super()._preprocess(X_out, is_train=is_train, **kwargs)
+        return super()._preprocess(X_out, y=y, is_train=is_train, **kwargs)
