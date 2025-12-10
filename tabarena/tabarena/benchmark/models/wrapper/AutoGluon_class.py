@@ -190,6 +190,8 @@ class AGSingleWrapper(AGWrapper):
         metadata["num_cpus_child"] = model.fit_num_cpus_child
         metadata["num_gpus_child"] = model.fit_num_gpus_child
         metadata["fit_metadata"] = model.get_fit_metadata()
+        if hasattr(model, "_memory_usage_estimate"):
+            metadata["memory_usage_estimate"] = model._memory_usage_estimate
         return metadata
 
     def get_metadata_failure(self) -> dict:
