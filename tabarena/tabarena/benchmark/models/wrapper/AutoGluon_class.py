@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import gc
 import shutil
 from typing import Type
 
@@ -73,6 +74,15 @@ class AGWrapper(AbstractExecModel):
 
     def cleanup(self):
         shutil.rmtree(self.predictor.path, ignore_errors=True)
+        gc.collect()
+        try:
+            import torch
+        except ImportError:
+            pass
+        else:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
 
 class AGSingleWrapper(AGWrapper):
