@@ -7,7 +7,6 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
-from skrub import SquashingScaler
 
 from typing import List, Literal
 
@@ -52,8 +51,8 @@ class CustomModel(BaseEstimator):
             from sklearn.preprocessing import QuantileTransformer
             self.scaler = QuantileTransformer(output_distribution='uniform', random_state=self.random_state)
         elif scaler == 'squashing':
-            self.scaler = SquashingScaler()
-        elif scaler == 'squashing':
+            # FIXME: Remove skrub dependency, just copy this class into AG
+            from skrub import SquashingScaler
             self.scaler = SquashingScaler()
         elif scaler is None:
             self.scaler = 'passthrough'
@@ -149,6 +148,7 @@ class CustomModel(BaseEstimator):
             raise ValueError("target_type must be 'binary' or 'classification'")
 
 from sklearn.model_selection import KFold, StratifiedKFold
+from autogluon.core.utils.utils import CVSplitter
 class OOFCustomModel:
     def __init__(self, 
                  target_type,
@@ -166,9 +166,15 @@ class OOFCustomModel:
             base_model_kwargs = {}
 
         if self.target_type == "regression":
-            self.kf = KFold(self.n_splits, shuffle=True, random_state=self.random_state)
+            splitter_cls = KFold
         else:
-            self.kf = StratifiedKFold(self.n_splits, shuffle=True, random_state=self.random_state)
+            splitter_cls = StratifiedKFold
+
+        self.kf = CVSplitter(
+            splitter_cls=splitter_cls,
+            shuffle=True,
+            random_state=self.random_state,
+        )
 
         self.fold_models_: List[BaseEstimator] = [base_model_cls(**base_model_kwargs) for _ in range(self.n_splits)]
         self.full_model: BaseEstimator = base_model_cls(**base_model_kwargs)
