@@ -44,8 +44,7 @@ ebm = ["interpret-core>=0.7.3"]
 search_spaces = ["configspace>=1.2,<2.0"]
 realmlp = ["pytabkit>=1.5.0,<2.0"]
 tabdpt = [
-    "faiss-cpu>=1.12.0,<1.13.0",  # FIXME: "faiss-cpu==1.13.0" causes exceptions!
-    "tabdpt>=1.1.7",
+    "tabdpt>=1.1.10",
 ]
 tabm = ["torch"]
 modernnca = ["category_encoders"]
@@ -59,8 +58,7 @@ benchmark = [
   "interpret-core>=0.7.3",
   "configspace>=1.2,<2.0",
   "pytabkit>=1.5.0,<2.0",
-  "faiss-cpu>=1.12.0,<1.13.0",  # FIXME: "faiss-cpu==1.13.0" causes exceptions!
-  "tabdpt>=1.1.7",
+  "tabdpt>=1.1.10",
   "torch",
   "category_encoders",
   "xrfm[cu12]",
