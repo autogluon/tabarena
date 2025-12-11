@@ -47,6 +47,7 @@ def get_model_family(model_name: str) -> str:
             "BETA",
             "TABFLEX",
             "REALTABPFN-V2.5",
+            "SAP-RPT-OSS",
         ],
         Constants.baseline: ["KNN", "LR"],
         Constants.other: ["XRFM"],
@@ -83,6 +84,7 @@ def rename_map(model_name: str) -> str:
         "TABFLEX": "TabFlex",
         "BETA": "BetaTabPFN",
         "REALTABPFN-V2.5": "RealTabPFN-v2.5",
+        "SAP-RPT-OSS": "SAP-RPT-OSS",
     }
 
     # Sort keys by descending length so longest prefixes are matched first
@@ -206,7 +208,6 @@ def format_leaderboard(
             "Type",
             "TypeName",
             "method",
-            "Verified",
             "elo",
             "Elo 95% CI",
             "normalized-score",
@@ -215,6 +216,7 @@ def format_leaderboard(
             "improvability",
             "median_time_train_s_per_1K",
             "median_time_infer_s_per_1K",
+            "Verified",
             "imputed",
             "imputed_bool",
             "Hardware",
