@@ -35,6 +35,7 @@ def plot_hpo(
     sort_col: str | None = None,
     method_order: list[str] | None = None,
     optimal_arrow: bool = True,
+    ylim: tuple[float | None, float | None] | None = None,
 ):
     """
     Plot HPO trajectories for multiple methods.
@@ -197,6 +198,9 @@ def plot_hpo(
         columnspacing=0.6,
     )
 
+    if ylim is not None:
+        ax.set_ylim(ylim)
+
     ax.grid(True)
     grid_color = ax.xaxis.get_gridlines()[0].get_color()
     ax.spines['top'].set_visible(True)
@@ -317,6 +321,7 @@ def compute_tuning_trajectories_leaderboard(
     leaderboard["Elo (Test)"] = leaderboard["Elo"]
     leaderboard["Elo (Val)"] = leaderboard["elo_val"]
     leaderboard["Elo (Val) - Elo (Test)"] = leaderboard["Elo (Val)"] - leaderboard["Elo (Test)"]
+    leaderboard["Elo (Test) - Elo (Val)"] = leaderboard["Elo (Test)"] - leaderboard["Elo (Val)"]
     leaderboard["Improvability (%)"] = leaderboard["improvability"] * 100
     leaderboard["Improvability (%) (Test)"] = leaderboard["Improvability (%)"]
     leaderboard["Improvability (%) (Val)"] = leaderboard["improvability_val"] * 100
@@ -503,6 +508,8 @@ def plot_tuning_trajectories_from_leaderboard(
         "sort_col": "n_configs",
     }
 
+    ylim_imp = (0, None)
+
     plot_hpo(
         df=leaderboard,
         xlabel="Train time per 1K samples (s) (median)",
@@ -526,6 +533,7 @@ def plot_tuning_trajectories_from_leaderboard(
         ylabel="Improvability (%)",
         save_path=fig_save_dir / f"pareto_n_configs_imp{file_ext}",
         max_Y=False,
+        ylim=ylim_imp,
         **plot_kwargs,
     )
     plot_hpo(
@@ -542,6 +550,7 @@ def plot_tuning_trajectories_from_leaderboard(
         ylabel="Improvability (%)",
         save_path=fig_save_dir / f"pareto_n_configs_imp_infer{file_ext}",
         max_Y=False,
+        ylim=ylim_imp,
         **plot_kwargs,
     )
 
@@ -610,6 +619,18 @@ def plot_tuning_trajectories_from_leaderboard(
         xlabel="Baseline Advantage (%) (Test)",
         ylabel="Baseline Advantage (%) (Test - Val)",
         save_path=fig_save_dir / f"pareto_n_configs_adv_overfit_v2{file_ext}",
+        max_Y=True,
+        max_X=True,
+        xlog=False,
+        rank_by_y=False,
+        **plot_kwargs,
+    )
+
+    plot_hpo(
+        df=leaderboard,
+        xlabel="Elo (Test)",
+        ylabel="Elo (Test) - Elo (Val)",
+        save_path=fig_save_dir / f"pareto_n_configs_elo_overfit_v2{file_ext}",
         max_Y=True,
         max_X=True,
         xlog=False,
