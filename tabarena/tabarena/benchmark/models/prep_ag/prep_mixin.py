@@ -1,15 +1,9 @@
 from __future__ import annotations
 
 import logging
-import warnings
 
 import numpy as np
 import pandas as pd
-
-warnings.filterwarnings("ignore", category=UserWarning, message="Starting from version")  # lightGBM brew libomp warning
-warnings.filterwarnings("ignore", category=FutureWarning, message="Dask dataframe query")  # lightGBM dask-expr warning
-logger = logging.getLogger(__name__)
-
 
 from autogluon.features import ArithmeticFeatureGenerator
 from autogluon.features import CategoricalInteractionFeatureGenerator
@@ -17,6 +11,7 @@ from autogluon.features import OOFTargetEncodingFeatureGenerator
 from autogluon.features import BulkFeatureGenerator
 from autogluon.features.generators.abstract import AbstractFeatureGenerator
 
+logger = logging.getLogger(__name__)
 
 # TODO: In future we can have a feature generator registry like what is done for models
 _feature_generator_class_lst = [
