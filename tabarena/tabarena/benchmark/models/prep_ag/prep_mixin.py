@@ -33,8 +33,6 @@ class ModelAgnosticPrepMixin:
         if prep_params is None:
             prep_params = {}
 
-        if prep_params:
-            X = X.copy()
         for preprocessor_cls_name, init_params in prep_params.items():
             if preprocessor_cls_name == 'ArithmeticFeatureGenerator':
                 prep_cls = ArithmeticFeatureGenerator(target_type=self.problem_type, **init_params)
@@ -45,16 +43,18 @@ class ModelAgnosticPrepMixin:
                 # TODO: Test whether it is also fine to just do the actual preprocessing and use the X resulting from that
                 prep_cls = CategoricalInteractionFeatureGenerator(target_type=self.problem_type, **init_params)
                 num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X)
+                if not num_new_feats:
+                    continue
                 if prep_cls.only_freq:
                     X = pd.concat([X, pd.DataFrame(np.random.random(size=[X.shape[0], num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)])], axis=1)
                 elif prep_cls.add_freq:
                     shape = X.shape[0]
-                    max_card = X.nunique().max()
+                    max_card = X[affected_features].nunique().max()
                     X_cat_new = pd.DataFrame(np.random.randint(0, int(shape*(max_card/shape)), [shape, num_new_feats]), index=X.index, columns=[f'cat_int{i}' for i in range(num_new_feats)]).astype('category')
                     X = pd.concat([X, X_cat_new, pd.DataFrame(np.random.random(size=[X.shape[0], num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)])], axis=1)
                 else:
                     shape = X.shape[0]
-                    max_card = X.nunique().max()
+                    max_card = X[affected_features].nunique().max()
                     X_cat_new = pd.DataFrame(np.random.randint(0, int(shape*(max_card/shape)), [shape, num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)]).astype('category')
                     X = pd.concat([X, X_cat_new], axis=1)
             elif preprocessor_cls_name == 'OOFTargetEncodingFeatureGenerator':
