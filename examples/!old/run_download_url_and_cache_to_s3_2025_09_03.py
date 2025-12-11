@@ -7,6 +7,7 @@ from tabarena.nips2025_utils.artifacts.method_artifact_manager import MethodArti
 
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_10_20 import tabdpt_metadata
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_12 import realtabpfn25_metadata
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_12 import contexttab_metadata
 
 
 """
@@ -117,8 +118,16 @@ if __name__ == '__main__':
         **path_args,
     )
 
+    contexttab_info = MethodArtifactManager.from_method_metadata(
+        method_metadata=contexttab_metadata,
+        path_suffix=Path("leaderboard_submissions") / "data_SAP-RPT-OSS_25112025.zip",
+        **path_args,
+    )
+
+
     # Uncomment whichever artifacts you want to process
     method_infos = [
+        # contexttab_info,
         # realtabpfn25_info,
         # xrfm_info,
         # mitra_info,
