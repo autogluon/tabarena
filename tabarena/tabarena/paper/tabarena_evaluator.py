@@ -403,8 +403,10 @@ class TabArenaEvaluator:
 
         self.create_leaderboard_latex(leaderboard, framework_types=framework_types, save_dir=self.output_dir)
 
+        n_tasks = len(df_results_rank_compare[[tabarena.task_col, tabarena.seed_column]].drop_duplicates())
+
         print(
-            f"Evaluating with {len(df_results_rank_compare[tabarena.task_col].unique())} datasets... | problem_types={self.problem_types}, folds={self.folds}")
+            f"Evaluating with {len(df_results_rank_compare[tabarena.task_col].unique())} datasets... ({n_tasks} tasks)| problem_types={self.problem_types}, folds={self.folds}")
         with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
             print(leaderboard)
 

@@ -55,6 +55,7 @@ _methods_paper = [
     "BetaTabPFN_GPU",
     "TabFlex_GPU",
     "RealTabPFN-v2.5",
+    "SAP-RPT-OSS",
 ]
 
 
