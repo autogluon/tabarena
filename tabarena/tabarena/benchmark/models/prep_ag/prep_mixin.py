@@ -32,12 +32,14 @@ class ModelAgnosticPrepMixin:
         prep_params = self._get_ag_params().get("prep_params", None)
         if prep_params is None:
             prep_params = {}
+        
+        shape = X.shape[0]
 
         for preprocessor_cls_name, init_params in prep_params.items():
             if preprocessor_cls_name == 'ArithmeticFeatureGenerator':
                 prep_cls = ArithmeticFeatureGenerator(target_type=self.problem_type, **init_params)
                 num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X)
-                X_new = pd.DataFrame(np.random.random(size=[X.shape[0], num_new_feats]), index=X.index, columns=[f'arithmetic_{i}' for i in range(num_new_feats)]).astype(prep_cls.out_dtype)
+                X_new = pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=[f'arithmetic_{i}' for i in range(num_new_feats)]).astype(prep_cls.out_dtype)
                 X = pd.concat([X, X_new], axis=1)
             elif preprocessor_cls_name == 'CategoricalInteractionFeatureGenerator':
                 # TODO: Test whether it is also fine to just do the actual preprocessing and use the X resulting from that
@@ -46,14 +48,12 @@ class ModelAgnosticPrepMixin:
                 if not num_new_feats:
                     continue
                 if prep_cls.only_freq:
-                    X = pd.concat([X, pd.DataFrame(np.random.random(size=[X.shape[0], num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)])], axis=1)
+                    X = pd.concat([X, pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)])], axis=1)
                 elif prep_cls.add_freq:
-                    shape = X.shape[0]
                     max_card = X[affected_features].nunique().max()
                     X_cat_new = pd.DataFrame(np.random.randint(0, int(shape*(max_card/shape)), [shape, num_new_feats]), index=X.index, columns=[f'cat_int{i}' for i in range(num_new_feats)]).astype('category')
-                    X = pd.concat([X, X_cat_new, pd.DataFrame(np.random.random(size=[X.shape[0], num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)])], axis=1)
+                    X = pd.concat([X, X_cat_new, pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)])], axis=1)
                 else:
-                    shape = X.shape[0]
                     max_card = X[affected_features].nunique().max()
                     X_cat_new = pd.DataFrame(np.random.randint(0, int(shape*(max_card/shape)), [shape, num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)]).astype('category')
                     X = pd.concat([X, X_cat_new], axis=1)
