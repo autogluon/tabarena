@@ -10,6 +10,20 @@ from sklearn.model_selection import train_test_split
 
 from typing import List, Literal
 
+import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
+
+class ToObject(BaseEstimator, TransformerMixin):
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        # ColumnTransformer may pass ndarray or DataFrame
+        if hasattr(X, "astype"):
+            return X.astype(object)
+        return pd.DataFrame(X).astype(object)
+
+
 class CustomModel(BaseEstimator):
     def __init__(self, 
                  target_type,
@@ -70,6 +84,8 @@ class CustomModel(BaseEstimator):
         categorical_cols = X.select_dtypes(include=['object', 'category']).columns
         numerical_cols = X.select_dtypes(include=[np.number]).columns
 
+        X[categorical_cols] = X[categorical_cols].astype('object')
+
         # Define transformers for preprocessing
         transformers = [
             ('num', Pipeline([
@@ -77,6 +93,7 @@ class CustomModel(BaseEstimator):
                 ('scaler', self.scaler)
             ]), numerical_cols),
             ('cat', Pipeline([
+                ('to_object', ToObject()),
                 ('imputer', SimpleImputer(strategy='most_frequent')),
                 ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False, max_categories=100))
                 # ('pass', 'passthrough')
@@ -147,7 +164,6 @@ class CustomModel(BaseEstimator):
         else:
             raise ValueError("target_type must be 'binary' or 'classification'")
 
-from sklearn.model_selection import KFold, StratifiedKFold
 from autogluon.core.utils.utils import CVSplitter
 class OOFCustomModel:
     def __init__(self, 
@@ -165,16 +181,15 @@ class OOFCustomModel:
         if base_model_kwargs is None:
             base_model_kwargs = {}
 
-        if self.target_type == "regression":
-            splitter_cls = KFold
-        else:
-            splitter_cls = StratifiedKFold
-
         self.kf = CVSplitter(
-            splitter_cls=splitter_cls,
-            shuffle=True,
+            n_splits=self.n_splits,
             random_state=self.random_state,
+            stratify=True,
+            shuffle=True,
+            bin=True if self.target_type == 'regression' else False,
+            n_bins=50 if self.target_type == 'regression' else None,
         )
+        
 
         self.fold_models_: List[BaseEstimator] = [base_model_cls(**base_model_kwargs) for _ in range(self.n_splits)]
         self.full_model: BaseEstimator = base_model_cls(**base_model_kwargs)
