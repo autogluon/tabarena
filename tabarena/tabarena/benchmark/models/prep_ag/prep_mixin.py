@@ -4,6 +4,7 @@ import logging
 
 import numpy as np
 import pandas as pd
+from typing import Type
 
 from autogluon.features import ArithmeticFeatureGenerator
 from autogluon.features import CategoricalInteractionFeatureGenerator
@@ -25,17 +26,32 @@ _feature_generator_class_map = {
 }
 
 
+def _recursive_expand_prep_param(prep_param: tuple | list[list | tuple]) -> list[tuple]:
+    if isinstance(prep_param, list):
+        out = []
+        for p in prep_param:
+            out += _recursive_expand_prep_param(p)
+        return out
+    elif isinstance(prep_param, tuple):
+        return [prep_param]
+    else:
+        raise ValueError(f"Invalid value for prep_param: {prep_param}")
+
+
 # TODO: Why is `prep_params` a dict instead of a list?
 class ModelAgnosticPrepMixin:
     def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
         hyperparameters = self._get_model_params()
         prep_params = self._get_ag_params().get("prep_params", None)
         if prep_params is None:
-            prep_params = {}
+            prep_params = []
+
+        # FIXME: Temporarily simplify for memory calculation
+        prep_params = _recursive_expand_prep_param(prep_params)
         
         shape = X.shape[0]
 
-        for preprocessor_cls_name, init_params in prep_params.items():
+        for preprocessor_cls_name, init_params in prep_params:
             if preprocessor_cls_name == 'ArithmeticFeatureGenerator':
                 prep_cls = ArithmeticFeatureGenerator(target_type=self.problem_type, **init_params)
                 num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X)
@@ -70,43 +86,66 @@ class ModelAgnosticPrepMixin:
 
         return self.estimate_memory_usage_static(X=X, problem_type=self.problem_type, num_classes=self.num_classes, hyperparameters=hyperparameters, **kwargs)
 
+    def _init_preprocessor(
+        self,
+        preprocessor_cls: Type[AbstractFeatureGenerator] | str,
+        init_params: dict | None,
+    ) -> AbstractFeatureGenerator:
+        if isinstance(preprocessor_cls, str):
+            preprocessor_cls = _feature_generator_class_map[preprocessor_cls]
+        if init_params is None:
+            init_params = {}
+        _init_params = dict(
+            verbosity=0,
+            random_state=self.random_seed,
+            target_type=self.problem_type,
+            passthrough=False,  # FIXME
+        )
+        _init_params.update(**init_params)
+        return preprocessor_cls(
+            **_init_params,
+        )
+
+    def _recursive_init_preprocessors(self, prep_param: tuple | list[list | tuple]):
+        if isinstance(prep_param, list):
+            out = []
+            for i, p in enumerate(prep_param):
+                out.append(self._recursive_init_preprocessors(p))
+            return out
+        elif isinstance(prep_param, tuple):
+            preprocessor_cls = prep_param[0]
+            init_params = prep_param[1]
+            return self._init_preprocessor(preprocessor_cls=preprocessor_cls, init_params=init_params)
+        else:
+            raise ValueError(f"Invalid value for prep_param: {prep_param}")
+
     def get_preprocessors(self) -> list[AbstractFeatureGenerator]:
         prep_params = self._get_ag_params().get("prep_params", None)
         if prep_params is None:
             return []
-        
-        preprocessors = []
-        for prep_name, init_params in prep_params.items():
-            preprocessor_class = _feature_generator_class_map[prep_name]
-            if preprocessor_class is not None:
-                _init_params = dict(verbosity=0, random_state=self.random_seed)
-                _init_params.update(**init_params)
-                preprocessors.append(preprocessor_class(target_type=self.problem_type, **_init_params))
-            else:
-                raise ValueError(f"Preprocessor {prep_name} not recognized.")
 
-        return preprocessors
+        preprocessors = self._recursive_init_preprocessors(prep_param=prep_params)
+        if len(preprocessors) == 1 and isinstance(preprocessors[0], AbstractFeatureGenerator):
+            return preprocessors
+        else:
+            preprocessors = [BulkFeatureGenerator(generators=preprocessors, verbosity=0)]
+            return preprocessors
 
     def _preprocess(self, X: pd.DataFrame, y = None, is_train: bool = False, **kwargs):
-        X_out = X.copy()
         if is_train:
             self.preprocessors = self.get_preprocessors()
             if self.preprocessors:
                 assert y is not None, f"y must be specified to fit preprocessors... Likely the inheriting class isn't passing `y` in its `preprocess` call."
-                self.preprocessors = [BulkFeatureGenerator(
-                    generators=[[preprocessor] for preprocessor in self.preprocessors],
-                    verbosity=0
-                    # post_drop_duplicates=True,  # FIXME: add `post_drop_useless`, example: anneal has many useless features
-                )]
+                # FIXME: add `post_drop_useless`, example: anneal has many useless features
                 feature_metadata_in = self._feature_metadata
                 for prep in self.preprocessors:
-                    X_out = prep.fit_transform(X_out, y, feature_metadata_in=feature_metadata_in)
+                    X = prep.fit_transform(X, y, feature_metadata_in=feature_metadata_in)
                     # FIXME: Nick: This is incorrect because it strips away special dtypes. Need to do this properly by fixing in the preprocessors
                     feature_metadata_in = prep.feature_metadata
                 self._feature_metadata = feature_metadata_in
                 self._features_internal = self._feature_metadata.get_features()
         else:
             for prep in self.preprocessors:
-                X_out = prep.transform(X_out)
+                X = prep.transform(X)
 
-        return super()._preprocess(X_out, y=y, is_train=is_train, **kwargs)
+        return super()._preprocess(X, y=y, is_train=is_train, **kwargs)
