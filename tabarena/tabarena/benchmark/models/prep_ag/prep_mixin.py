@@ -119,7 +119,9 @@ class ModelAgnosticPrepMixin:
             raise ValueError(f"Invalid value for prep_param: {prep_param}")
 
     def get_preprocessors(self) -> list[AbstractFeatureGenerator]:
-        prep_params = self._get_ag_params().get("prep_params", None)
+        ag_params = self._get_ag_params()
+        prep_params = ag_params.get("prep_params", None)
+        passthrough_types = ag_params.get("prep_params.passthrough_types", None)
         if prep_params is None:
             return []
 
@@ -134,6 +136,7 @@ class ModelAgnosticPrepMixin:
                 remove_unused_features="false_recursive",
                 post_drop_duplicates=True,
                 passthrough=True,
+                passthrough_types=passthrough_types,
                 verbosity=0,
             )]
             return preprocessors
