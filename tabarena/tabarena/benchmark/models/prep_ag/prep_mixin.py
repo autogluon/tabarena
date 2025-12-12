@@ -40,49 +40,48 @@ def _recursive_expand_prep_param(prep_param: tuple | list[list | tuple]) -> list
 
 # TODO: Why is `prep_params` a dict instead of a list?
 class ModelAgnosticPrepMixin:
-    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
-        hyperparameters = self._get_model_params()
+    def _estimate_dtypes_after_preprocessing(self, X: pd.DataFrame, **kwargs) -> int:      
         prep_params = self._get_ag_params().get("prep_params", None)
         if prep_params is None:
             prep_params = []
-
+        
         # FIXME: Temporarily simplify for memory calculation
         prep_params = _recursive_expand_prep_param(prep_params)
-        
-        shape = X.shape[0]
 
+        X_nunique = X.nunique().values
+        n_categorical = X.select_dtypes(exclude=[np.number]).shape[1]
+        n_numeric = X.loc[:,X_nunique>2].select_dtypes(include=[np.number]).shape[1]
+        n_binary = X.loc[:,X_nunique<=2].select_dtypes(include=[np.number]).shape[1] # NOTE: It can happen that features have less than two unique values if cleaning is applied before the bagging, i.e. Bioresponse
+
+        assert n_numeric + n_categorical + n_binary == X.shape[1] # NOTE: FOr debugging, to be removed later
         for preprocessor_cls_name, init_params in prep_params:
             if preprocessor_cls_name == 'ArithmeticFeatureGenerator':
                 prep_cls = ArithmeticFeatureGenerator(target_type=self.problem_type, **init_params)
-                num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X)
-                X_new = pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=[f'arithmetic_{i}' for i in range(num_new_feats)]).astype(prep_cls.out_dtype)
-                X = pd.concat([X, X_new], axis=1)
             elif preprocessor_cls_name == 'CategoricalInteractionFeatureGenerator':
-                # TODO: Test whether it is also fine to just do the actual preprocessing and use the X resulting from that
                 prep_cls = CategoricalInteractionFeatureGenerator(target_type=self.problem_type, **init_params)
-                num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X)
-                if not num_new_feats:
-                    continue
-                if prep_cls.only_freq:
-                    X = pd.concat([X, pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)])], axis=1)
-                elif prep_cls.add_freq:
-                    max_card = X[affected_features].nunique().max()
-                    X_cat_new = pd.DataFrame(np.random.randint(0, int(shape*(max_card/shape)), [shape, num_new_feats]), index=X.index, columns=[f'cat_int{i}' for i in range(num_new_feats)]).astype('category')
-                    X = pd.concat([X, X_cat_new, pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)])], axis=1)
-                else:
-                    max_card = X[affected_features].nunique().max()
-                    X_cat_new = pd.DataFrame(np.random.randint(0, int(shape*(max_card/shape)), [shape, num_new_feats]), index=X.index, columns=[f'cat_int_freq_{i}' for i in range(num_new_feats)]).astype('category')
-                    X = pd.concat([X, X_cat_new], axis=1)
             elif preprocessor_cls_name == 'OOFTargetEncodingFeatureGenerator':
                 prep_cls = OOFTargetEncodingFeatureGenerator(target_type=self.problem_type, **init_params)
-                num_new_feats, affected_features = prep_cls.estimate_no_of_new_features(X, self.num_classes)
-                if prep_cls.keep_original:
-                    X_new = pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=['oof_te_' + str(num) for num in range(num_new_feats)])
-                    X = pd.concat([X, X_new], axis=1)
-                else:
-                    X = X.drop(columns=affected_features)
-                    X_new = pd.DataFrame(np.random.random(size=[shape, num_new_feats]), index=X.index, columns=['oof_te_' + str(num) for num in range(num_new_feats)])
-                    X = pd.concat([X, X_new], axis=1)
+            else:
+                raise ValueError(f"Unknown preprocessor class name: {preprocessor_cls_name}")
+            n_numeric, n_categorical, n_binary = prep_cls.estimate_new_dtypes(n_numeric, n_categorical, n_binary, num_classes=self.num_classes)
+
+        return n_numeric, n_categorical, n_binary
+
+    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
+        hyperparameters = self._get_model_params()
+        n_numeric, n_categorical, n_binary = self._estimate_dtypes_after_preprocessing(X=X, **kwargs)
+        
+        # TODO: Replace with memory estimation logic based on no. of features instead of dataframe generation
+        shape = X.shape[0]
+        X_estimate = np.array([]).reshape(shape,0)
+        if n_numeric > 0:
+            X_estimate = np.concatenate([X_estimate, np.random.random(size=[shape, n_numeric]).astype(np.float64)], axis=1)
+        if n_categorical > 0:
+            cardinality = int(X.select_dtypes(exclude=[np.number]).nunique().mean())
+            X_estimate = np.concatenate([X_estimate, np.random.randint(0, cardinality, [shape, n_categorical]).astype('str')], axis=1)
+        if n_binary > 0:
+            X_estimate = np.concatenate([X_estimate, np.random.randint(0, 2, [shape, n_binary]).astype(np.int8)], axis=1)
+        X = pd.DataFrame(X_estimate)
 
         return self.estimate_memory_usage_static(X=X, problem_type=self.problem_type, num_classes=self.num_classes, hyperparameters=hyperparameters, **kwargs)
 
