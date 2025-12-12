@@ -133,6 +133,7 @@ class ModelAgnosticPrepMixin:
                 #  Refer to `Bioresponse` dataset where setting to `True` -> 200s fit time vs `false_recursive` -> 1s fit time
                 remove_unused_features="false_recursive",
                 post_drop_duplicates=True,
+                passthrough=True,
                 verbosity=0,
             )]
             return preprocessors
