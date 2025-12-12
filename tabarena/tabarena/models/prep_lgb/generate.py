@@ -57,23 +57,28 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
         configs = [configs]
     configs = [dict(config) for config in configs]
 
-    r_num = 1
     for i in range(len(configs)):
         if 'ag.prep_params' not in configs[i]:
-            configs[i]['ag.prep_params'] = {}
-        if 'preset_name' not in configs[i]:
-            configs[i]['preset_name'] = f'r{r_num}'
-            r_num += 1
-        if configs[i].pop('use_arithmetic_preprocessor') == True:
-            configs[i]['ag.prep_params'].update({
-                'ArithmeticFeatureGenerator': {}
-            })
+            configs[i]['ag.prep_params'] = []
+        prep_params_stage_1 = []
+        use_arithmetic_preprocessor = configs[i].pop('use_arithmetic_preprocessor')
+        use_cat_fe = configs[i].pop('use_cat_fe')
+        if use_arithmetic_preprocessor:
+            _generator_params = {}
+            if not use_cat_fe:
+                _generator_params["passthrough"] = True
+            prep_params_stage_1.append([
+                ('ArithmeticFeatureGenerator', _generator_params),
+            ])
 
-        if configs[i].pop('use_cat_fe') == True:
-            configs[i]['ag.prep_params'].update({
-                'CategoricalInteractionFeatureGenerator': {}, 
-                'OOFTargetEncodingFeatureGenerator': {}
-                        })
+        if use_cat_fe:
+            prep_params_stage_1.append([
+                ('CategoricalInteractionFeatureGenerator', {"passthrough": True}),
+                ('OOFTargetEncodingFeatureGenerator', {}),
+            ])
+
+        if prep_params_stage_1:
+            configs[i]['ag.prep_params'].append(prep_params_stage_1)
 
     return [convert_numpy_dtypes(config) for config in configs]
 
@@ -83,12 +88,15 @@ gen_lightgbm = CustomAGConfigGenerator(
     search_space_func=generate_configs_lightgbm,
     manual_configs=[
         {
-        'preset_name': 'all_preprocessors',
-        'ag.prep_params': {
-            'ArithmeticFeatureGenerator': {},
-            'CategoricalInteractionFeatureGenerator': {}, 
-            'OOFTargetEncodingFeatureGenerator': {}
-                    },
+        'ag.prep_params': [
+            [
+                ('ArithmeticFeatureGenerator', {}),
+                [
+                    ('CategoricalInteractionFeatureGenerator', {"passthrough": True}),
+                    ('OOFTargetEncodingFeatureGenerator', {}),
+                ],
+            ],
+        ],
         'ag.use_residuals': True,
         'ag.residual_type': 'oof',
         'ag.max_dataset_size_for_residuals': 1000,
