@@ -127,7 +127,14 @@ class ModelAgnosticPrepMixin:
         if len(preprocessors) == 1 and isinstance(preprocessors[0], AbstractFeatureGenerator):
             return preprocessors
         else:
-            preprocessors = [BulkFeatureGenerator(generators=preprocessors, verbosity=0)]
+            preprocessors = [BulkFeatureGenerator(
+                generators=preprocessors,
+                # TODO: "false_recursive" technically can slow down inference, but need to optimize `True` first
+                #  Refer to `Bioresponse` dataset where setting to `True` -> 200s fit time vs `false_recursive` -> 1s fit time
+                remove_unused_features="false_recursive",
+                post_drop_duplicates=True,
+                verbosity=0,
+            )]
             return preprocessors
 
     def _preprocess(self, X: pd.DataFrame, y = None, is_train: bool = False, **kwargs):
