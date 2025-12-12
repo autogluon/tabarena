@@ -4,19 +4,20 @@ import logging
 from typing import TYPE_CHECKING
 
 from autogluon.common.utils.resource_utils import ResourceManager
+from autogluon.core.constants import BINARY, MULTICLASS, REGRESSION
 from autogluon.core.models import AbstractModel
 
 if TYPE_CHECKING:
     import pandas as pd
+    from autogluon.core.metrics import Scorer
 
 
 logger = logging.getLogger(__name__)
 
 
-# TODO: TabStar might predict integers instead of classes as predict ignores labels; and order of labels might be broken
-# TODO: output path
-# TODO: eval metric for early stopping
-# TODO: flatten regression output
+# TODO: return class labels (done locally)
+# TODO: flatten regression output (done locally)
+# TODO: fix local checkpoint saving on first epoch (done locally)
 class TabStarModel(AbstractModel):
     """TabStar Model: https://arxiv.org/abs/2505.18125."""
 
@@ -66,6 +67,10 @@ class TabStarModel(AbstractModel):
             **hps,
             time_limit=time_limit,
             device=device,
+            metric_name=self.get_metric_from_ag_metric(
+                metric=self.stopping_metric, problem_type=self.problem_type
+            ),
+            output_dir=self.path + "/model_checkpoints",
         )
 
         if X_val is None:
@@ -134,3 +139,20 @@ class TabStarModel(AbstractModel):
     def _more_tags(self) -> dict:
         # Requires val split, so not refit full compatible
         return {"can_refit_full": False}
+
+    @staticmethod
+    def get_metric_from_ag_metric(*, metric: Scorer, problem_type: str):
+        """Map AutoGluon metric for early stopping."""
+        # TODO: support more metric and metric map akin to RealMLP
+        if problem_type == BINARY:
+            metric_class = "roc_auc"
+        elif problem_type == MULTICLASS:
+            metric_class = "logloss"
+        elif problem_type == REGRESSION:
+            metric_class = "rmse"
+        else:
+            raise AssertionError(
+                f"{problem_type} problem type not supported for early stopping map."
+            )
+
+        return metric_class
