@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # TODO: return class labels (done locally)
 # TODO: flatten regression output (done locally)
 # TODO: fix local checkpoint saving on first epoch (done locally)
+# TODO: fix early stopping error/bug with minimize metric (done locally)
 class TabStarModel(AbstractModel):
     """TabStar Model: https://arxiv.org/abs/2505.18125."""
 
