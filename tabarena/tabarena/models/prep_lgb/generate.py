@@ -61,6 +61,7 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
         if 'ag.prep_params' not in configs[i]:
             configs[i]['ag.prep_params'] = []
         prep_params_stage_1 = []
+        prep_params_passthrough_types = None
         use_arithmetic_preprocessor = configs[i].pop('use_arithmetic_preprocessor')
         use_cat_fe = configs[i].pop('use_cat_fe')
         if use_arithmetic_preprocessor:
@@ -71,12 +72,15 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
 
         if use_cat_fe:
             prep_params_stage_1.append([
-                ('CategoricalInteractionFeatureGenerator', {}),
+                ('CategoricalInteractionFeatureGenerator', {"passthrough": True}),
                 ('OOFTargetEncodingFeatureGenerator', {}),
             ])
+            prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
 
         if prep_params_stage_1:
             configs[i]['ag.prep_params'].append(prep_params_stage_1)
+        if prep_params_passthrough_types:
+            configs[i]['ag.prep_params.passthrough_types'] = prep_params_passthrough_types
 
     return [convert_numpy_dtypes(config) for config in configs]
 
