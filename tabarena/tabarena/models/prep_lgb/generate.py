@@ -90,11 +90,12 @@ gen_lightgbm = CustomAGConfigGenerator(
             [
                 ('ArithmeticFeatureGenerator', {}),
                 [
-                    ('CategoricalInteractionFeatureGenerator', {}),
+                    ('CategoricalInteractionFeatureGenerator', {"passthrough": True}),
                     ('OOFTargetEncodingFeatureGenerator', {}),
                 ],
             ],
         ],
+        'ag.prep_params.passthrough_types': {"invalid_raw_types": ["category", "object"]},
         'ag.use_residuals': True,
         'ag.residual_type': 'oof',
         'ag.max_dataset_size_for_residuals': 1000,
