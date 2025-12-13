@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # TODO: flatten regression output (done locally)
 # TODO: fix local checkpoint saving on first epoch (done locally)
 # TODO: fix early stopping error/bug with minimize metric (done locally)
+# TODO: make sure output predictions are float32 at least (done locally)
 class TabStarModel(AbstractModel):
     """TabStar Model: https://arxiv.org/abs/2505.18125."""
 
@@ -55,6 +56,7 @@ class TabStarModel(AbstractModel):
             )
 
         from tabstar.tabstar_model import TabSTARClassifier, TabSTARRegressor
+        from tabstar.training.hyperparams import LORA_BATCH
 
         if self.problem_type in ["binary", "multiclass"]:
             model_cls = TabSTARClassifier
@@ -63,9 +65,15 @@ class TabStarModel(AbstractModel):
         else:
             raise AssertionError(f"Unsupported problem_type: {self.problem_type}")
 
+        # Simple heuristic for batch size
+        batch_size = LORA_BATCH
+        if X.shape[1] > 200:
+            batch_size = 16
+
         hps = self._get_model_params()
         self.model = model_cls(
             **hps,
+            lora_batch=batch_size,
             time_limit=time_limit,
             device=device,
             metric_name=self.get_metric_from_ag_metric(
