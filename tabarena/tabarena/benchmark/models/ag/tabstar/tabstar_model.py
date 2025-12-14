@@ -112,7 +112,6 @@ class TabStarModel(AbstractModel):
         default_params = {
             # Large max epochs, we want to stop based on time limit or early stopping
             "max_epochs": 10_000,
-            "patience": 20,
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
