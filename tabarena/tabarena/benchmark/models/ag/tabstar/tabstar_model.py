@@ -15,9 +15,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# TODO: make validation and test pred batch size be controllable or the same as lora_batch (done locally)
 # TODO: early stopping should support dynamic patience
-# TODO: make sure AutoGluon gives class labels not ordinal encoded!
+# TODO: make sure AutoGluon gives class labels not ordinal encoded! (local branch of AG + PR https://github.com/autogluon/autogluon/pull/5482)
 class TabStarModel(AbstractModel):
     """TabStar Model: https://arxiv.org/abs/2505.18125."""
 
@@ -54,7 +53,7 @@ class TabStarModel(AbstractModel):
             )
 
         from tabstar.tabstar_model import TabSTARClassifier, TabSTARRegressor
-        from tabstar.training.hyperparams import LORA_BATCH
+        from tabstar.training.hyperparams import LORA_BATCH, VAL_BATCH
 
         if self.problem_type in ["binary", "multiclass"]:
             model_cls = TabSTARClassifier
@@ -64,14 +63,17 @@ class TabStarModel(AbstractModel):
             raise AssertionError(f"Unsupported problem_type: {self.problem_type}")
 
         # Simple heuristic for batch size
-        batch_size = LORA_BATCH
+        train_batch_size = LORA_BATCH
+        predict_batch_size = VAL_BATCH
         if X.shape[1] > 200:
-            batch_size = 16
+            train_batch_size = 16
+            predict_batch_size = 16
 
         hps = self._get_model_params()
         self.model = model_cls(
             **hps,
-            lora_batch=batch_size,
+            lora_batch=train_batch_size,
+            val_batch_size=predict_batch_size,
             time_limit=time_limit,
             device=device,
             metric_name=self.get_metric_from_ag_metric(
@@ -97,6 +99,21 @@ class TabStarModel(AbstractModel):
         X = self.preprocess(X, y=y)
         if X_val is not None:
             X_val = self.preprocess(X_val)
+        # Inverse label transformation to retain original semantics for classification
+        #   - hasattr for backward compatibility
+        if (
+            (self.problem_type in ["binary", "multiclass"])
+            and hasattr(self, "label_cleaner")
+            and (self.label_cleaner is not None)
+        ):
+            y = self.label_cleaner.inverse_transform(y)
+            if y_val is not None:
+                y_val = self.label_cleaner.inverse_transform(y_val)
+        else:
+            logger.warning(
+                "No label cleaner present in TabStarModel. "
+                "Target semantics will be lost to the model!."
+            )
 
         # FIXME: .fit does not return self as expected from sklearn API
         self.model.fit(
@@ -105,7 +122,6 @@ class TabStarModel(AbstractModel):
             x_val=X_val,
             y_val=y_val,
         )
-
 
     def _set_default_params(self):
         # Default values from the current version of the code base

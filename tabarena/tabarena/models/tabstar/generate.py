@@ -7,10 +7,13 @@ from autogluon.common.space import Categorical
 gen_tabstar = ConfigGenerator(
     model_cls=TabStarModel,
     manual_configs=[{}],
-    # TODO: more hyperparameter?
     search_space={
-        "lora_lr": Categorical(0.0005, 0.001, 0.002, 0.005, 0.01),
-        "lora_r": Categorical(8, 16, 32, 64),
+        "lora_lr": Categorical(0.0001, 0.0002, 0.0005, 0.001, 0.002),
+        "lora_wd": Categorical(0, 0.00001, 0.0001, 0.001),
+        "lora_r": Categorical(16, 32, 64),
+        "lora_alpha": Categorical(1, 2),
+        "lora_dropout": Categorical(0, 0.05, 0.1),
+        "global_batch": Categorical(64, 128, 256),
     },
 )
 
