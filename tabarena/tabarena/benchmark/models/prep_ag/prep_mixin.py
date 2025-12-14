@@ -28,11 +28,25 @@ _feature_generator_class_map = {
 
 def _recursive_expand_prep_param(prep_param: tuple | list[list | tuple]) -> list[tuple]:
     if isinstance(prep_param, list):
+        if len(prep_param) == 0:
+            param_type = "list"
+        elif len(prep_param) == 2:
+            if isinstance(prep_param[0], (str, AbstractFeatureGenerator)):
+                param_type = "generator"
+            else:
+                param_type = "list"
+        else:
+            param_type = "list"
+    elif isinstance(prep_param, tuple):
+        param_type = "generator"
+    else:
+        raise ValueError(f"Invalid value for prep_param: {prep_param}")
+    if param_type == "list":
         out = []
         for p in prep_param:
             out += _recursive_expand_prep_param(p)
         return out
-    elif isinstance(prep_param, tuple):
+    elif param_type == "generator":
         return [prep_param]
     else:
         raise ValueError(f"Invalid value for prep_param: {prep_param}")
@@ -107,11 +121,27 @@ class ModelAgnosticPrepMixin:
 
     def _recursive_init_preprocessors(self, prep_param: tuple | list[list | tuple]):
         if isinstance(prep_param, list):
+            if len(prep_param) == 0:
+                param_type = "list"
+            elif len(prep_param) == 2:
+                if isinstance(prep_param[0], (str, AbstractFeatureGenerator)):
+                    param_type = "generator"
+                else:
+                    param_type = "list"
+            else:
+                param_type = "list"
+        elif isinstance(prep_param, tuple):
+            param_type = "generator"
+        else:
+            raise ValueError(f"Invalid value for prep_param: {prep_param}")
+
+        if param_type == "list":
             out = []
             for i, p in enumerate(prep_param):
                 out.append(self._recursive_init_preprocessors(p))
             return out
-        elif isinstance(prep_param, tuple):
+        elif param_type == "generator":
+            assert len(prep_param) == 2
             preprocessor_cls = prep_param[0]
             init_params = prep_param[1]
             return self._init_preprocessor(preprocessor_cls=preprocessor_cls, init_params=init_params)
