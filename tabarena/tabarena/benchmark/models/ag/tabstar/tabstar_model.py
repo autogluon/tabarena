@@ -101,14 +101,11 @@ class TabStarModel(AbstractModel):
             X_val = self.preprocess(X_val)
         # Inverse label transformation to retain original semantics for classification
         #   - hasattr for backward compatibility
-        if (
-            (self.problem_type in ["binary", "multiclass"])
-            and hasattr(self, "label_cleaner")
-            and (self.label_cleaner is not None)
-        ):
-            y = self.label_cleaner.inverse_transform(y)
-            if y_val is not None:
-                y_val = self.label_cleaner.inverse_transform(y_val)
+        if hasattr(self, "label_cleaner") and (self.label_cleaner is not None):
+            if self.problem_type in ["binary", "multiclass"]:
+                y = self.label_cleaner.inverse_transform(y)
+                if y_val is not None:
+                    y_val = self.label_cleaner.inverse_transform(y_val)
         else:
             logger.warning(
                 "No label cleaner present in TabStarModel. "
