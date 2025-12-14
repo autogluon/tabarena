@@ -67,13 +67,13 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
         if use_arithmetic_preprocessor:
             _generator_params = {}
             prep_params_stage_1.append([
-                ('ArithmeticFeatureGenerator', _generator_params),
+                ['ArithmeticFeatureGenerator', _generator_params],
             ])
 
         if use_cat_fe:
             prep_params_stage_1.append([
-                ('CategoricalInteractionFeatureGenerator', {"passthrough": True}),
-                ('OOFTargetEncodingFeatureGenerator', {}),
+                ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
+                ['OOFTargetEncodingFeatureGenerator', {}],
             ])
             prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
 
@@ -92,10 +92,10 @@ gen_lightgbm = CustomAGConfigGenerator(
         {
         'ag.prep_params': [
             [
-                ('ArithmeticFeatureGenerator', {}),
+                ['ArithmeticFeatureGenerator', {}],
                 [
-                    ('CategoricalInteractionFeatureGenerator', {"passthrough": True}),
-                    ('OOFTargetEncodingFeatureGenerator', {}),
+                    ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
+                    ['OOFTargetEncodingFeatureGenerator', {}],
                 ],
             ],
         ],
