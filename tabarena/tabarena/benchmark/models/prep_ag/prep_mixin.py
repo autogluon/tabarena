@@ -84,20 +84,43 @@ class ModelAgnosticPrepMixin:
     def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
         hyperparameters = self._get_model_params()
         n_numeric, n_categorical, n_binary = self._estimate_dtypes_after_preprocessing(X=X, **kwargs)
-        
+
+        if hasattr(self, "_estimate_memory_usage_static_lite"):
+            return self._estimate_memory_usage_static_lite(
+                num_samples=X.shape[0],
+                num_features=n_numeric + n_categorical + n_binary,
+                num_bytes_per_cell=4,
+                hyperparameters=hyperparameters,
+                problem_type=self.problem_type,
+                num_classes=self.num_classes,
+                **kwargs,
+            )
+
         # TODO: Replace with memory estimation logic based on no. of features instead of dataframe generation
         shape = X.shape[0]
-        X_estimate = np.array([]).reshape(shape,0)
+        df_lst = []
         if n_numeric > 0:
-            X_estimate = np.concatenate([X_estimate, np.random.random(size=[shape, n_numeric]).astype(np.float64)], axis=1)
+            X_estimate = np.random.random(size=[shape, n_numeric]).astype(np.float32)
+            X_estimate_numeric = pd.DataFrame(X_estimate)
+            df_lst.append(X_estimate_numeric)
         if n_categorical > 0:
             cardinality = int(X.select_dtypes(exclude=[np.number]).nunique().mean())
-            X_estimate = np.concatenate([X_estimate, np.random.randint(0, cardinality, [shape, n_categorical]).astype('str')], axis=1)
+            X_estimate = np.random.randint(0, cardinality, [shape, n_categorical]).astype('str')
+            X_estimate_cat = pd.DataFrame(X_estimate)
+            df_lst.append(X_estimate_cat)
         if n_binary > 0:
-            X_estimate = np.concatenate([X_estimate, np.random.randint(0, 2, [shape, n_binary]).astype(np.int8)], axis=1)
-        X = pd.DataFrame(X_estimate)
+            X_estimate = np.random.randint(0, 2, [shape, n_binary]).astype(np.int8)
+            X_estimate_binary = pd.DataFrame(X_estimate)
+            df_lst.append(X_estimate_binary)
+        X = pd.concat(df_lst, ignore_index=True, axis=1)
 
-        return self.estimate_memory_usage_static(X=X, problem_type=self.problem_type, num_classes=self.num_classes, hyperparameters=hyperparameters, **kwargs)
+        return self.estimate_memory_usage_static(
+            X=X,
+            problem_type=self.problem_type,
+            num_classes=self.num_classes,
+            hyperparameters=hyperparameters,
+            **kwargs,
+        )
 
     def _init_preprocessor(
         self,
@@ -154,8 +177,12 @@ class ModelAgnosticPrepMixin:
         passthrough_types = ag_params.get("prep_params.passthrough_types", None)
         if prep_params is None:
             return []
+        if not prep_params:
+            return []
 
         preprocessors = self._recursive_init_preprocessors(prep_param=prep_params)
+        if len(preprocessors) == 0:
+            return []
         if len(preprocessors) == 1 and isinstance(preprocessors[0], AbstractFeatureGenerator):
             return preprocessors
         else:
