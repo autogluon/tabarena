@@ -65,8 +65,7 @@ class CustomModel(BaseEstimator):
             from sklearn.preprocessing import QuantileTransformer
             self.scaler = QuantileTransformer(output_distribution='uniform', random_state=self.random_state)
         elif scaler == 'squashing':
-            # FIXME: Remove skrub dependency, just copy this class into AG
-            from skrub import SquashingScaler
+            from autogluon.features.generators.skrub._squashing_scaler import SquashingScaler
             self.scaler = SquashingScaler()
         elif scaler is None:
             self.scaler = 'passthrough'
