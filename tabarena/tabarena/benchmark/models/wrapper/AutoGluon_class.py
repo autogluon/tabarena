@@ -163,10 +163,13 @@ class AGSingleWrapper(AGWrapper):
             model_cls = ag_model_registry.key_to_cls(key=self._model_cls)
         return model_cls
 
-    def _load_model(self):
+    def _load_model(self, assert_single_model: bool = True):
         model_names = self.predictor.model_names(can_infer=True)
-        assert len(model_names) == 1
-        model_name = self.predictor.model_names()[0]
+        if assert_single_model:
+            assert len(model_names) == 1
+            model_name = self.predictor.model_names()[0]
+        else:
+            model_name = self.predictor.model_best
         return self.predictor._trainer.load_model(model_name)
 
     def get_metadata_init(self) -> dict:
@@ -182,7 +185,7 @@ class AGSingleWrapper(AGWrapper):
 
     def get_metadata_fit(self) -> dict:
         metadata = {}
-        model = self._load_model()
+        model = self._load_model(assert_single_model=False)
         metadata["info"] = model.get_info(include_feature_metadata=False)
         metadata["disk_usage"] = model.disk_usage()
         metadata["num_cpus"] = model.fit_num_cpus

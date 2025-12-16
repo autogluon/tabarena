@@ -299,7 +299,7 @@ def generate_holdout_experiments(
     name_id_suffix: str = "",
     add_name_suffix_to_params: bool = True,
     **kwargs,
-) -> list[AGModelBagExperiment]:
+) -> list[AGModelExperiment]:
     experiments = []
     if kwargs is None:
         kwargs = {}

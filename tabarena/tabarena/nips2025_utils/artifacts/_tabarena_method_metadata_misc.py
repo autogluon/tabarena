@@ -25,3 +25,26 @@ gbm_aio_0808_metadata = MethodMetadata(
     s3_prefix="cache_aio",
     verified=False,
 )
+
+# LightGBM w/ custom preprocessing pipeline (only first 3 repeats)
+# s3 cache = "cache_aio"
+prep_gbm_v6_metadata = MethodMetadata(
+    method="prep_LightGBM_v6",
+    artifact_name="prep_LightGBM_v6",
+    method_type="config",
+    compute="cpu",
+    date="2025-12-16",
+    ag_key="prep_GBM",
+    model_key="prep_GBM_v6",
+    config_default="prep_LightGBM_v6_c1_BAG_L1",
+    name_suffix=None,
+    has_raw=True,
+    has_processed=True,
+    has_results=True,
+    upload_as_public=True,
+    can_hpo=True,
+    is_bag=True,
+    s3_bucket="tabarena",
+    s3_prefix="cache_aio",
+    verified=True,
+)
