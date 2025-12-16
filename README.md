@@ -114,7 +114,6 @@ git clone https://github.com/autogluon/tabarena.git
 uv pip install --prerelease=allow -e ./tabarena[benchmark]
 ```
 
-Recommended workflow:
 Creating a custom virtual environment:
 ```
 pip install uv
@@ -125,7 +124,7 @@ git clone https://github.com/autogluon/autogluon.git
 ./autogluon/full_install.sh
 
 git clone https://github.com/autogluon/tabarena.git
-uv pip install -U -e tabarena/[benchmark]
+uv pip install --prerelease=allow -e ./tabarena[benchmark]
 ```
 
 In PyCharm, make sure to set the directory of `tabarena/` and each `src/` subdirectory of `autogluon/` as 
