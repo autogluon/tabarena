@@ -1,17 +1,18 @@
-import numpy as np
-import pandas as pd
-from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
-from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge, Lasso
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
-from sklearn.model_selection import train_test_split
+from __future__ import annotations
 
 from typing import List, Literal
 
+import numpy as np
 import pandas as pd
+from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge, Lasso
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+
+from autogluon.common.utils.cv_splitter import CVSplitter
+
 
 class ToObject(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
@@ -163,7 +164,7 @@ class CustomModel(BaseEstimator):
         else:
             raise ValueError("target_type must be 'binary' or 'classification'")
 
-from autogluon.core.utils.utils import CVSplitter
+
 class OOFCustomModel:
     def __init__(self, 
                  target_type,
@@ -241,6 +242,7 @@ class OOFCustomModel:
             return self.train_decisions_.copy()
 
         return self.full_model.decision_function(X, is_train=is_train, **kwargs)
+
 
 class CustomLinearModel(CustomModel):
     def __init__(self, 
