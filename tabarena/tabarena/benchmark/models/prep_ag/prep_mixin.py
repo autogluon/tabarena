@@ -133,9 +133,8 @@ class ModelAgnosticPrepMixin:
             init_params = {}
         _init_params = dict(
             verbosity=0,
-            random_state=self.random_seed,
-            target_type=self.problem_type,
-            passthrough=False,  # FIXME
+            random_state=self.random_seed,  # FIXME: Not a generic param
+            target_type=self.problem_type,  # FIXME: Not a generic param
         )
         _init_params.update(**init_params)
         return preprocessor_cls(
