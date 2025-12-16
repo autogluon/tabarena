@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
+from typing import Type
 
 import numpy as np
 import pandas as pd
-from typing import Type
 
 from autogluon.features import ArithmeticFeatureGenerator
 from autogluon.features import CategoricalInteractionFeatureGenerator
@@ -52,6 +52,7 @@ def _recursive_expand_prep_param(prep_param: tuple | list[list | tuple]) -> list
         raise ValueError(f"Invalid value for prep_param: {prep_param}")
 
 
+# FIXME: Why is preprocessing twice as slow per fold when bagging LightGBM??? Need to investigate. Try sequential fold fit
 # TODO: Why is `prep_params` a dict instead of a list?
 class ModelAgnosticPrepMixin:
     def _estimate_dtypes_after_preprocessing(self, X: pd.DataFrame, **kwargs) -> int:      
