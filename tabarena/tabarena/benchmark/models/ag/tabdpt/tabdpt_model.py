@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+# FIXME: Add CPU loading support (.to(device))
 class TabDPTModel(AbstractModel):
     ag_key = "TABDPT"
     ag_name = "TabDPT"
