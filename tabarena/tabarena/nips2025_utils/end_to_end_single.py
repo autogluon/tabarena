@@ -562,6 +562,7 @@ class EndToEndResultsSingle:
         score_on_val: bool = False,
         average_seeds: bool = True,
         leaderboard_kwargs: dict | None = None,
+        extra_results: pd.DataFrame = None,
     ) -> pd.DataFrame:
         """Compare results on TabArena leaderboard.
 
@@ -581,6 +582,10 @@ class EndToEndResultsSingle:
             use_model_results=use_model_results,
             fillna=not only_valid_tasks,
         )
+
+        # FIXME: TMP
+        if extra_results is not None:
+            results = pd.concat([results, extra_results], ignore_index=True)
 
         return compare_on_tabarena(
             new_results=results,
