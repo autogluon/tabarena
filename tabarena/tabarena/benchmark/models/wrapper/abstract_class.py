@@ -104,7 +104,9 @@ class AbstractExecModel:
         dict
             Returns predictions, probabilities, fit time and inference time
         """
-        with (Timer() as timer_fit):
+        from tabarena.utils.memory_utils import CpuMemoryTracker, GpuMemoryTracker
+
+        with CpuMemoryTracker() as cpu_tracker, GpuMemoryTracker(device=0) as gpu_tracker, Timer() as timer_fit:
             self.fit(X, y)
 
         self.post_fit(X=X, y=y, X_test=X_test)
@@ -124,6 +126,18 @@ class AbstractExecModel:
             "time_train_s": timer_fit.duration,
             "time_infer_s": timer_predict.duration,
         }
+
+        out["memory_usage"] = dict(
+            peak_mem_cpu=cpu_tracker.peak_rss,
+            min_mem_cpu=cpu_tracker.min_rss,
+
+            peak_mem_gpu=gpu_tracker.peak_allocated,
+            peak_mem_gpu_reserved=gpu_tracker.peak_reserved,
+            min_mem_gpu=gpu_tracker.min_allocated,
+            min_mem_gpu_reserved=gpu_tracker.min_reserved,
+
+            gpu_tracking_enabled=gpu_tracker.enabled,
+        )
 
         return out
 
