@@ -629,7 +629,7 @@ class TabArenaContext:
             if not invalid.empty:
                 raise AssertionError(
                     f"Found a method with multiple values for column {c} (must be unique):\n"
-                    f"{groupby_method_invalid.value_counts()}"
+                    f"{groupby_method_invalid.value_counts(dropna=False)}"
                 )
 
             # Using .first() is safe because nunique == 1 for every method
