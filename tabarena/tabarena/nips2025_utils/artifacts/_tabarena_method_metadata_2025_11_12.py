@@ -43,3 +43,26 @@ contexttab_metadata = MethodMetadata(
     verified=False,
     reference_url="https://arxiv.org/abs/2506.10707",
 )
+
+# TODO: finalize metadata
+tabstar = MethodMetadata(
+    method="TabStar",
+    method_type="config",
+    compute="gpu",
+    date="2025-12-13",
+    ag_key="TABSTAR",
+    model_key="TABSTAR",
+    config_default="TabStar_c1_BAG_L1",
+    can_hpo=False, # TODO: add results with HPO
+    is_bag=True,
+    has_raw=True,
+    has_processed=True,
+    artifact_name="tabarena-2025-XXXX", # TODO
+    s3_bucket="tabarena",
+    s3_prefix="cache",
+    upload_as_public=True,
+    has_results=True,
+    name_suffix=None,
+    verified=True, # TODO: get confirmation
+    reference_url="https://arxiv.org/abs/2505.18125",
+)
