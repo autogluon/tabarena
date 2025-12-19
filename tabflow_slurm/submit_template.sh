@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --ntasks=1
 #SBATCH --job-name=tabarena_run
-#SBATCH --export=ALL
+#SBATCH --export=ALL,TABPFN_DISABLE_TELEMETRY=1
 #SBATCH --requeue
 #SBATCH --propagate=NONE
 
