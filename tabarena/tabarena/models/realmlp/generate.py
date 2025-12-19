@@ -48,6 +48,11 @@ def generate_single_config_realmlp(rng):
         params["n_epochs"] = 256
         params["use_early_stopping"] = False
 
+    # For epoch test
+    params["converge_on_epoch"] = True
+    params["stop_epoch"] = 1 + int(rng.integers(low=0, high=params["n_epochs"]))
+    params["ag_args_ensemble"] = {"refit_folds": True}
+
     return convert_numpy_dtypes(params)
 
 
@@ -60,7 +65,15 @@ def generate_configs_realmlp(num_random_configs=200, seed=1234):
 gen_realmlp = CustomAGConfigGenerator(
     model_cls=RealMLPModel,
     search_space_func=generate_configs_realmlp,
-    manual_configs=[{}],
+    manual_configs=[
+        {
+            "converge_on_epoch": True,
+            # Roughly the average best from RealMLP paper
+            "stop_epoch": 75,
+            "n_epochs": 256,
+            "ag_args_ensemble": {"refit_folds": True},
+        }
+    ],
 )
 
 

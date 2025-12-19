@@ -157,6 +157,15 @@ class RealMLPModel(AbstractModel):
             hyp["use_early_stopping"] = False
             hyp["val_fraction"] = 0
 
+        converge_on_epoch = hyp.pop("converge_on_epoch", None)
+        if converge_on_epoch is not None:
+            assert "n_epochs" in hyp, "To use 'converge_on_epoch', 'n_epochs' hyperparameter must set the LR schedule."
+            assert "stop_epoch" in hyp, "To use 'converge_on_epoch', 'stop_epoch' hyperparameter must set the LR schedule."
+            hyp["use_early_stopping"] = False
+            hyp["val_fraction"] = 0
+            X_val = None
+            y_val = None
+
         bool_to_cat = hyp.pop("bool_to_cat", True)
         impute_bool = hyp.pop("impute_bool", True)
         name_categories = hyp.pop("name_categories", True)
@@ -402,7 +411,8 @@ class RealMLPModel(AbstractModel):
     def _class_tags(cls) -> dict:
         return {"can_estimate_memory_usage_static": True}
 
+    # TODO: it can refit, but it likely should if epoch is not a HP!
     def _more_tags(self) -> dict:
         # TODO: Need to add train params support, track best epoch
         #  How to mirror RealMLP learning rate scheduler while forcing stopping at a specific epoch?
-        return {"can_refit_full": False}
+        return {"can_refit_full": True}
