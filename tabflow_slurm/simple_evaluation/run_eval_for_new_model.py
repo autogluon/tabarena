@@ -48,17 +48,23 @@ def run_eval_for_new_models(
 
     for model in models:
         if not model.only_load_cache:
-            EndToEndSingle.from_path_raw_to_results(
+            method_name_from_metadata = EndToEndSingle.from_path_raw_to_results(
                 path_raw=model.path_raw / "data",
                 name_suffix=model.new_result_prefix,
                 artifact_name=model.new_result_prefix,
                 num_cpus=8,
-            )
+            ).method_metadata.method
+            if model.new_result_prefix is not None:
+                method_name_from_metadata = method_name_from_metadata.replace(model.new_result_prefix, "")
+            if method_name_from_metadata != model.method:
+                raise ValueError(
+                    f"Method name mismatch: metadata has {model.method}, "
+                    f"but result has {method_name_from_metadata}."
+                    "Make sure to pass the 'ag_name' as 'method' to 'ModelMetadata'!"
+                )
 
     end_to_end_results = EndToEndResults.from_cache(
-        # TODO: check if "+ model.new_result_prefix" is correct here
-        # methods=[(m.method + m.new_result_prefix, m.new_result_prefix) for m in models]
-        methods=[m.method for m in models]
+        methods=[(m.method + m.new_result_prefix, m.new_result_prefix) for m in models]
     )
 
     def plot_plots(_fig_output_dir, _subset=None):
