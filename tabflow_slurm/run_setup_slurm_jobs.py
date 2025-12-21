@@ -4,22 +4,49 @@ from __future__ import annotations
 
 from tabflow_slurm.setup_slurm_base import BenchmarkSetup
 
-
+# -- AutoGluon New Presets Benchmark 19/12/2025
 BenchmarkSetup(
-    benchmark_name="sap_rpt_oss_new_2411",
+    benchmark_name="ag_experiment_191225",
     models=[
-        ("SAP-RPT-OSS", 0),
+        (
+            "AutoGluon_extreme_v150_4h",
+            dict(
+                fit_kwargs=dict(
+                    presets="https://ag-presets.s3.us-west-2.amazonaws.com/presets/extreme_v150.yaml",
+                ),
+            ),
+        ),
+        (
+            "AutoGluon_extreme_noncommercial_v150_4h",
+            dict(
+                fit_kwargs=dict(
+                    presets="https://ag-presets.s3.us-west-2.amazonaws.com/presets/extreme_noncommercial_v150.yaml",
+                ),
+            ),
+        ),
     ],
     num_gpus=1,
+    time_limit=14400,
     configs_per_job=1,
-    # Used only for a dataset with 230 features and 33k training samples.
-    # # Use H200 for large data jobs, similar to LimiX
-    # slurm_gpu_partition="alldlc2_gpu-h200",
-    # # H200 memory limit to override CPU estimates from AutoGluon
-    # fake_memory_for_estimates=140,
-    # model_agnostic_preprocessing=False,
-    # time_limit=5 * 60 * 60,
+    tabarena_lite=True,
 ).setup_jobs()
+
+# # -- ConTexTab Benchmark / SAP RPT OSS 24/11/2025
+# BenchmarkSetup(
+#     benchmark_name="sap_rpt_oss_new_2411",
+#     models=[
+#         ("SAP-RPT-OSS", 0),
+#     ],
+#     num_gpus=1,
+#     configs_per_job=1,
+#     # Used only for a dataset with 230 features and 33k training samples.
+#     # # Use H200 for large data jobs, similar to LimiX
+#     # slurm_gpu_partition="alldlc2_gpu-h200",
+#     # # H200 memory limit to override CPU estimates from AutoGluon
+#     # fake_memory_for_estimates=140,
+#     # model_agnostic_preprocessing=False,
+#     # time_limit=5 * 60 * 60,
+# ).setup_jobs()
 
 # # -- Benchmark TabPFN-v2.5 with Search Space 14/11/2025
 # BenchmarkSetup(

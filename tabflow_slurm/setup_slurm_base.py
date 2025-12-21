@@ -48,7 +48,7 @@ class BenchmarkSetup:
             - slurm_out         -- contains all SLURM output logs
             - .openml-cache     -- contains the OpenML cache
     """
-    python_from_base_path: str = "venvs/tabarena_07112025/bin/python"
+    python_from_base_path: str = "venvs/tabarena_ag_191225/bin/python"
     """Python executable and environment to use for the SLURM jobs. This should point to a Python
     executable within a (virtual) environment."""
     run_script_from_base_path: str = (
@@ -128,7 +128,8 @@ class BenchmarkSetup:
     """Time limit for each fit (all 8 folds) of a model in seconds. By default, 3600 seconds is used."""
     n_random_configs: int = 200
     """Number of random hyperparameter configurations to run for each model"""
-    models: list[tuple[str, int | str]] = field(default_factory=list)
+    # TODO: make less hacky and document ag experiment usage
+    models: list[tuple[str, int | str | dict]] = field(default_factory=list)
     """List of models to run in the benchmark with metadata.
     Metadata keys from left to right:
         - model name: str
@@ -136,6 +137,7 @@ class BenchmarkSetup:
             Some special cases are:
                 - If 0, only the default configuration is run.
                 - If "all", `n_random_configs`-many configurations are run.
+                - If dict, kwargs for AGExperiment 
 
     Remove or comment out models to that you do not want to run.
     Examples from the current state of TabArena are:
@@ -521,7 +523,33 @@ class BenchmarkSetup:
                 pipeline_method_kwargs["preprocessing_pipeline"] = preprocessing_name
                 name_id_suffix = f"_{preprocessing_name}"
 
-            for model_name, n_configs in self.models:
+            for model_name, n_configs_or_kwargs in self.models:
+
+                # TODO: make less hacky
+                if model_name.startswith("AutoGluon"):
+                    from tabarena.benchmark.experiment.experiment_constructor import (
+                        AGExperiment,
+                    )
+                    agexp_kwargs = n_configs_or_kwargs
+
+                    for key in ["fit_kwargs", "init_kwargs"]:
+                        if key not in agexp_kwargs:
+                            agexp_kwargs[key] = {}
+                        if key in pipeline_method_kwargs:
+                            agexp_kwargs[key].update(
+                                pipeline_method_kwargs[key]
+                            )
+                    agexp_kwargs["fit_kwargs"]["time_limit"] = self.time_limit
+
+                    experiments_lst.append(
+                        [AGExperiment(
+                            name=model_name,
+                            **agexp_kwargs,
+                        )]
+                    )
+                    continue
+
+                n_configs = n_configs_or_kwargs
                 if isinstance(n_configs, str) and n_configs == "all":
                     n_configs = self.n_random_configs
                 elif not isinstance(n_configs, int):
@@ -744,8 +772,13 @@ def should_run_job(
         ]  # Extract the local task ID if it is a UserTask.task_id_str
 
     # Filter out-of-constraints datasets
+    if "model_cls" in config:
+        model_cls = config["model_cls"]
+    else:
+        assert config["name"].startswith("AutoGluon")
+        model_cls = "AutoGluon"
     if not BenchmarkSetup.are_model_constraints_valid(
-        model_cls=config["model_cls"],
+        model_cls=model_cls,
         n_features=input_data["n_features"],
         n_classes=input_data["n_classes"],
         n_samples_train_per_fold=input_data["n_samples_train_per_fold"],
