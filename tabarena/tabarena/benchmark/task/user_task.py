@@ -3,22 +3,28 @@ from __future__ import annotations
 import hashlib
 import pickle
 from collections import OrderedDict
+from collections.abc import Iterable
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import numpy as np
 import openml
-from openml.datasets.functions import create_dataset
+import openml._api_calls
+import openml.utils
+import pandas as pd
+from openml.datasets.dataset import OpenMLDataset
+from openml.datasets.functions import (
+    _expand_parameter,
+    _validated_data_attributes,
+    attributes_arff_from_df,
+)
 from openml.tasks import (
     OpenMLClassificationTask,
     OpenMLRegressionTask,
     OpenMLSupervisedTask,
     TaskType,
 )
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 # Patch Functions for OpenML Dataset
@@ -30,7 +36,7 @@ def _get_dataset(self, **kwargs) -> openml.datasets.OpenMLDataset:
 class UserTask:
     """A user-defined task to run on custom datasets or tasks."""
 
-    def __init__(self, *, task_name: str, task_cache_path: Path):
+    def __init__(self, *, task_name: str, task_cache_path: Path | None = None):
         """Initialize a user-defined task.
 
         Parameters
@@ -38,14 +44,26 @@ class UserTask:
         task_name: str
             The name of the task. Make sure this is a unique name on your system,
             as we create the cache based on this name.
-        task_cache_path: Path
+        task_cache_path: Path | None, default=None
             Path to use for caching the local OpenML tasks.
+            If None, the default OpenML cache directory is used.
         """
         self.task_name = task_name
         self._task_name_hash = hashlib.sha256(
             self.task_name.encode("utf-8")
         ).hexdigest()
-        self.task_cache_path = task_cache_path
+        self._task_cache_path = task_cache_path
+
+    @property
+    def task_cache_path(self) -> Path:
+        """Path to use for caching the local OpenML tasks."""
+        if self._task_cache_path is not None:
+            return self._task_cache_path
+        return (
+            (openml.config._resolve_default_cache_dir() / "tabarena_tasks")
+            .expanduser()
+            .resolve()
+        )
 
     @staticmethod
     def from_task_id_str(task_id_str: str) -> UserTask:
@@ -61,7 +79,6 @@ class UserTask:
     def task_id_str(self) -> str:
         """Task ID used for the task."""
         return f"UserTask|{self.task_id}|{self.task_name}|{self.task_cache_path}"
-
 
     @property
     def tabarena_task_name(self) -> str:
@@ -145,7 +162,7 @@ class UserTask:
                   there is only one split in repeat_id 0, there should be only one split
                   in all other repeat_ids).
         """
-        dataset = deepcopy(dataset)
+        dataset = deepcopy(dataset).reset_index(drop=True)
         self._validate_splits(splits=splits, n_samples=len(dataset))
 
         task_type = (
@@ -162,24 +179,13 @@ class UserTask:
         else:
             raise NotImplementedError(f"Task type {task_type:d} not supported.")
 
-        local_dataset = create_dataset(
+        print(
+            f"Creating local OpenML task {self.task_id} with dataset '{self.dataset_name}'..."
+        )
+        local_dataset = openml_create_datasets_without_arff_dump(
             name=self.dataset_name,
-            description=None,
-            creator=None,
-            contributor=None,
-            collection_date=None,
-            language=None,
-            licence=None,
-            attributes="auto",
             data=dataset,
             default_target_attribute=target_feature,
-            ignore_attribute=None,
-            citation="N/A",
-            row_id_attribute=None,
-            original_data_url=None,
-            paper_url=None,
-            version_label=None,
-            update_comment=None,
         )
         # Cache data to disk
         parquet_file = self._local_cache_path / "data.pq"
@@ -281,21 +287,119 @@ class UserTask:
 
     def save_local_openml_task(self, task: OpenMLSupervisedTask) -> None:
         """Safe the OpenML task to be usable by loading from disk later."""
+        print(f"Saving local task {self.task_name} to: {self.task_cache_path}")
+
         self.task_cache_path.mkdir(parents=True, exist_ok=True)
         # Remove monkey patch to avoid pickle issues.
         del task.get_dataset
         with self.openml_task_path.open("wb") as f:
             pickle.dump(task, f)
 
-
     def load_local_openml_task(self) -> OpenMLSupervisedTask:
         """Load a local OpenML task from disk."""
         if not self.openml_task_path.exists():
-            raise FileNotFoundError(f"Cached task file {self.openml_task_path} does not exist!")
+            raise FileNotFoundError(
+                f"Cached task file {self.openml_task_path} does not exist!"
+            )
 
         with self.openml_task_path.open("rb") as f:
-            task : OpenMLSupervisedTask = pickle.load(f)
+            task: OpenMLSupervisedTask = pickle.load(f)
         # Add monkey patch again.
         task.get_dataset = _get_dataset.__get__(task, OpenMLSupervisedTask)
 
         return task
+
+
+def openml_create_datasets_without_arff_dump(
+    *,
+    name: str,
+    data: pd.DataFrame,
+    default_target_attribute: str,
+) -> OpenMLDataset:
+    """Custom version of from openml.datasets.functions import create_dataset
+    to improve local task creation and avoid ARFF slowdown.
+    """
+    assert isinstance(data, pd.DataFrame)
+    description = None
+    creator = None
+    contributor = None
+    collection_date = None
+    language = None
+    licence = None
+    ignore_attribute = None
+    citation = "N/A"
+    row_id_attribute = None
+    original_data_url = None
+    paper_url = None
+    version_label = None
+    update_comment = None
+
+    # infer the row id from the index of the dataset
+    if row_id_attribute is None:
+        row_id_attribute = data.index.name
+    # When calling data.values, the index will be skipped.
+    # We need to reset the index such that it is part of the data.
+    if data.index.name is not None:
+        data = data.reset_index()
+
+    # infer the type of data for each column of the DataFrame
+    attributes_ = attributes_arff_from_df(data)
+
+    ignore_attributes = _expand_parameter(ignore_attribute)
+    _validated_data_attributes(ignore_attributes, attributes_, "ignore_attribute")
+
+    default_target_attributes = _expand_parameter(default_target_attribute)
+    _validated_data_attributes(
+        default_target_attributes, attributes_, "default_target_attribute"
+    )
+
+    return OpenMLDataset(
+        name=name,
+        description=description,
+        creator=creator,
+        contributor=contributor,
+        collection_date=collection_date,
+        language=language,
+        licence=licence,
+        default_target_attribute=default_target_attribute,
+        row_id_attribute=row_id_attribute,
+        ignore_attribute=ignore_attribute,
+        citation=citation,
+        version_label=version_label,
+        original_data_url=original_data_url,
+        paper_url=paper_url,
+        update_comment=update_comment,
+        # Skip unused ARFF usage for local datasets
+        data_format="arff",
+        dataset=None,
+    )
+
+
+def from_sklearn_splits_to_user_task_splits(
+    sklearn_splits: Iterable, n_splits: int
+) -> dict[int, dict[int, tuple[list, list]]]:
+    """Convert sklearn splits to the OpenML splits format used in TabArena's
+    local user tasks.
+
+    Arguments:
+    ---------
+    sklearn_splits: Iterable
+        An iterable of (train_indices, test_indices) tuples as returned by
+        sklearn's splitters (e.g., RepeatedKFold, ...).
+    n_splits: int
+        The number of splits per repeat (e.g., for RepeatedKFold).
+
+    Returns:
+    -------
+    splits: dict[int, dict[int, tuple[list, list]]]
+        A dictionary the train-tests splits per repeat and fold in
+        the format of OpenML.
+    """
+    splits = {}
+    for split_i, (train_idx, test_idx) in enumerate(sklearn_splits):
+        repeat_i = split_i // n_splits
+        fold_i = split_i % n_splits
+        if repeat_i not in splits:
+            splits[repeat_i] = {}
+        splits[repeat_i][fold_i] = (train_idx.tolist(), test_idx.tolist())
+    return splits

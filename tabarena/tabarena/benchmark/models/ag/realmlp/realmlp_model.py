@@ -1,17 +1,17 @@
 from __future__ import annotations
 
+import copy
 import logging
-import math
 import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
-from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.models import AbstractModel
-from autogluon.tabular import __version__
 from sklearn.impute import SimpleImputer
+
+from autogluon.tabular import __version__
 
 if TYPE_CHECKING:
     import numpy as np
@@ -148,7 +148,10 @@ class RealMLPModel(AbstractModel):
             and isinstance(hyp["use_ls"], str)
             and hyp["use_ls"] == "auto"
         ):
-            if val_metric_name is None or val_metric_name in ["cross_entropy", "1-auc_ovr_alt"]:
+            if val_metric_name is None or val_metric_name in [
+                "cross_entropy",
+                "1-auc_ovr_alt",
+            ]:
                 hyp["use_ls"] = False
             else:
                 hyp["use_ls"] = None
@@ -325,73 +328,49 @@ class RealMLPModel(AbstractModel):
         *,
         X: pd.DataFrame,
         hyperparameters: dict | None = None,
+        num_classes: int = 1,
         **kwargs,
     ) -> int:
-        """Heuristic memory estimate that correlates strongly with RealMLP's more sophisticated method.
-
-        More comprehensive memory estimate logic:
-
-        ```python
-        from typing import Any
-
+        """RealMLP memory estimation logic."""
         from pytabkit.models.alg_interfaces.nn_interfaces import NNAlgInterface
         from pytabkit.models.data.data import DictDataset, TensorInfo
         from pytabkit.models.sklearn.default_params import DefaultParams
 
-        def estimate_realmlp_cpu_ram_gb(hparams: dict[str, Any], n_numerical: int, cat_sizes: list[int], n_classes: int,
-                                        n_samples: int):
-            params = copy.copy(DefaultParams.RealMLP_TD_CLASS if n_classes > 0 else DefaultParams.RealMLP_TD_REG)
-            params.update(hparams)
-
-            ds = DictDataset(tensors=None, tensor_infos=dict(x_cont=TensorInfo(feat_shape=[n_numerical]),
-                                                             x_cat=TensorInfo(cat_sizes=cat_sizes),
-                                                             y=TensorInfo(cat_sizes=[n_classes])), device='cpu',
-                             n_samples=n_samples)
-
-            alg_interface = NNAlgInterface(**params)
-            res = alg_interface.get_required_resources(ds, n_cv=1, n_refit=0, n_splits=1, split_seeds=[0], n_train=n_samples)
-            return res.cpu_ram_gb
-        ```
-
-        """
         if hyperparameters is None:
             hyperparameters = {}
-        plr_hidden_1 = hyperparameters.get("plr_hidden_1", 16)
-        plr_hidden_2 = hyperparameters.get("plr_hidden_2", 4)
-        hidden_width = hyperparameters.get("hidden_width", 256)
-        n_ens = hyperparameters.get("n_ens", 8)
-
-        num_features = len(X.columns)
-        columns_mem_est = num_features * 8e5
-
-        hidden_1_weight = 0.13
-        hidden_2_weight = 0.42
-        width_factor = math.sqrt(hidden_width / 256 + 0.6)
-
-        columns_mem_est_hidden_1 = (
-            columns_mem_est * hidden_1_weight * plr_hidden_1 / 16 * width_factor
+        params = copy.copy(
+            DefaultParams.RealMLP_TD_CLASS
+            if num_classes > 1
+            else DefaultParams.RealMLP_TD_REG
         )
-        columns_mem_est_hidden_2 = (
-            columns_mem_est * hidden_2_weight * plr_hidden_2 / 16 * width_factor
+        params.update(hyperparameters)
+
+        n_samples = X.shape[0]
+        n_numerical = X.select_dtypes(include=["int", "float"]).shape[1]
+        cat_sizes = (
+            X.select_dtypes(include=["category", "object"])
+            .nunique(dropna=False)
+            .add(1)
+            .astype(int)
+            .tolist()
         )
-        columns_mem_est = columns_mem_est_hidden_1 + columns_mem_est_hidden_2
 
-        # TODO: this is added here to use RAM estimation as a VRAM proxy.
-        #  In the future, we need another function and logic via `get_minimum_resources`
-        #  to estimate VRAM usage directly.
-        # Linear overhead per ensemble member
-        columns_mem_est *= n_ens
-        # add sample size factor into the estimate
-        columns_mem_est *= max(0.33, len(X) / 8192) # 8192 from batch size heuristic
-
-        dataset_size_mem_est = (
-            5 * get_approximate_df_mem_usage(X).sum()
-        )  # roughly 5x DataFrame memory size
-        baseline_overhead_mem_est = 3e8  # 300 MB generic overhead
-
-        return (
-            dataset_size_mem_est + columns_mem_est + baseline_overhead_mem_est
+        ds = DictDataset(
+            tensors=None,
+            tensor_infos=dict(
+                x_cont=TensorInfo(feat_shape=[n_numerical]),
+                x_cat=TensorInfo(cat_sizes=cat_sizes),
+                y=TensorInfo(cat_sizes=[num_classes]),
+            ),
+            device="cpu",
+            n_samples=n_samples,
         )
+
+        alg_interface = NNAlgInterface(**params)
+        res = alg_interface.get_required_resources(
+            ds, n_cv=1, n_refit=0, n_splits=1, split_seeds=[0], n_train=n_samples
+        )
+        return int(res.gpu_ram_gb * 1e9)
 
     def _validate_fit_memory_usage(self, mem_error_threshold: float = 1, **kwargs):
         return super()._validate_fit_memory_usage(
