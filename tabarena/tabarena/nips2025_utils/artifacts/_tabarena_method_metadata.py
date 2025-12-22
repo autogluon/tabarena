@@ -34,7 +34,8 @@ from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_01 impo
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_12 import realtabpfn25_metadata, contexttab_metadata
 
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_misc import (
-    gbm_aio_0808_metadata
+    gbm_aio_0808_metadata,
+    # prep_gbm_v6_metadata,
 )
 
 methods_2025_09_03: list[MethodMetadata] = [
@@ -71,6 +72,7 @@ methods_2025_10_20: list[MethodMetadata] = [
 
 methods_misc: list[MethodMetadata] = [
     gbm_aio_0808_metadata,
+    # prep_gbm_v6_metadata,
 ]
 
 replaced_methods = [

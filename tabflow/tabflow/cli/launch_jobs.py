@@ -57,6 +57,7 @@ class JobManager:
         wait: bool = True,
         stop_wait_on_fail: bool = False,
         s3_dataset_cache: str = None,
+        verify_methods: bool = True,
     ):
         """
 
@@ -104,6 +105,8 @@ class JobManager:
             Full S3 URI for OpenML dataset cache (format: s3://bucket/prefix),
             note that after the prefix the following will be appended to the path -
             tasks/{task_id}/org/openml/www/tasks/{task_id}, where the xml and arff is expected to be situated
+        verify_methods:
+            If True, ensures that methods_content is serializable and loadable.
 
         """
         if add_timestamp:
@@ -122,8 +125,16 @@ class JobManager:
         self.experiment_name = experiment_name
         if methods_content is not None:
             assert methods_file is None, f"Only one of `methods_file`, `methods_content` can be specified."
+            if verify_methods:
+                from tabarena.benchmark.experiment.experiment_constructor import YamlExperimentSerializer
+                YamlExperimentSerializer.from_yaml_str(yaml_str=methods_content)
         elif methods_file is None:
             raise AssertionError(f"Must specify one of `methods_file`, `methods_content`.")
+        else:
+            assert methods_content is None, f"Only one of `methods_file`, `methods_content` can be specified."
+            if verify_methods:
+                from tabarena.benchmark.experiment.experiment_constructor import YamlExperimentSerializer
+                YamlExperimentSerializer.from_yaml(path=methods_file)
         self.methods_content = methods_content
         self.methods_file = methods_file
         self.s3_bucket = s3_bucket
@@ -143,6 +154,7 @@ class JobManager:
         self.wait = wait
         self.stop_wait_on_fail = stop_wait_on_fail
         self.s3_dataset_cache = s3_dataset_cache
+        self.verify_methods = verify_methods
         self._job_count = 0  # Used to ensure unique job names
 
         # Create boto3 session
