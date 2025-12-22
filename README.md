@@ -139,6 +139,14 @@ cd examples/benchmarking
 python run_quickstart_tabarena.py 
 ```
 
+### Install from GitHub / TabArena as a dependency 
+
+You can install TabArena from GitHub or as a dependency by using:
+
+```
+ "tabarena @ git+https://github.com/autogluon/tabarena.git#subdirectory=tabarena"
+```
+
 # Downloading and using TabArena Artifacts
 
 Artifacts will by default be downloaded into `~/.cache/tabarena/`. You can change this by specifying the environment variable `TABARENA_CACHE`.
