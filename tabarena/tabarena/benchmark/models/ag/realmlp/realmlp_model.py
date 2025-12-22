@@ -338,6 +338,8 @@ class RealMLPModel(AbstractModel):
 
         if hyperparameters is None:
             hyperparameters = {}
+        if num_classes is None:
+            num_classes = 1
         params = copy.copy(
             DefaultParams.RealMLP_TD_CLASS
             if num_classes > 1
