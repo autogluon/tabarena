@@ -48,6 +48,7 @@ def get_configs_generator_from_name(model_name: str):
         "xRFM": lambda: importlib.import_module("tabarena.models.xrfm.generate").gen_xrfm,
         "RealTabPFN-v2.5": lambda: importlib.import_module("tabarena.models.tabpfnv2_5.generate").gen_realtabpfnv25,
         "SAP-RPT-OSS": lambda: importlib.import_module("tabarena.models.sap_rpt_oss.generate").gen_sap_rpt_oss,
+        "GRANDE": lambda: importlib.import_module("tabrepo.models.grande.generate").gen_grande,
     }
 
     if model_name not in name_to_import_map:
