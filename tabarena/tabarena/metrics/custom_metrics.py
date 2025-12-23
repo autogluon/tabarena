@@ -7,15 +7,15 @@ from autogluon.core.metrics import METRICS, make_scorer
 
 
 def amex_metric(
-    target: np.ndarray | pd.DataFrame, preds: np.ndarray | pd.DataFrame
+    target: np.ndarray | pd.DataFrame | pd.Series, preds: np.ndarray | pd.DataFrame | pd.Series
 ) -> float:
     """Optimized AMEX Competition Metric.
 
     Ref: https://www.kaggle.com/competitions/amex-default-prediction/discussion/328020
     """
-    if isinstance(target, pd.DataFrame):
+    if isinstance(target, (pd.DataFrame, pd.Series)):
         target = target.to_numpy()
-    if isinstance(preds, pd.DataFrame):
+    if isinstance(preds, (pd.DataFrame, pd.Series)):
         preds = preds.to_numpy()
 
     indices = np.argsort(preds)[::-1]
