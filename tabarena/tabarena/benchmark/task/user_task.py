@@ -32,12 +32,15 @@ def _get_dataset(self, **kwargs) -> openml.datasets.OpenMLDataset:
     return self.local_dataset
 
 
-# TODO: support split constructor for common split use cases
 class UserTask:
     """A user-defined task to run on custom datasets or tasks."""
 
-    def __init__(self, *, task_name: str, task_cache_path: Path | None = None):
+    def __init__(self, *, task_name: str, task_cache_path: Path | None = None) -> None:
         """Initialize a user-defined task.
+
+        NOTE: do not store any attributes in this class but put them
+        in the local task created from this class, as this class
+        is only used to create/load the task.
 
         Parameters
         ----------
@@ -113,10 +116,12 @@ class UserTask:
     # TODO: support local OpenML tasks inside of OpenML code...
     def create_local_openml_task(
         self,
+        *,
         target_feature: str,
         problem_type: Literal["classification", "regression"],
         dataset: pd.DataFrame,
         splits: dict[int, dict[int, tuple[list, list]]],
+        eval_metric: str | None = None,
     ) -> OpenMLSupervisedTask:
         """Convert the user-defined task to a local (unpublished) OpenMLSupervisedTask.
 
@@ -161,6 +166,11 @@ class UserTask:
                 - Splits across repeat_ids should have the same structure (e.g., if
                   there is only one split in repeat_id 0, there should be only one split
                   in all other repeat_ids).
+        eval_metric: str | None, default=None
+            If None, we pass None to the OpenML task and later the default
+            TabArena metrics are used.
+            Otherwise, the metric specified here is used for evaluating the task.
+            Note that the metric must be registered in TabArena/AutoGluon.
         """
         dataset = deepcopy(dataset).reset_index(drop=True)
         self._validate_splits(splits=splits, n_samples=len(dataset))
@@ -205,6 +215,7 @@ class UserTask:
             task_type="None",  # Placeholder, not used for local tasks
             data_set_id=-1,  # Placeholder, not used for local tasks
             target_name=target_feature,
+            evaluation_measure=eval_metric,
             **extra_kwargs,
         )
         task.local_dataset = local_dataset
