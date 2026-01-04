@@ -418,6 +418,7 @@ class EndToEndResults:
         leaderboard_kwargs: dict | None = None,
         tabarena_context_kwargs: dict | None = None,
         extra_results: pd.DataFrame = None,
+        remove_imputed: bool = False,
     ) -> pd.DataFrame:
         """Compare results on TabArena leaderboard.
 
@@ -451,6 +452,7 @@ class EndToEndResults:
             average_seeds=average_seeds,
             leaderboard_kwargs=leaderboard_kwargs,
             tabarena_context_kwargs=tabarena_context_kwargs,
+            remove_imputed=remove_imputed,
         )
 
     def get_results(

@@ -534,7 +534,30 @@ class YamlExperimentSerializer:
 
         experiments = []
         for experiment in yaml_out:
-            experiments.append(YamlSingleExperimentSerializer.parse_method(experiment, context=context))
+            experiments.append(
+                YamlSingleExperimentSerializer.parse_method(
+                    experiment, context=context
+                )
+            )
+
+        return experiments
+
+    @classmethod
+    def from_yaml_str(cls, yaml_str: str, context=None) -> list[Experiment]:
+        """
+        Parse a YAML string containing multiple experiment definitions
+        and return a list of Experiment instances.
+        """
+        yaml_out = yaml.safe_load(yaml_str)
+        methods = yaml_out["methods"]
+
+        experiments = []
+        for experiment in methods:
+            experiments.append(
+                YamlSingleExperimentSerializer.parse_method(
+                    experiment, context=context
+                )
+            )
 
         return experiments
 
@@ -562,7 +585,5 @@ class YamlExperimentSerializer:
     def _to_yaml_format(cls, experiments: list[Experiment]) -> dict[str, list[dict]]:
         yaml_lst = []
         for experiment in experiments:
-            yaml_dict = experiment.to_yaml_dict()
-            yaml_lst.append(yaml_dict)
-        yaml_out = {"methods": yaml_lst}
-        return yaml_out
+            yaml_lst.append(experiment.to_yaml_dict())
+        return {"methods": yaml_lst}
