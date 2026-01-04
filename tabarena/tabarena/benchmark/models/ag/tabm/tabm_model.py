@@ -273,7 +273,10 @@ class TabMModel(AbstractModel):
 
     @classmethod
     def _class_tags(cls):
-        return {"can_estimate_memory_usage_static": True}
+        return {
+            "can_estimate_memory_usage_static": True,
+            "reset_torch_threads": True,
+        }
 
     def _more_tags(self) -> dict:
         # TODO: Need to add train params support, track best epoch
