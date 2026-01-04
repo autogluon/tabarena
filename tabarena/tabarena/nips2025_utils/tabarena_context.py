@@ -254,6 +254,7 @@ class TabArenaContext:
         configs: list[str],
         config_fallback: str | None = None,
         repo: EvaluationRepositoryCollection = None,
+        **kwargs,
     ):
         if repo is None:
             repo = self.load_repo(config_fallback=config_fallback)
@@ -261,6 +262,7 @@ class TabArenaContext:
 
         results = simulator.evaluate_ensembles(
             configs=configs,
+            **kwargs,
         )
 
         results = results.rename(columns={"framework": "method"})

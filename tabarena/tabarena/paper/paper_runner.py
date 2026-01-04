@@ -147,6 +147,8 @@ class PaperRun:
         n_iterations: int = 40,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
+        backend_group_folds: bool = True,
+        **kwargs,
     ) -> pd.DataFrame:
         if configs is None:
             configs = self.repo.configs()
@@ -157,6 +159,8 @@ class PaperRun:
             seed=seed,
             time_limit=time_limit,
             backend=self.backend,
+            backend_group_folds=backend_group_folds,
+            **kwargs,
         )
         df_results = df_results.reset_index()
         df_results["method_type"] = "portfolio"
