@@ -90,45 +90,12 @@ def compare(
     leaderboard_kwargs: dict | None = None,
     remove_imputed: bool = False,
 ):
-    df_results = df_results.copy()
-
-    if isinstance(only_valid_tasks, str):
-        only_valid_tasks = [only_valid_tasks]
-    if isinstance(only_valid_tasks, list):
-        for filter_method in only_valid_tasks:
-            # Filter to tasks present in a specific method
-            df_filter = df_results[df_results["method"] == filter_method]
-            if "imputed" in df_filter.columns:
-                df_filter = df_filter[df_filter["imputed"] != True]
-            assert len(df_filter) != 0, \
-                (f"No method named '{filter_method}' remains to filter to!\n"
-                 f"Available tasks: {list(df_results['method'].unique())}")
-            df_results = filter_to_valid_tasks(
-                df_to_filter=df_results,
-                df_filter=df_filter,
-            )
-
-    if "method_type" not in df_results.columns:
-        df_results["method_type"] = "baseline"
-    if "method_subtype" not in df_results.columns:
-        df_results["method_subtype"] = np.nan
-    if "config_type" not in df_results.columns:
-        df_results["config_type"] = np.nan
-    if "imputed" not in df_results.columns:
-        df_results["imputed"] = False
-
-    if isinstance(fillna, str):
-        fillna = df_results[df_results["method"] == fillna]
-    if fillna is not None:
-        df_results = TabArenaContext.fillna_metrics(
-            df_to_fill=df_results,
-            df_fillna=fillna,
-        )
-
-    if remove_imputed:
-        methods_imputed = df_results.groupby("method")["imputed"].sum()
-        methods_imputed = list(methods_imputed[methods_imputed > 0].index)
-        df_results = df_results[~df_results["method"].isin(methods_imputed)]
+    df_results = prepare_data(
+        df_results=df_results,
+        only_valid_tasks=only_valid_tasks,
+        fillna=fillna,
+        remove_imputed=remove_imputed,
+    )
 
     if score_on_val:
         error_col = "metric_error_val"
@@ -171,6 +138,55 @@ def filter_to_valid_tasks(df_to_filter: pd.DataFrame, df_filter: pd.DataFrame) -
         )]
     df_filtered = df_to_filter[is_in_lst]
     return df_filtered
+
+
+def prepare_data(
+    df_results: pd.DataFrame,
+    only_valid_tasks: str | list[str] | None = None,
+    fillna: str | pd.DataFrame | None = None,
+    remove_imputed: bool = False,
+) -> pd.DataFrame:
+    df_results = df_results.copy()
+
+    if isinstance(only_valid_tasks, str):
+        only_valid_tasks = [only_valid_tasks]
+    if isinstance(only_valid_tasks, list):
+        for filter_method in only_valid_tasks:
+            # Filter to tasks present in a specific method
+            df_filter = df_results[df_results["method"] == filter_method]
+            if "imputed" in df_filter.columns:
+                df_filter = df_filter[df_filter["imputed"] != True]
+            assert len(df_filter) != 0, \
+                (f"No method named '{filter_method}' remains to filter to!\n"
+                 f"Available tasks: {list(df_results['method'].unique())}")
+            df_results = filter_to_valid_tasks(
+                df_to_filter=df_results,
+                df_filter=df_filter,
+            )
+
+    if "method_type" not in df_results.columns:
+        df_results["method_type"] = "baseline"
+    if "method_subtype" not in df_results.columns:
+        df_results["method_subtype"] = np.nan
+    if "config_type" not in df_results.columns:
+        df_results["config_type"] = np.nan
+    if "imputed" not in df_results.columns:
+        df_results["imputed"] = False
+
+    if isinstance(fillna, str):
+        fillna = df_results[df_results["method"] == fillna]
+    if fillna is not None:
+        df_results = TabArenaContext.fillna_metrics(
+            df_to_fill=df_results,
+            df_fillna=fillna,
+        )
+
+    if remove_imputed:
+        methods_imputed = df_results.groupby("method")["imputed"].sum()
+        methods_imputed = list(methods_imputed[methods_imputed > 0].index)
+        df_results = df_results[~df_results["method"].isin(methods_imputed)]
+
+    return df_results
 
 
 def subset_tasks(df_results: pd.DataFrame, subset: list[str], folds: list[int] = None) -> pd.DataFrame:
