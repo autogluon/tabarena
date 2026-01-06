@@ -25,6 +25,7 @@ from tabarena.nips2025_utils.eval_all import evaluate_all
 _methods_paper = [
     "AutoGluon_v140_bq_4h8c",
     "AutoGluon_v140_eq_4h8c",
+    "AutoGluon_v150_eq_4h8c",
     # "Portfolio-N200-4h",
 
     "CatBoost",
