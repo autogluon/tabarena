@@ -5,6 +5,7 @@ from tabarena.benchmark.models.prep_ag.prep_cat.prep_cat_model import PrepCatBoo
 from tabarena.benchmark.models.prep_ag.prep_tabm.prep_tabm_model import PrepTabMModel
 from tabarena.benchmark.models.prep_ag.prep_tabpfnv2_5.prep_tabpfnv2_5_model import PrepRealTabPFNv25Model
 from tabarena.benchmark.models.prep_ag.prep_xgb.prep_xgb_model import PrepXGBoostModel
+from tabarena.benchmark.models.prep_ag.prep_lr.prep_lr_model import PrepLinearModel
 
 __all__ = [
     "PrepLGBModel",
@@ -12,4 +13,5 @@ __all__ = [
     "PrepTabMModel",
     "PrepRealTabPFNv25Model",
     "PrepXGBoostModel",
+    "PrepLinearModel",
 ]
