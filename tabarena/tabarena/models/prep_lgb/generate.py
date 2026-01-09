@@ -11,14 +11,6 @@ from tabarena.utils.config_utils import CustomAGConfigGenerator
 
 import numpy as np
 
-def normal_pdf_points(k, border_density=0.05):
-    a = np.sqrt(-2*np.log(border_density*np.sqrt(2*np.pi)))
-    x = np.linspace(-a, a, k)
-    y = (1/np.sqrt(2*np.pi)) * np.exp(-0.5 * x**2)
-    return list(y)
-
-num_leaves = [8, 16, 20, 32, 64, 128, 200]
-
 def generate_configs_lightgbm(num_random_configs=200) -> list:
     search_space = ConfigurationSpace(
         space=[
@@ -26,9 +18,7 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
             Float("feature_fraction", (0.4, 1.0)),
             Float("bagging_fraction", (0.7, 1.0)),
             Categorical("bagging_freq", [1]),
-            # Integer("num_leaves", (2, 200), log=True),
-            Categorical("num_leaves", num_leaves, weights=normal_pdf_points(len(num_leaves), border_density=0.05)),
-
+            Integer("num_leaves", (2, 200), log=True),
             Integer("min_data_in_leaf", (1, 64), log=True),
             Categorical("extra_trees", [False, True]),
             # categorical hyperparameters
