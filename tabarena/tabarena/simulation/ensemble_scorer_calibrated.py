@@ -35,7 +35,10 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
         problem_type = task_metadata["problem_type"]
 
         if problem_type in ["binary", "multiclass"] and self.calibrator_type is not None:
-            use_fast_metrics = False
+            if problem_type == "binary":
+                use_fast_metrics = self.use_fast_metrics
+            else:
+                use_fast_metrics = False
             calibrator = self.get_calibrator()
             calibrate_after_ens = self.calibrate_after_ens
             calibrate_per_model = self.calibrate_per_model
@@ -45,10 +48,11 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
             calibrate_after_ens = False
             calibrate_per_model = False
 
-        fit_metric_name = self.proxy_fit_metric_map.get(metric_name, metric_name)
-
-        eval_metric = self._get_metric_from_name(metric_name=metric_name, problem_type=problem_type, use_fast_metrics=use_fast_metrics)
-        fit_eval_metric = self._get_metric_from_name(metric_name=fit_metric_name, problem_type=problem_type, use_fast_metrics=use_fast_metrics)
+        eval_metric, fit_eval_metric, predict_problem_type, fit_problem_type = self._get_metrics(
+            metric_name=metric_name,
+            problem_type=problem_type,
+            use_fast_metrics=use_fast_metrics,
+        )
 
         y_val_og = self.repo.labels_val(dataset=dataset, fold=fold)
         y_test = self.repo.labels_test(dataset=dataset, fold=fold)
@@ -111,30 +115,16 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
             if len(pred_test.shape) == 3:
                 pred_test = pred_test[:, :, 1]
 
-        if hasattr(fit_eval_metric, 'preprocess_bulk'):
-            y_val, pred_val = fit_eval_metric.preprocess_bulk(y_val, pred_val)
-
-        if hasattr(fit_eval_metric, 'post_problem_type'):
-            fit_problem_type = fit_eval_metric.post_problem_type
-        else:
-            fit_problem_type = problem_type
-
-        weighted_ensemble = self.ensemble_method(
-            problem_type=fit_problem_type,
-            metric=fit_eval_metric,
-            **self.ensemble_method_kwargs,
+        weighted_ensemble = self.fit_ensemble(
+            pred=pred_val,
+            y=y_val,
+            fit_eval_metric=fit_eval_metric,
+            fit_problem_type=fit_problem_type,
+            predict_problem_type=predict_problem_type,
         )
-
-        weighted_ensemble.fit(predictions=pred_val, labels=y_val)
 
         if hasattr(eval_metric, 'preprocess_bulk'):
             y_test, pred_test = eval_metric.preprocess_bulk(y_test, pred_test)
-
-        if hasattr(eval_metric, 'post_problem_type'):
-            predict_problem_type = eval_metric.post_problem_type
-        else:
-            predict_problem_type = problem_type
-        weighted_ensemble.problem_type = predict_problem_type
 
         if eval_metric.needs_pred:
             y_test_pred = weighted_ensemble.predict(pred_test)
@@ -307,12 +297,17 @@ class EnsembleScorerCalibratedCV(EnsembleScorerMaxModels):
         for train_idx, holdout_idx in split_iter:
             cal = calibrator_factory()
             cal.fit(proba_val[train_idx], y_val[train_idx])
-            calibrated_val_oof[holdout_idx] = cal.predict_proba(proba_val[holdout_idx])
+            calibrated_val_oof_split = cal.predict_proba(proba_val[holdout_idx])
+            if problem_type == "binary":
+                calibrated_val_oof_split = calibrated_val_oof_split[:, 1]
+            calibrated_val_oof[holdout_idx] = calibrated_val_oof_split
 
         # Test-side calibration remains: fit on full "val-side", predict test
         cal_full = calibrator_factory()
         cal_full.fit(proba_val, y_val)
         calibrated_test = cal_full.predict_proba(proba_test)
+        if problem_type == "binary":
+            calibrated_test = calibrated_test[:, 1]
 
         return calibrated_val_oof, calibrated_test
 
@@ -322,8 +317,11 @@ class EnsembleScorerCalibratedCV(EnsembleScorerMaxModels):
         metric_name = task_metadata["metric"]
         problem_type = task_metadata["problem_type"]
 
-        if problem_type == "multiclass" and self.calibrator_type is not None:
-            use_fast_metrics = False
+        if problem_type in ["binary", "multiclass"] and self.calibrator_type is not None:
+            if problem_type == "binary":
+                use_fast_metrics = self.use_fast_metrics
+            else:
+                use_fast_metrics = False
             calibrator = self.get_calibrator()
             calibrate_after_ens = self.calibrate_after_ens
             calibrate_per_model = self.calibrate_per_model
@@ -333,10 +331,11 @@ class EnsembleScorerCalibratedCV(EnsembleScorerMaxModels):
             calibrate_after_ens = False
             calibrate_per_model = False
 
-        fit_metric_name = self.proxy_fit_metric_map.get(metric_name, metric_name)
-
-        eval_metric = self._get_metric_from_name(metric_name=metric_name, problem_type=problem_type, use_fast_metrics=use_fast_metrics)
-        fit_eval_metric = self._get_metric_from_name(metric_name=fit_metric_name, problem_type=problem_type, use_fast_metrics=use_fast_metrics)
+        eval_metric, fit_eval_metric, predict_problem_type, fit_problem_type = self._get_metrics(
+            metric_name=metric_name,
+            problem_type=problem_type,
+            use_fast_metrics=use_fast_metrics,
+        )
 
         y_val_og = self.repo.labels_val(dataset=dataset, fold=fold)
         y_test = self.repo.labels_test(dataset=dataset, fold=fold)
@@ -353,8 +352,12 @@ class EnsembleScorerCalibratedCV(EnsembleScorerMaxModels):
 
         if calibrate_per_model:
             for i, _m in enumerate(models):
-                y_val_pred_model = pred_val_og[i, :, :]
-                y_test_pred_model = pred_test[i, :, :]
+                if problem_type == "multiclass":
+                    y_val_pred_model = pred_val_og[i, :, :]
+                    y_test_pred_model = pred_test[i, :, :]
+                else:
+                    y_val_pred_model = pred_val_og[i, :]
+                    y_test_pred_model = pred_test[i, :]
 
                 if self.optimize_on == "val":
                     # OOF-calibrate val predictions; fit-full-on-val for test preds
@@ -366,8 +369,13 @@ class EnsembleScorerCalibratedCV(EnsembleScorerMaxModels):
                         problem_type=problem_type,
                         random_state=self.calibrator_random_state,
                     )
-                    pred_val_og[i, :, :] = val_oof
-                    pred_test[i, :, :] = test_cal
+
+                    if problem_type == "multiclass":
+                        pred_val_og[i, :, :] = val_oof
+                        pred_test[i, :, :] = test_cal
+                    else:
+                        pred_val_og[i, :] = val_oof
+                        pred_test[i, :] = test_cal
 
                 elif self.optimize_on == "test":
                     # "Validation-side" data is the test set here; make OOF version for optimization,
@@ -380,11 +388,16 @@ class EnsembleScorerCalibratedCV(EnsembleScorerMaxModels):
                         problem_type=problem_type,
                         random_state=self.calibrator_random_state,
                     )
-                    pred_test[i, :, :] = test_cal
 
                     if pred_test_oof_for_opt is None:
                         pred_test_oof_for_opt = copy.deepcopy(pred_test)
-                    pred_test_oof_for_opt[i, :, :] = test_oof
+
+                    if problem_type == "multiclass":
+                        pred_test[i, :, :] = test_cal
+                        pred_test_oof_for_opt[i, :, :] = test_oof
+                    else:
+                        pred_test[i, :] = test_cal
+                        pred_test_oof_for_opt[i, :] = test_oof
                 else:
                     raise ValueError(f"Invalid value for `optimize_on`: {self.optimize_on}")
 
@@ -407,30 +420,16 @@ class EnsembleScorerCalibratedCV(EnsembleScorerMaxModels):
             if len(pred_test.shape) == 3:
                 pred_test = pred_test[:, :, 1]
 
-        if hasattr(fit_eval_metric, "preprocess_bulk"):
-            y_val, pred_val = fit_eval_metric.preprocess_bulk(y_val, pred_val)
-
-        if hasattr(fit_eval_metric, "post_problem_type"):
-            fit_problem_type = fit_eval_metric.post_problem_type
-        else:
-            fit_problem_type = problem_type
-
-        weighted_ensemble = self.ensemble_method(
-            problem_type=fit_problem_type,
-            metric=fit_eval_metric,
-            **self.ensemble_method_kwargs,
+        weighted_ensemble = self.fit_ensemble(
+            pred=pred_val,
+            y=y_val,
+            fit_eval_metric=fit_eval_metric,
+            fit_problem_type=fit_problem_type,
+            predict_problem_type=predict_problem_type,
         )
-
-        weighted_ensemble.fit(predictions=pred_val, labels=y_val)
 
         if hasattr(eval_metric, "preprocess_bulk"):
             y_test, pred_test = eval_metric.preprocess_bulk(y_test, pred_test)
-
-        if hasattr(eval_metric, "post_problem_type"):
-            predict_problem_type = eval_metric.post_problem_type
-        else:
-            predict_problem_type = problem_type
-        weighted_ensemble.problem_type = predict_problem_type
 
         if eval_metric.needs_pred:
             y_test_pred = weighted_ensemble.predict(pred_test)

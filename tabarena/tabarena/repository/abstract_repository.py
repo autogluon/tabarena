@@ -649,6 +649,12 @@ class AbstractRepository(ABC, SaveLoadMixin):
         else:
             return predictions
 
+    def _convert_binary_to_1d_multi(self, predictions: np.ndarray, dataset: str) -> np.ndarray:
+        if self.dataset_info(dataset)["problem_type"] == "binary":
+            if len(predictions.shape) == 3:
+                predictions = predictions[:, :, 1]
+        return predictions
+
     # TODO: repo.reproduce(config, dataset, fold)
     def get_openml_task(self, dataset: str) -> OpenMLTaskWrapper:
         """

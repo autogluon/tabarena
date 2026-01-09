@@ -115,7 +115,14 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
                                                verbose=verbose, )
         return self
 
-    def predict_test_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False) -> np.ndarray:
+    def predict_test_multi(
+        self,
+        dataset: str,
+        fold: int,
+        configs: List[str] = None,
+        binary_as_multiclass: bool = False,
+        enforce_binary_1d: bool = False,
+    ) -> np.ndarray:
         """
         Returns the predictions on the test set for a given list of configurations on a given dataset and fold
 
@@ -150,9 +157,21 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
             models=configs,
             model_fallback=self._config_fallback,
         )
-        return self._convert_binary_to_multiclass(dataset=dataset, predictions=predictions) if binary_as_multiclass else predictions
+        if enforce_binary_1d:
+            assert not binary_as_multiclass, f"Cannot set both `enforce_binary_1d` and `binary_as_multiclass` to True"
+            predictions = self._convert_binary_to_1d_multi(predictions=predictions, dataset=dataset)
+        elif binary_as_multiclass:
+            predictions = self._convert_binary_to_multiclass(dataset=dataset, predictions=predictions)
+        return predictions
 
-    def predict_val_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False) -> np.ndarray:
+    def predict_val_multi(
+        self,
+        dataset: str,
+        fold: int,
+        configs: List[str] = None,
+        binary_as_multiclass: bool = False,
+        enforce_binary_1d: bool = False,
+    ) -> np.ndarray:
         """
         Returns the predictions on the validation set for a given list of configurations on a given dataset and fold
 
@@ -187,7 +206,12 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
             models=configs,
             model_fallback=self._config_fallback,
         )
-        return self._convert_binary_to_multiclass(dataset=dataset, predictions=predictions) if binary_as_multiclass else predictions
+        if enforce_binary_1d:
+            assert not binary_as_multiclass, f"Cannot set both `enforce_binary_1d` and `binary_as_multiclass` to True"
+            predictions = self._convert_binary_to_1d_multi(predictions=predictions, dataset=dataset)
+        elif binary_as_multiclass:
+            predictions = self._convert_binary_to_multiclass(dataset=dataset, predictions=predictions)
+        return predictions
 
     def _construct_config_scorer(self,
                                  config_scorer_type: str = 'ensemble',

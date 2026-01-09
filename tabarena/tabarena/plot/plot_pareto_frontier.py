@@ -154,6 +154,7 @@ def plot_pareto(
         colors = extended_palette[:len(hue_levels)]
     else:
         colors = base_palette[:len(hue_levels)]
+    colors = [colors[i % len(colors)] for i in range(len(hue_levels))]
     palette_map = dict(zip(hue_levels, colors))
 
     label_to_hue_dict = data.set_index(label_col)[hue].to_dict()
