@@ -3,10 +3,8 @@ from __future__ import annotations
 from autogluon.common.space import Categorical
 
 from tabarena.benchmark.models.prep_ag.prep_tabpfnv2_5.prep_tabpfnv2_5_model import PrepRealTabPFNv25Model
-from tabarena.utils.config_utils import CustomAGConfigGenerator
-from tabarena.models.utils import convert_numpy_dtypes
+from tabarena.utils.config_utils import ConfigGenerator
 
-import numpy as np
 
 def _get_model_path_zip(model_cls):
     # Zip model paths to ensure configs are not generated that only differ in combination
@@ -24,96 +22,109 @@ def _get_model_path_zip(model_cls):
 
     return zip_model_paths
 
-def generate_single_config_tabpfn(rng):
-    # taken from
-    search_space = {
-        # Model Type
-        "zip_model_path": Categorical(*_get_model_path_zip(PrepRealTabPFNv25Model)),
-        "softmax_temperature": Categorical(
-            0.25,
-            0.5,
-            0.6,
-            0.7,
-            0.8,
-            0.9,
-            1.0,
-            1.25,
-            1.5,
-        ),
-        "balance_probabilities": Categorical(True, False),
-        "inference_config/OUTLIER_REMOVAL_STD": Categorical(3, 6, 12),
-        "inference_config/POLYNOMIAL_FEATURES": Categorical("no", 25),
-        "inference_config/REGRESSION_Y_PREPROCESS_TRANSFORMS": Categorical(
-            [None],
-            [None, "safepower"],
-            ["safepower"],
-            ["kdi_alpha_0.3"],
-            ["kdi_alpha_1.0"],
-            ["kdi_alpha_3.0"],
-            ["quantile_uni"],
-        ),
-        # Preprocessing
-        "preprocessing/scaling": Categorical(
-            ["none"],
-            ["quantile_uni_coarse"],
-            ["quantile_norm_coarse"],
-            ["kdi_uni"],
-            ["kdi_alpha_0.3"],
-            ["kdi_alpha_3.0"],
-            ["safepower", "quantile_uni"],
-            ["none", "quantile_uni_coarse"],
-            ["squashing_scaler_default", "quantile_uni_coarse"],
-            ["squashing_scaler_default"],
-        ),
-        "preprocessing/categoricals": Categorical(
-            "numeric",
-            "onehot",
-            "none",
-        ),
-        "preprocessing/append_original": Categorical(True, False),
-        "preprocessing/global": Categorical(None, "svd", "svd_quarter_components"),
 
-        'use_arithmetic_preprocessor': rng.choice([True, False]),
-        'use_cat_fe': rng.choice([True, False]),
+search_space = {
+    # Model Type
+    "zip_model_path": Categorical(*_get_model_path_zip(PrepRealTabPFNv25Model)),
+    "softmax_temperature": Categorical(
+        0.25,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+        1.0,
+        1.25,
+        1.5,
+    ),
+    "balance_probabilities": Categorical(True, False),
+    "inference_config/OUTLIER_REMOVAL_STD": Categorical(3, 6, 12),
+    "inference_config/POLYNOMIAL_FEATURES": Categorical("no", 25),
+    "inference_config/REGRESSION_Y_PREPROCESS_TRANSFORMS": Categorical(
+        [None],
+        [None, "safepower"],
+        ["safepower"],
+        ["kdi_alpha_0.3"],
+        ["kdi_alpha_1.0"],
+        ["kdi_alpha_3.0"],
+        ["quantile_uni"],
+    ),
+    # Preprocessing
+    "preprocessing/scaling": Categorical(
+        ["none"],
+        ["quantile_uni_coarse"],
+        ["quantile_norm_coarse"],
+        ["kdi_uni"],
+        ["kdi_alpha_0.3"],
+        ["kdi_alpha_3.0"],
+        ["safepower", "quantile_uni"],
+        ["none", "quantile_uni_coarse"],
+        ["squashing_scaler_default", "quantile_uni_coarse"],
+        ["squashing_scaler_default"],
+    ),
+    "preprocessing/categoricals": Categorical(
+        "numeric",
+        "onehot",
+        "none",
+    ),
+    "preprocessing/append_original": Categorical(True, False),
+    "preprocessing/global": Categorical(None, "svd", "svd_quarter_components"),
 
+    "use_arithmetic_preprocessor": Categorical(True, False),
+    "use_cat_fe": Categorical(True, False),
 
-    }
-    return convert_numpy_dtypes(search_space) 
+}
 
-def generate_configs_tabpfn(num_random_configs=200, seed=1234):
-    # note: this doesn't set val_metric_name, which should be set outside
-    rng = np.random.default_rng(seed)
-    configs = [generate_single_config_tabpfn(rng) for _ in range(num_random_configs)]
-    
-    for i in range(len(configs)):
-        if 'ag.prep_params' not in configs[i]:
-            configs[i]['ag.prep_params'] = {}
-        if configs[i].pop('use_arithmetic_preprocessor') == True:
-            configs[i]['ag.prep_params'].update({
-                'ArithmeticFeatureGenerator': {}
-            })
+class PrepConfigGenerator(ConfigGenerator):
+    def generate_all_configs_lst(self, num_random_configs: int, name_id_suffix: str = "") -> list[dict]:
+        configs = super().generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
+        for i in range(len(configs)):
+            if 'ag.prep_params' not in configs[i]:
+                configs[i]['ag.prep_params'] = []
+            prep_params_stage_1 = []
+            prep_params_passthrough_types = None
+            use_arithmetic_preprocessor = configs[i].pop('use_arithmetic_preprocessor')
+            use_cat_fe = configs[i].pop('use_cat_fe')
+            if use_arithmetic_preprocessor:
+                _generator_params = {}
+                prep_params_stage_1.append([
+                    ['ArithmeticFeatureGenerator', _generator_params],
+                ])
 
-        if configs[i].pop('use_cat_fe') == True:
-            configs[i]['ag.prep_params'].update({
-                'CategoricalInteractionFeatureGenerator': {}, 
-                'OOFTargetEncodingFeatureGenerator': {}
-                        })
-    
-    return configs
+            if use_cat_fe:
+                prep_params_stage_1.append([
+                    ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
+                    ['OOFTargetEncodingFeatureGenerator', {}],
+                ])
+                prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
 
-gen_realtabpfnv25 = CustomAGConfigGenerator(
-    model_cls=PrepRealTabPFNv25Model, search_space_func=generate_configs_tabpfn, 
+            if prep_params_stage_1:
+                configs[i]['ag.prep_params'].append(prep_params_stage_1)
+            if prep_params_passthrough_types:
+                configs[i]['ag.prep_params.passthrough_types'] = prep_params_passthrough_types
+
+        return configs
+
+gen_realtabpfnv25 = PrepConfigGenerator(
+    model_cls=PrepRealTabPFNv25Model,
+    search_space=search_space,
     manual_configs=[
         {
-        'ag.prep_params': {
-            'ArithmeticFeatureGenerator': {},
-            'CategoricalInteractionFeatureGenerator': {}, 
-            'OOFTargetEncodingFeatureGenerator': {}
-                    },
+        "use_arithmetic_preprocessor": True,
+        "use_cat_fe": True,
+        # 'ag.prep_params': [
+        #     [
+        #         ['ArithmeticFeatureGenerator', {}],
+        #         [
+        #             ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
+        #             ['OOFTargetEncodingFeatureGenerator', {}],
+        #         ],
+        #     ],
+        # ],
+        # 'ag.prep_params.passthrough_types': {"invalid_raw_types": ["category", "object"]},
         },
     ],
 )
-
 if __name__ == "__main__":
     from tabarena.benchmark.experiment import YamlExperimentSerializer
 
