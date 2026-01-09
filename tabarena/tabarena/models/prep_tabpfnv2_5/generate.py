@@ -3,7 +3,7 @@ from __future__ import annotations
 from autogluon.common.space import Categorical
 
 from tabarena.benchmark.models.prep_ag.prep_tabpfnv2_5.prep_tabpfnv2_5_model import PrepRealTabPFNv25Model
-from tabarena.utils.config_utils import ConfigGenerator
+from tabarena.utils.config_utils import PrepConfigGenerator
 
 
 def _get_model_path_zip(model_cls):
@@ -74,36 +74,6 @@ search_space = {
     "use_cat_fe": Categorical(True, False),
 
 }
-
-class PrepConfigGenerator(ConfigGenerator):
-    def generate_all_configs_lst(self, num_random_configs: int, name_id_suffix: str = "") -> list[dict]:
-        configs = super().generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
-        for i in range(len(configs)):
-            if 'ag.prep_params' not in configs[i]:
-                configs[i]['ag.prep_params'] = []
-            prep_params_stage_1 = []
-            prep_params_passthrough_types = None
-            use_arithmetic_preprocessor = configs[i].pop('use_arithmetic_preprocessor')
-            use_cat_fe = configs[i].pop('use_cat_fe')
-            if use_arithmetic_preprocessor:
-                _generator_params = {}
-                prep_params_stage_1.append([
-                    ['ArithmeticFeatureGenerator', _generator_params],
-                ])
-
-            if use_cat_fe:
-                prep_params_stage_1.append([
-                    ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
-                    ['OOFTargetEncodingFeatureGenerator', {}],
-                ])
-                prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
-
-            if prep_params_stage_1:
-                configs[i]['ag.prep_params'].append(prep_params_stage_1)
-            if prep_params_passthrough_types:
-                configs[i]['ag.prep_params.passthrough_types'] = prep_params_passthrough_types
-
-        return configs
 
 gen_realtabpfnv25 = PrepConfigGenerator(
     model_cls=PrepRealTabPFNv25Model,
