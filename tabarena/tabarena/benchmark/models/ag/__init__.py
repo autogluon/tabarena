@@ -10,6 +10,7 @@ from tabarena.benchmark.models.ag.tabicl.tabicl_model import TabICLModel
 from tabarena.benchmark.models.ag.tabm.tabm_model import TabMModel
 from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import RealTabPFNv25Model
 from tabarena.benchmark.models.ag.xrfm.xrfm_model import XRFMModel
+from tabrepo.benchmark.models.ag.grande.grande_model import GRANDEModel
 
 __all__ = [
     "ExplainableBoostingMachineModel",
@@ -22,4 +23,5 @@ __all__ = [
     "TabICLModel",
     "TabMModel",
     "XRFMModel",
+    "GRANDEModel",
 ]
