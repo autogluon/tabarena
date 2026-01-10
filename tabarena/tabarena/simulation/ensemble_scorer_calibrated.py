@@ -25,191 +25,224 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
     def get_calibrator(self):
         from probmetrics.calibrators import get_calibrator
         # also: pip install probmetrics pytorch-minimize
-        calibrator = get_calibrator(self.calibrator_type)
-        return calibrator
+        return get_calibrator(self.calibrator_type)
+
+    @staticmethod
+    def _to_binary_1d(pred_proba: np.ndarray) -> np.ndarray:
+        """
+        Convert binary proba output to 1d positive-class probabilities if needed.
+        """
+        # If already 1d, assume it's positive-class proba
+        if pred_proba.ndim == 1:
+            return pred_proba
+        # If 2d, assume [:, 1] is positive class
+        if pred_proba.ndim == 2 and pred_proba.shape[1] >= 2:
+            return pred_proba[:, 1]
+        return pred_proba
+
+    def _calibrate_single_prediction(
+        self,
+        *,
+        y_train: np.ndarray,
+        pred_train: np.ndarray,
+        pred_val: np.ndarray,
+        pred_test: np.ndarray,
+        problem_type: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Fit a calibrator on (pred_fit, y_fit), then transform both pred_val and pred_test.
+        Handles binary->1d conversion.
+        """
+        calibrator = self.get_calibrator()
+        calibrator.fit(pred_train, y_train)
+
+        pred_val_cal = calibrator.predict_proba(pred_val)
+        pred_test_cal = calibrator.predict_proba(pred_test)
+
+        if problem_type == "binary":
+            pred_val_cal = self._to_binary_1d(pred_val_cal)
+            pred_test_cal = self._to_binary_1d(pred_test_cal)
+
+        return pred_val_cal, pred_test_cal
+
+    def _calibrate_post_hoc(
+        self,
+        *,
+        y_train: np.ndarray,
+        pred_train: np.ndarray,
+        pred_val: np.ndarray,
+        pred_test: np.ndarray,
+        problem_type: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        return self._calibrate_single_prediction(
+            y_train=y_train,
+            pred_train=pred_train,
+            pred_val=pred_val,
+            pred_test=pred_test,
+            problem_type=problem_type,
+        )
+
+    def _calibrate_per_model(
+        self,
+        y_train: np.ndarray,
+        pred_train: np.ndarray,
+        pred_val: np.ndarray,
+        pred_test: np.ndarray,
+        problem_type: str,
+        models: list[str],
+    ):
+        pred_val = copy.deepcopy(pred_val)
+        pred_test = copy.deepcopy(pred_test)
+
+        for i in range(len(models)):
+            # Fit + transform both splits for this model
+            pred_val_i_cal, pred_test_i_cal = self._calibrate_single_prediction(
+                y_train=y_train,
+                pred_train=pred_train[i],
+                pred_val=pred_val[i],
+                pred_test=pred_test[i],
+                problem_type=problem_type,
+            )
+
+            pred_val[i] = pred_val_i_cal
+            pred_test[i] = pred_test_i_cal
+        return pred_val, pred_test
 
     def evaluate_task(self, dataset: str, fold: int, models: list[str]) -> dict[str, object]:
-        n_models = len(models)
+        models_og = models
+
         task_metadata = self.task_metrics_metadata[dataset]
         metric_name = task_metadata["metric"]
         problem_type = task_metadata["problem_type"]
 
-        if problem_type in ["binary", "multiclass"] and self.calibrator_type is not None:
-            if problem_type == "binary":
-                use_fast_metrics = self.use_fast_metrics
-            else:
-                use_fast_metrics = False
-            calibrator = self.get_calibrator()
+        # Calibration only makes sense for probabilistic classification problems
+        do_calibration = (problem_type in {"binary", "multiclass"}) and (self.calibrator_type is not None)
+
+        if do_calibration:
+            # For multiclass, avoid "fast" metric wrappers if they assume binary specifics
+            use_fast_metrics = self.use_fast_metrics if problem_type == "binary" else False
             calibrate_after_ens = self.calibrate_after_ens
             calibrate_per_model = self.calibrate_per_model
         else:
             use_fast_metrics = self.use_fast_metrics
-            calibrator = None
             calibrate_after_ens = False
             calibrate_per_model = False
 
-        eval_metric, fit_eval_metric, predict_problem_type, fit_problem_type = self._get_metrics(
+        eval_metric, fit_eval_metric = self._get_metrics(
             metric_name=metric_name,
             problem_type=problem_type,
             use_fast_metrics=use_fast_metrics,
         )
 
-        y_val_og = self.repo.labels_val(dataset=dataset, fold=fold)
+        # Labels
+        y_val = self.repo.labels_val(dataset=dataset, fold=fold)
         y_test = self.repo.labels_test(dataset=dataset, fold=fold)
 
-        # If filtering models, need to keep track of original model order to return ensemble weights list
+        # Filter models + mapping to original order
         models_filtered = self.filter_models(dataset=dataset, fold=fold, models=models)
         models, models_filtered_idx = self._get_models_filtered_idx(models=models, models_filtered=models_filtered)
 
-        pred_val_og, pred_test = self.get_preds_from_models(dataset=dataset, fold=fold, models=models)
+        pred_val, pred_test = self.get_preds_from_models(dataset=dataset, fold=fold, models=models)
 
         if calibrate_per_model:
-            for i, m in enumerate(models):
-                if problem_type == "multiclass":
-                    y_val_pred_model = pred_val_og[i, :, :]
-                    y_test_pred_model = pred_test[i, :, :]
-                else:
-                    y_val_pred_model = pred_val_og[i, :]
-                    y_test_pred_model = pred_test[i, :]
+            y_train, pred_train = self._get_train(y_val=y_val, pred_val=pred_val, y_test=y_test, pred_test=pred_test)
 
-                calibrator_model = self.get_calibrator()
+            pred_val, pred_test = self._calibrate_per_model(
+                y_train=y_train,
+                pred_train=pred_train,
+                pred_val=pred_val,
+                pred_test=pred_test,
+                problem_type=problem_type,
+                models=models,
+            )
 
-                if self.optimize_on == "val":
-                    calibrator_model.fit(y_val_pred_model, y_val_og)
-                elif self.optimize_on == "test":
-                    calibrator_model.fit(y_test_pred_model, y_test)
-                else:
-                    raise ValueError(f"Invalid value for `optimize_on`: {self.optimize_on}")
+        y_train, pred_train = self._get_train(y_val=y_val, pred_val=pred_val, y_test=y_test, pred_test=pred_test)
 
-                pred_val_cal = calibrator_model.predict_proba(y_val_pred_model)
-                pred_test_cal = calibrator_model.predict_proba(y_test_pred_model)
+        # Choose ensemble method/kwargs via hooks
+        ensemble_method = self.get_ensemble_method_for_task(dataset=dataset, fold=fold, models=models)
+        ensemble_kwargs = self.get_ensemble_method_kwargs_for_task(dataset=dataset, fold=fold, models=models)
 
-                if problem_type == "multiclass":
-                    pred_val_og[i, :, :] = pred_val_cal
-                    pred_test[i, :, :] = pred_test_cal
-                else:
-                    if problem_type == "binary":
-                        pred_val_cal = pred_val_cal[:, 1]
-                        pred_test_cal = pred_test_cal[:, 1]
-                    pred_val_og[i, :] = pred_val_cal
-                    pred_test[i, :] = pred_test_cal
-
-        if self.optimize_on == "val":
-            # Use the original validation data for a fair comparison that mirrors what happens in practice
-            y_val = y_val_og
-            pred_val = pred_val_og
-        elif self.optimize_on == "test":
-            # Optimize directly on test (unrealistic, but can be used to measure the gap in generalization)
-            # TODO: Another variant that could be implemented, do 50% of test as val and the rest as test
-            #  to simulate impact of using holdout validation
-            y_val = copy.deepcopy(y_test)
-            pred_val = copy.deepcopy(pred_test)
-        else:
-            raise ValueError(f"Invalid value for `optimize_on`: {self.optimize_on}")
-
-        if problem_type == 'binary':
-            # Force binary prediction probabilities to 1 dimensional prediction probabilites of the positive class
-            # if it is in multiclass format
-            if len(pred_val.shape) == 3:
-                pred_val = pred_val[:, :, 1]
-            if len(pred_test.shape) == 3:
-                pred_test = pred_test[:, :, 1]
-
-        weighted_ensemble = self.fit_ensemble(
-            pred=pred_val,
-            y=y_val,
+        evaluator = self.evaluator_cls(
+            ensemble_method=ensemble_method,
+            ensemble_kwargs=ensemble_kwargs,
+            eval_metric=eval_metric,
             fit_eval_metric=fit_eval_metric,
-            fit_problem_type=fit_problem_type,
-            predict_problem_type=predict_problem_type,
+            problem_type=problem_type,
         )
 
-        if hasattr(eval_metric, 'preprocess_bulk'):
-            y_test, pred_test = eval_metric.preprocess_bulk(y_test, pred_test)
+        ensemble = evaluator.fit(pred_train=pred_train, y_train=y_train)
 
-        if eval_metric.needs_pred:
-            y_test_pred = weighted_ensemble.predict(pred_test)
-        else:
-            y_test_pred = weighted_ensemble.predict_proba(pred_test)
+        y_test_pred, y_test_proc = evaluator.predict(ensemble=ensemble, pred=pred_test, y=y_test)
 
-        metric_error_val = None
-        if self.return_metric_error_val or calibrate_after_ens:
-            if hasattr(eval_metric, 'preprocess_bulk'):
-                y_val_og, pred_val_og = eval_metric.preprocess_bulk(y_val_og, pred_val_og)
-            if eval_metric.needs_pred:
-                y_val_pred = weighted_ensemble.predict(pred_val_og)
-            else:
-                y_val_pred = weighted_ensemble.predict_proba(pred_val_og)
-            if calibrate_after_ens:
-                if self.optimize_on == "val":
-                    calibrator.fit(y_val_pred, y_val_og)
-                elif self.optimize_on == "test":
-                    calibrator.fit(y_test_pred, y_test)
-                else:
-                    raise ValueError(f"Invalid value for `optimize_on`: {self.optimize_on}")
-                
-                y_val_pred = calibrator.predict_proba(y_val_pred)
-                y_test_pred = calibrator.predict_proba(y_test_pred)
+        need_val_pred = self.return_metric_error_val or calibrate_after_ens
+        y_val_pred = None
+        y_val_proc = None
+        if need_val_pred:
+            y_val_pred, y_val_proc = evaluator.predict(ensemble=ensemble, pred=pred_val, y=y_val)
 
-                if problem_type == "binary":
-                    y_val_pred = y_val_pred[:, 1]
-                    y_test_pred = y_test_pred[:, 1]
+        # -------------------------
+        # Post-ensemble calibration (calibrate ensemble outputs)
+        # -------------------------
+        if calibrate_after_ens and do_calibration:
+            y_train_cal, pred_train_cal = self._get_train(
+                y_val=y_val_proc,
+                pred_val=y_val_pred,
+                y_test=y_test_proc,
+                pred_test=y_test_pred,
+            )
 
-            metric_error_val = eval_metric.error(y_val_og, y_val_pred)
+            y_val_pred, y_test_pred = self._calibrate_post_hoc(
+                y_train=y_train_cal,
+                pred_train=pred_train_cal,
+                pred_val=y_val_pred,
+                pred_test=y_test_pred,
+                problem_type=problem_type,
+            )
 
-        err = eval_metric.error(y_test, y_test_pred)
+        results: dict[str, object] = {}
+        results["metric_error"] = evaluator.score(y=y_test_proc, y_pred=y_test_pred)
 
-        ensemble_weights: np.array = weighted_ensemble.weights_
-
-        # ensemble_weights has to be updated, need to be in the original models order
-        ensemble_weights_fixed = np.zeros(n_models, dtype=np.float64)
-        ensemble_weights_fixed[models_filtered_idx] = ensemble_weights
-        ensemble_weights = ensemble_weights_fixed
-
-        results = dict(
-            metric_error=err,
-            ensemble_weights=ensemble_weights,
-        )
         if self.return_metric_error_val:
-            results["metric_error_val"] = metric_error_val
+            results["metric_error_val"] = evaluator.score(y=y_val_proc, y_pred=y_val_pred)
+
+        if hasattr(ensemble, "weights_"):
+            weights = ensemble.weights_
+            ensemble_weights_fixed = np.zeros(len(models_og), dtype=np.float64)
+            ensemble_weights_fixed[models_filtered_idx] = weights
+            results["ensemble_weights"] = ensemble_weights_fixed
 
         return results
 
 
-class EnsembleScorerCalibratedCV(EnsembleScorerMaxModels):
+class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
     def __init__(
         self,
         calibrator_type: str = "logistic",
         calibrate_per_model: bool = False,
         calibrate_after_ens: bool = True,
         calibrator_n_splits: int = 10,
-        calibrator_shuffle: bool = True,
         calibrator_random_state: int = 0,
         **kwargs,
     ):
-        super().__init__(**kwargs)
-        self.calibrator_type = calibrator_type
-        self.calibrate_per_model = calibrate_per_model
-        self.calibrate_after_ens = calibrate_after_ens
-
-        # Cross-validation settings for calibration OOF preds
+        super().__init__(
+            calibrator_type=calibrator_type,
+            calibrate_per_model=calibrate_per_model,
+            calibrate_after_ens=calibrate_after_ens,
+            **kwargs,
+        )
         self.calibrator_n_splits = calibrator_n_splits
-        self.calibrator_shuffle = calibrator_shuffle
         self.calibrator_random_state = calibrator_random_state
 
-    def get_calibrator(self):
-        from probmetrics.calibrators import get_calibrator
+        if self.optimize_on != "val":
+            # This class intentionally only supports CV calibration on validation.
+            raise ValueError(
+                f"{self.__class__.__name__} only supports optimize_on='val', got optimize_on={self.optimize_on!r}"
+            )
 
-        calibrator = get_calibrator(self.calibrator_type)
-        return calibrator
-
-    def _get_cv_splitter(
-        self,
-        n_splits: int,
-        problem_type: str,
-        random_state: int,
-    ):
+    def _get_cv_splitter(self, n_splits: int, problem_type: str, random_state: int):
         stratify = problem_type in ("binary", "multiclass")
         from autogluon.common.utils.cv_splitter import CVSplitter
+
         return CVSplitter(
             n_splits=n_splits,
             n_repeats=1,
@@ -229,30 +262,29 @@ class EnsembleScorerCalibratedCV(EnsembleScorerMaxModels):
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Returns:
-          - calibrated_val_oof: out-of-fold calibrated probabilities for the "validation-side" data
+          - calibrated_val_oof: out-of-fold calibrated probabilities for validation-side data
           - calibrated_test: calibrated probabilities for test, using calibrator fit on full validation-side data
+
+        For binary, outputs are 1d positive-class probabilities.
+        For multiclass, outputs are 2d probabilities.
         """
         n_splits = int(self.calibrator_n_splits) if self.calibrator_n_splits is not None else 0
 
-        # Default: if CV not possible, fall back to in-sample calibration (previous behavior)
         def _fit_full_and_predict(val_proba, val_y, test_proba):
             cal = calibrator_factory()
             cal.fit(val_proba, val_y)
-            return cal.predict_proba(val_proba), cal.predict_proba(test_proba)
+            val_out = cal.predict_proba(val_proba)
+            test_out = cal.predict_proba(test_proba)
+            if problem_type == "binary":
+                val_out = self._to_binary_1d(val_out)
+                test_out = self._to_binary_1d(test_out)
+            return val_out, test_out
 
-        # Need at least 2 splits, and enough samples per class for stratification in classification
         n_samples = int(proba_val.shape[0])
         if n_splits < 2 or n_samples < 2:
             return _fit_full_and_predict(proba_val, y_val, proba_test)
 
-        # if problem_type in ("binary", "multiclass"):
-        #     # If some class has < n_splits samples, StratifiedKFold will error; fall back.
-        #     _, counts = np.unique(y_val, return_counts=True)
-        #     if counts.min() < n_splits:
-        #         return _fit_full_and_predict(proba_val, y_val, proba_test)
-
         if problem_type in ("binary", "multiclass"):
-            # If some class has < 2 samples, StratifiedKFold will error; fall back.
             _, counts = np.unique(y_val, return_counts=True)
             if counts.min() < 2:
                 return _fit_full_and_predict(proba_val, y_val, proba_test)
@@ -263,235 +295,72 @@ class EnsembleScorerCalibratedCV(EnsembleScorerMaxModels):
             random_state=random_state,
         )
 
-        # Choose splitter
-        # if problem_type in ("binary", "multiclass"):
-        #     from sklearn.model_selection import StratifiedKFold
-        #
-        #     # # If some class has < n_splits samples, StratifiedKFold will error; fall back.
-        #     # _, counts = np.unique(y_val, return_counts=True)
-        #     # if counts.min() < n_splits:
-        #     #     return _fit_full_and_predict(proba_val, y_val, proba_test)
-        #
-        #     # splitter = StratifiedKFold(
-        #     #     n_splits=n_splits,
-        #     #     shuffle=self.calibrator_shuffle,
-        #     #     random_state=self.calibrator_random_state,
-        #     # )
-        #     # split_iter = splitter.split(np.zeros(n_samples, dtype=int), y_val)
-        #
-        # else:
-        #     # Calibration currently only used for multiclass in your codepath,
-        #     # but keep this generic.
-        #     from sklearn.model_selection import KFold
-        #
-        #     # splitter = KFold(
-        #     #     n_splits=n_splits,
-        #     #     shuffle=self.calibrator_shuffle,
-        #     #     random_state=self.calibrator_random_state,
-        #     # )
-        #     # split_iter = splitter.split(np.zeros(n_samples, dtype=int))
-        split_iter = splitter.split(None, y_val)
-
-        # OOF calibrated predictions on "val-side"
         calibrated_val_oof = np.empty_like(proba_val)
-        for train_idx, holdout_idx in split_iter:
+        for train_idx, holdout_idx in splitter.split(None, y_val):
             cal = calibrator_factory()
             cal.fit(proba_val[train_idx], y_val[train_idx])
-            calibrated_val_oof_split = cal.predict_proba(proba_val[holdout_idx])
+            oof_split = cal.predict_proba(proba_val[holdout_idx])
             if problem_type == "binary":
-                calibrated_val_oof_split = calibrated_val_oof_split[:, 1]
-            calibrated_val_oof[holdout_idx] = calibrated_val_oof_split
+                oof_split = self._to_binary_1d(oof_split)
+            calibrated_val_oof[holdout_idx] = oof_split
 
-        # Test-side calibration remains: fit on full "val-side", predict test
         cal_full = calibrator_factory()
         cal_full.fit(proba_val, y_val)
         calibrated_test = cal_full.predict_proba(proba_test)
         if problem_type == "binary":
-            calibrated_test = calibrated_test[:, 1]
+            calibrated_test = self._to_binary_1d(calibrated_test)
 
         return calibrated_val_oof, calibrated_test
 
-    def evaluate_task(self, dataset: str, fold: int, models: list[str]) -> dict[str, object]:
-        n_models = len(models)
-        task_metadata = self.task_metrics_metadata[dataset]
-        metric_name = task_metadata["metric"]
-        problem_type = task_metadata["problem_type"]
+    # --- hooks into the base calibrated class ---
 
-        if problem_type in ["binary", "multiclass"] and self.calibrator_type is not None:
-            if problem_type == "binary":
-                use_fast_metrics = self.use_fast_metrics
-            else:
-                use_fast_metrics = False
-            calibrator = self.get_calibrator()
-            calibrate_after_ens = self.calibrate_after_ens
-            calibrate_per_model = self.calibrate_per_model
-        else:
-            use_fast_metrics = self.use_fast_metrics
-            calibrator = None
-            calibrate_after_ens = False
-            calibrate_per_model = False
+    def _calibrate_per_model(
+        self,
+        y_train: np.ndarray,
+        pred_train: np.ndarray,
+        pred_val: np.ndarray,
+        pred_test: np.ndarray,
+        problem_type: str,
+        models: list[str],
+    ):
+        """
+        optimize_on='val' only:
+          - pred_val becomes OOF-calibrated (per model)
+          - pred_test becomes calibrated via calibrator fit on full val-side (per model)
+        """
+        pred_val_out = copy.deepcopy(pred_val)
+        pred_test_out = copy.deepcopy(pred_test)
 
-        eval_metric, fit_eval_metric, predict_problem_type, fit_problem_type = self._get_metrics(
-            metric_name=metric_name,
+        for i in range(len(models)):
+            val_oof, test_cal = self._calibrate_with_cv_for_val_and_full_for_test(
+                calibrator_factory=self.get_calibrator,
+                proba_val=pred_train[i],   # == pred_val[i]
+                y_val=y_train,            # == y_val
+                proba_test=pred_test_out[i],
+                problem_type=problem_type,
+                random_state=self.calibrator_random_state,
+            )
+            pred_val_out[i] = val_oof
+            pred_test_out[i] = test_cal
+
+        return pred_val_out, pred_test_out
+
+    def _calibrate_post_hoc(
+        self,
+        *,
+        y_train: np.ndarray,
+        pred_train: np.ndarray,
+        pred_val: np.ndarray,
+        pred_test: np.ndarray,
+        problem_type: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        val_oof, test_cal = self._calibrate_with_cv_for_val_and_full_for_test(
+            calibrator_factory=self.get_calibrator,
+            proba_val=pred_train,   # val-side preds to calibrate (train-side)
+            y_val=y_train,
+            proba_test=pred_test,
             problem_type=problem_type,
-            use_fast_metrics=use_fast_metrics,
+            random_state=self.calibrator_random_state + 1,
         )
 
-        y_val_og = self.repo.labels_val(dataset=dataset, fold=fold)
-        y_test = self.repo.labels_test(dataset=dataset, fold=fold)
-
-        models_filtered = self.filter_models(dataset=dataset, fold=fold, models=models)
-        models, models_filtered_idx = self._get_models_filtered_idx(models=models, models_filtered=models_filtered)
-
-        pred_val_og, pred_test = self.get_preds_from_models(dataset=dataset, fold=fold, models=models)
-
-        # When optimize_on="test" and calibration uses CV, we need a separate
-        # "val-side" prediction array that is OOF on test, while keeping pred_test
-        # as the (possibly in-sample) test predictions (unchanged logic).
-        pred_test_oof_for_opt = None
-
-        if calibrate_per_model:
-            for i, _m in enumerate(models):
-                if problem_type == "multiclass":
-                    y_val_pred_model = pred_val_og[i, :, :]
-                    y_test_pred_model = pred_test[i, :, :]
-                else:
-                    y_val_pred_model = pred_val_og[i, :]
-                    y_test_pred_model = pred_test[i, :]
-
-                if self.optimize_on == "val":
-                    # OOF-calibrate val predictions; fit-full-on-val for test preds
-                    val_oof, test_cal = self._calibrate_with_cv_for_val_and_full_for_test(
-                        calibrator_factory=self.get_calibrator,
-                        proba_val=y_val_pred_model,
-                        y_val=y_val_og,
-                        proba_test=y_test_pred_model,
-                        problem_type=problem_type,
-                        random_state=self.calibrator_random_state,
-                    )
-
-                    if problem_type == "multiclass":
-                        pred_val_og[i, :, :] = val_oof
-                        pred_test[i, :, :] = test_cal
-                    else:
-                        pred_val_og[i, :] = val_oof
-                        pred_test[i, :] = test_cal
-
-                elif self.optimize_on == "test":
-                    # "Validation-side" data is the test set here; make OOF version for optimization,
-                    # but keep pred_test calibrated by fitting on full test and predicting test (same as before).
-                    test_oof, test_cal = self._calibrate_with_cv_for_val_and_full_for_test(
-                        calibrator_factory=self.get_calibrator,
-                        proba_val=y_test_pred_model,
-                        y_val=y_test,
-                        proba_test=y_test_pred_model,  # full-fit predict on same set -> same as before
-                        problem_type=problem_type,
-                        random_state=self.calibrator_random_state,
-                    )
-
-                    if pred_test_oof_for_opt is None:
-                        pred_test_oof_for_opt = copy.deepcopy(pred_test)
-
-                    if problem_type == "multiclass":
-                        pred_test[i, :, :] = test_cal
-                        pred_test_oof_for_opt[i, :, :] = test_oof
-                    else:
-                        pred_test[i, :] = test_cal
-                        pred_test_oof_for_opt[i, :] = test_oof
-                else:
-                    raise ValueError(f"Invalid value for `optimize_on`: {self.optimize_on}")
-
-        if self.optimize_on == "val":
-            y_val = y_val_og
-            pred_val = pred_val_og
-        elif self.optimize_on == "test":
-            y_val = copy.deepcopy(y_test)
-            # Use OOF-calibrated version for optimization if available; else fall back to pred_test
-            if pred_test_oof_for_opt is not None:
-                pred_val = pred_test_oof_for_opt
-            else:
-                pred_val = copy.deepcopy(pred_test)
-        else:
-            raise ValueError(f"Invalid value for `optimize_on`: {self.optimize_on}")
-
-        if problem_type == "binary":
-            if len(pred_val.shape) == 3:
-                pred_val = pred_val[:, :, 1]
-            if len(pred_test.shape) == 3:
-                pred_test = pred_test[:, :, 1]
-
-        weighted_ensemble = self.fit_ensemble(
-            pred=pred_val,
-            y=y_val,
-            fit_eval_metric=fit_eval_metric,
-            fit_problem_type=fit_problem_type,
-            predict_problem_type=predict_problem_type,
-        )
-
-        if hasattr(eval_metric, "preprocess_bulk"):
-            y_test, pred_test = eval_metric.preprocess_bulk(y_test, pred_test)
-
-        if eval_metric.needs_pred:
-            y_test_pred = weighted_ensemble.predict(pred_test)
-        else:
-            y_test_pred = weighted_ensemble.predict_proba(pred_test)
-
-        metric_error_val = None
-        if self.return_metric_error_val or calibrate_after_ens:
-            if hasattr(eval_metric, "preprocess_bulk"):
-                y_val_og_proc, pred_val_og_proc = eval_metric.preprocess_bulk(y_val_og, pred_val_og)
-            else:
-                y_val_og_proc, pred_val_og_proc = y_val_og, pred_val_og
-
-            if eval_metric.needs_pred:
-                y_val_pred = weighted_ensemble.predict(pred_val_og_proc)
-            else:
-                y_val_pred = weighted_ensemble.predict_proba(pred_val_og_proc)
-
-            if calibrate_after_ens:
-                if self.optimize_on == "val":
-                    # OOF-calibrate validation-side ensemble preds; fit-full-on-val for test preds
-                    y_val_pred_oof, y_test_pred_cal = self._calibrate_with_cv_for_val_and_full_for_test(
-                        calibrator_factory=lambda: calibrator,
-                        proba_val=y_val_pred,
-                        y_val=y_val_og_proc,
-                        proba_test=y_test_pred,
-                        problem_type=problem_type,
-                        random_state=self.calibrator_random_state+1,
-                    )
-                    y_val_pred = y_val_pred_oof
-                    y_test_pred = y_test_pred_cal
-
-                elif self.optimize_on == "test":
-                    # Validation-side is test set: OOF for y_val_pred, but keep test prediction logic the same
-                    y_val_pred_oof, y_test_pred_cal = self._calibrate_with_cv_for_val_and_full_for_test(
-                        calibrator_factory=lambda: calibrator,
-                        proba_val=y_test_pred,
-                        y_val=y_test,
-                        proba_test=y_test_pred,  # fit on full test, predict test (same behavior)
-                        problem_type=problem_type,
-                        random_state=self.calibrator_random_state + 1,
-                    )
-                    y_val_pred = y_val_pred_oof
-                    y_test_pred = y_test_pred_cal
-                else:
-                    raise ValueError(f"Invalid value for `optimize_on`: {self.optimize_on}")
-
-            metric_error_val = eval_metric.error(y_val_og_proc, y_val_pred)
-
-        err = eval_metric.error(y_test, y_test_pred)
-
-        ensemble_weights: np.array = weighted_ensemble.weights_
-
-        ensemble_weights_fixed = np.zeros(n_models, dtype=np.float64)
-        ensemble_weights_fixed[models_filtered_idx] = ensemble_weights
-        ensemble_weights = ensemble_weights_fixed
-
-        results = dict(
-            metric_error=err,
-            ensemble_weights=ensemble_weights,
-        )
-        if self.return_metric_error_val:
-            results["metric_error_val"] = metric_error_val
-
-        return results
+        return val_oof, test_cal

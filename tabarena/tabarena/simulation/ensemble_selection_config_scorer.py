@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Type, TYPE_CHECKING
+from typing import TYPE_CHECKING, Type
 
 import numpy as np
 
@@ -18,24 +18,112 @@ try:
     # FIXME: Requires g++, can lead to an exception on import as it needs to compile C code.
     from ..metrics._fast_roc_auc import fast_roc_auc_cpp
 except FileNotFoundError:
-    print(f"Warning: Failed to compile c++ metric... Try installing g++. Falling back to sklearn implementation...")
+    print("Warning: Failed to compile c++ metric... Try installing g++. Falling back to sklearn implementation...")
     fast_roc_auc_cpp = get_metric(metric="roc_auc", problem_type="binary")
 
 if TYPE_CHECKING:
     from ..repository.evaluation_repository import EvaluationRepository
 
 
+class TaskEvaluator:
+    """
+    Minimal per-task evaluator:
+      - knows how to fit an ensemble given (y_train, pred_train)
+      - knows how to predict/score given (y, pred)
+    It does NOT know anything about repo/dataset/fold/models or optimize_on.
+    """
+    def __init__(
+        self,
+        *,
+        ensemble_method: Type,
+        ensemble_kwargs: dict,
+        eval_metric: Scorer,
+        fit_eval_metric: Scorer,
+        problem_type: str,
+    ):
+        self._ensemble_method = ensemble_method
+        self._ensemble_kwargs = ensemble_kwargs
+        self._eval_metric = eval_metric
+        self._fit_eval_metric = fit_eval_metric
+        self._predict_problem_type = getattr(eval_metric, "post_problem_type", problem_type)
+        self._fit_problem_type = getattr(fit_eval_metric, "post_problem_type", problem_type)
+
+    @staticmethod
+    def _maybe_preprocess_bulk(metric: Scorer, y: np.ndarray, pred: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        if hasattr(metric, "preprocess_bulk"):
+            y, pred = metric.preprocess_bulk(y, pred)
+        return y, pred
+
+    def init_ens(self):
+        return self._ensemble_method(
+            problem_type=self._fit_problem_type,
+            metric=self._fit_eval_metric,
+            **self._ensemble_kwargs,
+        )
+
+    def fit(self, *, pred_train: np.ndarray, y_train: np.ndarray):
+        ensemble = self.init_ens()
+
+        y_train, pred_train = self._maybe_preprocess_bulk(self._fit_eval_metric, y_train, pred_train)
+        ensemble.fit(predictions=pred_train, labels=y_train)
+
+        # Ensure prediction interface aligns with the metric we ultimately evaluate with
+        ensemble.problem_type = self._predict_problem_type
+        return ensemble
+
+    def predict(self, *, ensemble, pred: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        y, pred = self._maybe_preprocess_bulk(self._eval_metric, y, pred)
+
+        if self._eval_metric.needs_pred:
+            y_pred = ensemble.predict(pred)
+        else:
+            y_pred = ensemble.predict_proba(pred)
+        return y_pred, y
+
+    def score(self, *, y: np.ndarray, y_pred: np.ndarray) -> float:
+        return self._eval_metric.error(y, y_pred)
+
+    def run(
+        self,
+        *,
+        pred_train: np.ndarray,
+        y_train: np.ndarray,
+        pred_test: np.ndarray,
+        y_test: np.ndarray,
+        return_metric_error_val: bool,
+        pred_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
+    ) -> tuple[dict[str, object], object]:
+        ensemble = self.fit(pred_train=pred_train, y_train=y_train)
+
+        y_test_pred, y_test_proc = self.predict(ensemble=ensemble, pred=pred_test, y=y_test)
+        results: dict[str, object] = {"metric_error": self.score(y=y_test_proc, y_pred=y_test_pred)}
+
+        if return_metric_error_val:
+            if pred_val is None or y_val is None:
+                raise ValueError("pred_val and y_val must be provided when return_metric_error_val=True")
+            y_val_pred, y_val_proc = self.predict(ensemble=ensemble, pred=pred_val, y=y_val)
+            results["metric_error_val"] = self.score(y=y_val_proc, y_pred=y_val_pred)
+
+        if hasattr(ensemble, "weights_"):
+            results["ensemble_weights"] = ensemble.weights_
+
+        return results, ensemble
+
+
 class EnsembleScorer:
-    def __init__(self,
-                 repo: "EvaluationRepository",
-                 task_metrics_metadata,
-                 ensemble_method: Type = EnsembleSelection,
-                 ensemble_method_kwargs: dict = None,
-                 proxy_fit_metric_map: dict = None,
-                 use_fast_metrics: bool = True,
-                 optimize_on: str = "val",
-                 return_metric_error_val: bool = True,
-                 ):
+    def __init__(
+        self,
+        repo: "EvaluationRepository",
+        task_metrics_metadata,
+        evaluator_cls: Type[TaskEvaluator] = TaskEvaluator,
+        ensemble_method: Type = EnsembleSelection,
+        ensemble_method_kwargs: dict | None = None,
+        proxy_fit_metric_map: dict | None = None,
+        use_fast_metrics: bool = True,
+        optimize_on: str = "val",
+        return_metric_error_val: bool = True,
+    ):
         """
         Parameters
         ----------
@@ -52,129 +140,98 @@ class EnsembleScorer:
             If True, will compute and return `metric_error_val` using the fitted ensemble in the output dict of `evaluate_task`.
         """
         if proxy_fit_metric_map is None:
-            proxy_fit_metric_map = dict()
+            proxy_fit_metric_map = {}
         if ensemble_method_kwargs is None:
-            ensemble_method_kwargs = dict()
+            ensemble_method_kwargs = {}
+
         ensemble_method_kwargs = copy.deepcopy(ensemble_method_kwargs)
         if "ensemble_size" not in ensemble_method_kwargs:
             ensemble_method_kwargs["ensemble_size"] = 100
+
         self.repo = repo
-        self.ensemble_method: callable = ensemble_method
+        self.evaluator_cls = evaluator_cls
+        self.ensemble_method: Type = ensemble_method
         self.ensemble_method_kwargs = ensemble_method_kwargs
         self.task_metrics_metadata = task_metrics_metadata
         self.proxy_fit_metric_map = proxy_fit_metric_map
         self.use_fast_metrics = use_fast_metrics
-        assert isinstance(optimize_on, str)
+
         assert optimize_on in ["val", "test"]
         self.optimize_on = optimize_on
         self.return_metric_error_val = return_metric_error_val
 
-    def _get_metric_from_name(self, metric_name: str, problem_type: str, use_fast_metrics: bool = None) -> Scorer:
+    # -------------------------
+    # Extension hooks
+    # -------------------------
+    def filter_models(self, dataset: str, fold: int, models: list[str]) -> list[str]:
+        return models
+
+    def get_ensemble_method_for_task(self, dataset: str, fold: int, models: list[str]) -> Type:
+        return self.ensemble_method
+
+    def get_ensemble_method_kwargs_for_task(self, dataset: str, fold: int, models: list[str]) -> dict:
+        return copy.deepcopy(self.ensemble_method_kwargs)
+
+    # -------------------------
+    # Metrics helpers
+    # -------------------------
+    def _get_metric_from_name(self, metric_name: str, problem_type: str, use_fast_metrics: bool | None = None) -> Scorer:
         if use_fast_metrics is None:
             use_fast_metrics = self.use_fast_metrics
         if use_fast_metrics:
             return self._get_fast_metric_if_exist(metric_name=metric_name, problem_type=problem_type)
-        else:
-            return get_metric(metric=metric_name, problem_type=problem_type)
+        return get_metric(metric=metric_name, problem_type=problem_type)
 
     def _get_fast_metric_if_exist(self, metric_name: str, problem_type: str) -> Scorer:
-        """
-        # TODO: Add docstring
-        # TODO: Consider making this more standardized.
-        #  Currently fast_log_loss needs a bit of special preprocessing of the data and isn't a straightforward replace.
-        """
-        if metric_name == 'log_loss':
-            eval_metric = _fast_log_loss.fast_log_loss
-        elif metric_name == 'roc_auc':
-            eval_metric = fast_roc_auc_cpp
-        else:
-            eval_metric = get_metric(metric=metric_name, problem_type=problem_type)
-        return eval_metric
-
-    def get_preds_from_models(self, dataset: str, fold: int, models: list[str]) -> tuple[np.ndarray, np.ndarray]:
-        pred_val = self.repo.predict_val_multi(dataset=dataset, fold=fold, configs=models, enforce_binary_1d=True)
-        pred_test = self.repo.predict_test_multi(dataset=dataset, fold=fold, configs=models, enforce_binary_1d=True)
-        return pred_val, pred_test
-
-    def filter_models(self, dataset: str, fold: int, models: list[str]) -> list[str]:
-        """
-        Filters models by user-defined logic. Used in class extensions.
-        """
-        return models
+        if metric_name == "log_loss":
+            return _fast_log_loss.fast_log_loss
+        if metric_name == "roc_auc":
+            return fast_roc_auc_cpp
+        return get_metric(metric=metric_name, problem_type=problem_type)
 
     def _get_metrics(
         self,
         metric_name: str,
         problem_type: str,
         use_fast_metrics: bool | None = None,
-    ) -> tuple[Scorer, Scorer, str, str]:
+    ) -> tuple[Scorer, Scorer]:
         fit_metric_name = self.proxy_fit_metric_map.get(metric_name, metric_name)
 
-        eval_metric = self._get_metric_from_name(
-            metric_name=metric_name,
-            problem_type=problem_type,
-            use_fast_metrics=use_fast_metrics,
-        )
-        fit_eval_metric = self._get_metric_from_name(
-            metric_name=fit_metric_name,
-            problem_type=problem_type,
-            use_fast_metrics=use_fast_metrics,
-        )
+        eval_metric = self._get_metric_from_name(metric_name=metric_name, problem_type=problem_type, use_fast_metrics=use_fast_metrics)
+        fit_eval_metric = self._get_metric_from_name(metric_name=fit_metric_name, problem_type=problem_type, use_fast_metrics=use_fast_metrics)
 
-        if hasattr(eval_metric, 'post_problem_type'):
-            predict_problem_type = eval_metric.post_problem_type
-        else:
-            predict_problem_type = problem_type
-        if hasattr(fit_eval_metric, 'post_problem_type'):
-            fit_problem_type = fit_eval_metric.post_problem_type
-        else:
-            fit_problem_type = problem_type
+        return eval_metric, fit_eval_metric
 
-        return eval_metric, fit_eval_metric, predict_problem_type, fit_problem_type
+    def get_preds_from_models(self, dataset: str, fold: int, models: list[str]) -> tuple[np.ndarray, np.ndarray]:
+        pred_val = self.repo.predict_val_multi(dataset=dataset, fold=fold, configs=models, enforce_binary_1d=True)
+        pred_test = self.repo.predict_test_multi(dataset=dataset, fold=fold, configs=models, enforce_binary_1d=True)
+        return pred_val, pred_test
 
-    def fit_ensemble(
+    def _get_train(
         self,
-        pred: np.ndarray,
-        y: np.ndarray,
-        fit_eval_metric: Scorer,
-        fit_problem_type: str,
-        predict_problem_type: str,
-    ):
-        ensemble = self.ensemble_method(
-            problem_type=fit_problem_type,
-            metric=fit_eval_metric,
-            **self.ensemble_method_kwargs,
-        )
-
-        if hasattr(fit_eval_metric, 'preprocess_bulk'):
-            y, pred = fit_eval_metric.preprocess_bulk(y, pred)
-
-        ensemble.fit(predictions=pred, labels=y)
-        ensemble.problem_type = predict_problem_type
-        return ensemble
-
-    def predict_ensemble(
-        self,
-        pred: np.ndarray,
-        y: np.ndarray,
-        eval_metric: Scorer,
-        ensemble,
-    ):
-        if hasattr(eval_metric, 'preprocess_bulk'):
-            y, pred = eval_metric.preprocess_bulk(y, pred)
-
-        if eval_metric.needs_pred:
-            y_test_pred = ensemble.predict(pred)
+        y_val: np.ndarray,
+        pred_val: np.ndarray,
+        y_test: np.ndarray,
+        pred_test: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if self.optimize_on == "val":
+            return y_val, pred_val
+        elif self.optimize_on == "test":
+            return y_test, pred_test
         else:
-            y_test_pred = ensemble.predict_proba(pred)
-        return y_test_pred, y
+            raise ValueError(f"Invalid value for `optimize_on`: {self.optimize_on}")
 
+    # -------------------------
+    # Main entry
+    # -------------------------
     def evaluate_task(self, dataset: str, fold: int, models: list[str]) -> dict[str, object]:
         models_og = models
+
         task_metadata = self.task_metrics_metadata[dataset]
         metric_name = task_metadata["metric"]
         problem_type = task_metadata["problem_type"]
-        eval_metric, fit_eval_metric, predict_problem_type, fit_problem_type = self._get_metrics(
+
+        eval_metric, fit_eval_metric = self._get_metrics(
             metric_name=metric_name,
             problem_type=problem_type,
         )
@@ -182,98 +239,58 @@ class EnsembleScorer:
         y_val = self.repo.labels_val(dataset=dataset, fold=fold)
         y_test = self.repo.labels_test(dataset=dataset, fold=fold)
 
-        # If filtering models, need to keep track of original model order to return ensemble weights list
         models_filtered = self.filter_models(dataset=dataset, fold=fold, models=models)
         models, models_filtered_idx = self._get_models_filtered_idx(models=models, models_filtered=models_filtered)
 
         pred_val, pred_test = self.get_preds_from_models(dataset=dataset, fold=fold, models=models)
 
-        if self.optimize_on == "val":
-            # Use the original validation data for a fair comparison that mirrors what happens in practice
-            y_train = y_val
-            pred_train = pred_val
-        elif self.optimize_on == "test":
-            # Optimize directly on test (unrealistic, but can be used to measure the gap in generalization)
-            y_train = y_test
-            pred_train = pred_test
-        else:
-            raise ValueError(f"Invalid value for `optimize_on`: {self.optimize_on}")
+        y_train, pred_train = self._get_train(y_val=y_val, pred_val=pred_val, y_test=y_test, pred_test=pred_test)
 
-        weighted_ensemble = self.fit_ensemble(
-            pred=pred_train,
-            y=y_train,
-            fit_eval_metric=fit_eval_metric,
-            fit_problem_type=fit_problem_type,
-            predict_problem_type=predict_problem_type,
-        )
+        ensemble_method = self.get_ensemble_method_for_task(dataset=dataset, fold=fold, models=models)
+        ensemble_kwargs = self.get_ensemble_method_kwargs_for_task(dataset=dataset, fold=fold, models=models)
 
-        y_test_pred, y_test = self.predict_ensemble(
-            pred=pred_test,
-            y=y_test,
+        evaluator = self.evaluator_cls(
+            ensemble_method=ensemble_method,
+            ensemble_kwargs=ensemble_kwargs,
             eval_metric=eval_metric,
-            ensemble=weighted_ensemble,
+            fit_eval_metric=fit_eval_metric,
+            problem_type=problem_type,
         )
 
-        err = eval_metric.error(y_test, y_test_pred)
-
-        results = dict(metric_error=err)
-
-        if self.return_metric_error_val:
-            y_val_pred, y_val = self.predict_ensemble(
-                pred=pred_val,
-                y=y_val,
-                eval_metric=eval_metric,
-                ensemble=weighted_ensemble,
-            )
-            metric_error_val = eval_metric.error(y_val, y_val_pred)
-            results = dict(**results, metric_error_val=metric_error_val)
-
-        extra_outputs = self._get_extra_outputs(
-            ensemble=weighted_ensemble,
-            models=models_og,
-            models_filtered_idx=models_filtered_idx,
+        results, fitted_ensemble = evaluator.run(
+            pred_train=pred_train,
+            y_train=y_train,
+            pred_test=pred_test,
+            y_test=y_test,
+            return_metric_error_val=self.return_metric_error_val,
+            pred_val=pred_val,
+            y_val=y_val,
         )
 
-        results = dict(
-            **results,
-            **extra_outputs,
-        )
+        if "ensemble_weights" in results:
+            ensemble_weights_fixed = np.zeros(len(models_og), dtype=np.float64)
+            ensemble_weights_fixed[models_filtered_idx] = results["ensemble_weights"]
+            results["ensemble_weights"] = ensemble_weights_fixed
 
         return results
 
-    def _get_extra_outputs(
-        self,
-        ensemble,
-        models: list[str],
-        models_filtered_idx: list[int],
-    ) -> dict:
-        # ensemble_weights has to be updated, need to be in the original models order
-        ensemble_weights_fixed = np.zeros(len(models), dtype=np.float64)
-        ensemble_weights_fixed[models_filtered_idx] = ensemble.weights_
-        return dict(ensemble_weights=ensemble_weights_fixed)
-
     def _get_models_filtered_idx(self, models: list[str], models_filtered: list[str]) -> tuple[list[str], list[int]]:
-        """
-        Returns the filtered list of models and the index mapping of the filtered models to the original `models` list.
-        """
         models_filtered_set = set(models_filtered)
 
-        # Preserve `models` order without duplicates (optimized)
-        models_seen = set()
-        # not (m in models_seen or models_seen.add(m) only adds `m` to models_seen if `m` was not already in models_seen.
-        models_filtered = [m for m in models if (m in models_filtered_set) and not (m in models_seen or models_seen.add(m))]
+        models_seen: set[str] = set()
+        models_filtered_ordered = [
+            m for m in models if (m in models_filtered_set) and not (m in models_seen or models_seen.add(m))
+        ]
 
-        if len(models_filtered_set) < len(models_filtered):
-            # Duplicate names in `models`, have special handling
-            models_idx = {}
+        if len(models_filtered_set) < len(models_filtered_ordered):
+            models_idx: dict[str, list[int]] = {}
             for i, m in enumerate(models):
-                if m not in models_idx:
-                    models_idx[m] = []
-                models_idx[m].append(i)
-            models_filtered_idx = [models_idx[m].pop(0) for m in models_filtered]
+                models_idx.setdefault(m, []).append(i)
+            models_filtered_idx = [models_idx[m].pop(0) for m in models_filtered_ordered]
         else:
-            models_filtered_idx = [models.index(m) for m in models_filtered]
-        return models_filtered, models_filtered_idx
+            models_filtered_idx = [models.index(m) for m in models_filtered_ordered]
+
+        return models_filtered_ordered, models_filtered_idx
 
 
 class EnsembleScorerMaxModels(EnsembleScorer):
