@@ -88,13 +88,27 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
         else:
             return self.repos[repo_idx]
 
-    def predict_test_multi(self, dataset: str, fold: int, configs: list[str] = None, binary_as_multiclass: bool = False) -> np.ndarray:
-        return self._predict_multi(predict_func="predict_test_multi", dataset=dataset, fold=fold, configs=configs, binary_as_multiclass=binary_as_multiclass)
+    def predict_test_multi(
+        self,
+        dataset: str,
+        fold: int,
+        configs: list[str] = None,
+        binary_as_multiclass: bool = False,
+        enforce_binary_1d: bool = False,
+    ) -> np.ndarray:
+        return self._predict_multi(predict_func="predict_test_multi", dataset=dataset, fold=fold, configs=configs, binary_as_multiclass=binary_as_multiclass, enforce_binary_1d=enforce_binary_1d)
 
-    def predict_val_multi(self, dataset: str, fold: int, configs: list[str] = None, binary_as_multiclass: bool = False) -> np.ndarray:
-        return self._predict_multi(predict_func="predict_val_multi", dataset=dataset, fold=fold, configs=configs, binary_as_multiclass=binary_as_multiclass)
+    def predict_val_multi(
+        self,
+        dataset: str,
+        fold: int,
+        configs: list[str] = None,
+        binary_as_multiclass: bool = False,
+        enforce_binary_1d: bool = False,
+    ) -> np.ndarray:
+        return self._predict_multi(predict_func="predict_val_multi", dataset=dataset, fold=fold, configs=configs, binary_as_multiclass=binary_as_multiclass, enforce_binary_1d=enforce_binary_1d)
 
-    def _predict_multi(self, predict_func: str, dataset: str, fold: int, configs: list[str] = None, binary_as_multiclass: bool = False) -> np.ndarray:
+    def _predict_multi(self, predict_func: str, dataset: str, fold: int, configs: list[str] = None, binary_as_multiclass: bool = False, enforce_binary_1d: bool = False) -> np.ndarray:
         if configs is None:
             configs = self.configs()
 
@@ -122,7 +136,7 @@ class EvaluationRepositoryCollection(AbstractRepository, EnsembleMixin, GroundTr
 
         for repo_idx, config_lst in repo_map.items():
             f = getattr(self.repos[repo_idx], predict_func)
-            predict_map[repo_idx] = f(dataset=dataset, fold=fold, configs=config_lst, binary_as_multiclass=binary_as_multiclass)
+            predict_map[repo_idx] = f(dataset=dataset, fold=fold, configs=config_lst, binary_as_multiclass=binary_as_multiclass, enforce_binary_1d=enforce_binary_1d)
 
         # predict_map[repo_idx] has shape
         #  (n_configs, n_rows, n_classes) if multiclass classification
