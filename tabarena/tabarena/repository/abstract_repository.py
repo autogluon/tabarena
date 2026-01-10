@@ -349,7 +349,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
         return self.predict_val_multi(dataset=dataset, fold=fold, configs=[config], binary_as_multiclass=binary_as_multiclass).squeeze()
 
     @abstractmethod
-    def predict_test_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False) -> np.ndarray:
+    def predict_test_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False, enforce_binary_1d: bool = False) -> np.ndarray:
         """
         Returns the predictions on the test set for a given list of configurations on a given dataset and fold
 
@@ -381,7 +381,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
         raise NotImplementedError
 
     @abstractmethod
-    def predict_val_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False) -> np.ndarray:
+    def predict_val_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False, enforce_binary_1d: bool = False) -> np.ndarray:
         """
         Returns the predictions on the validation set for a given list of configurations on a given dataset and fold
 
