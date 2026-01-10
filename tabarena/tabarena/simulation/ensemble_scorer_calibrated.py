@@ -217,19 +217,11 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
 class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
     def __init__(
         self,
-        calibrator_type: str = "logistic",
-        calibrate_per_model: bool = False,
-        calibrate_after_ens: bool = True,
         calibrator_n_splits: int = 10,
         calibrator_random_state: int = 0,
         **kwargs,
     ):
-        super().__init__(
-            calibrator_type=calibrator_type,
-            calibrate_per_model=calibrate_per_model,
-            calibrate_after_ens=calibrate_after_ens,
-            **kwargs,
-        )
+        super().__init__(**kwargs)
         self.calibrator_n_splits = calibrator_n_splits
         self.calibrator_random_state = calibrator_random_state
 
@@ -312,8 +304,6 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
 
         return calibrated_val_oof, calibrated_test
 
-    # --- hooks into the base calibrated class ---
-
     def _calibrate_per_model(
         self,
         y_train: np.ndarray,
@@ -334,8 +324,8 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
         for i in range(len(models)):
             val_oof, test_cal = self._calibrate_with_cv_for_val_and_full_for_test(
                 calibrator_factory=self.get_calibrator,
-                proba_val=pred_train[i],   # == pred_val[i]
-                y_val=y_train,            # == y_val
+                proba_val=pred_train[i],
+                y_val=y_train,
                 proba_test=pred_test_out[i],
                 problem_type=problem_type,
                 random_state=self.calibrator_random_state,
@@ -356,7 +346,7 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
     ) -> tuple[np.ndarray, np.ndarray]:
         val_oof, test_cal = self._calibrate_with_cv_for_val_and_full_for_test(
             calibrator_factory=self.get_calibrator,
-            proba_val=pred_train,   # val-side preds to calibrate (train-side)
+            proba_val=pred_train,
             y_val=y_train,
             proba_test=pred_test,
             problem_type=problem_type,
