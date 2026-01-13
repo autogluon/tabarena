@@ -34,7 +34,7 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
             # Preprocessing hyperparameters
             Categorical("use_arithmetic_preprocessor", [True, False]),
             Categorical("use_cat_fe", [True, False]),
-            Categorical("ag.use_residuals", [True, False]),
+            Categorical("ag.use_residuals", [False]),
             Categorical("ag.residual_type", ['oof']),
             Categorical("ag.residual_init_kwargs", [{}]),
             Categorical("ag.max_dataset_size_for_residuals", [1000]), # NOTE: Currently: always only consider linear residuals for small datasets (N<1000)
@@ -90,7 +90,7 @@ gen_lightgbm = CustomAGConfigGenerator(
             ],
         ],
         'ag.prep_params.passthrough_types': {"invalid_raw_types": ["category", "object"]},
-        'ag.use_residuals': True,
+        'ag.use_residuals': False,
         'ag.residual_type': 'oof',
         'ag.max_dataset_size_for_residuals': 1000,
         'ag.residual_init_kwargs': {},

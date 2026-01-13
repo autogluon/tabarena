@@ -52,17 +52,28 @@ def generate_configs_tabm(num_random_configs=200, seed=1234):
     
     for i in range(len(configs)):
         if 'ag.prep_params' not in configs[i]:
-            configs[i]['ag.prep_params'] = {}
-        if configs[i].pop('use_arithmetic_preprocessor') == True:
-            configs[i]['ag.prep_params'].update({
-                'ArithmeticFeatureGenerator': {}
-            })
+            configs[i]['ag.prep_params'] = []
+        prep_params_stage_1 = []
+        prep_params_passthrough_types = None
+        use_arithmetic_preprocessor = configs[i].pop('use_arithmetic_preprocessor')
+        use_cat_fe = configs[i].pop('use_cat_fe')
+        if use_arithmetic_preprocessor:
+            _generator_params = {}
+            prep_params_stage_1.append([
+                ['ArithmeticFeatureGenerator', _generator_params],
+            ])
 
-        if configs[i].pop('use_cat_fe') == True:
-            configs[i]['ag.prep_params'].update({
-                'CategoricalInteractionFeatureGenerator': {}, 
-                'OOFTargetEncodingFeatureGenerator': {}
-                        })
+        if use_cat_fe:
+            prep_params_stage_1.append([
+                ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
+                ['OOFTargetEncodingFeatureGenerator', {}],
+            ])
+            prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
+
+        if prep_params_stage_1:
+            configs[i]['ag.prep_params'].append(prep_params_stage_1)
+        if prep_params_passthrough_types:
+            configs[i]['ag.prep_params.passthrough_types'] = prep_params_passthrough_types
     
     return configs
 
@@ -71,18 +82,16 @@ gen_tabm = CustomAGConfigGenerator(
     model_cls=PrepTabMModel, search_space_func=generate_configs_tabm, 
     manual_configs=[
         {
-        'ag.prep_params': {
-            'ArithmeticFeatureGenerator': {},
-            'CategoricalInteractionFeatureGenerator': {}, 
-            'OOFTargetEncodingFeatureGenerator': {}
-                    },
-        },
-        {
-        'ag.prep_params': {
-            'ArithmeticFeatureGenerator': {},
-            'CategoricalInteractionFeatureGenerator': {}, 
-            'OOFTargetEncodingFeatureGenerator': {}
-                    },
-        },
+        'ag.prep_params': [
+            [
+                ['ArithmeticFeatureGenerator', {}],
+                [
+                    ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
+                    ['OOFTargetEncodingFeatureGenerator', {}],
+                ],
+            ],
+        ],
+        'ag.prep_params.passthrough_types': {"invalid_raw_types": ["category", "object"]},
+        }
     ],
 )
