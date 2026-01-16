@@ -8,7 +8,6 @@ from autogluon.core.models import AbstractModel
 
 from tabarena.benchmark.experiment import AGModelBagExperiment, AGModelExperiment
 
-
 def configs_to_name_dict(configs, name_prefix, model_type):
     configs_dict = {}
     for c in configs:
@@ -54,8 +53,8 @@ def add_fold_fitting_strategy(config: dict, fold_fitting_strategy: str) -> dict:
     config["ag_args_ensemble"]["fold_fitting_strategy"] = fold_fitting_strategy
     return config
 
-def get_random_searcher(search_space):
-    searcher = LocalRandomSearcher(search_space=search_space)
+def get_random_searcher(search_space, allow_repetitions: bool = False) -> LocalRandomSearcher:
+    searcher = LocalRandomSearcher(search_space=search_space, allow_repetitions=allow_repetitions)
     searcher.get_config()  # Clean out default
     return searcher
 
@@ -224,53 +223,57 @@ class CustomAGConfigGenerator(AGConfigGenerator):
         return self.search_space_func(num_configs)
 
 class PrepConfigGenerator(ConfigGenerator):
-    def generate_all_configs_lst(self, num_random_configs: int, name_id_suffix: str = "") -> list[dict]:
-        configs = super().generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
-        for i in range(len(configs)):
-            if 'ag.prep_params' not in configs[i]:
-                configs[i]['ag.prep_params'] = []
-            prep_params_stage_1 = []
-            prep_params_passthrough_types = None
-            use_arithmetic_preprocessor = configs[i].pop('use_arithmetic_preprocessor')
-            use_cat_fe = configs[i].pop('use_cat_fe')
-            if use_arithmetic_preprocessor:
-                _generator_params = {}
-                prep_params_stage_1.append([
-                    ['ArithmeticFeatureGenerator', _generator_params],
-                ])
+    def __init__(
+        self,
+        search_space: dict,
+        model_cls: Type[AbstractModel],
+        name: str | None = None,
+        manual_configs: list[dict] | None = None,
+        prep_search_space: dict = None,
+        prep_manual_configs: list[dict] | None = None,
+    ):
+        super().__init__(
+            search_space=search_space,
+            model_cls=model_cls,
+            name=name,
+            manual_configs=manual_configs,
+            )
+        self.prep_search_space = prep_search_space
+        self.prep_manual_configs = prep_manual_configs
+    
+    def prep_generate_all_configs_lst(self, num_configs: int, name_id_suffix: str = "") -> list[dict]:
+        searcher = get_random_searcher(self.prep_search_space, allow_repetitions=True)
 
-            if use_cat_fe:
-                prep_params_stage_1.append([
-                    ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
-                    ['OOFTargetEncodingFeatureGenerator', {}],
-                ])
-                prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
-
-            if prep_params_stage_1:
-                configs[i]['ag.prep_params'].append(prep_params_stage_1)
-            if prep_params_passthrough_types:
-                configs[i]['ag.prep_params.passthrough_types'] = prep_params_passthrough_types
-
+        if num_configs > 0:
+            random_configs = [searcher.get_config() for _ in range(num_configs)]
+        else:
+            random_configs = []
+        configs = combine_manual_and_random_configs(manual_configs=self.prep_manual_configs, random_configs=random_configs, name_id_suffix=name_id_suffix)
         return configs
-
-class ExperimentalPrepConfigGenerator(ConfigGenerator):
-    def generate_all_configs_lst(self, num_random_configs: int, name_id_suffix: str = "", model_name: str = "") -> list[dict]:
+    
+    def generate_all_configs_lst(self, 
+                                 num_random_configs: int, 
+                                 name_id_suffix: str = "", 
+                                 model_name: str = "",
+                                 prep_search_space: dict | None = None
+                                 ) -> list[dict]:
         configs = super().generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
+        prep_configs = self.prep_generate_all_configs_lst(num_configs=num_random_configs, name_id_suffix=name_id_suffix)
         # TODO: Sample prep & model HPs separately
-        for i in range(len(configs)):
+        for i in range(len(prep_configs)):
             if 'ag.prep_params' not in configs[i]:
                 configs[i]['ag.prep_params'] = []
             pipeline = []
             prep_params_passthrough_types = None
-            use_arithmetic_preprocessor = configs[i].pop('use_arithmetic_preprocessor', False)
-            use_cat_fe = configs[i].pop('use_cat_fe', False)
-            use_tafc = configs[i].pop('use_tafc', False)
-            use_rstafc = configs[i].pop('use_rstafc', False)
-            use_neighbor_interactions = configs[i].pop('use_neighbor_interactions', False)
-            use_neighbor_structure = configs[i].pop('use_neighbor_structure', False)
-            use_groupby = configs[i].pop('use_groupby', False)
-            use_linear_feature = configs[i].pop('use_linear_feature', False)
-            use_select_spearman = configs[i].pop('use_select_spearman', False)
+            use_arithmetic_preprocessor = prep_configs[i].pop('use_arithmetic_preprocessor', False)
+            use_cat_fe = prep_configs[i].pop('use_cat_fe', False)
+            use_tafc = prep_configs[i].pop('use_tafc', False)
+            use_rstafc = prep_configs[i].pop('use_rstafc', False)
+            use_neighbor_interactions = prep_configs[i].pop('use_neighbor_interactions', False)
+            use_neighbor_structure = prep_configs[i].pop('use_neighbor_structure', False)
+            use_groupby = prep_configs[i].pop('use_groupby', False)
+            use_linear_feature = prep_configs[i].pop('use_linear_feature', False)
+            use_select_spearman = prep_configs[i].pop('use_select_spearman', False)
             
             if use_groupby:
                 pipeline.append(['GroupByFeatureGenerator', {}])
@@ -283,24 +286,27 @@ class ExperimentalPrepConfigGenerator(ConfigGenerator):
 
             if use_neighbor_interactions:
                 pipeline.append(['NeighborInteractionFeatureGenerator', {}])
+            
+            if use_neighbor_structure:
+                pipeline.append(['NeighborStructureFeatureGenerator', {}])
 
             if use_linear_feature:
                 pipeline.append(['LinearFeatureGenerator', {}])
             
             if use_arithmetic_preprocessor:
-                # if model_name == 'LR':
-                #     _generator_params = {'interaction_types': ["/", "*"]}
-                # else:
-                _generator_params = {}
+                if model_name == 'LR':
+                    _generator_params = {'interaction_types': ["/", "*"]} # Not tested, just an assumption
+                else:
+                  _generator_params = {}
                 pipeline.append(['ArithmeticFeatureGenerator', _generator_params])
 
+            cat_pipeline = [['OOFTargetEncodingFeatureGenerator', {}]]
+            prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
             if use_cat_fe:
-                pipeline.append([
+                cat_pipeline.append([
                     ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
-                    ['OOFTargetEncodingFeatureGenerator', {}],
                 ])
-                prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
-
+                cat_pipeline.reverse()
 
             if use_select_spearman:
                 configs[i]['ag.prep_params'].append(pipeline)

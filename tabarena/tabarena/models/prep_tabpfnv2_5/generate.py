@@ -22,6 +22,9 @@ def _get_model_path_zip(model_cls):
 
     return zip_model_paths
 
+manual_configs = manual_configs = [
+    {},
+]
 
 search_space = {
     # Model Type
@@ -70,30 +73,35 @@ search_space = {
     "preprocessing/append_original": Categorical(True, False),
     "preprocessing/global": Categorical(None, "svd", "svd_quarter_components"),
 
-    "use_arithmetic_preprocessor": Categorical(True, False),
-    "use_cat_fe": Categorical(True, False),
+}
 
+prep_manual_configs = [
+    {
+        "use_arithmetic_preprocessor": True,
+        "use_cat_fe": True,
+        "use_groupby": True,
+        "use_rstafc": True,
+        "use_select_spearman": True,
+        "use_tafc": False,
+        "use_neighbor_interactions": False,
+        "use_neighbor_structure": False,        
+    }]
+
+prep_search_space = {
+        # Preprocessing hyperparameters
+        "use_arithmetic_preprocessor": Categorical(True, False),
+        "use_cat_fe": Categorical(True, False),
+        "use_rstafc": Categorical(True, False),
+        "use_groupby": Categorical(True, False), 
+        "use_select_spearman": Categorical(True), # Might rather tune no. of features, i.e. in {1000, 1500, 2000}
 }
 
 gen_realtabpfnv25 = PrepConfigGenerator(
     model_cls=PrepRealTabPFNv25Model,
     search_space=search_space,
-    manual_configs=[
-        {
-        "use_arithmetic_preprocessor": True,
-        "use_cat_fe": True,
-        # 'ag.prep_params': [
-        #     [
-        #         ['ArithmeticFeatureGenerator', {}],
-        #         [
-        #             ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
-        #             ['OOFTargetEncodingFeatureGenerator', {}],
-        #         ],
-        #     ],
-        # ],
-        # 'ag.prep_params.passthrough_types': {"invalid_raw_types": ["category", "object"]},
-        },
-    ],
+    manual_configs=manual_configs,
+    prep_search_space=prep_search_space,
+    prep_manual_configs=prep_manual_configs,
 )
 if __name__ == "__main__":
     from tabarena.benchmark.experiment import YamlExperimentSerializer

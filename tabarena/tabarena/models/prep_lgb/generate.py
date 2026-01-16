@@ -30,50 +30,90 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
             Float("lambda_l1", (1e-4, 1.0)),
             Float("lambda_l2", (1e-4, 2.0)),
             # could search max_bin but this is expensive
-
-            # Preprocessing hyperparameters
-            Categorical("use_arithmetic_preprocessor", [True, False]),
-            Categorical("use_cat_fe", [True, False]),
-            Categorical("ag.use_residuals", [False]),
-            Categorical("ag.residual_type", ['oof']),
-            Categorical("ag.residual_init_kwargs", [{}]),
-            Categorical("ag.max_dataset_size_for_residuals", [1000]), # NOTE: Currently: always only consider linear residuals for small datasets (N<1000)
         ],
         seed=1234,
     )
 
+    prep_search_space = ConfigurationSpace(
+        space=[
+            # Preprocessing hyperparameters
+            Categorical("use_arithmetic_preprocessor", [True, False]),
+            Categorical("use_cat_fe", [True, False]),
+            Categorical("use_rstafc", [True, False]),
+            Categorical("use_groupby", [True, False]), 
+            Categorical("use_select_spearman", [True]), # Might rather tune no. of features, i.e. in {1000, 1500, 2000}
+        ],
+        seed=123,
+    )       
+
     configs = search_space.sample_configuration(num_random_configs)
+    prep_configs = prep_search_space.sample_configuration(num_random_configs)
+    
     if num_random_configs == 1:
         configs = [configs]
+        prep_configs = [prep_configs]
     configs = [dict(config) for config in configs]
+    prep_configs = [dict(config) for config in prep_configs]
 
-    for i in range(len(configs)):
+    for i in range(len(prep_configs)):
         if 'ag.prep_params' not in configs[i]:
             configs[i]['ag.prep_params'] = []
-        prep_params_stage_1 = []
+        pipeline = []
         prep_params_passthrough_types = None
-        use_arithmetic_preprocessor = configs[i].pop('use_arithmetic_preprocessor')
-        use_cat_fe = configs[i].pop('use_cat_fe')
+        use_arithmetic_preprocessor = prep_configs[i].pop('use_arithmetic_preprocessor', False)
+        use_cat_fe = prep_configs[i].pop('use_cat_fe', False)
+        use_tafc = prep_configs[i].pop('use_tafc', False)
+        use_rstafc = prep_configs[i].pop('use_rstafc', False)
+        use_neighbor_interactions = prep_configs[i].pop('use_neighbor_interactions', False)
+        use_neighbor_structure = prep_configs[i].pop('use_neighbor_structure', False)
+        use_groupby = prep_configs[i].pop('use_groupby', False)
+        use_linear_feature = prep_configs[i].pop('use_linear_feature', False)
+        use_select_spearman = prep_configs[i].pop('use_select_spearman', False)
+        
+        if use_groupby:
+            pipeline.append(['GroupByFeatureGenerator', {}])
+            
+        if use_tafc:
+            pipeline.append(['TargetAwareFeatureCompressionFeatureGenerator', {}])
+
+        if use_rstafc:
+            pipeline.append(['RandomSubsetTAFC', {}])
+
+        if use_neighbor_interactions:
+            pipeline.append(['NeighborInteractionFeatureGenerator', {}])
+        
+        if use_neighbor_structure:
+            pipeline.append(['NeighborStructureFeatureGenerator', {}])
+
+        if use_linear_feature:
+            pipeline.append(['LinearFeatureGenerator', {}])
+        
         if use_arithmetic_preprocessor:
             _generator_params = {}
-            prep_params_stage_1.append([
-                ['ArithmeticFeatureGenerator', _generator_params],
-            ])
+            pipeline.append(['ArithmeticFeatureGenerator', _generator_params])
 
+        cat_pipeline = [['OOFTargetEncodingFeatureGenerator', {}]]
+        prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
         if use_cat_fe:
-            prep_params_stage_1.append([
+            cat_pipeline.append([
                 ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
-                ['OOFTargetEncodingFeatureGenerator', {}],
             ])
-            prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
+            cat_pipeline.reverse()
 
-        if prep_params_stage_1:
-            configs[i]['ag.prep_params'].append(prep_params_stage_1)
+        if use_select_spearman:
+            configs[i]['ag.prep_params'].append(pipeline)
+            configs[i]['ag.prep_params'].append([
+                ['SpearmanFeatureSelector', {'max_features': 2000}],
+            ])
+        else:
+            configs[i]['ag.prep_params'].extend(pipeline)
+
+
         if prep_params_passthrough_types:
             configs[i]['ag.prep_params.passthrough_types'] = prep_params_passthrough_types
 
-    return [convert_numpy_dtypes(config) for config in configs]
 
+    return [convert_numpy_dtypes(config) for config in configs]
 
 gen_lightgbm = CustomAGConfigGenerator(
     model_cls=PrepLGBModel,
@@ -82,14 +122,16 @@ gen_lightgbm = CustomAGConfigGenerator(
         {
         'ag.prep_params': [
             [
+                ['GroupByFeatureGenerator', {}],
+                ['RandomSubsetTAFC', {}],
                 ['ArithmeticFeatureGenerator', {}],
                 [
                     ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
                     ['OOFTargetEncodingFeatureGenerator', {}],
-                ],
-            ],
+                ]],            
+        ['SpearmanFeatureSelector', {'max_features': 2000}]            
         ],
-        'ag.prep_params.passthrough_types': {"invalid_raw_types": ["category", "object"]},
+        'ag.prep_params.passthrough_types': {"invalid_raw_types": ["category", "object"]}, # We never keep categorical features
         'ag.use_residuals': False,
         'ag.residual_type': 'oof',
         'ag.max_dataset_size_for_residuals': 1000,
