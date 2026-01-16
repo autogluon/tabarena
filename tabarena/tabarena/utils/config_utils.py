@@ -253,6 +253,70 @@ class PrepConfigGenerator(ConfigGenerator):
 
         return configs
 
+class ExperimentalPrepConfigGenerator(ConfigGenerator):
+    def generate_all_configs_lst(self, num_random_configs: int, name_id_suffix: str = "", model_name: str = "") -> list[dict]:
+        configs = super().generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
+        # TODO: Sample prep & model HPs separately
+        for i in range(len(configs)):
+            if 'ag.prep_params' not in configs[i]:
+                configs[i]['ag.prep_params'] = []
+            pipeline = []
+            prep_params_passthrough_types = None
+            use_arithmetic_preprocessor = configs[i].pop('use_arithmetic_preprocessor', False)
+            use_cat_fe = configs[i].pop('use_cat_fe', False)
+            use_tafc = configs[i].pop('use_tafc', False)
+            use_rstafc = configs[i].pop('use_rstafc', False)
+            use_neighbor_interactions = configs[i].pop('use_neighbor_interactions', False)
+            use_neighbor_structure = configs[i].pop('use_neighbor_structure', False)
+            use_groupby = configs[i].pop('use_groupby', False)
+            use_linear_feature = configs[i].pop('use_linear_feature', False)
+            use_select_spearman = configs[i].pop('use_select_spearman', False)
+            
+            if use_groupby:
+                pipeline.append(['GroupByFeatureGenerator', {}])
+                
+            if use_tafc:
+                pipeline.append(['TargetAwareFeatureCompressionFeatureGenerator', {}])
+
+            if use_rstafc:
+                pipeline.append(['RandomSubsetTAFC', {}])
+
+            if use_neighbor_interactions:
+                pipeline.append(['NeighborInteractionFeatureGenerator', {}])
+
+            if use_linear_feature:
+                pipeline.append(['LinearFeatureGenerator', {}])
+            
+            if use_arithmetic_preprocessor:
+                # if model_name == 'LR':
+                #     _generator_params = {'interaction_types': ["/", "*"]}
+                # else:
+                _generator_params = {}
+                pipeline.append(['ArithmeticFeatureGenerator', _generator_params])
+
+            if use_cat_fe:
+                pipeline.append([
+                    ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
+                    ['OOFTargetEncodingFeatureGenerator', {}],
+                ])
+                prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
+
+
+            if use_select_spearman:
+                configs[i]['ag.prep_params'].append(pipeline)
+                configs[i]['ag.prep_params'].append([
+                    ['SpearmanFeatureSelector', {'max_features': 2000}],
+                ])
+            else:
+                configs[i]['ag.prep_params'].extend(pipeline)
+
+
+            if prep_params_passthrough_types:
+                configs[i]['ag.prep_params.passthrough_types'] = prep_params_passthrough_types
+
+        return configs
+
+
 def generate_bag_experiments(
     model_cls,
     configs: list[dict],
