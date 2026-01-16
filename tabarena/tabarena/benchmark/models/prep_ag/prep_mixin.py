@@ -240,7 +240,7 @@ class ModelAgnosticPrepMixin:
                     # print(f'groupby: {sum(["by" in i for i in X.columns if i not in self._feature_metadata.type_map_raw])}')
                     # print(f'RSTAF: {sum(["RSTAF" in i for i in X.columns])}')
 
-                    eature_metadata_in = prep.feature_metadata
+                    feature_metadata_in = prep.feature_metadata
                 self._feature_metadata = feature_metadata_in
                 self._features_internal = self._feature_metadata.get_features()
         else:
