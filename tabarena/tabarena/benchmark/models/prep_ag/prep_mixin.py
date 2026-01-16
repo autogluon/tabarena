@@ -9,7 +9,11 @@ import pandas as pd
 from autogluon.features import ArithmeticFeatureGenerator
 from autogluon.features import CategoricalInteractionFeatureGenerator
 from autogluon.features import OOFTargetEncodingFeatureGenerator
-from autogluon.features import BulkFeatureGenerator
+from autogluon.features import OOFTargetEncodingFeatureGenerator, OOFNumericTargetEncodingFeatureGenerator, OOFFrequentNumericTargetEncodingFeatureGenerator
+from autogluon.features import TargetAwareFeatureCompressionFeatureGenerator, RandomSubsetTAFC
+from autogluon.features import NeighborInteractionFeatureGenerator, NeighborStructureFeatureGenerator
+from autogluon.features import BulkFeatureGenerator, IdentityFeatureGenerator
+from autogluon.features import GroupByFeatureGenerator, LinearFeatureGenerator, SpearmanFeatureSelector
 from autogluon.features.generators.abstract import AbstractFeatureGenerator
 
 logger = logging.getLogger(__name__)
@@ -19,6 +23,15 @@ _feature_generator_class_lst = [
     ArithmeticFeatureGenerator,
     CategoricalInteractionFeatureGenerator,
     OOFTargetEncodingFeatureGenerator,
+    TargetAwareFeatureCompressionFeatureGenerator,
+    RandomSubsetTAFC,
+    NeighborInteractionFeatureGenerator,
+    NeighborStructureFeatureGenerator,
+    GroupByFeatureGenerator,
+    OOFNumericTargetEncodingFeatureGenerator,
+    OOFFrequentNumericTargetEncodingFeatureGenerator,
+    LinearFeatureGenerator,
+    SpearmanFeatureSelector,
 ]
 
 _feature_generator_class_map = {
@@ -76,6 +89,13 @@ class ModelAgnosticPrepMixin:
                 prep_cls = CategoricalInteractionFeatureGenerator(target_type=self.problem_type, **init_params)
             elif preprocessor_cls_name == 'OOFTargetEncodingFeatureGenerator':
                 prep_cls = OOFTargetEncodingFeatureGenerator(target_type=self.problem_type, **init_params)
+            elif preprocessor_cls_name in ['TargetAwareFeatureCompressionFeatureGenerator', 'RandomSubsetTAFC', 
+                                           'NeighborInteractionFeatureGenerator', 'NeighborStructureFeatureGenerator',
+                                           'LinearFeatureGenerator',
+                                           'SpearmanFeatureSelector',
+                                           'GroupByFeatureGenerator','OOFNumericTargetEncodingFeatureGenerator','OOFFrequentNumericTargetEncodingFeatureGenerator']:
+                print(f"Estimating dtypes after preprocessing not yet implemented for {preprocessor_cls_name}, skipping...")
+                continue
             else:
                 raise ValueError(f"Unknown preprocessor class name: {preprocessor_cls_name}")
             n_numeric, n_categorical, n_binary = prep_cls.estimate_new_dtypes(n_numeric, n_categorical, n_binary, num_classes=self.num_classes)
@@ -208,7 +228,19 @@ class ModelAgnosticPrepMixin:
                 for prep in self.preprocessors:
                     X = prep.fit_transform(X, y, feature_metadata_in=feature_metadata_in)
                     # FIXME: Nick: This is incorrect because it strips away special dtypes. Need to do this properly by fixing in the preprocessors
-                    feature_metadata_in = prep.feature_metadata
+                    # For debugging purposes:
+                    # print(f"New: {X.shape[1]}")
+                    # print(f"Original: {len(self._feature_metadata.type_map_raw.keys())}")
+                    # print(f"Original left: {sum([i in X.columns for i in self._feature_metadata.type_map_raw.keys()])}")
+                    # print(f"Original cat features left: {len([k for k,v in self._feature_metadata.type_map_raw.items() if v=='category' and k in X.columns])}")
+                    # print(f"Original num features left: {len([k for k,v in self._feature_metadata.type_map_raw.items() if v!='category' and k in X.columns])}")
+                    # print(f'Arithmetic: {sum([("-" in i or "+" in i or "*" in i or "/" in i) and i not in self._feature_metadata.type_map_raw for i in X.columns])}')
+                    # print(f'TE: {sum(["__te" in i for i in X.columns])}')
+                    # print(f'&: {sum(["&" in i for i in X.columns if i not in self._feature_metadata.type_map_raw])}')
+                    # print(f'groupby: {sum(["by" in i for i in X.columns if i not in self._feature_metadata.type_map_raw])}')
+                    # print(f'RSTAF: {sum(["RSTAF" in i for i in X.columns])}')
+
+                    eature_metadata_in = prep.feature_metadata
                 self._feature_metadata = feature_metadata_in
                 self._features_internal = self._feature_metadata.get_features()
         else:
