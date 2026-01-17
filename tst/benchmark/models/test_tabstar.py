@@ -7,10 +7,10 @@ def test_tabstar():
     try:
         from autogluon.tabular.testing import FitHelper
         from tabarena.benchmark.models.ag.tabstar.tabstar_model import (
-            TabStarModel,
+            TabSTARModel,
         )
 
-        model_cls = TabStarModel
+        model_cls = TabSTARModel
         FitHelper.verify_model(model_cls=model_cls, model_hyperparameters={"max_epochs": 1})
     except ImportError as err:
         pytest.skip(

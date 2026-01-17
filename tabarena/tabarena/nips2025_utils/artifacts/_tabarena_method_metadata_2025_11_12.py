@@ -46,7 +46,7 @@ contexttab_metadata = MethodMetadata(
 
 # TODO: finalize metadata
 tabstar = MethodMetadata(
-    method="TabStar",
+    method="TabSTAR",
     method_type="config",
     compute="gpu",
     date="2025-12-13",

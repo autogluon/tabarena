@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.tabstar.tabstar_model import TabStarModel
+from tabarena.benchmark.models.ag.tabstar.tabstar_model import TabSTARModel
 from tabarena.utils.config_utils import ConfigGenerator
 from autogluon.common.space import Categorical
 
 gen_tabstar = ConfigGenerator(
-    model_cls=TabStarModel,
+    model_cls=TabSTARModel,
     manual_configs=[{}],
     search_space={
         "lora_lr": Categorical(0.0001, 0.0002, 0.0005, 0.001, 0.002),

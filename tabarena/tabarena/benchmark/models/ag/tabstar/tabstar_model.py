@@ -4,24 +4,23 @@ import logging
 from typing import TYPE_CHECKING
 
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.core.constants import BINARY, MULTICLASS, REGRESSION
 from autogluon.core.models import AbstractModel
 
 if TYPE_CHECKING:
     import pandas as pd
-    from autogluon.core.metrics import Scorer
 
 
 logger = logging.getLogger(__name__)
 
 
-# TODO: early stopping should support dynamic patience
-# TODO: make sure AutoGluon gives class labels not ordinal encoded! (local branch of AG + PR https://github.com/autogluon/autogluon/pull/5482)
-class TabStarModel(AbstractModel):
-    """TabStar Model: https://arxiv.org/abs/2505.18125."""
+# TODO:
+#   - make sure AutoGluon gives class labels not ordinal encoded! (local branch of AG + PR https://github.com/autogluon/autogluon/pull/5482)
+#   - support for metric_name was rolled back, so maybe in the future add support for AG metrics again.
+class TabSTARModel(AbstractModel):
+    """TabSTAR Model: https://arxiv.org/abs/2505.18125."""
 
     ag_key = "TABSTAR"
-    ag_name = "TabStar"
+    ag_name = "TabSTAR"
     ag_priority = 65
     seed_name = "random_state"
 
@@ -76,9 +75,6 @@ class TabStarModel(AbstractModel):
             val_batch_size=predict_batch_size,
             time_limit=time_limit,
             device=device,
-            metric_name=self.get_metric_from_ag_metric(
-                metric=self.stopping_metric, problem_type=self.problem_type
-            ),
             output_dir=self.path + "/model_checkpoints",
         )
 
@@ -101,16 +97,13 @@ class TabStarModel(AbstractModel):
             X_val = self.preprocess(X_val)
         # Inverse label transformation to retain original semantics for classification
         #   - hasattr for backward compatibility
-        if hasattr(self, "label_cleaner") and (self.label_cleaner is not None):
-            if self.problem_type in ["binary", "multiclass"]:
-                y = self.label_cleaner.inverse_transform(y)
-                if y_val is not None:
-                    y_val = self.label_cleaner.inverse_transform(y_val)
-        else:
-            logger.warning(
-                "No label cleaner present in TabStarModel. "
-                "Target semantics will be lost to the model!."
-            )
+        if self.problem_type in ["binary", "multiclass"]:
+            if (not hasattr(self, "label_cleaner")) or (self.label_cleaner is None):
+                raise ValueError("Label cleaner missing from AbstractModel!")
+
+            y = self.label_cleaner.inverse_transform(y)
+            if y_val is not None:
+                y_val = self.label_cleaner.inverse_transform(y_val)
 
         # FIXME: .fit does not return self as expected from sklearn API
         self.model.fit(
@@ -167,22 +160,4 @@ class TabStarModel(AbstractModel):
         return {"can_estimate_memory_usage_static": False}
 
     def _more_tags(self) -> dict:
-        # Requires val split, so not refit full compatible
-        return {"can_refit_full": False}
-
-    @staticmethod
-    def get_metric_from_ag_metric(*, metric: Scorer, problem_type: str):
-        """Map AutoGluon metric for early stopping."""
-        # TODO: support more metric and metric map akin to RealMLP
-        if problem_type == BINARY:
-            metric_class = "roc_auc"
-        elif problem_type == MULTICLASS:
-            metric_class = "logloss"
-        elif problem_type == REGRESSION:
-            metric_class = "rmse"
-        else:
-            raise AssertionError(
-                f"{problem_type} problem type not supported for early stopping map."
-            )
-
-        return metric_class
+        return {"can_refit_full": True}
