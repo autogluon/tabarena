@@ -105,7 +105,7 @@ class PerpetualBoostingModel(AbstractModel):
         default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
         extra_ag_args_ensemble = {
             # FIXME: Default to sequential_local due to problems with memory limit and
-            # how it is handled by PerpetualBooster. Change back if needed.
+            #   how it is handled by PerpetualBooster. Change back if needed.
             "fold_fitting_strategy": "sequential_local",
             # Following https://github.com/perpetual-ml/perpetual/issues/66#issuecomment-3073175292
             "refit_folds": True,
