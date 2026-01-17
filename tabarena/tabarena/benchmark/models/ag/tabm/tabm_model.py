@@ -1,5 +1,4 @@
-"""
-Note: This is a custom implementation of TabM based on TabArena. Because the AutoGluon 1.4 release occurred at nearly
+"""Note: This is a custom implementation of TabM based on TabArena. Because the AutoGluon 1.4 release occurred at nearly
 the same time as TabM became available on PyPi, we chose to use TabArena's implementation
 for the AutoGluon 1.4 release as it has already been benchmarked.
 """
@@ -10,17 +9,16 @@ import logging
 import time
 
 import pandas as pd
-
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.models import AbstractModel
+
 from autogluon.tabular import __version__
 
 logger = logging.getLogger(__name__)
 
 
 class TabMModel(AbstractModel):
-    """
-    TabM is an efficient ensemble of MLPs that is trained simultaneously with mostly shared parameters.
+    """TabM is an efficient ensemble of MLPs that is trained simultaneously with mostly shared parameters.
 
     TabM is one of the top performing methods overall on TabArena-v0.1: https://tabarena.ai
 
@@ -31,6 +29,7 @@ class TabMModel(AbstractModel):
 
     Partially adapted from pytabkit's TabM implementation.
     """
+
     ag_key = "TA-TABM"
     ag_name = "TA-TabM"
     ag_priority = 85
@@ -53,6 +52,7 @@ class TabMModel(AbstractModel):
         time_limit: float | None = None,
         num_cpus: int = 1,
         num_gpus: float = 0,
+        verbosity: int = 2,
         **kwargs,
     ):
         start_time = time.time()
@@ -81,7 +81,7 @@ class TabMModel(AbstractModel):
         if X_val is None:
             from autogluon.core.utils import generate_train_test_split
 
-            X_train, X_val, y_train, y_val = generate_train_test_split(
+            X, X_val, y, y_val = generate_train_test_split(
                 X=X,
                 y=y,
                 problem_type=self.problem_type,
@@ -97,6 +97,7 @@ class TabMModel(AbstractModel):
             X_val = self.preprocess(X_val)
 
         self.model = TabMImplementation(
+            verbosity=verbosity,
             n_threads=num_cpus,
             device=device,
             problem_type=self.problem_type,
@@ -110,7 +111,9 @@ class TabMModel(AbstractModel):
             X_val=X_val,
             y_val=y_val,
             cat_col_names=X.select_dtypes(include="category").columns.tolist(),
-            time_to_fit_in_seconds=time_limit - (time.time() - start_time) if time_limit is not None else None,
+            time_to_fit_in_seconds=time_limit - (time.time() - start_time)
+            if time_limit is not None
+            else None,
         )
 
     # FIXME: bool_to_cat is a hack: Maybe move to abstract model?
@@ -128,7 +131,9 @@ class TabMModel(AbstractModel):
 
         if is_train:
             self._bool_to_cat = bool_to_cat
-            self._features_bool = self._feature_metadata.get_features(required_special_types=["bool"])
+            self._features_bool = self._feature_metadata.get_features(
+                required_special_types=["bool"]
+            )
         if self._bool_to_cat and self._features_bool:
             # FIXME: Use CategoryFeatureGenerator? Or tell the model which is category
             X = X.copy(deep=True)
@@ -172,13 +177,11 @@ class TabMModel(AbstractModel):
         cls,
         *,
         X: pd.DataFrame,
-        hyperparameters: dict = None,
+        hyperparameters: dict | None = None,
         num_classes: int | None = 1,
         **kwargs,
     ) -> int:
-        """
-        Heuristic memory estimate that correlates strongly with RealMLP
-        """
+        """Heuristic memory estimate that correlates strongly with RealMLP."""
         if num_classes is None:
             num_classes = 1
         if hyperparameters is None:
@@ -198,15 +201,13 @@ class TabMModel(AbstractModel):
 
         # TODO: This estimates very high memory usage,
         #  we probably need to adjust batch size automatically to compensate
-        mem_estimate_bytes = cls._estimate_tabm_ram(
+        return cls._estimate_tabm_ram(
             hyperparameters=hyperparameters,
             n_numerical=n_numerical,
             cat_sizes=cat_sizes,
             n_classes=num_classes,
             n_samples=len(X),
         )
-
-        return mem_estimate_bytes
 
     @classmethod
     def _estimate_tabm_ram(
@@ -232,9 +233,12 @@ class TabMModel(AbstractModel):
 
         # not completely sure
         n_params_num_emb = n_numerical * (num_emb_n_bins + 1) * d_embedding
-        n_params_mlp = (n_numerical + sum(cat_sizes)) * d_embedding * (d_block + tabm_k) \
-                       + (n_blocks - 1) * d_block ** 2 \
-                       + n_blocks * d_block + d_block * (1 + max(1, n_classes))
+        n_params_mlp = (
+            (n_numerical + sum(cat_sizes)) * d_embedding * (d_block + tabm_k)
+            + (n_blocks - 1) * d_block**2
+            + n_blocks * d_block
+            + d_block * (1 + max(1, n_classes))
+        )
         # 4 bytes per float, up to 5 copies of parameters (1 standard, 1 .grad, 2 adam, 1 best_epoch)
         mem_params = 4 * 5 * (n_params_num_emb + n_params_mlp)
 
@@ -246,15 +250,17 @@ class TabMModel(AbstractModel):
         # 2 for pre-act, post-act
         n_floats_forward += n_blocks * 2 * d_block + 2 * max(1, n_classes)
         # 2 for forward and backward, 4 bytes per float
-        mem_forward_backward = 4 * max(batch_size * 2, predict_batch_size) * n_floats_forward * tabm_k
+        mem_forward_backward = (
+            4 * max(batch_size * 2, predict_batch_size) * n_floats_forward * tabm_k
+        )
         # * 8 is pessimistic for the long tensors in the forward pass, 4 would probably suffice
 
         mem_ds = n_samples * (4 * n_numerical + 8 * len(cat_sizes))
 
         # some safety constants and offsets (the 5 is probably excessive)
-        mem_total = 5 * mem_ds + 1.2 * mem_forward_backward + 1.2 * mem_params + 0.3 * (1024 ** 3)
-
-        return mem_total
+        return (
+            5 * mem_ds + 1.2 * mem_forward_backward + 1.2 * mem_params + 0.3 * (1024**3)
+        )
 
     @classmethod
     def get_tabm_auto_batch_size(cls, n_samples: int) -> int:
@@ -273,7 +279,10 @@ class TabMModel(AbstractModel):
 
     @classmethod
     def _class_tags(cls):
-        return {"can_estimate_memory_usage_static": True}
+        return {
+            "can_estimate_memory_usage_static": True,
+            "reset_torch_threads": True,
+        }
 
     def _more_tags(self) -> dict:
         # TODO: Need to add train params support, track best epoch

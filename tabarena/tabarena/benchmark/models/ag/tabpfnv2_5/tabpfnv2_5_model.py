@@ -100,7 +100,7 @@ class TabPFNModel(AbstractModel):
                 "Please switch to CPU usage instead.",
             )
 
-        X = self.preprocess(X, is_train=True)
+        X = self.preprocess(X, y=y, is_train=True)
 
         hps = self._get_model_params()
         hps["device"] = device
@@ -290,8 +290,8 @@ class RealTabPFNv25Model(TabPFNModel):
     The extra checkpoints include models trained on only synthetic datasets as well.
     """
 
-    ag_key = "REALTABPFN-V2.5"
-    ag_name = "RealTabPFN-v2.5"
+    ag_key = "TA-REALTABPFN-V2.5"
+    ag_name = "TA-RealTabPFN-v2.5"
 
     default_classification_model: str | None = (
         "tabpfn-v2.5-classifier-v2.5_default.ckpt"

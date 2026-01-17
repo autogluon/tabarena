@@ -31,6 +31,7 @@ class ExperimentRunner:
         input_format: Literal["openml", "csv"] = "openml",
         cacher: AbstractCacheFunction | None = None,
         debug_mode: bool = True,
+        eval_metric_name: str | None = None,
     ):
         """
 
@@ -53,6 +54,9 @@ class ExperimentRunner:
             IF False, will operate in a manner best suited for large-scale benchmarking.
             This mode will try to record information when method's fail
             and might not work well with local debuggers.
+        eval_metric_name: str, default None
+            If provided, will override the default evaluation metric for the task.
+            If None, will use the default metric based on the task's problem type.
         """
         assert input_format in ["openml", "csv"]
         self.method_cls = method_cls
@@ -65,12 +69,16 @@ class ExperimentRunner:
         self.fit_args = fit_args
         self.cleanup = cleanup
         self.input_format = input_format
-        ag_eval_metric_map = {
-            'binary': 'roc_auc',
-            'multiclass': 'log_loss',
-            'regression': 'rmse',
-        }
-        self.eval_metric_name = ag_eval_metric_map[self.task.problem_type]  # FIXME: Don't hardcode eval metric
+        if eval_metric_name is None:
+            # FIXME: Don't hardcode eval metric
+            ag_eval_metric_map = {
+                'binary': 'roc_auc',
+                'multiclass': 'log_loss',
+                'regression': 'rmse',
+            }
+            self.eval_metric_name = ag_eval_metric_map[self.task.problem_type]
+        else:
+            self.eval_metric_name = eval_metric_name
         self.eval_metric: Scorer = get_metric(metric=self.eval_metric_name, problem_type=self.task.problem_type)
         self.model: AbstractExecModel | None = None
         self.task_split_idx = self.task.get_split_idx(fold=self.fold, repeat=self.repeat, sample=self.sample)

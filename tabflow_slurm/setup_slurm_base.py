@@ -13,16 +13,13 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from itertools import product
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+import pandas as pd
 import ray
 import yaml
 from tabarena.benchmark.experiment.experiment_utils import check_cache_hit
 from tabarena.utils.cache import CacheFunctionPickle
 from tabarena.utils.ray_utils import ray_map_list, to_batch_list
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @dataclass
@@ -34,7 +31,7 @@ class BenchmarkSetup:
 
     # Cluster Settings
     # ----------------
-    base_path = "/work/dlclarge2/purucker-tabarena/"
+    base_path: str = "/work/dlclarge2/purucker-tabarena/"
     """Base path for the project, code, and results. Within this directory, all results, code, and logs for TabArena will
     be saved. Adjust below as needed if more than one base path is desired. On a typical SLURM system, this base path
     should point to a persistent workspace that all your jobs can access.
@@ -48,7 +45,7 @@ class BenchmarkSetup:
             - slurm_out         -- contains all SLURM output logs
             - .openml-cache     -- contains the OpenML cache
     """
-    python_from_base_path: str = "venvs/tabarena_07112025/bin/python"
+    python_from_base_path: str = "venvs/tabarena_ag_191225/bin/python"
     """Python executable and environment to use for the SLURM jobs. This should point to a Python
     executable within a (virtual) environment."""
     run_script_from_base_path: str = (
@@ -78,11 +75,15 @@ class BenchmarkSetup:
     """SLURM partition to use for GPU jobs. Adjust as needed for your cluster setup."""
     slurm_cpu_partition: str = "bosch_cpu-cascadelake"
     """SLURM partition to use for CPU jobs. Adjust as needed for your cluster setup."""
-
+    slurm_extra_gres: str | None = "localtmp:100"
+    """Extra SLURM gres to use for the jobs. Adjust as needed for your cluster setup."""
     # Task/Data Settings
     # ------------------
-    custom_metadata: pd.DataFrame | None = None
+    custom_metadata: pd.DataFrame | str | None = None
     """Custom metadata to use for defining the tasks and datasets to run.
+
+    If str, it is assumed to be a path to a CSV file with the metadata.
+    If None, the default curated TabArena metadata is used.
 
     The metadata must have the following columns:
         "tabarena_num_repeats": int
@@ -126,9 +127,13 @@ class BenchmarkSetup:
     """Memory/RAM limit for the SLURM jobs in GB. The memory limit available on the node."""
     time_limit: int = 3600
     """Time limit for each fit (all 8 folds) of a model in seconds. By default, 3600 seconds is used."""
+    time_limit_overhead: int = 1
+    """Overhead time in hours to add to the SLURM time limit to account for
+    job scheduling and other non-model fitting overhead."""
     n_random_configs: int = 200
     """Number of random hyperparameter configurations to run for each model"""
-    models: list[tuple[str, int | str]] = field(default_factory=list)
+    # TODO: make less hacky and document ag experiment usage
+    models: list[tuple[str, int | str | dict]] = field(default_factory=list)
     """List of models to run in the benchmark with metadata.
     Metadata keys from left to right:
         - model name: str
@@ -136,6 +141,7 @@ class BenchmarkSetup:
             Some special cases are:
                 - If 0, only the default configuration is run.
                 - If "all", `n_random_configs`-many configurations are run.
+                - If dict, kwargs for AGExperiment
 
     Remove or comment out models to that you do not want to run.
     Examples from the current state of TabArena are:
@@ -283,6 +289,8 @@ class BenchmarkSetup:
     Set this is to some string value to make sure you can run parallel jobs for the same
     benchmark name.
     """
+    verbosity: int = 2
+    """Verbosity level for logging and printing."""
 
     @property
     def _safe_benchmark_name(self) -> str:
@@ -295,7 +303,9 @@ class BenchmarkSetup:
     @property
     def slurm_job_json(self) -> str:
         """JSON file with the job data to run used by SLURM. This is generated from the configs and metadata."""
-        return f"slurm_run_data_{self._safe_benchmark_name}.json"
+        # TODO: change UX for config and slurm paths.
+        path_to_config_file = str(Path(self.configs_path_from_base_path).parent) + "/"
+        return f"{self.base_path}{path_to_config_file}slurm_run_data_{self._safe_benchmark_name}.json"
 
     @property
     def configs(self) -> str:
@@ -356,10 +366,14 @@ class BenchmarkSetup:
         partition = self.slurm_gpu_partition if is_gpu_job else self.slurm_cpu_partition
         partition = "--partition=" + partition
 
-        gres = f"gpu:{self.num_gpus},localtmp:100" if is_gpu_job else "localtmp:100"
-        gres = f"--gres={gres}"
+        gres = f"gpu:{self.num_gpus}" if is_gpu_job else ""
+        if self.slurm_extra_gres:
+            if len(gres) > 0:
+                gres += ","
+            gres += self.slurm_extra_gres
+        gres = f"--gres={gres}" if len(gres) > 0 else None
 
-        time_in_h = self.time_limit // 3600 * self.configs_per_job + 1
+        time_in_h = self.time_limit // 3600 * self.configs_per_job + self.time_limit_overhead
         time_in_h = f"--time={time_in_h}:00:00"
         cpus = f"--cpus-per-task={self.num_cpus}"
         if is_gpu_job:
@@ -370,7 +384,10 @@ class BenchmarkSetup:
 
         slurm_logs = f"--output={self.slurm_log_output}/%A/slurm-%A_%a.out"
 
-        return f"{partition} {gres} {time_in_h} {cpus} {mem} {slurm_logs} {script}"
+        cmd_arg = f"{partition}"
+        if gres is not None:
+            cmd_arg += f" {gres}"
+        return f"{cmd_arg} {time_in_h} {cpus} {mem} {slurm_logs} {script}"
 
     def get_jobs_to_run(self):  # noqa: C901
         """Determine all jobs to run by checking the cache and filtering
@@ -387,8 +404,14 @@ class BenchmarkSetup:
             )
 
             metadata = load_curated_task_metadata()
-        else:
+        elif isinstance(self.custom_metadata, pd.DataFrame):
             metadata = deepcopy(self.custom_metadata)
+        elif isinstance(self.custom_metadata, str):
+            metadata = pd.read_csv(self.custom_metadata)
+        else:
+            raise ValueError(
+                f"Invalid custom_metadata type: {type(self.custom_metadata)}."
+            )
 
         self.generate_configs_yaml()
         # Read YAML file and get the number of configs
@@ -498,11 +521,11 @@ class BenchmarkSetup:
         from tabarena.models.utils import get_configs_generator_from_name
 
         experiments_lst = []
-        method_kwargs = {}
+        method_kwargs = {
+            "init_kwargs": {"verbosity": self.verbosity},
+        }
         if self.model_artifacts_base_path is not None:
-            method_kwargs["init_kwargs"] = {
-                "default_base_path": self.model_artifacts_base_path
-            }
+            method_kwargs["init_kwargs"]["default_base_path"] = self.model_artifacts_base_path
         if not self.model_agnostic_preprocessing:
             method_kwargs["fit_kwargs"] = {"feature_generator": None}
 
@@ -521,7 +544,33 @@ class BenchmarkSetup:
                 pipeline_method_kwargs["preprocessing_pipeline"] = preprocessing_name
                 name_id_suffix = f"_{preprocessing_name}"
 
-            for model_name, n_configs in self.models:
+            for model_name, n_configs_or_kwargs in self.models:
+                # TODO: make less hacky
+                if model_name.startswith("AutoGluon"):
+                    from tabarena.benchmark.experiment.experiment_constructor import (
+                        AGExperiment,
+                    )
+
+                    agexp_kwargs = n_configs_or_kwargs
+
+                    for key in ["fit_kwargs", "init_kwargs"]:
+                        if key not in agexp_kwargs:
+                            agexp_kwargs[key] = {}
+                        if key in pipeline_method_kwargs:
+                            agexp_kwargs[key].update(pipeline_method_kwargs[key])
+                    agexp_kwargs["fit_kwargs"]["time_limit"] = self.time_limit
+
+                    experiments_lst.append(
+                        [
+                            AGExperiment(
+                                name=model_name,
+                                **agexp_kwargs,
+                            )
+                        ]
+                    )
+                    continue
+
+                n_configs = n_configs_or_kwargs
                 if isinstance(n_configs, str) and n_configs == "all":
                     n_configs = self.n_random_configs
                 elif not isinstance(n_configs, int):
@@ -744,8 +793,13 @@ def should_run_job(
         ]  # Extract the local task ID if it is a UserTask.task_id_str
 
     # Filter out-of-constraints datasets
+    if "model_cls" in config:
+        model_cls = config["model_cls"]
+    else:
+        assert config["name"].startswith("AutoGluon")
+        model_cls = "AutoGluon"
     if not BenchmarkSetup.are_model_constraints_valid(
-        model_cls=config["model_cls"],
+        model_cls=model_cls,
         n_features=input_data["n_features"],
         n_classes=input_data["n_classes"],
         n_samples_train_per_fold=input_data["n_samples_train_per_fold"],

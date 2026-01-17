@@ -25,6 +25,7 @@ from tabarena.nips2025_utils.eval_all import evaluate_all
 _methods_paper = [
     "AutoGluon_v140_bq_4h8c",
     "AutoGluon_v140_eq_4h8c",
+    "AutoGluon_v150_eq_4h8c",
     # "Portfolio-N200-4h",
 
     "CatBoost",
@@ -254,6 +255,7 @@ class TabArenaContext:
         configs: list[str],
         config_fallback: str | None = None,
         repo: EvaluationRepositoryCollection = None,
+        **kwargs,
     ):
         if repo is None:
             repo = self.load_repo(config_fallback=config_fallback)
@@ -261,6 +263,7 @@ class TabArenaContext:
 
         results = simulator.evaluate_ensembles(
             configs=configs,
+            **kwargs,
         )
 
         results = results.rename(columns={"framework": "method"})
@@ -629,7 +632,7 @@ class TabArenaContext:
             if not invalid.empty:
                 raise AssertionError(
                     f"Found a method with multiple values for column {c} (must be unique):\n"
-                    f"{groupby_method_invalid.value_counts()}"
+                    f"{groupby_method_invalid.value_counts(dropna=False)}"
                 )
 
             # Using .first() is safe because nunique == 1 for every method

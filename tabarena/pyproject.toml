@@ -15,7 +15,7 @@ requires-python = ">=3.10"
 #   uv pip install --prerelease=allow .
 dependencies = [
   # TODO: To use `uv`, you need to do `uv pip install --prerelease=allow .` so it recognizes pre-release AutoGluon
-  "autogluon>=1.4.1b20250910,<1.5",  # TODO: Remove after moving `benchmark` code elsewhere
+  "autogluon>=1.5,<1.6",  # TODO: Remove after moving `benchmark` code elsewhere
   "bencheval",
   "openml>=0.14.1",  # consider making optional
   "pyyaml",
@@ -50,6 +50,7 @@ tabm = ["torch"]
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
 sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa"]
+tabprep = []
 
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [
@@ -62,7 +63,7 @@ benchmark = [
   "torch",
   "category_encoders",
   "xrfm[cu12]",
-  "sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa"
+  "sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa",
 ]
 
 [project.urls]

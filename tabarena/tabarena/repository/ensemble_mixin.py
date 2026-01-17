@@ -113,6 +113,8 @@ class EnsembleMixin:
                 config_metrics=config_metrics,
                 max_cumruntime=time_limit,
             )
+        else:
+            configs_fit_order = configs
 
         configs_available = [c for c in configs if c in set(configs_all)]
 

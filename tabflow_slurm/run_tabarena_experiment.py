@@ -128,6 +128,13 @@ def run_experiment(
         if (config_index is not None) and (m_i not in config_index):
             continue
 
+        if method["type"] == "AGExperiment":
+            method["fit_kwargs"]["num_cpus"] = num_cpus
+            method["fit_kwargs"]["num_gpus"] = num_gpus
+            method["fit_kwargs"]["memory_limit"] = memory_limit
+            methods.append(YamlSingleExperimentSerializer.parse_method(method))
+            continue
+
         if "method_kwargs" not in method:
             method["method_kwargs"] = {}
 

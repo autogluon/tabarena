@@ -48,18 +48,30 @@ def run_eval_for_new_models(
 
     for model in models:
         if not model.only_load_cache:
-            EndToEndSingle.from_path_raw_to_results(
+            method_name_from_metadata = EndToEndSingle.from_path_raw_to_results(
                 path_raw=model.path_raw / "data",
+                name_prefix_raw=model.method,
                 name_suffix=model.new_result_prefix,
                 artifact_name=model.new_result_prefix,
                 num_cpus=8,
-            )
+            ).method_metadata.method
+            if model.new_result_prefix is not None:
+                method_name_from_metadata = method_name_from_metadata.replace(model.new_result_prefix, "")
+            if method_name_from_metadata != model.method:
+                raise ValueError(
+                    f"Method name mismatch: metadata has {model.method}, "
+                    f"but result has {method_name_from_metadata}."
+                    "Make sure to pass the 'ag_name' as 'method' to 'ModelMetadata'!"
+                )
 
-    end_to_end_results = EndToEndResults.from_cache(
-        # TODO: check if "+ model.new_result_prefix" is correct here
-        # methods=[(m.method + m.new_result_prefix, m.new_result_prefix) for m in models]
-        methods=[m.method for m in models]
-    )
+
+    methods = []
+    for m in models:
+        if m.new_result_prefix is None:
+            methods.append(m.method)
+        else:
+            methods.append((m.method + m.new_result_prefix, m.new_result_prefix))
+    end_to_end_results = EndToEndResults.from_cache(methods=methods)
 
     def plot_plots(_fig_output_dir, _subset=None):
         leaderboard = end_to_end_results.compare_on_tabarena(
@@ -85,11 +97,15 @@ if __name__ == "__main__":
     run_eval_for_new_models(
         [
             ModelMetadata(
-                path_raw=out_dir / "sap_rpt_oss_new_2411",
-                method="SAP-RPT-OSS",
+                path_raw=out_dir / "ag_experiment_191225",
+                method="AutoGluon_extreme_v150_4h",
+            ),
+            ModelMetadata(
+                path_raw=out_dir / "ag_experiment_191225",
+                method="AutoGluon_extreme_noncommercial_v150_4h",
             ),
         ],
-        extra_subsets=[["tabpfn"]],
-        fig_output_dir=fig_dir / "sap_rpt_oss_new_2411",
+        extra_subsets=[["lite"]],
+        fig_output_dir=fig_dir / "ag_experiment_191225",
         cache_path="/work/dlclarge2/purucker-tabarena/output/tabarena_cache",
     )
