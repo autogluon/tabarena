@@ -32,6 +32,8 @@ dependencies = [
   "seaborn==0.13.2",
   "matplotlib==3.10.1",
   "plotly>=6.3.0",
+  # TODO: support such that it does not create 1000s of cache files in home dir
+  #     - Otherwise, uninstall.
   "kaleido>=0.2.1,<1",  # for winrate matrix
 ]
 
