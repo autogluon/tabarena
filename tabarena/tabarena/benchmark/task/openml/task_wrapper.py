@@ -19,12 +19,19 @@ logger = logging.getLogger(__name__)
 
 
 class OpenMLTaskWrapper:
-    def __init__(self, task: OpenMLSupervisedTask):
+    def __init__(self, task: OpenMLSupervisedTask, *, use_task_eval_metric: bool = False):
         assert isinstance(task, OpenMLSupervisedTask)
         self.task: OpenMLSupervisedTask = task
         self.X, self.y = get_task_data(task=self.task)
         self.problem_type = get_ag_problem_type(self.task)
         self.label = self.task.target_name
+
+        # TODO: check if we can always use the eval metric from the task for TabArena
+        #   tasks?
+        if use_task_eval_metric and (self.task.evaluation_measure is not None):
+            self._eval_metric = self.task.evaluation_measure
+        else:
+            self._eval_metric = None
 
     @classmethod
     def from_task_id(cls, task_id: int) -> Self:
@@ -41,10 +48,14 @@ class OpenMLTaskWrapper:
 
     @property
     def eval_metric(self) -> str:
+        if self._eval_metric is not None:
+            return self._eval_metric
         metric_map = {
             "binary": "roc_auc",
             "multiclass": "log_loss",
-            "regression": "root_mean_squared_error",
+            # Same value/name used in ExperimentRunner.eval_metric_name
+            #   - mostly for backwards compatibility
+            "regression": "rmse",
         }
         return metric_map[self.problem_type]
 

@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --ntasks=1
 #SBATCH --job-name=tabarena_run
-#SBATCH --export=ALL
+#SBATCH --export=ALL,TABPFN_DISABLE_TELEMETRY=1
 #SBATCH --requeue
 #SBATCH --propagate=NONE
 
-#### Set by outer script
+#### Set by outer script (for example on the university cluster):
 ## For GPU
 ##SBATCH --gres=gpu:1,localtmp:100
 ##SBATCH --partition=alldlc2_gpu-l40s # --partition=mldlc2_gpu-h200

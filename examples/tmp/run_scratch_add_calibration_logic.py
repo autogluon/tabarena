@@ -133,11 +133,16 @@ def simulate_calibration(method_metadata, run_toy: bool = False):
 if __name__ == "__main__":
     metadata_lst = tabarena_method_metadata_collection.method_metadata_lst
     metadata_lst = [m for m in metadata_lst if m.method_type == "config"]
-    run_toy = True
+    run_toy = True  # If True, only calculates using up to 5 configs per method and runs sequentially (debugger friendly).
+    run_only_small_methods = True  # If True, avoids downloading large method results (only runs models that have a single config). If False, will end up downloading 300+ GB of model predictions if not already present.
+    if run_only_small_methods:
+        metadata_lst = [m for m in metadata_lst if not m.can_hpo]
     if run_toy:
         out_dir = "calibration_results_toy"
     else:
         out_dir = "calibration_results"
+    if run_only_small_methods:
+        out_dir += "_only_small"
 
     num_methods = len(metadata_lst)
     new_results_lst = []
@@ -160,7 +165,7 @@ if __name__ == "__main__":
         new_results=all_new_results,
         only_valid_tasks=True,
         average_seeds=False,
-        score_on_val=True,
+        # score_on_val=True,  # Uncomment to look at validation scores instead of test scores
     )
 
     all_new_results_methods = list(all_new_results["method"].unique())

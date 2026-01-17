@@ -60,13 +60,15 @@ class TrainingJobResourceManager:
                 elif job_status == 'Stopped':
                     self.job_statuses['Stopped'] += 1
 
-                save_training_job_logs(
-                    self.sagemaker_client, 
-                    s3_client, 
-                    job_name, 
-                    s3_bucket, 
-                    self.job_cache_paths[job_name]
-                )
+                # TODO: The below logic is slow, so it is disabled for now
+                if False:
+                    save_training_job_logs(
+                        self.sagemaker_client,
+                        s3_client,
+                        job_name,
+                        s3_bucket,
+                        self.job_cache_paths[job_name]
+                    )
                 self.jobs_logged += 1
                 completed_jobs.append(job_name)
 

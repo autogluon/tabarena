@@ -77,6 +77,8 @@ class TabPFNModel(AbstractModel):
         self,
         X: pd.DataFrame,
         y: pd.Series,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
         num_cpus: int = 1,
         num_gpus: int = 0,
         time_limit: float | None = None,
@@ -84,13 +86,10 @@ class TabPFNModel(AbstractModel):
     ):
         time.time()
 
-        from tabpfn import TabPFNClassifier, TabPFNRegressor
         from tabpfn.model.loading import resolve_model_path
         from torch.cuda import is_available
 
         is_classification = self.problem_type in ["binary", "multiclass"]
-
-        model_base = TabPFNClassifier if is_classification else TabPFNRegressor
 
         device = "cuda" if num_gpus != 0 else "cpu"
         if (device == "cuda") and (not is_available()):
@@ -100,7 +99,7 @@ class TabPFNModel(AbstractModel):
                 "Please switch to CPU usage instead.",
             )
 
-        X = self.preprocess(X, is_train=True)
+        X = self.preprocess(X, y=y, is_train=True)
 
         hps = self._get_model_params()
         hps["device"] = device
@@ -163,12 +162,80 @@ class TabPFNModel(AbstractModel):
             if k.startswith("inference_config/"):
                 del hps[k]
 
-        # Model and fit
-        self.model = model_base(**hps)
-        self.model = self.model.fit(
-            X=X,
-            y=y,
-        )
+        # Resolve finetuning config
+        finetuning_config = {
+            _k: v
+            for k, v in hps.items()
+            if k.startswith("finetuning_config/") and (_k := k.split("/")[-1])
+        }
+        for k in list(hps.keys()):
+            if k.startswith("finetuning_config/"):
+                del hps[k]
+
+        use_finetuning = hps.pop("use_finetuning", False)
+        if not use_finetuning:
+            from tabpfn import TabPFNClassifier, TabPFNRegressor
+
+            # Use ICL, fit preprocessing only
+            model_base = TabPFNClassifier if is_classification else TabPFNRegressor
+            self.model = model_base(**hps)
+            self.model = self.model.fit(
+                X=X,
+                y=y,
+            )
+        else:
+            # TODO:
+            #   Future Work for better performance:
+            #   - set n_finetune_ctx_plus_query_samples and finetune_ctx_query_split_ratio
+            #       and n_inference_subsample_samples automatically based on dataset size and VRAM
+            #   - add adaptive early stopping
+            #   - think more about n_estimators_*
+            #   - custom logic for creating splits if not provided
+            #   - think about refitting or using all data for finetuning during CV?
+            #   - tune over finetuning HPs?
+            #   - support custom eval metrics and callbacks?
+            from tabpfn.finetuning.finetuned_classifier import FinetunedTabPFNClassifier
+            from tabpfn.finetuning.finetuned_regressor import FinetunedTabPFNRegressor
+
+            metric_map = {
+                "roc_auc": "roc_auc",
+                "log_loss": "log_loss",
+                "rmse": "mse",
+            }
+            eval_metric = metric_map.get(self.stopping_metric.name, None)
+            model_base = (
+                FinetunedTabPFNClassifier
+                if is_classification
+                else FinetunedTabPFNRegressor
+            )
+            # Large default number to avoid stopping on it.
+            epochs = finetuning_config.pop("epochs", 10_000)
+
+            kwargs_name = (
+                "extra_classifier_kwargs"
+                if is_classification
+                else "extra_regressor_kwargs"
+            )
+            finetuning_config[kwargs_name] = hps
+
+            if X_val is not None:
+                X_val = self.preprocess(X=X_val, is_train=False)
+
+            self.model = model_base(
+                epochs=epochs,
+                time_limit=time_limit,
+                device=device,
+                random_state=hps["random_state"],
+                eval_metric=eval_metric,
+                **finetuning_config,
+            )
+            self.model = self.model.fit(
+                X=X,
+                y=y,
+                X_val=X_val,
+                y_val=y_val,
+                output_dir=Path(self.path) / "tmp_model",
+            )
 
     def _get_default_resources(self) -> tuple[int, int]:
         # Use only physical cores for better performance based on benchmarks
@@ -217,7 +284,7 @@ class TabPFNModel(AbstractModel):
         extra_ag_args_ensemble = {
             # FIXME: Find a work-around to avoid crash if parallel and weights are not downloaded
             "fold_fitting_strategy": "sequential_local",
-            "refit_folds": True,  # Better to refit the model for faster inference and similar quality as the bag.
+            "refit_folds": default_ag_args_ensemble.pop("refit_folds", True),
         }
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
         return default_ag_args_ensemble
@@ -290,8 +357,8 @@ class RealTabPFNv25Model(TabPFNModel):
     The extra checkpoints include models trained on only synthetic datasets as well.
     """
 
-    ag_key = "REALTABPFN-V2.5"
-    ag_name = "RealTabPFN-v2.5"
+    ag_key = "TA-REALTABPFN-V2.5"
+    ag_name = "TA-RealTabPFN-v2.5"
 
     default_classification_model: str | None = (
         "tabpfn-v2.5-classifier-v2.5_default.ckpt"

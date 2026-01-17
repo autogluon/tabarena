@@ -33,8 +33,11 @@ from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_01 impo
 
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_12 import realtabpfn25_metadata, contexttab_metadata
 
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_12_18 import ag_150_eq_4h8c_metadata
+
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_misc import (
-    gbm_aio_0808_metadata
+    gbm_aio_0808_metadata,
+    # prep_gbm_v6_metadata,
 )
 
 methods_2025_09_03: list[MethodMetadata] = [
@@ -69,8 +72,13 @@ methods_2025_10_20: list[MethodMetadata] = [
     portfolio_metadata_paper_cr,
 ]
 
+methods_2025_12_18: list[MethodMetadata] = [
+    ag_150_eq_4h8c_metadata,
+]
+
 methods_misc: list[MethodMetadata] = [
     gbm_aio_0808_metadata,
+    # prep_gbm_v6_metadata,
 ]
 
 replaced_methods = [
@@ -101,6 +109,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(method_metadata_l
     methods_2025_09_03_keep +
     methods_2025_10_20 +
     methods_2025_11_01_keep +
+    methods_2025_12_18 +
     [tabdpt_metadata] +
     [realtabpfn25_metadata] +
     [contexttab_metadata] +
@@ -113,6 +122,7 @@ tabarena_method_metadata_complete_collection = MethodMetadataCollection(method_m
     methods_2025_09_03 +
     methods_2025_10_20 +
     methods_2025_11_01_ag +
+    methods_2025_12_18 +
     [tabdpt_metadata] +
     [realtabpfn25_metadata] +
     [contexttab_metadata] +

@@ -386,8 +386,13 @@ def run_experiments_new(
                         else:
                             tabarena_task_name = task_id_or_object.tabarena_task_name
                             task = OpenMLTaskWrapper(
-                                task=task_id_or_object.load_local_openml_task()
+                                task=task_id_or_object.load_local_openml_task(),
+                                use_task_eval_metric=True,
                             )
+
+                    eval_metric_name = task.eval_metric
+                    print(f"Using eval metric: {eval_metric_name}")
+
                     try:
                         out = model_experiment.run(
                             task=task,
@@ -400,6 +405,7 @@ def run_experiments_new(
                             #   - also unclear how this is used in only cache case,
                             #     where we don't have the task object.
                             task_name=tabarena_task_name,  # used in eval as name later.
+                            eval_metric_name=eval_metric_name,
                         )
                     except Exception as exc:
                         if raise_on_failure:

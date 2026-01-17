@@ -417,6 +417,8 @@ class EndToEndResults:
         average_seeds: bool = True,
         leaderboard_kwargs: dict | None = None,
         tabarena_context_kwargs: dict | None = None,
+        extra_results: pd.DataFrame = None,
+        remove_imputed: bool = False,
     ) -> pd.DataFrame:
         """Compare results on TabArena leaderboard.
 
@@ -437,6 +439,10 @@ class EndToEndResults:
             fillna=not only_valid_tasks,
         )
 
+        # FIXME: TMP
+        if extra_results is not None:
+            results = pd.concat([results, extra_results], ignore_index=True)
+
         return compare_on_tabarena(
             new_results=results,
             output_dir=output_dir,
@@ -446,6 +452,7 @@ class EndToEndResults:
             average_seeds=average_seeds,
             leaderboard_kwargs=leaderboard_kwargs,
             tabarena_context_kwargs=tabarena_context_kwargs,
+            remove_imputed=remove_imputed,
         )
 
     def get_results(

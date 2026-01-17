@@ -104,34 +104,26 @@ uv pip install --prerelease=allow -e ./tabarena[benchmark]
 
 ### Developer Install
 
-With this installation, you will have the latest version of AutoGluon in editable form.
-
-```
-git clone https://github.com/autogluon/autogluon.git
-./autogluon/full_install.sh
-
-git clone https://github.com/autogluon/tabarena.git
-uv pip install --prerelease=allow -e ./tabarena[benchmark]
-```
-
-Recommended workflow:
-Creating a custom virtual environment:
+Creating a custom virtual environment (if needed or use `uv sync`):
 ```
 pip install uv
 uv venv --seed --python 3.11 ~/.venvs/tabarena
 source ~/.venvs/tabarena/bin/activate
+```
 
+With this installation, you will have the latest version of AutoGluon in editable form.
+```
 git clone https://github.com/autogluon/autogluon.git
 ./autogluon/full_install.sh
 
 git clone https://github.com/autogluon/tabarena.git
-uv pip install -U -e tabarena/[benchmark]
+uv pip install --prerelease=allow -e ./tabarena/tabarena[benchmark]
 ```
 
 In PyCharm, make sure to set the directory of `tabarena/` and each `src/` subdirectory of `autogluon/` as 
 "Sources Root" for the IDE to find the imports.
 
-### Example Install + Run
+### Example Install + Run Steps
 
 Creating a project:
 ```
@@ -145,6 +137,14 @@ cd tabarena
 uv pip install --prerelease=allow -e ./tabarena[benchmark]
 cd examples/benchmarking
 python run_quickstart_tabarena.py 
+```
+
+### Install from GitHub / TabArena as a dependency 
+
+You can install TabArena from GitHub or as a dependency by using:
+
+```
+ "tabarena @ git+https://github.com/autogluon/tabarena.git#subdirectory=tabarena"
 ```
 
 # Downloading and using TabArena Artifacts

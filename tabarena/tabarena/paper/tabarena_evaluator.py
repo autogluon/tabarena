@@ -494,9 +494,9 @@ class TabArenaEvaluator:
                         winrate_matrix=winrate_matrix,
                         save_path=str(Path(self.output_dir / f"winrate_matrix.{self.figure_file_type}")),
                     )
-                except RuntimeError as e:
+                except (RuntimeError, ValueError) as e:
                     print(
-                        "Warning: RuntimeError encountered during winrate matrix plotting. "
+                        f"Warning: Error encountered during winrate matrix plotting. {e}"
                         "This likely means the CLI does not have access to the correct Chromium version..."
                     )
 

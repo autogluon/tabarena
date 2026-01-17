@@ -422,6 +422,7 @@ class EndToEndSingle:
         method: str | None = None,
         artifact_name: str | None = None,
         num_cpus: int | None = None,
+        name_prefix_raw: str | None = None,
     ) -> EndToEndResultsSingle:
         """
         Create and cache end-to-end results for the method in the given directory.
@@ -463,14 +464,19 @@ class EndToEndSingle:
         num_cpus : int or None = None
             Number of CPUs to use for parallel processing.
             If None, it will use all available CPUs.
+        name_prefix_raw: str | None = None
+            If specified, we only search for results in subdirectories starting with this prefix.
+            Useful when `path_raw` contains results for multiple methods.
         """
         if num_cpus is None:
             num_cpus = len(os.sched_getaffinity(0))
 
         print("Get results paths...")
         file_paths = fetch_all_pickles(
-            dir_path=path_raw, suffix="results.pkl"
+            dir_path=path_raw, suffix="results.pkl", name_pattern=name_prefix_raw,
         )
+        if len(file_paths) == 0:
+            raise ValueError(f"No results.pkl files found in {path_raw} with name prefix {name_prefix_raw}!")
 
         all_file_paths_method = {}
         for file_path in file_paths:
@@ -562,6 +568,9 @@ class EndToEndResultsSingle:
         score_on_val: bool = False,
         average_seeds: bool = True,
         leaderboard_kwargs: dict | None = None,
+        extra_results: pd.DataFrame = None,
+        tabarena_context_kwargs: dict = None,
+        remove_imputed: bool = False,
     ) -> pd.DataFrame:
         """Compare results on TabArena leaderboard.
 
@@ -582,6 +591,10 @@ class EndToEndResultsSingle:
             fillna=not only_valid_tasks,
         )
 
+        # FIXME: TMP
+        if extra_results is not None:
+            results = pd.concat([results, extra_results], ignore_index=True)
+
         return compare_on_tabarena(
             new_results=results,
             output_dir=output_dir,
@@ -590,6 +603,8 @@ class EndToEndResultsSingle:
             score_on_val=score_on_val,
             average_seeds=average_seeds,
             leaderboard_kwargs=leaderboard_kwargs,
+            tabarena_context_kwargs=tabarena_context_kwargs,
+            remove_imputed=remove_imputed,
         )
 
     def get_results(

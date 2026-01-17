@@ -81,6 +81,7 @@ def fetch_all_pickles(
     dir_path: str | Path | list[str | Path],
     suffix: str = ".pkl",
     max_files: int | None = None,
+    name_pattern: str | None = None,
     **kwargs,
 ) -> list[Path]:
     """Recursively find every file ending in “.pkl” under *dir_path*
@@ -91,6 +92,8 @@ def fetch_all_pickles(
     dir_path : str | Path | list[str | Path]
         Root directory to search.
         If a list of directories, will search over all directories.
+    name_pattern: str | None
+        If provided, only files in subdirectories matching this pattern will be considered.
 
     Returns:
     -------
@@ -119,6 +122,10 @@ def fetch_all_pickles(
         else:
             # Look for *.pkl
             pattern = f"*{suffix}"
+
+            if name_pattern is not None:
+                pattern = f"{name_pattern}*/**/{pattern}"
+
             for file_path in tqdm.tqdm(
                 root.rglob(pattern), desc=f"Searching for pickles in {cur_dir_path}"
             ):
