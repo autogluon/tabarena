@@ -53,7 +53,9 @@ class OpenMLTaskWrapper:
         metric_map = {
             "binary": "roc_auc",
             "multiclass": "log_loss",
-            "regression": "root_mean_squared_error",
+            # Same value/name used in ExperimentRunner.eval_metric_name
+            #   - mostly for backwards compatibility
+            "regression": "rmse",
         }
         return metric_map[self.problem_type]
 

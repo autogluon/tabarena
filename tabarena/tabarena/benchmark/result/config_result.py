@@ -148,6 +148,11 @@ class ConfigResult(BaselineResult):
         split_idx = self.result["task_metadata"]["split_idx"]
         framework = self.result["framework"]
 
+        # Fix for a missmatch in name between OpenMLTaskWrapper.eval_metric and ExperimentRunner.eval_metric_name
+        if self.result["metric"] == "root_mean_squared_error":
+            self.result["metric"] = "rmse"
+            self.result["simulation_artifacts"]["metric"] = "rmse"
+
         if list(self.result["simulation_artifacts"].keys()) == [dataset]:
             # if old format
             new_sim_artifacts = self.result["simulation_artifacts"][dataset][split_idx]
@@ -166,6 +171,8 @@ class ConfigResult(BaselineResult):
             assert self.result["simulation_artifacts"]["eval_metric"] == self.result["metric"]
             self.result["simulation_artifacts"].pop("eval_metric")
         if "metric" in self.result["simulation_artifacts"]:
+            if self.result["simulation_artifacts"]["metric"] == "root_mean_squared_error":
+                self.result["simulation_artifacts"]["metric"] = "rmse"
             assert self.result["simulation_artifacts"]["metric"] == self.result["metric"]
             self.result["simulation_artifacts"].pop("metric")
         if "problem_type_transform" in self.result["simulation_artifacts"]:
