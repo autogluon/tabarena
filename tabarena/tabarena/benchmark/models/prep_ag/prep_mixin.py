@@ -154,10 +154,13 @@ class ModelAgnosticPrepMixin:
             init_params = {}
         _init_params = dict(
             verbosity=0,
-            random_state=self.random_seed,  # FIXME: Not a generic param
+            # random_state=self.random_seed,  # FIXME: Not a generic param
             target_type=self.problem_type,  # FIXME: Not a generic param
         )
         _init_params.update(**init_params)
+        if "random_state" not in _init_params:
+            _init_params["random_state"] = self.random_seed
+
         return preprocessor_cls(
             **_init_params,
         )
