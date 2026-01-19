@@ -307,6 +307,7 @@ class PrepConfigGenerator(ConfigGenerator):
                     ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
                 ])
                 cat_pipeline.reverse()
+            pipeline.append(cat_pipeline)
 
             if use_select_spearman:
                 configs[i]['ag.prep_params'].append(pipeline)

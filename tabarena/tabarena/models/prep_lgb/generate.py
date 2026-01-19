@@ -98,7 +98,8 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
             cat_pipeline.append([
                 ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
             ])
-            cat_pipeline.reverse()
+            cat_pipeline.reverse()#
+        pipeline.append(cat_pipeline)
 
         if use_select_spearman:
             configs[i]['ag.prep_params'].append(pipeline)
