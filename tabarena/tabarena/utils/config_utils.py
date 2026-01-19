@@ -259,7 +259,6 @@ class PrepConfigGenerator(ConfigGenerator):
                                  ) -> list[dict]:
         configs = super().generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
         prep_configs = self.prep_generate_all_configs_lst(num_configs=num_random_configs, name_id_suffix=name_id_suffix)
-        # TODO: Sample prep & model HPs separately
         for i in range(len(prep_configs)):
             if 'ag.prep_params' not in configs[i]:
                 configs[i]['ag.prep_params'] = []
@@ -274,15 +273,24 @@ class PrepConfigGenerator(ConfigGenerator):
             use_groupby = prep_configs[i].pop('use_groupby', False)
             use_linear_feature = prep_configs[i].pop('use_linear_feature', False)
             use_select_spearman = prep_configs[i].pop('use_select_spearman', False)
+            arithmetic_max_feats = prep_configs[i].pop('arithmetic_max_feats', 2000)
+            arithmetic_random_state = prep_configs[i].pop('arithmetic_max_feats_random_state', 42)
+            cat_fe_max_feats = prep_configs[i].pop('cat_fe_max_feats', 100)
+            cat_fe_random_state = prep_configs[i].pop('cat_fe_random_state', 42)
+            rstafc_n_subsets = prep_configs[i].pop('rstafc_n_subsets', 50)
+            rstafc_random_state = prep_configs[i].pop('rstafc_random_state', 42)
+            oofte_random_state = prep_configs[i].pop('oofte_random_state', 42)
+            groupby_max_feats = prep_configs[i].pop('groupby_max_feats', 500)
+            spearman_max_feats = prep_configs[i].pop('spearman_max_feats', 2000)
             
             if use_groupby:
-                pipeline.append(['GroupByFeatureGenerator', {}])
+                pipeline.append(['GroupByFeatureGenerator', {"max_features": groupby_max_feats}])
                 
             if use_tafc:
-                pipeline.append(['TargetAwareFeatureCompressionFeatureGenerator', {}])
+                pipeline.append(['TargetAwareFeatureCompressionFeatureGenerator', {"random_state": oofte_random_state}])
 
             if use_rstafc:
-                pipeline.append(['RandomSubsetTAFC', {}])
+                pipeline.append(['RandomSubsetTAFC', {"n_subsets": rstafc_n_subsets, "random_state": rstafc_random_state}])
 
             if use_neighbor_interactions:
                 pipeline.append(['NeighborInteractionFeatureGenerator', {}])
@@ -294,29 +302,25 @@ class PrepConfigGenerator(ConfigGenerator):
                 pipeline.append(['LinearFeatureGenerator', {}])
             
             if use_arithmetic_preprocessor:
-                if model_name == 'LR':
-                    _generator_params = {'interaction_types': ["/", "*"]} # Not tested, just an assumption
-                else:
-                  _generator_params = {}
+                _generator_params = {"max_new_feats": arithmetic_max_feats, "random_state": arithmetic_random_state}
                 pipeline.append(['ArithmeticFeatureGenerator', _generator_params])
 
             cat_pipeline = [['OOFTargetEncodingFeatureGenerator', {}]]
             prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
             if use_cat_fe:
                 cat_pipeline.append([
-                    ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
+                    ['CategoricalInteractionFeatureGenerator', {"passthrough": True, "max_new_feats": cat_fe_max_feats, "random_state": cat_fe_random_state}],
                 ])
-                cat_pipeline.reverse()
+                cat_pipeline.reverse()#
             pipeline.append(cat_pipeline)
 
             if use_select_spearman:
                 configs[i]['ag.prep_params'].append(pipeline)
                 configs[i]['ag.prep_params'].append([
-                    ['SpearmanFeatureSelector', {'max_features': 2000}],
+                    ['SpearmanFeatureSelector', {'max_features': spearman_max_feats}],
                 ])
             else:
                 configs[i]['ag.prep_params'].extend(pipeline)
-
 
             if prep_params_passthrough_types:
                 configs[i]['ag.prep_params.passthrough_types'] = prep_params_passthrough_types

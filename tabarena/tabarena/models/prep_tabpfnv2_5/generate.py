@@ -57,9 +57,9 @@ search_space = {
         ["none"],
         ["quantile_uni_coarse"],
         ["quantile_norm_coarse"],
-        ["kdi_uni"],
-        ["kdi_alpha_0.3"],
-        ["kdi_alpha_3.0"],
+        # ["kdi_uni"],
+        # ["kdi_alpha_0.3"],
+        # ["kdi_alpha_3.0"],
         ["safepower", "quantile_uni"],
         ["none", "quantile_uni_coarse"],
         ["squashing_scaler_default", "quantile_uni_coarse"],
@@ -82,19 +82,31 @@ prep_manual_configs = [
         "use_groupby": True,
         "use_rstafc": True,
         "use_select_spearman": True,
-        "use_tafc": False,
-        "use_neighbor_interactions": False,
-        "use_neighbor_structure": False,        
     }]
 
 prep_search_space = {
         # Preprocessing hyperparameters
-        "use_arithmetic_preprocessor": Categorical(True, False),
-        "use_cat_fe": Categorical(True, False),
-        "use_rstafc": Categorical(True, False),
-        "use_groupby": Categorical(True, False), 
+        "use_arithmetic_preprocessor": Categorical(True),
+        "use_cat_fe": Categorical(True),
+        "use_rstafc": Categorical(True),
+        "use_groupby": Categorical(True), 
         "use_select_spearman": Categorical(True), # Might rather tune no. of features, i.e. in {1000, 1500, 2000}
-}
+
+        "arithmetic_max_feats": Categorical(2000, 1000),
+        "arithmetic_random_state": Categorical(42,84,168,336,672),
+
+        "cat_fe_max_feats": Categorical(100, 500),
+        "cat_fe_random_state": Categorical(42,84,168,336,672),
+
+        "rstafc_n_subsets": Categorical(50,100, 1),
+        "rstafc_random_state": Categorical(42,84,168,336,672),
+
+        "oofte_random_state": Categorical(42,84,168,336,672),
+
+        "groupby_max_feats": Categorical(500, 100, 1000), 
+
+        "spearman_max_feats": Categorical(2000),
+}       
 
 gen_realtabpfnv25 = PrepConfigGenerator(
     model_cls=PrepRealTabPFNv25Model,
