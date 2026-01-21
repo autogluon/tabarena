@@ -349,7 +349,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
         return self.predict_val_multi(dataset=dataset, fold=fold, configs=[config], binary_as_multiclass=binary_as_multiclass).squeeze()
 
     @abstractmethod
-    def predict_test_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False) -> np.ndarray:
+    def predict_test_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False, enforce_binary_1d: bool = False) -> np.ndarray:
         """
         Returns the predictions on the test set for a given list of configurations on a given dataset and fold
 
@@ -381,7 +381,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
         raise NotImplementedError
 
     @abstractmethod
-    def predict_val_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False) -> np.ndarray:
+    def predict_val_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False, enforce_binary_1d: bool = False) -> np.ndarray:
         """
         Returns the predictions on the validation set for a given list of configurations on a given dataset and fold
 
@@ -648,6 +648,12 @@ class AbstractRepository(ABC, SaveLoadMixin):
             return np.stack([1 - predictions, predictions], axis=predictions.ndim)
         else:
             return predictions
+
+    def _convert_binary_to_1d_multi(self, predictions: np.ndarray, dataset: str) -> np.ndarray:
+        if self.dataset_info(dataset)["problem_type"] == "binary":
+            if len(predictions.shape) == 3:
+                predictions = predictions[:, :, 1]
+        return predictions
 
     # TODO: repo.reproduce(config, dataset, fold)
     def get_openml_task(self, dataset: str) -> OpenMLTaskWrapper:
