@@ -1,13 +1,45 @@
 from __future__ import annotations
 
 import numpy as np
-
+from autogluon.common.space import Categorical
 from tabarena.benchmark.models.prep_ag.prep_tabm.prep_tabm_model import PrepTabMModel
 from tabarena.models.utils import convert_numpy_dtypes
-from tabarena.utils.config_utils import CustomAGConfigGenerator
+from ...utils.config_utils import PrepConfigGenerator
 
 name = "TabM"
 
+prep_manual_configs = [
+    {
+        "use_arithmetic_preprocessor": True,
+        "use_cat_fe": True,
+        "use_groupby": True,
+        "use_rstafc": True,
+        "use_select_spearman": True,
+    }]
+
+prep_search_space = {
+        # Preprocessing hyperparameters
+        "use_arithmetic_preprocessor": Categorical(True),
+        "use_cat_fe": Categorical(True),
+        "use_rstafc": Categorical(True),
+        "use_groupby": Categorical(True), 
+        "use_select_spearman": Categorical(True), # Might rather tune no. of features, i.e. in {1000, 1500, 2000}
+
+        "arithmetic_max_feats": Categorical(2000, 1000),
+        "arithmetic_random_state": Categorical(42,84,168,336,672),
+
+        "cat_fe_max_feats": Categorical(100, 500),
+        "cat_fe_random_state": Categorical(42,84,168,336,672),
+
+        "rstafc_n_subsets": Categorical(50,100, 1),
+        "rstafc_random_state": Categorical(42,84,168,336,672),
+
+        "oofte_random_state": Categorical(42,84,168,336,672),
+
+        "groupby_max_feats": Categorical(500, 100, 1000), 
+
+        "spearman_max_feats": Categorical(2000),
+}       
 
 def generate_single_config_tabm(rng):
     # taken from https://github.com/yandex-research/tabm/blob/main/exp/tabm-mini-piecewiselinear/adult/0-tuning.toml
@@ -36,10 +68,6 @@ def generate_single_config_tabm(rng):
         "d_embedding": rng.choice([i for i in range(8, 32 + 1) if i % 4 == 0]),
         "num_emb_n_bins": rng.integers(2, 128, endpoint=True),
         # could reduce eval_batch_size in case of OOM
-
-        "use_arithmetic_preprocessor": rng.choice([True, False]),
-        "use_cat_fe": rng.choice([True, False]),
-
     }
 
     return convert_numpy_dtypes(params)
@@ -48,50 +76,13 @@ def generate_single_config_tabm(rng):
 def generate_configs_tabm(num_random_configs=200, seed=1234):
     # note: this doesn't set val_metric_name, which should be set outside
     rng = np.random.default_rng(seed)
-    configs = [generate_single_config_tabm(rng) for _ in range(num_random_configs)]
-    
-    for i in range(len(configs)):
-        if 'ag.prep_params' not in configs[i]:
-            configs[i]['ag.prep_params'] = []
-        prep_params_stage_1 = []
-        prep_params_passthrough_types = None
-        use_arithmetic_preprocessor = configs[i].pop('use_arithmetic_preprocessor')
-        use_cat_fe = configs[i].pop('use_cat_fe')
-        if use_arithmetic_preprocessor:
-            _generator_params = {}
-            prep_params_stage_1.append([
-                ['ArithmeticFeatureGenerator', _generator_params],
-            ])
-
-        if use_cat_fe:
-            prep_params_stage_1.append([
-                ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
-                ['OOFTargetEncodingFeatureGenerator', {}],
-            ])
-            prep_params_passthrough_types = {"invalid_raw_types": ["category", "object"]}
-
-        if prep_params_stage_1:
-            configs[i]['ag.prep_params'].append(prep_params_stage_1)
-        if prep_params_passthrough_types:
-            configs[i]['ag.prep_params.passthrough_types'] = prep_params_passthrough_types
-    
-    return configs
+    return [generate_single_config_tabm(rng) for _ in range(num_random_configs)]
 
 
-gen_tabm = CustomAGConfigGenerator(
-    model_cls=PrepTabMModel, search_space_func=generate_configs_tabm, 
-    manual_configs=[
-        {
-        'ag.prep_params': [
-            [
-                ['ArithmeticFeatureGenerator', {}],
-                [
-                    ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
-                    ['OOFTargetEncodingFeatureGenerator', {}],
-                ],
-            ],
-        ],
-        'ag.prep_params.passthrough_types': {"invalid_raw_types": ["category", "object"]},
-        }
-    ],
-)
+gen_tabm = PrepConfigGenerator(
+    model_cls=PrepTabMModel, 
+    search_space_func=generate_configs_tabm,
+    prep_manual_configs=prep_manual_configs,
+    prep_search_space=prep_search_space
+                             )
+
