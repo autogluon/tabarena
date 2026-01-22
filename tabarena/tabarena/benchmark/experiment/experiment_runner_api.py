@@ -352,6 +352,7 @@ def run_experiments_new(
                     experiment_missing_count += 1
                     continue
 
+                eval_metric_name = None
                 if cache_mode == "only":
                     out = cacher.load_cache()
                 else:
@@ -382,8 +383,8 @@ def run_experiments_new(
                                 use_task_eval_metric=True,
                             )
 
-                    eval_metric_name = task.eval_metric
-                    print(f"Using eval metric: {eval_metric_name}")
+                        eval_metric_name = task.eval_metric
+                        print(f"Using eval metric: {eval_metric_name}")
 
                     try:
                         out = model_experiment.run(
