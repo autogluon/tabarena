@@ -1,76 +1,104 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
 from tabarena.benchmark.task.openml import OpenMLS3TaskWrapper, OpenMLTaskWrapper
 from tabarena.benchmark.task.user_task import UserTask
 from tabarena.utils.cache import CacheFunctionPickle
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 
 def _clean_repetitions_mode_args_for_matrix(
     repetitions_mode_args: tuple,
 ) -> tuple[list[int], list[int]]:
-    """Clean a tuple of the `repetitions_mode_args` parameter to ensure it is in the
-    correct format.
-    """
-    # sanity check
+    # Ensure input is a tuple of two elements
     assert isinstance(repetitions_mode_args, tuple), "Input must be tuple!"
-
     assert len(repetitions_mode_args) == 2, (
         "If `repetitions_mode_args` for 'matrix' is a tuple, it must contain two elements: (folds, repeats)"
     )
-    if isinstance(repetitions_mode_args[0], int) or isinstance(
-        repetitions_mode_args[1], int
-    ):
-        assert isinstance(repetitions_mode_args[0], int) and isinstance(
-            repetitions_mode_args[1], int
-        ), (
-            "If `repetitions_mode_args` for 'matrix' is a tuple with integers, both elements must be an integer."
-        )
-        repetitions_mode_args = (
-            list(range(repetitions_mode_args[0])),
-            list(range(repetitions_mode_args[1])),
+
+    a, b = repetitions_mode_args
+
+    # If both are ints -> convert to ranges
+    if isinstance(a, int) and isinstance(b, int):
+        return (list(range(a)), list(range(b)))
+
+    # If one is int and other not, error
+    if isinstance(a, int) or isinstance(b, int):
+        raise AssertionError(
+            "If `repetitions_mode_args` for 'matrix' is a tuple with integers, both elements must be integers."
         )
 
-    assert isinstance(repetitions_mode_args[0], list) and isinstance(
-        repetitions_mode_args[1], list
-    ), (
+    # Now both must be lists of ints
+    assert isinstance(a, list) and isinstance(b, list), (
         "If `repetitions_mode_args` for 'matrix' is a tuple with lists, both elements must be a list."
     )
-    assert (len(repetitions_mode_args[0]) > 0) and all(
-        isinstance(x, int) for x in repetitions_mode_args[0]
-    ), (
-        "If `repetitions_mode_args` for 'matrix' is a tuple with lists, the first list must contain at least one integers for folds."
+    assert (len(a) > 0) and all(isinstance(x, int) for x in a), (
+        "If `repetitions_mode_args` for 'matrix' is a tuple with lists, the first list must contain at least one integer for folds."
     )
-    assert (len(repetitions_mode_args[1]) > 0) and all(
-        isinstance(x, int) for x in repetitions_mode_args[1]
-    ), (
-        "If `repetitions_mode_args` for 'matrix' is a tuple with lists, the second list must contain at least one integers for repeats."
+    assert (len(b) > 0) and all(isinstance(x, int) for x in b), (
+        "If `repetitions_mode_args` for 'matrix' is a tuple with lists, the second list must contain at least one integer for repeats."
     )
 
-    return repetitions_mode_args
+    return (a, b)
 
 
 def _parse_repetitions_mode_and_args(
     *,
-    repetitions_mode: Literal["TabArena-Lite", "matrix", "individual"],
+    repetitions_mode: Literal["TabArena-Lite", "TabArena", "matrix", "individual"],
     repetitions_mode_args: tuple | list | None,
-    tasks: list,
+    tasks: list[int | UserTask],
+    tasks_metadata: pd.DataFrame | None = None,
 ) -> list[list[tuple[int, int]]]:
     """Parse the `repetitions_mode` and `repetitions_mode_args` parameters to determine
     which folds and repeats to run per dataset.
 
     Returns a standardized format: a list of elements, where each element corresponds
-    to the repetitions to run for the task; where each elements is a list of tuples,
+    to the repetitions to run for the task; where each element is a list of tuples,
     each tuple represents a fold-repeat pair; and where each tuple contains two
     integers, the first one is the fold index second one is the repeat index.
     """
-    # TODO: support "TabArena" option, by getting metadata per task to figure out how
-    #  many folds and repeats to run based on the task size.
+    if repetitions_mode == "TabArena":
+        if tasks_metadata is None:
+            from tabarena.nips2025_utils.fetch_metadata import (
+                load_curated_task_metadata,
+            )
+
+            tasks_metadata = load_curated_task_metadata()
+        else:
+            # Verify user metadata
+            req_columns = [
+                "tabarena_num_repeats",
+                "num_folds",
+                "task_id",
+            ]
+            for col in req_columns:
+                assert col in tasks_metadata.columns, (
+                    f"`tasks_metadata` must contain the column '{col}' when `repetitions_mode` is 'TabArena'"
+                )
+        fold_repeat_pairs_per_task = []
+        metadata_task_ids = tasks_metadata["task_id"].astype(str).tolist()
+        for task in tasks:
+            t_id = task.task_id_str if isinstance(task, UserTask) else str(task)
+            assert t_id in metadata_task_ids, (
+                f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`"
+            )
+
+            task_meta = tasks_metadata[metadata_task_ids == t_id].iloc[0]
+            n_folds = int(task_meta["num_folds"])
+            n_repeats = int(task_meta["tabarena_num_repeats"])
+            fold_repeat_pairs = [
+                (f, r) for r in range(n_repeats) for f in range(n_folds)
+            ]
+            fold_repeat_pairs_per_task.append(fold_repeat_pairs)
+        return fold_repeat_pairs_per_task
+
     if repetitions_mode == "TabArena-Lite":
         # Run only the first fold of the first repeat for each task
-        return [[(0, 0)]] * len(tasks)
+        return [[(0, 0)] for _ in range(len(tasks))]
 
     if repetitions_mode == "matrix":
         assert repetitions_mode_args is not None, (
@@ -103,6 +131,9 @@ def _parse_repetitions_mode_and_args(
         assert isinstance(repetitions_mode_args, list), (
             "If `repetitions_mode` is 'individual', `repetitions_mode_args` must be a list"
         )
+        assert len(repetitions_mode_args) > 0, (
+            "`repetitions_mode_args` for 'individual' must not be empty"
+        )
 
         if isinstance(repetitions_mode_args[0], tuple):
             assert all(
@@ -125,14 +156,17 @@ def _parse_repetitions_mode_and_args(
         assert all(isinstance(rep, list) for rep in repetitions_mode_args), (
             "If `repetitions_mode_args` for 'individual' is a list, all elements must be lists"
         )
-        assert all(
-            isinstance(rep, tuple) and (len(rep) == 2) and isinstance(i, int)
-            for e in repetitions_mode_args
-            for rep in e
-            for i in rep
-        ), (
-            "If `repetitions_mode_args` for 'individual' is a list of lists, all inner list elements must be tuples of integers of (fold_index, repeat_index) pairs"
-        )
+        for e in repetitions_mode_args:
+            assert len(e) > 0, (
+                "In `repetitions_mode_args`, each task's repetition list must contain at least one (fold, repeat) tuple."
+            )
+            for rep in e:
+                assert isinstance(rep, tuple) and len(rep) == 2, (
+                    "In `repetitions_mode_args`, each repetition entry must be a tuple of (fold_index, repeat_index)."
+                )
+                assert all(isinstance(i, int) for i in rep), (
+                    "In `repetitions_mode_args`, each element of a repetition tuple must be an integer."
+                )
 
         return repetitions_mode_args
 
@@ -144,7 +178,8 @@ def run_experiments_new(
     output_dir: str,
     model_experiments: list[Experiment],
     tasks: list[int | UserTask],
-    repetitions_mode: Literal["TabArena-Lite", "matrix", "individual"],
+    repetitions_mode: Literal["TabArena-Lite", "TabArena", "matrix", "individual"],
+    tasks_metadata: pd.DataFrame | None = None,
     repetitions_mode_args: tuple | list | None = None,
     run_mode: str = "local",
     cache_mode: Literal["default", "ignore", "only"] = "default",
@@ -168,16 +203,33 @@ def run_experiments_new(
         The OpenML task IDs or UserTask instances to run the experiments on.
         See `tabarena.benchmark.task.user_task` for more details on how to define
         UserTask.
-    repetitions_mode: Literal["TabArena-Lite", "matrix", "individual"]
+    repetitions_mode: Literal["TabArena-Lite", "TabArena", "matrix", "individual"]
         Determines how to run repeats of experiments:
             - "TabArena-Lite": Preset setting, run the first fold of the first repeat
-             for all tasks.
-            TODO: - "TabArena": add more options, like "TabArena-Full" to run all folds
-                and repeats based on our split/fold settings per dataset size.
+                for all tasks.
+            - "TabArena": Full TabArena benchmark setting. Recommended for the final
+                evaluation. Requires `tasks_metadata` to be set.
             - "matrix": Allows you to specify a matrix of folds and repeats to run all
                 combinations. See `repetitions_mode_args`.
             - "individual": Allows you to specific individual fold-repeats pairs to run.
                 See `repetitions_mode_args`.
+    tasks_metadata: pd.DataFrame | None, default None
+        Metadata about each task in `tasks`. Required if `repetitions_mode="TabArena"`.
+
+        If None, we assume that the `tasks` contain tasks from the official curated
+        TabArena benchmark and load the metadata internally. If it contains tasks
+        not in the official benchmark, an error will be raised.
+
+        If pd.DataFrame, we assume the users passes custom metadata. This dataframe
+        must contain the following columns:
+            "task_id": str
+                The task ID for the task as an int.
+                If a local task, we assume this to be `UserTask.task_id_str`.
+            "tabarena_num_repeats": int
+                The number of repeats for the task based on the protocol from TabArena.
+                See tabarena.nips2025_utils.fetch_metadata._get_n_repeats for details.
+            "num_folds": int
+                The number of folds for the task.
     repetitions_mode_args: list | tuple | None, default None
         Determine how many repetitions of the experiments to run per task, i.e., how
         many folds and repeats to run for each task. Note, all tasks come with
@@ -188,7 +240,7 @@ def run_experiments_new(
         If `repetitions_mode` is "TabArena-Lite", this parameter is ignored.
 
         If `repetitions_mode` is "matrix", this parameter defines a list of folds and
-        a list repeats for which we run all combinations. For example, if you pass
+        a list of repeats for which we run all combinations. For example, if you pass
         `repetitions_mode_args = ([0, 1, 2], [0, 1])`, we will run the folds 0, 1,
         and 2 for repeats 0 and 1. The options to specify the folds and repeats are:
             - tuple[list[int], list[int]]: A tuple of two lists, where the first list
@@ -288,6 +340,7 @@ def run_experiments_new(
         repetitions_mode=repetitions_mode,
         repetitions_mode_args=repetitions_mode_args,
         tasks=tasks,
+        tasks_metadata=tasks_metadata,
     )
     n_splits = sum(len(pairs) for pairs in fold_repeat_pairs_per_task)
 
@@ -305,7 +358,7 @@ def run_experiments_new(
     experiment_missing_count, experiment_cache_exists_count = 0, 0
     experiment_count_total = n_splits * len(model_experiments)
     for dataset_index, task_id_or_object in enumerate(tasks):
-        task, tabarena_task_name = None, None  # lazy task loading
+        task, tabarena_task_name, eval_metric_name = None, None, None
         print(f"Starting Dataset {dataset_index + 1}/{len(tasks)}...")
 
         for split_index, (fold, repeat) in enumerate(
@@ -352,7 +405,6 @@ def run_experiments_new(
                     experiment_missing_count += 1
                     continue
 
-                eval_metric_name = None
                 if cache_mode == "only":
                     out = cacher.load_cache()
                 else:
