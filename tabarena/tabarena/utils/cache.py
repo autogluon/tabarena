@@ -175,6 +175,13 @@ class CacheFunctionPickle(AbstractCacheFunction[object]):
                 print(f'Writing cache with size {round(sys.getsizeof(cache) / 1e6, 3)} MB')
                 f.write(cache)
 
+    def delete_cache(self):
+        if self.is_s3:
+            raise NotImplementedError("Deleting S3 cache not implemented yet.")
+        else:
+            Path(self.cache_file).unlink(missing_ok=True)
+
+
     def load_cache(self) -> object:
         with open(self.cache_file, "rb") as f:
             return pickle.loads(f.read())
