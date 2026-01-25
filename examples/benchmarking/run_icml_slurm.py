@@ -20,10 +20,12 @@ def parse_args() -> argparse.Namespace:
 
     # Parameters you requested
     p.add_argument("--ignore-cache", action="store_true", help="If set, overwrite caches and re-run experiments.")
-    p.add_argument("--model-name", type=str, default="LR", choices=["LR", "GBM", "CAT", "TABM", "REALTABPFN-V2.5"])
+    p.add_argument("--model-name", type=str, default="LR", choices=["LR", "GBM", "CAT", "TABM", "REALTABPFN-V2.5", "REALMLP", "AutoFeatLinearModel", "BaseLR", "OpenFELGBModel", "GBM-ablation"])
     p.add_argument("--start-config", type=int, default=0)
     p.add_argument("--n-configs", type=int, default=50)
+    p.add_argument("--start-dataset", type=int, default=0)
     p.add_argument("--n-datasets", type=int, default=0, help="0 means use all datasets.")
+    p.add_argument("--filter-datasets", type=str, default=None, help="Comma-separated list of dataset names to include. If None, use all datasets.")
     p.add_argument("--raise-on-failure", action="store_true", help="If set, raise on failure.")
     p.add_argument("--fold", type=int, default=2)
 
@@ -45,7 +47,11 @@ if __name__ == "__main__":
     model_name: str = args.model_name
     start_config: int = int(args.start_config)
     n_configs: int = int(args.n_configs)
+    start_dataset: int = int(args.start_dataset)
     n_datasets = None if args.n_datasets in (0, None) else int(args.n_datasets)
+    filter_datasets = None
+    if args.filter_datasets is not None:
+        filter_datasets = args.filter_datasets.split(",")
     raise_on_failure: bool = bool(args.raise_on_failure)
     fold: int = int(args.fold)
 
@@ -54,7 +60,10 @@ if __name__ == "__main__":
 
     datasets = task_metadata.sort_values("n_samples_train_per_fold").name.tolist()
     if n_datasets is not None:
-        datasets = datasets[:n_datasets]
+        datasets = datasets[start_dataset:start_dataset+n_datasets]
+
+    if filter_datasets is not None:
+        datasets = [d for d in datasets if d not in filter_datasets]
 
     folds = [fold]
 
@@ -73,12 +82,31 @@ if __name__ == "__main__":
     elif model_name == "CAT":
         from tabarena.models.prep_catboost.generate import gen_catboost
         methods = gen_catboost.generate_all_bag_experiments(num_random_configs=200)
+    elif model_name == "REALMLP":
+        from tabarena.models.prep_realmlp.generate import gen_realmlp
+        methods = gen_realmlp.generate_all_bag_experiments(num_random_configs=200)
+    elif model_name == "AutoFeatLinearModel":
+        from tabarena.models.autofeat.generate import gen_autofeatlinear
+        methods = gen_autofeatlinear.generate_all_bag_experiments(num_random_configs=200)
+    elif model_name=='BaseLR':
+        from tabarena.models.lr.generate import gen_linear
+        methods = gen_linear.generate_all_bag_experiments(num_random_configs=200)
+    elif model_name == "OpenFELGBModel":
+        from tabarena.models.openfe.generate import gen_lightgbm
+        methods = gen_lightgbm.generate_all_bag_experiments(num_random_configs=200)
+    elif model_name == "GBM-ablation":
+        from tabarena.models.prep_lgb.generate_ablation import gen_lightgbm
+        methods = gen_lightgbm.generate_all_bag_experiments(num_random_configs=200)
     else:
         raise ValueError(f"Unknown model_name: {model_name}")
 
     for i in range(len(methods)):
         methods[i].method_kwargs["model_hyperparameters"]["ag_args_ensemble"]["model_random_seed"] = 0
         methods[i].method_kwargs["model_hyperparameters"]["ag_args_ensemble"]["vary_seed_across_folds"] = True
+
+        if model_name == "GBM-ablation":
+            methods[i].name = methods[i].name.replace("prep_LightGBM", "prep_LightGBM-ablation")
+
 
     exp_batch_runner = ExperimentBatchRunner(expname=expname, task_metadata=task_metadata)
 
