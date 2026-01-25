@@ -698,6 +698,10 @@ class EndToEndResultsSingle:
             if method_metadata.can_hpo != method_metadata_other.can_hpo:
                 method_metadata.can_hpo = True
                 method_metadata_other.can_hpo = True
+            
+            if method_metadata_other.compute != method_metadata.compute:
+                method_metadata_other.compute = method_metadata.compute
+
             if method_metadata.__dict__ != method_metadata_other.__dict__:
                 diffs = {
                     k: (v, method_metadata_other.__dict__.get(k))

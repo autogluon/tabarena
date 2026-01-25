@@ -184,6 +184,7 @@ class EndToEnd:
         name_suffix: str | None = None,
         model_key: str | None = None,
         artifact_name: str | None = None,
+        use_method:str | None = None,
         num_cpus: int | None = None,
     ) -> EndToEndResults:
         """
@@ -236,6 +237,11 @@ class EndToEnd:
         file_paths = fetch_all_pickles(
             dir_path=path_raw, suffix="results.pkl"
         )
+
+        if use_method is not None:
+            print(f"Filtering for method: {use_method}...")
+            file_paths = [fp for fp in file_paths if use_method in str(fp)]
+            print(f"Found {len(file_paths)} result files for method {use_method}.")
 
         all_file_paths_method = {}
         for file_path in file_paths:
