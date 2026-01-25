@@ -13,7 +13,6 @@ import openml
 import time
 from autogluon.features import AutoMLPipelineFeatureGenerator
 
-
 import pickle
 
 from tabarena.icml2026.helpers import run_experiment
@@ -36,14 +35,17 @@ data_tid_map = { # https://www.openml.org/search?type=study&study_type=task&id=3
 if __name__ == "__main__":
     max_new_feats = 1500
     save_path = "/ceph/atschalz/auto_prep/tabarena/tabarena/tabarena/icml2026/results"
-    exp_name = "simulated_arithmetic_final"
+    exp_name = "simulated_arithmetic_jungle_10000"
+    verbosity = 0
+    num_bag_folds = 8
+    subsample = 10000
 
     for dataset_name in [
-        'balance-scale',
+        # 'balance-scale',
         'jungle_chess_2pcs_raw_endgame_complete_classification',
-        'vehicle',
+        # 'vehicle',
         # 'mfeat-zernike',
-        'road-safety', # Need to adjust max_rows for TabPFN
+        # 'road-safety', # Need to adjust max_rows for TabPFN
         ]:
 
         if os.path.exists(os.path.join(save_path, f'{exp_name}_{dataset_name}_results.pkl')):
@@ -60,6 +62,9 @@ if __name__ == "__main__":
         X, y, X_test, y_test = task.get_train_test_split(fold=fold, repeat=repeat)
         target_type = task.problem_type
 
+        if subsample is not None and subsample < X.shape[0]:
+            X = X.sample(subsample, random_state=42)
+            y = y.loc[X.index]
 
         y = adjust_target_format(y, target_type)
         y_test = adjust_target_format(y_test, target_type)
@@ -69,7 +74,7 @@ if __name__ == "__main__":
         X_test = prep.transform(X_test)
 
         results = {"preds": {}, "performance": {}}
-        for model_name in ["LR", "GBM", "TABM", "CAT", "PFN"]:
+        for model_name in ["PFN", "TABM", "LR", "GBM", "CAT"]:
             results["preds"][model_name] = {}
             results["performance"][model_name] = {}
             print("--"*20)
@@ -78,7 +83,7 @@ if __name__ == "__main__":
                 if order2_max_feats_reached and prep_type in ["3-ARITHMETIC", "4-ARITHMETIC"]:
                     print(f"Skipping {prep_type} as max new feats reached for 2-ARITHMETIC")
                     continue
-                preds, score, X_used = run_experiment(X, y, X_test, y_test, model_name, prep_type, target_type)
+                preds, score, X_used = run_experiment(X, y, X_test, y_test, model_name, prep_type, target_type, verbosity=verbosity, num_bag_folds=num_bag_folds)
                 
                 if X_used.shape[1] >= 1500:
                     order2_max_feats_reached = True

@@ -23,36 +23,41 @@ data_tid_map = { # https://www.openml.org/search?type=study&study_type=task&id=3
     'vehicle': 53,
     'artificial-characters': 14964,
     'electricity': 219,
-    'phoneme': 9952,
-    'nomao': 9977,
     'medical_charges': 361294,
     'visualizing_soil': 361094,
     'Bike_sharing_demand': 360085,
     'mfeat-zernike': 22,
     'road-safety': 361285,
     'SpeedDating': 146607,
+
     'elevators': 3711,
     'ada_agnostic': 3896,
+    'phoneme': 9952,
     'nomao': 9977,
 }
 
 if __name__ == "__main__":
     max_new_feats = 1500
     save_path = "/ceph/atschalz/auto_prep/tabarena/tabarena/tabarena/icml2026/results"
-    exp_name = "simulated_highfrequency_final" 
+    exp_name = "simulated_highfrequency_test" 
+    # exp_name = "simulated_highfrequency_final_noround" 
     
     subsample = None
+    rerun = False
+    verbosity = 0
+    num_bag_folds = 8
+
+    prep_types = [None, "RSTAFC-noround-1order", "RSTAFC-noround"]
 
     for dataset_name in [
-        'artificial-characters',
-        'electricity',
         # 'ada_agnostic', # Experimental, unsure whether it helps
-        # 'nomao'
+        # 'artificial-characters',
+        'electricity',
         ]:
 
-        # if os.path.exists(os.path.join(save_path, f'{exp_name}_{dataset_name}_results.pkl')):
-        #     print(f" Skipping {dataset_name} as results already exist.")
-        #     continue
+        if os.path.exists(os.path.join(save_path, f'{exp_name}_{dataset_name}_results.pkl')) and not rerun:
+            print(f" Skipping {dataset_name} as results already exist.")
+            continue
 
         tid = data_tid_map[dataset_name]
         task = OpenMLTaskWrapper(openml.tasks.get_task(tid))
@@ -77,16 +82,16 @@ if __name__ == "__main__":
             y = y.loc[X.index]
 
         results = {"preds": {}, "performance": {}}
-        for model_name in ["LR", "GBM", "CAT"]: #, "PFN", "TABM"]:
+        for model_name in ["LR", "TABM", "PFN", "GBM", "CAT"]:
             results["preds"][model_name] = {}
             results["performance"][model_name] = {}
             print("--"*20)
             order2_max_feats_reached = False
-            for prep_type in ["None", "RSTAFC"]:
+            for prep_type in prep_types:
                 if order2_max_feats_reached and prep_type == "3-ARRITHMETIC":
                     print(" Skipping 3-ARRITHMETIC as max new feats reached for 2-ARRITHMETIC")
                     continue
-                preds, score, X_used = run_experiment(X, y, X_test, y_test, model_name, prep_type, target_type)
+                preds, score, X_used = run_experiment(X, y, X_test, y_test, model_name, prep_type, target_type, verbosity=verbosity, num_bag_folds=num_bag_folds)
                 
                 if X_used.shape[1] >= 1500:
                     order2_max_feats_reached = True
