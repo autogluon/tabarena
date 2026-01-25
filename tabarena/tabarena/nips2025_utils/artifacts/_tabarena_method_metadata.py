@@ -42,6 +42,8 @@ from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_misc import (
 
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_02_16 import tabiclv2_metadata
 
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_01_23_tabprep import tabprep_gbm_metadata, tabprep_lr_metadata
+
 methods_2025_09_03: list[MethodMetadata] = [
     ag_140_metadata,
     ebm_metadata,
@@ -83,6 +85,11 @@ methods_misc: list[MethodMetadata] = [
     # prep_gbm_v6_metadata,
 ]
 
+methods_tabprep = [
+    tabprep_gbm_metadata,
+    tabprep_lr_metadata,
+]
+
 replaced_methods = [
     "ExplainableBM",
     "RealMLP_GPU",
@@ -112,6 +119,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(method_metadata_l
     methods_2025_10_20 +
     methods_2025_11_01_keep +
     methods_2025_12_18 +
+    methods_tabprep +
     [tabdpt_metadata] +
     [realtabpfn25_metadata] +
     [contexttab_metadata] +
@@ -126,6 +134,7 @@ tabarena_method_metadata_complete_collection = MethodMetadataCollection(method_m
     methods_2025_10_20 +
     methods_2025_11_01_ag +
     methods_2025_12_18 +
+    methods_tabprep +
     [tabdpt_metadata] +
     [realtabpfn25_metadata] +
     [contexttab_metadata] +

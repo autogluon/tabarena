@@ -29,6 +29,9 @@ _methods_paper = [
     "AutoGluon_v150_eq_4h8c",
     # "Portfolio-N200-4h",
 
+    "PrepLightGBM",
+    "PrepLinearModel",
+
     "CatBoost",
     # "Dummy",
     "ExplainableBM",
