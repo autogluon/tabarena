@@ -24,6 +24,7 @@ from tabarena.benchmark.models.prep_ag import (
     PrepTabMModel,
     PrepRealTabPFNv25Model,
     PrepXGBoostModel,
+    PrepRealMLPModel,
 )
 
 tabarena_model_registry: ModelRegistry = copy.deepcopy(ag_model_registry)
@@ -44,6 +45,7 @@ _models_to_add = [
     PrepTabMModel,
     PrepRealTabPFNv25Model,
     PrepXGBoostModel,
+    PrepRealMLPModel,
     SAPRPTOSSModel,
 ]
 
