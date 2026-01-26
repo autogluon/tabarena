@@ -29,8 +29,8 @@ _methods_paper = [
     "AutoGluon_v150_eq_4h8c",
     # "Portfolio-N200-4h",
 
-    "PrepLightGBM",
-    "PrepLinearModel",
+    # "PrepLightGBM",
+    # "PrepLinearModel",
 
     "CatBoost",
     # "Dummy",
@@ -103,7 +103,7 @@ class TabArenaContext:
 
         if extra_methods:
             for method_metadata in extra_methods:
-                assert method_metadata.method not in methods
+                assert method_metadata.method not in methods, f"{method_metadata.method} already in methods..."
                 methods.append(method_metadata.method)
                 method_metadata_lst.append(method_metadata)
 

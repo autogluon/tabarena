@@ -7,6 +7,8 @@ from autogluon.core.searcher.local_random_searcher import LocalRandomSearcher
 from autogluon.core.models import AbstractModel
 
 from tabarena.benchmark.experiment import AGModelBagExperiment, AGModelExperiment
+from tabarena.models.utils import convert_numpy_dtypes
+
 
 def configs_to_name_dict(configs, name_prefix, model_type):
     configs_dict = {}
@@ -260,6 +262,8 @@ class PrepConfigGenerator(ConfigGenerator):
         configs = super().generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
         prep_configs = self.prep_generate_all_configs_lst(num_configs=num_random_configs, name_id_suffix=name_id_suffix)
         for i in range(len(prep_configs)):
+            prep_configs[i] = convert_numpy_dtypes(prep_configs[i])
+
             if 'ag.prep_params' not in configs[i]:
                 configs[i]['ag.prep_params'] = []
             pipeline = []
@@ -320,12 +324,12 @@ class PrepConfigGenerator(ConfigGenerator):
                     ['SpearmanFeatureSelector', {'max_features': spearman_max_feats}],
                 ])
             else:
-                configs[i]['ag.prep_params'].extend(pipeline)
+                configs[i]['ag.prep_params'].append(pipeline)
 
             if prep_params_passthrough_types:
                 configs[i]['ag.prep_params.passthrough_types'] = prep_params_passthrough_types
 
-        return configs
+        return [convert_numpy_dtypes(config) for config in configs]
 
 
 def generate_bag_experiments(

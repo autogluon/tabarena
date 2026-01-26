@@ -72,28 +72,31 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
     prep_configs = [dict(config) for config in prep_configs]
 
     for i in range(len(prep_configs)):
+        cur_config = prep_configs[i]
+        cur_config = convert_numpy_dtypes(cur_config)
+
         if 'ag.prep_params' not in configs[i]:
             configs[i]['ag.prep_params'] = []
         pipeline = []
         prep_params_passthrough_types = None
-        use_arithmetic_preprocessor = prep_configs[i].pop('use_arithmetic_preprocessor', False)
-        use_cat_fe = prep_configs[i].pop('use_cat_fe', False)
-        use_tafc = prep_configs[i].pop('use_tafc', False)
-        use_rstafc = prep_configs[i].pop('use_rstafc', False)
-        use_neighbor_interactions = prep_configs[i].pop('use_neighbor_interactions', False)
-        use_neighbor_structure = prep_configs[i].pop('use_neighbor_structure', False)
-        use_groupby = prep_configs[i].pop('use_groupby', False)
-        use_linear_feature = prep_configs[i].pop('use_linear_feature', False)
-        use_select_spearman = prep_configs[i].pop('use_select_spearman', False)
-        arithmetic_max_feats = prep_configs[i].pop('arithmetic_max_feats', 2000)
-        arithmetic_random_state = prep_configs[i].pop('arithmetic_max_feats_random_state', 42)
-        cat_fe_max_feats = prep_configs[i].pop('cat_fe_max_feats', 100)
-        cat_fe_random_state = prep_configs[i].pop('cat_fe_random_state', 42)
-        rstafc_n_subsets = prep_configs[i].pop('rstafc_n_subsets', 50)
-        rstafc_random_state = prep_configs[i].pop('rstafc_random_state', 42)
-        oofte_random_state = prep_configs[i].pop('oofte_random_state', 42)
-        groupby_max_feats = prep_configs[i].pop('groupby_max_feats', 500)
-        spearman_max_feats = prep_configs[i].pop('spearman_max_feats', 2000)
+        use_arithmetic_preprocessor = cur_config.pop('use_arithmetic_preprocessor', False)
+        use_cat_fe = cur_config.pop('use_cat_fe', False)
+        use_tafc = cur_config.pop('use_tafc', False)
+        use_rstafc = cur_config.pop('use_rstafc', False)
+        use_neighbor_interactions = cur_config.pop('use_neighbor_interactions', False)
+        use_neighbor_structure = cur_config.pop('use_neighbor_structure', False)
+        use_groupby = cur_config.pop('use_groupby', False)
+        use_linear_feature = cur_config.pop('use_linear_feature', False)
+        use_select_spearman = cur_config.pop('use_select_spearman', False)
+        arithmetic_max_feats = cur_config.pop('arithmetic_max_feats', 2000)
+        arithmetic_random_state = cur_config.pop('arithmetic_max_feats_random_state', 42)
+        cat_fe_max_feats = cur_config.pop('cat_fe_max_feats', 100)
+        cat_fe_random_state = cur_config.pop('cat_fe_random_state', 42)
+        rstafc_n_subsets = cur_config.pop('rstafc_n_subsets', 50)
+        rstafc_random_state = cur_config.pop('rstafc_random_state', 42)
+        oofte_random_state = cur_config.pop('oofte_random_state', 42)
+        groupby_max_feats = cur_config.pop('groupby_max_feats', 500)
+        spearman_max_feats = cur_config.pop('spearman_max_feats', 2000)
         
 
         if use_groupby:
@@ -133,7 +136,7 @@ def generate_configs_lightgbm(num_random_configs=200) -> list:
                 ['SpearmanFeatureSelector', {'max_features': spearman_max_feats}],
             ])
         else:
-            configs[i]['ag.prep_params'].extend(pipeline)
+            configs[i]['ag.prep_params'].append(pipeline)
 
 
         if prep_params_passthrough_types:
