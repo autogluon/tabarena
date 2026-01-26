@@ -812,6 +812,16 @@ class MethodMetadata:
         for result in results_lst:
             result.to_dir(path=path)
 
+    def load_end_to_end_results(self):
+        model_results = self.load_model_results()
+        hpo_results = self.load_hpo_results()
+        from tabarena.nips2025_utils.end_to_end_single import EndToEndResultsSingle
+        return EndToEndResultsSingle(
+            method_metadata=self,
+            model_results=model_results,
+            hpo_results=hpo_results,
+        )
+
     def cache_processed(self, repo: EvaluationRepository):
         repo.to_dir(self.path_processed)
 
