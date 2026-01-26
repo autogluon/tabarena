@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 if [ "$#" -ne 5 ]; then
     echo "Usage: $0 <repo_name> <tag> <source_account> <target_account> <region>"

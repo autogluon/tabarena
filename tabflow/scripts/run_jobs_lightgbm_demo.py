@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tabflow.cli.build_docker import build_docker
 from tabflow.cli.launch_jobs import JobManager
 from tabarena.models.lightgbm.generate import gen_lightgbm
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
@@ -9,7 +10,6 @@ from tabarena.benchmark.experiment.experiment_constructor import Experiment, Yam
 # 1. Build the docker (ensure you use your own docker name to avoid overwriting other user's docker containers
 bash ./tabarena/tabflow/docker/build_docker.sh tabarena tabarena-neerick 763104351884 097403188315 us-west-2
 """
-docker_image_uri = "097403188315.dkr.ecr.us-west-2.amazonaws.com/tabarena:tabarena-neerick"
 
 """
 # 2. Need to set aws default region to us-west-2
@@ -24,7 +24,6 @@ TODO: Make this not be required
 # 3. Create a sagemaker role (only for fresh AWS account)
 TODO
 """
-sagemaker_role = "arn:aws:iam::097403188315:role/service-role/AmazonSageMaker-ExecutionRole-20250128T153145"
 
 """
 # 4. Run this script (working directory should be one level above the root of `tabarena`)
@@ -43,8 +42,29 @@ aws s3 cp --recursive "s3://prateek-ag/tabarena-lightgbm-demo" ../data/tabarena-
 Refer to `run_evaluate_lightgbm_demo.py`
 """
 
+# Edit to use your own account
+REPO_NAME = "tabarena"
+TAG = "tabarena-neerick"
+SOURCE_ACCOUNT = "763104351884"
+TARGET_ACCOUNT = "097403188315"
+REGION = "us-west-2"
+
+
 # TODO: Add example for custom model / non-AG model
 if __name__ == "__main__":
+    build_docker_flag = True
+    if build_docker_flag:
+        build_docker(
+            repo_name=REPO_NAME,
+            tag=TAG,
+            source_account=SOURCE_ACCOUNT,
+            target_account=TARGET_ACCOUNT,
+            region=REGION,
+        )
+
+    docker_image_uri = f"{TARGET_ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com/{REPO_NAME}:{TAG}"
+    sagemaker_role = f"arn:aws:iam::{TARGET_ACCOUNT}:role/service-role/AmazonSageMaker-ExecutionRole-20250128T153145"
+
     tabarena_context = TabArenaContext()
     task_metadata = tabarena_context.task_metadata.copy()  # metadata about the available datasets
 
