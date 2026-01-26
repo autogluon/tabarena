@@ -335,16 +335,19 @@ class TabArenaContext:
         )
         return cur_result
 
-    def simulate_portfolio(self, methods: list[str], config_fallback: str, repo: EvaluationRepositoryCollection = None):
+    def simulate_portfolio(self, methods: list[str], config_fallback: str, repo: EvaluationRepositoryCollection = None, **kwargs):
         if repo is None:
             repo = self.load_repo(methods=methods, config_fallback=config_fallback)
         simulator = PaperRunTabArena(repo=repo, backend=self.backend)
 
         df_results_n_portfolio = []
-        n_portfolios = [200]
+        if "n_portfolios" not in kwargs:
+            n_portfolios = [200]
+        else:
+            n_portfolios = kwargs.pop("n_portfolios")
         for n_portfolio in n_portfolios:
             df_results_n_portfolio.append(
-                simulator.run_zs(n_portfolios=n_portfolio, n_ensemble=None, n_ensemble_in_name=False))
+                simulator.run_zs(n_portfolios=n_portfolio, n_ensemble=None, n_ensemble_in_name=False, **kwargs))
         results = pd.concat(df_results_n_portfolio, ignore_index=True)
         return results
 
