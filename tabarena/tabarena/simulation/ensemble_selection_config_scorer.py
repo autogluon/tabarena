@@ -47,6 +47,7 @@ class TaskEvaluator:
         self._fit_eval_metric = fit_eval_metric
         self._predict_problem_type = getattr(eval_metric, "post_problem_type", problem_type)
         self._fit_problem_type = getattr(fit_eval_metric, "post_problem_type", problem_type)
+        self.problem_type = problem_type
 
     @staticmethod
     def _maybe_preprocess_bulk(metric: Scorer, y: np.ndarray, pred: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -80,8 +81,11 @@ class TaskEvaluator:
             y_pred = ensemble.predict_proba(pred)
         return y_pred, y
 
-    def score(self, *, y: np.ndarray, y_pred: np.ndarray) -> float:
+    def error(self, *, y: np.ndarray, y_pred: np.ndarray) -> float:
         return self._eval_metric.error(y, y_pred)
+
+    def error_fit(self, *, y: np.ndarray, y_pred: np.ndarray) -> float:
+        return self._fit_eval_metric.error(y, y_pred)
 
     def run(
         self,
@@ -97,13 +101,13 @@ class TaskEvaluator:
         ensemble = self.fit(pred_train=pred_train, y_train=y_train)
 
         y_test_pred, y_test_proc = self.predict(ensemble=ensemble, pred=pred_test, y=y_test)
-        results: dict[str, object] = {"metric_error": self.score(y=y_test_proc, y_pred=y_test_pred)}
+        results: dict[str, object] = {"metric_error": self.error(y=y_test_proc, y_pred=y_test_pred)}
 
         if return_metric_error_val:
             if pred_val is None or y_val is None:
                 raise ValueError("pred_val and y_val must be provided when return_metric_error_val=True")
             y_val_pred, y_val_proc = self.predict(ensemble=ensemble, pred=pred_val, y=y_val)
-            results["metric_error_val"] = self.score(y=y_val_proc, y_pred=y_val_pred)
+            results["metric_error_val"] = self.error(y=y_val_proc, y_pred=y_val_pred)
 
         if hasattr(ensemble, "weights_"):
             results["ensemble_weights"] = ensemble.weights_
@@ -420,6 +424,8 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
         assert backend in ['native', 'ray']
         self.backend = backend
         self.use_fast_metrics = ensemble_kwargs.pop("use_fast_metrics", use_fast_metrics)
+        if "proxy_fit_metric_map" in ensemble_kwargs:
+            proxy_fit_metric_map = ensemble_kwargs.pop("proxy_fit_metric_map")
         if proxy_fit_metric_map is None:
             proxy_fit_metric_map = {}
         elif isinstance(proxy_fit_metric_map, str):

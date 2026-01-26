@@ -72,14 +72,14 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
         pred_train: np.ndarray,
         pred_val: np.ndarray,
         pred_test: np.ndarray,
-        problem_type: str,
+        evaluator,
     ) -> tuple[np.ndarray, np.ndarray]:
         return self._calibrate_single_prediction(
             y_train=y_train,
             pred_train=pred_train,
             pred_val=pred_val,
             pred_test=pred_test,
-            problem_type=problem_type,
+            problem_type=evaluator.problem_type,
         )
 
     def _calibrate_per_model(
@@ -88,7 +88,7 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
         pred_train: np.ndarray,
         pred_val: np.ndarray,
         pred_test: np.ndarray,
-        problem_type: str,
+        evaluator,
         models: list[str],
     ):
         pred_val = copy.deepcopy(pred_val)
@@ -101,7 +101,7 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
                 pred_train=pred_train[i],
                 pred_val=pred_val[i],
                 pred_test=pred_test[i],
-                problem_type=problem_type,
+                problem_type=evaluator.problem_type,
             )
 
             pred_val[i] = pred_val_i_cal
@@ -144,20 +144,6 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
 
         pred_val, pred_test = self.get_preds_from_models(dataset=dataset, fold=fold, models=models)
 
-        if calibrate_per_model:
-            y_train, pred_train = self._get_train(y_val=y_val, pred_val=pred_val, y_test=y_test, pred_test=pred_test)
-
-            pred_val, pred_test = self._calibrate_per_model(
-                y_train=y_train,
-                pred_train=pred_train,
-                pred_val=pred_val,
-                pred_test=pred_test,
-                problem_type=problem_type,
-                models=models,
-            )
-
-        y_train, pred_train = self._get_train(y_val=y_val, pred_val=pred_val, y_test=y_test, pred_test=pred_test)
-
         # Choose ensemble method/kwargs via hooks
         ensemble_method = self.get_ensemble_method_for_task(dataset=dataset, fold=fold, models=models)
         ensemble_kwargs = self.get_ensemble_method_kwargs_for_task(dataset=dataset, fold=fold, models=models)
@@ -169,6 +155,20 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
             fit_eval_metric=fit_eval_metric,
             problem_type=problem_type,
         )
+
+        if calibrate_per_model:
+            y_train, pred_train = self._get_train(y_val=y_val, pred_val=pred_val, y_test=y_test, pred_test=pred_test)
+
+            pred_val, pred_test = self._calibrate_per_model(
+                y_train=y_train,
+                pred_train=pred_train,
+                pred_val=pred_val,
+                pred_test=pred_test,
+                evaluator=evaluator,
+                models=models,
+            )
+
+        y_train, pred_train = self._get_train(y_val=y_val, pred_val=pred_val, y_test=y_test, pred_test=pred_test)
 
         ensemble = evaluator.fit(pred_train=pred_train, y_train=y_train)
 
@@ -196,14 +196,14 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
                 pred_train=pred_train_cal,
                 pred_val=y_val_pred,
                 pred_test=y_test_pred,
-                problem_type=problem_type,
+                evaluator=evaluator,
             )
 
         results: dict[str, object] = {}
-        results["metric_error"] = evaluator.score(y=y_test_proc, y_pred=y_test_pred)
+        results["metric_error"] = evaluator.error(y=y_test_proc, y_pred=y_test_pred)
 
         if self.return_metric_error_val:
-            results["metric_error_val"] = evaluator.score(y=y_val_proc, y_pred=y_val_pred)
+            results["metric_error_val"] = evaluator.error(y=y_val_proc, y_pred=y_val_pred)
 
         if hasattr(ensemble, "weights_"):
             weights = ensemble.weights_
@@ -219,11 +219,13 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
         self,
         calibrator_n_splits: int = 10,
         calibrator_random_state: int = 0,
+        keep_best: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.calibrator_n_splits = calibrator_n_splits
         self.calibrator_random_state = calibrator_random_state
+        self.keep_best = keep_best
 
         if self.optimize_on != "val":
             # This class intentionally only supports CV calibration on validation.
@@ -249,7 +251,7 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
         proba_val: np.ndarray,
         y_val: np.ndarray,
         proba_test: np.ndarray,
-        problem_type: str,
+        evaluator,
         random_state: int,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -261,6 +263,8 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
         For multiclass, outputs are 2d probabilities.
         """
         n_splits = int(self.calibrator_n_splits) if self.calibrator_n_splits is not None else 0
+        problem_type = evaluator.problem_type
+        keep_best = self.keep_best
 
         def _fit_full_and_predict(val_proba, val_y, test_proba):
             cal = calibrator_factory()
@@ -302,6 +306,14 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
         if problem_type == "binary":
             calibrated_test = self._to_binary_1d(calibrated_test)
 
+        if keep_best:
+            # FIXME: Handle pred/proba required inputs properly
+            error_og = evaluator.error_fit(y=y_val, y_pred=proba_val)
+            error_cal = evaluator.error_fit(y=y_val, y_pred=calibrated_val_oof)
+            if error_cal >= error_og:
+                # Calibration didn't help val score
+                return proba_val, proba_test
+
         return calibrated_val_oof, calibrated_test
 
     def _calibrate_per_model(
@@ -310,7 +322,7 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
         pred_train: np.ndarray,
         pred_val: np.ndarray,
         pred_test: np.ndarray,
-        problem_type: str,
+        evaluator,
         models: list[str],
     ):
         """
@@ -327,7 +339,7 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
                 proba_val=pred_train[i],
                 y_val=y_train,
                 proba_test=pred_test_out[i],
-                problem_type=problem_type,
+                evaluator=evaluator,
                 random_state=self.calibrator_random_state,
             )
             pred_val_out[i] = val_oof
@@ -342,14 +354,14 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
         pred_train: np.ndarray,
         pred_val: np.ndarray,
         pred_test: np.ndarray,
-        problem_type: str,
+        evaluator,
     ) -> tuple[np.ndarray, np.ndarray]:
         val_oof, test_cal = self._calibrate_with_cv_for_val_and_full_for_test(
             calibrator_factory=self.get_calibrator,
             proba_val=pred_train,
             y_val=y_train,
             proba_test=pred_test,
-            problem_type=problem_type,
+            evaluator=evaluator,
             random_state=self.calibrator_random_state + 1,
         )
 
