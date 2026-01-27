@@ -24,6 +24,7 @@ def compare_on_tabarena(
     remove_imputed: bool = False,
     tmp_treat_tasks_independently: bool = False,
     leaderboard_kwargs: dict | None = None,
+    **kwargs,
 ) -> pd.DataFrame:
     output_dir = Path(output_dir)
     if tabarena_context is None:
@@ -31,6 +32,22 @@ def compare_on_tabarena(
             tabarena_context_kwargs = {}
         tabarena_context = TabArenaContext(**tabarena_context_kwargs)
     task_metadata = tabarena_context.task_metadata
+
+    # TODO: only methods that exist in runs
+    #  Pair with (method, artifact_name)
+    method_rename_map = dict()
+    method_metadatas = tabarena_context.method_metadata_collection.method_metadata_lst
+    for m in method_metadatas:
+        if m.method_type == "config":
+            display_name = m.get_display_name()
+            if display_name is not None:
+                if m.config_type in method_rename_map:
+                    print(
+                        f"WARNING: Multiple display_name values detected for the same config_type={m.config_type!r}"
+                        f"\n\tdisplay_name 1: {method_rename_map[m.config_type]!r}"
+                        f"\n\tdisplay_name 2: {display_name!r}"
+                    )
+                method_rename_map[m.config_type] = display_name
 
     paper_results = tabarena_context.load_results_paper(
         download_results="auto",
@@ -46,7 +63,7 @@ def compare_on_tabarena(
     else:
         df_results = paper_results
 
-    kwargs = {}
+    kwargs = kwargs.copy()
     if isinstance(only_valid_tasks, (str, list)):
         kwargs["only_valid_tasks"] = only_valid_tasks
     elif only_valid_tasks and new_results is not None:
@@ -73,6 +90,7 @@ def compare_on_tabarena(
         remove_imputed=remove_imputed,
         tmp_treat_tasks_independently=tmp_treat_tasks_independently,
         leaderboard_kwargs=leaderboard_kwargs,
+        method_rename_map=method_rename_map,
         **kwargs,
     )
 
@@ -89,6 +107,8 @@ def compare(
     tmp_treat_tasks_independently: bool = False,  # FIXME: Update
     leaderboard_kwargs: dict | None = None,
     remove_imputed: bool = False,
+    method_rename_map: dict | None = None,
+    **kwargs,
 ):
     df_results = prepare_data(
         df_results=df_results,
@@ -109,6 +129,7 @@ def compare(
         output_dir=output_dir,
         task_metadata=task_metadata,
         error_col=error_col,
+        method_rename_map=method_rename_map,
     )
 
     return plotter.eval(
@@ -121,6 +142,7 @@ def compare(
         average_seeds=average_seeds,
         tmp_treat_tasks_independently=tmp_treat_tasks_independently,
         leaderboard_kwargs=leaderboard_kwargs,
+        **kwargs,
     )
 
 

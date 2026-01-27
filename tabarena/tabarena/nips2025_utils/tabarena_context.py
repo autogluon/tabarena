@@ -117,6 +117,7 @@ class TabArenaContext:
         remove_imputed: bool = False,
         tmp_treat_tasks_independently: bool = False,
         leaderboard_kwargs: dict | None = None,
+        **kwargs,
     ) -> pd.DataFrame:
         from tabarena.nips2025_utils.compare import compare_on_tabarena
         return compare_on_tabarena(
@@ -132,6 +133,7 @@ class TabArenaContext:
             remove_imputed=remove_imputed,
             tmp_treat_tasks_independently=tmp_treat_tasks_independently,
             leaderboard_kwargs=leaderboard_kwargs,
+            **kwargs,
         )
 
     @property

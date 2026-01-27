@@ -55,6 +55,7 @@ class TabArenaEvaluator:
         folds: list[int] | None = None,
         datasets: list[str] | None = None,
         problem_types: list[str] | None = None,
+        method_rename_map: dict[str, str] | None = None,
         banned_model_types: list[str] | None = None,
         banned_pareto_methods: list[str] | None = None,
         elo_bootstrap_rounds: int = 200,
@@ -85,6 +86,8 @@ class TabArenaEvaluator:
             task_metadata = load_task_metadata()
         if banned_pareto_methods is None:
             banned_pareto_methods = []
+        if method_rename_map is None:
+            method_rename_map = {}
         self.output_dir: Path = Path(output_dir)
         self.task_metadata = task_metadata
         self.method_col = method_col
@@ -92,6 +95,7 @@ class TabArenaEvaluator:
         self.config_types = config_types
         self.figure_file_type = figure_file_type
         self.banned_pareto_methods = banned_pareto_methods
+        self._method_rename_map = method_rename_map
 
         self.datasets = datasets
         self.problem_types = problem_types
@@ -825,7 +829,9 @@ class TabArenaEvaluator:
         )
 
     def get_method_rename_map(self) -> dict[str, str]:
-        return get_method_rename_map()  # FIXME: Avoid hardcoding
+        method_rename_map = get_method_rename_map()  # FIXME: Avoid hardcoding
+        method_rename_map.update(self._method_rename_map)
+        return method_rename_map
 
     def plot_portfolio_ensemble_weights_barplot(self, df_ensemble_weights: pd.DataFrame):
         import seaborn as sns

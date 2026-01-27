@@ -35,6 +35,7 @@ class MethodMetadata:
         artifact_name: str = None,
         date: str | None = None,
         method_type: Literal["config", "baseline", "portfolio"] = "config",
+        display_name: str | None = None,
         name: str | None = None,
         name_suffix: str | None = None,
         ag_key: str | None = None,
@@ -64,6 +65,7 @@ class MethodMetadata:
             model_key = ag_key
         self.model_key = model_key
         self.name = name
+        self.display_name = display_name
         self.name_suffix = name_suffix
         self.config_default = config_default
         self.compute = compute
@@ -89,6 +91,15 @@ class MethodMetadata:
         if self.name is not None and self.name_suffix is not None:
             raise AssertionError(f"Must only specify one of `name` and `name_suffix`.")
         self.reference_url = reference_url
+
+    def get_display_name(self) -> str:
+        if self.display_name is not None:
+            return self.display_name
+        if self.name is not None:
+            return self.name
+        if self.config_type is not None:
+            return self.config_type
+        return self.method
 
     @property
     def config_type(self) -> str | None:
