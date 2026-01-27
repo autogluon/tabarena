@@ -6,6 +6,7 @@ from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
 tabprep_gbm_metadata = MethodMetadata(
     method="PrepLightGBM",
     artifact_name="tabarena-2026-01-23",
+    display_name="PrepLightGBM",
     method_type="config",
     compute="cpu",
     date="2026-01-23",
@@ -27,6 +28,7 @@ tabprep_gbm_metadata = MethodMetadata(
 tabprep_lr_metadata = MethodMetadata(
     method="PrepLinearModel",
     artifact_name="tabarena-2026-01-23",
+    display_name="PrepLinear",
     method_type="config",
     compute="cpu",
     date="2026-01-23",
