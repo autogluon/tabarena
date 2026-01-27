@@ -95,6 +95,32 @@ methods_ag_key_map = {
     "TabPFNv2_GPU": "TABPFNV2",
 }
 
+
+methods_display_name_map = {
+    "CatBoost": "CatBoost",
+    "Dummy": "Dummy",
+    "ExplainableBM": "EBM",
+    "ExtraTrees": "ExtraTrees",
+    "KNeighbors": "KNN",
+    "LightGBM": "LightGBM",
+    "LinearModel": "Linear",
+    "ModernNCA": "ModernNCA (CPU)",
+    "NeuralNetFastAI": "FastaiMLP",
+    "NeuralNetTorch": "TorchMLP",
+    "RandomForest": "RandomForest",
+    "RealMLP": "RealMLP (CPU)",
+    "TabM": "TabM (CPU)",
+    "XGBoost": "XGBoost",
+
+    "ModernNCA_GPU": "ModernNCA",
+    "RealMLP_GPU": "RealMLP",
+    "TabDPT_GPU": "TabDPT",
+    "TabICL_GPU": "TabICL",
+    "TabM_GPU": "TabM",
+    "TabPFNv2_GPU": "TabPFNv2",
+}
+
+
 methods_config_default_map = {
     "CatBoost": "CatBoost_c1_BAG_L1",
     "Dummy": "Dummy_c1_BAG_L1",
@@ -243,6 +269,7 @@ for method in methods:
     config_default = methods_config_default_map[method]
     is_bag = method in methods_is_bag
     upload_as_public = method not in methods_upload_as_private
+    display_name = methods_display_name_map.get(method, None)
     assert compute_type in ["cpu", "gpu"]
     if compute_type == "cpu":
         method_kwargs = cpu_kwargs
@@ -260,6 +287,7 @@ for method in methods:
     method_metadata = MethodMetadata(
         method=method,
         config_default=config_default,
+        display_name=display_name,
         ag_key=ag_key,
         is_bag=is_bag,
         can_hpo=can_hpo,
@@ -273,6 +301,7 @@ for method in methods:
 
 ag_130_metadata = MethodMetadata(
     method="AutoGluon_v130",
+    name="AutoGluon 1.3 (best, 4h)",
     artifact_name="tabarena-2025-06-12",
     date="2025-06-12",
     method_type="baseline",
