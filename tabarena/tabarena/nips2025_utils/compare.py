@@ -123,8 +123,6 @@ def compare(
     else:
         error_col = "metric_error"
 
-    imputed_names = get_imputed_names(df_results=df_results)
-
     plotter = TabArenaEvaluator(
         output_dir=output_dir,
         task_metadata=task_metadata,
@@ -134,7 +132,6 @@ def compare(
 
     return plotter.eval(
         df_results=df_results,
-        imputed_names=imputed_names,
         plot_extra_barplots=False,
         plot_times=True,
         plot_other=False,
@@ -282,19 +279,3 @@ def subset_tasks(df_results: pd.DataFrame, subset: list[str], folds: list[int] =
         df_results = df_results[df_results["fold"].isin(folds)]
     df_results = df_results.reset_index(drop=True)
     return df_results
-
-
-def get_imputed_names(df_results: pd.DataFrame, method_col="method") -> list[str]:
-    # Handle imputation of names
-    imputed_names = list(df_results[method_col][df_results["imputed"] > 0].unique())
-    if len(imputed_names) == 0:
-        return []
-
-    from tabarena.paper.paper_utils import get_method_rename_map
-
-    # remove suffix
-    imputed_names = [n.split(" (")[0] for n in imputed_names]
-    imputed_names = [get_method_rename_map().get(n, n) for n in imputed_names]
-    imputed_names = list(set(imputed_names))
-    print(f"Model for which results were imputed: {imputed_names}")
-    return imputed_names

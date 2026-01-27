@@ -254,9 +254,7 @@ class TabArenaEvaluator:
             calibration_framework = _rename_dict.get(calibration_framework, calibration_framework)
 
         if imputed_names is None:
-            # TODO: This is a hack
-            from tabarena.nips2025_utils.compare import get_imputed_names
-            imputed_names = get_imputed_names(df_results=df_results, method_col=self.method_col)
+            imputed_names = self.get_imputed_names(df_results=df_results)
 
         self.assert_no_duplicates(df_results=df_results)
         self.assert_no_nan_methods(df_results=df_results)
@@ -832,6 +830,21 @@ class TabArenaEvaluator:
         method_rename_map = get_method_rename_map()  # FIXME: Avoid hardcoding
         method_rename_map.update(self._method_rename_map)
         return method_rename_map
+
+    def get_imputed_names(self, df_results: pd.DataFrame) -> list[str]:
+        # Handle imputation of names
+        imputed_names = list(df_results[self.method_col][df_results["imputed"] > 0].unique())
+        if len(imputed_names) == 0:
+            return []
+
+        method_rename_map = self.get_method_rename_map()
+
+        # remove suffix
+        imputed_names = [n.split(" (")[0] for n in imputed_names]
+        imputed_names = [method_rename_map.get(n, n) for n in imputed_names]
+        imputed_names = list(set(imputed_names))
+        print(f"Model for which results were imputed: {imputed_names}")
+        return imputed_names
 
     def plot_portfolio_ensemble_weights_barplot(self, df_ensemble_weights: pd.DataFrame):
         import seaborn as sns
