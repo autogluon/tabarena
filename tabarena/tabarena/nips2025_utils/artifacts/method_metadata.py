@@ -65,7 +65,6 @@ class MethodMetadata:
             model_key = ag_key
         self.model_key = model_key
         self.name = name
-        self.display_name = display_name
         self.name_suffix = name_suffix
         self.config_default = config_default
         self.compute = compute
@@ -81,6 +80,7 @@ class MethodMetadata:
         self.s3_bucket = s3_bucket
         self.s3_prefix = s3_prefix
         self.upload_as_public = upload_as_public
+        self.reference_url = reference_url
 
         assert isinstance(self.method, str) and len(self.method) > 0
         assert isinstance(self.artifact_name, str) and len(self.artifact_name) > 0
@@ -90,16 +90,21 @@ class MethodMetadata:
             raise AssertionError(f"Cannot specify `name` for method_type: 'config'.")
         if self.name is not None and self.name_suffix is not None:
             raise AssertionError(f"Must only specify one of `name` and `name_suffix`.")
-        self.reference_url = reference_url
 
-    def get_display_name(self) -> str:
-        if self.display_name is not None:
-            return self.display_name
+        if display_name is None:
+            display_name = self._compute_display_name()
+        self.display_name = display_name
+
+        assert isinstance(self.display_name, str) and len(self.display_name) > 0
+
+    def _compute_display_name(self) -> str:
         if self.name is not None:
-            return self.name
-        if self.config_type is not None:
-            return self.config_type
-        return self.method
+            display_name = self.name
+        elif self.config_type is not None:
+            display_name = self.config_type
+        else:
+            display_name = self.method
+        return display_name
 
     @property
     def config_type(self) -> str | None:

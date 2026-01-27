@@ -39,7 +39,7 @@ def compare_on_tabarena(
     method_metadatas = tabarena_context.method_metadata_collection.method_metadata_lst
     for m in method_metadatas:
         if m.method_type == "config":
-            display_name = m.get_display_name()
+            display_name = m.display_name
             if display_name is not None:
                 if m.config_type in method_rename_map:
                     print(
