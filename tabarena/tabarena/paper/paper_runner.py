@@ -82,7 +82,7 @@ class PaperRun:
 
     def run_ensemble_config_type(
         self,
-        config_type: str,
+        config_type: str | list[str],
         n_iterations: int,
         n_configs: int = None,
         fixed_configs: list[str] | None = None,
@@ -93,7 +93,12 @@ class PaperRun:
     ) -> pd.DataFrame:
         # FIXME: Don't recompute this each call, implement `self.repo.configs(config_types=[config_type])`
         config_type_groups = self.get_config_type_groups()
-        configs = config_type_groups[config_type]
+        if isinstance(config_type, list):
+            configs = []
+            for ct in config_type:
+                configs += config_type_groups[ct]
+        else:
+            configs = config_type_groups[config_type]
 
         if fixed_configs is not None:
             for c in fixed_configs:
@@ -126,7 +131,7 @@ class PaperRun:
         else:
             method_subtype = "tuned_ensemble"
         df_results_family_hpo["method_subtype"] = method_subtype
-        df_results_family_hpo["config_type"] = config_type
+        df_results_family_hpo["config_type"] = str(config_type)
 
         method_metadata = dict(
             n_iterations=n_iterations,
