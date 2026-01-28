@@ -1113,15 +1113,18 @@ class TabArenaEvaluator:
             assert len(baselines) == len(
                 baseline_colors), f"A color must be specified for each baseline via the `baseline_colors` argument."
 
-        has_non_baselines = len(framework_types) != 0
-        framework_types = baselines + framework_types
+        tick_methods = framework_types
+        has_non_baselines = len(tick_methods) != 0
 
         df["framework_type"] = df["framework_type"].map(f_map_type_name).fillna(df["framework_type"])
 
-        framework_types = [f_map_type_name.get(m, m) for m in framework_types]
+        baselines =  [f_map_type_name.get(m, m) for m in baselines]
+        tick_methods = [f_map_type_name.get(m, m) for m in tick_methods]
         if hidden_methods:
             hidden_methods = [f_map_type_name.get(m, m) for m in hidden_methods]
-            framework_types = [m for m in framework_types if m not in hidden_methods]
+            baselines = [m for m in baselines if m not in hidden_methods]
+            tick_methods = [m for m in tick_methods if m not in hidden_methods]
+        framework_types = baselines + tick_methods
 
         if plot_tune_types:
             df = df[df["tune_method"].isin(plot_tune_types) | df[self.method_col].isin(baselines)]
@@ -1152,8 +1155,27 @@ class TabArenaEvaluator:
 
         df_plot_mean_dedupe = df_plot_w_mean_2.drop_duplicates(subset=["framework_type"], keep="first")
 
-        framework_type_order = list(df_plot_mean_dedupe["framework_type"].to_list())
-        framework_type_order.reverse()
+        framework_type_order_orig = list(df_plot_mean_dedupe["framework_type"].to_list())
+        framework_type_order_orig.reverse()
+
+        framework_type_order = copy.deepcopy(framework_type_order_orig)
+
+        display_name_map = {
+            k: v["display_name"]
+            for k, v in method_style_map.items()
+            if isinstance(v, dict) and "display_name" in v and k in tick_methods
+        }
+        display_name_inverse_map = {v: k for k, v in display_name_map.items()}
+        if display_name_map:
+            df_plot = df_plot.copy()
+            df_plot_mean_dedupe = df_plot_mean_dedupe.copy()
+            df_plot_w_mean_per_dataset = df_plot_w_mean_per_dataset.copy()
+            df_plot["framework_type"] = df_plot["framework_type"].replace(display_name_map)
+            df_plot_mean_dedupe["framework_type"] = df_plot_mean_dedupe["framework_type"].replace(display_name_map)
+            df_plot_w_mean_per_dataset["framework_type"] = df_plot_w_mean_per_dataset["framework_type"].replace(display_name_map)
+
+        if display_name_map:
+            framework_type_order = [display_name_map.get(m, m) for m in framework_type_order_orig]
 
         with sns.axes_style("whitegrid"):
             with plt.rc_context(self.rc_context_params):
@@ -1169,6 +1191,7 @@ class TabArenaEvaluator:
                     xlim = lim
 
                     framework_type_order.reverse()
+                    framework_type_order_orig.reverse()
 
                 else:
                     pos = framework_col
@@ -1445,7 +1468,14 @@ class TabArenaEvaluator:
                 order = list(reversed(order))
 
                 if method_style_map:
-                    _apply_ticklabel_styles(ax=ax, use_y=use_y, style_map=method_style_map)
+                    tick_method_type_order_orig = [f for f in framework_type_order_orig if f in tick_methods]
+                    _apply_ticklabel_styles(
+                        ax=ax,
+                        use_y=use_y,
+                        style_map=method_style_map,
+                        display_name_inverse_map=display_name_inverse_map,
+                        tick_method_keys=tick_method_type_order_orig,
+                    )
 
                 # pass handle & labels lists along with order as below
                 # ax.legend(
@@ -1858,13 +1888,45 @@ def _apply_ticklabel_styles(
     ax,
     use_y: bool,
     style_map: dict[str, MethodLabelStyle] | None,
+    display_name_inverse_map: dict[str, str] | None = None,
+    tick_method_keys: list[str] | None = None,
 ):
+    """
+    Apply per-method ticklabel styling.
+
+    Key feature: if `tick_method_keys` is provided, styles are resolved using the
+    original method key for each tick (in axis order). This prevents collisions
+    when display_name(A) == B and B also exists in the style_map.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Target axes.
+    use_y : bool
+        If True, style y tick labels; otherwise style x tick labels.
+    style_map : dict[str, MethodLabelStyle] | None
+        Mapping from method name -> style (str shorthand for color, or dict of Text style kwargs).
+    display_name_inverse_map : dict[str, str] | None
+        Optional mapping {display_name -> original_name}. Used only as a fallback when
+        `tick_method_keys` is not provided.
+    tick_method_keys : list[str] | None
+        Optional list of original method names corresponding 1:1 with tick labels,
+        in the exact order they appear on the axis.
+    """
     if not style_map:
         return
 
-    ticklabels = ax.get_yticklabels() if use_y else ax.get_xticklabels()
+    if display_name_inverse_map is None:
+        display_name_inverse_map = {}
 
-    for t in ticklabels:
+    tick_texts = ax.get_yticklabels() if use_y else ax.get_xticklabels()
+
+    if tick_method_keys is not None and len(tick_method_keys) != len(tick_texts):
+        raise ValueError(
+            f"tick_method_keys length ({len(tick_method_keys)}) must match number of tick labels ({len(tick_texts)})."
+        )
+
+    for i, t in enumerate(tick_texts):
         raw_name = t.get_text()
 
         # Normalize label text if you added arrows / newlines earlier
@@ -1875,19 +1937,38 @@ def _apply_ticklabel_styles(
             .strip()
         )
 
-        style = (
-            style_map.get(raw_name)
-            or style_map.get(base_name)
-        )
+        # --- Resolve the style lookup key ---
+        # 1) If provided, use underlying original method key by position (robust to display_name collisions)
+        key = tick_method_keys[i] if tick_method_keys is not None else None
 
-        if style is None:
+        # 2) Otherwise try exact tick text / normalized tick text
+        if key is None:
+            if raw_name in style_map:
+                key = raw_name
+            elif base_name in style_map:
+                key = base_name
+
+        # 3) Fallback: if tick text is a display_name, map back to original
+        if key is None:
+            inv_raw = display_name_inverse_map.get(raw_name)
+            inv_base = display_name_inverse_map.get(base_name)
+            if inv_raw in style_map:
+                key = inv_raw
+            elif inv_base in style_map:
+                key = inv_base
+            else:
+                key = base_name  # last resort
+
+        style_spec = style_map.get(key)
+        if style_spec is None:
             continue
 
-        style = _normalize_label_style(style)
+        # Normalize style: allow shorthand color string
+        style = _normalize_style(style_spec)
 
         # Apply supported Text properties dynamically
-        for key, value in style.items():
-            setter = getattr(t, f"set_{key}", None)
+        for prop, value in style.items():
+            setter = getattr(t, f"set_{prop}", None)
             if setter is not None:
                 setter(value)
 
