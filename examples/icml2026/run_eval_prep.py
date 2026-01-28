@@ -104,53 +104,78 @@ if __name__ == '__main__':
 
     mode = CacheMode.USE_IF_EXISTS
 
-    results_hpo_prep_w_tabpfn = cached_parquet_df(
-        path=path_hpo_combined / "RealTabPFN-2.5.parquet",
-        mode=mode,
-        compute_fn=lambda: ta_context.combine_hpo(
-            methods=["RealTabPFN-v2.5", "PrepRealTabPFN-v2.5"],
-            method_default="RealTabPFN-v2.5",
-            new_config_type="(Prep)RealTabPFN-2.5",
-            ta_name="(Prep)RealTabPFN-2.5",
-            ta_suite="(Prep)RealTabPFN-2.5",
-        ),
-    )
+    extra_kwargs = {
+        "n_configs": 201,
+        "fit_order": "random",
+    }
 
-    results_hpo_prep_w_lightgbm = cached_parquet_df(
-        path=path_hpo_combined / "LightGBM.parquet",
-        mode=mode,
-        compute_fn=lambda: ta_context.combine_hpo(
-            methods=["LightGBM", "PrepLightGBM"],
-            method_default="PrepLightGBM",
-            new_config_type="(Prep)LightGBM",
-            ta_name="(Prep)LightGBM",
-            ta_suite="(Prep)LightGBM",
-        ),
-    )
+    extra_results = []
 
-    results_hpo_prep_w_tabm = cached_parquet_df(
-        path=path_hpo_combined / "TabM.parquet",
-        mode=mode,
-        compute_fn=lambda: ta_context.combine_hpo(
-            methods=["TabM_GPU", "PrepTabM"],
-            method_default="PrepTabM",
-            new_config_type="(Prep)TabM",
-            ta_name="(Prep)TabM",
-            ta_suite="(Prep)TabM",
-        ),
-    )
+    for name_prefix, fit_kwargs in [
+        ("", extra_kwargs),
+        # ("Full", {}),
+    ]:
 
-    results_hpo_prep_w_lr = cached_parquet_df(
-        path=path_hpo_combined / "Linear.parquet",
-        mode=mode,
-        compute_fn=lambda: ta_context.combine_hpo(
-            methods=["LinearModel", "PrepLinearModel"],
-            method_default="PrepLinearModel",
-            new_config_type="(Prep)Linear",
-            ta_name="(Prep)Linear",
-            ta_suite="(Prep)Linear",
-        ),
-    )
+        results_hpo_prep_w_tabpfn = cached_parquet_df(
+            path=path_hpo_combined / f"{name_prefix}RealTabPFN-2.5.parquet",
+            mode=mode,
+            compute_fn=lambda: ta_context.combine_hpo(
+                methods=["RealTabPFN-v2.5", "PrepRealTabPFN-v2.5"],
+                method_default="RealTabPFN-v2.5",
+                new_config_type=f"{name_prefix}(Prep)RealTabPFN-2.5",
+                ta_name=f"{name_prefix}(Prep)RealTabPFN-2.5",
+                ta_suite=f"{name_prefix}(Prep)RealTabPFN-2.5",
+                **fit_kwargs,
+            ),
+        )
+
+        results_hpo_prep_w_lightgbm = cached_parquet_df(
+            path=path_hpo_combined / f"{name_prefix}LightGBM.parquet",
+            mode=mode,
+            compute_fn=lambda: ta_context.combine_hpo(
+                methods=["LightGBM", "PrepLightGBM"],
+                method_default="PrepLightGBM",
+                new_config_type=f"{name_prefix}(Prep)LightGBM",
+                ta_name=f"{name_prefix}(Prep)LightGBM",
+                ta_suite=f"{name_prefix}(Prep)LightGBM",
+                **fit_kwargs,
+            ),
+        )
+
+        results_hpo_prep_w_tabm = cached_parquet_df(
+            path=path_hpo_combined / f"{name_prefix}TabM.parquet",
+            mode=mode,
+            compute_fn=lambda: ta_context.combine_hpo(
+                methods=["TabM_GPU", "PrepTabM"],
+                method_default="PrepTabM",
+                new_config_type=f"{name_prefix}(Prep)TabM",
+                ta_name=f"{name_prefix}(Prep)TabM",
+                ta_suite=f"{name_prefix}(Prep)TabM",
+                **fit_kwargs,
+            ),
+        )
+
+        results_hpo_prep_w_lr = cached_parquet_df(
+            path=path_hpo_combined / f"{name_prefix}Linear.parquet",
+            mode=mode,
+            compute_fn=lambda: ta_context.combine_hpo(
+                methods=["LinearModel", "PrepLinearModel"],
+                method_default="PrepLinearModel",
+                new_config_type=f"{name_prefix}(Prep)Linear",
+                ta_name=f"{name_prefix}(Prep)Linear",
+                ta_suite=f"{name_prefix}(Prep)Linear",
+                **fit_kwargs,
+            ),
+        )
+
+        extra_results += [
+            results_hpo_prep_w_tabpfn,
+            results_hpo_prep_w_lightgbm,
+            results_hpo_prep_w_tabm,
+            results_hpo_prep_w_lr,
+        ]
+
+    extra_results = pd.concat(extra_results, ignore_index=True)
 
 
     # results_hpo_prep_realtabpfn = ta_context.run_hpo(
@@ -185,13 +210,9 @@ if __name__ == '__main__':
     results_icml_defaults_no_prep = TabularDataset.load(path="results/result_portfolio_icml_defaults_gbm_tabpfn.parquet")
 
     extra_results = pd.concat([
-        results_hpo_prep_w_tabpfn,
-        results_hpo_prep_w_lightgbm,
-        results_hpo_prep_w_tabm,
-        results_hpo_prep_w_lr,
-
-        results_icml_defaults_no_prep,
-        results_icml_defaults_all,
+        extra_results,
+        # results_icml_defaults_no_prep,
+        # results_icml_defaults_all,
     ], ignore_index=True)
 
     subsets = []
@@ -202,19 +223,34 @@ if __name__ == '__main__':
     # #9467bd  # muted purple
 
     method_style_map = {
-        "(Prep)LightGBM": {"color": "#1f77b4", "fontweight": "bold"},
+        "(Prep)LightGBM": {
+            "color": "#1f77b4", "fontweight": "bold",
+            "display_name": "PrepLightGBM",
+        },
         "PrepLightGBM": {"color": "#1f77b4", "fontstyle": "italic"},
         "LightGBM": {"color": "#1f77b4", "alpha": 0.85},
 
-        "(Prep)RealTabPFN-2.5": {"color": "#ff7f0e", "fontweight": "bold"},
+        "(Prep)RealTabPFN-2.5": {
+            "color": "#ff7f0e", "fontweight": "bold",
+            "display_name": "PrepTabPFN-2.5",
+        },
         "PrepRealTabPFN-2.5": {"color": "#ff7f0e", "fontstyle": "italic"},
-        "RealTabPFN-2.5": {"color": "#ff7f0e", "alpha": 0.85},
+        "RealTabPFN-2.5": {
+            "color": "#ff7f0e", "alpha": 0.85,
+            "display_name": "TabPFN-2.5",
+        },
 
-        "(Prep)TabM": {"color": "#2ca02c", "fontweight": "bold"},
+        "(Prep)TabM": {
+            "color": "#2ca02c", "fontweight": "bold",
+            "display_name": "PrepTabM",
+        },
         "PrepTabM": {"color": "#2ca02c", "fontstyle": "italic"},
         "TabM": {"color": "#2ca02c", "alpha": 0.85},
 
-        "(Prep)Linear": {"color": "#9467bd", "fontweight": "bold"},
+        "(Prep)Linear": {
+            "color": "#9467bd", "fontweight": "bold",
+            "display_name": "PrepLinear",
+        },
         "PrepLinear": {"color": "#9467bd", "fontstyle": "italic"},
         "Linear": {"color": "#9467bd", "alpha": 0.85},
 
@@ -236,7 +272,7 @@ if __name__ == '__main__':
             "display_name": "LightGBM +\nRealTabPFN-2.5\n(Ens. of Defaults)"
         },
         "AutoGluon 1.4 (extreme, 4h)": {
-            "color": "purple",
+            "color": "black",  # "color": "purple",
             "text_fontsize": 8,
             # "text_fontweight": "bold",
             # "line_width": 2,
@@ -254,6 +290,10 @@ if __name__ == '__main__':
         "FastaiMLP",
         "ExtraTrees",
         "KNN",
+        # "PrepLightGBM",
+        # "PrepTabM",
+        # "PrepRealTabPFN-2.5",
+        # "PrepLinear",
     ]
 
     kwargs = dict(
@@ -272,9 +312,14 @@ if __name__ == '__main__':
         },
         baselines=[
             "AutoGluon 1.4 (extreme, 4h)",
-            "LightGBM + RealTabPFN-2.5 Defaults",
-            "(Prep)LightGBM + (Prep)RealTabPFN-2.5 Defaults",
+            # "LightGBM + RealTabPFN-2.5 Defaults",
+            # "(Prep)LightGBM + (Prep)RealTabPFN-2.5 Defaults",
         ],
+    )
+
+    ta_context = TabArenaContext(
+        methods=method_metadatas,
+        # extra_methods=extra_methods,
     )
 
     leaderboard: pd.DataFrame = ta_context.compare(
@@ -309,6 +354,7 @@ if __name__ == '__main__':
         [],
         ["tiny"],
         ["tiny-small"],
+        ["small"],
         ["medium"],
     ]
 
@@ -324,7 +370,6 @@ if __name__ == '__main__':
     for size_subset in size_subsets_lst:
         for pt_subset in problem_types_subsets_lst:
             subsets_lst.append(size_subset + pt_subset)
-
 
     kwargs.pop("subset")
 
