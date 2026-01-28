@@ -216,6 +216,11 @@ class TabArenaContext:
         ta_suite: str,
         method_default: str | None = None,
         repo: EvaluationRepository | None = None,
+        n_configs: int | None = None,
+        time_limit: float | None = None,
+        fit_order: Literal["original", "random"] = "original",
+        default_always_first: bool = True,
+        seed: int = 0,
     ) -> pd.DataFrame:
         """
         Perform HPO across multiple methods
@@ -240,16 +245,31 @@ class TabArenaContext:
         else:
             default = None
 
+        if default_always_first and config_default:
+            fixed_configs = [config_default]
+        else:
+            fixed_configs = None
+
         tuned = self.run_hpo(
             method=methods,
             repo=repo,
             n_iterations=1,
+            n_configs=n_configs,
+            time_limit=time_limit,
+            fit_order=fit_order,
+            seed=seed,
+            fixed_configs=fixed_configs,
         )
 
         tuned_ens = self.run_hpo(
             method=methods,
             repo=repo,
             n_iterations=40,
+            n_configs=n_configs,
+            time_limit=time_limit,
+            fit_order=fit_order,
+            seed=seed,
+            fixed_configs=fixed_configs,
         )
 
         tuned["ta_name"] = ta_name
