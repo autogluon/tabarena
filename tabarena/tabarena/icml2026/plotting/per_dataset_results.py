@@ -1,10 +1,31 @@
-from __future__ import annotations
-
 from typing import Literal, Optional, Sequence, Tuple, Dict
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+import matplotlib.pyplot as plt
+
+def bracket_y(ax, x, y0, y1, text, xpad=0.6):
+    """
+    Draw a vertical bracket spanning [y0, y1] at x (data coords),
+    placed slightly to the right by xpad.
+    """
+    xb = x + xpad
+
+    # bracket only (no giant leader arrow)
+    ax.annotate(
+        "", xy=(xb, y1), xytext=(xb, y0),
+        arrowprops=dict(arrowstyle="]->", lw=1.8, shrinkA=0, shrinkB=0),
+        annotation_clip=False
+    )
+
+    # label next to bracket (small, readable)
+    ax.text(
+        xb + 0.3, (y0 + y1) / 2, text,
+        va="center", ha="left", fontsize=13,
+        bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="0.6", lw=0.8),
+        clip_on=False
+    )
 
 def plot_model_performance_across_datasets(
     df: pd.DataFrame,
@@ -16,61 +37,49 @@ def plot_model_performance_across_datasets(
     mode: Literal["rank", "median_centered_signed"] = "median_centered_signed",
 
     normalization_reference_models: Optional[Sequence[str]] = None,
-    display_models: Optional[Sequence[str]] = None,
+    normalization_center: Literal["median", "third_best"] = "median",
+    normalization_center_model: Optional[str] = None,
+    value_label: str = "Quantile-anchored normalized error (lower is better)",
 
+    display_models: Optional[Sequence[str]] = None,
     sort_datasets_by_model: Optional[str] = None,
     sort_datasets_by_best_of_models: Optional[Sequence[str]] = None,
     sort_direction: Literal["best_to_worst", "worst_to_best"] = "best_to_worst",
-
     clip_bad_side: bool = True,
     bad_side_cap: float = 1.0,
     clip_good_side: bool = False,
     good_side_cap: float = -1.0,
-
     dataset_order: Optional[Sequence[str]] = None,
     model_order: Optional[Sequence[str]] = None,
-
     figsize: Tuple[float, float] = (10, 4.8),
     auto_width_per_dataset: Optional[float] = None,
-
-    # 🔹 Font sizes
     font_size: float = 11.0,
     title_font_size: Optional[float] = None,
     label_font_size: Optional[float] = None,
     tick_font_size: Optional[float] = None,
     legend_font_size: Optional[float] = None,
     legend_order: Optional[Sequence[str]] = None,
-
     title: Optional[str] = None,
     ylabel: Optional[str] = None,
     xlabel: Optional[str] = None,
-
+    y_tick_labels: Optional[Dict[float, str]] = None,
     jitter: float = 0.10,
-
-    # 🔹 INCREASED default marker size
     marker_size: float = 90.0,
     alpha: float = 0.9,
-
     invert_rank_axis: bool = True,
     grid: bool = True,
-
-    # 🔹 legend control (top by default)
     legend: bool = True,
     legend_ncol: Optional[int] = None,
-
     connect_models: bool = False,
     line_alpha: float = 0.35,
-
     show_model_averages: bool = False,
     average_line_style: str = "--",
     average_line_alpha: float = 0.6,
     average_line_width: float = 1.5,
-
     model_color_groups: Optional[Dict[str, Sequence[str]]] = None,
     model_markers: Optional[Dict[str, str]] = None,
     default_markers: Sequence[str] = ("o", "s", "^", "D", "v", "P", "X"),
-
-    # 🔹 NEW: save figure
+    exclude_marker_groups: Optional[Sequence[str]] = None,
     save_path: Optional[str] = None,
     dpi: int = 300,
 ) -> Tuple[plt.Figure, plt.Axes]:
@@ -87,39 +96,51 @@ def plot_model_performance_across_datasets(
         agg["value"] = agg.groupby(dataset_col)["metric_mean"].rank(
             ascending=True, method="average"
         )
-        value_label = "Rank (1 = best)"
+        # value_label = "Rank (1 = best)"
     else:
         ref = (
             agg[agg[model_col].isin(normalization_reference_models)]
             if normalization_reference_models is not None
             else agg
         )
-        stats = (
+
+        # best, q25 ("better than 75%"), q50 ("better than 50%" = median)
+        best_df = ref.groupby(dataset_col)["metric_mean"].min().reset_index(name="best")
+
+        q_df = (
             ref.groupby(dataset_col)["metric_mean"]
-            .agg(best="min", median="median", worst="max")
+            .quantile([0.25, 0.50])
+            .unstack()
+            .rename(columns={0.25: "q25", 0.50: "q50"})
             .reset_index()
         )
+
+        stats = best_df.merge(q_df, on=dataset_col, how="left")
         agg = agg.merge(stats, on=dataset_col, how="left")
 
-        x, best, med, worst = (
-            agg["metric_mean"],
-            agg["best"],
-            agg["median"],
-            agg["worst"],
-        )
+        x = agg["metric_mean"]
+        b = agg["best"]
+        q25 = agg["q25"]
+        q50 = agg["q50"]
+
+        den_a = (q25 - b).replace(0, np.nan)     # best -> q25
+        den_b = (q50 - q25).replace(0, np.nan)   # q25 -> median
 
         value = np.where(
-            x <= med,
-            (x - med) / (med - best).replace(0, np.nan),
-            (x - med) / (worst - med).replace(0, np.nan),
+            x <= q25,
+            (x - q25) / den_a,   # b -> -1, q25 -> 0
+            (x - q25) / den_b,   # q25 -> 0, q50 -> +1
         )
-        if clip_bad_side:
-            value = np.minimum(value, bad_side_cap)
-        if clip_good_side:
-            value = np.maximum(value, good_side_cap)
 
-        agg["value"] = value
-        value_label = "Normalized error (lower is better)"
+        agg["value_raw"] = value  # before clipping
+
+        plot_value = agg["value_raw"].copy()
+        if clip_bad_side:
+            plot_value = np.minimum(plot_value, bad_side_cap)
+        if clip_good_side:
+            plot_value = np.maximum(plot_value, good_side_cap)
+
+        agg["value_plot"] = plot_value
 
     # ---------------- Dataset ordering ----------------
     all_ds = agg[dataset_col].unique()
@@ -127,7 +148,7 @@ def plot_model_performance_across_datasets(
         if sort_datasets_by_best_of_models is not None:
             scores = (
                 agg[agg[model_col].isin(sort_datasets_by_best_of_models)]
-                .groupby(dataset_col)["value"]
+                .groupby(dataset_col)["value_raw"]
                 .min()
                 .reindex(all_ds)
             )
@@ -137,7 +158,7 @@ def plot_model_performance_across_datasets(
         elif sort_datasets_by_model is not None:
             scores = (
                 agg[agg[model_col] == sort_datasets_by_model]
-                .set_index(dataset_col)["value"]
+                .set_index(dataset_col)["value_raw"]
                 .reindex(all_ds)
             )
             dataset_order = scores.sort_values(
@@ -150,7 +171,7 @@ def plot_model_performance_across_datasets(
     if model_order is None:
         base = agg if display_models is None else agg[agg[model_col].isin(display_models)]
         model_order = (
-            base.groupby(model_col)["value"].mean().sort_values().index.tolist()
+            base.groupby(model_col)["value_raw"].mean().sort_values().index.tolist()
         )
 
     plot_df = agg if display_models is None else agg[agg[model_col].isin(display_models)]
@@ -180,6 +201,19 @@ def plot_model_performance_across_datasets(
             model_markers[m] if model_markers and m in model_markers else next(marker_iter)
         )
 
+    # ---------------- Optional: hide marker groups ----------------
+    if exclude_marker_groups and model_markers:
+        excluded_models = {
+            m
+            for group_name in exclude_marker_groups
+            for m, marker in model_markers.items()
+            if marker == group_name
+        }
+
+        plot_df = plot_df[~plot_df[model_col].isin(excluded_models)]
+
+        model_order = [m for m in model_order if m not in excluded_models]
+
     # ---------------- Plot prep ----------------
     ds_to_x = {d: i for i, d in enumerate(dataset_order)}
     plot_df = plot_df.copy()
@@ -203,7 +237,7 @@ def plot_model_performance_across_datasets(
 
         ax.scatter(
             sub["xj"],
-            sub["value"],
+            sub["value_plot"],
             s=marker_size,
             alpha=alpha,
             color=model_to_color[m],
@@ -212,11 +246,11 @@ def plot_model_performance_across_datasets(
         )
 
         if connect_models and len(sub) >= 2:
-            ax.plot(sub["x"], sub["value"], color=model_to_color[m], alpha=line_alpha)
+            ax.plot(sub["x"], sub["value_plot"], color=model_to_color[m], alpha=line_alpha)
 
         if show_model_averages:
             ax.hlines(
-                sub["value"].mean(),
+                sub["value_plot"].mean(),
                 -0.5,
                 len(dataset_order) - 0.5,
                 linestyles=average_line_style,
@@ -234,6 +268,15 @@ def plot_model_performance_across_datasets(
 
     ax.tick_params(axis="y", labelsize=tick_fs)
 
+    # ---- usage ----
+    x_peak = 0
+    y_peak = -2.1
+    y0 = -1  # span you want to highlight
+
+    ax.margins(x=0.05)
+
+    bracket_y(ax, x_peak, y0, y_peak, "TabPrep achieves \n New Peak Performance")
+
     if title:
         ax.set_title(title, fontsize=title_fs)
 
@@ -241,6 +284,7 @@ def plot_model_performance_across_datasets(
         ax.invert_yaxis()
 
     ax.grid(grid, axis="y", alpha=0.3)
+    plt.gca().invert_yaxis()
 
     # 🔹 LEGEND AT TOP
     if legend:
@@ -263,11 +307,19 @@ def plot_model_performance_across_datasets(
             ordered_handles,
             ordered_labels,
             loc="upper center",
-            bbox_to_anchor=(0.5, 1.08),
+            bbox_to_anchor=(0.5, 1.15),
             ncol=ncol,
             frameon=False,
             fontsize=legend_font_size,
         )
+
+    # ---------------- Custom y-tick labels ----------------
+    if y_tick_labels is not None:
+        ticks = list(y_tick_labels.keys())
+        labels = list(y_tick_labels.values())
+
+        ax.set_yticks(ticks)
+        ax.set_yticklabels(labels, fontsize=tick_fs)
 
     fig.tight_layout(rect=(0, 0, 1, 0.92))
 

@@ -334,7 +334,53 @@ gen_lightgbm = CustomAGConfigGenerator(
         'ag.max_dataset_size_for_residuals': 1000,
         'ag.residual_init_kwargs': {},
         },
-
+        { #14 Arithmetic + OOF-TE
+        'ag.prep_params': [
+            [
+                ['ArithmeticFeatureGenerator', {}],
+                ['OOFTargetEncodingFeatureGenerator', {}],
+            ],            
+        ['SpearmanFeatureSelector', {'max_features': 2000}]            
+        ],
+        'ag.prep_params.passthrough_types': {"invalid_raw_types": ["category", "object"]}, # We never keep categorical features
+        'ag.use_residuals': False,
+        'ag.residual_type': 'oof',
+        'ag.max_dataset_size_for_residuals': 1000,
+        'ag.residual_init_kwargs': {},
+        },
+        { #15 Arithmetic + OOF-TE + CombineThenTE
+        'ag.prep_params': [
+            [
+                ['ArithmeticFeatureGenerator', {}],
+                [
+                    ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
+                    ['OOFTargetEncodingFeatureGenerator', {}],
+                ]],            
+        ['SpearmanFeatureSelector', {'max_features': 2000}]            
+        ],
+        'ag.prep_params.passthrough_types': {"invalid_raw_types": ["category", "object"]}, # We never keep categorical features
+        'ag.use_residuals': False,
+        'ag.residual_type': 'oof',
+        'ag.max_dataset_size_for_residuals': 1000,
+        'ag.residual_init_kwargs': {},
+        },
+        { #16 Arithmetic + OOF-TE + CombineThenTE + GroupBy
+        'ag.prep_params': [
+            [
+                ['ArithmeticFeatureGenerator', {}],
+                ['GroupByFeatureGenerator', {}],
+                [
+                    ['CategoricalInteractionFeatureGenerator', {"passthrough": True}],
+                    ['OOFTargetEncodingFeatureGenerator', {}],
+                ]],            
+        ['SpearmanFeatureSelector', {'max_features': 2000}]            
+        ],
+        'ag.prep_params.passthrough_types': {"invalid_raw_types": ["category", "object"]}, # We never keep categorical features
+        'ag.use_residuals': False,
+        'ag.residual_type': 'oof',
+        'ag.max_dataset_size_for_residuals': 1000,
+        'ag.residual_init_kwargs': {},
+        },
     ],
 )
 

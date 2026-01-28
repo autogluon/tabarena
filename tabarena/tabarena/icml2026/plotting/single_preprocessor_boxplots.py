@@ -15,6 +15,9 @@ def ablation_boxplot_colored_by_best(
     baseline_name: str = "Baseline",
     lower_is_better: bool = True,
 
+    # method ordering
+    order_by: str | None = None, # None | "median_score" | "mean_score" | "win_count"
+
     # score shown on x-axis (improvement vs baseline)
     mode: str = "log_ratio",   # "log_ratio" or "relative"
     eps: float = 1e-12,
@@ -145,6 +148,36 @@ def ablation_boxplot_colored_by_best(
 
     d_plot = d_plot.copy()
     d_plot["_score"] = score
+
+    # ---- Automatic method ordering (optional) ----
+    if order_by is not None:
+        if order_by == "median_score":
+            order_series = (
+                d_plot.groupby(method_col)["_score"]
+                .median()
+                .sort_values(ascending=False)
+            )
+
+        elif order_by == "mean_score":
+            order_series = (
+                d_plot.groupby(method_col)["_score"]
+                .mean()
+                .sort_values(ascending=False)
+            )
+
+        elif order_by == "win_count":
+            order_series = (
+                pd.Series(best_method_by_dataset)
+                .value_counts()
+            )
+            order_series = order_series[order_series.index != baseline_name]
+
+        else:
+            raise ValueError(
+                "order_by must be one of: None, 'median_score', 'mean_score', 'win_count'"
+            )
+
+        method_order = order_series.index.tolist()
 
     if cap is not None:
         if isinstance(cap, (int, float)):
