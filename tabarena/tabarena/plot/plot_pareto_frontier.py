@@ -116,40 +116,60 @@ def plot_pareto(
     add_optimal_arrow: bool = True,
     show: bool = True,
     legend_in_plot: bool = True,
+    legend_first: list[str] | None = None,  # NEW
 ):
     fig_size_ratio = 0.45
     fig_height = 10 * fig_size_ratio
 
     if sort_y:
-        # Optionally sort for nicer vertical label spacing while preserving stable colors
         plot_df = data.sort_values(by=y_name, ascending=not max_Y)
 
-        # ------------------------------
-        # Compute hue_order inside here:
-        # ------------------------------
-        # For each hue category (e.g., method_type), take the "best" y value:
-        #   - max if higher is better (max_Y=True)
-        #   - min if lower is better (max_Y=False)
         agg_fun = "max" if max_Y else "min"
-        y_per_hue = (plot_df.groupby(hue)[y_name]
-                              .agg(agg_fun)
-                              .sort_values(ascending=False))
+        y_per_hue = (
+            plot_df.groupby(hue)[y_name]
+            .agg(agg_fun)
+            .sort_values(ascending=False)
+        )
         hue_order = list(y_per_hue.index)
     else:
         plot_df = data.copy()
         hue_order = None
 
-    # Build stable color mapping per hue category (here: method_type)
+    # ------------------------------
+    # NEW: helper for "specified first, then rest"
+    # ------------------------------
+    def _apply_legend_first(levels: list[str], first: list[str] | None, *, place_first_at_end: bool = False) -> list[str]:
+        if not first:
+            return levels
+        first_in = [h for h in first if h in levels]
+        rest = [h for h in levels if h not in first_in]
+        if place_first_at_end:
+            first_in.reverse()
+            return rest + first_in
+        else:
+            return first_in + rest
+
+    # Build stable color mapping per hue category
     hue_levels = list(pd.unique(plot_df[hue]))
+
+    # If we computed a hue_order (sort_y=True), make sure its order respects legend_first too.
+    if hue_order is not None:
+        hue_order = _apply_legend_first(hue_order, legend_first, place_first_at_end=not max_Y)
+    else:
+        # Otherwise keep seaborn default ordering for plotting, but we *still* want the legend order
+        # to respect legend_first later (we do that below on ordered_visible).
+        pass
+
+    if hue_levels is not None:
+        hue_levels = _apply_legend_first(hue_levels, legend_first)
 
     # Ensure ≥20 visually distinct colors for many method types
     base_palette = sns.color_palette(palette, 20)
     if len(hue_levels) > 20:
-        # Extend deterministically by combining tab20 + tab20b + tab20c if needed
         extended_palette = (
-                sns.color_palette("tab20", 20)
-                + sns.color_palette("tab20b", 20)
-                + sns.color_palette("tab20c", 20)
+            sns.color_palette("tab20", 20)
+            + sns.color_palette("tab20b", 20)
+            + sns.color_palette("tab20c", 20)
         )
         colors = extended_palette[:len(hue_levels)]
     else:
@@ -160,7 +180,7 @@ def plot_pareto(
     label_to_hue_dict = data.set_index(label_col)[hue].to_dict()
     label_to_color_dict = {l: palette_map[h] for l, h in label_to_hue_dict.items()}
 
-    # Style (marker) mapping per run_type (optional; seaborn can auto-assign markers if you omit this dict)
+    # Style (marker) mapping per run_type (optional)
     if style_col is not None:
         if style_order is None:
             style_order = list(pd.unique(plot_df[style_col]))
@@ -182,7 +202,7 @@ def plot_pareto(
         y=y_name,
         data=plot_df,
         hue=hue,
-        hue_order=hue_order,
+        hue_order=hue_order,              # unchanged but now may include legend_first
         palette=palette_map,
         style=style_col,
         style_order=style_order,
@@ -205,7 +225,7 @@ def plot_pareto(
     # Compute Pareto frontier (use the plotted order)
     Xs = list(plot_df[x_name])
     Ys = list(plot_df[y_name])
-    labels_for_front = list(plot_df[label_col])  # annotate with full method names
+    labels_for_front = list(plot_df[label_col])
     pareto_front, pareto_names = get_pareto_frontier(
         Xs=Xs, Ys=Ys, names=labels_for_front, max_X=max_X, max_Y=max_Y
     )
@@ -218,8 +238,6 @@ def plot_pareto(
     if ylim is not None:
         ax.set_ylim(ylim)
 
-    # Draw Pareto frontier
-    # Get current axis limits
     x_min, x_max = ax.get_xlim()
     y_min, y_max = ax.get_ylim()
 
@@ -227,18 +245,12 @@ def plot_pareto(
         pf_X_first = x_min
         pf_X_last = pf_X[-1]
         pf_Y_first = pf_Y[0]
-        if max_Y:
-            pf_Y_last = y_min
-        else:
-            pf_Y_last = y_max
+        pf_Y_last = y_min if max_Y else y_max
     else:
         pf_X_first = pf_X[0]
         pf_X_last = x_max
         pf_Y_last = pf_Y[-1]
-        if max_Y:
-            pf_Y_first = y_min
-        else:
-            pf_Y_first = y_max
+        pf_Y_first = y_min if max_Y else y_max
 
     pf_X = [pf_X_first] + pf_X + [pf_X_last]
     pf_Y = [pf_Y_first] + pf_Y + [pf_Y_last]
@@ -256,15 +268,11 @@ def plot_pareto(
     ax.spines['right'].set_color(grid_color)
     ax.spines['bottom'].set_color(grid_color)
     ax.spines['left'].set_color(grid_color)
-    # Make major and minor tick lines gray, but labels stay black
     ax.tick_params(axis='both', which='both', color=grid_color, labelcolor='black')
     ax.set_axisbelow(True)
 
-    # ------------------------------------------------------------------
     # Label every real vertex on the Pareto frontier
-    # ------------------------------------------------------------------
     offset_pts = 6
-
     for (x, y), label in zip(pareto_front, pareto_names):
         if label is None:
             continue
@@ -285,7 +293,6 @@ def plot_pareto(
         )
         txt.set_path_effects([PathEffects.withStroke(linewidth=2, foreground='white', alpha=0.5)])
 
-    # Restore original limits (prevents Matplotlib from auto-expanding them)
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
 
@@ -348,8 +355,8 @@ def plot_pareto(
 
     legend1 = g.fig.legend(
         color_handles, color_labels,
-        loc="center left" if not legend_in_plot else ("lower right" if max_Y else "upper right"),#"lower right" if legend_in_plot else "center left",
-        bbox_to_anchor=(0.79, 0.62) if not legend_in_plot else ((legend_in_plot_right, 0.085) if max_Y else (legend_in_plot_right, 0.977)),#(0.99, 0.06) if legend_in_plot else (0.79, 0.62),
+        loc="center left" if not legend_in_plot else ("lower right" if max_Y else "upper right"),
+        bbox_to_anchor=(0.79, 0.62) if not legend_in_plot else ((legend_in_plot_right, 0.085) if max_Y else (legend_in_plot_right, 0.977)),
         frameon=True,
         fontsize=legend_fontsize,
         ncol=1,
@@ -360,19 +367,16 @@ def plot_pareto(
         columnspacing=0.6,
     )
 
-    # Retrieve the bbox of the first legend (in figure coordinates)
-    g.fig.canvas.draw()  # required so the legend layout is computed
+    g.fig.canvas.draw()
     bbox1 = legend1.get_window_extent()
     bbox1_fig = bbox1.transformed(g.fig.transFigure.inverted())
-
-    # Compute the left edge of legend1 in figure coords
     left_edge_legend1 = bbox1_fig.x0
     legend_in_plot_left = left_edge_legend1
 
     g.fig.legend(
         marker_handles, marker_labels,
-        loc="center left" if not legend_in_plot else ("lower right" if max_Y else "upper right"),#"lower right" if legend_in_plot else "center left",
-        bbox_to_anchor=(0.79, 0.26) if not legend_in_plot else ((legend_in_plot_left, 0.085) if max_Y else (legend_in_plot_left, 0.977)),#(0.85, 0.06) if legend_in_plot else (0.79, 0.26),
+        loc="center left" if not legend_in_plot else ("lower right" if max_Y else "upper right"),
+        bbox_to_anchor=(0.79, 0.26) if not legend_in_plot else ((legend_in_plot_left, 0.085) if max_Y else (legend_in_plot_left, 0.977)),
         frameon=True,
         fontsize=legend_fontsize,
         ncol=1,
@@ -386,8 +390,6 @@ def plot_pareto(
     if not legend_in_plot:
         g.fig.subplots_adjust(right=0.78)
 
-    # Title + save/show
-    # g.fig.suptitle(title, fontsize=14)
     if save_path is not None:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         plt.savefig(save_path, bbox_inches="tight", dpi=600)
