@@ -208,6 +208,54 @@ class TabArenaContext:
         repo.to_dir(path_processed)
         return path_processed
 
+    # FIXME: This is a hacky approach, refactor
+    def generate_hpo_trajectories(
+        self,
+        methods: list[str | MethodMetadata],
+        n_configs: list[int | None] | str = "auto",
+        seeds: int | list[int] = 20,
+        n_iterations: int = 40,
+        default_method: str = None,
+        always_include_default: bool = True,
+        fit_order: Literal["original", "random"] = "random",
+        time_limit: float | None = None,
+        backend: Literal["ray", "native"] = "ray",
+        repo: EvaluationRepository | None = None,
+        folds: list[int] | None = None,
+        ta_name: str = None,
+        ta_suite: str = None,
+        display_name: str = None,
+    ) -> pd.DataFrame:
+        methods: list[MethodMetadata] = [self.method_metadata(m) if isinstance(m, str) else m for m in methods]
+        if repo is None:
+            repo = self.load_repo(methods=methods)
+            if folds is not None:
+                repo = repo.subset(folds=folds)
+        if not default_method:
+            default_method = methods[0]
+        else:
+            for method in methods:
+                if method.method == default_method:
+                    default_method = method
+                    break
+        hpo_trajectory = default_method.generate_hpo_trajectories(
+            n_configs=n_configs,
+            repo=repo,
+            seeds=seeds,
+            n_iterations=n_iterations,
+            always_include_default=always_include_default,
+            fit_order=fit_order,
+            time_limit=time_limit,
+            backend=backend,
+            config_type=repo.config_types(),
+            cache=False,
+        )
+
+        hpo_trajectory["ta_name"] = ta_name
+        hpo_trajectory["ta_suite"] = ta_suite
+        hpo_trajectory["display_name"] = display_name
+        return hpo_trajectory
+
     def combine_hpo(
         self,
         methods: list[str],
