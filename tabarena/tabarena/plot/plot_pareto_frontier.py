@@ -283,7 +283,7 @@ def plot_pareto(
             color=label_to_color_dict[label],
             fontweight='bold',
         )
-        txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground='white')])
+        txt.set_path_effects([PathEffects.withStroke(linewidth=2, foreground='white', alpha=0.5)])
 
     # Restore original limits (prevents Matplotlib from auto-expanding them)
     ax.set_xlim(x_min, x_max)
