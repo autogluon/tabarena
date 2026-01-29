@@ -542,6 +542,7 @@ class TabArenaEvaluator:
                 leaderboard=leaderboard,
                 framework_types=framework_types,
                 with_baselines=plot_with_baselines,
+                plot_tuning_kwargs=plot_tuning_kwargs,
             )
 
         if plot_other:
@@ -645,7 +646,13 @@ class TabArenaEvaluator:
 
         return mapping
 
-    def plot_pareto(self, leaderboard: pd.DataFrame, framework_types: list[str], with_baselines: bool = True):
+    def plot_pareto(
+        self,
+        leaderboard: pd.DataFrame,
+        framework_types: list[str],
+        with_baselines: bool = True,
+        plot_tuning_kwargs: dict | None = None,
+    ):
         f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
         )
@@ -661,6 +668,19 @@ class TabArenaEvaluator:
             leaderboard_pareto["Method"])
         f_map_suffix = get_f_map_suffix_plots()
         leaderboard_pareto["suffix"] = leaderboard_pareto["Type"].map(f_map_suffix).fillna("")
+        method_order = None
+        if plot_tuning_kwargs is not None:
+            if "hidden_methods" in plot_tuning_kwargs:
+                leaderboard_pareto = leaderboard_pareto[~leaderboard_pareto["Method"].isin(plot_tuning_kwargs["hidden_methods"])]
+            if "pareto_order" in plot_tuning_kwargs:
+                method_order = plot_tuning_kwargs["pareto_order"]
+            if "method_style_map" in plot_tuning_kwargs:
+                method_style_map = plot_tuning_kwargs["method_style_map"]
+                display_name_map = {m: v["display_name"] for m, v in method_style_map.items() if "display_name" in v}
+                leaderboard_pareto["Method"] = leaderboard_pareto["Method"].map(display_name_map).fillna(leaderboard_pareto["Method"])
+                if method_order is not None:
+                    method_order = [display_name_map.get(m, m) for m in method_order]
+
         leaderboard_pareto[self.method_col] = leaderboard_pareto["Method"] + leaderboard_pareto["suffix"]
         fig_rename_dict = {
             "baseline": "Baseline",
@@ -679,10 +699,10 @@ class TabArenaEvaluator:
         if not with_baselines:
             leaderboard_pareto = leaderboard_pareto[leaderboard_pareto["Type"] != "Baseline"]
 
-        self.plot_pareto_elo_vs_time_infer(leaderboard=leaderboard_pareto)
-        self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto)
-        self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto)
-        self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto)
+        self.plot_pareto_elo_vs_time_infer(leaderboard=leaderboard_pareto, method_order=method_order)
+        self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto, method_order=method_order)
+        self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto, method_order=method_order)
+        self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto, method_order=method_order)
 
     def run_autogluon_benchmark_logic(self, results_per_task: pd.DataFrame, elo_map: dict, tabarena: TabArena,
                                       calibration_framework: str):
@@ -727,7 +747,7 @@ class TabArenaEvaluator:
             BOOTSTRAP_ROUNDS=self.elo_bootstrap_rounds,
         )
 
-    def plot_pareto_elo_vs_time_train(self, leaderboard: pd.DataFrame):
+    def plot_pareto_elo_vs_time_train(self, leaderboard: pd.DataFrame, method_order: list[str] | None = None):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_elo_vs_time_train.{self.figure_file_type}")
         y_name = "Elo"
@@ -754,9 +774,10 @@ class TabArenaEvaluator:
             save_path=save_path,
             show=False,
             aspect=4 / 3,
+            legend_first=method_order,
         )
 
-    def plot_pareto_elo_vs_time_infer(self, leaderboard: pd.DataFrame):
+    def plot_pareto_elo_vs_time_infer(self, leaderboard: pd.DataFrame, method_order: list[str] | None = None):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_elo_vs_time_infer.{self.figure_file_type}")
         y_name = "Elo"
@@ -783,9 +804,10 @@ class TabArenaEvaluator:
             save_path=save_path,
             show=False,
             aspect=4 / 3,
+            legend_first=method_order,
         )
 
-    def plot_pareto_improvability_vs_time_infer(self, leaderboard: pd.DataFrame):
+    def plot_pareto_improvability_vs_time_infer(self, leaderboard: pd.DataFrame, method_order: list[str] | None = None):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_improvability_vs_time_infer.{self.figure_file_type}")
         y_name = "Improvability (%)"
@@ -813,9 +835,10 @@ class TabArenaEvaluator:
             save_path=save_path,
             show=False,
             aspect=4 / 3,
+            legend_first=method_order,
         )
 
-    def plot_pareto_improvability_vs_time_train(self, leaderboard: pd.DataFrame):
+    def plot_pareto_improvability_vs_time_train(self, leaderboard: pd.DataFrame, method_order: list[str] | None = None):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_improvability_vs_time_train.{self.figure_file_type}")
         y_name = "Improvability (%)"
@@ -843,6 +866,7 @@ class TabArenaEvaluator:
             save_path=save_path,
             show=False,
             aspect=4 / 3,
+            legend_first=method_order,
         )
 
     def get_method_rename_map(self) -> dict[str, str]:
@@ -1062,11 +1086,16 @@ class TabArenaEvaluator:
         metric: str = "normalized-error",
         plot_tune_types: list[str] | None = None,
         method_style_map: dict[str, MethodLabelStyle] | None = None,
+        default_method_style: MethodLabelStyle | None = None,
         hidden_methods: list[str] | None = None,
         baseline_text_y_gap: float = 1.0,
+        figsize: tuple[int, int] | None = None,
+        **kwargs,  # FIXME: Hack
     ):
         if method_style_map is None:
             method_style_map = {}
+        if default_method_style is None:
+            default_method_style = {}
         same_width = use_y
         use_lim = True
         use_elo = df_elo is not None
@@ -1187,7 +1216,8 @@ class TabArenaEvaluator:
                 if use_y:
                     pos = metric
                     y = framework_col
-                    figsize = (4, 5)
+                    if figsize is None:
+                        figsize = (4, 5)
                     xlim = lim
 
                     framework_type_order.reverse()
@@ -1197,7 +1227,8 @@ class TabArenaEvaluator:
                     pos = framework_col
                     y = metric
                     ylim = lim
-                    figsize = (0.5*len(framework_types), 2.7)
+                    if figsize is None:
+                        figsize = (0.5*len(framework_types), 2.7)
                     # figsize = None
 
                 fig, ax = plt.subplots(1, 1, figsize=figsize, constrained_layout=True)
@@ -1441,6 +1472,7 @@ class TabArenaEvaluator:
                 # remove unnecessary extra space on the sides
                 if use_y:
                     plt.ylim(len(boxplot.get_yticklabels()) - 0.35, -0.65)
+                    ax.tick_params(axis="y", pad=0)
                 else:
                     plt.xlim(-0.5, len(boxplot.get_xticklabels()) - 0.5)
 
@@ -1473,6 +1505,7 @@ class TabArenaEvaluator:
                         ax=ax,
                         use_y=use_y,
                         style_map=method_style_map,
+                        default_method_style=default_method_style,
                         display_name_inverse_map=display_name_inverse_map,
                         tick_method_keys=tick_method_type_order_orig,
                     )
@@ -1888,6 +1921,7 @@ def _apply_ticklabel_styles(
     ax,
     use_y: bool,
     style_map: dict[str, MethodLabelStyle] | None,
+    default_method_style: MethodLabelStyle | None,
     display_name_inverse_map: dict[str, str] | None = None,
     tick_method_keys: list[str] | None = None,
 ):
@@ -1913,8 +1947,10 @@ def _apply_ticklabel_styles(
         Optional list of original method names corresponding 1:1 with tick labels,
         in the exact order they appear on the axis.
     """
-    if not style_map:
-        return
+    if default_method_style is None:
+        default_method_style = {}
+    if style_map is None:
+        style_map = {}
 
     if display_name_inverse_map is None:
         display_name_inverse_map = {}
@@ -1961,16 +1997,34 @@ def _apply_ticklabel_styles(
 
         style_spec = style_map.get(key)
         if style_spec is None:
-            continue
+            style_spec = {}
 
         # Normalize style: allow shorthand color string
         style = _normalize_style(style_spec)
+
+        style = _resolve_method_style(
+            raw_style=style,
+            default_style=default_method_style,
+        )
 
         # Apply supported Text properties dynamically
         for prop, value in style.items():
             setter = getattr(t, f"set_{prop}", None)
             if setter is not None:
                 setter(value)
+
+
+def _resolve_method_style(
+    *,
+    raw_style: dict | None,
+    default_style: dict | None,
+) -> dict:
+    style = {}
+    if default_style:
+        style.update(_normalize_style(default_style))
+    if raw_style:
+        style.update(_normalize_style(raw_style))
+    return style
 
 
 def _normalize_label_style(style: MethodLabelStyle) -> dict[str, object]:
