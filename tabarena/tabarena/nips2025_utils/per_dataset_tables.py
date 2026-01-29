@@ -226,6 +226,8 @@ def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
         # "Portfolio-N200 (ensemble) (4h)"
     ]
 
+    use_methods_ordered = list(df_results["method"].unique())
+
     df_use = df_results.loc[df_results["method"].apply(lambda x: x in use_methods_ordered)]
     df_use_fold = df_use.loc[df_use["fold"]==0]
 
@@ -327,7 +329,8 @@ def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
                                     ).merge(df_latex_tuned_ensemble.rename(index=lambda s: s.split(" (")[0])
                                     , left_index=True, right_index=True, how="left"
                                     )
-        df_latex_final.loc["AutoGluon 1.4 (extreme, 4h)"] = ["-", "-", df_latex.loc["AutoGluon 1.4 (extreme, 4h)", dataset_name]]
+        if "AutoGluon 1.4 (extreme, 4h)" in df_latex.index:
+            df_latex_final.loc["AutoGluon 1.4 (extreme, 4h)"] = ["-", "-", df_latex.loc["AutoGluon 1.4 (extreme, 4h)", dataset_name]]
         # df_latex_final.loc["Portfolio-N200 (ensemble) (4h)"] = [df_latex.loc["Portfolio-N200 (ensemble) (4h)", dataset_name], "", ""]
         df_latex_final = df_latex_final.fillna("-")
         df_latex_final.columns = ["Default", "Tuned", "Tuned + Ens."]
@@ -347,6 +350,7 @@ def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
             "REALMLP_GPU": "RealMLP",
             "TABM_GPU": "TabM",
             "MNCA_GPU": "MNCA",
+            "XRFM_GPU": "xRFM",
 
             'TABPFNV2_GPU': 'TabPFNv2',
             'TABDPT_GPU': 'TabDPT',
@@ -355,7 +359,10 @@ def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
             'LR': 'Linear',
             'KNN': 'KNN',
             "AutoGluon 1.4 (extreme, 4h)": "AutoGluon",
-            "Portfolio-N200 (ensemble) (4h)": "Portfolio"
+            "Portfolio-N200 (ensemble) (4h)": "Portfolio",
+            "PREP_LR": "PrepLinear",
+            "PREP_GBM": "PrepLightGBM",
+            "REALTABPFN-V2.5": "RealTabPFN-2.5",
         }
 
         df_latex_final.index = pd.Series(df_latex_final.index).replace(replace_dict)

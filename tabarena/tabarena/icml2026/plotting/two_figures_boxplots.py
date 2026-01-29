@@ -35,7 +35,7 @@ def _compute_scores_generic(
         for c in competitor_cols:
             m = d[c].to_numpy(dtype=float)
             scores[c] = ((base - m) / denom) if lower_is_better else ((m - base) / denom)
-        axis_label = f"Relative improvement vs {baseline_col}"
+        axis_label = f"Improvement vs {baseline_col}"
     else:
         raise ValueError("mode must be 'log_ratio' or 'relative'")
 
@@ -66,6 +66,7 @@ def _boxplot_with_points_on_ax(
     mean_size: float = 42.0,
     mean_color: str | None = None,  # if provided, overrides matching behavior
     mean_zorder: int = 4,
+    font_size: float = 12.0,
 ):
     import numpy as np
     import matplotlib as mpl
@@ -117,7 +118,7 @@ def _boxplot_with_points_on_ax(
             median.set_linewidth(box_linewidth)
 
         ax.axvline(0.0, color="black", linewidth=box_linewidth)
-        ax.set_xlabel(axis_label, fontsize=12)
+        ax.set_xlabel(axis_label, fontsize=font_size)
         ax.set_ylabel("")
         ax.set_yticklabels(labels, rotation=30, va="center")
 
@@ -178,7 +179,9 @@ def _boxplot_with_points_on_ax(
             marker=mean_marker,
             c=mean_colors,        # supports list of per-point colors
             zorder=mean_zorder,
-            linewidths=0,
+            linewidths=1,
+            alpha=1,
+            edgecolors="black",
         )
     else:
         ax.scatter(
@@ -188,7 +191,9 @@ def _boxplot_with_points_on_ax(
             marker=mean_marker,
             c=mean_colors,        # supports list of per-point colors
             zorder=mean_zorder,
-            linewidths=0,
+            linewidths=1,
+            alpha=1,
+            edgecolors="black",
         )
 
 def boxplot_two_dataframes_pubready(
@@ -286,6 +291,8 @@ def boxplot_two_dataframes_pubready(
             point_alpha=point_alpha,
             horizontal=horizontal,
             box_linewidth=box_linewidth,
+            mean_size=50,
+            mean_zorder = 40,
         )
         _boxplot_with_points_on_ax(
             ax=axes[1],
@@ -298,6 +305,8 @@ def boxplot_two_dataframes_pubready(
             point_alpha=point_alpha,
             horizontal=horizontal,
             box_linewidth=box_linewidth,
+            mean_size=50,
+            mean_zorder = 40,
         )
 
         # Clean look: remove top/right spines, keep left/bottom
@@ -399,8 +408,8 @@ def boxplot_dataframe_pubready(
         "font.size": font_size,
         "axes.titlesize": title_size,
         "axes.labelsize": font_size,
-        "xtick.labelsize": tick_size,
-        "ytick.labelsize": tick_size,
+        "xtick.labelsize": title_size,
+        "ytick.labelsize": title_size,
         "axes.linewidth": spine_linewidth,
         "pdf.fonttype": 42,
         "ps.fonttype": 42,
@@ -419,6 +428,7 @@ def boxplot_dataframe_pubready(
             horizontal=horizontal,
             box_linewidth=box_linewidth,
             mean_color=None,
+            font_size=font_size,
         )
 
         # Clean look: remove top/right spines, keep left/bottom
@@ -523,7 +533,7 @@ def boxplot_models_combined_vs_tabprep(
     jitter: float = 0.11,
     point_size: float = 12.0,
     point_alpha: float = 0.75,
-    font_size: float = 8.0,
+    font_size: float = 10.0,
     title_size: float | None = None,
     tick_size: float | None = None,
     spine_linewidth: float = 0.8,
@@ -593,6 +603,9 @@ def boxplot_models_combined_vs_tabprep(
             point_alpha=point_alpha,
             horizontal=horizontal,
             box_linewidth=box_linewidth,
+            mean_size=50,
+            mean_zorder=40,
+            # mean_color="black",
         )
         _boxplot_with_points_on_ax(
             ax=axes[1],
@@ -605,6 +618,10 @@ def boxplot_models_combined_vs_tabprep(
             point_alpha=point_alpha,
             horizontal=horizontal,
             box_linewidth=box_linewidth,
+            mean_size=50,
+            mean_zorder = 40,
+            # mean_color="black",
+
         )
 
         # Clean look: remove top/right spines, keep left/bottom
@@ -615,8 +632,8 @@ def boxplot_models_combined_vs_tabprep(
             ax.spines["bottom"].set_linewidth(spine_linewidth)
             ax.tick_params(axis="both", width=spine_linewidth, length=3)
 
-        for ax, lbl in zip(axes, ["Improvement of adding Prep trials", "Improvement of standalone Prep models"]):
-            ax.set_xlabel(lbl, fontsize=9)
+        for ax, lbl in zip(axes, ["Improvement PrepModels", "Improvement (Prep)Models"]):
+            ax.set_xlabel(lbl, fontsize=title_size)
 
         # independent scales (like your current function)
         if not share_scale:

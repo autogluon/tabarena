@@ -10,6 +10,13 @@ from tabarena.icml2026.plotting.single_preprocessor_boxplots import ablation_box
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
+from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
+datasets_metadata = load_task_metadata()
+
+from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
+
+
+
 dat_map = {
     "HR_Analytics_Job_Change_of_Data_Scientists": "HR_Analytics",
     "students_dropout_and_academic_success": "students_dropout",
@@ -34,7 +41,7 @@ dat_map = {
 
 ablation_base_path = "/ceph/atschalz/auto_prep/tabarena_figs/icml_ablation"
 base_path = "/ceph/atschalz/auto_prep/tabarena_figs/icml_final/"
-
+comb_path = "/ceph/atschalz/auto_prep/tabarena/examples/icml2026/results/hpo_combined/"
 save_path = "/ceph/atschalz/auto_prep/tabarena/tabarena/tabarena/icml2026/figures/new"
 
 use_fold = 0
@@ -54,7 +61,6 @@ if __name__ == '__main__':
     # task_map = dict(metadata[["name","tid"]].values)
     # results["task"] = results["dataset"].map(task_map)
     # hpo_results["task"] = hpo_results["dataset"].map(task_map)
-    
 
     all_model_results = pd.DataFrame()
     all_hpo_results = pd.DataFrame()
@@ -92,17 +98,41 @@ if __name__ == '__main__':
     list(comb_results_use.dataset.unique())
 
     comb_results_use_bar = comb_results_use.copy()
+    for m in ["LightGBM", "Linear", "RealTabPFN-2.5", "TabM"]:
+        comb_results_use_bar = pd.concat([comb_results_use_bar, pd.read_parquet(f"{comb_path}/{m}.parquet")]).reset_index(drop=True)
+    
+    ta_results = ta_results.loc[ta_results.method!='MITRA_GPU (default)']
+    get_per_dataset_tables(df_results=pd.concat([
+        ta_results,
+        comb_results_use_bar.loc[comb_results_use_bar.ta_name=="(Prep)LightGBM"]]).reset_index(drop=True)
+        , save_path=f"{save_path}")
+    
+    
+    comb_results_use_bar = comb_results_use_bar.loc[comb_results_use_bar.fold==0]
+    comb_results_use_bar = comb_results_use_bar[['dataset', 'fold', 'ta_name', 'metric_error', 'metric_error_val','method_subtype']]
+    comb_results_use_bar.dataset = comb_results_use_bar.dataset.apply(lambda x: dat_map.get(x, x))
 
-    for dataset_name in comb_results_use_bar.dataset.unique():
+    # comb_results_use_bar.ta_name = comb_results_use_bar.ta_name.map({
+    #     "(Prep)TabM": "PrepTabM", 
+    #     "(Prep)RealTabPFN-v2.5": "RealTabPFN2.5", 
+    #     "(Prep)RealTabPFN-v2.5": "PrepRealTabPFN2.5", 
+    #     "(Prep)TabM": "TabM"}).fillna(comb_results_use_bar.ta_name)
+    
 
-        for model_name in ["TabM", "LinearModel", "LightGBM", "RealTabPFN2.5"]:
-            prep = comb_results_use_bar.loc[np.logical_and(comb_results_use_bar.dataset==dataset_name, comb_results_use_bar.ta_name==f"Prep{model_name}")]
-            base = comb_results_use_bar.loc[np.logical_and(comb_results_use_bar.dataset==dataset_name, comb_results_use_bar.ta_name==model_name)]
-            if prep.shape[0]==0 or base.shape[0]==0:
-                continue
-            if base.metric_error_val.values[0] < prep.metric_error_val.values[0]:       
-                comb_results_use_bar.loc[np.logical_and(comb_results_use_bar.dataset==dataset_name, comb_results_use_bar.ta_name==f"Prep{model_name}"),"metric_error"] = base.metric_error.values[0]
-                # print(f"{model_name}: {base.metric_error_val.values[0]:.4f}, {prep.metric_error_val.values[0]:.4f}")
+
+
+    # comb_results_use_bar = comb_results_use.copy()
+
+    # for dataset_name in comb_results_use_bar.dataset.unique():
+
+    #     for model_name in ["TabM", "LinearModel", "LightGBM", "RealTabPFN2.5"]:
+    #         prep = comb_results_use_bar.loc[np.logical_and(comb_results_use_bar.dataset==dataset_name, comb_results_use_bar.ta_name==f"Prep{model_name}")]
+    #         base = comb_results_use_bar.loc[np.logical_and(comb_results_use_bar.dataset==dataset_name, comb_results_use_bar.ta_name==model_name)]
+    #         if prep.shape[0]==0 or base.shape[0]==0:
+    #             continue
+    #         if base.metric_error_val.values[0] < prep.metric_error_val.values[0]:       
+    #             comb_results_use_bar.loc[np.logical_and(comb_results_use_bar.dataset==dataset_name, comb_results_use_bar.ta_name==f"Prep{model_name}"),"metric_error"] = base.metric_error.values[0]
+    #             # print(f"{model_name}: {base.metric_error_val.values[0]:.4f}, {prep.metric_error_val.values[0]:.4f}")
     
     comb_results_use.loc[comb_results_use.method_subtype=="default","ta_name"] += "_default"
     comb_results_use.loc[comb_results_use.method_subtype=="tuned","ta_name"] += "_tuned"
@@ -121,12 +151,12 @@ if __name__ == '__main__':
         # normalization_center="third_best",
         # normalization_center_model="RandomForest",
         normalization_reference_models=[i for i in comb_results_use.ta_name.unique() if "prep" not in i and "Prep" not in i],  # define reference
-        display_models=["LightGBM", "PrepLightGBM", "RealTabPFN2.5", "PrepRealTabPFN2.5", "LinearModel", "PrepLinearModel", "TabM", "PrepTabM"],
-        legend_order=["LightGBM", "PrepLightGBM", "RealTabPFN2.5", "PrepRealTabPFN2.5", "LinearModel", "PrepLinearModel", "TabM", "PrepTabM"],
+        display_models=["LightGBM", "(Prep)LightGBM", "RealTabPFN-2.5", "(Prep)RealTabPFN-2.5", "LinearModel", "(Prep)Linear", "TabM", "(Prep)TabM"],
+        legend_order=["LightGBM", "(Prep)LightGBM", "RealTabPFN2.5", "(Prep)RealTabPFN-2.5", "LinearModel", "(Prep)Linear", "TabM", "(Prep)TabM"],
         title=None,
         sort_direction="worst_to_best",
         # sort_datasets_by_model="prep_LightGBM",
-        sort_datasets_by_best_of_models=["PrepLightGBM", "PrepRealTabPFN2.5", "PrepLinearModel", "PrepTabM"],
+        sort_datasets_by_best_of_models=["(Prep)LightGBM", "(Prep)RealTabPFN-2.5", "(Prep)Linear", "(Prep)TabM"],
         clip_good_side=True,
         bad_side_cap=1,
         good_side_cap=-2,
@@ -140,20 +170,20 @@ if __name__ == '__main__':
             1.0: "Top 50%\nor worse on\nTabArena",
         },
         model_color_groups={
-        "LightGBM": ["LightGBM", "PrepLightGBM"],
-        "LinearModel": ["LinearModel", "PrepLinearModel"],
-        "TabM": ["TabM", "PrepTabM"],
-        "RealTabPFN": ["RealTabPFN2.5", "PrepRealTabPFN2.5"],
+        "LightGBM": ["LightGBM", "(Prep)LightGBM"],
+        "LinearModel": ["LinearModel", "(Prep)Linear"],
+        "TabM": ["TabM", "(Prep)TabM"],
+        "RealTabPFN": ["RealTabPFN2.5", "(Prep)RealTabPFN-2.5"],
         },
         model_markers={
         "LightGBM": base_marker,
-        "PrepLightGBM": prep_marker,
+        "(Prep)LightGBM": prep_marker,
         "LinearModel": base_marker,
-        "PrepLinearModel": prep_marker,
+        "(Prep)Linear": prep_marker,
         "TabM": base_marker,
-        "PrepTabM": prep_marker,
+        "(Prep)TabM": prep_marker,
         "RealTabPFN2.5": base_marker,
-        "PrepRealTabPFN2.5": prep_marker,
+        "(Prep)RealTabPFN-2.5": prep_marker,
         },
         font_size=13,
         title_font_size=13,
@@ -236,7 +266,6 @@ if __name__ == '__main__':
 
     autofeat_comp_df = autofeat_comp_df.merge(only_order2, on="dataset", how="outer")
 
-
     prep_lr = ta_results.loc[np.logical_and(
         ta_results.method=="PREP_LR (default)",
         ta_results.fold==use_fold),["dataset", "metric_error"]].rename(columns={"metric_error": "PrepLinearModel"})
@@ -254,11 +283,8 @@ if __name__ == '__main__':
         ta_results.method=="GBM (tuned + ensemble)",
         ta_results.fold==use_fold),["dataset", "metric_error"]].rename(columns={"metric_error": "LightGBM"})
 
-
-
     openfe_comp_df = openfe_comp_df.merge(base_lgb_df, on="dataset", suffixes=("_openfe", "_baseLGB"), how="outer")
     openfe_comp_df
-
 
     prep_lgb_df = ta_results.loc[np.logical_and(
         ta_results.method=="PREP_GBM (default)",
@@ -293,7 +319,9 @@ if __name__ == '__main__':
         save_path=f"{save_path}/autoFE_boxplots_subset.pdf",
         dpi=300,
         transparent=True,
-        font_size=10.0,
+        font_size=14.0,
+        title_size=14.0,
+        tick_size=10.0,
     )
 
     _ = boxplot_two_dataframes_pubready(
@@ -314,15 +342,75 @@ if __name__ == '__main__':
         share_scale=False,
         save_path=f"{save_path}/autoFE_boxplots_full.pdf",
         dpi=300,
-        transparent=True,
-        font_size=10.0,
+        figsize=(12,6),
+        font_size=14.0,
+        title_size=14.0,
+        tick_size=12.0,
     )
+
+    ### Training time increase analysis OpenFE
+    train_time_base = ablation_model_results.loc[ablation_model_results.method=='LightGBM_c1_BAG_L1',["dataset", "time_train_s"]]
+    train_time_openfe = ablation_model_results.loc[ablation_model_results.method=='OpenFELGBModel_c1_BAG_L1',["dataset", "time_train_s"]]
+    train_time_prep = ta_results.loc[np.logical_and(
+            ta_results.method=="PREP_GBM (default)",
+            ta_results.fold==use_fold),["dataset", "time_train_s"]].rename(columns={"time_train_s": "time_train_s_prep"})
+
+    train_times = pd.merge(
+        train_time_base,
+        train_time_openfe,
+        on="dataset",
+        suffixes=("_base", "_openfe")
+    )
+
+    train_times = pd.merge(
+        train_times,
+        train_time_prep,
+        on="dataset"
+    )
+
+    increase_prep = (train_times["time_train_s_prep"]/train_times["time_train_s_base"]).describe().loc[["min", "25%", "50%", "75%", "max"]]
+    increase_openfe = (train_times["time_train_s_openfe"]/train_times["time_train_s_base"]).describe().loc[["min", "25%", "50%", "75%", "max"]]
+
+    # print("Training time increase PrepLightGBM vs LightGBM:")
+    # pd.concat([increase_prep, increase_openfe], axis=1, keys=["PrepLightGBM", "OpenFE_LightGBM"]).to_latex(f"{save_path}/training_time_increase_prep_vs_openfe.tex")
+
+    ### Training time increase analysis autofeat
+    train_time_base = ablation_model_results.loc[ablation_model_results.method=='LinearModel_c1_BAG_L1',["dataset", "time_train_s"]]
+    train_time_autofeat = ablation_model_results.loc[ablation_model_results.method=='AutoFeatLinearModel_c1_BAG_L1',["dataset", "time_train_s"]]
+    train_time_prep_linear = ta_results.loc[np.logical_and(
+            ta_results.method=="PREP_LR (default)",
+            ta_results.fold==use_fold),["dataset", "time_train_s"]].rename(columns={"time_train_s": "time_train_s_prep"})
+
+    train_times = pd.merge(
+        train_time_base,
+        train_time_autofeat,
+        on="dataset",
+        suffixes=("_base", "_autofeat")
+    )
+
+    train_times = pd.merge(
+        train_times,
+        train_time_prep_linear,
+        on="dataset"
+    )
+
+    increase_prep_linear = (train_times["time_train_s_prep"]/train_times["time_train_s_base"]).describe().loc[["min", "25%", "50%", "75%", "max"]]
+    increase_autofeat = (train_times["time_train_s_autofeat"]/train_times["time_train_s_base"]).describe().loc[["min", "25%", "50%", "75%", "max"]]
+
+    # print("Training time increase PrepLinear vs LinearModel:")
+    pd.concat([increase_prep_linear, increase_autofeat, increase_prep, increase_openfe], axis=1, keys=["PrepLinearModel", "AutoFeat_LinearModel", "PrepLightGBM", "OpenFE_LightGBM"]).round(1).astype(str).to_latex(f"{save_path}/training_time_increase_prep_vs_autoFE.tex")
+
+
+    #############################################################################################################################################
+    #############################################################################################################################################
+    #############################################################################################################################################
+
 
     ### Prepare contribution to performance data
     setting_map = {
         "prep_LightGBM-ablation_c1_BAG_L1": "+Arithmetic",
         "prep_LightGBM-ablation_c2_BAG_L1": "RSFC",
-        "prep_LightGBM-ablation_c3_BAG_L1": "CombineThenTE",
+        "prep_LightGBM-ablation_c3_BAG_L1": "Combine-TE",
         "prep_LightGBM-ablation_c4_BAG_L1": "OOF-TE",
         "prep_LightGBM-ablation_c5_BAG_L1": "GroupBy",
         "prep_LightGBM-ablation_c6_BAG_L1": "AbsoluteGroupBy",
@@ -334,7 +422,7 @@ if __name__ == '__main__':
         "prep_LightGBM-ablation_c12_BAG_L1": "Cat-Pipeline",
         "prep_LightGBM-ablation_c13_BAG_L1": "Cat-Pipeline (keepcat)",
         "prep_LightGBM-ablation_c14_BAG_L1": "+OOF-TE",
-        "prep_LightGBM-ablation_c15_BAG_L1": "+CombineThenTE",
+        "prep_LightGBM-ablation_c15_BAG_L1": "+Combine-TE",
         "prep_LightGBM-ablation_c16_BAG_L1": "+GroupBy",
                 }
 
@@ -367,87 +455,89 @@ if __name__ == '__main__':
     df_components_best_by_stage = df_components.copy()
     df_components_best_by_stage["+Arithmetic"] = df_components[["Default LightGBM","+Arithmetic"]].min(axis=1)
     df_components_best_by_stage["+OOF-TE"] = df_components[["Default LightGBM","+Arithmetic", "+OOF-TE"]].min(axis=1)
-    df_components_best_by_stage["+CombineThenTE"] = df_components[["Default LightGBM","+Arithmetic", "+OOF-TE", "+CombineThenTE"]].min(axis=1)
-    df_components_best_by_stage["+GroupBy"] = df_components[["Default LightGBM","+Arithmetic", "+OOF-TE", "+CombineThenTE", "+GroupBy"]].min(axis=1)
-    df_components_best_by_stage["+RSFC"] = df_components[["Default LightGBM","+Arithmetic", "+OOF-TE", "+CombineThenTE", "+GroupBy", "+RSFC"]].min(axis=1)
+    df_components_best_by_stage["+Combine-TE"] = df_components[["Default LightGBM","+Arithmetic", "+OOF-TE", "+Combine-TE"]].min(axis=1)
+    df_components_best_by_stage["+GroupBy"] = df_components[["Default LightGBM","+Arithmetic", "+OOF-TE", "+Combine-TE", "+GroupBy"]].min(axis=1)
+    df_components_best_by_stage["+RSFC"] = df_components[["Default LightGBM","+Arithmetic", "+OOF-TE", "+Combine-TE", "+GroupBy", "+RSFC"]].min(axis=1)
     ### VERSION 1
-    boxplot_dataframe_pubready(
-        df_components, 
-        baseline_col="Default LightGBM", 
-        competitor_cols=["+Arithmetic", "+OOF-TE", "+CombineThenTE", "+GroupBy", "+RSFC"][::-1],
-        dpi=300,
-        transparent=True,
-        font_size=10.0,          
-        cap=[-0.1,.25],
-        figsize = (8, 4),
-        save_path=f"{save_path}/ablation_contribution_boxplot_v1.pdf",
-        )
+    # boxplot_dataframe_pubready(
+    #     df_components, 
+    #     baseline_col="Default LightGBM", 
+    #     competitor_cols=["+Arithmetic", "+OOF-TE", "+Combine-TE", "+GroupBy", "+RSFC"][::-1],
+    #     dpi=300,
+    #     transparent=True,
+    #     font_size=10.0,          
+    #     cap=[-0.1,.25],
+    #     figsize = (8, 4),
+    #     save_path=f"{save_path}/ablation_contribution_boxplot_v1.pdf",
+    #     )
 
     boxplot_dataframe_pubready(
         df_components, 
         baseline_col="Default LightGBM", 
-        competitor_cols=["+Arithmetic", "+OOF-TE", "+CombineThenTE", "+GroupBy", "+RSFC", "+HPO"][::-1],
+        competitor_cols=["+Arithmetic", "+OOF-TE", "+Combine-TE", "+GroupBy", "+RSFC", "+HPO"][::-1],
         dpi=300,
         transparent=True,
-        font_size=10.0,          
+        font_size=14.0,
+        title_size=14.0,
+        point_size=14.0,      
         cap=[-0.1,.25],
         figsize = (8, 4),
         save_path=f"{save_path}/ablation_contribution_boxplot_withtuned_v1.pdf",
         )
 
-    boxplot_dataframe_pubready(
-        df_components, 
-        baseline_col="Default LightGBM", 
-        competitor_cols=["+Arithmetic", "+OOF-TE", "+CombineThenTE", "+GroupBy", "+RSFC", "TunedEnsembleLGB", "+HPO"][::-1],
-        dpi=300,
-        transparent=True,
-        font_size=12.0,
-        point_size=14.0,          
-        cap=[-0.1,.25],
-        figsize = (8, 4),
-        save_path=f"{save_path}/ablation_contribution_boxplot_withbasetuned_v1.pdf",
-        )
+    # boxplot_dataframe_pubready(
+    #     df_components, 
+    #     baseline_col="Default LightGBM", 
+    #     competitor_cols=["+Arithmetic", "+OOF-TE", "+Combine-TE", "+GroupBy", "+RSFC", "TunedEnsembleLGB", "+HPO"][::-1],
+    #     dpi=300,
+    #     transparent=True,
+    #     font_size=12.0,
+    #     point_size=14.0,          
+    #     cap=[-0.1,.25],
+    #     figsize = (8, 4),
+    #     save_path=f"{save_path}/ablation_contribution_boxplot_withbasetuned_v1.pdf",
+    #     )
 
-    boxplot_dataframe_pubready(
-        df_components_best_by_stage, 
-        baseline_col="Default LightGBM", 
-        competitor_cols=["+Arithmetic", "+OOF-TE", "+CombineThenTE", "+GroupBy", "+RSFC"][::-1],
-        dpi=300,
-        transparent=True,
-        font_size=10.0,          
-        cap=[-0.1,.25],
-        figsize = (8, 4),
-        save_path=f"{save_path}/ablation_contribution_boxplot_bestbystage_v1.pdf",
-        )
+    # boxplot_dataframe_pubready(
+    #     df_components_best_by_stage, 
+    #     baseline_col="Default LightGBM", 
+    #     competitor_cols=["+Arithmetic", "+OOF-TE", "+Combine-TE", "+GroupBy", "+RSFC"][::-1],
+    #     dpi=300,
+    #     transparent=True,
+    #     font_size=10.0,          
+    #     cap=[-0.1,.25],
+    #     figsize = (8, 4),
+    #     save_path=f"{save_path}/ablation_contribution_boxplot_bestbystage_v1.pdf",
+    #     )
 
-    boxplot_dataframe_pubready(
-        df_components, 
-        baseline_col="Default LightGBM", 
-        competitor_cols=["+Arithmetic", "Cat-Pipeline", "+RSFC"][::-1],
-        dpi=300,
-        transparent=True,
-        font_size=10.0,          
-        cap=[-0.1,.25],
-        figsize = (8, 4),
-        save_path=f"{save_path}/ablation_contribution_boxplot_cat_pipeline_v1.pdf",
-        )
+    # boxplot_dataframe_pubready(
+    #     df_components, 
+    #     baseline_col="Default LightGBM", 
+    #     competitor_cols=["+Arithmetic", "Cat-Pipeline", "+RSFC"][::-1],
+    #     dpi=300,
+    #     transparent=True,
+    #     font_size=10.0,          
+    #     cap=[-0.1,.25],
+    #     figsize = (8, 4),
+    #     save_path=f"{save_path}/ablation_contribution_boxplot_cat_pipeline_v1.pdf",
+    #     )
 
-    fig, ax, df_norm, plot_df, scores_wide = compare_methods_via_boxplots(
-        df=df_components,
-        dataset_col="dataset",
-        lower_bound_col="BestOnTabArena",
-        upper_bound_col="WorstOnTabArena",
-        reference_col="Default LightGBM",
-        # method_cols=["+Arithmetic", "+OOF-TE", "+CombineThenTE", "+GroupBy", "+RSFC", "TunedPrepLightGBM"][::-1],
-        method_cols=["+Arithmetic", "+OOF-TE", "+CombineThenTE", "+GroupBy", "+RSFC"][::-1],
-        title="Normalized improvement vs lower reference",
-        horizontal=True,
-        # clip_norm=None,          # or (0, 1) if you want to clamp
-        cap=(-0.4,.25),                # or cap=3 to clip extreme outliers in the plot only
-        dpi=300,
-        figsize=(8, 4),
-        save_path=f"{save_path}/ablation_contribution_boxplot_v2.pdf",
-    )
+    # fig, ax, df_norm, plot_df, scores_wide = compare_methods_via_boxplots(
+    #     df=df_components,
+    #     dataset_col="dataset",
+    #     lower_bound_col="BestOnTabArena",
+    #     upper_bound_col="WorstOnTabArena",
+    #     reference_col="Default LightGBM",
+    #     # method_cols=["+Arithmetic", "+OOF-TE", "+CombineThenTE", "+GroupBy", "+RSFC", "TunedPrepLightGBM"][::-1],
+    #     method_cols=["+Arithmetic", "+OOF-TE", "+Combine-TE", "+GroupBy", "+RSFC"][::-1],
+    #     title="Normalized improvement vs lower reference",
+    #     horizontal=True,
+    #     # clip_norm=None,          # or (0, 1) if you want to clamp
+    #     cap=(-0.4,.25),                # or cap=3 to clip extreme outliers in the plot only
+    #     dpi=300,
+    #     figsize=(8, 4),
+    #     save_path=f"{save_path}/ablation_contribution_boxplot_v2.pdf",
+    # )
 
 
     ### INTITIAL PLOT
@@ -456,7 +546,7 @@ if __name__ == '__main__':
 
     # methods_keep = ["RSFC", "OOF-TE", "CombineThenTE", "Arithmetic", "GroupBy", "OOF-TE_w_GroupBy"]
 
-    methods_keep = ["RSFC", "OOF-TE", "CombineThenTE", "Arithmetic", "GroupBy"]
+    methods_keep = ["RSFC", "OOF-TE", "Combine-TE", "Arithmetic", "GroupBy"]
     # methods_keep = ["RSFC", "OOF-TE", "CombineThenTE", "Arithmetic", "GroupBy", "Cat-Pipeline", "PrepLightGBM"]
     # methods_keep = ["RSFC", "Arithmetic", "Cat-Pipeline"]
     # methods_keep = ["Cat-Pipeline", "Cat-Pipeline (keepcat)"]
@@ -466,7 +556,7 @@ if __name__ == '__main__':
     # methods_keep = [i for i in prep_ablation_df.method.unique() if "Arithmetic" in i]
     # methods_keep = [i for i in prep_ablation_df.method.unique() if "GroupBy" in i]
     # methods_keep = [i for i in prep_ablation_df.method.unique() if "+" in i]
-    methods_keep = ["+Arithmetic", "+OOF-TE", "+CombineThenTE", "+GroupBy", "+RSFC"]
+    methods_keep = ["+Arithmetic", "+OOF-TE", "+Combine-TE", "+GroupBy", "+RSFC"]
 
     fig, ax, merged_long, best_by_ds, color_by_method = ablation_boxplot_colored_by_best(
         prep_ablation_df=prep_ablation_df.loc[prep_ablation_df.method.isin(methods_keep)],
@@ -506,6 +596,9 @@ if __name__ == '__main__':
         transparent=True,
     )
 
+    #############################################################################################################################################
+    #############################################################################################################################################
+    #############################################################################################################################################
 
     ### COMBINED TRIALS VS. PREP-ONLY TRIALS
     nonprep_res_path = {
@@ -515,45 +608,58 @@ if __name__ == '__main__':
         # ""
         }
 
-    df_combined_trials = pd.DataFrame()
-    # df_prep_trials = pd.DataFrame(index=all_model_results.dataset.unique())
-    for use_model in ["RealTabPFN2.5", "LightGBM", "TabM"]:
-        df_old = pd.read_parquet(nonprep_res_path[use_model])
-        df_old = df_old.loc[df_old.fold==0]
-        if use_model == "LightGBM":
-            comb_df = pd.concat([
-                df_old,
-                ta_results.loc[np.logical_and(ta_results.fold==0, ta_results.ta_name==f"Prep{use_model}")]
-            ]).reset_index(drop=True)
-        else:
-            comb_df = pd.concat([
-                df_old,
-                all_model_results.loc[np.logical_and(all_model_results.fold==0, all_model_results.ta_name==f"Prep{use_model}")]
-            ]).reset_index(drop=True)
 
-        df_combined_trials[f"{use_model}_combined"] = comb_df.groupby("dataset").apply(lambda x: x.metric_error.loc[x.metric_error_val.idxmin()])
-        df_combined_trials[f"{use_model}_baseModel"] = df_old.groupby("dataset").apply(lambda x: x.metric_error.loc[x.metric_error_val.idxmin()])
-        if use_model == "LightGBM":
-            df_combined_trials[f"{use_model}_prepModel"] = ta_results.loc[np.logical_and(ta_results.fold==0, ta_results.ta_name==f"Prep{use_model}")].groupby("dataset").apply(lambda x: x.metric_error.loc[x.metric_error_val.idxmin()])
-        else:
-            df_combined_trials[f"{use_model}_prepModel"] = all_model_results.loc[np.logical_and(all_model_results.fold==0, all_model_results.ta_name==f"Prep{use_model}")].groupby("dataset").apply(lambda x: x.metric_error.loc[x.metric_error_val.idxmin()])
+    def get_metric(df, ta_name, col_name):
+        return (
+            df.loc[
+                (df.method_subtype == "tuned_ensemble") &
+                (df.ta_name == ta_name),
+                ["dataset", "metric_error"]
+            ]
+            .rename(columns={"metric_error": col_name})
+        )
+
+    dfs = [
+        get_metric(comb_results_use_bar, "LightGBM", "LightGBM_baseModel"),
+        get_metric(comb_results_use_bar, "PrepLightGBM", "LightGBM_prepModel"),
+        get_metric(comb_results_use_bar, "(Prep)LightGBM", "LightGBM_combined"),
+
+        get_metric(comb_results_use_bar, "TabM", "TabM_baseModel"),
+        get_metric(comb_results_use_bar, "PrepTabM", "TabM_prepModel"),
+        get_metric(comb_results_use_bar, "(Prep)TabM", "TabM_combined"),
+
+        get_metric(comb_results_use_bar, "RealTabPFN2.5", "TabPFN-2.5_baseModel"),
+        get_metric(comb_results_use_bar, "PrepRealTabPFN2.5", "TabPFN-2.5_prepModel"),
+        get_metric(comb_results_use_bar, "(Prep)RealTabPFN-2.5", "TabPFN-2.5_combined"),
+    ]
+
+    df_combined_trials = dfs[0]
+    for df in dfs[1:]:
+        df_combined_trials = df_combined_trials.merge(
+            df, on="dataset", how="inner"   # or "outer" if some datasets are missing
+        )
+
+
 
     fig, (axL, axR), (scores_combined, scores_prep) = boxplot_models_combined_vs_tabprep(
         df=df_combined_trials,  # index = dataset names
-        models=["LightGBM", "TabM", "RealTabPFN2.5"],
-        model_labels=["LightGBM", "TabM", "TabPFN2.5"],
+        models=["LightGBM", "TabM", "TabPFN-2.5"],
+        model_labels=["LightGBM", "TabM", "TabPFN-2.5"],
         baseline_cfg="baseModel",
-        left_cfg="combined",
-        right_cfg="prepModel",
+        left_cfg="prepModel",
+        right_cfg="combined",
         mode="log_ratio",
         lower_is_better=True,
-        cap_left=(-0.5, 0.5),
-        cap_right=(-0.3, 0.5),
+        cap_left=(-0.3, 0.3),
+        cap_right=(-0.15, 0.3),
         horizontal=True,
         share_scale=False,
         titles = (None, None),
         save_path=f"{save_path}/combined_trials_vs_prep_only.pdf",
         dpi=300,
         transparent=True,
+        tick_size=10,
+        font_size=12,
+        title_size=12,
     )
 
