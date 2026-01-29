@@ -1015,7 +1015,7 @@ experiment_params = {
 
 
 if __name__ == "__main__":
-    save_path = "/ceph/atschalz/auto_prep/tabarena/tabarena/tabarena/icml2026/results"
+    save_path = "tabarena/tabarena/tabarena/icml2026/results"
     exp_name = "simulated_cat_experiments_bag"
 
     num_bag_folds = 8

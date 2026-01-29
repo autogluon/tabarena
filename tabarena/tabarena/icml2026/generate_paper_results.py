@@ -39,10 +39,10 @@ dat_map = {
     }
 
 
-ablation_base_path = "/ceph/atschalz/auto_prep/tabarena_figs/icml_ablation"
-base_path = "/ceph/atschalz/auto_prep/tabarena_figs/icml_final/"
-comb_path = "/ceph/atschalz/auto_prep/tabarena/examples/icml2026/results/hpo_combined/"
-save_path = "/ceph/atschalz/auto_prep/tabarena/tabarena/tabarena/icml2026/figures/new"
+ablation_base_path = "/tabarena_figs/icml_ablation"
+base_path = "tabarena_figs/icml_final/"
+comb_path = "tabarena/examples/icml2026/results/hpo_combined/"
+save_path = "tabarena/tabarena/tabarena/icml2026/figures/new"
 
 use_fold = 0
 
@@ -602,9 +602,9 @@ if __name__ == '__main__':
 
     ### COMBINED TRIALS VS. PREP-ONLY TRIALS
     nonprep_res_path = {
-        "RealTabPFN2.5": "/home/atschalz/.cache/tabarena/artifacts/tabarena-2025-11-12/methods/RealTabPFN-v2.5/results/model_results.parquet",
-        "LightGBM": "/home/atschalz/.cache/tabarena/artifacts/tabarena-2025-06-12/methods/LightGBM/results/model_results.parquet",
-        "TabM": "/home/atschalz/.cache/tabarena/artifacts/tabarena-2025-06-12/methods/TabM_GPU/results/model_results.parquet",
+        "RealTabPFN2.5": "~/.cache/tabarena/artifacts/tabarena-2025-11-12/methods/RealTabPFN-v2.5/results/model_results.parquet",
+        "LightGBM": "~/.cache/tabarena/artifacts/tabarena-2025-06-12/methods/LightGBM/results/model_results.parquet",
+        "TabM": "~/.cache/tabarena/artifacts/tabarena-2025-06-12/methods/TabM_GPU/results/model_results.parquet",
         # ""
         }
 

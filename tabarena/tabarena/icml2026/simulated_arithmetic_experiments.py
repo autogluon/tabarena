@@ -34,7 +34,7 @@ data_tid_map = { # https://www.openml.org/search?type=study&study_type=task&id=3
 
 if __name__ == "__main__":
     max_new_feats = 1500
-    save_path = "/ceph/atschalz/auto_prep/tabarena/tabarena/tabarena/icml2026/results"
+    save_path = "tabarena/tabarena/tabarena/icml2026/results"
     exp_name = "simulated_arithmetic_jungle_10000"
     verbosity = 0
     num_bag_folds = 8
