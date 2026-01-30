@@ -400,6 +400,7 @@ class TabArenaEvaluator:
             data=df_results_rank_compare,
             **leaderboard_kwargs,
         )
+        leaderboard = leaderboard.join(method_info, on="method")
         elo_map = leaderboard["elo"]
         leaderboard = leaderboard.reset_index(drop=False)
         save_pd.save(path=f"{self.output_dir}/tabarena_leaderboard.csv", df=leaderboard)
@@ -447,6 +448,9 @@ class TabArenaEvaluator:
 
         results_per_task = tabarena.compute_results_per_task(data=df_results_rank_compare)
         results_per_split = tabarena.compute_results_per_task(data=df_results_rank_compare, include_seed_col=True)
+
+        results_per_task = results_per_task.join(method_info, on="method")
+        results_per_split = results_per_split.join(method_info, on="method")
 
         # TODO: Consider adding the metadata to the saved `results_per_split.csv` file?
         # assert len(results_per_split) == len(df_results_rank_compare)

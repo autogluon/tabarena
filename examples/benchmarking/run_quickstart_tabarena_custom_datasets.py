@@ -12,7 +12,7 @@ from tabarena.benchmark.task import UserTask
 from tabarena.models.utils import get_configs_generator_from_name
 from tabarena.nips2025_utils.compare import compare
 from tabarena.nips2025_utils.end_to_end import EndToEnd
-from bencheval.website_format import format_leaderboard
+from tabarena.website.website_format import format_leaderboard
 
 
 def get_custom_classification_task(task_cache_dir: str) -> UserTask:
