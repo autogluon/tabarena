@@ -6,13 +6,10 @@ import pandas as pd
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
-from bencheval.website_format import format_leaderboard
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_01_23_tabprep import tabprep_lr_metadata, \
     tabprep_gbm_metadata, tabprep_tabm_metadata, tabprep_realtabpfnv250_metadata
 from tabarena.utils.cache_v2 import cached_parquet_df, CacheMode
-
-from autogluon.common import TabularDataset
-
+from tabarena.website.website_format import format_leaderboard
 
 # Only methods on live TabArena leaderboard as of Jan 26th, 2026 that have results for all tasks
 _methods_icml_paper = [
