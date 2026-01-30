@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import os
+from dataclasses import dataclass
+from typing import Callable, Literal
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -18,6 +20,32 @@ from .winrate_utils import compute_winrate, compute_winrate_matrix
 RANK = "rank"
 IMPROVABILITY = "improvability"
 LOSS_RESCALED = "loss_rescaled"
+
+MetricDirection = Literal["min", "max"]
+MetricAlignment = Literal["row", "method"]
+InvalidSubsetPolicy = Literal["raise", "nan", "skip"]
+
+
+@dataclass(frozen=True, slots=True)
+class MetricSpec:
+    """
+    Defines how to (re)compute a metric from a subset of results_per_task and how to
+    reduce it to a single scalar score for a given method.
+
+    - compute(): returns either
+        * row-aligned Series (index == results_per_task.index)  [alignment="row"]
+        * method-aligned Series (index == method names)         [alignment="method"]
+    - score(): returns a float score for method_1 given the computed metric result
+    """
+    name: str
+    direction: MetricDirection
+    alignment: MetricAlignment
+    compute: Callable[["TabArena", pd.DataFrame], pd.Series]
+    score: Callable[["TabArena", pd.DataFrame, pd.Series, str], float]
+    # Methods that must be present in any subset (e.g., Elo calibration framework)
+    required_methods: frozenset[str] = frozenset()
+    # What to do if required methods are missing from a subset
+    invalid_subset_policy: InvalidSubsetPolicy = "raise"
 
 
 # TODO: Should "data" be an init arg? Probably not.
@@ -1003,174 +1031,315 @@ class TabArena:
         column_mean.index.name = agg_column
         return column_mean
 
-    @staticmethod
-    def _mean_improvability(
-            df_imp: pd.DataFrame,
-            *,
-            method_1: str,
-            method_col: str,
-            improv_col: str,
-    ) -> float:
-        return df_imp.loc[df_imp[method_col] == method_1, improv_col].mean()
+    def _seed_col_if_present(self, df: pd.DataFrame) -> str | None:
+        if self.seed_column is not None and self.seed_column in df.columns:
+            return self.seed_column
+        return None
 
-    def mean_improvability_if_remove_method(
-            self,
-            results_per_task: pd.DataFrame,
-            *,
-            method_1: str,
-            method_2: str,
-            improv_col: str = "improvability",
-    ) -> float:
-        """
-        Return the mean improvability for `method_1` after removing `method_2`
-        and recomputing improvability on the subset.
-
-        NOTE: This returns the mean (your current logic), NOT a delta.
-        """
-        method_col = self.method_col
-        task_groupby_cols = self.get_task_groupby_cols(include_seed_col=False)
-
-        # Baseline mean from the provided df (assumes improvability already exists there)
-        baseline_mean = results_per_task.loc[results_per_task[method_col] == method_1, improv_col].mean()
-
-        # If we remove method_1 itself, your current logic returns baseline_mean
-        if method_1 == method_2:
-            return float(baseline_mean)
-
-        subset = results_per_task.loc[results_per_task[method_col] != method_2].copy()
-        subset[improv_col] = self.compute_improvability_per(subset, task_groupby_cols)
-
-        new_mean = self._mean_improvability(
-            subset, method_1=method_1, method_col=method_col, improv_col=improv_col
-        )
-        return float(new_mean)
-
-    def mean_improvability_series_if_remove_each_method(
-            self,
-            results_per_task: pd.DataFrame,
-            *,
-            method_1: str,
-            improv_col: str = "improvability",
+    def _score_weighted_mean_by_task(
+        self,
+        df: pd.DataFrame,
+        *,
+        value_col: str,
+        sort_asc: bool,
     ) -> pd.Series:
         """
-        For a fixed `method_1`, loop over all methods as `method_2` and return a Series
-        indexed by method_2 with values = mean improvability of method_1 after removing method_2.
+        Returns a per-method Series of weighted means using the same equal-task weighting
+        logic as other parts of TabArena.
         """
-        method_col = self.method_col
+        seed_col = self._seed_col_if_present(df)
+        return compute_weighted_mean_by_task(
+            df=df,
+            value_col=value_col,
+            task_col=self.task_groupby_columns,
+            seed_col=seed_col,
+            method_col=self.method_col,
+            sort_asc=sort_asc,
+        )
+
+    def score_if_remove_method(
+        self,
+        metric: MetricSpec,
+        results_per_task: pd.DataFrame,
+        *,
+        method_1: str,
+        method_2: str,
+    ) -> float:
+        """
+        Compute the scalar score for method_1 after removing method_2 and recomputing metric.
+        Returns the resulting score (NOT delta).
+        """
+        # Keep your prior convention: if we remove method_1 itself, return baseline score on provided df.
+        if method_1 == method_2:
+            if not self._metric_subset_ok(metric, results_per_task):
+                return float("nan")
+            metric_values = metric.compute(self, results_per_task)
+            return float(metric.score(self, results_per_task, metric_values, method_1))
+
+        subset = results_per_task.loc[results_per_task[self.method_col] != method_2].copy()
+        if not self._metric_subset_ok(metric, subset):
+            return float("nan")
+        metric_values = metric.compute(self, subset)
+        return float(metric.score(self, subset, metric_values, method_1))
+
+    def score_series_if_remove_each_method(
+        self,
+        metric: MetricSpec,
+        results_per_task: pd.DataFrame,
+        *,
+        method_1: str,
+    ) -> pd.Series:
+        """
+        For a fixed method_1, return a Series indexed by method_2 with values = resulting score
+        for method_1 if method_2 were removed.
+        """
         methods = (
-            results_per_task[method_col]
+            results_per_task[self.method_col]
             .dropna()
             .astype(str)
             .unique()
             .tolist()
         )
 
-        means: dict[str, float] = {}
+        scores: dict[str, float] = {}
         for method_2 in methods:
-            means[method_2] = self.mean_improvability_if_remove_method(
+            # Never propose removing required methods (e.g., Elo calibration framework)
+            if method_2 in metric.required_methods:
+                continue
+            scores[method_2] = self.score_if_remove_method(
+                metric,
                 results_per_task,
                 method_1=method_1,
                 method_2=method_2,
-                improv_col=improv_col,
             )
 
-        return pd.Series(means, name=f"mean_{improv_col}_for_{method_1}_if_remove_method").sort_values()
+        s = pd.Series(scores, name=f"{metric.name}_score_for_{method_1}_if_remove_method")
+        # Sorting: for min-metrics ascending is "better"; for max-metrics descending is "better"
+        return s.sort_values(ascending=(metric.direction == "min"))
 
-    def greedy_remove_methods_minimize_mean_improvability(
-            self,
-            results_per_task: pd.DataFrame,
-            *,
-            method_1: str,
-            improv_col: str = "improvability",
-            stop_at_mean_leq: float = 0.0,
+    def greedy_remove_methods_optimize_score(
+        self,
+        metric: MetricSpec,
+        results_per_task: pd.DataFrame,
+        *,
+        method_1: str,
+        stop_at_score: float | None = None,
     ) -> pd.Series:
         """
-        Greedily remove the method_2 that yields the *lowest* mean improvability for method_1
-        at the current iteration (i.e., best improvement), recomputing improvability each step.
+        Iteratively remove method_2 that yields the best improvement for method_1
+        according to metric.direction, recomputing the metric each iteration.
 
         Returns:
-            pd.Series indexed by removed method_2 in removal order,
-            values = resulting mean improvability for method_1 at that iteration.
-            (This matches your current "return mean" behavior, not delta.)
+            pd.Series indexed by removed method_2 in removal order
+            values = resulting score for method_1 at that iteration (NOT delta).
         """
-        method_col = self.method_col
-        task_groupby_cols = self.get_task_groupby_cols(include_seed_col=False)
-
         current = results_per_task
         removed_in_order: dict[str, float] = {}
 
         while True:
-            current = current.copy()
-            current[improv_col] = self.compute_improvability_per(current, task_groupby_cols)
-
-            cur_mean = self._mean_improvability(
-                current, method_1=method_1, method_col=method_col, improv_col=improv_col
-            )
-
-            # Stop if method_1 absent or already <= threshold
-            if pd.isna(cur_mean) or cur_mean <= stop_at_mean_leq:
+            # Compute current score for method_1 (and stop checks)
+            if not self._metric_subset_ok(metric, current):
                 break
+            current_metric = metric.compute(self, current)
+            cur_score = float(metric.score(self, current, current_metric, method_1))
 
-            remaining_methods = current[method_col].dropna().astype(str).unique().tolist()
-            candidates = [m for m in remaining_methods if m != method_1]
+            # Stop criteria
+            if pd.isna(cur_score):
+                break
+            if stop_at_score is not None:
+                if metric.direction == "min" and cur_score <= stop_at_score:
+                    break
+                if metric.direction == "max" and cur_score >= stop_at_score:
+                    break
+
+            remaining_methods = current[self.method_col].dropna().astype(str).unique().tolist()
+            # Exclude method_1 and any required methods (e.g., calibration framework)
+            candidates = [
+                m for m in remaining_methods
+                if m != method_1 and m not in metric.required_methods
+            ]
             if not candidates:
                 break
 
-            means_after_remove: dict[str, float] = {}
+            candidate_scores: dict[str, float] = {}
             for method_2 in candidates:
-                subset = current.loc[current[method_col] != method_2].copy()
-                subset[improv_col] = self.compute_improvability_per(subset, task_groupby_cols)
-                new_mean = self._mean_improvability(
-                    subset, method_1=method_1, method_col=method_col, improv_col=improv_col
-                )
-                means_after_remove[method_2] = float(new_mean)
+                subset = current.loc[current[self.method_col] != method_2].copy()
+                if not self._metric_subset_ok(metric, subset):
+                    if metric.invalid_subset_policy == "skip":
+                        continue
+                    candidate_scores[method_2] = float("nan")
+                    continue
+                subset_metric = metric.compute(self, subset)
+                candidate_scores[method_2] = float(metric.score(self, subset, subset_metric, method_1))
 
-            means_s = pd.Series(means_after_remove)
+            scores_s = pd.Series(candidate_scores).dropna()
+            if scores_s.empty:
+                break
 
-            # Choose the removal that minimizes the resulting mean improvability
-            best_method_2 = means_s.idxmin()
-            best_mean = float(means_s.loc[best_method_2])
+            # Choose best candidate depending on direction
+            if metric.direction == "min":
+                best_method_2 = scores_s.idxmin()
+            else:
+                best_method_2 = scores_s.idxmax()
 
-            removed_in_order[best_method_2] = best_mean
+            best_score = float(scores_s.loc[best_method_2])
+            removed_in_order[best_method_2] = best_score
 
-            current = current.loc[current[method_col] != best_method_2]
+            # Remove best_method_2 and continue
+            current = current.loc[current[self.method_col] != best_method_2]
 
-        return pd.Series(removed_in_order, name=f"mean_{improv_col}_iter_for_{method_1}")
+        return pd.Series(removed_in_order, name=f"{metric.name}_score_iter_for_{method_1}")
 
-    def greedy_mean_matrix(
-            self,
-            results_per_task: pd.DataFrame,
-            *,
-            improv_col: str = "improvability",
-            stop_at_mean_leq: float = 0.0,
-            methods_1: Iterable[str] | None = None,
+    def greedy_score_matrix(
+        self,
+        metric: MetricSpec,
+        results_per_task: pd.DataFrame,
+        *,
+        methods_1: Iterable[str] | None = None,
+        stop_at_score: float | None = None,
     ) -> pd.DataFrame:
         """
         Build a DataFrame:
-          rows = method_2 (the removed method)
+          rows = method_2 (removed)
           cols = method_1
-          cell = resulting mean improvability for method_1 at the iteration when that method_2 was removed
-                 in the greedy process for that method_1.
-
-        If a method_2 was never removed for a given method_1 (stopped early), the cell is NaN.
+          cell = resulting score for method_1 at the iteration when method_2 was removed
         """
-        method_col = self.method_col
-
         if methods_1 is None:
             methods_1 = (
-                results_per_task[method_col].dropna().astype(str).unique().tolist()
+                results_per_task[self.method_col].dropna().astype(str).unique().tolist()
             )
 
         col_series: dict[str, pd.Series] = {}
         for method_1 in methods_1:
-            col_series[method_1] = self.greedy_remove_methods_minimize_mean_improvability(
+            col_series[method_1] = self.greedy_remove_methods_optimize_score(
+                metric,
                 results_per_task,
                 method_1=method_1,
-                improv_col=improv_col,
-                stop_at_mean_leq=stop_at_mean_leq,
+                stop_at_score=stop_at_score,
             )
 
         return pd.DataFrame(col_series)
+
+    # ----------------------------
+    # MetricSpec factories
+    # ----------------------------
+
+    def metric_spec_error(self) -> MetricSpec:
+        """
+        Lower is better. Score = weighted mean error (equal task weighting).
+        """
+        def compute(self: "TabArena", df: pd.DataFrame) -> pd.Series:
+            # row-aligned; no recomputation needed
+            return df[self.error_col]
+
+        def score(self: "TabArena", df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+            groupby_columns = self._get_groupby_cols(df)
+            tmp = df[groupby_columns].copy()
+            tmp[self.error_col] = values.to_numpy()
+            per_method = self._score_weighted_mean_by_task(tmp, value_col=self.error_col, sort_asc=True)
+            return float(per_method.get(method_1, float("nan")))
+
+        return MetricSpec(
+            name=self.error_col,
+            direction="min",
+            alignment="row",
+            compute=compute,
+            score=score,
+        )
+
+    def metric_spec_rank(self) -> MetricSpec:
+        """
+        Lower is better. Score = weighted mean rank.
+        """
+        def compute(self: "TabArena", df: pd.DataFrame) -> pd.Series:
+            task_groupby_cols = self._get_task_groupby_cols(results=df)
+            return self.compare_rank_per(df=df, task_groupby_cols=task_groupby_cols)
+
+        def score(self: "TabArena", df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+            groupby_columns = self._get_groupby_cols(df)
+            tmp = df[groupby_columns].copy()
+            tmp[RANK] = values.to_numpy()
+            per_method = self._score_weighted_mean_by_task(tmp, value_col=RANK, sort_asc=True)
+            return float(per_method.get(method_1, float("nan")))
+
+        return MetricSpec(
+            name=RANK,
+            direction="min",
+            alignment="row",
+            compute=compute,
+            score=score,
+        )
+
+    def metric_spec_improvability(self) -> MetricSpec:
+        """
+        Lower is better (0 is ideal). Score = weighted mean improvability.
+        """
+        def compute(self: "TabArena", df: pd.DataFrame) -> pd.Series:
+            task_groupby_cols = self._get_task_groupby_cols(results=df)
+            return self.compute_improvability_per(results_per_task=df, task_groupby_cols=task_groupby_cols)
+
+        def score(self: "TabArena", df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+            groupby_columns = self._get_groupby_cols(df)
+            tmp = df[groupby_columns].copy()
+            tmp[IMPROVABILITY] = values.to_numpy()
+            per_method = self._score_weighted_mean_by_task(tmp, value_col=IMPROVABILITY, sort_asc=True)
+            return float(per_method.get(method_1, float("nan")))
+
+        return MetricSpec(
+            name=IMPROVABILITY,
+            direction="min",
+            alignment="row",
+            compute=compute,
+            score=score,
+        )
+
+    def metric_spec_elo(self, **elo_kwargs) -> MetricSpec:
+        """
+        Higher is better. Score = Elo value for method_1 computed on the subset.
+        """
+        calibration_framework = elo_kwargs.get("calibration_framework", None)
+        required = frozenset([calibration_framework]) if calibration_framework else frozenset()
+
+        def compute(self: "TabArena", df: pd.DataFrame) -> pd.Series:
+            bars = self.compute_elo(
+                results_per_task=df,
+                include_quantiles=False,
+                round_decimals=None,
+                **elo_kwargs,
+            )
+            # method-aligned Series
+            return bars["elo"]
+
+        def score(self: "TabArena", df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+            return float(values.get(method_1, float("nan")))
+
+        return MetricSpec(
+            name="elo",
+            direction="max",
+            alignment="method",
+            compute=compute,
+            score=score,
+            required_methods=required,
+            invalid_subset_policy="raise",
+        )
+
+    def _metric_subset_ok(self, metric: MetricSpec, df: pd.DataFrame) -> bool:
+        """Return True if df satisfies metric.required_methods; otherwise obey policy."""
+        if not metric.required_methods:
+            return True
+        present = set(df[self.method_col].dropna().astype(str).unique())
+        missing = set(metric.required_methods) - present
+        if not missing:
+            return True
+        if metric.invalid_subset_policy == "raise":
+            raise ValueError(
+                f"Metric {metric.name!r} requires methods {sorted(metric.required_methods)}, "
+                f"but subset is missing {sorted(missing)}."
+            )
+        if metric.invalid_subset_policy == "nan":
+            return False
+        # "skip"
+        return False
 
 
 def get_bootstrap_result_lst(data: list, func_, rng=None, num_round: int = None, func_kwargs=None, seed: int = 0):
