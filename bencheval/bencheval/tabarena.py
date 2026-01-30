@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import os
+from collections.abc import Iterable
 from pathlib import Path
 
 import numpy as np
@@ -419,6 +420,12 @@ class TabArena:
         data = data.reset_index(drop=False)
 
         return data
+
+    def get_task_groupby_cols(self, include_seed_col: bool = False):
+        task_groupby_cols = self.task_groupby_columns
+        if include_seed_col and self.seed_column is not None:
+            task_groupby_cols = task_groupby_cols + [self.seed_column]
+        return task_groupby_cols
 
     def compute_results_per_task(self, data: pd.DataFrame, include_seed_col: bool = False) -> pd.DataFrame:
         groupby_cols = self.groupby_columns
@@ -995,6 +1002,175 @@ class TabArena:
         column_mean = data.groupby(self.method_col)["_weighted_column"].sum()
         column_mean.index.name = agg_column
         return column_mean
+
+    @staticmethod
+    def _mean_improvability(
+            df_imp: pd.DataFrame,
+            *,
+            method_1: str,
+            method_col: str,
+            improv_col: str,
+    ) -> float:
+        return df_imp.loc[df_imp[method_col] == method_1, improv_col].mean()
+
+    def mean_improvability_if_remove_method(
+            self,
+            results_per_task: pd.DataFrame,
+            *,
+            method_1: str,
+            method_2: str,
+            improv_col: str = "improvability",
+    ) -> float:
+        """
+        Return the mean improvability for `method_1` after removing `method_2`
+        and recomputing improvability on the subset.
+
+        NOTE: This returns the mean (your current logic), NOT a delta.
+        """
+        method_col = self.method_col
+        task_groupby_cols = self.get_task_groupby_cols(include_seed_col=False)
+
+        # Baseline mean from the provided df (assumes improvability already exists there)
+        baseline_mean = results_per_task.loc[results_per_task[method_col] == method_1, improv_col].mean()
+
+        # If we remove method_1 itself, your current logic returns baseline_mean
+        if method_1 == method_2:
+            return float(baseline_mean)
+
+        subset = results_per_task.loc[results_per_task[method_col] != method_2].copy()
+        subset[improv_col] = self.compute_improvability_per(subset, task_groupby_cols)
+
+        new_mean = self._mean_improvability(
+            subset, method_1=method_1, method_col=method_col, improv_col=improv_col
+        )
+        return float(new_mean)
+
+    def mean_improvability_series_if_remove_each_method(
+            self,
+            results_per_task: pd.DataFrame,
+            *,
+            method_1: str,
+            improv_col: str = "improvability",
+    ) -> pd.Series:
+        """
+        For a fixed `method_1`, loop over all methods as `method_2` and return a Series
+        indexed by method_2 with values = mean improvability of method_1 after removing method_2.
+        """
+        method_col = self.method_col
+        methods = (
+            results_per_task[method_col]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+
+        means: dict[str, float] = {}
+        for method_2 in methods:
+            means[method_2] = self.mean_improvability_if_remove_method(
+                results_per_task,
+                method_1=method_1,
+                method_2=method_2,
+                improv_col=improv_col,
+            )
+
+        return pd.Series(means, name=f"mean_{improv_col}_for_{method_1}_if_remove_method").sort_values()
+
+    def greedy_remove_methods_minimize_mean_improvability(
+            self,
+            results_per_task: pd.DataFrame,
+            *,
+            method_1: str,
+            improv_col: str = "improvability",
+            stop_at_mean_leq: float = 0.0,
+    ) -> pd.Series:
+        """
+        Greedily remove the method_2 that yields the *lowest* mean improvability for method_1
+        at the current iteration (i.e., best improvement), recomputing improvability each step.
+
+        Returns:
+            pd.Series indexed by removed method_2 in removal order,
+            values = resulting mean improvability for method_1 at that iteration.
+            (This matches your current "return mean" behavior, not delta.)
+        """
+        method_col = self.method_col
+        task_groupby_cols = self.get_task_groupby_cols(include_seed_col=False)
+
+        current = results_per_task
+        removed_in_order: dict[str, float] = {}
+
+        while True:
+            current = current.copy()
+            current[improv_col] = self.compute_improvability_per(current, task_groupby_cols)
+
+            cur_mean = self._mean_improvability(
+                current, method_1=method_1, method_col=method_col, improv_col=improv_col
+            )
+
+            # Stop if method_1 absent or already <= threshold
+            if pd.isna(cur_mean) or cur_mean <= stop_at_mean_leq:
+                break
+
+            remaining_methods = current[method_col].dropna().astype(str).unique().tolist()
+            candidates = [m for m in remaining_methods if m != method_1]
+            if not candidates:
+                break
+
+            means_after_remove: dict[str, float] = {}
+            for method_2 in candidates:
+                subset = current.loc[current[method_col] != method_2].copy()
+                subset[improv_col] = self.compute_improvability_per(subset, task_groupby_cols)
+                new_mean = self._mean_improvability(
+                    subset, method_1=method_1, method_col=method_col, improv_col=improv_col
+                )
+                means_after_remove[method_2] = float(new_mean)
+
+            means_s = pd.Series(means_after_remove)
+
+            # Choose the removal that minimizes the resulting mean improvability
+            best_method_2 = means_s.idxmin()
+            best_mean = float(means_s.loc[best_method_2])
+
+            removed_in_order[best_method_2] = best_mean
+
+            current = current.loc[current[method_col] != best_method_2]
+
+        return pd.Series(removed_in_order, name=f"mean_{improv_col}_iter_for_{method_1}")
+
+    def greedy_mean_matrix(
+            self,
+            results_per_task: pd.DataFrame,
+            *,
+            improv_col: str = "improvability",
+            stop_at_mean_leq: float = 0.0,
+            methods_1: Iterable[str] | None = None,
+    ) -> pd.DataFrame:
+        """
+        Build a DataFrame:
+          rows = method_2 (the removed method)
+          cols = method_1
+          cell = resulting mean improvability for method_1 at the iteration when that method_2 was removed
+                 in the greedy process for that method_1.
+
+        If a method_2 was never removed for a given method_1 (stopped early), the cell is NaN.
+        """
+        method_col = self.method_col
+
+        if methods_1 is None:
+            methods_1 = (
+                results_per_task[method_col].dropna().astype(str).unique().tolist()
+            )
+
+        col_series: dict[str, pd.Series] = {}
+        for method_1 in methods_1:
+            col_series[method_1] = self.greedy_remove_methods_minimize_mean_improvability(
+                results_per_task,
+                method_1=method_1,
+                improv_col=improv_col,
+                stop_at_mean_leq=stop_at_mean_leq,
+            )
+
+        return pd.DataFrame(col_series)
 
 
 def get_bootstrap_result_lst(data: list, func_, rng=None, num_round: int = None, func_kwargs=None, seed: int = 0):
