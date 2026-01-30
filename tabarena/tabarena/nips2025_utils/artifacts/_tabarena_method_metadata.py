@@ -37,12 +37,12 @@ from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_12_18 impo
 
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_misc import (
     gbm_aio_0808_metadata,
-    # prep_gbm_v6_metadata,
+    prep_gbm_v6_metadata,
 )
 
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_02_16 import tabiclv2_metadata
 
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_01_23_tabprep import tabprep_gbm_metadata, tabprep_lr_metadata
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_01_23_tabprep import tabprep_gbm_metadata, tabprep_lr_metadata, tabprep_realtabpfnv250_metadata
 
 methods_2025_09_03: list[MethodMetadata] = [
     ag_140_metadata,
@@ -82,12 +82,13 @@ methods_2025_12_18: list[MethodMetadata] = [
 
 methods_misc: list[MethodMetadata] = [
     gbm_aio_0808_metadata,
-    # prep_gbm_v6_metadata,
+    prep_gbm_v6_metadata,
 ]
 
 methods_tabprep = [
     tabprep_gbm_metadata,
     tabprep_lr_metadata,
+    tabprep_realtabpfnv250_metadata,
 ]
 
 replaced_methods = [
