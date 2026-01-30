@@ -146,8 +146,6 @@ class PaperRunTabArena(PaperRun):
         if tune:
             df_results_hpo = self.run_hpo_by_family(
                 model_types=[model_type],
-                include_uncapped=True,
-                include_4h=False,
             )
         else:
             df_results_hpo = None
