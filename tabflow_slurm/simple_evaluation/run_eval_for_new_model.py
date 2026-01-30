@@ -44,7 +44,7 @@ def run_eval_for_new_models(
     # Import here such that env var above is used correctly
     from tabarena.nips2025_utils.end_to_end import EndToEndResults
     from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
-    from bencheval.website_format import format_leaderboard
+    from tabarena.website.website_format import format_leaderboard
 
     for model in models:
         if not model.only_load_cache:

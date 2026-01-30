@@ -4,6 +4,7 @@ from functools import partial
 
 import pandas as pd
 
+from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
 
 class Constants:
     col_name: str = "method_type"
@@ -23,6 +24,51 @@ model_type_emoji = {
     Constants.other: "❓",
     Constants.reference: "📊",
 }
+
+
+def strict_merge(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    *,
+    on: str | list[str],
+    how: str = "left",
+    validate: str | None = None,
+) -> pd.DataFrame:
+    """
+    Merge two DataFrames, but if they share non-key columns, require that the
+    shared columns have identical values (for matching keys) and raise if not.
+    Prevents creating _x/_y columns by dropping shared columns from `right`
+    after the check.
+    """
+    keys = [on] if isinstance(on, str) else list(on)
+
+    # shared non-key columns
+    shared = set(left.columns) & set(right.columns) - set(keys)
+
+    if shared:
+        # compare only on key+shared; drop duplicates on keys to avoid explode
+        lhs = left[keys + sorted(shared)].drop_duplicates(keys)
+        rhs = right[keys + sorted(shared)].drop_duplicates(keys)
+
+        chk = lhs.merge(rhs, on=keys, how="inner", suffixes=("_l", "_r"))
+
+        bad = []
+        for c in shared:
+            lcol, rcol = f"{c}_l", f"{c}_r"
+            # treat NaN as equal
+            eq = chk[lcol].eq(chk[rcol]) | (chk[lcol].isna() & chk[rcol].isna())
+            if not bool(eq.all()):
+                bad.append(c)
+
+        if bad:
+            raise ValueError(f"Mismatched shared columns for on={keys}: {sorted(bad)}")
+
+    return left.merge(
+        right.drop(columns=sorted(shared)) if shared else right,
+        on=keys,
+        how=how,
+        validate=validate,
+    )
 
 
 def get_model_family(model_name: str) -> str:
@@ -60,8 +106,8 @@ def get_model_family(model_name: str) -> str:
     return Constants.other
 
 
-def rename_map(model_name: str) -> str:
-    rename_map = {
+def get_rename_map() -> dict[str, str]:
+    _rename_map = {
         "TABM": "TabM",
         "REALMLP": "RealMLP",
         "GBM": "LightGBM",
@@ -86,7 +132,10 @@ def rename_map(model_name: str) -> str:
         "REALTABPFN-V2.5": "RealTabPFN-v2.5",
         "SAP-RPT-OSS": "SAP-RPT-OSS",
     }
+    return _rename_map
 
+
+def rename_method(model_name: str, rename_map: dict[str, str]) -> str:
     # Sort keys by descending length so longest prefixes are matched first
     for prefix in sorted(rename_map, key=len, reverse=True):
         if model_name.startswith(prefix):
@@ -98,37 +147,80 @@ def rename_map(model_name: str) -> str:
 
 
 def add_metadata(row, metadata_df: pd.DataFrame):
-    model_name = row["method"]
-    if ", 4h)" in model_name:
-        metadata_key_from_model_name = model_name
-        is_reference_model = True
+    method = row["method"]
+    if method not in metadata_df.index:
+        return pd.Series(
+            {
+                "Hardware": "Missing",
+                "Verified": "Missing",
+                "ReferenceURL": None,
+            }
+        )
+    metadata = metadata_df.loc[method]
+    config_type = metadata["config_type"]
+
+    model_family = get_model_family(config_type if not pd.isna(config_type) else method)
+
+    # Add Model Family Information
+    out_dict = {
+        "Type": model_type_emoji[model_family],
+        "TypeName": model_family,
+    }
+
+    display_name = MethodMetadata.compute_method_name(
+        method=method,
+        method_type=metadata["method_type"],
+        method_subtype=metadata["method_subtype"],
+        config_type=metadata["config_type"],
+        display_name=metadata["display_name"],
+    )
+
+    if metadata.get("reference_url", None) is not None:
+        display_name = add_url(display_name, metadata["reference_url"])
+
+    if pd.isna(metadata["verified"]):
+        verified = "Unknown"
     else:
-        metadata_key_from_model_name = model_name.split(" (")[0]
-        is_reference_model = False
-
-    try:
-        metadata = metadata_df[
-            metadata_df["name" if is_reference_model else "model_key"]
-            == metadata_key_from_model_name
-        ]
-        assert len(metadata) == 1
-    except AssertionError:
-        metadata_key_from_model_name = metadata_key_from_model_name.replace("_GPU", "")
-        metadata = metadata_df[
-            metadata_df["name" if is_reference_model else "model_key"]
-            == metadata_key_from_model_name
-        ]
-        assert len(metadata) == 1
-
-    metadata = metadata.iloc[0]
+        verified = "✔️" if metadata["verified"] else "➖"
+    if pd.isna(metadata["compute"]):
+        hardware = "Unknown"
+    else:
+        hardware = metadata["compute"].upper()
 
     return pd.Series(
         {
-            "Hardware": metadata["compute"].upper(),
-            "Verified": metadata["verified"],
-            "ReferenceURL": metadata["reference_url"],
+            "method": display_name,
+            "Hardware": hardware,
+            "Verified": verified,
+            **out_dict,
         }
     )
+
+
+def add_url(method: str, url: str | None) -> str:
+    if pd.isna(url) or not url:
+        return method
+    return "[" + method + "](" + url + ")"
+
+
+def legacy_formatting(df_leaderboard: pd.DataFrame) -> pd.DataFrame:
+    df_leaderboard = df_leaderboard.copy(deep=True)
+    df_leaderboard["Hardware"] = "Unknown"
+    df_leaderboard["Verified"] = "Unknown"
+
+    # Add Model Family Information
+    df_leaderboard["Type"] = df_leaderboard.loc[:, "method"].apply(
+        lambda s: model_type_emoji[get_model_family(s)]
+    )
+    df_leaderboard["TypeName"] = df_leaderboard.loc[:, "method"].apply(
+        lambda s: get_model_family(s)
+    )
+
+    _rename_map = get_rename_map()
+    df_leaderboard["method"] = df_leaderboard["method"].apply(
+        lambda method: rename_method(model_name=method, rename_map=_rename_map)
+    )
+    return df_leaderboard
 
 
 def format_leaderboard(
@@ -141,23 +233,15 @@ def format_leaderboard(
 
     # Add metadata
     if method_metadata_info is None:
-        df_leaderboard["Hardware"] = "Unknown"
-        df_leaderboard["Verified"] = "Unknown"
+        df_leaderboard = legacy_formatting(df_leaderboard=df_leaderboard)
     else:
-        df_leaderboard[["Hardware", "Verified", "ReferenceURL"]] = df_leaderboard.apply(
-            partial(add_metadata, metadata_df=method_metadata_info),
+        method_info_map = strict_merge(df_leaderboard, method_metadata_info.drop(columns=["method_type"]), on=["ta_name", "ta_suite"])
+        method_info_map = method_info_map.set_index("method")
+        df_leaderboard[["method", "Hardware", "Verified", "Type", "TypeName"]] = df_leaderboard.apply(
+            partial(add_metadata, metadata_df=method_info_map),
             result_type="expand",
             axis=1,
         )
-
-    # Add Model Family Information
-    df_leaderboard["Type"] = df_leaderboard.loc[:, "method"].apply(
-        lambda s: model_type_emoji[get_model_family(s)]
-    )
-    df_leaderboard["TypeName"] = df_leaderboard.loc[:, "method"].apply(
-        lambda s: get_model_family(s)
-    )
-    df_leaderboard["method"] = df_leaderboard["method"].apply(rename_map)
 
     # elo,elo+,elo-,mrr
     df_leaderboard["Elo 95% CI"] = (
@@ -191,16 +275,6 @@ def format_leaderboard(
     df_leaderboard["method"] = df_leaderboard["method"].str.replace(
         "(tuned + ensemble)", "(tuned + ensembled)"
     )
-
-    if method_metadata_info is not None:
-        gpu_postfix = "_GPU"
-        df_leaderboard["method"] = df_leaderboard["method"].str.replace(gpu_postfix, "")
-        df_leaderboard["method"] = (
-            "[" + df_leaderboard["method"] + "](" + df_leaderboard["ReferenceURL"] + ")"
-        )
-        df_leaderboard["Verified"] = df_leaderboard["Verified"].apply(
-            lambda v: "✔️" if v else "➖"
-        )
 
     df_leaderboard = df_leaderboard.loc[
         :,
