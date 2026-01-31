@@ -40,7 +40,7 @@ def _skip_because_same_size(local_path: Path, size: int) -> bool:
 
 def copy_s3_prefix_to_local(
     bucket: str,
-    prefix: str,
+    prefix: str | Path,
     dest_dir: str | Path,
     *,
     exclude: Sequence[str] = (),

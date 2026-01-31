@@ -3,6 +3,7 @@ from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
 realtabpfn25_metadata = MethodMetadata(
     method="RealTabPFN-v2.5",
     method_type="config",
+    display_name="RealTabPFN-2.5",
     compute="gpu",
     date="2025-11-12",
     ag_key="REALTABPFN-V2.5",
@@ -25,6 +26,7 @@ realtabpfn25_metadata = MethodMetadata(
 contexttab_metadata = MethodMetadata(
     method="SAP-RPT-OSS",
     method_type="config",
+    display_name="SAP-RPT-OSS",
     compute="gpu",
     date="2025-11-25",
     ag_key="SAP-RPT-OSS",

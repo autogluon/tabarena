@@ -44,11 +44,16 @@ WORKDIR /workspace
 ENV PATH="/root/.local/bin:${PATH}"
 ENV UV_SYSTEM_PYTHON=1
 
+ARG AUTOGLUON_GITHUB_USER=autogluon
+ARG AUTOGLUON_GIT_BRANCH=master
+ENV AUTOGLUON_GIT_CLONE_PATH="https://github.com/${AUTOGLUON_GITHUB_USER}/autogluon"
+
 # Comment out to instead install the latest official release via pip.
 # Install uv + AutoGluon
 RUN set -ex && \
     curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    git clone --depth 1 https://github.com/autogluon/autogluon && \
+    git clone --branch "${AUTOGLUON_GIT_BRANCH}" --depth 1 \
+        ${AUTOGLUON_GIT_CLONE_PATH} && \
     ./autogluon/full_install.sh
 
 # Copy local TabArena source
@@ -69,10 +74,14 @@ RUN set -ex && \
 RUN rm -rf /root/.cache/pip
 
 # Saves 2 GB
-RUN rm -rf /opt/nvidia
+# RUN rm -rf /opt/nvidia
 
 # GPU images can come pre-installed with flash-attn, uncomment this to ensure it isn't installed
 # RUN pip uninstall flash-attn -y
+
+# Download TabDPT weights
+# RUN chmod +x ./tabarena/scripts/run_download_tabdpt_weights.py
+# RUN python ./tabarena/scripts/run_download_tabdpt_weights.py
 
 # Generate tabarena configs and give permissions
 # RUN chmod +x ./tabarena/scripts/run_generate_all_configs.py

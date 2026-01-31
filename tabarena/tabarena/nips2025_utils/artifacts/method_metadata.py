@@ -35,6 +35,7 @@ class MethodMetadata:
         artifact_name: str = None,
         date: str | None = None,
         method_type: Literal["config", "baseline", "portfolio"] = "config",
+        display_name: str | None = None,
         name: str | None = None,
         name_suffix: str | None = None,
         ag_key: str | None = None,
@@ -79,6 +80,7 @@ class MethodMetadata:
         self.s3_bucket = s3_bucket
         self.s3_prefix = s3_prefix
         self.upload_as_public = upload_as_public
+        self.reference_url = reference_url
 
         assert isinstance(self.method, str) and len(self.method) > 0
         assert isinstance(self.artifact_name, str) and len(self.artifact_name) > 0
@@ -88,7 +90,21 @@ class MethodMetadata:
             raise AssertionError(f"Cannot specify `name` for method_type: 'config'.")
         if self.name is not None and self.name_suffix is not None:
             raise AssertionError(f"Must only specify one of `name` and `name_suffix`.")
-        self.reference_url = reference_url
+
+        if display_name is None:
+            display_name = self._compute_display_name()
+        self.display_name = display_name
+
+        assert isinstance(self.display_name, str) and len(self.display_name) > 0
+
+    def _compute_display_name(self) -> str:
+        if self.name is not None:
+            display_name = self.name
+        elif self.config_type is not None:
+            display_name = self.config_type
+        else:
+            display_name = self.method
+        return display_name
 
     @property
     def config_type(self) -> str | None:
@@ -811,6 +827,16 @@ class MethodMetadata:
         path = self.path_raw
         for result in results_lst:
             result.to_dir(path=path)
+
+    def load_end_to_end_results(self):
+        model_results = self.load_model_results()
+        hpo_results = self.load_hpo_results()
+        from tabarena.nips2025_utils.end_to_end_single import EndToEndResultsSingle
+        return EndToEndResultsSingle(
+            method_metadata=self,
+            model_results=model_results,
+            hpo_results=hpo_results,
+        )
 
     def cache_processed(self, repo: EvaluationRepository):
         repo.to_dir(self.path_processed)

@@ -20,6 +20,7 @@ if __name__ == '__main__':
     ]
 
     df_results = pd.concat(results_dfs, ignore_index=True)
+    df_results["tid"] = df_results["id"].str.split("/").str[-1].astype(float)
 
     df_results = df_results[~df_results["result"].isnull()]
     df_results["fold"] = df_results["fold"].astype(int)

@@ -14,6 +14,7 @@ def _get_n_repeats(n_instances: int, tabarena_lite: bool = False) -> int:
     Parameters
     ----------
     n_instances: int
+        Important: these are the number of training samples!
 
     Returns
     -------

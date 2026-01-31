@@ -7,6 +7,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
+from bencheval.website_format import format_leaderboard
 from tabarena.benchmark.result import BaselineResult
 from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
@@ -117,6 +118,7 @@ class TabArenaContext:
         remove_imputed: bool = False,
         tmp_treat_tasks_independently: bool = False,
         leaderboard_kwargs: dict | None = None,
+        **kwargs,
     ) -> pd.DataFrame:
         from tabarena.nips2025_utils.compare import compare_on_tabarena
         return compare_on_tabarena(
@@ -132,6 +134,7 @@ class TabArenaContext:
             remove_imputed=remove_imputed,
             tmp_treat_tasks_independently=tmp_treat_tasks_independently,
             leaderboard_kwargs=leaderboard_kwargs,
+            **kwargs,
         )
 
     @property
@@ -201,16 +204,94 @@ class TabArenaContext:
         repo.to_dir(path_processed)
         return path_processed
 
+    def combine_hpo(
+        self,
+        methods: list[str],
+        new_config_type: str,
+        ta_name: str,
+        ta_suite: str,
+        method_default: str | None = None,
+        repo: EvaluationRepository | None = None,
+    ) -> pd.DataFrame:
+        """
+        Perform HPO across multiple methods
+
+        Returns default, tuned, and tuned + ensembled results.
+        """
+        if method_default is None:
+            method_default = methods[0]
+        if repo is None:
+            repo = self.load_repo(methods=methods)
+
+        config_type_default = self.method_metadata(method_default).config_type
+        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+        config_default = simulator._config_default(config_type=config_type_default, use_first_if_missing=True)
+        if config_default is not None:
+            default = simulator.run_config_default(model_type=config_type_default)
+            default = default.rename(columns={"framework": "method"})
+            default["ta_name"] = ta_name
+            default["ta_suite"] = ta_suite
+            default["config_type"] = new_config_type
+            default["method"] = f"{new_config_type} (default)"
+        else:
+            default = None
+
+        tuned = self.run_hpo(
+            method=methods,
+            repo=repo,
+            n_iterations=1,
+        )
+
+        tuned_ens = self.run_hpo(
+            method=methods,
+            repo=repo,
+            n_iterations=40,
+        )
+
+        tuned["ta_name"] = ta_name
+        tuned["ta_suite"] = ta_suite
+        tuned["config_type"] = new_config_type
+        tuned["method"] = f"{new_config_type} (tuned)"
+        tuned_ens["ta_name"] = ta_name
+        tuned_ens["ta_suite"] = ta_suite
+        tuned_ens["config_type"] = new_config_type
+        tuned_ens["method"] = f"{new_config_type} (tuned + ensemble)"
+
+        results_hpo_comb = pd.concat([
+            default,
+            tuned,
+            tuned_ens,
+        ], ignore_index=True)
+
+        return results_hpo_comb
+
     def run_hpo(
         self,
-        method: str,
-        repo: EvaluationRepository,
+        method: str | list[str],
+        repo: EvaluationRepository = None,
         n_iterations: int = 40,
         n_configs: int | None = None,
         time_limit: float | None = None,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
+        **kwargs,
     ) -> pd.DataFrame:
+        if not isinstance(method, list):
+            method = [method]
+        valid_methods = self.methods
+        if repo is None:
+            repo = self.load_repo(methods=method)
+        method_new = []
+        for m in method:
+            if m in valid_methods:
+                method_metadata = self.method_metadata(method=m)
+                config_type = method_metadata.config_type
+            else:
+                config_type = m
+            method_new.append(config_type)
+        method = method_new
+        if len(method) == 1:
+            method = method[0]
         simulator = PaperRunTabArena(repo=repo, backend=self.backend)
         df_results_family_hpo = simulator.run_ensemble_config_type(
             config_type=method,
@@ -219,11 +300,16 @@ class TabArenaContext:
             time_limit=time_limit,
             fit_order=fit_order,
             seed=seed,
+            **kwargs,
         )
         df_results_family_hpo = df_results_family_hpo.rename(columns={
             "framework": "method",
         })
-        df_results_family_hpo["method"] = f"HPO-N{n_configs}-{method}"
+        name = "HPO"
+        if n_configs is not None:
+            name += f"-N{n_configs}"
+        name += f"-{method}"
+        df_results_family_hpo["method"] = name
         return df_results_family_hpo
 
     # FIXME: WIP
@@ -335,16 +421,19 @@ class TabArenaContext:
         )
         return cur_result
 
-    def simulate_portfolio(self, methods: list[str], config_fallback: str, repo: EvaluationRepositoryCollection = None):
+    def simulate_portfolio(self, methods: list[str], config_fallback: str, repo: EvaluationRepositoryCollection = None, **kwargs):
         if repo is None:
             repo = self.load_repo(methods=methods, config_fallback=config_fallback)
         simulator = PaperRunTabArena(repo=repo, backend=self.backend)
 
         df_results_n_portfolio = []
-        n_portfolios = [200]
+        if "n_portfolios" not in kwargs:
+            n_portfolios = [200]
+        else:
+            n_portfolios = kwargs.pop("n_portfolios")
         for n_portfolio in n_portfolios:
             df_results_n_portfolio.append(
-                simulator.run_zs(n_portfolios=n_portfolio, n_ensemble=None, n_ensemble_in_name=False))
+                simulator.run_zs(n_portfolios=n_portfolio, n_ensemble=None, n_ensemble_in_name=False, **kwargs))
         results = pd.concat(df_results_n_portfolio, ignore_index=True)
         return results
 
@@ -529,6 +618,24 @@ class TabArenaContext:
         get_per_dataset_tables(
             df_results=df_results,
             save_path=Path(save_path),
+        )
+
+    def leaderboard_to_website_format(
+        self,
+        leaderboard: pd.DataFrame,
+        **kwargs,
+    ) -> pd.DataFrame:
+        method_metadata_info = self.method_metadata_collection.info()
+        method_metadata_info = method_metadata_info.rename(
+            columns={
+                "method": "ta_name",
+                "artifact_name": "ta_suite",
+            }
+        )
+        return format_leaderboard(
+            df_leaderboard=leaderboard,
+            method_metadata_info=method_metadata_info,
+            **kwargs,
         )
 
     def load_config_results_multi(

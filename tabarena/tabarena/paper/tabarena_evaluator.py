@@ -55,6 +55,7 @@ class TabArenaEvaluator:
         folds: list[int] | None = None,
         datasets: list[str] | None = None,
         problem_types: list[str] | None = None,
+        method_rename_map: dict[str, str] | None = None,
         banned_model_types: list[str] | None = None,
         banned_pareto_methods: list[str] | None = None,
         elo_bootstrap_rounds: int = 200,
@@ -85,6 +86,8 @@ class TabArenaEvaluator:
             task_metadata = load_task_metadata()
         if banned_pareto_methods is None:
             banned_pareto_methods = []
+        if method_rename_map is None:
+            method_rename_map = {}
         self.output_dir: Path = Path(output_dir)
         self.task_metadata = task_metadata
         self.method_col = method_col
@@ -92,6 +95,7 @@ class TabArenaEvaluator:
         self.config_types = config_types
         self.figure_file_type = figure_file_type
         self.banned_pareto_methods = banned_pareto_methods
+        self._method_rename_map = method_rename_map
 
         self.datasets = datasets
         self.problem_types = problem_types
@@ -229,6 +233,7 @@ class TabArenaEvaluator:
         tmp_treat_tasks_independently: bool = False,  # FIXME: Need to make a weighted elo logic
         leaderboard_kwargs: dict | None = None,
         plot_with_baselines: bool = False,
+        verbose: bool = True,
     ) -> pd.DataFrame:
         if leaderboard_kwargs is None:
             leaderboard_kwargs = {}
@@ -250,9 +255,7 @@ class TabArenaEvaluator:
             calibration_framework = _rename_dict.get(calibration_framework, calibration_framework)
 
         if imputed_names is None:
-            # TODO: This is a hack
-            from tabarena.nips2025_utils.compare import get_imputed_names
-            imputed_names = get_imputed_names(df_results=df_results, method_col=self.method_col)
+            imputed_names = self.get_imputed_names(df_results=df_results)
 
         self.assert_no_duplicates(df_results=df_results)
         self.assert_no_nan_methods(df_results=df_results)
@@ -405,10 +408,11 @@ class TabArenaEvaluator:
 
         n_tasks = len(df_results_rank_compare[[tabarena.task_col, tabarena.seed_column]].drop_duplicates())
 
-        print(
-            f"Evaluating with {len(df_results_rank_compare[tabarena.task_col].unique())} datasets... ({n_tasks} tasks)| problem_types={self.problem_types}, folds={self.folds}")
-        with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
-            print(leaderboard)
+        if verbose:
+            print(
+                f"Evaluating with {len(df_results_rank_compare[tabarena.task_col].unique())} datasets... ({n_tasks} tasks)| problem_types={self.problem_types}, folds={self.folds}")
+            with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
+                print(leaderboard)
 
         # horizontal elo barplot
         self.plot_tuning_impact(
@@ -825,7 +829,24 @@ class TabArenaEvaluator:
         )
 
     def get_method_rename_map(self) -> dict[str, str]:
-        return get_method_rename_map()  # FIXME: Avoid hardcoding
+        method_rename_map = get_method_rename_map()  # FIXME: Avoid hardcoding
+        method_rename_map.update(self._method_rename_map)
+        return method_rename_map
+
+    def get_imputed_names(self, df_results: pd.DataFrame) -> list[str]:
+        # Handle imputation of names
+        imputed_names = list(df_results[self.method_col][df_results["imputed"] > 0].unique())
+        if len(imputed_names) == 0:
+            return []
+
+        method_rename_map = self.get_method_rename_map()
+
+        # remove suffix
+        imputed_names = [n.split(" (")[0] for n in imputed_names]
+        imputed_names = [method_rename_map.get(n, n) for n in imputed_names]
+        imputed_names = list(set(imputed_names))
+        print(f"Model for which results were imputed: {imputed_names}")
+        return imputed_names
 
     def plot_portfolio_ensemble_weights_barplot(self, df_ensemble_weights: pd.DataFrame):
         import seaborn as sns
@@ -1034,12 +1055,10 @@ class TabArenaEvaluator:
 
         if imputed_names is None:
             imputed_names = []
-        # imputed_names = imputed_names or ['TabPFNv2', 'TabICL']
 
         df = df.copy(deep=True)
 
         framework_col = "framework_type"
-        # framework_col = "framework_name"
 
         groupby_columns_extra = ["dataset"]
 
@@ -1054,7 +1073,6 @@ class TabArenaEvaluator:
         elif use_score:
             lower_is_better = False
             df["normalized-score"] = 1 - df[metric]
-            # df_plot_w_mean_per_dataset["normalized-score"] = 1 - df_plot_w_mean_per_dataset["normalized-error"]
             metric = "normalized-score"
         else:
             metric = metric
@@ -1083,12 +1101,6 @@ class TabArenaEvaluator:
             df = df[df["tune_method"].isin(plot_tune_types) | df[self.method_col].isin(baselines)]
 
         df_plot = df[df["framework_type"].isin(framework_types)]
-        # df_plot = df_plot[~df_plot["framework_type"].isin(imputed_names)]
-
-        # pd.set_option('display.max_columns', None)  # todo
-        # print(f'{df_plot.head()=}')
-
-        # df_plot_w_mean_2 = df_plot.groupby(["framework_type", "tune_method"])[metric].mean().reset_index()
 
         df_plot_w_mean_per_dataset = df_plot.groupby(["framework_type", "tune_method", *groupby_columns_extra])[
             metric].mean().reset_index()
@@ -1117,27 +1129,8 @@ class TabArenaEvaluator:
         framework_type_order = list(df_plot_mean_dedupe["framework_type"].to_list())
         framework_type_order.reverse()
 
-        # change to names
-        # df_plot_w_mean_per_dataset["framework_type"] = df_plot_w_mean_per_dataset["framework_type"].map(f_map_type_name)
-
-        # sns.set_color_codes("pastel")
-        # with sns.plotting_context("notebook", font_scale=0.8, rc={
-        #     "pgf.texsystem": "pdflatex",
-        #     'font.family': 'serif',
-        #     'font.size': 10.95,
-        #     'text.usetex': True,
-        #     'pgf.rcfonts': False,
-        #     # 'legend.framealpha': 0.5,
-        #     'text.latex.preamble': r'\usepackage{times} \usepackage{amsmath} \usepackage{amsfonts} \usepackage{amssymb} \usepackage{xcolor}'
-        # }):
-
         with sns.axes_style("whitegrid"):
-            # with plt.rc_context({'font.family': 'serif', "text.usetex": True, 'font.size': 12, 'axes.labelsize': 12, 'xtick.labelsize': 12}):
-            with plt.rc_context(self.rc_context_params
-                                # | figsizes.neurips2024(height_to_width_ratio=0.8)
-                                ):
-            # with plt.rc_context(fontsizes.neurips2024() | fonts.neurips2024()):
-                # with plt.rc_context(figsizes.neurips2024(height_to_width_ratio=0.8)):
+            with plt.rc_context(self.rc_context_params):
                 colors = sns.color_palette("pastel").as_hex()
                 errcolors = sns.color_palette("deep").as_hex()
 
@@ -1159,7 +1152,6 @@ class TabArenaEvaluator:
                     # figsize = None
 
                 fig, ax = plt.subplots(1, 1, figsize=figsize)
-                # fig, ax = plt.subplots(1, 1)
 
                 if use_y:
                     baseline_func = ax.axvline
@@ -1179,7 +1171,6 @@ class TabArenaEvaluator:
                 to_plot = [
                     dict(
                         x=pos, y=y,
-                        # hue="tune_method",  # palette=["m", "g", "r],
                         label="Tuned + Ensembled",
                         data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "tuned_ensembled"],
                         ax=ax,
@@ -1189,7 +1180,6 @@ class TabArenaEvaluator:
                     ),
                     # dict(
                     #     x=x, y=y,
-                    #     # hue="tune_method",  # palette=["m", "g", "r],
                     #     label="Default (Holdout)",
                     #     data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "holdout"], ax=ax,
                     #     order=framework_type_order,
@@ -1199,7 +1189,6 @@ class TabArenaEvaluator:
                     # ),
                     # dict(
                     #     x=x, y=y,
-                    #     # hue="tune_method",  # palette=["m", "g", "r],
                     #     label="Tuned (Holdout)",
                     #     data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "holdout_tuned"], ax=ax,
                     #     order=framework_type_order,
@@ -1209,7 +1198,6 @@ class TabArenaEvaluator:
                     # ),
                     dict(
                         x=pos, y=y,
-                        # hue="tune_method",  # palette=["m", "g", "r],
                         label="Tuned",
                         data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "tuned"], ax=ax,
                         order=framework_type_order,
@@ -1219,7 +1207,6 @@ class TabArenaEvaluator:
                     ),
                     dict(
                         x=pos, y=y,
-                        # hue="tune_method",  # palette=["m", "g", "r],
                         label="Default",
                         data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "default"], ax=ax,
                         order=framework_type_order, color=colors[0],
@@ -1229,7 +1216,6 @@ class TabArenaEvaluator:
                     ),
                     dict(
                         x=pos, y=y,
-                        # hue="tune_method",  # palette=["m", "g", "r],
                         label="Tuned + Ensembled (Holdout)",
                         data=df_plot_w_mean_per_dataset[
                             df_plot_w_mean_per_dataset["tune_method"] == "holdout_tuned_ensembled"], ax=ax,
@@ -1241,7 +1227,6 @@ class TabArenaEvaluator:
                     ),
                     # dict(
                     #     x=x, y=y,
-                    #     # hue="tune_method",  # palette=["m", "g", "r],
                     #     label="Best",
                     #     data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "best"], ax=ax,
                     #     order=framework_type_order, color=colors[3],
@@ -1249,26 +1234,6 @@ class TabArenaEvaluator:
                     #     err_kws={"color": errcolors[3]},
                     #     alpha=1.0,
                     # ),
-                    # dict(
-                    #     x=x, y=y,
-                    #     # hue="tune_method",  # palette=["m", "g", "r],
-                    #     label="Tuned (4h)",
-                    #     data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "tuned_4h"], ax=ax,
-                    #     order=framework_type_order,
-                    #     color=colors[4],
-                    #     width=0.5, linewidth=linewidth,
-                    #     err_kws={"color": errcolors[4]},
-                    # ),
-                    # dict(
-                    #     x=x, y=y,
-                    #     # hue="tune_method",  # palette=["m", "g", "r],
-                    #     label="Tuned + Ensembled (4h)",
-                    #     data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "tuned_ensembled_4h"], ax=ax,
-                    #     order=framework_type_order, color=colors[5],
-                    #     width=0.4,
-                    #     err_kws={"color": errcolors[5]},
-                    # ),
-
                 ]
 
                 if use_score:
@@ -1282,8 +1247,6 @@ class TabArenaEvaluator:
                             plot_line["width"] = 0.6 * 1.3
                         else:
                             plot_line["width"] = width * 1.3
-                        # plot_line["color"] = color
-                        # plot_line["err_kws"] = err_kws
 
                 for plot_line in to_plot:
                     boxplot = sns.barplot(**plot_line)
@@ -1294,19 +1257,9 @@ class TabArenaEvaluator:
                     boxplot.set(xlabel=None, ylabel='Elo' if metric=='elo' else 'Normalized score')  # remove method in the x-axis
                 # boxplot.set_title("Effect of tuning and ensembling")
 
-                # # FIXME: (Nick) HACK, otherwise it isn't in the plot, don't know why
-                # if use_elo:
-                #     if baseline_means and "Portfolio-N200 (ensemble) (4h)" in baselines:
-                #         max_baseline_mean = max([v for k, v in baseline_means.items()])
-                #         if ylim is not None:
-                #             ylim[1] = max_baseline_mean + 50
-                #         if xlim is not None:
-                #             xlim[1] = max_baseline_mean + 50
-
                 # do this before setting x/y limits
                 for baseline_idx, (baseline, color) in enumerate(zip(baselines, baseline_colors)):
                     baseline_mean = baseline_means[baseline]
-                    # baseline_func(baseline_mean, label=baseline, color=color, linewidth=2.0, ls="--")
                     baseline_func(baseline_mean, color=color, linewidth=2.0, ls="--", zorder=-10)
 
                     if baseline == 'Portfolio-N200 (ensemble) (4h)':
@@ -1392,25 +1345,10 @@ class TabArenaEvaluator:
                 else:
                     plt.xlim(-0.5, len(boxplot.get_xticklabels()) - 0.5)
 
-
-                # ax.legend(loc="upper center", ncol=5)
-                # these are not the final legend parameters, see below
                 ax.legend(loc="upper center", bbox_to_anchor=[0.5, 1.02])
 
                 # reordering the labels
                 handles, labels = ax.get_legend_handles_labels()
-
-                # this doesn't work, it also removes the hatch from the actual bars in the plot
-                # for handle in handles:
-                #     patches = []
-                #     if isinstance(handle, Patch):
-                #         patches = [handle]
-                #     elif isinstance(handle, BarContainer):
-                #         patches = handle.patches
-                #     for patch in patches:
-                #         # remove hatch from existing handles
-                #         # It can be present if one of the imputed methods is the best method, e.g., for multiclass
-                #         patch.set(hatch=None)
 
                 if has_imputed:
                     # Create a custom legend patch for "imputed"
@@ -1427,28 +1365,18 @@ class TabArenaEvaluator:
                     labels = [labels[i] for i in valid_idxs]
                     handles = [handles[i] for i in valid_idxs]
 
-                # specify order
-                # len_baselines = len(baselines)
-                # len_baselines = 0  # we don't put them in the legend anymore
-                # num_other = len(labels) - len_baselines
-                # order = [n + len_baselines for n in range(num_other)] + [n for n in range(len_baselines)]
-                # order = [3, 4, 5, 0, 1, 2]
                 order = list(range(len(labels)))
                 order = list(reversed(order))
-                # if len(order) == 3:
-                #     order = [2, 1, 0]
 
                 # pass handle & labels lists along with order as below
-                ax.legend([handles[i] for i in order], [labels[i] for i in order], loc="lower center",
-                          ncol=(len(labels)+1)//2 if has_imputed and use_y else len(labels),
-                          bbox_to_anchor=[0.35 if use_y else 0.5, 1.05])
+                ax.legend(
+                    [handles[i] for i in order],
+                    [labels[i] for i in order],
+                    loc="lower center",
+                    ncol=(len(labels)+1)//2 if has_imputed and use_y else len(labels),
+                    bbox_to_anchor=[0.35 if use_y else 0.5, 1.05],
+                )
 
-                # if use_y:
-                #     boxplot.margins(y=0.05)
-                # else:
-                #     boxplot.margins(x=0.05)
-
-                # ax.legend(bbox_to_anchor=[0.1, 0.5], loc='center left', ncol=5)
                 plt.tight_layout()
 
                 if save_prefix:

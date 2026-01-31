@@ -178,12 +178,12 @@ Link to NeurIPS'2025: [Conference Poster and Video](https://neurips.cc/virtual/2
 
 Bibtex entry:
 ```bibtex
-@article{erickson2025tabarena,
-  title={TabArena: A Living Benchmark for Machine Learning on Tabular Data}, 
-  author={Nick Erickson and Lennart Purucker and Andrej Tschalzev and David Holzmüller and Prateek Mutalik Desai and David Salinas and Frank Hutter},
-  year={2025},
-  journal={arXiv preprint arXiv:2506.16791},
-  url={https://arxiv.org/abs/2506.16791}, 
+@inproceedings{erickson2025tabarena,
+  title     = {TabArena: A Living Benchmark for Machine Learning on Tabular Data},
+  author    = {Erickson, Nick and Purucker, Lennart and Tschalzev, Andrej and Holzm{\"u}ller, David and Desai, Prateek Mutalik and Salinas, David and Hutter, Frank},
+  booktitle = {Proceedings of the 39th Conference on Neural Information Processing Systems (NeurIPS)},
+  year      = {2025},
+  url       = {https://arxiv.org/abs/2506.16791}
 }
 ```
 

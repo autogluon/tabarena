@@ -9,7 +9,7 @@ description = "Dataset of model evaluations supporting ensembling and simulation
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "AutoGluon Community" }]
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 
 # NOTE: To allow pre-release resolution of AutoGluon with uv, install with:
 #   uv pip install --prerelease=allow .
