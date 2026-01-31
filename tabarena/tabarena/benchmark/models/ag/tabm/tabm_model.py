@@ -79,13 +79,15 @@ class TabMModel(AbstractModel):
             )
 
         if X_val is None:
+            # FIXME: make this a general utility function in autogluon that also handles
+            #  ratio better! Or handle it before _fit based on `can_refit_full`
             from autogluon.core.utils import generate_train_test_split
 
             X, X_val, y, y_val = generate_train_test_split(
                 X=X,
                 y=y,
                 problem_type=self.problem_type,
-                test_size=0.2,
+                test_size=0.33,
                 random_state=0,
             )
 

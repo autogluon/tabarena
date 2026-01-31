@@ -176,6 +176,7 @@ def run_experiment(
         repetitions_mode="individual",
         repetitions_mode_args=[(fold, repeat)],
         cache_mode="ignore" if ignore_cache else "default",
+        failure_on_non_finite_metric_error=True,
     )[0]
     print("Metric error:", results_lst["metric_error"])
     return results_lst
