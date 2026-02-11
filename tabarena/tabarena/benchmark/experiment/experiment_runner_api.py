@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+import numpy as np
+
 from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
 from tabarena.benchmark.task.openml import OpenMLS3TaskWrapper, OpenMLTaskWrapper
 from tabarena.benchmark.task.user_task import UserTask
@@ -186,6 +188,7 @@ def run_experiments_new(
     s3_kwargs: dict | None = None,
     raise_on_failure: bool = True,
     debug_mode: bool = False,
+    failure_on_non_finite_metric_error: bool = False,
 ) -> list[dict]:
     """Run model experiments for a set of tasks.
 
@@ -303,6 +306,11 @@ def run_experiments_new(
             - If False, operates in a manner best suited for large-scale benchmarking.
                 This mode tries to record information when method's fail and might not
                 work well with local debuggers.
+    failure_on_non_finite_metric_error: bool, default False
+        If True, we count a non-finite final metric error as a failure and delete
+        the cache file produced for the run. This is useful to ensure that such
+        errors resulting from models running into overflows are not ignored silently.
+        Moreover, if `raise_on_failure` is also True, the exception will be raised.
 
     Returns:
     -------
@@ -457,6 +465,22 @@ def run_experiments_new(
                             raise
                         print(exc.__class__)
                         out = None
+
+                # Safety check for results with non-finite metric errors
+                if (out is not None) and (
+                        not (np.isfinite(out["metric_error"]) and np.isfinite(out["metric_error_val"]))
+                ):
+                    print(
+                        "Non-finite final metric error detected: "
+                        f"\ttest={out['metric_error']}, val={out['metric_error_val']}. "
+                    )
+                    if failure_on_non_finite_metric_error:
+                        print("\tDeleting cache file and counting as failure.")
+                        # TODO: fix for s3
+                        cacher.delete_cache()
+                        out = None
+                        if raise_on_failure:
+                            raise RuntimeError("Non-finite metric error detected.")
 
                 if out is not None:
                     experiment_success_count += 1
