@@ -7,6 +7,53 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="scipy")
 
 
+NA_STR = "NA"  # change to whatever you want
+
+def _max_dot_pos(s: pd.Series) -> int:
+    """
+    Return max position of '.' in stringified values.
+    Non-finite values are ignored (so they don't dominate the decision).
+    """
+    s_num = pd.to_numeric(s, errors="coerce")  # non-numeric -> NaN
+    finite = np.isfinite(s_num.to_numpy(dtype="float64", na_value=np.nan))
+    if not finite.any():
+        return 0
+    return (
+        s_num[finite]
+        .astype(str)
+        .str.find(".")
+        .max()
+    )
+
+
+def _format_fixed(s: pd.Series, decimals: int) -> pd.Series:
+    """Fixed-point formatting with NaN/inf -> NA_STR."""
+    s_num = pd.to_numeric(s, errors="coerce")
+    finite = np.isfinite(s_num.to_numpy(dtype="float64", na_value=np.nan))
+    out = pd.Series(NA_STR, index=s.index, dtype="object")
+    out.loc[finite] = s_num.loc[finite].round(decimals).map(lambda v: format(v, f".{decimals}f"))
+    return out
+
+
+def _format_scaled_int_str(s: pd.Series, scale: float, decimals_after: int = 0) -> pd.Series:
+    """
+    Scale, round to integer, then string.
+    NaN/inf -> NA_STR.
+    """
+    s_num = pd.to_numeric(s, errors="coerce")
+    finite = np.isfinite(s_num.to_numpy(dtype="float64", na_value=np.nan))
+    out = pd.Series(NA_STR, index=s.index, dtype="object")
+    if finite.any():
+        vals = (s_num.loc[finite] / scale).round(0).astype("Int64")  # nullable int
+        # If you truly want "int-looking" strings, use .astype(str) here.
+        # Your original code sometimes did format(..., '.1f'), which adds .0.
+        if decimals_after == 0:
+            out.loc[finite] = vals.astype(str)
+        else:
+            out.loc[finite] = vals.map(lambda v: format(float(v), f".{decimals_after}f"))
+    return out
+
+
 def get_significance_dataset(df_use, method="wilcoxon", alpha=0.05, verbose=False, direction="max"):
     ### Get accuracy p-values
     p_values = {}
@@ -127,7 +174,7 @@ def get_significance(best_results, curr_model_results, method="wilcoxon", alpha=
     return p_value
  
 def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
-
+    save_path = Path(save_path)
 
     # df_results["method"] = df_results["method"].map({
     #         "AutoGluon_v130_bq_4h8c": "AutoGluon 1.3 (4h)",
@@ -223,34 +270,25 @@ def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
         df_mean = df_mean["metric_error"]
         df_std = df_std["metric_error"]
 
-        if df_mean.apply(lambda x: str(x).find('.')).max()==1:
-            df_std = df_std.round(3)
-            df_mean = df_mean.round(3)
-            df_mean = df_mean.apply(lambda x: format(x, '.3f'))
-            df_std = df_std.apply(lambda x: format(x, '.3f'))
-        elif df_mean.apply(lambda x: str(x).find('.')).max()==2:
-            df_std = df_std.round(2)
-            df_mean = df_mean.round(2)
-            df_mean = df_mean.apply(lambda x: format(x, '.2f'))
-            df_std = df_std.apply(lambda x: format(x, '.2f'))
-        elif df_mean.apply(lambda x: str(x).find('.')).max()==3:
-            df_std = df_std.round(1)
-            df_mean = df_mean.round(1)
-            df_mean = df_mean.apply(lambda x: format(x, '.1f'))
-            df_std = df_std.apply(lambda x: format(x, '.1f'))
-        elif df_mean.apply(lambda x: str(x).find('.')).max()==4:
-            df_std = df_std.round(1)
-            df_mean = df_mean.round(1)
-            df_mean = df_mean.apply(lambda x: format(x, '.1f'))
-            df_std = df_std.apply(lambda x: format(x, '.1f'))
-        elif df_mean.apply(lambda x: str(x).find('.')).max()==5:
-            df_std = df_std.round(0).astype(int)#.astype(str)
-            df_mean = df_mean.round(0).astype(int)#.astype(str)
-            df_mean = df_mean.apply(lambda x: format(x, '.1f'))
-            df_std = df_std.apply(lambda x: format(x, '.1f'))
-        elif df_mean.apply(lambda x: str(x).find('.')).max()==6:
-            df_std = (df_std/10).round(0).astype(int).astype(str)
-            df_mean = (df_mean/10).round(0).astype(int).astype(str)
+        dot_pos = _max_dot_pos(df_mean)
+
+        if dot_pos == 1:
+            df_mean = _format_fixed(df_mean, 3)
+            df_std = _format_fixed(df_std, 3)
+        elif dot_pos == 2:
+            df_mean = _format_fixed(df_mean, 2)
+            df_std = _format_fixed(df_std, 2)
+        elif dot_pos in (3, 4):
+            df_mean = _format_fixed(df_mean, 1)
+            df_std = _format_fixed(df_std, 1)
+        elif dot_pos == 5:
+            # your original: round(0)->int then format(...'.1f') which yields "12.0"
+            df_mean = _format_scaled_int_str(df_mean, scale=1, decimals_after=1)
+            df_std = _format_scaled_int_str(df_std, scale=1, decimals_after=1)
+        elif dot_pos == 6:
+            # your original: (x/10)->round(0)->int->str
+            df_mean = _format_scaled_int_str(df_mean, scale=10, decimals_after=0)
+            df_std = _format_scaled_int_str(df_std, scale=10, decimals_after=0)
 
         df_mean = df_mean.to_frame()
         df_std = df_std.to_frame()
@@ -330,7 +368,7 @@ def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
         df_latex_final.index.name = None
         datasets_dict[dataset_name.replace("_", r"\_")] = df_latex_final.copy()
 
-    output_file = str(save_path / "per_dataset_tables.tex")
+    output_file = save_path / "per_dataset_tables.tex"
     per_col    = 2                  # 2 columns per row
     per_page   = 6                  # 3 rows × 2 columns = 6 subtables per figure
     sub_width  = 0.48               # width for each subtable (2 across)

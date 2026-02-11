@@ -201,6 +201,41 @@ class MethodMetadata:
         return _method_metadata
 
     @classmethod
+    def compute_method_name(
+        cls,
+        method: str,
+        method_type: str,
+        method_subtype: str | None,
+        config_type: str | None,
+        display_name: str | None,
+    ) -> str:
+        subtype_to_suffix_map = {
+            "default": " (default)",
+            "tuned": " (tuned)",
+            "tuned_ensemble": " (tuned + ensemble)",
+        }
+        valid_method_types = ["config", "baseline", "hpo"]
+        if method_type not in valid_method_types:
+            raise ValueError(f"Unknown {method_type=}. Valid values: {valid_method_types}")
+        if pd.isna(display_name):
+            if method_type == "baseline":
+                display_name = method
+            else:
+                assert isinstance(config_type, str)
+                display_name = config_type
+
+        name_suffix = None
+        if method_type in ["config", "hpo"]:
+            assert method_subtype in subtype_to_suffix_map.keys(), (
+                f"Unknown {method_subtype=}. "
+                f"Valid values: {list(subtype_to_suffix_map.keys())}"
+            )
+            name_suffix = subtype_to_suffix_map[method_subtype]
+        if name_suffix:
+            display_name = display_name + name_suffix
+        return display_name
+
+    @classmethod
     def _from_raw_config(
         cls,
         result_df: pd.DataFrame,

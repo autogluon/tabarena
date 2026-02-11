@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 
 import pandas as pd
-from bencheval.website_format import format_leaderboard
+from tabarena.website.website_format import format_leaderboard
 
 
 def process_one_folder(
