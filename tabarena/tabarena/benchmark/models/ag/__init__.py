@@ -3,6 +3,9 @@ from __future__ import annotations
 from tabarena.benchmark.models.ag.ebm.ebm_model import ExplainableBoostingMachineModel
 from tabarena.benchmark.models.ag.knn_new.knn_model import KNNNewModel
 from tabarena.benchmark.models.ag.modernnca.modernnca_model import ModernNCAModel
+from tabarena.benchmark.models.ag.perpetual.perpetual_model import (
+    PerpetualBoostingModel,
+)
 from tabarena.benchmark.models.ag.realmlp.realmlp_model import RealMLPModel
 from tabarena.benchmark.models.ag.sap_rpt_oss.sap_rpt_oss_model import SAPRPTOSSModel
 from tabarena.benchmark.models.ag.tabdpt.tabdpt_model import TabDPTModel
@@ -15,6 +18,7 @@ __all__ = [
     "ExplainableBoostingMachineModel",
     "KNNNewModel",
     "ModernNCAModel",
+    "PerpetualBoostingModel",
     "RealMLPModel",
     "RealTabPFNv25Model",
     "SAPRPTOSSModel",
