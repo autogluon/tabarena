@@ -4,32 +4,44 @@ from __future__ import annotations
 
 from tabflow_slurm.setup_slurm_base import BenchmarkSetup
 
-# -- AutoGluon New Presets Benchmark 19/12/2025
+# -- TabICLv2 14/02/2026
 BenchmarkSetup(
-    benchmark_name="ag_experiment_191225",
+    benchmark_name="tabpicl_v2_14022026",
     models=[
-        (
-            "AutoGluon_extreme_v150_4h",
-            dict(
-                fit_kwargs=dict(
-                    presets="https://ag-presets.s3.us-west-2.amazonaws.com/presets/extreme_v150.yaml",
-                ),
-            ),
-        ),
-        (
-            "AutoGluon_extreme_noncommercial_v150_4h",
-            dict(
-                fit_kwargs=dict(
-                    presets="https://ag-presets.s3.us-west-2.amazonaws.com/presets/extreme_noncommercial_v150.yaml",
-                ),
-            ),
-        ),
+        ("TabICLv2", 0),
     ],
     num_gpus=1,
-    time_limit=14400,
     configs_per_job=1,
+    slurm_gpu_partition="alldlc2_gpu-h200",
     tabarena_lite=True,
 ).setup_jobs()
+
+# # -- AutoGluon New Presets Benchmark 19/12/2025
+# BenchmarkSetup(
+#     benchmark_name="ag_experiment_191225",
+#     models=[
+#         (
+#             "AutoGluon_extreme_v150_4h",
+#             dict(
+#                 fit_kwargs=dict(
+#                     presets="https://ag-presets.s3.us-west-2.amazonaws.com/presets/extreme_v150.yaml",
+#                 ),
+#             ),
+#         ),
+#         (
+#             "AutoGluon_extreme_noncommercial_v150_4h",
+#             dict(
+#                 fit_kwargs=dict(
+#                     presets="https://ag-presets.s3.us-west-2.amazonaws.com/presets/extreme_noncommercial_v150.yaml",
+#                 ),
+#             ),
+#         ),
+#     ],
+#     num_gpus=1,
+#     time_limit=14400,
+#     configs_per_job=1,
+#     tabarena_lite=True,
+# ).setup_jobs()
 
 # # -- ConTexTab Benchmark / SAP RPT OSS 24/11/2025
 # BenchmarkSetup(
