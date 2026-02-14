@@ -49,7 +49,22 @@ def setup_slurm_job(
         import ray
 
         ray_dir = tempfile.mkdtemp() + "/ray"
+
+        min_plasma_storage_size = int(memory_limit * 0.5)
         ray_mem_in_b = int(int(memory_limit) * (1024.0**3))
+
+        _plasma_directory = None
+        dev_shm_size = ray._private.utils.get_shared_memory_bytes() / 1e9
+        print(dev_shm_size)
+        if dev_shm_size < min_plasma_storage_size:
+            print(
+                "WARNING: /dev/shm is full, switching to /tmp usage! "
+                f"Available shared memory size: {dev_shm_size} GB, "
+                f"Required minimum for Ray plasma store: {min_plasma_storage_size} GB."
+            )
+            # Likely slower but runs at least.
+            _plasma_directory = ray_dir
+
         ray.init(
             address="local",
             _memory=ray_mem_in_b,
@@ -60,6 +75,7 @@ def setup_slurm_job(
             log_to_driver=True,
             num_gpus=num_gpus,
             num_cpus=num_cpus,
+            _plasma_directory=_plasma_directory,
         )
     return ray_dir
 

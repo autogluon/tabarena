@@ -1,7 +1,7 @@
 import pytest
 
 
-def test_tabicl():
+def test_tabiclv2():
     model_hyperparameters = {"n_estimators": 1}
 
     try:

@@ -13,6 +13,7 @@ BenchmarkSetup(
     num_gpus=1,
     configs_per_job=1,
     slurm_gpu_partition="alldlc2_gpu-h200",
+    fake_memory_for_estimates=140, # To ensure TabICL knows it has 140GB VRAM
     tabarena_lite=True,
 ).setup_jobs()
 
