@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from tabflow_slurm.setup_slurm_base import BenchmarkSetup
 
-# -- Benchmark TabStar XXX
+# -- Benchmark TabStar 31/01/2026
 BenchmarkSetup(
-    benchmark_name="tabstar_XXX",
+    benchmark_name="tabstar_31012026",
     models=[
-        ("TabSTAR", 0),
+        ("TabSTAR", "all"),
     ],
     num_gpus=1,
-    configs_per_job=1,
-    tabarena_lite=True,
+    configs_per_job=10,
     model_agnostic_preprocessing=False,
 ).setup_jobs()
 
@@ -102,3 +101,4 @@ BenchmarkSetup(
 #     # Ensure job scripts don't crash with above runs
 #     parallel_benchmark_fix="_large_vram",
 # ).setup_jobs()
+

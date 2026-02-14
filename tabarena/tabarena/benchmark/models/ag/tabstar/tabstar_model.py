@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 # TODO:
-#   - make sure AutoGluon gives class labels not ordinal encoded! (local branch of AG + PR https://github.com/autogluon/autogluon/pull/5482)
 #   - support for metric_name was rolled back, so maybe in the future add support for AG metrics again.
 class TabSTARModel(AbstractModel):
     """TabSTAR Model: https://arxiv.org/abs/2505.18125."""
@@ -31,7 +30,7 @@ class TabSTARModel(AbstractModel):
         X_val: pd.DataFrame = None,
         y_val: pd.Series = None,
         time_limit: float | None = None,
-        num_cpus: int = 1,
+        # num_cpus: int = 1,  # Not used
         num_gpus: int = 0,
         **kwargs,
     ):
