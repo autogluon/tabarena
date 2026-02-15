@@ -97,15 +97,11 @@ if __name__ == "__main__":
     run_eval_for_new_models(
         [
             ModelMetadata(
-                path_raw=out_dir / "ag_experiment_191225",
-                method="AutoGluon_extreme_v150_4h",
-            ),
-            ModelMetadata(
-                path_raw=out_dir / "ag_experiment_191225",
-                method="AutoGluon_extreme_noncommercial_v150_4h",
+                path_raw=out_dir / "tabpicl_v2_14022026",
+                method="TA-TabICLv2",
             ),
         ],
         extra_subsets=[["lite"]],
-        fig_output_dir=fig_dir / "ag_experiment_191225",
+        fig_output_dir=fig_dir / "tabiclv2_14022026",
         cache_path="/work/dlclarge2/purucker-tabarena/output/tabarena_cache",
     )

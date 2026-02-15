@@ -41,7 +41,7 @@ dependencies = [
 tabpfn = [
   "tabpfn>=6.0.5",       # We used version 6.0.5
 ]
-tabicl = ["tabicl>=0.1.1"]
+tabicl = ["tabicl>=2.0.0"]
 ebm = ["interpret-core>=0.7.3"]
 search_spaces = ["configspace>=1.2,<2.0"]
 realmlp = ["pytabkit>=1.5.0,<2.0"]
@@ -57,7 +57,7 @@ tabprep = []
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [
   "tabpfn>=6.0.5",
-  "tabicl>=0.1.1",
+  "tabicl>=2.0.0",
   "interpret-core>=0.7.3",
   "configspace>=1.2,<2.0",
   "pytabkit>=1.5.0,<2.0",

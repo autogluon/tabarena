@@ -27,7 +27,7 @@ as possible in the future.
    directory, for example:
 
 ```bash
-source /work/dlclarge2/purucker-tabarena/venvs/tabarena_07112025/bin/activate && cd /work/dlclarge2/purucker-tabarena/code/tabarena_new/tabarena/tabflow_slurm
+source /work/dlclarge2/purucker-tabarena/venvs/tabarena_14022026/bin/activate && cd /work/dlclarge2/purucker-tabarena/code/tabarena_new/tabarena/tabflow_slurm
 ```
 
 4. Run `run_setup_slurm_jobs.py` to set up all data needed to run array jobs and submit the array job to the slurm
