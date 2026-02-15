@@ -231,6 +231,12 @@ class TabICLModel(TabICLModelBase):
             "tabicl-classifier-v1-20250208.ckpt",
         ]
 
+    def _set_default_params(self):
+        default_params = {
+            "n_estimators": 32, # default of TabICLv1
+        }
+        for param, val in default_params.items():
+            self._set_default_param_value(param, val)
 
 class TabICLv2Model(TabICLModelBase):
     """TabICLv2 model as used on TabArena."""
