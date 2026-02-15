@@ -233,7 +233,7 @@ class TabICLModel(TabICLModelBase):
 
 
 class TabICLv2Model(TabICLModelBase):
-    """TabICLv1.1 model as used on TabArena."""
+    """TabICLv2 model as used on TabArena."""
 
     ag_key = "TA-TABICLv2"
     ag_name = "TA-TabICLv2"
