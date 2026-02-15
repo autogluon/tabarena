@@ -45,7 +45,7 @@ class BenchmarkSetup:
             - slurm_out         -- contains all SLURM output logs
             - .openml-cache     -- contains the OpenML cache
     """
-    python_from_base_path: str = "venvs/tabarena_ag_191225/bin/python"
+    python_from_base_path: str = "venvs/tabarena_14022026/bin/python"
     """Python executable and environment to use for the SLURM jobs. This should point to a Python
     executable within a (virtual) environment."""
     run_script_from_base_path: str = (
@@ -57,7 +57,7 @@ class BenchmarkSetup:
     """OpenML cache directory. This is used to store dataset and tasks data from OpenML."""
     tabrepo_cache_dir_from_base_path: str = "input_data/tabrepo"
     """TabRepo cache directory."""
-    slurm_log_output_from_base_path: str = "slurm_out/runs_1711"
+    slurm_log_output_from_base_path: str = "slurm_out/runs_15022026"
     """Directory for the SLURM output logs. This is used to store the output logs from the
     SLURM jobs."""
     output_dir_base_from_base_path: str = "output/"

@@ -8,10 +8,10 @@ from tabflow_slurm.setup_slurm_base import BenchmarkSetup
 BenchmarkSetup(
     benchmark_name="tabstar_31012026",
     models=[
-        ("TabSTAR", "all"),
+        ("TabSTAR", 50),
     ],
     num_gpus=1,
-    configs_per_job=10,
+    configs_per_job=5,
     model_agnostic_preprocessing=False,
 ).setup_jobs()
 
