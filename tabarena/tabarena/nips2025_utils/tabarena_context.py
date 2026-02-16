@@ -58,6 +58,7 @@ _methods_paper = [
     "TabFlex_GPU",
     "RealTabPFN-v2.5",
     "SAP-RPT-OSS",
+    "TabICLv2",
 ]
 
 

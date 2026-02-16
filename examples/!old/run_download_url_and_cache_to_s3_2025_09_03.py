@@ -8,6 +8,7 @@ from tabarena.nips2025_utils.artifacts.method_artifact_manager import MethodArti
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_10_20 import tabdpt_metadata
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_12 import realtabpfn25_metadata
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_12 import contexttab_metadata
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_02_16 import tabiclv2_metadata
 
 
 """
@@ -124,9 +125,16 @@ if __name__ == '__main__':
         **path_args,
     )
 
+    tabiclv2_info = MethodArtifactManager.from_method_metadata(
+        method_metadata=tabiclv2_metadata,
+        path_suffix=Path("leaderboard_submissions") / "data_TabICLv2_1502026.zip",
+        **path_args,
+    )
+
 
     # Uncomment whichever artifacts you want to process
     method_infos = [
+        # tabiclv2_info,
         # contexttab_info,
         # realtabpfn25_info,
         # xrfm_info,

@@ -40,6 +40,8 @@ from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_misc import (
     # prep_gbm_v6_metadata,
 )
 
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_02_16 import tabiclv2_metadata
+
 methods_2025_09_03: list[MethodMetadata] = [
     ag_140_metadata,
     ebm_metadata,
@@ -113,6 +115,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(method_metadata_l
     [tabdpt_metadata] +
     [realtabpfn25_metadata] +
     [contexttab_metadata] +
+    [tabiclv2_metadata] +
     methods_misc,
 )
 
@@ -126,6 +129,7 @@ tabarena_method_metadata_complete_collection = MethodMetadataCollection(method_m
     [tabdpt_metadata] +
     [realtabpfn25_metadata] +
     [contexttab_metadata] +
+    [tabiclv2_metadata] +
     methods_misc,
 )
 
