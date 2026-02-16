@@ -94,6 +94,7 @@ def get_model_family(model_name: str) -> str:
             "TABFLEX",
             "REALTABPFN-V2.5",
             "SAP-RPT-OSS",
+            "TABICLV2",
         ],
         Constants.baseline: ["KNN", "LR"],
         Constants.other: ["XRFM"],
