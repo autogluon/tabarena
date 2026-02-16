@@ -214,11 +214,11 @@ class MethodMetadata:
             "tuned": " (tuned)",
             "tuned_ensemble": " (tuned + ensemble)",
         }
-        valid_method_types = ["config", "baseline", "hpo"]
+        valid_method_types = ["config", "baseline", "hpo", "portfolio"]
         if method_type not in valid_method_types:
             raise ValueError(f"Unknown {method_type=}. Valid values: {valid_method_types}")
         if pd.isna(display_name):
-            if method_type == "baseline":
+            if method_type in ["baseline", "portfolio"]:
                 display_name = method
             else:
                 assert isinstance(config_type, str)
