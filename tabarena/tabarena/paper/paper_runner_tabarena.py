@@ -16,7 +16,7 @@ class PaperRunTabArena(PaperRun):
         n_portfolio: int = 25,
         n_ensemble: int = 40,
         time_limit: float | None = 14400,
-        average_seeds: bool = True,
+        average_seeds: bool = False,
     ) -> pd.DataFrame:
         calibration_framework = "RF (default)"
         elo_bootstrap_rounds = 100

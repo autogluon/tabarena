@@ -114,7 +114,7 @@ class TabArenaContext:
         subset: str | list[str] | None = None,
         folds: list[int] | None = None,
         score_on_val: bool = False,
-        average_seeds: bool = True,
+        average_seeds: bool = False,
         fillna: str | pd.DataFrame | None = "RF (default)",
         remove_imputed: bool = False,
         tmp_treat_tasks_independently: bool = False,
@@ -386,7 +386,7 @@ class TabArenaContext:
         n_portfolio: int = 25,
         n_ensemble: int = 40,
         time_limit: float | None = 14400,
-        average_seeds: bool = True,
+        average_seeds: bool = False,
     ):
         if repo is None:
             repo = self.load_repo(methods=methods, config_fallback=config_fallback)

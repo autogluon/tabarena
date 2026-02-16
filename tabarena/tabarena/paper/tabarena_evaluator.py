@@ -229,7 +229,7 @@ class TabArenaEvaluator:
         plot_pareto: bool = True,
         plot_other: bool = False,
         calibration_framework: str | None = "auto",
-        average_seeds: bool = True,
+        average_seeds: bool = False,
         tmp_treat_tasks_independently: bool = False,  # FIXME: Need to make a weighted elo logic
         leaderboard_kwargs: dict | None = None,
         plot_with_baselines: bool = False,

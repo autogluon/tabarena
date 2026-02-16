@@ -107,7 +107,7 @@ class TabArena:
     def leaderboard(
         self,
         data: pd.DataFrame,
-        average_seeds: bool = True,
+        average_seeds: bool = False,
         include_error: bool = False,
         include_elo: bool = True,
         include_winrate: bool = True,
