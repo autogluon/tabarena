@@ -13,6 +13,7 @@ from tabarena.benchmark.models.ag import (
     SAPRPTOSSModel,
     TabDPTModel,
     TabICLModel,
+    TabICLv2Model,
     TabMModel,
     XRFMModel,
 )
@@ -30,6 +31,7 @@ _models_to_add = [
     KNNNewModel,
     RealTabPFNv25Model,
     SAPRPTOSSModel,
+    TabICLv2Model,
 ]
 
 for _model_cls in _models_to_add:
