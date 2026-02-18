@@ -346,7 +346,7 @@ class ModernNCAModel(AbstractModel):
 
         hyp = self._get_model_params()
         bool_to_cat = hyp.pop("bool_to_cat", True)
-        X = self.preprocess(X, is_train=True, bool_to_cat=bool_to_cat)
+        X = self.preprocess(X, y=y, is_train=True, bool_to_cat=bool_to_cat)
         if X_val is not None:
             X_val = self.preprocess(X_val)
 

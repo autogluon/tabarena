@@ -73,7 +73,7 @@ class KNNNewModel(KNNModel):
         cat_cols = self._feature_metadata.get_features(valid_raw_types=[R_CATEGORY])
         self.knn_preprocessor = KNNPreprocessor(cat_threshold=cat_threshold, categorical_features=cat_cols, numeric_strategy=scaler)
 
-        X = self.preprocess(X, is_train=True)
+        X = self.preprocess(X, y=y, is_train=True)
 
         num_rows_max = len(X)
 

@@ -62,7 +62,7 @@ class CustomRandomForestModel(AbstractModel):
             # case for 'binary' and 'multiclass',
             model_cls = RandomForestClassifier
 
-        X = self.preprocess(X, is_train=True)
+        X = self.preprocess(X, y=y, is_train=True)
         params = self._get_model_params()
         self.model = model_cls(**params)
         self.model.fit(X, y)
