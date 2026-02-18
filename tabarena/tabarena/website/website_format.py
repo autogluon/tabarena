@@ -147,7 +147,11 @@ def rename_method(model_name: str, rename_map: dict[str, str]) -> str:
     return model_name
 
 
-def add_metadata(row, metadata_df: pd.DataFrame):
+def add_metadata(
+    row,
+    metadata_df: pd.DataFrame,
+    include_url: bool = True,
+):
     method = row["method"]
     if method not in metadata_df.index:
         return pd.Series(
@@ -176,7 +180,7 @@ def add_metadata(row, metadata_df: pd.DataFrame):
         display_name=metadata["display_name"],
     )
 
-    if metadata.get("reference_url", None) is not None:
+    if include_url and metadata.get("reference_url", None) is not None:
         display_name = add_url(display_name, metadata["reference_url"])
 
     if pd.isna(metadata["verified"]):
@@ -229,6 +233,7 @@ def format_leaderboard(
     *,
     method_metadata_info: pd.DataFrame | None = None,
     include_type: bool = False,
+    include_url: bool = False,
 ) -> pd.DataFrame:
     df_leaderboard = df_leaderboard.copy(deep=True)
 
@@ -239,7 +244,7 @@ def format_leaderboard(
         method_info_map = strict_merge(df_leaderboard, method_metadata_info.drop(columns=["method_type"]), on=["ta_name", "ta_suite"])
         method_info_map = method_info_map.set_index("method")
         df_leaderboard[["method", "Hardware", "Verified", "Type", "TypeName"]] = df_leaderboard.apply(
-            partial(add_metadata, metadata_df=method_info_map),
+            partial(add_metadata, metadata_df=method_info_map, include_url=include_url),
             result_type="expand",
             axis=1,
         )
