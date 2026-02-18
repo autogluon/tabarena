@@ -1763,7 +1763,7 @@ class TabArena:
         if fold_sim.shape[0] >= 2:
             # consider only upper triangle (excluding diagonal)
             sim_vals = fold_sim.where(np.triu(np.ones(fold_sim.shape), k=1).astype(bool))
-            stacked = sim_vals.stack(dropna=True)  # MultiIndex (seed_i, seed_j) -> similarity
+            stacked = sim_vals.stack(future_stack=True)  # MultiIndex (seed_i, seed_j) -> similarity
             if len(stacked) > 0:
                 (i_max, j_max), v_max = stacked.idxmax(), float(stacked.max())
                 (i_min, j_min), v_min = stacked.idxmin(), float(stacked.min())
