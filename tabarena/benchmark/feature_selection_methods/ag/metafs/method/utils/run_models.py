@@ -140,7 +140,7 @@ def multi_predict_autogluon_lgbm(train_data, X_test):
     labels = ['feature - name', 'improvement']  # which columns to predict based on the others
     problem_types = ['multiclass', 'regression']  # type of each prediction problem
     save_path = 'agModels'  # specifies folder to store trained models
-    time_limit = 5  # how many seconds to train the TabularPredictor for each label, set much larger in your applications!
+    time_limit = 300  # how many seconds to train the TabularPredictor for each label, set much larger in your applications!
     # Multi Predictor
     multi_predictor = MultilabelPredictor(labels=labels, problem_types=problem_types, path=save_path)
     multi_predictor.fit(train_data, labels, time_limit=time_limit)
