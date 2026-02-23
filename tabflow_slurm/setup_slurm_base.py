@@ -641,7 +641,7 @@ class BenchmarkSetup:
         }
         return {"defaults": default_args, "jobs": jobs}
 
-    def setup_jobs(self) -> str:
+    def setup_jobs(self, array_job_limit: int = 100) -> str:
         """Setup the jobs to run by generating the SLURM job JSON file."""
         jobs_dict = self.get_jobs_dict()
         n_jobs = len(jobs_dict["jobs"])
@@ -654,7 +654,7 @@ class BenchmarkSetup:
         with open(self.slurm_job_json, "w") as f:
             json.dump(jobs_dict, f)
 
-        run_command = f"sbatch --array=0-{n_jobs - 1}%100 {self.slurm_base_command} {self.slurm_job_json}"
+        run_command = f"sbatch --array=0-{n_jobs - 1}%{array_job_limit} {self.slurm_base_command} {self.slurm_job_json}"
         print(
             f"##### Setup Jobs for {self._safe_benchmark_name}"
             "\nRun the following command to start the jobs:"
