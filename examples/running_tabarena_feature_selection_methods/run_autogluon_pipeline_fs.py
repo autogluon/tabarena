@@ -11,7 +11,8 @@ from autogluon.features.generators import AutoMLPipelineFeatureSelector
 from autogluon.features.generators.selection import FeatureSelector
 
 from tabarena.models.utils import get_configs_generator_from_name
-
+import warnings
+warnings.filterwarnings("ignore")
 
 task_type = "binary"
 cross_validation_bagging = True
@@ -36,7 +37,7 @@ y_train = train_data["class"]
 X_test = test_data.drop("class", axis=1)
 y_test = test_data["class"]
 
-method = "MetaFS"
+method = "MI"
 n_max_features = 10
 model = BaggedEnsembleModel(
         model_cls(problem_type=task_type, **model_config),
