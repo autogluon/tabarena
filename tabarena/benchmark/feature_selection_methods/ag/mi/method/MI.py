@@ -40,20 +40,13 @@ class MI:
 
         Input
         -----
-        X: {numpy array}, shape (n_samples, n_features)
-            input data, guaranteed to be discrete
-        y: {numpy array}, shape (n_samples,)
-            input class labels
+        X: pandas DataFrame,
+        y: pandas Series,
         kwargs: {dictionary}
-            n_selected_features: {int}
-                number of features to select
 
         Output
         ------
-        F: {numpy array}, shape (n_features,)
-            index of selected features, F[0] is the most important feature
-        MI: {numpy array}, shape: (n_features,)
-            corresponding objective function value of selected features
+        X: pandas DataFrame
 
         Reference
         ---------

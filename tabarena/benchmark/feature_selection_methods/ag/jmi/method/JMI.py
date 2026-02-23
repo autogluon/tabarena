@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from math import log
 import numpy as np
 import pandas as pd
@@ -24,15 +25,7 @@ class JMI:
         self._y = y
         self._model = model
         self._n_max_features = n_max_features
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
-
-        feature_ranking = self.jmi(X_np, y_np, n_selected_features=n_max_features)
-
-        selected_features_idx = feature_ranking[:n_max_features]
-        selected_features = X.columns[selected_features_idx]
-
-        X_selected = X[selected_features]
+        X_selected = self.jmi(X, y, n_max_features, **kwargs)
         self._selected_features = list(X_selected.columns)
         return X_selected
 
@@ -41,149 +34,96 @@ class JMI:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
 
-    def jmi(self, X, y, **kwargs):
+    def jmi(self, X, y, n_max_features, **kwargs):
         """
-        This function implements the JMI feature selection
+        This function implements the MI feature selection
 
         Input
         -----
-        X: {numpy array}, shape (n_samples, n_features)
-            input data, guaranteed to be discrete
-        y: {numpy array}, shape (n_samples,)
-            input class labels
+        X: pandas DataFrame,
+        y: pandas Series,
         kwargs: {dictionary}
-            n_selected_features: {int}
-                number of features to select
 
         Output
         ------
-        F: {numpy array}, shape (n_features,)
-            index of selected features, F[0] is the most important feature
-        J_CMI: {numpy array}, shape: (n_features,)
-            corresponding objective function value of selected features
-        MIfy: {numpy array}, shape: (n_features,)
-            corresponding mutual information between selected features and response
+        X: pandas DataFrame
 
         Reference
         ---------
-        Brown, Gavin et al. "Conditional Likelihood Maximisation: A Unifying Framework for Information Theoretic Feature Selection." JMLR 2012.
-        """
-        if 'n_selected_features' in kwargs.keys():
-            n_selected_features = kwargs['n_selected_features']
-            F, J_CMI, MIfy = self.lcsi(X, y, function_name='JMI', n_selected_features=n_selected_features)
-        else:
-            F, J_CMI, MIfy = self.lcsi(X, y, function_name='JMI')
-        return F
+        Yang, H., & Moody, J. (1999). Feature selection based on joint mutual information. In Proceedings of international ICSC symposium on advances in intelligent data analysis (Vol. 23). Rochester, NY: Citeseer.
 
-    def lcsi(self, X, y, **kwargs):
-        """
-        This function implements the basic scoring criteria for linear combination of shannon information term.
-        The scoring criteria is calculated based on the formula j_cmi=I(f;y)-beta*sum_j(I(fj;f))+gamma*sum(I(fj;f|y))
-
-        Input
-        -----
-        X: {numpy array}, shape (n_samples, n_features)
-            input data, guaranteed to be a discrete data matrix
-        y: {numpy array}, shape (n_samples,)
-            input class labels
-        kwargs: {dictionary}
-            Parameters for different feature selection algorithms.
-            beta: {float}
-                beta is the parameter in j_cmi=I(f;y)-beta*sum(I(fj;f))+gamma*sum(I(fj;f|y))
-            gamma: {float}
-                gamma is the parameter in j_cmi=I(f;y)-beta*sum(I(fj;f))+gamma*sum(I(fj;f|y))
-            function_name: {string}
-                name of the feature selection function
-            n_selected_features: {int}
-                number of features to select
-
-        Output
-        ------
-        F: {numpy array}, shape: (n_features,)
-            index of selected features, F[0] is the most important feature
-        J_CMI: {numpy array}, shape: (n_features,)
-            corresponding objective function value of selected features
-        MIfy: {numpy array}, shape: (n_features,)
-            corresponding mutual information between selected features and response
-
-        Reference
-        ---------
-        Brown, Gavin et al. "Conditional Likelihood Maximisation: A Unifying Framework for Information Theoretic Feature Selection." JMLR 2012.
         """
 
-        n_samples, n_features = X.shape
+        X_np = X.to_numpy()
+        y_np = y.to_numpy()
+
+        n_samples, n_features = X_np.shape
         # index of selected features, initialized to be empty
         F = []
-        # Objective function value for selected features
-        J_CMI = []
-        # Mutual information between feature and response
-        MIfy = []
-        # indicate whether the user specifies the number of features
-        is_n_selected_features_specified = False
-        # initialize the parameters
-        if 'beta' in kwargs.keys():
-            beta = kwargs['beta']
-        if 'gamma' in kwargs.keys():
-            gamma = kwargs['gamma']
-        if 'n_selected_features' in kwargs.keys():
-            n_selected_features = kwargs['n_selected_features']
-            is_n_selected_features_specified = True
+        # List of MI's for
+        JMI = np.zeros(n_features)
 
+        is_n_selected_features_specified = False
+        if self._n_max_features is not None:
+            n_selected_features = self._n_max_features
+            is_n_selected_features_specified = True
         # select the feature whose j_cmi is the largest
-        # t1 stores I(f;y) for each feature f
+        # t1 stores I(f) for each feature f
         t1 = np.zeros(n_features)
-        # t2 stores sum_j(I(fj;f)) for each feature f
+        # t2 stores (I(y) for each feature f
         t2 = np.zeros(n_features)
-        # t3 stores sum_j(I(fj;f|y)) for each feature f
+        # t3 stores I(f|y) for each feature f
         t3 = np.zeros(n_features)
         for i in range(n_features):
-            f = X[:, i]
-            t1[i] = self.midd(f, y)
+            for j in range(n_features):
+                if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                    time_start_fit = time.time()
+                    kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                    if kwargs["time_limit"] <= 0:
+                        logger.warning(
+                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        if n_max_features is not None and len(X.columns) > n_max_features:
+                            X_out = X.sample(n=n_max_features, axis=1)
+                            return X_out
+                        else:
+                            return X
+                f_i_and_j = X_np[:, [i, j]]
+                t1[i] = self.entropyd(f_i_and_j)
+                t2[i] = self.entropyd(y)
+                t3[i] = self.midd(f_i_and_j, y)
+                JMI[i] = t1[i] + t2[i] - t3[i]
 
-        # make sure that j_cmi is positive at the very beginning
         j_cmi = 1
 
+        # select the feature whose mutual information is the largest
         while True:
-            if len(F) == 0:
-                # select the feature whose mutual information is the largest
-                idx = np.argmax(t1)
+            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                time_start_fit = time.time()
+                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                if kwargs["time_limit"] <= 0:
+                    logger.warning(
+                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    if n_max_features is not None and len(X.columns) > n_max_features:
+                        X_out = X.sample(n=n_max_features, axis=1)
+                        return X_out
+                    else:
+                        return X
+            if len(JMI) == 0:
+                idx = np.argmax(JMI)
                 F.append(idx)
-                J_CMI.append(t1[idx])
-                MIfy.append(t1[idx])
-                f_select = X[:, idx]
-
+                f_select = X_np[:, idx]
             if is_n_selected_features_specified:
-                if len(F) == n_selected_features:
+                if len(F) == n_max_features:
                     break
             else:
                 if j_cmi < 0:
                     break
-
-            # we assign an extreme small value to j_cmi to ensure it is smaller than all possible values of j_cmi
             j_cmi = -1E30
-            if 'function_name' in kwargs.keys():
-                if kwargs['function_name'] == 'MRMR':
-                    beta = 1.0 / len(F)
-                elif kwargs['function_name'] == 'JMI':
-                    beta = 1.0 / len(F)
-                    gamma = 1.0 / len(F)
-            for i in range(n_features):
-                if i not in F:
-                    f = X[:, i]
-                    t2[i] += self.midd(f_select, f)
-                    t3[i] += self.cmidd(f_select, f, y)
-                    # calculate j_cmi for feature i (not in F)
-                    t = t1[i] - beta * t2[i] + gamma * t3[i]
-                    # record the largest j_cmi and the corresponding feature index
-                    if t > j_cmi:
-                        j_cmi = t
-                        idx = i
-            F.append(idx)
-            J_CMI.append(j_cmi)
-            MIfy.append(t1[idx])
-            f_select = X[:, idx]
 
-        return np.array(F), np.array(J_CMI), np.array(MIfy)
+        selected_features_idx = np.array(F)[:n_max_features]
+        selected_features = X.columns[selected_features_idx]
+        X_selected = X[selected_features]
+        return X_selected
 
     def midd(self, x, y):
         """
