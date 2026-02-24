@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pandas as pd
 
@@ -10,7 +12,7 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
 
 
-class Gini:
+class GiniFS:
     """Gini feature selector"""
 
     def __init__(self, model):
@@ -26,7 +28,7 @@ class Gini:
         X_np = X.to_numpy()
         y_np = y.to_numpy()
 
-        feature_ranking = self.feature_ranking(self.gini_index(X_np, y_np))
+        feature_ranking = self.feature_ranking(self.gini_index(X_np, y_np, n_max_features, **kwargs))
 
         selected_features_idx = feature_ranking[:n_max_features]
         selected_features = X.columns[selected_features_idx]
@@ -42,7 +44,7 @@ class Gini:
         return X[self._selected_features]
 
 
-    def gini_index(self, X, y):
+    def gini_index(self, X, y, n_max_features, **kwargs):
         """
         This function implements the gini index feature selection.
 
@@ -66,8 +68,36 @@ class Gini:
 
         # For i-th feature we define fi = x[:,i] ,v include all unique values in fi
         for i in range(n_features):
+            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                time_start_fit = time.time()
+                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                kwargs["start_time"] = time_start_fit
+                if kwargs["time_limit"] <= 0:
+                    logger.warning(
+                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    random_gini_score = np.zeros(X.shape[1])
+                    if n_max_features is not None and X.shape[1] > n_max_features:
+                        selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                    else:
+                        selected_idx = np.arange(X.shape[1])
+                    random_gini_score[selected_idx] = 1
+                    return random_gini_score
             v = np.unique(X[:, i])
             for j in range(len(v)):
+                if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                    time_start_fit = time.time()
+                    kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                    kwargs["start_time"] = time_start_fit
+                    if kwargs["time_limit"] <= 0:
+                        logger.warning(
+                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        random_gini_score = np.zeros(X.shape[1])
+                        if n_max_features is not None and X.shape[1] > n_max_features:
+                            selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                        else:
+                            selected_idx = np.arange(X.shape[1])
+                        random_gini_score[selected_idx] = 1
+                        return random_gini_score
                 # left_y contains labels of instances whose i-th feature value is less than or equal to v[j]
                 left_y = y[X[:, i] <= v[j]]
                 # right_y contains labels of instances whose i-th feature value is larger than v[j]
@@ -79,6 +109,20 @@ class Gini:
                 gini_right = 0
 
                 for k in range(np.min(y), np.max(y) + 1):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            random_gini_score = np.zeros(X.shape[1])
+                            if n_max_features is not None and X.shape[1] > n_max_features:
+                                selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                            else:
+                                selected_idx = np.arange(X.shape[1])
+                            random_gini_score[selected_idx] = 1
+                            return random_gini_score
                     if len(left_y) != 0:
                         # t1_left is probability of occurrence of k in left_y
                         t1_left = np.true_divide(len(left_y[left_y == k]), len(left_y))
