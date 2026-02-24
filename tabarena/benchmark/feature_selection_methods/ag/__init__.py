@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from tabarena.benchmark.feature_selection_methods.ag.original.Original import Original
-from tabarena.benchmark.feature_selection_methods.ag.randomfs.RandomFS import RandomFS
-from tabarena.benchmark.feature_selection_methods.ag.enumeration.enumeration_fs import EnumerationFeatureSelector
+from tabarena.benchmark.feature_selection_methods.ag.random.Random import Random
+from tabarena.benchmark.feature_selection_methods.ag.enumeration.Enumeration import Enumeration
 
 from tabarena.benchmark.feature_selection_methods.ag.t_test.tTest import tTest
 from tabarena.benchmark.feature_selection_methods.ag.anova.ANOVA import ANOVA
