@@ -9,7 +9,7 @@ from autogluon.features.generators.abstract import AbstractFeatureSelector
 logger = logging.getLogger(__name__)
 
 
-class EnumerationFeatureSelector(AbstractFeatureSelector):
+class Enumeration(AbstractFeatureSelector):
     """ Local Search, only allowing for flipping features """
 
     def __init__(self, **kwargs):
@@ -25,11 +25,12 @@ class EnumerationFeatureSelector(AbstractFeatureSelector):
         self._y = y
         self._model = model
         self._n_max_features = n_max_features
-        from tabarena.benchmark.feature_selection_methods.ag.enumeration.method.Enumeration import Enumerator
-        self._enum = Enumerator(model)
+        from tabarena.benchmark.feature_selection_methods.ag.enumeration.method.EnumerationFS import EnumerationFS
+        self._enum = EnumerationFS(model)
         if "time_limit" in kwargs and kwargs["time_limit"] is not None:
             time_start_fit = time.time()
             kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+            kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
                     f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')

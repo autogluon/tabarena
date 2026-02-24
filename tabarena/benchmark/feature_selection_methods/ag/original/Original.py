@@ -24,8 +24,8 @@ class Original(AbstractFeatureSelector):
         self._y = y
         self._model = model
         self._n_max_features = n_max_features
-        from tabarena.benchmark.feature_selection_methods.ag.original.method.Original import Original
-        self._original = Original()
+        from tabarena.benchmark.feature_selection_methods.ag.original.method.OriginalFS import OriginalFS
+        self._original = OriginalFS()
         X_out = self._original.fit_transform(X, y, model, n_max_features, **kwargs)
         self._selected_features = list(X_out.columns)
         type_family_groups_special = {}

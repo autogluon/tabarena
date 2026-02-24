@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
 
 
-class Enumerator:
-    """Enumerated feature selector"""
+class EnumerationFS:
+    """Enumeration feature selector"""
 
     def __init__(self, model):
         self._y = None

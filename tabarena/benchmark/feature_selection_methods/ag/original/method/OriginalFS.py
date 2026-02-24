@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
 
 
-class Original:
+class OriginalFS:
     """Original feature selector (select all features) """
 
     def __init__(self):
