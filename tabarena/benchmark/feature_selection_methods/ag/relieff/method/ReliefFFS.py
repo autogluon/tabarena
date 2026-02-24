@@ -91,11 +91,13 @@ class ReliefFFS:
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
                         f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
-                    if n_max_features is not None and len(X.columns) > n_max_features:
-                        X_out = X.sample(n=n_max_features, axis=1)
-                        return X_out
+                    score = np.zeros(X.shape[1])
+                    if n_max_features is not None and X.shape[1] > n_max_features:
+                        selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
                     else:
-                        return X
+                        selected_idx = np.arange(X.shape[1])
+                    score[selected_idx] = 1
+                    return score
             near_hit = []
             near_miss = dict()
 
@@ -128,13 +130,14 @@ class ReliefFFS:
                     kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
                     kwargs["start_time"] = time_start_fit
                     if kwargs["time_limit"] <= 0:
-                        logger.warning(
-                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
-                        if n_max_features is not None and len(X.columns) > n_max_features:
-                            X_out = X.sample(n=n_max_features, axis=1)
-                            return X_out
+                        logger.warning(f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        score = np.zeros(X.shape[1])
+                        if n_max_features is not None and X.shape[1] > n_max_features:
+                            selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
                         else:
-                            return X
+                            selected_idx = np.arange(X.shape[1])
+                        score[selected_idx] = 1
+                        return score
                 # find k nearest hit points
                 if distance_sort[i][2] == y[idx]:
                     if len(near_hit) < k:
