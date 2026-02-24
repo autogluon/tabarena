@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pandas as pd
 
@@ -10,7 +12,7 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
 
 
-class tTest:
+class tTestFS:
     """tTest feature selector"""
 
     def __init__(self, model):
@@ -26,7 +28,7 @@ class tTest:
         X_np = X.to_numpy()
         y_np = y.to_numpy()
 
-        feature_ranking = self.feature_ranking(self.t_score(X_np, y_np))
+        feature_ranking = self.feature_ranking(self.t_score(X_np, y_np, n_max_features, **kwargs))
 
         selected_features_idx = feature_ranking[:n_max_features]
         selected_features = X.columns[selected_features_idx]
@@ -41,7 +43,7 @@ class tTest:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
 
-    def t_score(self, X, y):
+    def t_score(self, X, y, n_max_features, **kwargs):
         """
         This function calculates t_score for each feature, where t_score is only used for binary problem
         t_score = |mean1-mean2|/sqrt(((std1^2)/n1)+((std2^2)/n2)))
@@ -64,6 +66,18 @@ class tTest:
         c = np.unique(y)
         if len(c) == 2:
             for i in range(n_features):
+                if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                    time_start_fit = time.time()
+                    kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                    kwargs["start_time"] = time_start_fit
+                    if kwargs["time_limit"] <= 0:
+                        logger.warning(
+                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        if n_max_features is not None and len(X.columns) > n_max_features:
+                            X_out = X.sample(n=n_max_features, axis=1)
+                            return X_out
+                        else:
+                            return X
                 f = X[:, i]
                 # class0 contains instances belonging to the first class
                 # class1 contains instances belonging to the second class
