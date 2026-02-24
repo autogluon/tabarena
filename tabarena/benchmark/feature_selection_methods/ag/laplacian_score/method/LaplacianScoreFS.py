@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import pandas as pd
 
 import warnings
@@ -14,7 +16,7 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
 
 
-class LaplacianScore:
+class LaplacianScoreFS:
     """LaplacianScore feature selector"""
 
     def __init__(self, model):
@@ -30,7 +32,7 @@ class LaplacianScore:
         self._n_max_features = n_max_features
         X_np = X.to_numpy()
 
-        feature_ranking = self.feature_ranking(self.lap_score(X_np))
+        feature_ranking = self.feature_ranking(self.lap_score(X_np, n_max_features))
 
         selected_features_idx = feature_ranking[:n_max_features]
         selected_features = X.columns[selected_features_idx]
@@ -46,7 +48,7 @@ class LaplacianScore:
         return X[self._selected_features]
 
 
-    def lap_score(self, X, **kwargs):
+    def lap_score(self, X, n_max_features, **kwargs):
         """
         This function implements the laplacian score feature selection, steps are as follows:
         1. Construct the affinity matrix W if it is not specified
@@ -75,9 +77,14 @@ class LaplacianScore:
         # if 'W' is not specified, use the default W
         if 'W' not in kwargs.keys():
             W = self.construct_W(X)
-        # construct the affinity matrix W
-        # W = kwargs['W']
-        # build the diagonal D matrix from affinity matrix W
+            if W is None:
+                score = np.zeros(X.shape[1])
+                if n_max_features is not None and X.shape[1] > n_max_features:
+                    selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                else:
+                    selected_idx = np.arange(X.shape[1])
+                score[selected_idx] = 1
+                return score
         D = np.array(W.sum(axis=1))
         L = W
         tmp = np.dot(np.transpose(D), X)
@@ -85,14 +92,23 @@ class LaplacianScore:
         Xt = np.transpose(X)
         t1 = np.transpose(np.dot(Xt, D.todense()))
         t2 = np.transpose(np.dot(Xt, L.todense()))
-        # compute the numerator of Lr
         D_prime = np.sum(np.multiply(t1, X), 0) - np.multiply(tmp, tmp) / D.sum()
-        # compute the denominator of Lr
         L_prime = np.sum(np.multiply(t2, X), 0) - np.multiply(tmp, tmp) / D.sum()
-        # avoid the denominator of Lr to be 0
         D_prime[D_prime < 1e-12] = 10000
-
-        # compute laplacian score for all features
+        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+            time_start_fit = time.time()
+            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+            kwargs["start_time"] = time_start_fit
+            if kwargs["time_limit"] <= 0:
+                logger.warning(
+                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                score = np.zeros(X.shape[1])
+                if n_max_features is not None and X.shape[1] > n_max_features:
+                    selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                else:
+                    selected_idx = np.arange(X.shape[1])
+                score[selected_idx] = 1
+                return score
         score = 1 - np.array(np.multiply(L_prime, 1 / D_prime))[0, :]
         return np.transpose(score)
 
@@ -157,7 +173,14 @@ class LaplacianScore:
         W: {sparse matrix}, shape (n_samples, n_samples)
             output affinity matrix W
         """
-
+        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+            time_start_fit = time.time()
+            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+            kwargs["start_time"] = time_start_fit
+            if kwargs["time_limit"] <= 0:
+                logger.warning(
+                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                return None
         # default metric is 'cosine'
         if 'metric' not in kwargs.keys():
             kwargs['metric'] = 'cosine'
@@ -193,10 +216,27 @@ class LaplacianScore:
 
         n_samples, n_features = np.shape(X)
 
+        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+            time_start_fit = time.time()
+            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+            kwargs["start_time"] = time_start_fit
+            if kwargs["time_limit"] <= 0:
+                logger.warning(
+                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                return None
+
         # choose 'knn' neighbor mode
         if kwargs['neighbor_mode'] == 'knn':
             k = kwargs['k']
             if kwargs['weight_mode'] == 'binary':
+                if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                    time_start_fit = time.time()
+                    kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                    kwargs["start_time"] = time_start_fit
+                    if kwargs["time_limit"] <= 0:
+                        logger.warning(
+                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        return None
                 if kwargs['metric'] == 'euclidean':
                     # compute pairwise euclidean distances
                     D = pairwise_distances(X)
@@ -216,15 +256,24 @@ class LaplacianScore:
                     W = W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
                     return W
 
+
+                # THIS IS THE ONLY CODE WE USE USUALLY
+
                 elif kwargs['metric'] == 'cosine':
                     # normalize the data first
                     X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                     for i in range(n_samples):
+                        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                            time_start_fit = time.time()
+                            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                            kwargs["start_time"] = time_start_fit
+                            if kwargs["time_limit"] <= 0:
+                                logger.warning(
+                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                return None
                         X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                     # compute pairwise cosine distances
                     D_cosine = np.dot(X, np.transpose(X))
-                    # sort the distance matrix D in descending order
-                    dump = np.sort(-D_cosine, axis=1)
                     idx = np.argsort(-D_cosine, axis=1)
                     idx_new = idx[:, 0:k + 1]
                     G = np.zeros((n_samples * (k + 1), 3))
@@ -263,6 +312,14 @@ class LaplacianScore:
                 # normalize the data first
                 X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                 for i in range(n_samples):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                 # compute pairwise cosine distances
                 D_cosine = np.dot(X, np.transpose(X))
@@ -292,6 +349,14 @@ class LaplacianScore:
             if kwargs['fisher_score'] is True:
                 W = lil_matrix((n_samples, n_samples))
                 for i in range(n_classes):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     class_idx = (y == label[i])
                     class_idx_all = (class_idx[:, np.newaxis] & class_idx[np.newaxis, :])
                     W[class_idx_all] = 1.0 / np.sum(np.sum(class_idx))
@@ -305,6 +370,14 @@ class LaplacianScore:
                 G = np.zeros((n_samples * (k + 1), 3))
                 id_now = 0
                 for i in range(n_classes):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                     D = pairwise_distances(X[class_idx, :])
                     D **= 2
@@ -320,14 +393,38 @@ class LaplacianScore:
                 W1 = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                 # when i = j, W_ij = 1
                 for i in range(n_samples):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     W1[i, i] = 1
                 # when x_j in NM(x_i, y)
                 G = np.zeros((n_samples * k * (n_classes - 1), 3))
                 id_now = 0
                 for i in range(n_classes):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     class_idx1 = np.column_stack(np.where(y == label[i]))[:, 0]
                     X1 = X[class_idx1, :]
                     for j in range(n_classes):
+                        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                            time_start_fit = time.time()
+                            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                            kwargs["start_time"] = time_start_fit
+                            if kwargs["time_limit"] <= 0:
+                                logger.warning(
+                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                return None
                         if label[j] != label[i]:
                             class_idx2 = np.column_stack(np.where(y == label[j]))[:, 0]
                             X2 = X[class_idx2, :]
@@ -350,6 +447,14 @@ class LaplacianScore:
                     G = np.zeros((n_samples * (k + 1), 3))
                     id_now = 0
                     for i in range(n_classes):
+                        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                            time_start_fit = time.time()
+                            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                            kwargs["start_time"] = time_start_fit
+                            if kwargs["time_limit"] <= 0:
+                                logger.warning(
+                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                return None
                         class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                         # compute pairwise euclidean distances for instances in class i
                         D = pairwise_distances(X[class_idx, :])
@@ -372,10 +477,26 @@ class LaplacianScore:
                     # normalize the data first
                     X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                     for i in range(n_samples):
+                        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                            time_start_fit = time.time()
+                            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                            kwargs["start_time"] = time_start_fit
+                            if kwargs["time_limit"] <= 0:
+                                logger.warning(
+                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                return None
                         X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                     G = np.zeros((n_samples * (k + 1), 3))
                     id_now = 0
                     for i in range(n_classes):
+                        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                            time_start_fit = time.time()
+                            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                            kwargs["start_time"] = time_start_fit
+                            if kwargs["time_limit"] <= 0:
+                                logger.warning(
+                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                return None
                         class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                         # compute pairwise cosine distances for instances in class i
                         D_cosine = np.dot(X[class_idx, :], np.transpose(X[class_idx, :]))
@@ -397,6 +518,14 @@ class LaplacianScore:
                 G = np.zeros((n_samples * (k + 1), 3))
                 id_now = 0
                 for i in range(n_classes):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                     # compute pairwise cosine distances for instances in class i
                     D = pairwise_distances(X[class_idx, :])
@@ -424,10 +553,26 @@ class LaplacianScore:
                 # normalize the data first
                 X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                 for i in range(n_samples):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                 G = np.zeros((n_samples * (k + 1), 3))
                 id_now = 0
                 for i in range(n_classes):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                     # compute pairwise cosine distances for instances in class i
                     D_cosine = np.dot(X[class_idx, :], np.transpose(X[class_idx, :]))
