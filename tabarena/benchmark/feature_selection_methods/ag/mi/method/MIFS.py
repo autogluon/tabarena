@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
 
 
-class MI:
+class MIFS:
     """MI feature selector"""
 
     def __init__(self):
@@ -54,29 +54,18 @@ class MI:
         """
 
         X_np = X.to_numpy()
-        y_np = y.to_numpy()
 
         n_samples, n_features = X_np.shape
-        # index of selected features, initialized to be empty
-        F = []
-        # List of MI's for
         MI = np.zeros(n_features)
 
-        is_n_selected_features_specified = False
-        if self._n_max_features is not None:
-            n_selected_features = self._n_max_features
-            is_n_selected_features_specified = True
-        # select the feature whose j_cmi is the largest
-        # t1 stores I(f) for each feature f
         t1 = np.zeros(n_features)
-        # t2 stores (I(y) for each feature f
         t2 = np.zeros(n_features)
-        # t3 stores I(f|y) for each feature f
         t3 = np.zeros(n_features)
         for i in range(n_features):
             if "time_limit" in kwargs and kwargs["time_limit"] is not None:
                 time_start_fit = time.time()
                 kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
                         f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
@@ -91,58 +80,28 @@ class MI:
             t3[i] = self.midd(f, y)
             MI[i] = t1[i] + t2[i] - t3[i]
 
-        j_cmi = 1
-
-        # select the feature whose mutual information is the largest
-        while True:
-            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
-                time_start_fit = time.time()
-                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
-                if kwargs["time_limit"] <= 0:
-                    logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
-                    if n_max_features is not None and len(X.columns) > n_max_features:
-                        X_out = X.sample(n=n_max_features, axis=1)
-                        return X_out
-                    else:
-                        return X
-            if len(MI) == 0:
-                idx = np.argmax(MI)
-                F.append(idx)
-                f_select = X_np[:, idx]
-            if is_n_selected_features_specified:
-                if len(F) == n_max_features:
-                    break
-            else:
-                if j_cmi < 0:
-                    break
-            j_cmi = -1E30
-
-        selected_features_idx = np.array(F)[:n_max_features]
+        sorted_idx = np.argsort(-MI)
+        selected_features_idx = sorted_idx[:n_max_features]
         selected_features = X.columns[selected_features_idx]
         X_selected = X[selected_features]
         return X_selected
-
 
     def midd(self, x, y):
         """
         Discrete mutual information estimator given a list of samples which can be any hashable object
         """
-
         return -self.entropyd(list(zip(x, y))) + self.entropyd(x) + self.entropyd(y)
 
     def entropyd(self, sx, base=2):
         """
         Discrete entropy estimator given a list of samples which can be any hashable object
         """
-
         return self.entropyfromprobs(self.hist(sx), base=base)
 
     def cmidd(self, x, y, z):
         """
         Discrete mutual information estimator given a list of samples which can be any hashable object
         """
-
         return self.entropyd(list(zip(y, z))) + self.entropyd(list(zip(x, z))) - self.entropyd(
             list(zip(x, y, z))) - self.entropyd(z)
 
