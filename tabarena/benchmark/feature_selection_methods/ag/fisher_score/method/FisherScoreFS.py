@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pandas as pd
 
@@ -13,7 +15,7 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
 
 
-class FisherScore:
+class FisherScoreFS:
     """FisherScore feature selector"""
 
     def __init__(self, model):
@@ -44,7 +46,7 @@ class FisherScore:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
 
-    def fisher_score(self, X, y):
+    def fisher_score(self, X, y, n_max_features, **kwargs):
         """
         This function implements the fisher score feature selection, steps are as follows:
         1. Construct the affinity matrix W in fisher score way
@@ -71,9 +73,16 @@ class FisherScore:
         """
 
         # Construct weight matrix W in a fisherScore way
-        kwargs = {"neighbor_mode": "supervised", "fisher_score": True, 'y': y}
+        kwargs.update({"neighbor_mode": "supervised", "fisher_score": True, 'y': y})
         W = self.construct_W(X, **kwargs)
-
+        if W is None:
+            score = np.zeros(X.shape[1])
+            if n_max_features is not None and X.shape[1] > n_max_features:
+                selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+            else:
+                selected_idx = np.arange(X.shape[1])
+            score[selected_idx] = 1
+            return score
         # build the diagonal D matrix from affinity matrix W
         D = np.array(W.sum(axis=1))
         L = W
@@ -88,8 +97,21 @@ class FisherScore:
         L_prime = np.sum(np.multiply(t2, X), 0) - np.multiply(tmp, tmp) / D.sum()
         # avoid the denominator of Lr to be 0
         D_prime[D_prime < 1e-12] = 10000
+        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+            time_start_fit = time.time()
+            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+            kwargs["start_time"] = time_start_fit
+            if kwargs["time_limit"] <= 0:
+                logger.warning(
+                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                score = np.zeros(X.shape[1])
+                if n_max_features is not None and X.shape[1] > n_max_features:
+                    selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                else:
+                    selected_idx = np.arange(X.shape[1])
+                score[selected_idx] = 1
+                return score
         lap_score = 1 - np.array(np.multiply(L_prime, 1 / D_prime))[0, :]
-
         # compute fisher score from laplacian score, where fisher_score = 1/lap_score - 1
         score = 1.0 / lap_score - 1
         return np.transpose(score)
@@ -155,7 +177,14 @@ class FisherScore:
         W: {sparse matrix}, shape (n_samples, n_samples)
             output affinity matrix W
         """
-
+        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+            time_start_fit = time.time()
+            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+            kwargs["start_time"] = time_start_fit
+            if kwargs["time_limit"] <= 0:
+                logger.warning(
+                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                return None
         # default metric is 'cosine'
         if 'metric' not in kwargs.keys():
             kwargs['metric'] = 'cosine'
@@ -191,6 +220,15 @@ class FisherScore:
 
         n_samples, n_features = np.shape(X)
 
+        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+            time_start_fit = time.time()
+            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+            kwargs["start_time"] = time_start_fit
+            if kwargs["time_limit"] <= 0:
+                logger.warning(
+                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                return None
+
         # choose 'knn' neighbor mode
         if kwargs['neighbor_mode'] == 'knn':
             k = kwargs['k']
@@ -218,6 +256,14 @@ class FisherScore:
                     # normalize the data first
                     X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                     for i in range(n_samples):
+                        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                            time_start_fit = time.time()
+                            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                            kwargs["start_time"] = time_start_fit
+                            if kwargs["time_limit"] <= 0:
+                                logger.warning(
+                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                return None
                         X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                     # compute pairwise cosine distances
                     D_cosine = np.dot(X, np.transpose(X))
@@ -261,6 +307,14 @@ class FisherScore:
                 # normalize the data first
                 X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                 for i in range(n_samples):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                 # compute pairwise cosine distances
                 D_cosine = np.dot(X, np.transpose(X))
@@ -281,6 +335,14 @@ class FisherScore:
 
         # choose supervised neighborMode
         elif kwargs['neighbor_mode'] == 'supervised':
+            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                time_start_fit = time.time()
+                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                kwargs["start_time"] = time_start_fit
+                if kwargs["time_limit"] <= 0:
+                    logger.warning(
+                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    return None
             k = kwargs['k']
             # get true labels and the number of classes
             y = kwargs['y']
@@ -290,6 +352,14 @@ class FisherScore:
             if kwargs['fisher_score'] is True:
                 W = lil_matrix((n_samples, n_samples))
                 for i in range(n_classes):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     class_idx = (y == label[i])
                     class_idx_all = (class_idx[:, np.newaxis] & class_idx[np.newaxis, :])
                     W[class_idx_all] = 1.0 / np.sum(np.sum(class_idx))
@@ -303,6 +373,14 @@ class FisherScore:
                 G = np.zeros((n_samples * (k + 1), 3))
                 id_now = 0
                 for i in range(n_classes):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                     D = pairwise_distances(X[class_idx, :])
                     D **= 2
@@ -318,14 +396,38 @@ class FisherScore:
                 W1 = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                 # when i = j, W_ij = 1
                 for i in range(n_samples):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     W1[i, i] = 1
                 # when x_j in NM(x_i, y)
                 G = np.zeros((n_samples * k * (n_classes - 1), 3))
                 id_now = 0
                 for i in range(n_classes):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     class_idx1 = np.column_stack(np.where(y == label[i]))[:, 0]
                     X1 = X[class_idx1, :]
                     for j in range(n_classes):
+                        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                            time_start_fit = time.time()
+                            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                            kwargs["start_time"] = time_start_fit
+                            if kwargs["time_limit"] <= 0:
+                                logger.warning(
+                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                return None
                         if label[j] != label[i]:
                             class_idx2 = np.column_stack(np.where(y == label[j]))[:, 0]
                             X2 = X[class_idx2, :]
@@ -348,6 +450,14 @@ class FisherScore:
                     G = np.zeros((n_samples * (k + 1), 3))
                     id_now = 0
                     for i in range(n_classes):
+                        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                            time_start_fit = time.time()
+                            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                            kwargs["start_time"] = time_start_fit
+                            if kwargs["time_limit"] <= 0:
+                                logger.warning(
+                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                return None
                         class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                         # compute pairwise euclidean distances for instances in class i
                         D = pairwise_distances(X[class_idx, :])
@@ -370,10 +480,26 @@ class FisherScore:
                     # normalize the data first
                     X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                     for i in range(n_samples):
+                        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                            time_start_fit = time.time()
+                            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                            kwargs["start_time"] = time_start_fit
+                            if kwargs["time_limit"] <= 0:
+                                logger.warning(
+                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                return None
                         X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                     G = np.zeros((n_samples * (k + 1), 3))
                     id_now = 0
                     for i in range(n_classes):
+                        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                            time_start_fit = time.time()
+                            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                            kwargs["start_time"] = time_start_fit
+                            if kwargs["time_limit"] <= 0:
+                                logger.warning(
+                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                return None
                         class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                         # compute pairwise cosine distances for instances in class i
                         D_cosine = np.dot(X[class_idx, :], np.transpose(X[class_idx, :]))
@@ -395,6 +521,14 @@ class FisherScore:
                 G = np.zeros((n_samples * (k + 1), 3))
                 id_now = 0
                 for i in range(n_classes):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                     # compute pairwise cosine distances for instances in class i
                     D = pairwise_distances(X[class_idx, :])
@@ -422,10 +556,26 @@ class FisherScore:
                 # normalize the data first
                 X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                 for i in range(n_samples):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                 G = np.zeros((n_samples * (k + 1), 3))
                 id_now = 0
                 for i in range(n_classes):
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            return None
                     class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                     # compute pairwise cosine distances for instances in class i
                     D_cosine = np.dot(X[class_idx, :], np.transpose(X[class_idx, :]))
