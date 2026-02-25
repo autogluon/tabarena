@@ -73,18 +73,16 @@ class LaplacianScoreFS:
         ---------
         He, Xiaofei et al. "Laplacian Score for Feature Selection." NIPS 2005.
         """
-
         # if 'W' is not specified, use the default W
-        if 'W' not in kwargs.keys():
-            W = self.construct_W(X)
-            if W is None:
-                score = np.zeros(X.shape[1])
-                if n_max_features is not None and X.shape[1] > n_max_features:
-                    selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
-                else:
-                    selected_idx = np.arange(X.shape[1])
-                score[selected_idx] = 1
-                return score
+        W = self.construct_W(X)
+        if W is None:
+            score = np.zeros(X.shape[1])
+            if n_max_features is not None and X.shape[1] > n_max_features:
+                selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+            else:
+                selected_idx = np.arange(X.shape[1])
+            score[selected_idx] = 1
+            return score
         D = np.array(W.sum(axis=1))
         L = W
         tmp = np.dot(np.transpose(D), X)
