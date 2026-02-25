@@ -15,3 +15,6 @@ gen_perpetual_booster = ConfigGenerator(
     search_space=search_space,
     manual_configs=[{"budget": 0.5}],
 )
+
+if __name__ == "__main__":
+    print(gen_perpetual_booster.get_searcher_configs(5))
