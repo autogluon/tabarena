@@ -3,13 +3,16 @@ from pandas import DataFrame, Series
 
 from autogluon.features.generators.abstract import AbstractFeatureSelector
 
+from sklearn.feature_selection import f_classif
+from sklearn.feature_selection import SelectKBest
+
 import logging
 import time
 logger = logging.getLogger(__name__)
 
 
 class ANOVA(AbstractFeatureSelector):
-    """ ANOVA Feature Selection """
+    """ Select k best features from the data using ANOVA """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -19,17 +22,16 @@ class ANOVA(AbstractFeatureSelector):
         self._n_max_features = None
         self._selected_features = None
 
-
     def _fit_transform(self, X: DataFrame, y: Series, model, n_max_features: int, **kwargs) -> tuple[DataFrame, dict]:
         self._y = y
         self._model = model
         self._n_max_features = n_max_features
-        from tabarena.benchmark.feature_selection_methods.ag.anova.method.ANOVAFS import ANOVAFS
-        self._anova = ANOVAFS(model)
-        # Time limit
+
+        self._select_best_kwargs = {"score_func": f_classif, "k": n_max_features}
         if "time_limit" in kwargs and kwargs["time_limit"] is not None:
             time_start_fit = time.time()
             kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+            kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
                     f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
@@ -38,9 +40,8 @@ class ANOVA(AbstractFeatureSelector):
                     return X_out
                 else:
                     return X
-        X_out = self._anova.fit_transform(X, y, model, n_max_features, **kwargs)
-        if n_max_features is not None and len(X_out.columns) > n_max_features:
-            X_out = X_out.sample(n=n_max_features, axis=1)
+        self._anova = SelectKBest(**self._select_best_kwargs).set_output(transform="pandas")
+        X_out = self._transform(X, is_train=True)
         self._selected_features = list(X_out.columns)
         type_family_groups_special = {}
         return X_out, type_family_groups_special
@@ -48,10 +49,9 @@ class ANOVA(AbstractFeatureSelector):
 
     def _transform(self, X: DataFrame, *, is_train: bool = False) -> DataFrame:
         if is_train:
-            X = self._anova.fit_transform(X, self._y, self._model, self._n_max_features)
-            self._selected_features = list(X.columns)
+            X = self._anova.fit_transform(X, self._y)
         else:
-            X = X[self._anova._selected_features]
+            X = self._anova.transform(X)
         return X
 
 
