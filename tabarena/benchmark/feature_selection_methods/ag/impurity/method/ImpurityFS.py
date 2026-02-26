@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pandas as pd
 
@@ -26,7 +28,7 @@ class ImpurityFS:
         X_np = X.to_numpy()
         y_np = y.to_numpy()
 
-        feature_ranking = self.feature_ranking(self.t_score(X_np, y_np))
+        feature_ranking = self.feature_ranking(self.impurity(X_np, y_np, n_max_features, **kwargs))
 
         selected_features_idx = feature_ranking[:n_max_features]
         selected_features = X.columns[selected_features_idx]
@@ -35,58 +37,76 @@ class ImpurityFS:
         self._selected_features = list(X_selected.columns)
         return X_selected
 
-
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
 
-    def t_score(self, X, y):
-        """
-        This function calculates t_score for each feature, where t_score is only used for binary problem
-        t_score = |mean1-mean2|/sqrt(((std1^2)/n1)+((std2^2)/n2)))
+    def impurity(self, X_np: np.ndarray, y_np: np.ndarray, n_max_features, **kwargs) -> np.ndarray:
+        n_features = X_np.shape[1]
+        alpha = np.zeros(n_features)
+        for w in range(n_features):
+            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                time_start_fit = time.time()
+                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                kwargs["start_time"] = time_start_fit
+                if kwargs["time_limit"] <= 0:
+                    logger.warning(
+                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    score = np.zeros(X_np.shape[1])
+                    if n_max_features is not None and X_np.shape[1] > n_max_features:
+                        selected_idx = np.random.choice(X_np.shape[1], size=n_max_features, replace=False)
+                    else:
+                        selected_idx = np.arange(X_np.shape[1])
+                    score[selected_idx] = 1
+                    return score
+            # Sort the dataset by feature w
+            sorted_indices = np.argsort(X_np[:, w])
+            sorted_labels = y_np[sorted_indices]
+            alpha[w] = self.classification_error_impurity(X_np, sorted_labels, n_max_features, **kwargs)
+        return alpha
 
-        Input
-        -----
-        X: {numpy array}, shape (n_samples, n_features)
-            input data
-        y: {numpy array}, shape (n_samples,)
-            input class labels
+    @staticmethod
+    def classification_error_impurity(X_np, arr, n_max_features, **kwargs):
+        unique_elements = np.unique(arr)
+        w_values = []
+        for current_element in unique_elements:
+            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                time_start_fit = time.time()
+                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                kwargs["start_time"] = time_start_fit
+                if kwargs["time_limit"] <= 0:
+                    logger.warning(
+                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    score = np.zeros(X_np.shape[1])
+                    if n_max_features is not None and X_np.shape[1] > n_max_features:
+                        selected_idx = np.random.choice(X_np.shape[1], size=n_max_features, replace=False)
+                    else:
+                        selected_idx = np.arange(X_np.shape[1])
+                    score[selected_idx] = 1
+                    return score
+            if current_element not in arr:
+                continue
+            # Find indices of the current element in the array
+            indices = np.where(arr == current_element)[0]
+            # Create subarray for the current element
+            arr_element = arr[indices[0]:indices[-1] + 1]
+            # Count the occurrences of other elements in the subarray
+            n_other = np.count_nonzero(arr_element != current_element)
+            # Count the occurrences of the current element in the subarray
+            n_current = np.count_nonzero(arr_element == current_element)
+            # Avoid division by zero
+            if n_current == 0:
+                w_values.append(float('inf'))  # or any other suitable value
+            else:
+                w = n_other / (n_current + n_other)
+                w_values.append(w)
+        return 1 - min(w_values)
 
-        Output
-        ------
-        F: {numpy array}, shape (n_features,)
-            t-score for each feature
+    @staticmethod
+    def feature_ranking(F):
         """
-
-        n_samples, n_features = X.shape
-        F = np.zeros(n_features)
-        c = np.unique(y)
-        if len(c) == 2:
-            for i in range(n_features):
-                f = X[:, i]
-                # class0 contains instances belonging to the first class
-                # class1 contains instances belonging to the second class
-                class0 = f[y == c[0]]
-                class1 = f[y == c[1]]
-                mean0 = np.mean(class0)
-                mean1 = np.mean(class1)
-                std0 = np.std(class0)
-                std1 = np.std(class1)
-                n0 = len(class0)
-                n1 = len(class1)
-                t = mean0 - mean1
-                t0 = np.true_divide(std0 ** 2, n0)
-                t1 = np.true_divide(std1 ** 2, n1)
-                F[i] = np.true_divide(t, (t0 + t1) ** 0.5)
-        else:
-            print('y should be guaranteed to a binary class vector')
-            exit(0)
-        return np.abs(F)
-
-    def feature_ranking(self, F):
+        Rank features in descending order according to impurity, the higher the impurity, the less important the feature is
         """
-        Rank features in descending order according to t-score, the higher the t-score, the more important the feature is
-        """
-        idx = np.argsort(F)
+        idx = np.argsort(-F)
         return idx[::-1]
