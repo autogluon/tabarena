@@ -24,12 +24,13 @@ class RFImportance(AbstractFeatureSelector):
         self._y = y
         self._model = model
         self._n_max_features = n_max_features
-        from tabarena.benchmark.feature_selection_methods.ag.rf_importance.method.RFImportance import RFImportance
-        self._rf_importance = RFImportance()
+        from tabarena.benchmark.feature_selection_methods.ag.rf_importance.method.RFImportanceFS import RFImportanceFS
+        self._rf_importance = RFImportanceFS()
         # Time limit
         if "time_limit" in kwargs and kwargs["time_limit"] is not None:
             time_start_fit = time.time()
             kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+            kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
                     f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
