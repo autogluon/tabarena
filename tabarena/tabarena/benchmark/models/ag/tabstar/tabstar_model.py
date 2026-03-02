@@ -64,8 +64,12 @@ class TabSTARModel(AbstractModel):
         train_batch_size = LORA_BATCH
         predict_batch_size = VAL_BATCH
         if X.shape[1] > 200:
-            train_batch_size = 16
-            predict_batch_size = 16
+            if X.shape[0] > 50_000:
+                train_batch_size = 16
+                predict_batch_size = 16
+            else:
+                train_batch_size = 64
+                predict_batch_size = 64
 
         hps = self._get_model_params()
         self.model = model_cls(
