@@ -1,92 +1,324 @@
-from __future__ import annotations
-
-import numpy as np
-import pandas as pd
-
+import time
 import warnings
 import logging
 
+import numpy as np
+from scipy.stats import chi2_contingency
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.exceptions import NotFittedError
+
 logger = logging.getLogger(__name__)
-warnings.filterwarnings('ignore')
+
+# OneR classifier
+
+# Sebastian Raschka 2014-2026
+# mlxtend Machine Learning Library Extensions
+#
+# The classic OneR (One Rule) classifier
+# Authors: Sebastian Raschka <sebastianraschka.com>
+#
+# License: BSD 3 clause
+
+# Modification applied by Bastian Schäfer: Add Time Limit
 
 
-class OneRFS:
-    """OneR feature selector"""
+class OneRFS(BaseEstimator, ClassifierMixin):
+    """OneR (One Rule) feature selector.
 
-    def __init__(self, model):
-        self._y = None
-        self._model = model
-        self._n_max_features = None
-        self._selected_features = None
+    Parameters
+    ----------
+    resolve_ties : str (default: 'first')
+        Option for how to resolve ties if two or more features
+        have the same error. Options are
+        - 'first' (default): chooses first feature in the list, i.e.,
+          feature with the lower column index.
+        - 'chi-squared': performs a chi-squared test for each feature
+          against the target and selects the feature with the lowest p-value.
 
-    def fit_transform(self, X: pd.DataFrame, y: pd.Series, model, n_max_features, **kwargs) -> pd.DataFrame:
-        self._y = y
-        self._model = model
-        self._n_max_features = n_max_features
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
+    Attributes
+    ----------
+    self.classes_labels_ : array-like, shape = [n_labels]
+        Array containing the unique class labels found in the
+        training set.
 
-        feature_ranking = self.feature_ranking(self.t_score(X_np, y_np))
+    self.feature_idx_ : int
+        The index of the rules' feature based on the column in
+        the training set.
 
-        selected_features_idx = feature_ranking[:n_max_features]
-        selected_features = X.columns[selected_features_idx]
+    self.p_value_ : float
+        The p value for a given feature. Only available after calling `fit`
+        when the OneR attribute `resolve_ties = 'chi-squared'` is set.
 
-        X_selected = X[selected_features]
-        self._selected_features = list(X_selected.columns)
-        return X_selected
+    self.prediction_dict_ : dict
+        Dictionary containing information about the
+        feature's (self.feature_idx_)
+        rules and total error. E.g.,
+        `{'total error': 37, 'rules (value: class)': {0: 0, 1: 2}}`
+        means the total error is 37, and the rules are
+        "if feature value == 0 classify as 0"
+        and "if feature value == 1 classify as 2".
+        (And classify as class 1 otherwise.)
 
+    For usage examples, please see
+    https://rasbt.github.io/mlxtend/user_guide/classifier/OneRClassifier/
+    """
 
-    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
-        if self._selected_features is None:
-            self.fit_transform(X, self._y, self._model, self._n_max_features)
-        return X[self._selected_features]
+    def __init__(self, resolve_ties="first"):
+        allowed = {"first", "chi-squared"}
+        if resolve_ties not in allowed:
+            raise ValueError(
+                "resolve_ties must be in %s. Got %s." % (allowed, resolve_ties)
+            )
+        self.resolve_ties = resolve_ties
 
-    def t_score(self, X, y):
+    def fit(self, X, y, **kwargs):
+        """Learn rule from training data.
+
+        Parameters
+        ----------
+        X : {array-like, sparse matrix}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+
+        y : array-like, shape = [n_samples]
+            Target values.
+
+        Returns
+        -------
+        self : object
+
         """
-        This function calculates t_score for each feature, where t_score is only used for binary problem
-        t_score = |mean1-mean2|/sqrt(((std1^2)/n1)+((std2^2)/n2)))
+        # This check will only catch the most extreme cases
+        # but better than nothing
+        for c in range(X.shape[1]):
+            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                time_start_fit = time.time()
+                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                kwargs["start_time"] = time_start_fit
+                if kwargs["time_limit"] <= 0:
+                    logger.warning(
+                        f"\tWarning: FeatureSelection Method has no time left to train... "
+                        f"(Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
+                    break
+            if np.unique(X[:, c]).shape[0] == X.shape[0]:
+                warnings.warn(
+                    "Feature array likely contains at least one"
+                    " non-categorical column."
+                    " Column %d appears to have a unique value"
+                    " in every row." % c
+                )
+            break
 
-        Input
-        -----
-        X: {numpy array}, shape (n_samples, n_features)
-            input data
-        y: {numpy array}, shape (n_samples,)
-            input class labels
+        n_class_labels = np.unique(y).shape[0]
 
-        Output
-        ------
-        F: {numpy array}, shape (n_features,)
-            t-score for each feature
+        def compute_class_counts(X, y, feature_index, feature_value):
+            mask = X[:, feature_index] == feature_value
+            return np.bincount(y[mask], minlength=n_class_labels)
+
+        prediction_dict = {}  # save feature_idx: feature_val, label, error
+
+        # iterate over features
+        for feature_index in np.arange(X.shape[1]):
+            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                time_start_fit = time.time()
+                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                kwargs["start_time"] = time_start_fit
+                if kwargs["time_limit"] <= 0:
+                    logger.warning(
+                        f"\tWarning: FeatureSelection Method has no time left to train... "
+                        f"(Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
+                    break
+            # iterate over each possible value per feature
+            for feature_value in np.unique(X[:, feature_index]):
+                if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                    time_start_fit = time.time()
+                    kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                    kwargs["start_time"] = time_start_fit
+                    if kwargs["time_limit"] <= 0:
+                        logger.warning(
+                            f"\tWarning: FeatureSelection Method has no time left to train... "
+                            f"(Time Left = {kwargs['time_limit']:.1f}s)"
+                        )
+                        break
+                class_counts = compute_class_counts(X, y, feature_index, feature_value)
+                most_frequent_class = np.argmax(class_counts)
+                self.class_labels_ = np.unique(y)
+
+                # count all classes for that feature match
+                # except the most frequent one
+                inverse_index = np.ones(n_class_labels, dtype=bool)
+                inverse_index[most_frequent_class] = False
+
+                error = np.sum(class_counts[inverse_index])
+
+                # compute the total error for each feature and
+                #  save all the corresponding rules for a given feature
+                if feature_index not in prediction_dict:
+                    prediction_dict[feature_index] = {
+                        "total error": 0,
+                        "rules (value: class)": {},
+                    }
+                prediction_dict[feature_index]["rules (value: class)"][
+                    feature_value
+                ] = most_frequent_class
+                prediction_dict[feature_index]["total error"] += error
+
+            # get best feature (i.e., the feature with the lowest error)
+            best_err = np.inf
+            best_idx = [None]
+            for i in prediction_dict:
+                if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                    time_start_fit = time.time()
+                    kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                    kwargs["start_time"] = time_start_fit
+                    if kwargs["time_limit"] <= 0:
+                        logger.warning(
+                            f"\tWarning: FeatureSelection Method has no time left to train... "
+                            f"(Time Left = {kwargs['time_limit']:.1f}s)"
+                        )
+                        break
+                if prediction_dict[i]["total error"] < best_err:
+                    best_err = prediction_dict[i]["total error"]
+                    best_idx[-1] = i
+
+            if self.resolve_ties == "chi-squared":
+                # collect duplicates
+                for i in prediction_dict:
+                    if i == best_idx[-1]:
+                        continue
+                    if prediction_dict[i]["total error"] == best_err:
+                        best_idx.append(i)
+
+                p_values = []
+                for feature_idx in best_idx:
+                    if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                        time_start_fit = time.time()
+                        kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                        kwargs["start_time"] = time_start_fit
+                        if kwargs["time_limit"] <= 0:
+                            logger.warning(
+                                f"\tWarning: FeatureSelection Method has no time left to train... "
+                                f"(Time Left = {kwargs['time_limit']:.1f}s)"
+                            )
+                            break
+                    rules = prediction_dict[feature_idx]["rules (value: class)"]
+
+                    # contingency table for a given feature
+                    #   (e.g., petal_width for iris)
+                    #   is organized as follows (without the sum columns):
+                    #
+                    #              petal_width
+                    # species      (0.0976,0.791] (0.791,1.63] (1.63,2.5] sum
+                    #   setosa                 50            0          0  50
+                    #   versicolor              0           48          2  50
+                    #   virginica               0            4         46  50
+                    #   sum                    50           52         48 150
+
+                    ary = np.zeros((n_class_labels, len(rules)))
+
+                    for idx, r in enumerate(rules):
+                        if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                            time_start_fit = time.time()
+                            kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                            kwargs["start_time"] = time_start_fit
+                            if kwargs["time_limit"] <= 0:
+                                logger.warning(
+                                    f"\tWarning: FeatureSelection Method has no time left to train... "
+                                    f"(Time Left = {kwargs['time_limit']:.1f}s)"
+                                )
+                                break
+                        ary[:, idx] = np.bincount(
+                            y[X[:, feature_idx] == r], minlength=n_class_labels
+                        )
+
+                    # returns "stat, p, dof, expected"
+                    _, p, _, _ = chi2_contingency(ary)
+                p_values.append(p)
+                best_p_idx = np.argmax(p_values)
+                best_idx = best_idx[best_p_idx]
+                self.p_value_ = p_values[best_p_idx]
+
+            elif self.resolve_ties == "first":
+                best_idx = best_idx[0]
+
+        self.feature_idx_ = best_idx
+        self.prediction_dict_ = prediction_dict[best_idx]
+        return self
+
+    def predict(self, X, n_max_features, **kwargs):
+        """Predict class labels for X.
+
+        Parameters
+        ----------
+        X : {array-like, sparse matrix}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+
+        Returns
+        ----------
+        maj : array-like, shape = [n_samples]
+            Predicted class labels.
+
         """
+        if not hasattr(self, "prediction_dict_"):
+            raise NotFittedError(
+                "Estimator not fitted, " "call `fit` before using the model."
+            )
 
-        n_samples, n_features = X.shape
-        F = np.zeros(n_features)
-        c = np.unique(y)
-        if len(c) == 2:
-            for i in range(n_features):
-                f = X[:, i]
-                # class0 contains instances belonging to the first class
-                # class1 contains instances belonging to the second class
-                class0 = f[y == c[0]]
-                class1 = f[y == c[1]]
-                mean0 = np.mean(class0)
-                mean1 = np.mean(class1)
-                std0 = np.std(class0)
-                std1 = np.std(class1)
-                n0 = len(class0)
-                n1 = len(class1)
-                t = mean0 - mean1
-                t0 = np.true_divide(std0 ** 2, n0)
-                t1 = np.true_divide(std1 ** 2, n1)
-                F[i] = np.true_divide(t, (t0 + t1) ** 0.5)
-        else:
-            print('y should be guaranteed to a binary class vector')
-            exit(0)
-        return np.abs(F)
+        rules = self.prediction_dict_["rules (value: class)"]
 
-    def feature_ranking(self, F):
-        """
-        Rank features in descending order according to t-score, the higher the t-score, the more important the feature is
-        """
-        idx = np.argsort(F)
-        return idx[::-1]
+        y_pred = np.zeros(X.shape[0], dtype=np.int_)
+
+        # Set up labels for those class labels in the
+        # dataset for which no rule exists. We use the
+        # first non-specified class label as the default class label.
+        rule_labels = set()
+        for feature_value in rules:
+            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                time_start_fit = time.time()
+                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                kwargs["start_time"] = time_start_fit
+                if kwargs["time_limit"] <= 0:
+                    logger.warning(
+                        f"\tWarning: FeatureSelection Method has no time left to train... "
+                        f"(Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
+                    score = np.zeros(X.shape[1])
+                    if n_max_features is not None and X.shape[1] > n_max_features:
+                        selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                    else:
+                        selected_idx = np.arange(X.shape[1])
+                    score[selected_idx] = 1
+                    return score
+            class_label = rules[feature_value]
+            rule_labels.add(class_label)
+        other_label = set(self.class_labels_) - rule_labels
+        if len(other_label):
+            y_pred[:] = list(other_label)[0]
+        # else just use "np.zeros"; we could also change this to
+        #  self.class_labels_[-1]+1 in future
+
+        # classify all class labels for which rules exist
+        for feature_value in rules:
+            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                time_start_fit = time.time()
+                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                kwargs["start_time"] = time_start_fit
+                if kwargs["time_limit"] <= 0:
+                    logger.warning(
+                        f"\tWarning: FeatureSelection Method has no time left to train... "
+                        f"(Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
+                    score = np.zeros(X.shape[1])
+                    if n_max_features is not None and X.shape[1] > n_max_features:
+                        selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                    else:
+                        selected_idx = np.arange(X.shape[1])
+                    score[selected_idx] = 1
+                    return score
+            mask = X[:, self.feature_idx_] == feature_value
+            y_pred[mask] = rules[feature_value]
+
+        return y_pred
