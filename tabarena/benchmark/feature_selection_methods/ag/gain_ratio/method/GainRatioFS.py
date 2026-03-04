@@ -1,92 +1,126 @@
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pandas as pd
-
 import warnings
 import logging
 
+from scipy.stats import entropy
+
 logger = logging.getLogger(__name__)
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class GainRatioFS:
     """GainRatio feature selector"""
 
-    def __init__(self, model):
+    def __init__(self, model=None):
         self._y = None
         self._model = model
         self._n_max_features = None
         self._selected_features = None
 
-    def fit_transform(self, X: pd.DataFrame, y: pd.Series, model, n_max_features, **kwargs) -> pd.DataFrame:
+    def fit_transform(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        model=None,
+        n_max_features: int | None = None,
+        **kwargs,
+    ) -> pd.DataFrame:
         self._y = y
         self._model = model
         self._n_max_features = n_max_features
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
 
-        feature_ranking = self.feature_ranking(self.t_score(X_np, y_np))
+        scores = self.gain_ratio(X, y, n_max_features, **kwargs)
+        feature_ranking = self.feature_ranking(scores)
 
-        selected_features_idx = feature_ranking[:n_max_features]
-        selected_features = X.columns[selected_features_idx]
+        if n_max_features is None or n_max_features >= X.shape[1]:
+            selected_features = X.columns[feature_ranking]
+        else:
+            selected_features = X.columns[feature_ranking[:n_max_features]]
 
-        X_selected = X[selected_features]
+        X_selected = X.loc[:, selected_features]
         self._selected_features = list(X_selected.columns)
         return X_selected
 
-
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:
+            # fall back to stored params
             self.fit_transform(X, self._y, self._model, self._n_max_features)
-        return X[self._selected_features]
+        return X.loc[:, self._selected_features]
 
-    def t_score(self, X, y):
+    def gain_ratio(self, X: pd.DataFrame, y: pd.Series, n_max_features, **kwargs) -> np.ndarray:
         """
-        This function calculates t_score for each feature, where t_score is only used for binary problem
-        t_score = |mean1-mean2|/sqrt(((std1^2)/n1)+((std2^2)/n2)))
+        Gain Ratio for each feature:
+          GR = InformationGain(X_i, Y) / SplitInfo(X_i)
 
-        Input
-        -----
-        X: {numpy array}, shape (n_samples, n_features)
-            input data
-        y: {numpy array}, shape (n_samples,)
-            input class labels
-
-        Output
-        ------
-        F: {numpy array}, shape (n_features,)
-            t-score for each feature
+        X: DataFrame (n_samples, n_features)
+        y: Series   (n_samples,)
         """
-
         n_samples, n_features = X.shape
-        F = np.zeros(n_features)
-        c = np.unique(y)
-        if len(c) == 2:
-            for i in range(n_features):
-                f = X[:, i]
-                # class0 contains instances belonging to the first class
-                # class1 contains instances belonging to the second class
-                class0 = f[y == c[0]]
-                class1 = f[y == c[1]]
-                mean0 = np.mean(class0)
-                mean1 = np.mean(class1)
-                std0 = np.std(class0)
-                std1 = np.std(class1)
-                n0 = len(class0)
-                n1 = len(class1)
-                t = mean0 - mean1
-                t0 = np.true_divide(std0 ** 2, n0)
-                t1 = np.true_divide(std1 ** 2, n1)
-                F[i] = np.true_divide(t, (t0 + t1) ** 0.5)
-        else:
-            print('y should be guaranteed to a binary class vector')
-            exit(0)
+        F = np.zeros(n_features, dtype=float)
+
+        # Parent entropy H(Y)
+        e_parent = self._entropy_from_counts(y.value_counts(dropna=False))  # [web:19][web:27]
+
+        for i in range(n_features):
+            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                time_start_fit = time.time()
+                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                kwargs["start_time"] = time_start_fit
+                if kwargs["time_limit"] <= 0:
+                    logger.warning(
+                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    score = np.zeros(X.shape[1])
+                    if n_max_features is not None and X.shape[1] > n_max_features:
+                        selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                    else:
+                        selected_idx = np.arange(X.shape[1])
+                    score[selected_idx] = 1
+                    return score
+            f = X.iloc[:, i]
+
+            # SplitInfo(X_i) = - sum_v p(v) log2 p(v)
+            p_v = f.value_counts(normalize=True, dropna=False)  # probabilities [web:19]
+            split_info = -(p_v * np.log2(p_v)).sum()
+
+            # Conditional entropy H(Y | X_i) = sum_v p(v) H(Y | X_i=v)
+            e_child = 0.0
+            for v, p in p_v.items():
+                if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                    time_start_fit = time.time()
+                    kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                    kwargs["start_time"] = time_start_fit
+                    if kwargs["time_limit"] <= 0:
+                        logger.warning(
+                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        score = np.zeros(X.shape[1])
+                        if n_max_features is not None and X.shape[1] > n_max_features:
+                            selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                        else:
+                            selected_idx = np.arange(X.shape[1])
+                        score[selected_idx] = 1
+                        return score
+                y_sub = y[f.eq(v)]
+                e_child += p * self._entropy_from_counts(y_sub.value_counts(dropna=False))  # [web:19][web:27]
+
+            info_gain = e_parent - e_child
+
+            F[i] = info_gain / split_info if split_info > 0 else 0.0
+
         return np.abs(F)
 
-    def feature_ranking(self, F):
+    def feature_ranking(self, F: np.ndarray) -> np.ndarray:
+        """Rank features in descending order (higher gain ratio is better)."""
+        return np.argsort(F)[::-1]
+
+    @staticmethod
+    def _entropy_from_counts(counts: pd.Series) -> float:
         """
-        Rank features in descending order according to t-score, the higher the t-score, the more important the feature is
+        Shannon entropy (bits) from counts.
+        scipy.stats.entropy accepts (possibly unnormalized) event counts. [web:27]
         """
-        idx = np.argsort(F)
-        return idx[::-1]
+        return float(entropy(counts.to_numpy(), base=2))  # base=2 => bits [web:27]
