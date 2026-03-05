@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pandas as pd
 
 import warnings
 import logging
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore')
@@ -20,69 +27,110 @@ class MarkovBlanketFS:
         self._selected_features = None
 
     def fit_transform(self, X: pd.DataFrame, y: pd.Series, model, n_max_features, **kwargs) -> pd.DataFrame:
-        self._y = y
-        self._model = model
-        self._n_max_features = n_max_features
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
-
-        feature_ranking = self.feature_ranking(self.t_score(X_np, y_np))
-
-        selected_features_idx = feature_ranking[:n_max_features]
-        selected_features = X.columns[selected_features_idx]
-
-        X_selected = X[selected_features]
+        n_eliminate = max(0, X.shape[1] - n_max_features)
+        kept = self.mb_expected_cross_entropy(X, y, n_max_features, k=5, n_eliminate=n_eliminate, use_fi_in_delta=True, **kwargs)
+        X_selected = X[kept]
         self._selected_features = list(X_selected.columns)
         return X_selected
-
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
 
-    def t_score(self, X, y):
+    def mb_expected_cross_entropy(self, X: pd.DataFrame, y: pd.Series, n_max_features, k: int, n_eliminate: int,
+                                   use_fi_in_delta: bool = True, cv_splits: int = 5, random_state: int = 0, **kwargs) -> list[
+        str]:
         """
-        This function calculates t_score for each feature, where t_score is only used for binary problem
-        t_score = |mean1-mean2|/sqrt(((std1^2)/n1)+((std2^2)/n2)))
+        Markov-blanket-style elimination.
 
-        Input
-        -----
-        X: {numpy array}, shape (n_samples, n_features)
-            input data
-        y: {numpy array}, shape (n_samples,)
-            input class labels
+        p_ij computed from Pearson correlation via X.corr() [web:131].
+        For each Fi in current G:
+          Mi = top-k abs-correlated features among G \ {Fi}
+          delta(Fi | Mi) = expected cross-entropy (log loss) estimated by CV
+                           on features Mi (+ Fi if use_fi_in_delta=True)
 
-        Output
-        ------
-        F: {numpy array}, shape (n_features,)
-            t-score for each feature
+        Remove Fi with minimal delta, repeat n_eliminate times.
+        Returns remaining feature names (G).
         """
 
-        n_samples, n_features = X.shape
-        F = np.zeros(n_features)
-        c = np.unique(y)
-        if len(c) == 2:
-            for i in range(n_features):
-                f = X[:, i]
-                # class0 contains instances belonging to the first class
-                # class1 contains instances belonging to the second class
-                class0 = f[y == c[0]]
-                class1 = f[y == c[1]]
-                mean0 = np.mean(class0)
-                mean1 = np.mean(class1)
-                std0 = np.std(class0)
-                std1 = np.std(class1)
-                n0 = len(class0)
-                n1 = len(class1)
-                t = mean0 - mean1
-                t0 = np.true_divide(std0 ** 2, n0)
-                t1 = np.true_divide(std1 ** 2, n1)
-                F[i] = np.true_divide(t, (t0 + t1) ** 0.5)
-        else:
-            print('y should be guaranteed to a binary class vector')
-            exit(0)
-        return np.abs(F)
+        G = list(X.columns)
+
+        # Pearson correlation matrix (p_ij) [web:131]
+        corr = X.corr(method="pearson").abs()
+
+        cv = StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=random_state)
+
+        # Simple, stable probabilistic classifier for log-loss
+        # (needs predict_proba -> LogisticRegression provides it)
+        clf = make_pipeline(
+            StandardScaler(),
+            LogisticRegression(max_iter=5000)
+        )
+
+        for _ in range(min(n_eliminate, len(G) - 1)):
+            if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                time_start_fit = time.time()
+                kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                kwargs["start_time"] = time_start_fit
+                if kwargs["time_limit"] <= 0:
+                    logger.warning(
+                        f"\tWarning: FeatureSelection Method has no time left to train... "
+                        f"(Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
+                    score = np.zeros(X.shape[1])
+                    if n_max_features is not None and X.shape[1] > n_max_features:
+                        selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                    else:
+                        selected_idx = np.arange(X.shape[1])
+                    score[selected_idx] = 1
+                    return score
+            best_feat = None
+            best_delta = np.inf
+
+            for fi in G:
+                if "time_limit" in kwargs and kwargs["time_limit"] is not None:
+                    time_start_fit = time.time()
+                    kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
+                    kwargs["start_time"] = time_start_fit
+                    if kwargs["time_limit"] <= 0:
+                        logger.warning(
+                            f"\tWarning: FeatureSelection Method has no time left to train... "
+                            f"(Time Left = {kwargs['time_limit']:.1f}s)"
+                        )
+                        score = np.zeros(X.shape[1])
+                        if n_max_features is not None and X.shape[1] > n_max_features:
+                            selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
+                        else:
+                            selected_idx = np.arange(X.shape[1])
+                        score[selected_idx] = 1
+                        return score
+                others = [fj for fj in G if fj != fi]
+                if not others:
+                    continue
+
+                Mi = list(corr.loc[fi, others].sort_values(ascending=False).head(k).index)
+
+                feat_set = Mi + ([fi] if use_fi_in_delta else [])
+                # expected cross-entropy = mean log loss
+                # sklearn returns NEGATIVE log loss, so negate it back.
+                scores = cross_val_score(
+                    clf,
+                    X[feat_set],
+                    y,
+                    cv=cv,
+                    scoring="neg_log_loss",
+                    error_score="raise",
+                )
+                delta = float(-scores.mean())
+
+                if delta < best_delta:
+                    best_delta = delta
+                    best_feat = fi
+
+            G.remove(best_feat)
+
+        return G
 
     def feature_ranking(self, F):
         """
