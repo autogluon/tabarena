@@ -54,7 +54,7 @@ xrfm = ["xrfm[cu12]"]
 sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa"]
 tabprep = []
 tabstar = ["tabstar==1.1.15"]
-perpetualboosting = ["perpetual"]
+perpetualboosting = ["perpetual"] # We used version 2.1.0
 
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [

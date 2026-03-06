@@ -64,7 +64,6 @@ def run_eval_for_new_models(
                     "Make sure to pass the 'ag_name' as 'method' to 'ModelMetadata'!"
                 )
 
-
     methods = []
     for m in models:
         if m.new_result_prefix is None:
