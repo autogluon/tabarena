@@ -49,6 +49,7 @@ def get_configs_generator_from_name(model_name: str):
         "RealTabPFN-v2.5": lambda: importlib.import_module("tabarena.models.tabpfnv2_5.generate").gen_realtabpfnv25,
         "SAP-RPT-OSS": lambda: importlib.import_module("tabarena.models.sap_rpt_oss.generate").gen_sap_rpt_oss,
         "TabICLv2": lambda: importlib.import_module("tabarena.models.tabicl.generate").gen_tabiclv2,
+        "PerpetualBooster": lambda: importlib.import_module("tabarena.models.perpetual_booster.generate").gen_perpetual_booster,
     }
 
     if model_name not in name_to_import_map:
