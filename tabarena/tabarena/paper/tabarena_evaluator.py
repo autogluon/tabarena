@@ -217,6 +217,338 @@ class TabArenaEvaluator:
     def _rename_dict(cls) -> dict:
         return {}
 
+    def compare_methods_per_dataset(
+        self,
+        df: pd.DataFrame,
+        *,
+        method_a: str,
+        method_b: str,
+        dataset_col: str = "dataset",
+        method_col: str = "method",
+        split_col: str = "split",
+        error_col: str = "metric_error",
+        require_paired_splits: bool = True,
+        zscore_ddof: int = 1,  # 1 = sample std (recommended), 0 = population std
+    ) -> pd.DataFrame:
+        """
+        Compare two methods on metric_error (lower is better; 0 is perfect), per dataset.
+
+        Adds a per-dataset z-score of the paired mean difference across splits:
+            z = mean(diff) / (std(diff) / sqrt(n))
+        where diff = A - B (negative => A better).
+
+        Notes:
+          - With very few splits, z can be unstable.
+          - If std(diff)==0 or n<2, z is returned as NaN.
+        """
+        needed = {dataset_col, method_col, split_col, error_col}
+        missing = needed - set(df.columns)
+        if missing:
+            raise ValueError(f"df missing columns: {sorted(missing)}")
+
+        sub = df[df[method_col].isin([method_a, method_b])][
+            [dataset_col, split_col, method_col, error_col]
+        ].copy()
+
+        # Align A/B on the same (dataset, split)
+        wide = (
+            sub.pivot_table(
+                index=[dataset_col, split_col],
+                columns=method_col,
+                values=error_col,
+                aggfunc="mean",  # handle duplicates
+            )
+            .rename(columns={method_a: "A", method_b: "B"})
+        )
+
+        if require_paired_splits:
+            wide = wide.dropna(subset=["A", "B"])
+
+        # Paired quantities
+        wide["diff_A_minus_B"] = wide["A"] - wide["B"]  # <0 => A better
+        wide["A_wins"] = (wide["A"] < wide["B"]).astype(float)
+        wide["ties"] = (wide["A"] == wide["B"]).astype(float)
+        wide["A_losses"] = (wide["A"] > wide["B"]).astype(float)
+        wide["rel_impr_A_vs_B"] = np.where(wide["B"] > 0, (wide["B"] - wide["A"]) / wide["B"], np.nan)
+
+        def _z_from_diffs(diffs: pd.Series) -> float:
+            diffs = diffs.dropna()
+            n = int(diffs.shape[0])
+            if n < 2:
+                return np.nan
+            s = diffs.std(ddof=zscore_ddof)
+            if not np.isfinite(s) or s == 0:
+                return np.nan
+            return float(diffs.mean() / (s / np.sqrt(n)))
+
+        def _agg(g: pd.DataFrame) -> pd.Series:
+            paired = g.dropna(subset=["A", "B"])
+            diffs = paired["diff_A_minus_B"]
+
+            out = {
+                "n_splits": int(len(paired)),
+                "mean_error_A": paired["A"].mean(),
+                "mean_error_B": paired["B"].mean(),
+                "median_error_A": paired["A"].median(),
+                "median_error_B": paired["B"].median(),
+                "std_error_A": paired["A"].std(ddof=1),
+                "std_error_B": paired["B"].std(ddof=1),
+                "mean_diff_A_minus_B": diffs.mean(),
+                "median_diff_A_minus_B": diffs.median(),
+                "std_diff_A_minus_B": diffs.std(ddof=1),
+                "win_rate_A": paired["A_wins"].mean(),
+                "tie_rate": paired["ties"].mean(),
+                "loss_rate_A": paired["A_losses"].mean(),
+                "mean_rel_impr_A_vs_B": paired["rel_impr_A_vs_B"].mean(),
+                # z-score based on variability across splits ("seeds")
+                "z_score_mean_diff": _z_from_diffs(diffs),
+            }
+            return pd.Series(out)
+
+        stats = wide.groupby(level=0, sort=True).apply(_agg)
+
+        stats["winner_by_mean"] = np.where(
+            stats["mean_error_A"] < stats["mean_error_B"], method_a,
+            np.where(stats["mean_error_A"] > stats["mean_error_B"], method_b, "tie"),
+        )
+
+        return stats.reset_index(names=[dataset_col])
+
+    def dataset_pairwise_split_agreement(
+        self,
+        df_dataset: pd.DataFrame,
+        *,
+        method_col: str = "method",
+        split_col: str = "split",
+        error_col: str = "metric_error",
+        tie_policy: str = "half",  # {"ignore", "half", "count_as_disagree"}
+        min_splits: int = 2,
+    ) -> dict[str, float]:
+        """
+        Compute average split agreement across all method pairs within ONE dataset.
+
+        Agreement for pair (i,j):
+          p_ij = fraction of splits where error_i < error_j
+          agreement_ij = max(p_ij, 1 - p_ij)
+
+        tie_policy:
+          - "ignore": exclude split ties from the denominator for that pair
+          - "half": count ties as half-win for both sides (so they push p toward 0.5)
+          - "count_as_disagree": treat ties as neither side winning (pushes agreement down)
+
+        Returns a dict with:
+          - n_methods, n_splits
+          - avg_pairwise_agreement (float in [0.5, 1])
+          - avg_pairwise_agreement_weighted (optional nuance: pairs weighted by usable splits)
+        """
+        # Pivot to a dense matrix: rows=splits, cols=methods, values=error
+        wide = df_dataset.pivot_table(
+            index=split_col, columns=method_col, values=error_col, aggfunc="mean"
+        )
+        # Keep only methods that appear on >=1 split (already true) and splits with >=2 methods
+        if wide.shape[0] < min_splits or wide.shape[1] < 2:
+            return {
+                "n_methods": float(wide.shape[1]),
+                "n_splits": float(wide.shape[0]),
+                "avg_pairwise_agreement": np.nan,
+                "avg_pairwise_agreement_weighted": np.nan,
+            }
+
+        X = wide.to_numpy(dtype=float)  # shape (S, M)
+        S, M = X.shape
+
+        # Broadcast comparisons: for each split s, compare all method pairs (i,j)
+        # win[s,i,j] = 1 if X[s,i] < X[s,j]
+        # tie[s,i,j] = 1 if X[s,i] == X[s,j]
+        win = (X[:, :, None] < X[:, None, :])
+        tie = (X[:, :, None] == X[:, None, :])
+
+        # Handle missing values: comparisons where either side is NaN should not count
+        valid = np.isfinite(X)
+        valid_pair = valid[:, :, None] & valid[:, None, :]  # shape (S,M,M)
+        win = win & valid_pair
+        tie = tie & valid_pair & tie
+
+        wins = win.sum(axis=0).astype(float)  # (M,M): #splits i beats j
+        ties = tie.sum(axis=0).astype(float)  # (M,M): #split ties
+        usable = valid_pair.sum(axis=0).astype(float)  # (M,M): #splits with both present
+
+        # We only want i<j pairs (upper triangle) to avoid double counting.
+        iu = np.triu_indices(M, k=1)
+
+        if tie_policy == "ignore":
+            denom = usable - ties
+            # avoid divide-by-zero (all ties or no usable splits for that pair)
+            p = np.divide(wins, denom, out=np.full_like(wins, np.nan), where=denom > 0)
+            agree = np.maximum(p, 1.0 - p)
+
+            agree_pairs = agree[iu]
+            denom_pairs = denom[iu]
+
+            avg = float(np.nanmean(agree_pairs))
+            # weighted by how many non-tie split comparisons each pair had
+            wavg = float(np.nansum(agree_pairs * denom_pairs) / np.nansum(denom_pairs)) if np.nansum(
+                denom_pairs) > 0 else np.nan
+
+        elif tie_policy == "half":
+            # treat ties as half-win for both sides
+            denom = usable
+            p = np.divide(wins + 0.5 * ties, denom, out=np.full_like(wins, np.nan), where=denom > 0)
+            agree = np.maximum(p, 1.0 - p)
+
+            agree_pairs = agree[iu]
+            denom_pairs = denom[iu]
+
+            avg = float(np.nanmean(agree_pairs))
+            wavg = float(np.nansum(agree_pairs * denom_pairs) / np.nansum(denom_pairs)) if np.nansum(
+                denom_pairs) > 0 else np.nan
+
+        elif tie_policy == "count_as_disagree":
+            # ties count in denom but not in wins => they push p toward 0 and agreement downward
+            denom = usable
+            p = np.divide(wins, denom, out=np.full_like(wins, np.nan), where=denom > 0)
+            agree = np.maximum(p, 1.0 - p)
+
+            agree_pairs = agree[iu]
+            denom_pairs = denom[iu]
+
+            avg = float(np.nanmean(agree_pairs))
+            wavg = float(np.nansum(agree_pairs * denom_pairs) / np.nansum(denom_pairs)) if np.nansum(
+                denom_pairs) > 0 else np.nan
+
+        else:
+            raise ValueError("tie_policy must be one of: {'ignore','half','count_as_disagree'}")
+
+        return {
+            "n_methods": float(M),
+            "n_splits": float(S),
+            "avg_pairwise_agreement": avg,
+            "avg_pairwise_agreement_weighted": wavg,
+        }
+
+    def add_dataset_agreement_metric(
+        self,
+        df: pd.DataFrame,
+        *,
+        dataset_col: str = "dataset",
+        method_col: str = "method",
+        split_col: str = "split",
+        error_col: str = "metric_error",
+        tie_policy: str = "half",
+    ) -> pd.DataFrame:
+        """Compute the metric for every dataset and return a summary DataFrame."""
+        rows = []
+        for ds, g in df.groupby(dataset_col, sort=True):
+            out = self.dataset_pairwise_split_agreement(
+                g,
+                method_col=method_col,
+                split_col=split_col,
+                error_col=error_col,
+                tie_policy=tie_policy,
+            )
+            out[dataset_col] = ds
+            rows.append(out)
+        return pd.DataFrame(rows)
+
+    # Example:
+    # agreement_df = add_dataset_agreement_metric(df, tie_policy="ignore")
+    # agreement_df.sort_values("avg_pairwise_agreement", ascending=False).head()
+
+    def plot_imp(self, results_per_task: pd.DataFrame):
+
+        # 1. Find the index of the lowest-rank row per dataset
+        best_idx = (
+            results_per_task
+            .groupby("dataset", sort=False)["rank"]
+            .idxmin()
+        )
+
+        # 2. Extract method name and metric_error for those rows
+        best_per_dataset = (
+            results_per_task
+            .loc[best_idx, ["dataset", "method", "metric_error"]]
+            .rename(
+                columns={
+                    "method": "best_method",
+                    "metric_error": "best_metric_error",
+                }
+            )
+        )
+
+        # 3. Join back to the original DataFrame
+        results_per_task = results_per_task.merge(
+            best_per_dataset,
+            on="dataset",
+            how="left",
+        )
+
+        import matplotlib.pyplot as plt
+
+        # --- dataset order (same as you already do) ---
+        order = (
+            results_per_task
+            .groupby("dataset")["improvability"]
+            .median()
+            .sort_values()
+            .index
+        )
+
+        results_per_task = (
+            results_per_task
+            .assign(dataset=pd.Categorical(results_per_task["dataset"], categories=order, ordered=True))
+            .sort_values("dataset")
+            .reset_index(drop=True)
+        )
+
+        # --- helper for filenames ---
+        def _safe_filename(s: str) -> str:
+            return "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in s)
+
+        out_dir = Path("plots_improvability_by_method")
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        methods = results_per_task["method"].dropna().unique()
+
+        for method in methods:
+            fig, ax = plt.subplots(figsize=(max(10, 0.4 * len(order)), 6))
+
+            # background boxplot (all methods)
+            results_per_task.boxplot(
+                column="improvability",
+                by="dataset",
+                grid=False,
+                rot=90,
+                ax=ax,
+            )
+
+            # compute ONE value per dataset for this method (median across folds / rows)
+            per_dataset = (
+                results_per_task.loc[results_per_task["method"] == method]
+                .groupby("dataset", observed=True)["improvability"]
+                .median()
+                .reindex(order)  # align with x-axis order
+            )
+
+            # x positions used by pandas boxplot are 1..N
+            x = range(1, len(order) + 1)
+            y = per_dataset.to_numpy()
+
+            # overlay in red (skip NaNs automatically by masking)
+            mask = pd.notna(y)
+            ax.scatter([xi for xi, ok in zip(x, mask) if ok], y[mask], color="red", s=30, zorder=3)
+
+            ax.set_title(f"Improvability per Dataset — highlight: {method}")
+            fig.suptitle("")  # remove pandas default subtitle
+            ax.set_xlabel("Dataset")
+            ax.set_ylabel("Improvability")
+
+            fig.tight_layout()
+            out_path = out_dir / f"improvability_boxplot_highlight_{_safe_filename(str(method))}.png"
+            fig.savefig(out_path, dpi=300, bbox_inches="tight")
+            plt.close(fig)
+        print()
+        # TODO: Get rank 1 method per task/split, include alongside as column w/ value for comparison
+
     def eval(
         self,
         df_results: pd.DataFrame,
@@ -399,6 +731,53 @@ class TabArenaEvaluator:
             ],
         )
 
+        results_per_split = tabarena.compute_results_per_task(data=df_results_rank_compare, include_seed_col=True)
+        fold_similarity = tabarena.rank_datasets_by_fold_similarity(results_per_task=results_per_split)
+        splits_per_dataset_min = fold_similarity["dataset_ranking"]["folds_needed_for_stability@0.9"]
+
+        def subset_to_required_folds(
+            tabarena,
+            df_results_rank_compare: pd.DataFrame,
+            splits_per_dataset_min: pd.Series,
+        ) -> pd.DataFrame:
+            """
+            For each dataset, keep min(current_folds, folds_needed_for_stability@0.9) folds.
+            """
+
+            task_col = tabarena.task_col
+            seed_col = tabarena.seed_column
+
+            if seed_col is None:
+                raise ValueError("tabarena.seed_column must be set.")
+
+            df = df_results_rank_compare.copy()
+
+            dfs = []
+
+            for dataset, df_dataset in df.groupby(task_col):
+                if dataset not in splits_per_dataset_min.index:
+                    continue
+
+                k_needed = splits_per_dataset_min.loc[dataset]
+                if pd.isna(k_needed):
+                    continue
+
+                k_needed = int(k_needed)
+
+                unique_folds = sorted(df_dataset[seed_col].unique())
+                current_folds = len(unique_folds)
+
+                k_keep = min(current_folds, k_needed)
+
+                folds_to_keep = unique_folds[:k_keep]
+
+                df_subset = df_dataset[df_dataset[seed_col].isin(folds_to_keep)]
+                dfs.append(df_subset)
+
+            return pd.concat(dfs, axis=0).reset_index(drop=True)
+
+        # df_results_rank_compare2 = subset_to_required_folds(tabarena=tabarena, df_results_rank_compare=df_results_rank_compare, splits_per_dataset_min=splits_per_dataset_min)
+
         leaderboard_kwargs.setdefault("include_elo", True)
         leaderboard_kwargs.setdefault("include_winrate", True)
         leaderboard_kwargs.setdefault("include_mrr", True)
@@ -459,11 +838,103 @@ class TabArenaEvaluator:
             **plot_tuning_kwargs,
         )
 
+        tabarena_val = TabArena(
+            method_col=self.method_col,
+            task_col="dataset",
+            seed_column="fold",
+            error_col="metric_error_val",
+            columns_to_agg_extra=[
+                "time_train_s",
+                "time_infer_s",
+                "time_train_s_per_1K",
+                "time_infer_s_per_1K",
+                "normalized-error",
+                "normalized-error-task",
+                "imputed",
+            ],
+            groupby_columns=[
+                "metric",
+                "problem_type",
+            ],
+        )
+
         results_per_task = tabarena.compute_results_per_task(data=df_results_rank_compare)
         results_per_split = tabarena.compute_results_per_task(data=df_results_rank_compare, include_seed_col=True)
 
         results_per_task = results_per_task.join(method_info, on="method")
         results_per_split = results_per_split.join(method_info, on="method")
+
+        # representativeness = tabarena.dataset_representativeness(results_per_task=results_per_split)
+        # fold_similarity = tabarena.rank_datasets_by_fold_similarity(results_per_task=results_per_split)
+        # df_jitter, per_method = tabarena.rank_jitter_all_datasets(results_per_split, return_per_method=True)
+        #
+        # a = fold_similarity["dataset_ranking"]
+        # a["expected_rank_jitter"] = df_jitter.set_index("dataset")["expected_rank_jitter"]
+        # a["observed_avg_abs_rank_change"] = df_jitter.set_index("dataset")["observed_avg_abs_rank_change"]
+        #
+        # # One dataset curve
+        # curve = tabarena.dataset_meanrank_jitter_bootstrap_curve(
+        #     results_per_split,
+        #     dataset="credit-g",
+        #     n_bootstrap=1000,
+        #     k_values=[1, 2, 3, 5, 9, 15, 30],
+        # )
+        # print(curve)
+        #
+        # # All datasets (smaller bootstrap for speed)
+        # curves_all = tabarena.meanrank_jitter_bootstrap_curve_all_datasets(
+        #     results_per_split,
+        #     n_bootstrap=200,
+        # )
+        #
+        # out_dataset_info = self.add_dataset_agreement_metric(df=df_results_rank_compare, split_col="fold")
+        # with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
+        #     print(out_dataset_info)
+        #
+        # # your_method = "AutoGluon 1.5 (extreme, 4h)"
+        # your_method = "AutoGluon (2026-02-16)"
+        #
+        # for m in df_results_rank_compare["method"].unique():
+        #     if m == your_method:
+        #         continue
+        #
+        #     out = self.compare_methods_per_dataset(
+        #         method_a=your_method,
+        #         method_b=m,
+        #         df=df_results_rank_compare,
+        #         split_col="fold",
+        #     )
+        #
+        #     print(f"A={your_method} vs B={m}:")
+        #     with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
+        #         print(out)
+        #     print()
+
+
+
+
+
+        #
+        # metric = tabarena.metric_spec_improvability()  # or metric_spec_rank(), metric_spec_error(), metric_spec_elo(...)
+        # s2 = tabarena.score_series_if_remove_each_method(metric, results_per_task, method_1=your_method)
+        # print(s2)
+        #
+        # # metric = tabarena.metric_spec_elo(INIT_RATING=1000, BOOTSTRAP_ROUNDS=1)  # example kwargs
+        # # s3 = tabarena.score_series_if_remove_each_method(metric, results_per_task, method_1=your_method)
+        #
+        # metric = tabarena.metric_spec_improvability()
+        # greedy_path_3 = tabarena.greedy_remove_methods_optimize_score(metric, results_per_task, method_1=your_method)
+        # print(greedy_path_3)
+        #
+        # metric = tabarena.metric_spec_rank()
+        # greedy_path = tabarena.greedy_remove_methods_optimize_score(metric, results_per_task, method_1=your_method)
+        # print(greedy_path)
+        #
+        # self.plot_imp(results_per_task=results_per_task)
+        #
+        # metric = tabarena.metric_spec_elo(**leaderboard_kwargs["elo_kwargs"])
+        # greedy_path_2 = tabarena.greedy_remove_methods_optimize_score(metric, results_per_task, method_1=your_method)
+        # print(greedy_path_2)
 
         # TODO: Consider adding the metadata to the saved `results_per_split.csv` file?
         # assert len(results_per_split) == len(df_results_rank_compare)

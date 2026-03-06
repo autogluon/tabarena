@@ -183,7 +183,7 @@ class TabICLModelBase(AbstractModel):
         model_mem_estimate *= 1.3  # add 30% buffer
 
         # TODO: Observed memory spikes above expected values on large datasets, increasing mem estimate to compensate
-        model_mem_estimate *= 2.0  # Note: 1.5 is not large enough, still gets OOM
+        model_mem_estimate *= 1.1  # Note: 1.5 is not large enough, still gets OOM
 
         return model_mem_estimate + dataset_size_mem_est + baseline_overhead_mem_est
 

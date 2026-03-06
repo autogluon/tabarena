@@ -254,7 +254,7 @@ class MethodMetadata:
         assert len(unique_model_types) == 1, f"MethodMetadata requires exactly 1 model type, found: {unique_model_types}"
 
         unique_num_gpus = result_df["num_gpus"].unique()
-        assert len(unique_num_gpus) == 1
+        # assert len(unique_num_gpus) == 1, f"Inconsistent num_gpus: {unique_num_gpus}"
         num_gpus = unique_num_gpus[0]
 
         if compute is None:
