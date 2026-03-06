@@ -8,7 +8,7 @@ from tst.test_feature_selection_method import verify_method
 ])
 def test_chi2(problem_type, dataset_id):
     from tabarena.benchmark.feature_selection_methods.ag.chi2.Chi2 import Chi2
-    hyperparameters = {"n_max_features": 10, "time_limit": 3600, "dataset_id": dataset_id}
+    hyperparameters = {"n_max_features": 10, "time_limit": 3600, "dataset_id": dataset_id, "problem_type": problem_type}
     try:
         verify_method(Chi2, hyperparameters)
     except ImportError as err:

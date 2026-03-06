@@ -35,7 +35,8 @@ def run_method(FeatureSelector, hyperparameters):
     model = BaggedEnsembleModel(model_meta.model_cls(problem_type="binary", **model_config))
 
     # Clean labels (same as your script)
-    label_cleaner = LabelCleaner.construct(problem_type="binary", y=y)
+    problem_type = hyperparameters.get("problem_type")
+    label_cleaner = LabelCleaner.construct(problem_type=problem_type, y=y)
     y = label_cleaner.transform(y)
 
     # Run feature selection

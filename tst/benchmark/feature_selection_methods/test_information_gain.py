@@ -8,7 +8,7 @@ from tst.test_feature_selection_method import verify_method
 ])
 def test_information_gain(problem_type, dataset_id):
     from tabarena.benchmark.feature_selection_methods.ag.information_gain.InformationGain import InformationGain
-    hyperparameters = {"n_max_features": 10, "time_limit": 3600, "dataset_id": dataset_id}
+    hyperparameters = {"n_max_features": 10, "time_limit": 3600, "dataset_id": dataset_id, "problem_type": problem_type}
     try:
         verify_method(InformationGain, hyperparameters)
     except ImportError as err:
