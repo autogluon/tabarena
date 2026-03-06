@@ -76,10 +76,12 @@ class BenchmarkSetup:
      to run)."""
     slurm_gpu_partition: str = "alldlc2_gpu-l40s"
     """SLURM partition to use for GPU jobs. Adjust as needed for your cluster setup."""
-    slurm_cpu_partition: str = "bosch_cpu-cascadelake"
+    slurm_cpu_partition: str = "alldlc2_cpu-epyc9655"
     """SLURM partition to use for CPU jobs. Adjust as needed for your cluster setup."""
     slurm_extra_gres: str | None = "localtmp:100"
     """Extra SLURM gres to use for the jobs. Adjust as needed for your cluster setup."""
+    slurm_mem_per_handle: bool = True
+    """If True, we set SLURM memory per CPU/GPU. If False, we set SLURM memory per job."""
     # Task/Data Settings
     # ------------------
     # TODO: update metadata and usage for non-IID tasks that are not fold-based in the future.
@@ -381,10 +383,13 @@ class BenchmarkSetup:
         )
         time_in_h = f"--time={time_in_h}:00:00"
         cpus = f"--cpus-per-task={self.num_cpus}"
-        if is_gpu_job:
-            mem = f"--mem-per-gpu={self.memory_limit}G"
+        if self.slurm_mem_per_handle:
+            if is_gpu_job:
+                mem = f"--mem-per-gpu={self.memory_limit // self.num_gpus}G"
+            else:
+                mem = f"--mem-per-cpu={self.memory_limit // self.num_cpus}G"
         else:
-            mem = f"--mem-per-cpu={self.memory_limit // self.num_cpus}G"
+            mem = f"--mem={self.memory_limit}G"
         script = str(Path(__file__).parent / self.slurm_script)
 
         slurm_logs = f"--output={self.slurm_log_output}/%A/slurm-%A_%a.out"
