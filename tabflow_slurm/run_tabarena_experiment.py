@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-import os
 import shutil
+from pathlib import Path
 from typing import Any
 
 import openml
@@ -11,17 +11,17 @@ import openml
 def setup_slurm_job(
     *,
     openml_cache_dir: str,
-    setup_ray_for_slurm_shared_resources_environment: bool,
     num_cpus: int,
     num_gpus: int,
     memory_limit: int,
+    setup_ray_for_slurm_shared_resources_environment: bool,
 ) -> None | str:
     """Ensure correct caching and usage of directories for OpenML and TabRepo.
 
     Parameters
     ----------
     openml_cache_dir : str
-        The path to the OpenML cache directory.
+        The path to the OpenML cache directory, or "auto" to use the default OpenML cache directory.
     num_cpus : int
         The number of CPUs to use for the experiment (needed for proper Ray setup).
     num_gpus : int
@@ -55,7 +55,6 @@ def setup_slurm_job(
 
         _plasma_directory = None
         dev_shm_size = ray._private.utils.get_shared_memory_bytes() / 1e9
-        print(dev_shm_size)
         if dev_shm_size < min_plasma_storage_size:
             print(
                 "WARNING: /dev/shm is full, switching to /tmp usage! "
@@ -78,6 +77,113 @@ def setup_slurm_job(
             _plasma_directory=_plasma_directory,
         )
     return ray_dir
+
+
+def _parse_yaml_config(
+    *,
+    configs_yaml_file: str,
+    config_index: list[int] | None,
+    num_cpus: int,
+    num_gpus: int,
+    memory_limit: int,
+    sequential_local_fold_fitting: bool,
+) -> list:
+    """Parse the YAML configuration file and return a list of method configurations to run.
+
+    Parameters
+    ----------
+    configs_yaml_file
+        The path to the YAML file containing the configurations of all methods to run for the experiment.
+    config_index
+        The index of the configuration from the YAML file to run. If None, all configurations will be run.
+    num_cpus
+        The number of CPUs to use for the experiment.
+    num_gpus
+        The number of GPUs to use for the experiment.
+    memory_limit
+        The memory limit to use for the experiment.
+    sequential_local_fold_fitting
+        Whether to force to use sequential local fold fitting or not.
+
+    Returns:
+    -------
+    methods: list
+        Parsed TabArena experiment configurations to run, with resources and special model cases handled.
+    """
+    from tabarena.benchmark.experiment.experiment_constructor import (
+        YamlExperimentSerializer,
+        YamlSingleExperimentSerializer,
+    )
+
+    yaml_out = YamlExperimentSerializer.load_yaml(path=configs_yaml_file)
+    methods = []
+    for m_i, method in enumerate(yaml_out):
+        if (config_index is not None) and (m_i not in config_index):
+            continue
+
+        if method["type"] == "AGExperiment":
+            method["fit_kwargs"]["num_cpus"] = num_cpus
+            method["fit_kwargs"]["num_gpus"] = num_gpus
+            method["fit_kwargs"]["memory_limit"] = memory_limit
+            methods.append(YamlSingleExperimentSerializer.parse_method(method))
+            continue
+
+        if "method_kwargs" not in method:
+            method["method_kwargs"] = {}
+
+        # Logic to handle resources and special model cases
+        if "fit_kwargs" not in method["method_kwargs"]:
+            method["method_kwargs"]["fit_kwargs"] = {}
+        method["method_kwargs"]["fit_kwargs"]["num_cpus"] = num_cpus
+        method["method_kwargs"]["fit_kwargs"]["num_gpus"] = num_gpus
+        method["method_kwargs"]["fit_kwargs"]["memory_limit"] = memory_limit
+
+        if "model_hyperparameters" not in method:
+            method["model_hyperparameters"] = {}
+        if sequential_local_fold_fitting:
+            if "ag_args_ensemble" not in method["model_hyperparameters"]:
+                method["model_hyperparameters"]["ag_args_ensemble"] = {}
+            method["model_hyperparameters"]["ag_args_ensemble"]["fold_fitting_strategy"] = "sequential_local"
+
+        methods.append(YamlSingleExperimentSerializer.parse_method(method))
+
+    # TODO: Update
+    #   - This is special code for a special branch of TabArena that is not otherwise so far.
+    for m_i in range(len(methods)):
+        preprocessing_name = methods[m_i].method_kwargs.pop("preprocessing_pipeline", None)
+
+        if preprocessing_name is not None:
+            print("Adding preprocessing to the config:", preprocessing_name)
+            from tabarena.benchmark.preprocessing.preprocessing_register import (
+                PREPROCESSING_METHODS,
+            )
+
+            methods[m_i] = PREPROCESSING_METHODS[preprocessing_name](methods[m_i])
+
+    return methods
+
+
+def _parse_task_id(task_id_str: str) -> int | object:
+    """Parse the task id from a string and return either an int or a TabArena UserTask object.
+
+    Parameters
+    ----------
+    task_id_str : str
+        The task id of the OpenML task to run, or a string defining a local UserTask.
+
+    Returns:
+    -------
+    int | openml.tasks.OpenMLTask
+        The parsed task id, either as an int (for OpenML task IDs) or as
+    """
+    try:
+        task_id_or_object = int(task_id_str)
+    except ValueError:
+        from tabarena.benchmark.task.user_task import UserTask
+
+        task_id_or_object = UserTask.from_task_id_str(task_id_str)
+
+    return task_id_or_object
 
 
 def run_experiment(
@@ -126,64 +232,16 @@ def run_experiment(
         Ray. This might create a large speedup for some models.
     """
     from tabarena.benchmark.experiment import run_experiments_new
-    from tabarena.benchmark.experiment.experiment_constructor import (
-        YamlExperimentSerializer,
-        YamlSingleExperimentSerializer,
+
+    task_id_or_object = _parse_task_id(task_id)
+    methods = _parse_yaml_config(
+        configs_yaml_file=configs_yaml_file,
+        config_index=config_index,
+        num_cpus=num_cpus,
+        num_gpus=num_gpus,
+        memory_limit=memory_limit,
+        sequential_local_fold_fitting=sequential_local_fold_fitting,
     )
-
-    try:
-        task_id_or_object = int(task_id)
-    except ValueError:
-        from tabarena.benchmark.task.user_task import UserTask
-
-        task_id_or_object = UserTask.from_task_id_str(task_id)
-
-    yaml_out = YamlExperimentSerializer.load_yaml(path=configs_yaml_file)
-    methods = []
-    for m_i, method in enumerate(yaml_out):
-        if (config_index is not None) and (m_i not in config_index):
-            continue
-
-        if method["type"] == "AGExperiment":
-            method["fit_kwargs"]["num_cpus"] = num_cpus
-            method["fit_kwargs"]["num_gpus"] = num_gpus
-            method["fit_kwargs"]["memory_limit"] = memory_limit
-            methods.append(YamlSingleExperimentSerializer.parse_method(method))
-            continue
-
-        if "method_kwargs" not in method:
-            method["method_kwargs"] = {}
-
-        # Logic to handle resources and special model cases
-        if "fit_kwargs" not in method["method_kwargs"]:
-            method["method_kwargs"]["fit_kwargs"] = {}
-        method["method_kwargs"]["fit_kwargs"]["num_cpus"] = num_cpus
-        method["method_kwargs"]["fit_kwargs"]["num_gpus"] = num_gpus
-        method["method_kwargs"]["fit_kwargs"]["memory_limit"] = memory_limit
-
-        if "model_hyperparameters" not in method:
-            method["model_hyperparameters"] = {}
-        if sequential_local_fold_fitting:
-            if "ag_args_ensemble" not in method["model_hyperparameters"]:
-                method["model_hyperparameters"]["ag_args_ensemble"] = {}
-            method["model_hyperparameters"]["ag_args_ensemble"][
-                "fold_fitting_strategy"
-            ] = "sequential_local"
-
-        methods.append(YamlSingleExperimentSerializer.parse_method(method))
-
-    for m_i in range(len(methods)):
-        preprocessing_name = methods[m_i].method_kwargs.pop(
-            "preprocessing_pipeline", None
-        )
-
-        if preprocessing_name is not None:
-            print("Adding preprocessing to the config:", preprocessing_name)
-            from tabarena.benchmark.preprocessing.preprocessing_register import (
-                PREPROCESSING_METHODS,
-            )
-
-            methods[m_i] = PREPROCESSING_METHODS[preprocessing_name](methods[m_i])
 
     results_lst: dict[str, Any] = run_experiments_new(
         output_dir=output_dir,
@@ -198,7 +256,7 @@ def run_experiment(
     return results_lst
 
 
-def str2bool(v):
+def _str2bool(v):
     if isinstance(v, bool):
         return v
     if v.lower() in ("yes", "true", "t", "1"):
@@ -208,15 +266,24 @@ def str2bool(v):
     raise argparse.ArgumentTypeError("Boolean value expected.")
 
 
-def parse_int_list(s):
+def _parse_int_list(s):
     return [int(item) for item in s.split(",")]
 
 
+def _parse_int_list_or_none(s):
+    if (s is None) or (s.lower() == "none"):
+        return None
+    return _parse_int_list(s)
+
+
 if __name__ == "__main__":
-    # TODO: provide defaults or a default CLI command to run this.
     parser = argparse.ArgumentParser()
+    # Require tasks settings
     parser.add_argument(
-        "--task_id", type=str, required=True, help="OpenML Task ID for the task to run."
+        "--task_id",
+        type=str,
+        required=True,
+        help="OpenML Task ID for the task to run.",
     )
     parser.add_argument("--fold", type=int, required=True, help="Fold of CV to run.")
     parser.add_argument(
@@ -231,52 +298,69 @@ if __name__ == "__main__":
         required=True,
         help="Path to the YAML file containing the configurations of all methods to run for the experiment.",
     )
-    # TODO: make sure that this can be None / missing
+    # Misc task setting
     parser.add_argument(
         "--config_index",
-        type=parse_int_list,
+        type=_parse_int_list,
         help="List of index of the configuration from YAML file to run.",
+        # Can be ommited to be None.
+        default=None,
     )
-
-    # TODO: improve usage, but required for a good setup
+    # TODO: debug zone
     parser.add_argument(
-        "--openml_cache_dir", type=str, help="Path to the OpenML cache directory."
+        "--ignore_cache",
+        type=_str2bool,
+        default=False,
+        help="Whether to ignore the cache or not. If True, the cache will be ignored and "
+        "the experiment will be run from scratch and potentially overwrite existing results.",
+    )
+    parser.add_argument(
+        "--sequential_local_fold_fitting",
+        type=_str2bool,
+        default=False,
+        help="Whether to force to use sequential local fold fitting or not. If True, the "
+        "experiment will be run without Ray. This might create a large speedup for some models.",
+    )
+    # Experiment environment settings
+    parser.add_argument(
+        "--openml_cache_dir",
+        type=str,
+        help="Path to the OpenML cache directory or 'auto'.",
+        default="auto",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
         help="Path to the output directory where the results will be saved.",
+        default=str(Path(__file__).parent / "run_tabarena_experiment_output"),
+    )
+    # Hardware settings
+    parser.add_argument(
+        "--num_cpus",
+        type=int,
+        help="Number of CPUs to use for the experiment.",
+        default=1,
     )
     parser.add_argument(
-        "--num_cpus", type=int, help="Number of CPUs to use for the experiment."
+        "--num_gpus",
+        type=int,
+        help="Number of GPUs to use for the experiment.",
+        default=0,
     )
     parser.add_argument(
-        "--num_gpus", type=int, help="Number of GPUs to use for the experiment."
-    )
-    parser.add_argument(
-        "--memory_limit", type=int, help="Memory limit to use for the experiment."
+        "--memory_limit",
+        type=int,
+        help="Memory limit to use for the experiment.",
+        default=10,
     )
     parser.add_argument(
         "--setup_ray_for_slurm_shared_resources_environment",
-        type=str2bool,
+        type=_str2bool,
         help="If True, setup Ray to work well in a shared resources environment with SLURM.",
-    )
-
-    # TODO: debug zone
-    parser.add_argument(
-        "--ignore_cache",
-        type=str2bool,
         default=False,
-        help="Whether to ignore the cache or not. If True, the cache will be ignored and the experiment will be run from scratch and potentially overwrite existing results.",
     )
-    parser.add_argument(
-        "--sequential_local_fold_fitting",
-        type=str2bool,
-        default=False,
-        help="Whether to use sequential local fold fitting or not. If True, the experiment will be run without Ray. This might create a large speedup for some models.",
-    )
-
     args = parser.parse_args()
+
     ray_temp_dir = setup_slurm_job(
         openml_cache_dir=args.openml_cache_dir,
         setup_ray_for_slurm_shared_resources_environment=args.setup_ray_for_slurm_shared_resources_environment,
@@ -284,7 +368,6 @@ if __name__ == "__main__":
         num_gpus=args.num_gpus,
         memory_limit=args.memory_limit,
     )
-
     try:
         run_experiment(
             config_index=args.config_index,
