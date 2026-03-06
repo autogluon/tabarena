@@ -53,6 +53,7 @@ modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
 sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa"]
 tabprep = []
+tabstar = ["tabstar==1.1.15"]
 perpetualboosting = ["perpetual"]
 
 # union of all above extras (mirrors your "benchmark" extra)
@@ -68,6 +69,7 @@ benchmark = [
   "xrfm[cu12]",
   "sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa",
   "perpetual",
+  "tabstar==1.1.15",
 ]
 
 [project.urls]

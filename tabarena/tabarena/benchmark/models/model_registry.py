@@ -16,6 +16,7 @@ from tabarena.benchmark.models.ag import (
     TabICLModel,
     TabICLv2Model,
     TabMModel,
+    TabSTARModel,
     XRFMModel,
 )
 
@@ -34,6 +35,7 @@ _models_to_add = [
     SAPRPTOSSModel,
     PerpetualBoosterModel,
     TabICLv2Model,
+    TabSTARModel,
 ]
 
 for _model_cls in _models_to_add:
