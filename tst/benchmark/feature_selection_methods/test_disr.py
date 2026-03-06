@@ -1,9 +1,14 @@
 import pytest
 from tst.test_feature_selection_method import verify_method
 
-def test_disr():
+@pytest.mark.parametrize("problem_type, dataset_id", [
+    ("binary", 55),
+    ("multiclass", 10),
+    ("regression", 46964),
+])
+def test_disr(problem_type, dataset_id):
     from tabarena.benchmark.feature_selection_methods.ag.disr.DISR import DISR
-    hyperparameters = {"time_limit": 3600, "n_max_features": 10}
+    hyperparameters = {"n_max_features": 10, "time_limit": 3600, "dataset_id": dataset_id}
     try:
         verify_method(DISR, hyperparameters)
     except ImportError as err:

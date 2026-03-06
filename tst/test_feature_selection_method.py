@@ -1,5 +1,7 @@
 import time
 
+import openml
+import pandas as pd
 from autogluon.common import TabularDataset
 from autogluon.core.data import LabelCleaner
 from autogluon.features import AutoMLPipelineFeatureSelector, AbstractFeatureSelector
@@ -16,17 +18,14 @@ def run_method(FeatureSelector, hyperparameters):
     Returns:
         pd.DataFrame: X after feature selection (transformed data)
     """
-    # Load dataset (same as your script)
-    dataset = hyperparameters.get('dataset', 'AdultIncomeBinaryClassification')
-    try:
-        train_data = TabularDataset(f'https://autogluon.s3.amazonaws.com/datasets/{dataset}/train_data.csv')
-        test_data = TabularDataset(f'https://autogluon.s3.amazonaws.com/datasets/{dataset}/test_data.csv')
-    except:
-        train_data = TabularDataset('train_data.csv')
-        test_data = TabularDataset('test_data.csv')
-
-    X_train = train_data.drop("class", axis=1)
-    y_train = train_data["class"]
+    dataset_id = hyperparameters.get('dataset_id')
+    # Load OpenML dataset
+    dataset = openml.datasets.get_dataset(dataset_id)
+    X, y, _, _ = dataset.get_data(
+        target=dataset.default_target_attribute,
+        dataset_format="dataframe"
+    )
+    train_data = pd.concat([X, y], axis=1)
 
     # Prepare model (same as your script)
     from autogluon.core.models import BaggedEnsembleModel
@@ -36,8 +35,8 @@ def run_method(FeatureSelector, hyperparameters):
     model = BaggedEnsembleModel(model_meta.model_cls(problem_type="binary", **model_config))
 
     # Clean labels (same as your script)
-    label_cleaner = LabelCleaner.construct(problem_type="binary", y=y_train)
-    y_train = label_cleaner.transform(y_train)
+    label_cleaner = LabelCleaner.construct(problem_type="binary", y=y)
+    y = label_cleaner.transform(y)
 
     # Run feature selection
     if callable(FeatureSelector) and not isinstance(FeatureSelector, AbstractFeatureSelector):
@@ -46,7 +45,7 @@ def run_method(FeatureSelector, hyperparameters):
         SelectorInstance = FeatureSelector
     feature_selector = AutoMLPipelineFeatureSelector(post_selectors=[SelectorInstance])
 
-    X_out = feature_selector.fit_transform(X_train, y_train, model, **hyperparameters)
+    X_out = feature_selector.fit_transform(X, y, model, **hyperparameters)
 
     return X_out
 

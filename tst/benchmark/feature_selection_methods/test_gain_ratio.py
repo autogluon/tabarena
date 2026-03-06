@@ -1,9 +1,14 @@
 import pytest
 from tst.test_feature_selection_method import verify_method
 
-def test_gain_ratio():
+@pytest.mark.parametrize("problem_type, dataset_id", [
+    ("binary", 55),
+    ("multiclass", 10),
+    ("regression", 46964),
+])
+def test_gain_ratio(problem_type, dataset_id):
     from tabarena.benchmark.feature_selection_methods.ag.gain_ratio.GainRatio import GainRatio
-    hyperparameters = {"time_limit": 3600, "n_max_features": 10}
+    hyperparameters = {"n_max_features": 10, "time_limit": 3600, "dataset_id": dataset_id}
     try:
         verify_method(GainRatio, hyperparameters)
     except ImportError as err:

@@ -1,9 +1,14 @@
 import pytest
 from tst.test_feature_selection_method import verify_method
 
-def test_laplacian_score():
+@pytest.mark.parametrize("problem_type, dataset_id", [
+    ("binary", 55),
+    ("multiclass", 10),
+    ("regression", 46964),
+])
+def test_laplacian_score(problem_type, dataset_id):
     from tabarena.benchmark.feature_selection_methods.ag.laplacian_score.LaplacianScore import LaplacianScore
-    hyperparameters = {"time_limit": 3600, "n_max_features": 10}
+    hyperparameters = {"n_max_features": 10, "time_limit": 3600, "dataset_id": dataset_id}
     try:
         verify_method(LaplacianScore, hyperparameters)
     except ImportError as err:
