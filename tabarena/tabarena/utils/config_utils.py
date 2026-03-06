@@ -54,9 +54,18 @@ def add_fold_fitting_strategy(config: dict, fold_fitting_strategy: str) -> dict:
     config["ag_args_ensemble"]["fold_fitting_strategy"] = fold_fitting_strategy
     return config
 
-def get_random_searcher(search_space):
+def get_random_searcher(search_space, num_configs: None | int = None):
     searcher = LocalRandomSearcher(search_space=search_space)
-    searcher.get_config()  # Clean out default
+
+    # Enable to sample exact N configs if search space only has N configs.
+    clean_out_default_config = True
+    if num_configs is not None:
+        total_configs = searcher._get_num_configs()
+        if (total_configs is not None) and (num_configs <= total_configs):
+            clean_out_default_config = False
+
+    if clean_out_default_config:
+        searcher.get_config()
     return searcher
 
 
@@ -196,7 +205,7 @@ class ConfigGenerator(AGConfigGenerator):
         self.search_space = search_space
 
     def get_searcher_configs(self, num_configs: int) -> list[dict]:
-        searcher = get_random_searcher(self.search_space)
+        searcher = get_random_searcher(self.search_space, num_configs=num_configs)
         return [searcher.get_config() for _ in range(num_configs)]
 
 

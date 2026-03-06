@@ -57,7 +57,7 @@ class SAPRPTOSSModel(AbstractModel):
         # TODO: make code support this like a normal sklearn model
         self.model.seed = random_state
 
-        X = self.preprocess(X)  # does nothing, as no preprocessing is defined
+        X = self.preprocess(X, y=y)  # does nothing, as no preprocessing is defined
         self.model = self.model.fit(
             X=X,
             y=y,

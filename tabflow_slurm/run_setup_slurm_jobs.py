@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from tabflow_slurm.setup_slurm_base import BenchmarkSetup
 
-# -- Benchmark TabStar 31/01/2026
+# -- TabICLv2 14/02/2026
 BenchmarkSetup(
-    benchmark_name="tabstar_31012026",
+    benchmark_name="tabpicl_v2_14022026",
     models=[
-        ("TabSTAR", 50),
+        ("TabICLv2", 0),
     ],
     num_gpus=1,
-    configs_per_job=5,
-    model_agnostic_preprocessing=False,
+    configs_per_job=1,
+    slurm_gpu_partition="alldlc2_gpu-h200",
+    fake_memory_for_estimates=140, # To ensure TabICL knows it has 140GB VRAM
 ).setup_jobs()
 
 # # -- AutoGluon New Presets Benchmark 19/12/2025

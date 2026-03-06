@@ -20,7 +20,7 @@ def compare_on_tabarena(
     tabarena_context_kwargs: dict | None = None,
     fillna: str | pd.DataFrame | None = "RF (default)",
     score_on_val: bool = False,
-    average_seeds: bool = True,
+    average_seeds: bool = False,
     remove_imputed: bool = False,
     tmp_treat_tasks_independently: bool = False,
     leaderboard_kwargs: dict | None = None,
@@ -103,7 +103,7 @@ def compare(
     calibration_framework: str | None = None,
     fillna: str | pd.DataFrame | None = None,
     score_on_val: bool = False,
-    average_seeds: bool = True,
+    average_seeds: bool = False,
     tmp_treat_tasks_independently: bool = False,  # FIXME: Update
     leaderboard_kwargs: dict | None = None,
     remove_imputed: bool = False,

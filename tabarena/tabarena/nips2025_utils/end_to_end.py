@@ -383,7 +383,7 @@ class EndToEndResults:
         use_artifact_name_in_prefix: bool | None = None,
         use_model_results: bool = False,
         score_on_val: bool = False,
-        average_seeds: bool = True,
+        average_seeds: bool = False,
         leaderboard_kwargs: dict | None = None,
     ):
         results = self.get_results(
@@ -414,7 +414,7 @@ class EndToEndResults:
         use_artifact_name_in_prefix: bool | None = None,
         use_model_results: bool = False,
         score_on_val: bool = False,
-        average_seeds: bool = True,
+        average_seeds: bool = False,
         leaderboard_kwargs: dict | None = None,
         tabarena_context_kwargs: dict | None = None,
         extra_results: pd.DataFrame = None,

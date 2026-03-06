@@ -13,6 +13,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from itertools import product
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 import ray
@@ -53,13 +54,15 @@ class BenchmarkSetup:
     )
     """Python script to run the benchmark. This should point to the script that runs the benchmark
     for TabArena."""
-    openml_cache_from_base_path: str = ".openml-cache"
-    """OpenML cache directory. This is used to store dataset and tasks data from OpenML."""
-    tabrepo_cache_dir_from_base_path: str = "input_data/tabrepo"
-    """TabRepo cache directory."""
-    slurm_log_output_from_base_path: str = "slurm_out/runs_15022026"
-    """Directory for the SLURM output logs. This is used to store the output logs from the
-    SLURM jobs."""
+    openml_cache_from_base_path: str | Literal["auto"] = ".openml-cache"
+    """OpenML cache directory. This is used to store dataset and tasks data from OpenML.
+    
+    If "auto", we use the default cache from OpenML. 
+    If any other string, this is interpreted as the path to the folder for a custom OpenML cache.
+    """
+    slurm_log_output_from_base_path: str = "slurm_out/"
+    """Directory for the SLURM output logs. In this folder a `benchmark_name` folder will be created 
+    and used to store the output logs from the SLURM jobs."""
     output_dir_base_from_base_path: str = "output/"
     """Output directory for the benchmark. In this folder a `benchmark_name` folder will be created."""
     configs_path_from_base_path: str = (
@@ -79,6 +82,7 @@ class BenchmarkSetup:
     """Extra SLURM gres to use for the jobs. Adjust as needed for your cluster setup."""
     # Task/Data Settings
     # ------------------
+    # TODO: update metadata and usage for non-IID tasks that are not fold-based in the future.
     custom_metadata: pd.DataFrame | str | None = None
     """Custom metadata to use for defining the tasks and datasets to run.
 
@@ -337,17 +341,16 @@ class BenchmarkSetup:
     @property
     def openml_cache(self) -> str:
         """OpenML cache directory."""
+        if self.openml_cache_from_base_path == "auto":
+            return self.openml_cache_from_base_path
         return self.base_path + self.openml_cache_from_base_path
-
-    @property
-    def tabrepo_cache_dir(self) -> str:
-        """TabRepo cache directory."""
-        return self.base_path + self.tabrepo_cache_dir_from_base_path
 
     @property
     def slurm_log_output(self) -> str:
         """Directory for the SLURM output logs."""
-        return self.base_path + self.slurm_log_output_from_base_path
+        return (
+            self.base_path + self.slurm_log_output_from_base_path + self.benchmark_name
+        )
 
     @property
     def slurm_base_command(self):
@@ -373,7 +376,9 @@ class BenchmarkSetup:
             gres += self.slurm_extra_gres
         gres = f"--gres={gres}" if len(gres) > 0 else None
 
-        time_in_h = self.time_limit // 3600 * self.configs_per_job + self.time_limit_overhead
+        time_in_h = (
+            self.time_limit // 3600 * self.configs_per_job + self.time_limit_overhead
+        )
         time_in_h = f"--time={time_in_h}:00:00"
         cpus = f"--cpus-per-task={self.num_cpus}"
         if is_gpu_job:
@@ -393,8 +398,8 @@ class BenchmarkSetup:
         """Determine all jobs to run by checking the cache and filtering
         invalid jobs.
         """
-        Path(self.openml_cache).mkdir(parents=True, exist_ok=True)
-        Path(self.tabrepo_cache_dir).mkdir(parents=True, exist_ok=True)
+        if self.openml_cache != "auto":
+            Path(self.openml_cache).mkdir(parents=True, exist_ok=True)
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
         Path(self.slurm_log_output).mkdir(parents=True, exist_ok=True)
 
@@ -421,9 +426,13 @@ class BenchmarkSetup:
         def yield_all_jobs():
             for row in metadata.itertuples():
                 task_id = row.task_id
-                n_samples_train_per_fold = int(
-                    row.num_instances - int(row.num_instances / row.num_folds)
-                )
+                if hasattr(row, "n_samples_train_per_fold"):
+                    n_samples_train_per_fold = row.n_samples_train_per_fold
+                else:
+                    # Fallback to estimating the number of training samples per fold
+                    n_samples_train_per_fold = int(
+                        row.num_instances - int(row.num_instances / row.num_folds)
+                    )
                 n_features = int(row.num_features)
                 n_classes = (
                     int(row.num_classes)
@@ -525,7 +534,9 @@ class BenchmarkSetup:
             "init_kwargs": {"verbosity": self.verbosity},
         }
         if self.model_artifacts_base_path is not None:
-            method_kwargs["init_kwargs"]["default_base_path"] = self.model_artifacts_base_path
+            method_kwargs["init_kwargs"]["default_base_path"] = (
+                self.model_artifacts_base_path
+            )
         if not self.model_agnostic_preprocessing:
             method_kwargs["fit_kwargs"] = {"feature_generator": None}
 
@@ -620,7 +631,6 @@ class BenchmarkSetup:
             "run_script": self.run_script,
             "openml_cache_dir": self.openml_cache,
             "configs_yaml_file": self.configs,
-            "tabrepo_cache_dir": self.tabrepo_cache_dir,
             "output_dir": self.output_dir,
             "num_cpus": self.num_cpus,
             "num_gpus": self.num_gpus,
@@ -631,7 +641,7 @@ class BenchmarkSetup:
         }
         return {"defaults": default_args, "jobs": jobs}
 
-    def setup_jobs(self):
+    def setup_jobs(self) -> str:
         """Setup the jobs to run by generating the SLURM job JSON file."""
         jobs_dict = self.get_jobs_dict()
         n_jobs = len(jobs_dict["jobs"])
@@ -639,17 +649,19 @@ class BenchmarkSetup:
             print("No jobs to run.")
             Path(self.slurm_job_json).unlink(missing_ok=True)
             Path(self.configs).unlink(missing_ok=True)
-            return
+            return "N/A"
 
         with open(self.slurm_job_json, "w") as f:
             json.dump(jobs_dict, f)
 
+        run_command = f"sbatch --array=0-{n_jobs - 1}%100 {self.slurm_base_command} {self.slurm_job_json}"
         print(
             f"##### Setup Jobs for {self._safe_benchmark_name}"
             "\nRun the following command to start the jobs:"
-            f"\nsbatch --array=0-{n_jobs - 1}%100 {self.slurm_base_command} {self.slurm_job_json}"
+            f"\n{run_command}"
             "\n"
         )
+        return run_command
 
     @property
     def models_to_constraints(self) -> dict[str, dict[str, int]]:

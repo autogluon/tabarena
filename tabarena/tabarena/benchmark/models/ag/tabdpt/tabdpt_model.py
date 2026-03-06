@@ -58,7 +58,7 @@ class TabDPTModel(AbstractModel):
         random_seed = hps.pop(self.seed_name, self.default_random_seed)
         self._predict_hps = {k: v for k, v in hps.items() if k in supported_predict_hps}
         self._predict_hps["seed"] = random_seed
-        X = self.preprocess(X)
+        X = self.preprocess(X, y=y)
         y = y.to_numpy()
         self.model = model_cls(
             device=device,

@@ -295,7 +295,7 @@ class XRFMModel(AbstractModel):
         # todo: do we already need to move stuff to the correct device?
 
         X = self.preprocess(
-            X, is_train=True, bool_to_cat=bool_to_cat, impute_bool=impute_bool
+            X, y=y, is_train=True, bool_to_cat=bool_to_cat, impute_bool=impute_bool
         )
 
         if X_val is not None:

@@ -16,7 +16,7 @@ class PaperRunTabArena(PaperRun):
         n_portfolio: int = 25,
         n_ensemble: int = 40,
         time_limit: float | None = 14400,
-        average_seeds: bool = True,
+        average_seeds: bool = False,
     ) -> pd.DataFrame:
         calibration_framework = "RF (default)"
         elo_bootstrap_rounds = 100
@@ -146,8 +146,6 @@ class PaperRunTabArena(PaperRun):
         if tune:
             df_results_hpo = self.run_hpo_by_family(
                 model_types=[model_type],
-                include_uncapped=True,
-                include_4h=False,
             )
         else:
             df_results_hpo = None

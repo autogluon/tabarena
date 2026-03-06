@@ -45,7 +45,7 @@ class ExplainableBoostingMachineModel(AbstractModel):
         **kwargs,
     ):
         # Preprocess data.
-        X = self.preprocess(X)
+        X = self.preprocess(X, y=y)
         if X_val is not None:
             X_val = self.preprocess(X_val)
 

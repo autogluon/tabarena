@@ -184,7 +184,7 @@ class RealMLPModel(AbstractModel):
         )
 
         X = self.preprocess(
-            X, is_train=True, bool_to_cat=bool_to_cat, impute_bool=impute_bool
+            X, y=y, is_train=True, bool_to_cat=bool_to_cat, impute_bool=impute_bool
         )
 
         # FIXME: In rare cases can cause exceptions if name_categories=False, unknown why
@@ -217,6 +217,7 @@ class RealMLPModel(AbstractModel):
     def _preprocess(
         self,
         X: pd.DataFrame,
+        y: pd.Series = None,
         is_train: bool = False,
         bool_to_cat: bool = False,
         impute_bool: bool = True,
@@ -225,7 +226,7 @@ class RealMLPModel(AbstractModel):
         """Imputes missing values via the mean and adds indicator columns for numerical features.
         Converts indicator columns to categorical features to avoid them being treated as numerical by RealMLP.
         """
-        X = super()._preprocess(X, **kwargs)
+        X = super()._preprocess(X, y=y, **kwargs)
 
         # FIXME: is copy needed?
         X = X.copy(deep=True)

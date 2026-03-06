@@ -11,7 +11,6 @@ import openml
 def setup_slurm_job(
     *,
     openml_cache_dir: str,
-    tabrepo_cache_dir: str,
     setup_ray_for_slurm_shared_resources_environment: bool,
     num_cpus: int,
     num_gpus: int,
@@ -23,8 +22,6 @@ def setup_slurm_job(
     ----------
     openml_cache_dir : str
         The path to the OpenML cache directory.
-    tabrepo_cache_dir : str
-        The path to the TabRepo cache directory.
     num_cpus : int
         The number of CPUs to use for the experiment (needed for proper Ray setup).
     num_gpus : int
@@ -36,8 +33,11 @@ def setup_slurm_job(
         Otherwise, given the shared filesystem, Ray will try to use the same temp dir for all workers and
         crash (semi-randomly).
     """
-    openml.config.set_root_cache_directory(root_cache_directory=openml_cache_dir)
-    os.environ["TABREPO_CACHE"] = tabrepo_cache_dir
+    if openml_cache_dir == "auto":
+        print("Using the default OpenML cache directory.")
+    else:
+        print(f"Setting OpenML cache directory to: {openml_cache_dir}")
+        openml.config.set_root_cache_directory(root_cache_directory=openml_cache_dir)
 
     # SLURM save Ray setup in a shared resource system
     ray_dir = None
@@ -49,7 +49,22 @@ def setup_slurm_job(
         import ray
 
         ray_dir = tempfile.mkdtemp() + "/ray"
+
+        min_plasma_storage_size = int(memory_limit * 0.5)
         ray_mem_in_b = int(int(memory_limit) * (1024.0**3))
+
+        _plasma_directory = None
+        dev_shm_size = ray._private.utils.get_shared_memory_bytes() / 1e9
+        print(dev_shm_size)
+        if dev_shm_size < min_plasma_storage_size:
+            print(
+                "WARNING: /dev/shm is full, switching to /tmp usage! "
+                f"Available shared memory size: {dev_shm_size} GB, "
+                f"Required minimum for Ray plasma store: {min_plasma_storage_size} GB."
+            )
+            # Likely slower but runs at least.
+            _plasma_directory = ray_dir
+
         ray.init(
             address="local",
             _memory=ray_mem_in_b,
@@ -60,6 +75,7 @@ def setup_slurm_job(
             log_to_driver=True,
             num_gpus=num_gpus,
             num_cpus=num_cpus,
+            _plasma_directory=_plasma_directory,
         )
     return ray_dir
 
@@ -227,9 +243,6 @@ if __name__ == "__main__":
         "--openml_cache_dir", type=str, help="Path to the OpenML cache directory."
     )
     parser.add_argument(
-        "--tabrepo_cache_dir", type=str, help="Path to the TabRepo cache directory."
-    )
-    parser.add_argument(
         "--output_dir",
         type=str,
         help="Path to the output directory where the results will be saved.",
@@ -266,7 +279,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     ray_temp_dir = setup_slurm_job(
         openml_cache_dir=args.openml_cache_dir,
-        tabrepo_cache_dir=args.tabrepo_cache_dir,
         setup_ray_for_slurm_shared_resources_environment=args.setup_ray_for_slurm_shared_resources_environment,
         num_cpus=args.num_cpus,
         num_gpus=args.num_gpus,

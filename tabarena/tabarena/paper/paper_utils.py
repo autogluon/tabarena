@@ -3,37 +3,8 @@ from __future__ import annotations
 default_ensemble_size = 40
 
 
-# FIXME: Make this non-hardcoded
 def get_method_rename_map() -> dict:
-    return {
-        'KNN': 'KNN',
-        'LR': 'Linear',
-        'RF': 'RandomForest',
-        'XT': 'ExtraTrees',
-        'EBM': 'EBM',
-        'XGB': 'XGBoost',
-        'GBM': 'LightGBM',
-        'CAT': 'CatBoost',
-        'FASTAI': 'FastaiMLP',
-        'NN_TORCH': 'TorchMLP',
-        'MNCA_GPU': 'ModernNCA',
-        'TABM_GPU': 'TabM',
-        'REALMLP_GPU': 'RealMLP',
-        'TABDPT_GPU': 'TabDPT',
-        'TABICL_GPU': 'TabICL',
-        'TABPFNV2_GPU': 'TabPFNv2',
-
-        'MNCA': 'ModernNCA (CPU)',
-        'TABM': 'TabM (CPU)',
-        'REALMLP': 'RealMLP (CPU)',
-
-        "MITRA_GPU": "Mitra",
-        "LIMIX_GPU": "LimiX",
-        "XRFM_GPU": "xRFM",
-        "BETA_GPU": "BetaTabPFN",
-        "TABFLEX_GPU": "TabFlex",
-        "REALTABPFN-V2.5": "RealTabPFN-2.5",
-    }
+    return {}
 
 
 def get_framework_type_method_names(

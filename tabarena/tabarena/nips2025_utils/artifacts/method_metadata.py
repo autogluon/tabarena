@@ -201,6 +201,41 @@ class MethodMetadata:
         return _method_metadata
 
     @classmethod
+    def compute_method_name(
+        cls,
+        method: str,
+        method_type: str,
+        method_subtype: str | None,
+        config_type: str | None,
+        display_name: str | None,
+    ) -> str:
+        subtype_to_suffix_map = {
+            "default": " (default)",
+            "tuned": " (tuned)",
+            "tuned_ensemble": " (tuned + ensemble)",
+        }
+        valid_method_types = ["config", "baseline", "hpo", "portfolio"]
+        if method_type not in valid_method_types:
+            raise ValueError(f"Unknown {method_type=}. Valid values: {valid_method_types}")
+        if pd.isna(display_name):
+            if method_type in ["baseline", "portfolio"]:
+                display_name = method
+            else:
+                assert isinstance(config_type, str)
+                display_name = config_type
+
+        name_suffix = None
+        if method_type in ["config", "hpo"]:
+            assert method_subtype in subtype_to_suffix_map.keys(), (
+                f"Unknown {method_subtype=}. "
+                f"Valid values: {list(subtype_to_suffix_map.keys())}"
+            )
+            name_suffix = subtype_to_suffix_map[method_subtype]
+        if name_suffix:
+            display_name = display_name + name_suffix
+        return display_name
+
+    @classmethod
     def _from_raw_config(
         cls,
         result_df: pd.DataFrame,
@@ -593,6 +628,7 @@ class MethodMetadata:
         time_limit: float | None = None,
         fixed_configs: list[str] | None = None,
         fit_order: Literal["original", "random"] = "random",
+        config_type: str | list[str] | None = None,
         holdout: bool = False,
         backend: Literal["ray", "native"] = "ray",
         seed: int = 0,
@@ -600,8 +636,9 @@ class MethodMetadata:
     ) -> pd.DataFrame:
         if repo is None:
             repo = self.load_processed(as_holdout=holdout)
-        assert self.config_type is not None
-        config_type = self.config_type
+        if config_type is None:
+            assert self.config_type is not None
+            config_type = self.config_type
         simulator = PaperRunTabArena(repo=repo, backend=backend)
         df_results_hpo = simulator.run_ensemble_config_type(
             config_type=config_type,
@@ -616,7 +653,7 @@ class MethodMetadata:
         df_results_hpo = df_results_hpo.rename(columns={
             "framework": "method",
         })
-        df_results_hpo["method"] = f"HPO-N{n_configs}-{self.config_type}"
+        df_results_hpo["method"] = f"HPO-N{n_configs}-{config_type}"
         df_results_hpo["n_configs"] = n_configs
         df_results_hpo["n_iterations"] = n_iterations
         df_results_hpo["seed"] = seed
@@ -634,6 +671,8 @@ class MethodMetadata:
         time_limit: float | None = None,
         backend: Literal["ray", "native"] = "ray",
         holdout: bool = False,
+        config_type: str | list[str] | None = None,
+        repo: EvaluationRepository | None = None,
         cache: bool = False,
     ) -> pd.DataFrame:
         if n_configs == "auto":
@@ -652,7 +691,8 @@ class MethodMetadata:
             seeds = [i for i in range(seeds)]
 
         df_results_hpo_lst = []
-        repo = self.load_processed(as_holdout=holdout)
+        if repo is None:
+            repo = self.load_processed(as_holdout=holdout)
 
         # FIXME: Breaks for holdout, need to find a way to get self.config_default(holdout=True)
         # FIXME: Needed for TabPFN-2.5
@@ -684,6 +724,7 @@ class MethodMetadata:
                     time_limit=time_limit,
                     backend=backend,
                     holdout=holdout,
+                    config_type=config_type,
                 )
                 df_results_hpo["always_include_default"] = always_include_default
                 df_results_hpo_lst.append(df_results_hpo)

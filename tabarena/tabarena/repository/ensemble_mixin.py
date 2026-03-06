@@ -31,6 +31,7 @@ class EnsembleMixin:
         rank: bool = False,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
+        patience_callback: list | None = None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Evaluates an ensemble of a list of configs on a given task (dataset, fold).
@@ -117,6 +118,17 @@ class EnsembleMixin:
             configs_fit_order = configs
 
         configs_available = [c for c in configs if c in set(configs_all)]
+
+        if patience_callback is not None:
+            dataset_metadata = self.task_metadata[self.task_metadata["dataset"] == dataset].iloc[0]
+            num_samples_train = dataset_metadata["NumberOfInstances"] * 2 / 3  # FIXME
+            from autogluon.core.callbacks._smooth_count import max_models_from_num_samples_val
+            max_models = max_models_from_num_samples_val(
+                num_samples_val=num_samples_train,
+                points=patience_callback,
+            )
+            if max_models is not None:
+                configs_available = configs_available[:max_models]
 
         if len(configs_available) == 0:
             # if not enough time to fit any model, use the fallback config if it exists, even if it would be over the time limit
@@ -228,6 +240,7 @@ class EnsembleMixin:
         ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
         ensemble_kwargs: dict = None,
         ensemble_size: int = 100,
+        patience_callback: list | None = None,
         time_limit: float = None,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
@@ -304,6 +317,7 @@ class EnsembleMixin:
             ensemble_cls=ensemble_cls,
             ensemble_kwargs=ensemble_kwargs,
             ensemble_size=ensemble_size,
+            patience_callback=patience_callback,
             time_limit=time_limit,
             fit_order=fit_order,
             seed=seed,
