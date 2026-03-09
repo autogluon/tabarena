@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import copy
 
-from autogluon.tabular.registry import ModelRegistry, ag_model_registry
+from autogluon.tabular.register._model_register import ModelRegister
+from autogluon.tabular.register._ag_model_register import ag_model_register
+
 
 from tabarena.benchmark.models.ag import (
     ExplainableBoostingMachineModel,
@@ -20,7 +22,7 @@ from tabarena.benchmark.models.ag import (
     XRFMModel,
 )
 
-tabarena_model_registry: ModelRegistry = copy.deepcopy(ag_model_registry)
+tabarena_model_registry: ModelRegister = copy.deepcopy(ag_model_register)
 
 _models_to_add = [
     ExplainableBoostingMachineModel,
@@ -42,7 +44,7 @@ for _model_cls in _models_to_add:
     tabarena_model_registry.add(_model_cls)
 
 
-def infer_model_cls(model_cls: str, model_register: ModelRegistry = None):
+def infer_model_cls(model_cls: str, model_register: ModelRegister = None):
     if model_register is None:
         model_register = tabarena_model_registry
     if isinstance(model_cls, str):
