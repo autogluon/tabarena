@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 import time
 
@@ -28,9 +30,9 @@ def get_operator_count(featurename, operators):
             sorted_operators[i] = "divide"
 
     for op in sorted_operators:
-        pattern = rf'\b{op}\s*\('
+        pattern = rf"\b{op}\s*\("
         matches = re.findall(pattern, featurename_correct)
-        pattern_without = rf'\b{op}\s*\ - '
+        pattern_without = rf"\b{op}\s*\ - "
         matches_without = re.findall(pattern_without, featurename_correct)
         count = len(matches + matches_without)
         operator_count += count
@@ -42,17 +44,17 @@ def split_top_level_args(arg_str):
     bracket_level = 0
     current_arg = []
     for char in arg_str:
-        if char == ',' and bracket_level == 0:
-            args.append(''.join(current_arg).strip())
+        if char == "," and bracket_level == 0:
+            args.append("".join(current_arg).strip())
             current_arg = []
         else:
-            if char == '(':
+            if char == "(":
                 bracket_level += 1
-            elif char == ')':
+            elif char == ")":
                 bracket_level -= 1
             current_arg.append(char)
     if current_arg:
-        args.append(''.join(current_arg).strip())
+        args.append("".join(current_arg).strip())
     return args
 
 
@@ -62,7 +64,7 @@ def add_pandas_metadata_columns(dataset_metadata, X_train, result_matrix):
     unary_operators, binary_operators = get_operators()
     operators = unary_operators + binary_operators + ["without"]
     for row in result_matrix.iterrows():
-        dataset = row[1][0]
+        row[1][0]
         featurename = row[1][1]
         operator_count = get_operator_count(featurename, operators)
         X_train_copy = X_train.copy()
@@ -81,10 +83,7 @@ def add_pandas_metadata_columns(dataset_metadata, X_train, result_matrix):
                 featurename1 = features.split(",")[0]
                 feature1 = X_train_copy[featurename1]
             if featurename2 is not None:
-                if "(" in featurename2:
-                    feature2 = X_train_copy[featurename2]
-                else:
-                    feature2 = X_train_copy[featurename2]
+                feature2 = X_train_copy[featurename2] if "(" in featurename2 else X_train_copy[featurename2]
             else:
                 feature2 = None
             new_feature = create_feature(feature1, feature2, featurename)
@@ -151,8 +150,9 @@ def add_pandas_metadata_columns(dataset_metadata, X_train, result_matrix):
             for idx in matching_indices:
                 new_columns.loc[idx] = new_row.iloc[0]
     insert_position = result_matrix.shape[1] - 2
-    result_matrix = pd.concat([result_matrix.iloc[:, :insert_position], new_columns, result_matrix.iloc[:, insert_position:]], axis=1)
-    return result_matrix
+    return pd.concat(
+        [result_matrix.iloc[:, :insert_position], new_columns, result_matrix.iloc[:, insert_position:]], axis=1
+    )
 
 
 def add_pandas_metadata_selection_columns(dataset_metadata, X_train, result_matrix):
@@ -160,9 +160,9 @@ def add_pandas_metadata_selection_columns(dataset_metadata, X_train, result_matr
     new_columns = pd.DataFrame(index=result_matrix.index, columns=columns)
     operators = ["without"]
     for row in result_matrix.iterrows():
-        dataset = row[1][0]
+        row[1][0]
         featurename = row[1][1]
-        operator_count = get_operator_count(featurename, operators)
+        get_operator_count(featurename, operators)
         X_train_copy = X_train.copy()
         feature_to_delete = featurename.split(" - ")[1]
         X_train_copy = X_train_copy.drop(feature_to_delete, axis=1)
@@ -209,8 +209,9 @@ def add_pandas_metadata_selection_columns(dataset_metadata, X_train, result_matr
             for idx in matching_indices:
                 new_columns.loc[idx] = new_row.iloc[0]
     insert_position = result_matrix.shape[1] - 2
-    result_matrix = pd.concat([result_matrix.iloc[:, :insert_position], new_columns, result_matrix.iloc[:, insert_position:]], axis=1)
-    return result_matrix
+    return pd.concat(
+        [result_matrix.iloc[:, :insert_position], new_columns, result_matrix.iloc[:, insert_position:]], axis=1
+    )
 
 
 def main():
@@ -221,7 +222,7 @@ def main():
     result_matrix_pandas = pd.DataFrame(columns=columns)
     start = time.time()
     counter = 0
-    datasets = list(result_matrix.groupby('dataset - id').groups.keys())
+    datasets = list(result_matrix.groupby("dataset - id").groups.keys())
     for dataset in datasets:
         print("Dataset: " + str(dataset))
         try:
@@ -230,12 +231,16 @@ def main():
             try:
                 counter += 1
                 start_dataset = time.time()
-                X_train, y_train, X_test, y_test, dataset_metadata = get_openml_dataset_split_and_metadata(int(str(dataset)))
-                result_matrix_dataset = result_matrix[result_matrix['dataset - id'] == dataset]
+                X_train, _y_train, _X_test, _y_test, dataset_metadata = get_openml_dataset_split_and_metadata(
+                    int(str(dataset))
+                )
+                result_matrix_dataset = result_matrix[result_matrix["dataset - id"] == dataset]
                 result_matrix_dataset = add_pandas_metadata_columns(dataset_metadata, X_train, result_matrix_dataset)
                 result_matrix_pandas.columns = result_matrix_dataset.columns
                 result_matrix_pandas = pd.concat([result_matrix_pandas, result_matrix_dataset], axis=0)
-                result_matrix_pandas.to_parquet("src/Metadata/pandas/Pandas_Matrix_Complete" + str(dataset) + ".parquet")
+                result_matrix_pandas.to_parquet(
+                    "src/Metadata/pandas/Pandas_Matrix_Complete" + str(dataset) + ".parquet"
+                )
                 end_dataset = time.time()
                 print("Time for Pandas on Dataset " + str(dataset) + ": " + str(end_dataset - start_dataset))
             except TypeError:
@@ -247,5 +252,5 @@ def main():
     print("Time for complete Pandas MF: " + str(end - start) + " on " + str(counter) + " datasets.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

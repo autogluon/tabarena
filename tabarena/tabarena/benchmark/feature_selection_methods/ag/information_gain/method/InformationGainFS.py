@@ -1,26 +1,23 @@
 from __future__ import annotations
 
-import math
-from collections import Counter
-
-import numpy as np
-import pandas as pd
-
-import warnings
-
-from scipy.stats import entropy
-
-import copy
 import logging
 import time
+import warnings
+from typing import TYPE_CHECKING
+
+import numpy as np
+from scipy.stats import entropy
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class InformationGainFS:
-    """InformationGain feature selector"""
+    """InformationGain feature selector."""
 
     def __init__(self, model):
         self._y = None
@@ -38,12 +35,11 @@ class InformationGainFS:
             kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
-                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                )
                 if n_max_features is not None and len(X.columns) > n_max_features:
-                    X_out = X.sample(n=n_max_features, axis=1)
-                    return X_out
-                else:
-                    return X
+                    return X.sample(n=n_max_features, axis=1)
+                return X
         igr_scores = []
         for col in X.columns:
             igr = self._information_gain(X[[col]], col, y, n_max_features, **kwargs)
@@ -60,8 +56,7 @@ class InformationGainFS:
         return X[self._selected_features]
 
     def _information_gain(self, X: pd.DataFrame, feature: str, y: pd.Series, n_max_features, **kwargs) -> float:
-        """
-        Compute information gain for a single feature.
+        """Compute information gain for a single feature.
 
         Parameters
         ----------
@@ -72,7 +67,7 @@ class InformationGainFS:
         y : pd.Series
             Target variable
 
-        Returns
+        Returns:
         -------
         float
             Information gain value
@@ -84,7 +79,8 @@ class InformationGainFS:
             kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
-                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                )
                 score = np.zeros(X.shape[1])
                 if n_max_features is not None and X.shape[1] > n_max_features:
                     selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
@@ -100,7 +96,8 @@ class InformationGainFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     score = np.zeros(X.shape[1])
                     if n_max_features is not None and X.shape[1] > n_max_features:
                         selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
@@ -119,7 +116,8 @@ class InformationGainFS:
                     kwargs["start_time"] = time_start_fit
                     if kwargs["time_limit"] <= 0:
                         logger.warning(
-                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                        )
                         score = np.zeros(X.shape[1])
                         if n_max_features is not None and X.shape[1] > n_max_features:
                             selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
@@ -132,15 +130,14 @@ class InformationGainFS:
 
     @staticmethod
     def _entropy(values):
-        """
-        Calculate entropy from a frequency distribution.
+        """Calculate entropy from a frequency distribution.
 
         Parameters
         ----------
         values : array-like
             Value counts or frequencies
 
-        Returns
+        Returns:
         -------
         float
             Entropy value

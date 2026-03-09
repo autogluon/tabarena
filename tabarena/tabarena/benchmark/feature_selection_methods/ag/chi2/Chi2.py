@@ -1,18 +1,21 @@
-from autogluon.common.features.types import R_INT, R_FLOAT, R_OBJECT
-from pandas import DataFrame, Series
-
-from autogluon.features.generators.abstract import AbstractFeatureSelector
-
-from sklearn.feature_selection import chi2
-from sklearn.feature_selection import SelectKBest
+from __future__ import annotations
 
 import logging
 import time
+from typing import TYPE_CHECKING
+
+from autogluon.common.features.types import R_FLOAT, R_INT, R_OBJECT
+from autogluon.features.generators.abstract import AbstractFeatureSelector
+from sklearn.feature_selection import SelectKBest, chi2
+
+if TYPE_CHECKING:
+    from pandas import DataFrame, Series
+
 logger = logging.getLogger(__name__)
 
 
 class Chi2(AbstractFeatureSelector):
-    """ Select k best features from the data using Chi^2 score """
+    """Select k best features from the data using Chi^2 score."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -34,26 +37,19 @@ class Chi2(AbstractFeatureSelector):
             kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
-                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                )
                 if n_max_features is not None and len(X.columns) > n_max_features:
-                    X_out = X.sample(n=n_max_features, axis=1)
-                    return X_out
-                else:
-                    return X
+                    return X.sample(n=n_max_features, axis=1)
+                return X
         self._chi2 = SelectKBest(**self._select_best_kwargs).set_output(transform="pandas")
         X_out = self._transform(X, is_train=True)
         self._selected_features = list(X_out.columns)
         type_family_groups_special = {}
         return X_out, type_family_groups_special
 
-
     def _transform(self, X: DataFrame, *, is_train: bool = False) -> DataFrame:
-        if is_train:
-            X = self._chi2.fit_transform(X, self._y)
-        else:
-            X = self._chi2.transform(X)
-        return X
-
+        return self._chi2.fit_transform(X, self._y) if is_train else self._chi2.transform(X)
 
     @staticmethod
     def get_default_infer_features_in_args() -> dict:

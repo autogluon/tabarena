@@ -1,29 +1,28 @@
 from __future__ import annotations
-import warnings
-
-import numpy as np
-import pandas as pd
-from itertools import combinations
-
-from sklearn.model_selection import train_test_split
 
 import copy
 import logging
 import time
+import warnings
+from itertools import combinations
+
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+
 logger = logging.getLogger(__name__)
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class EnumerationFS:
-    """Enumeration feature selector"""
+    """Enumeration feature selector."""
 
     def __init__(self, model):
         self._y = None
         self._model = model
         self._n_max_features = None
         self._selected_features = None
-
 
     def fit_transform(self, X: pd.DataFrame, y: pd.Series, model, n_max_features, **kwargs) -> pd.DataFrame:
         self._y = y
@@ -35,7 +34,6 @@ class EnumerationFS:
         self._selected_features = list(X_selected.columns)
         return X_selected
 
-
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
@@ -44,9 +42,7 @@ class EnumerationFS:
     from itertools import combinations
 
     def get_enumerated_indices(self, X_train, y_train, model, n_max_features, feature_indices, **kwargs):
-        """
-        Enumerate all possible feature combinations starting from n_max_features down to 1 as long as we have time.
-        """
+        """Enumerate all possible feature combinations starting from n_max_features down to 1 as long as we have time."""
         best_score = -np.inf
         best_indices = None
         best_selected_features = None
@@ -64,15 +60,15 @@ class EnumerationFS:
                     kwargs["time_limit"] -= time_cur - kwargs["start_time"]
                     if kwargs["time_limit"] <= 0:
                         logger.warning(
-                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                        )
                         if best_indices is not None:
                             self._selected_features = best_selected_features
                             return X_train[self._selected_features]
-                        else:
-                            # Fallback: randomly select n_max_features (will not be triggered normally)
-                            X_out = X_train.sample(n=n_max_features, axis=1)
-                            self._selected_features = list(X_out.columns)
-                            return X_out
+                        # Fallback: randomly select n_max_features (will not be triggered normally)
+                        X_out = X_train.sample(n=n_max_features, axis=1)
+                        self._selected_features = list(X_out.columns)
+                        return X_out
 
                 # Create feature indices array
                 feature_indices_candidate = [0] * n_features_total
@@ -91,10 +87,9 @@ class EnumerationFS:
         self._selected_features = best_selected_features
         return best_indices
 
-
     @staticmethod
     def evaluate_subset(self, X, y, model):
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+        X_train, _X_test, y_train, _y_test = train_test_split(X, y, test_size=0.2)
         model_copy = copy.deepcopy(model)
         model_copy.params["fold_fitting_strategy"] = "sequential_local"
         model_copy = model_copy.fit(X=X_train, y=y_train, k_fold=8)

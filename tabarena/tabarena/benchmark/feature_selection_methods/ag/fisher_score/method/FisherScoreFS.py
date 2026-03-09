@@ -1,22 +1,24 @@
 from __future__ import annotations
 
+import logging
+import sys
 import time
+import warnings
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
-
-import warnings
-import logging
-
 from scipy.sparse import *
 from sklearn.metrics import pairwise_distances
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 logger = logging.getLogger(__name__)
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class FisherScoreFS:
-    """FisherScore feature selector"""
+    """FisherScore feature selector."""
 
     def __init__(self, model):
         self._y = None
@@ -40,19 +42,17 @@ class FisherScoreFS:
         self._selected_features = list(X_selected.columns)
         return X_selected
 
-
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
 
     def fisher_score(self, X, y, n_max_features, **kwargs):
-        """
-        This function implements the fisher score feature selection, steps are as follows:
+        """This function implements the fisher score feature selection, steps are as follows:
         1. Construct the affinity matrix W in fisher score way
         2. For the r-th feature, we define fr = X(:,r), D = diag(W*ones), ones = [1,...,1]', L = D - W
         3. Let fr_hat = fr - (fr'*D*ones)*ones/(ones'*D*ones)
-        4. Fisher score for the r-th feature is score = (fr_hat'*D*fr_hat)/(fr_hat'*L*fr_hat)-1
+        4. Fisher score for the r-th feature is score = (fr_hat'*D*fr_hat)/(fr_hat'*L*fr_hat)-1.
 
         Input
         -----
@@ -71,9 +71,8 @@ class FisherScoreFS:
         He, Xiaofei et al. "Laplacian Score for Feature Selection." NIPS 2005.
         Duda, Richard et al. "Pattern classification." John Wiley & Sons, 2012.
         """
-
         # Construct weight matrix W in a fisherScore way
-        kwargs.update({"neighbor_mode": "supervised", "fisher_score": True, 'y': y})
+        kwargs.update({"neighbor_mode": "supervised", "fisher_score": True, "y": y})
         W = self.construct_W(X, **kwargs)
         if W is None:
             score = np.zeros(X.shape[1])
@@ -103,7 +102,8 @@ class FisherScoreFS:
             kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
-                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                )
                 score = np.zeros(X.shape[1])
                 if n_max_features is not None and X.shape[1] > n_max_features:
                     selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
@@ -117,19 +117,16 @@ class FisherScoreFS:
         return np.transpose(score)
 
     def feature_ranking(self, score):
-        """
-        Rank features in descending order according to fisher score, the larger the fisher score, the more important the
-        feature is
+        """Rank features in descending order according to fisher score, the larger the fisher score, the more important the
+        feature is.
         """
         idx = np.argsort(score, 0)
         return idx[::-1]
 
-
     def construct_W(self, X, **kwargs):
-        """
-        Construct the affinity matrix W through different ways
+        r"""Construct the affinity matrix W through different ways.
 
-        Notes
+        Notes:
         -----
         if kwargs is null, use the default parameter settings;
         if kwargs is not null, construct the affinity matrix according to parameters in kwargs
@@ -183,42 +180,43 @@ class FisherScoreFS:
             kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
-                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                )
                 return None
         # default metric is 'cosine'
-        if 'metric' not in kwargs.keys():
-            kwargs['metric'] = 'cosine'
+        if "metric" not in kwargs:
+            kwargs["metric"] = "cosine"
 
         # default neighbor mode is 'knn' and default neighbor size is 5
-        if 'neighbor_mode' not in kwargs.keys():
-            kwargs['neighbor_mode'] = 'knn'
-        if kwargs['neighbor_mode'] == 'knn' and 'k' not in kwargs.keys():
-            kwargs['k'] = 5
-        if kwargs['neighbor_mode'] == 'supervised' and 'k' not in kwargs.keys():
-            kwargs['k'] = 5
-        if kwargs['neighbor_mode'] == 'supervised' and 'y' not in kwargs.keys():
-            print('Warning: label is required in the supervised neighborMode!!!')
-            exit(0)
+        if "neighbor_mode" not in kwargs:
+            kwargs["neighbor_mode"] = "knn"
+        if kwargs["neighbor_mode"] == "knn" and "k" not in kwargs:
+            kwargs["k"] = 5
+        if kwargs["neighbor_mode"] == "supervised" and "k" not in kwargs:
+            kwargs["k"] = 5
+        if kwargs["neighbor_mode"] == "supervised" and "y" not in kwargs:
+            print("Warning: label is required in the supervised neighborMode!!!")
+            sys.exit(0)
 
         # default weight mode is 'binary', default t in heat kernel mode is 1
-        if 'weight_mode' not in kwargs.keys():
-            kwargs['weight_mode'] = 'binary'
-        if kwargs['weight_mode'] == 'heat_kernel':
-            if kwargs['metric'] != 'euclidean':
-                kwargs['metric'] = 'euclidean'
-            if 't' not in kwargs.keys():
-                kwargs['t'] = 1
-        elif kwargs['weight_mode'] == 'cosine':
-            if kwargs['metric'] != 'cosine':
-                kwargs['metric'] = 'cosine'
+        if "weight_mode" not in kwargs:
+            kwargs["weight_mode"] = "binary"
+        if kwargs["weight_mode"] == "heat_kernel":
+            if kwargs["metric"] != "euclidean":
+                kwargs["metric"] = "euclidean"
+            if "t" not in kwargs:
+                kwargs["t"] = 1
+        elif kwargs["weight_mode"] == "cosine":
+            if kwargs["metric"] != "cosine":
+                kwargs["metric"] = "cosine"
 
         # default fisher_score and reliefF mode are 'false'
-        if 'fisher_score' not in kwargs.keys():
-            kwargs['fisher_score'] = False
-        if 'reliefF' not in kwargs.keys():
-            kwargs['reliefF'] = False
+        if "fisher_score" not in kwargs:
+            kwargs["fisher_score"] = False
+        if "reliefF" not in kwargs:
+            kwargs["reliefF"] = False
 
-        n_samples, n_features = np.shape(X)
+        n_samples, _n_features = np.shape(X)
 
         if "time_limit" in kwargs and kwargs["time_limit"] is not None:
             time_start_fit = time.time()
@@ -226,14 +224,15 @@ class FisherScoreFS:
             kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
-                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                )
                 return None
 
         # choose 'knn' neighbor mode
-        if kwargs['neighbor_mode'] == 'knn':
-            k = kwargs['k']
-            if kwargs['weight_mode'] == 'binary':
-                if kwargs['metric'] == 'euclidean':
+        if kwargs["neighbor_mode"] == "knn":
+            k = kwargs["k"]
+            if kwargs["weight_mode"] == "binary":
+                if kwargs["metric"] == "euclidean":
                     # compute pairwise euclidean distances
                     D = pairwise_distances(X)
                     D **= 2
@@ -241,18 +240,17 @@ class FisherScoreFS:
                     dump = np.sort(D, axis=1)
                     idx = np.argsort(D, axis=1)
                     # choose the k-nearest neighbors for each instance
-                    idx_new = idx[:, 0:k + 1]
+                    idx_new = idx[:, 0 : k + 1]
                     G = np.zeros((n_samples * (k + 1), 3))
                     G[:, 0] = np.tile(np.arange(n_samples), (k + 1, 1)).reshape(-1)
-                    G[:, 1] = np.ravel(idx_new, order='F')
+                    G[:, 1] = np.ravel(idx_new, order="F")
                     G[:, 2] = 1
                     # build the sparse affinity matrix W
                     W = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                     bigger = np.transpose(W) > W
-                    W = W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
-                    return W
+                    return W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
 
-                elif kwargs['metric'] == 'cosine':
+                if kwargs["metric"] == "cosine":
                     # normalize the data first
                     X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                     for i in range(n_samples):
@@ -262,7 +260,8 @@ class FisherScoreFS:
                             kwargs["start_time"] = time_start_fit
                             if kwargs["time_limit"] <= 0:
                                 logger.warning(
-                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                                )
                                 return None
                         X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                     # compute pairwise cosine distances
@@ -270,40 +269,38 @@ class FisherScoreFS:
                     # sort the distance matrix D in descending order
                     dump = np.sort(-D_cosine, axis=1)
                     idx = np.argsort(-D_cosine, axis=1)
-                    idx_new = idx[:, 0:k + 1]
+                    idx_new = idx[:, 0 : k + 1]
                     G = np.zeros((n_samples * (k + 1), 3))
                     G[:, 0] = np.tile(np.arange(n_samples), (k + 1, 1)).reshape(-1)
-                    G[:, 1] = np.ravel(idx_new, order='F')
+                    G[:, 1] = np.ravel(idx_new, order="F")
                     G[:, 2] = 1
                     # build the sparse affinity matrix W
                     W = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                     bigger = np.transpose(W) > W
-                    W = W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
-                    return W
+                    return W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
 
-            elif kwargs['weight_mode'] == 'heat_kernel':
-                t = kwargs['t']
+            elif kwargs["weight_mode"] == "heat_kernel":
+                t = kwargs["t"]
                 # compute pairwise euclidean distances
                 D = pairwise_distances(X)
                 D **= 2
                 # sort the distance matrix D in ascending order
                 dump = np.sort(D, axis=1)
                 idx = np.argsort(D, axis=1)
-                idx_new = idx[:, 0:k + 1]
-                dump_new = dump[:, 0:k + 1]
+                idx_new = idx[:, 0 : k + 1]
+                dump_new = dump[:, 0 : k + 1]
                 # compute the pairwise heat kernel distances
                 dump_heat_kernel = np.exp(-dump_new / (2 * t * t))
                 G = np.zeros((n_samples * (k + 1), 3))
                 G[:, 0] = np.tile(np.arange(n_samples), (k + 1, 1)).reshape(-1)
-                G[:, 1] = np.ravel(idx_new, order='F')
-                G[:, 2] = np.ravel(dump_heat_kernel, order='F')
+                G[:, 1] = np.ravel(idx_new, order="F")
+                G[:, 2] = np.ravel(dump_heat_kernel, order="F")
                 # build the sparse affinity matrix W
                 W = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                 bigger = np.transpose(W) > W
-                W = W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
-                return W
+                return W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
 
-            elif kwargs['weight_mode'] == 'cosine':
+            elif kwargs["weight_mode"] == "cosine":
                 # normalize the data first
                 X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                 for i in range(n_samples):
@@ -313,7 +310,8 @@ class FisherScoreFS:
                         kwargs["start_time"] = time_start_fit
                         if kwargs["time_limit"] <= 0:
                             logger.warning(
-                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                            )
                             return None
                     X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                 # compute pairwise cosine distances
@@ -321,35 +319,35 @@ class FisherScoreFS:
                 # sort the distance matrix D in ascending order
                 dump = np.sort(-D_cosine, axis=1)
                 idx = np.argsort(-D_cosine, axis=1)
-                idx_new = idx[:, 0:k + 1]
-                dump_new = -dump[:, 0:k + 1]
+                idx_new = idx[:, 0 : k + 1]
+                dump_new = -dump[:, 0 : k + 1]
                 G = np.zeros((n_samples * (k + 1), 3))
                 G[:, 0] = np.tile(np.arange(n_samples), (k + 1, 1)).reshape(-1)
-                G[:, 1] = np.ravel(idx_new, order='F')
-                G[:, 2] = np.ravel(dump_new, order='F')
+                G[:, 1] = np.ravel(idx_new, order="F")
+                G[:, 2] = np.ravel(dump_new, order="F")
                 # build the sparse affinity matrix W
                 W = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                 bigger = np.transpose(W) > W
-                W = W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
-                return W
+                return W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
 
         # choose supervised neighborMode
-        elif kwargs['neighbor_mode'] == 'supervised':
+        elif kwargs["neighbor_mode"] == "supervised":
             if "time_limit" in kwargs and kwargs["time_limit"] is not None:
                 time_start_fit = time.time()
                 kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     return None
-            k = kwargs['k']
+            k = kwargs["k"]
             # get true labels and the number of classes
-            y = kwargs['y']
+            y = kwargs["y"]
             label = np.unique(y)
             n_classes = np.unique(y).size
             # construct the weight matrix W in a fisherScore way, W_ij = 1/n_l if yi = yj = l, otherwise W_ij = 0
-            if kwargs['fisher_score'] is True:
+            if kwargs["fisher_score"] is True:
                 W = lil_matrix((n_samples, n_samples))
                 for i in range(n_classes):
                     if "time_limit" in kwargs and kwargs["time_limit"] is not None:
@@ -358,17 +356,18 @@ class FisherScoreFS:
                         kwargs["start_time"] = time_start_fit
                         if kwargs["time_limit"] <= 0:
                             logger.warning(
-                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                            )
                             return None
-                    class_idx = (y == label[i])
-                    class_idx_all = (class_idx[:, np.newaxis] & class_idx[np.newaxis, :])
+                    class_idx = y == label[i]
+                    class_idx_all = class_idx[:, np.newaxis] & class_idx[np.newaxis, :]
                     W[class_idx_all] = 1.0 / np.sum(np.sum(class_idx))
                 return W
 
             # construct the weight matrix W in a reliefF way, NH(x) and NM(x,y) denotes a set of k nearest
             # points to x with the same class as x, a different class (the class y), respectively. W_ij = 1 if i = j;
             # W_ij = 1/k if x_j \in NH(x_i); W_ij = -1/(c-1)k if x_j \in NM(x_i, y)
-            if kwargs['reliefF'] is True:
+            if kwargs["reliefF"] is True:
                 # when xj in NH(xi)
                 G = np.zeros((n_samples * (k + 1), 3))
                 id_now = 0
@@ -379,19 +378,20 @@ class FisherScoreFS:
                         kwargs["start_time"] = time_start_fit
                         if kwargs["time_limit"] <= 0:
                             logger.warning(
-                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                            )
                             return None
                     class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                     D = pairwise_distances(X[class_idx, :])
                     D **= 2
                     idx = np.argsort(D, axis=1)
-                    idx_new = idx[:, 0:k + 1]
+                    idx_new = idx[:, 0 : k + 1]
                     n_smp_class = (class_idx[idx_new[:]]).size
                     if len(class_idx) <= k:
                         k = len(class_idx) - 1
-                    G[id_now:n_smp_class + id_now, 0] = np.tile(class_idx, (k + 1, 1)).reshape(-1)
-                    G[id_now:n_smp_class + id_now, 1] = np.ravel(class_idx[idx_new[:]], order='F')
-                    G[id_now:n_smp_class + id_now, 2] = 1.0 / k
+                    G[id_now : n_smp_class + id_now, 0] = np.tile(class_idx, (k + 1, 1)).reshape(-1)
+                    G[id_now : n_smp_class + id_now, 1] = np.ravel(class_idx[idx_new[:]], order="F")
+                    G[id_now : n_smp_class + id_now, 2] = 1.0 / k
                     id_now += n_smp_class
                 W1 = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                 # when i = j, W_ij = 1
@@ -402,7 +402,8 @@ class FisherScoreFS:
                         kwargs["start_time"] = time_start_fit
                         if kwargs["time_limit"] <= 0:
                             logger.warning(
-                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                            )
                             return None
                     W1[i, i] = 1
                 # when x_j in NM(x_i, y)
@@ -415,7 +416,8 @@ class FisherScoreFS:
                         kwargs["start_time"] = time_start_fit
                         if kwargs["time_limit"] <= 0:
                             logger.warning(
-                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                            )
                             return None
                     class_idx1 = np.column_stack(np.where(y == label[i]))[:, 0]
                     X1 = X[class_idx1, :]
@@ -426,7 +428,8 @@ class FisherScoreFS:
                             kwargs["start_time"] = time_start_fit
                             if kwargs["time_limit"] <= 0:
                                 logger.warning(
-                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                                )
                                 return None
                         if label[j] != label[i]:
                             class_idx2 = np.column_stack(np.where(y == label[j]))[:, 0]
@@ -435,18 +438,17 @@ class FisherScoreFS:
                             idx = np.argsort(D, axis=1)
                             idx_new = idx[:, 0:k]
                             n_smp_class = len(class_idx1) * k
-                            G[id_now:n_smp_class + id_now, 0] = np.tile(class_idx1, (k, 1)).reshape(-1)
-                            G[id_now:n_smp_class + id_now, 1] = np.ravel(class_idx2[idx_new[:]], order='F')
-                            G[id_now:n_smp_class + id_now, 2] = -1.0 / ((n_classes - 1) * k)
+                            G[id_now : n_smp_class + id_now, 0] = np.tile(class_idx1, (k, 1)).reshape(-1)
+                            G[id_now : n_smp_class + id_now, 1] = np.ravel(class_idx2[idx_new[:]], order="F")
+                            G[id_now : n_smp_class + id_now, 2] = -1.0 / ((n_classes - 1) * k)
                             id_now += n_smp_class
                 W2 = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                 bigger = np.transpose(W2) > W2
                 W2 = W2 - W2.multiply(bigger) + np.transpose(W2).multiply(bigger)
-                W = W1 + W2
-                return W
+                return W1 + W2
 
-            if kwargs['weight_mode'] == 'binary':
-                if kwargs['metric'] == 'euclidean':
+            if kwargs["weight_mode"] == "binary":
+                if kwargs["metric"] == "euclidean":
                     G = np.zeros((n_samples * (k + 1), 3))
                     id_now = 0
                     for i in range(n_classes):
@@ -456,7 +458,8 @@ class FisherScoreFS:
                             kwargs["start_time"] = time_start_fit
                             if kwargs["time_limit"] <= 0:
                                 logger.warning(
-                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                                )
                                 return None
                         class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                         # compute pairwise euclidean distances for instances in class i
@@ -464,19 +467,18 @@ class FisherScoreFS:
                         D **= 2
                         # sort the distance matrix D in ascending order for instances in class i
                         idx = np.argsort(D, axis=1)
-                        idx_new = idx[:, 0:k + 1]
+                        idx_new = idx[:, 0 : k + 1]
                         n_smp_class = len(class_idx) * (k + 1)
-                        G[id_now:n_smp_class + id_now, 0] = np.tile(class_idx, (k + 1, 1)).reshape(-1)
-                        G[id_now:n_smp_class + id_now, 1] = np.ravel(class_idx[idx_new[:]], order='F')
-                        G[id_now:n_smp_class + id_now, 2] = 1
+                        G[id_now : n_smp_class + id_now, 0] = np.tile(class_idx, (k + 1, 1)).reshape(-1)
+                        G[id_now : n_smp_class + id_now, 1] = np.ravel(class_idx[idx_new[:]], order="F")
+                        G[id_now : n_smp_class + id_now, 2] = 1
                         id_now += n_smp_class
                     # build the sparse affinity matrix W
                     W = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                     bigger = np.transpose(W) > W
-                    W = W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
-                    return W
+                    return W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
 
-                if kwargs['metric'] == 'cosine':
+                if kwargs["metric"] == "cosine":
                     # normalize the data first
                     X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                     for i in range(n_samples):
@@ -486,7 +488,8 @@ class FisherScoreFS:
                             kwargs["start_time"] = time_start_fit
                             if kwargs["time_limit"] <= 0:
                                 logger.warning(
-                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                                )
                                 return None
                         X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                     G = np.zeros((n_samples * (k + 1), 3))
@@ -498,26 +501,26 @@ class FisherScoreFS:
                             kwargs["start_time"] = time_start_fit
                             if kwargs["time_limit"] <= 0:
                                 logger.warning(
-                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                                )
                                 return None
                         class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                         # compute pairwise cosine distances for instances in class i
                         D_cosine = np.dot(X[class_idx, :], np.transpose(X[class_idx, :]))
                         # sort the distance matrix D in descending order for instances in class i
                         idx = np.argsort(-D_cosine, axis=1)
-                        idx_new = idx[:, 0:k + 1]
+                        idx_new = idx[:, 0 : k + 1]
                         n_smp_class = len(class_idx) * (k + 1)
-                        G[id_now:n_smp_class + id_now, 0] = np.tile(class_idx, (k + 1, 1)).reshape(-1)
-                        G[id_now:n_smp_class + id_now, 1] = np.ravel(class_idx[idx_new[:]], order='F')
-                        G[id_now:n_smp_class + id_now, 2] = 1
+                        G[id_now : n_smp_class + id_now, 0] = np.tile(class_idx, (k + 1, 1)).reshape(-1)
+                        G[id_now : n_smp_class + id_now, 1] = np.ravel(class_idx[idx_new[:]], order="F")
+                        G[id_now : n_smp_class + id_now, 2] = 1
                         id_now += n_smp_class
                     # build the sparse affinity matrix W
                     W = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                     bigger = np.transpose(W) > W
-                    W = W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
-                    return W
+                    return W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
 
-            elif kwargs['weight_mode'] == 'heat_kernel':
+            elif kwargs["weight_mode"] == "heat_kernel":
                 G = np.zeros((n_samples * (k + 1), 3))
                 id_now = 0
                 for i in range(n_classes):
@@ -527,7 +530,8 @@ class FisherScoreFS:
                         kwargs["start_time"] = time_start_fit
                         if kwargs["time_limit"] <= 0:
                             logger.warning(
-                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                            )
                             return None
                     class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                     # compute pairwise cosine distances for instances in class i
@@ -536,23 +540,22 @@ class FisherScoreFS:
                     # sort the distance matrix D in ascending order for instances in class i
                     dump = np.sort(D, axis=1)
                     idx = np.argsort(D, axis=1)
-                    idx_new = idx[:, 0:k + 1]
-                    dump_new = dump[:, 0:k + 1]
-                    t = kwargs['t']
+                    idx_new = idx[:, 0 : k + 1]
+                    dump_new = dump[:, 0 : k + 1]
+                    t = kwargs["t"]
                     # compute pairwise heat kernel distances for instances in class i
                     dump_heat_kernel = np.exp(-dump_new / (2 * t * t))
                     n_smp_class = len(class_idx) * (k + 1)
-                    G[id_now:n_smp_class + id_now, 0] = np.tile(class_idx, (k + 1, 1)).reshape(-1)
-                    G[id_now:n_smp_class + id_now, 1] = np.ravel(class_idx[idx_new[:]], order='F')
-                    G[id_now:n_smp_class + id_now, 2] = np.ravel(dump_heat_kernel, order='F')
+                    G[id_now : n_smp_class + id_now, 0] = np.tile(class_idx, (k + 1, 1)).reshape(-1)
+                    G[id_now : n_smp_class + id_now, 1] = np.ravel(class_idx[idx_new[:]], order="F")
+                    G[id_now : n_smp_class + id_now, 2] = np.ravel(dump_heat_kernel, order="F")
                     id_now += n_smp_class
                 # build the sparse affinity matrix W
                 W = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                 bigger = np.transpose(W) > W
-                W = W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
-                return W
+                return W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
 
-            elif kwargs['weight_mode'] == 'cosine':
+            elif kwargs["weight_mode"] == "cosine":
                 # normalize the data first
                 X_normalized = np.power(np.sum(X * X, axis=1), 0.5)
                 for i in range(n_samples):
@@ -562,7 +565,8 @@ class FisherScoreFS:
                         kwargs["start_time"] = time_start_fit
                         if kwargs["time_limit"] <= 0:
                             logger.warning(
-                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                            )
                             return None
                     X[i, :] = X[i, :] / max(1e-12, X_normalized[i])
                 G = np.zeros((n_samples * (k + 1), 3))
@@ -574,7 +578,8 @@ class FisherScoreFS:
                         kwargs["start_time"] = time_start_fit
                         if kwargs["time_limit"] <= 0:
                             logger.warning(
-                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                            )
                             return None
                     class_idx = np.column_stack(np.where(y == label[i]))[:, 0]
                     # compute pairwise cosine distances for instances in class i
@@ -582,15 +587,15 @@ class FisherScoreFS:
                     # sort the distance matrix D in descending order for instances in class i
                     dump = np.sort(-D_cosine, axis=1)
                     idx = np.argsort(-D_cosine, axis=1)
-                    idx_new = idx[:, 0:k + 1]
-                    dump_new = -dump[:, 0:k + 1]
+                    idx_new = idx[:, 0 : k + 1]
+                    dump_new = -dump[:, 0 : k + 1]
                     n_smp_class = len(class_idx) * (k + 1)
-                    G[id_now:n_smp_class + id_now, 0] = np.tile(class_idx, (k + 1, 1)).reshape(-1)
-                    G[id_now:n_smp_class + id_now, 1] = np.ravel(class_idx[idx_new[:]], order='F')
-                    G[id_now:n_smp_class + id_now, 2] = np.ravel(dump_new, order='F')
+                    G[id_now : n_smp_class + id_now, 0] = np.tile(class_idx, (k + 1, 1)).reshape(-1)
+                    G[id_now : n_smp_class + id_now, 1] = np.ravel(class_idx[idx_new[:]], order="F")
+                    G[id_now : n_smp_class + id_now, 2] = np.ravel(dump_new, order="F")
                     id_now += n_smp_class
                 # build the sparse affinity matrix W
                 W = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
                 bigger = np.transpose(W) > W
-                W = W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
-                return W
+                return W - W.multiply(bigger) + np.transpose(W).multiply(bigger)
+        return None

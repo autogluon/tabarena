@@ -1,17 +1,21 @@
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-
-import warnings
 import logging
+import sys
+import warnings
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class SFSFS:
-    """SFS feature selector"""
+    """SFS feature selector."""
 
     def __init__(self, model):
         self._y = None
@@ -35,16 +39,14 @@ class SFSFS:
         self._selected_features = list(X_selected.columns)
         return X_selected
 
-
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
 
     def t_score(self, X, y):
-        """
-        This function calculates t_score for each feature, where t_score is only used for binary problem
-        t_score = |mean1-mean2|/sqrt(((std1^2)/n1)+((std2^2)/n2)))
+        """This function calculates t_score for each feature, where t_score is only used for binary problem
+        t_score = |mean1-mean2|/sqrt(((std1^2)/n1)+((std2^2)/n2))).
 
         Input
         -----
@@ -58,8 +60,7 @@ class SFSFS:
         F: {numpy array}, shape (n_features,)
             t-score for each feature
         """
-
-        n_samples, n_features = X.shape
+        _n_samples, n_features = X.shape
         F = np.zeros(n_features)
         c = np.unique(y)
         if len(c) == 2:
@@ -76,17 +77,15 @@ class SFSFS:
                 n0 = len(class0)
                 n1 = len(class1)
                 t = mean0 - mean1
-                t0 = np.true_divide(std0 ** 2, n0)
-                t1 = np.true_divide(std1 ** 2, n1)
+                t0 = np.true_divide(std0**2, n0)
+                t1 = np.true_divide(std1**2, n1)
                 F[i] = np.true_divide(t, (t0 + t1) ** 0.5)
         else:
-            print('y should be guaranteed to a binary class vector')
-            exit(0)
+            print("y should be guaranteed to a binary class vector")
+            sys.exit(0)
         return np.abs(F)
 
     def feature_ranking(self, F):
-        """
-        Rank features in descending order according to t-score, the higher the t-score, the more important the feature is
-        """
+        """Rank features in descending order according to t-score, the higher the t-score, the more important the feature is."""
         idx = np.argsort(F)
         return idx[::-1]

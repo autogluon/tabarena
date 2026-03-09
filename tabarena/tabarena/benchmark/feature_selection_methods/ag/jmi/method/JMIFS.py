@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-import time
-import numpy as np
-import pandas as pd
-
-import warnings
 import logging
+import time
+import warnings
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class JMIFS:
-    """JMI feature selector"""
+    """JMI feature selector."""
 
     def __init__(self):
         self._y = None
@@ -34,8 +37,7 @@ class JMIFS:
         return X[self._selected_features]
 
     def jmi(self, X, y, n_max_features, **kwargs):
-        """
-        Implements Joint Mutual Information (JMI) feature selection using
+        """Implements Joint Mutual Information (JMI) feature selection using
         the Kullback-Leibler divergence definition:
 
             I(X_1,...,X_k ; Y) = KL( p(x1,...,xk, y) || p(x1,...,xk) * p(y) )
@@ -56,11 +58,10 @@ class JMIFS:
         Yang, H., & Moody, J. (1999). Data visualization and feature selection: New algorithms for nongaussian data.
         Advances in neural information processing systems, 12.
         """
-
         X_np = self._discretize(X.to_numpy(), n_max_features, **kwargs)
         y_np = y.to_numpy()
 
-        n_samples, n_features = X_np.shape
+        _n_samples, n_features = X_np.shape
         selected = []  # indices of selected features
         remaining = list(range(n_features))
 
@@ -72,12 +73,11 @@ class JMIFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     if n_max_features is not None and len(X.columns) > n_max_features:
-                        X_out = X.sample(n=n_max_features, axis=1)
-                        return X_out
-                    else:
-                        return X
+                        return X.sample(n=n_max_features, axis=1)
+                    return X
             first_scores[i] = self._joint_mi_kl(X_np[:, [i]], y_np, n_max_features, **kwargs)
 
         best_first = int(np.argmax(first_scores))
@@ -91,12 +91,11 @@ class JMIFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     if n_max_features is not None and len(X.columns) > n_max_features:
-                        X_out = X.sample(n=n_max_features, axis=1)
-                        return X_out
-                    else:
-                        return X
+                        return X.sample(n=n_max_features, axis=1)
+                    return X
             best_score = -np.inf
             best_idx = None
             for i in remaining:
@@ -106,13 +105,12 @@ class JMIFS:
                     kwargs["start_time"] = time_start_fit
                     if kwargs["time_limit"] <= 0:
                         logger.warning(
-                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                        )
                         if n_max_features is not None and len(X.columns) > n_max_features:
-                            X_out = X.sample(n=n_max_features, axis=1)
-                            return X_out
-                        else:
-                            return X
-                candidate_cols = selected + [i]
+                            return X.sample(n=n_max_features, axis=1)
+                        return X
+                candidate_cols = [*selected, i]
                 X_subset = X_np[:, candidate_cols]
 
                 score = self._joint_mi_kl(X_subset, y_np, n_max_features, **kwargs)
@@ -136,7 +134,8 @@ class JMIFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     score = np.zeros(X_np.shape[1])
                     if n_max_features is not None and X_np.shape[1] > n_max_features:
                         selected_idx = np.random.choice(X_np.shape[1], size=n_max_features, replace=False)
@@ -150,7 +149,7 @@ class JMIFS:
         return X_disc
 
     @staticmethod
-    def _estimate_prob(data: np.ndarray, n_max_features,  **kwargs) -> dict:
+    def _estimate_prob(data: np.ndarray, n_max_features, **kwargs) -> dict:
         """Estimate joint probability distribution from rows of data."""
         if data.ndim == 1:
             data = data.reshape(-1, 1)
@@ -163,7 +162,8 @@ class JMIFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     score = np.zeros(data.shape[1])
                     if n_max_features is not None and data.shape[1] > n_max_features:
                         selected_idx = np.random.choice(data.shape[1], size=n_max_features, replace=False)
@@ -176,9 +176,8 @@ class JMIFS:
         return {k: v / n for k, v in counts.items()}
 
     def _joint_mi_kl(self, X_subset: np.ndarray, y_np: np.ndarray, n_max_features, **kwargs) -> float:
-        """
-        I(X_1,...,X_k ; Y) = KL( p(x,y) || p(x)*p(y) )
-                           = sum_{x,y} p(x,y) * log( p(x,y) / (p(x)*p(y)) )
+        """I(X_1,...,X_k ; Y) = KL( p(x,y) || p(x)*p(y) )
+        = sum_{x,y} p(x,y) * log( p(x,y) / (p(x)*p(y)) ).
         """
         if X_subset.ndim == 1:
             X_subset = X_subset.reshape(-1, 1)
@@ -197,7 +196,8 @@ class JMIFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     score = np.zeros(X_subset.shape[1])
                     if n_max_features is not None and X_subset.shape[1] > n_max_features:
                         selected_idx = np.random.choice(X_subset.shape[1], size=n_max_features, replace=False)

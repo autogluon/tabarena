@@ -1,13 +1,20 @@
-import pandas as pd
+from __future__ import annotations
+
 import logging
 import os
-import ray
 import tempfile
 
-from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier, HistGradientBoostingRegressor, RandomForestRegressor
-from sklearn.metrics import log_loss, root_mean_squared_error, max_error, roc_auc_score
-from autogluon.tabular import TabularPredictor
 import lightgbm as lgb
+import pandas as pd
+import ray
+from autogluon.tabular import TabularPredictor
+from sklearn.ensemble import (
+    HistGradientBoostingClassifier,
+    HistGradientBoostingRegressor,
+    RandomForestClassifier,
+    RandomForestRegressor,
+)
+from sklearn.metrics import log_loss, max_error, roc_auc_score, root_mean_squared_error
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.neural_network import MLPClassifier, MLPRegressor
@@ -45,8 +52,8 @@ def run_autogluon_lgbm(X_train, y_train, X_test, y_test, zeroshot=False):
     zeroshot2024 = get_zeroshot_models(allowed_models, zeroshot)
     # -- Run AutoGluon
     predictor = init_and_fit_predictor(label, train_data, zeroshot2024)
-    lb = predictor.leaderboard(test_data)
-    return lb
+    return predictor.leaderboard(test_data)
+
 
 def run_autogluon_lgbm_classification(X_train, y_train, X_test, y_test, zeroshot=False):
     label = "target"
@@ -60,8 +67,7 @@ def run_autogluon_lgbm_classification(X_train, y_train, X_test, y_test, zeroshot
     zeroshot2024 = get_zeroshot_models(allowed_models, zeroshot)
     # -- Run AutoGluon
     predictor = init_and_fit_improvement_predictor_classification(label, train_data, zeroshot2024)
-    lb = predictor.leaderboard(test_data)
-    return lb
+    return predictor.leaderboard(test_data)
 
 
 def run_autogluon_lgbm_regression(X_train, y_train, X_test, y_test, zeroshot=False):
@@ -76,8 +82,7 @@ def run_autogluon_lgbm_regression(X_train, y_train, X_test, y_test, zeroshot=Fal
     zeroshot2024 = get_zeroshot_models(allowed_models, zeroshot)
     # -- Run AutoGluon
     predictor = init_and_fit_improvement_predictor_regression(label, train_data, zeroshot2024)
-    lb = predictor.leaderboard(test_data)
-    return lb
+    return predictor.leaderboard(test_data)
 
 
 def run_autogluon_lgbm_ray(X_train, y_train, X_test, y_test, zeroshot=False):
@@ -89,7 +94,7 @@ def run_autogluon_lgbm_ray(X_train, y_train, X_test, y_test, zeroshot=False):
     log = logging.getLogger(__name__)
     ray_mem_in_gb = 48
     log.info(f"Running on SLURM, initializing Ray with unique temp dir with {ray_mem_in_gb}GB.")
-    ray_mem_in_b = int(ray_mem_in_gb * (1024.0 ** 3))
+    ray_mem_in_b = int(ray_mem_in_gb * (1024.0**3))
     tmp_dir_base_path = "/tmp"
     ray_dir = f"{tmp_dir_base_path}"
     print(f"Start local ray instances. Using {os.environ.get('RAY_MEM_IN_GB')} GB for Ray.")
@@ -104,7 +109,7 @@ def run_autogluon_lgbm_ray(X_train, y_train, X_test, y_test, zeroshot=False):
         log_to_driver=True,
         num_gpus=0,
         num_cpus=8,
-        ignore_reinit_error=True
+        ignore_reinit_error=True,
     )
 
     allowed_models = [
@@ -123,7 +128,6 @@ def run_autogluon_lgbm_ray(X_train, y_train, X_test, y_test, zeroshot=False):
 def predict_autogluon_lgbm(train_data, test_data):
     # Prepare Data
     # X_test = add_new_featurenames(X_test)
-    label = 'improvement'
 
     # Predictor
     predictor = init_and_fit_predictor("improvement", train_data, zeroshot2024)
@@ -131,16 +135,17 @@ def predict_autogluon_lgbm(train_data, test_data):
     # evaluation = pd.DataFrame(predictor.evaluate(X_test, ))
     # Prediction
     prediction = predictor.predict(test_data)
-    prediction.rename("predicted_improvement", inplace=True)
-    prediction_result = pd.concat([test_data[["dataset - id", "feature - name", "model"]], prediction], axis=1)
-    return prediction_result  # evaluation,
+    prediction = prediction.rename("predicted_improvement")
+    return pd.concat([test_data[["dataset - id", "feature - name", "model"]], prediction], axis=1)
 
 
 def multi_predict_autogluon_lgbm(train_data, X_test):
-    labels = ['feature - name', 'improvement']  # which columns to predict based on the others
-    problem_types = ['multiclass', 'regression']  # type of each prediction problem
-    save_path = 'agModels'  # specifies folder to store trained models
-    time_limit = 300  # how many seconds to train the TabularPredictor for each label, set much larger in your applications!
+    labels = ["feature - name", "improvement"]  # which columns to predict based on the others
+    problem_types = ["multiclass", "regression"]  # type of each prediction problem
+    save_path = "agModels"  # specifies folder to store trained models
+    time_limit = (
+        300  # how many seconds to train the TabularPredictor for each label, set much larger in your applications!
+    )
     # Multi Predictor
     multi_predictor = MultilabelPredictor(labels=labels, problem_types=problem_types, path=save_path)
     multi_predictor.fit(train_data, labels, time_limit=time_limit)
@@ -148,18 +153,18 @@ def multi_predict_autogluon_lgbm(train_data, X_test):
     #  multi_evaluation = pd.DataFrame(multi_predictor.evaluate(X_test))
     # Prediction
     multi_prediction = pd.DataFrame(multi_predictor.predict(X_test))
-    multi_prediction.rename(columns={"feature - name": "new - feature - name", "improvement": "predicted_improvement"},
-                            inplace=True)
-    multi_prediction_result = pd.concat([X_test[["dataset - id", "feature - name", "model"]], multi_prediction], axis=1)
-    return multi_prediction_result  # multi_evaluation,
+    multi_prediction = multi_prediction.rename(
+        columns={"feature - name": "new - feature - name", "improvement": "predicted_improvement"}
+    )
+    return pd.concat([X_test[["dataset - id", "feature - name", "model"]], multi_prediction], axis=1)
 
 
 def get_model_score(X_train, y_train, X_test, y_test, dataset_id):
     lb = run_autogluon_lgbm(X_train, y_train, X_test, y_test)
     models = lb["model"]
-    new_results = pd.DataFrame(columns=['dataset', 'model', 'score'])
+    new_results = pd.DataFrame(columns=["dataset", "model", "score"])
     for model in models:
-        score_val = lb.loc[lb['model'] == model, 'score_val'].values[0]
+        score_val = lb.loc[lb["model"] == model, "score_val"].values[0]
         new_results.loc[len(new_results)] = [dataset_id, model, score_val]
     return new_results
 
@@ -167,10 +172,10 @@ def get_model_score(X_train, y_train, X_test, y_test, dataset_id):
 def get_model_score_origin_classification(X_train, y_train, X_test, y_test, dataset_id, origin):
     lb = run_autogluon_lgbm_classification(X_train, y_train, X_test, y_test)
     models = lb["model"]
-    new_results = pd.DataFrame(columns=['origin', 'task_type', 'dataset', 'model', 'score_val', 'score_test'])
+    new_results = pd.DataFrame(columns=["origin", "task_type", "dataset", "model", "score_val", "score_test"])
     for model in models:
-        score_val = lb.loc[lb['model'] == model, 'score_val'].values[0]
-        score_test = lb.loc[lb['model'] == model, 'score_test'].values[0]
+        score_val = lb.loc[lb["model"] == model, "score_val"].values[0]
+        score_test = lb.loc[lb["model"] == model, "score_test"].values[0]
         new_results.loc[len(new_results)] = [origin, "Classification", dataset_id, model, score_val, score_test]
     return new_results
 
@@ -178,10 +183,10 @@ def get_model_score_origin_classification(X_train, y_train, X_test, y_test, data
 def get_model_score_origin_regression(X_train, y_train, X_test, y_test, dataset_id, origin):
     lb = run_autogluon_lgbm_regression(X_train, y_train, X_test, y_test)
     models = lb["model"]
-    new_results = pd.DataFrame(columns=['origin', 'task_type', 'dataset', 'model', 'score_val', 'score_test'])
+    new_results = pd.DataFrame(columns=["origin", "task_type", "dataset", "model", "score_val", "score_test"])
     for model in models:
-        score_val = lb.loc[lb['model'] == model, 'score_val'].values[0]
-        score_test = lb.loc[lb['model'] == model, 'score_test'].values[0]
+        score_val = lb.loc[lb["model"] == model, "score_val"].values[0]
+        score_test = lb.loc[lb["model"] == model, "score_test"].values[0]
         new_results.loc[len(new_results)] = [origin, "Regression", dataset_id, model, score_val, score_test]
     return new_results
 
@@ -189,9 +194,9 @@ def get_model_score_origin_regression(X_train, y_train, X_test, y_test, dataset_
 def get_model_score_regression(X_train, y_train, X_test, y_test, dataset_id):
     lb = run_autogluon_lgbm_regression(X_train, y_train, X_test, y_test)
     models = lb["model"]
-    new_results = pd.DataFrame(columns=['dataset', 'model', 'score'])
+    new_results = pd.DataFrame(columns=["dataset", "model", "score"])
     for model in models:
-        score_val = lb.loc[lb['model'] == model, 'score_val'].values[0]
+        score_val = lb.loc[lb["model"] == model, "score_val"].values[0]
         new_results.loc[len(new_results)] = [dataset_id, model, score_val]
     return new_results
 
@@ -201,7 +206,7 @@ def init_and_fit_predictor(label, train_data, zeroshot2024):
     #    predictor = TabularPredictor.load("/tmp/my_predictor")
     #    print("Predictor read")
     #    return predictor
-    #except FileNotFoundError:
+    # except FileNotFoundError:
     predictor = TabularPredictor(
         label=label,
         eval_metric="log_loss",  # roc_auc (binary), log_loss (multiclass) root_mean_squared_error (regression)
@@ -209,7 +214,7 @@ def init_and_fit_predictor(label, train_data, zeroshot2024):
         verbosity=0,
     )
     predictor.fit(
-        time_limit=int(60 * 60* 10),
+        time_limit=(60 * 60 * 10),
         memory_limit=48,
         num_cpus=8,
         num_gpus=0,
@@ -220,7 +225,7 @@ def init_and_fit_predictor(label, train_data, zeroshot2024):
         num_bag_folds=8,
         num_bag_sets=1,
         num_stack_levels=0,
-        fit_weighted_ensemble=False
+        fit_weighted_ensemble=False,
     )
     return predictor
 
@@ -234,7 +239,7 @@ def init_and_fit_improvement_predictor_classification(label, train_data, zerosho
         path=tempfile.mkdtemp() + os.sep,
     )
     predictor.fit(
-        time_limit=int(60 * 60 * 4),
+        time_limit=(60 * 60 * 4),
         memory_limit=48,
         num_cpus=8,
         num_gpus=0,
@@ -245,7 +250,7 @@ def init_and_fit_improvement_predictor_classification(label, train_data, zerosho
         num_bag_folds=8,
         num_bag_sets=1,
         num_stack_levels=0,
-        fit_weighted_ensemble=False
+        fit_weighted_ensemble=False,
     )
     return predictor
 
@@ -259,7 +264,7 @@ def init_and_fit_improvement_predictor_regression(label, train_data, zeroshot202
         path=tempfile.mkdtemp() + os.sep,
     )
     predictor.fit(
-        time_limit=int(60 * 60 * 4),
+        time_limit=(60 * 60 * 4),
         memory_limit=48,
         num_cpus=8,
         num_gpus=0,
@@ -270,7 +275,7 @@ def init_and_fit_improvement_predictor_regression(label, train_data, zeroshot202
         num_bag_folds=8,
         num_bag_sets=1,
         num_stack_levels=0,
-        fit_weighted_ensemble=False
+        fit_weighted_ensemble=False,
     )
     return predictor
 
@@ -279,25 +284,39 @@ def get_zeroshot_models(allowed_models, zeroshot):
     for k in list(zeroshot2024.keys()):
         if k not in allowed_models:
             del zeroshot2024[k]
+        elif not zeroshot:
+            zeroshot2024[k] = zeroshot2024[k][:1]
         else:
-            if not zeroshot:
-                zeroshot2024[k] = zeroshot2024[k][:1]
-            else:
-                zeroshot2024[k] = zeroshot2024[k][1:]
+            zeroshot2024[k] = zeroshot2024[k][1:]
     return zeroshot2024
 
 
-def get_sklearn_model_score_classification(X_train, y_train, X_test, y_test, dataset_id, origin, model_name, seed, score_names):
+def get_sklearn_model_score_classification(
+    X_train, y_train, X_test, y_test, dataset_id, origin, model_name, seed, score_names
+):
     model = get_sklearn_model_classification(model_name, seed)
     X_train, X_test = factorize_features(X_train, X_test)
     y_train, y_test = factorize_target(y_train, y_test)
     model.fit(X_train, y_train)
     score_val = model.score(X_train, y_train)
-    new_results = pd.DataFrame(columns=['origin', 'task_type', 'dataset', 'model', 'seed', 'score_name', 'score_val', 'score_test'])
+    new_results = pd.DataFrame(
+        columns=["origin", "task_type", "dataset", "model", "seed", "score_name", "score_val", "score_test"]
+    )
     for score_name in score_names:
         score_test = get_sklearn_classification_scores(score_name, y_test, model, X_test)
-        new_row = pd.DataFrame(columns=['origin', 'task_type', 'dataset', 'model', 'seed', 'score_name', 'score_val', 'score_test'])
-        new_row.loc[len(new_results)] = [origin, "Classification", dataset_id, model_name, seed, score_name, score_val, score_test]
+        new_row = pd.DataFrame(
+            columns=["origin", "task_type", "dataset", "model", "seed", "score_name", "score_val", "score_test"]
+        )
+        new_row.loc[len(new_results)] = [
+            origin,
+            "Classification",
+            dataset_id,
+            model_name,
+            seed,
+            score_name,
+            score_val,
+            score_test,
+        ]
         new_results = pd.concat([new_results, new_row])
     return new_results
 
@@ -329,23 +348,39 @@ def get_sklearn_classification_scores(score_name, y_test, model, X_test):
         try:
             score = roc_auc_score(y_test, y_pred)
         except ValueError:
-            score = roc_auc_score(y_test, y_pred_proba, multi_class='ovr')
+            score = roc_auc_score(y_test, y_pred_proba, multi_class="ovr")
     else:
         score = log_loss(y_test, y_pred_proba)
     return score
 
-def get_sklearn_model_score_regression(X_train, y_train, X_test, y_test, dataset_id, origin, model_name, seed, score_names):
+
+def get_sklearn_model_score_regression(
+    X_train, y_train, X_test, y_test, dataset_id, origin, model_name, seed, score_names
+):
     model = get_sklearn_model_regression(model_name, seed)
     X_train, X_test = factorize_features(X_train, X_test)
     y_train, y_test = factorize_target(y_train, y_test)
     model.fit(X_train, y_train)
     score_val = model.score(X_train, y_train)
     y_pred = model.predict(X_test)
-    new_results = pd.DataFrame(columns=['origin', 'task_type', 'dataset', 'model', 'seed', 'score_name', 'score_val', 'score_test'])
+    new_results = pd.DataFrame(
+        columns=["origin", "task_type", "dataset", "model", "seed", "score_name", "score_val", "score_test"]
+    )
     for score_name in score_names:
         score_test = get_sklearn_regression_scores(score_name, y_test, y_pred)
-        new_row = pd.DataFrame(columns=['origin', 'task_type', 'dataset', 'model', 'seed', 'score_name', 'score_val', 'score_test'])
-        new_row.loc[len(new_results)] = [origin, "Regression", dataset_id, model_name, seed, score_name, score_val, score_test]
+        new_row = pd.DataFrame(
+            columns=["origin", "task_type", "dataset", "model", "seed", "score_name", "score_val", "score_test"]
+        )
+        new_row.loc[len(new_results)] = [
+            origin,
+            "Regression",
+            dataset_id,
+            model_name,
+            seed,
+            score_name,
+            score_val,
+            score_test,
+        ]
         new_results = pd.concat([new_results, new_row])
     return new_results
 

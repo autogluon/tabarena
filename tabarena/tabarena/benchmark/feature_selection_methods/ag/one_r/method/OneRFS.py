@@ -1,6 +1,8 @@
+from __future__ import annotations
+
+import logging
 import time
 import warnings
-import logging
 
 import numpy as np
 from scipy.stats import chi2_contingency
@@ -35,7 +37,7 @@ class OneRFS(BaseEstimator, ClassifierMixin):
         - 'chi-squared': performs a chi-squared test for each feature
           against the target and selects the feature with the lowest p-value.
 
-    Attributes
+    Attributes:
     ----------
     self.classes_labels_ : array-like, shape = [n_labels]
         Array containing the unique class labels found in the
@@ -66,9 +68,7 @@ class OneRFS(BaseEstimator, ClassifierMixin):
     def __init__(self, resolve_ties="first"):
         allowed = {"first", "chi-squared"}
         if resolve_ties not in allowed:
-            raise ValueError(
-                "resolve_ties must be in %s. Got %s." % (allowed, resolve_ties)
-            )
+            raise ValueError(f"resolve_ties must be in {allowed}. Got {resolve_ties}.")
         self.resolve_ties = resolve_ties
 
     def fit(self, X, y, **kwargs):
@@ -83,7 +83,7 @@ class OneRFS(BaseEstimator, ClassifierMixin):
         y : array-like, shape = [n_samples]
             Target values.
 
-        Returns
+        Returns:
         -------
         self : object
 
@@ -106,7 +106,8 @@ class OneRFS(BaseEstimator, ClassifierMixin):
                     "Feature array likely contains at least one"
                     " non-categorical column."
                     " Column %d appears to have a unique value"
-                    " in every row." % c
+                    " in every row." % c,
+                    stacklevel=2,
                 )
             break
 
@@ -160,9 +161,7 @@ class OneRFS(BaseEstimator, ClassifierMixin):
                         "total error": 0,
                         "rules (value: class)": {},
                     }
-                prediction_dict[feature_index]["rules (value: class)"][
-                    feature_value
-                ] = most_frequent_class
+                prediction_dict[feature_index]["rules (value: class)"][feature_value] = most_frequent_class
                 prediction_dict[feature_index]["total error"] += error
 
             # get best feature (i.e., the feature with the lowest error)
@@ -229,9 +228,7 @@ class OneRFS(BaseEstimator, ClassifierMixin):
                                     f"(Time Left = {kwargs['time_limit']:.1f}s)"
                                 )
                                 break
-                        ary[:, idx] = np.bincount(
-                            y[X[:, feature_idx] == r], minlength=n_class_labels
-                        )
+                        ary[:, idx] = np.bincount(y[X[:, feature_idx] == r], minlength=n_class_labels)
 
                     # returns "stat, p, dof, expected"
                     _, p, _, _ = chi2_contingency(ary)
@@ -256,16 +253,14 @@ class OneRFS(BaseEstimator, ClassifierMixin):
             Training vectors, where n_samples is the number of samples and
             n_features is the number of features.
 
-        Returns
+        Returns:
         ----------
         maj : array-like, shape = [n_samples]
             Predicted class labels.
 
         """
         if not hasattr(self, "prediction_dict_"):
-            raise NotFittedError(
-                "Estimator not fitted, " "call `fit` before using the model."
-            )
+            raise NotFittedError("Estimator not fitted, call `fit` before using the model.")
 
         rules = self.prediction_dict_["rules (value: class)"]
 
@@ -296,7 +291,7 @@ class OneRFS(BaseEstimator, ClassifierMixin):
             rule_labels.add(class_label)
         other_label = set(self.class_labels_) - rule_labels
         if len(other_label):
-            y_pred[:] = list(other_label)[0]
+            y_pred[:] = next(iter(other_label))
         # else just use "np.zeros"; we could also change this to
         #  self.class_labels_[-1]+1 in future
 

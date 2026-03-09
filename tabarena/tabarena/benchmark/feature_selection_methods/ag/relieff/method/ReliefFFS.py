@@ -1,21 +1,22 @@
 from __future__ import annotations
 
+import logging
 import time
+import warnings
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
-
 from sklearn.metrics import pairwise_distances
 
-import warnings
-import logging
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class ReliefFFS:
-    """ReliefF feature selector"""
+    """ReliefF feature selector."""
 
     def __init__(self, model):
         self._y = None
@@ -39,16 +40,13 @@ class ReliefFFS:
         self._selected_features = list(X_selected.columns)
         return X_selected
 
-
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
 
-
     def reliefF(self, X, y, n_max_features, **kwargs):
-        """
-        This function implements the reliefF feature selection
+        """This function implements the reliefF feature selection.
 
         Input
         -----
@@ -70,15 +68,11 @@ class ReliefFFS:
         ---------
         Robnik-Sikonja, Marko et al. "Theoretical and empirical analysis of relieff and rrelieff." Machine Learning 2003.
         """
-
-        if "k" not in kwargs.keys():
-            k = 5
-        else:
-            k = kwargs["k"]
+        k = kwargs.get("k", 5)
         n_samples, n_features = X.shape
 
         # calculate pairwise distances between instances
-        distance = pairwise_distances(X, metric='manhattan')
+        distance = pairwise_distances(X, metric="manhattan")
 
         score = np.zeros(n_features)
 
@@ -90,7 +84,8 @@ class ReliefFFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     score = np.zeros(X.shape[1])
                     if n_max_features is not None and X.shape[1] > n_max_features:
                         selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
@@ -130,7 +125,9 @@ class ReliefFFS:
                     kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
                     kwargs["start_time"] = time_start_fit
                     if kwargs["time_limit"] <= 0:
-                        logger.warning(f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        logger.warning(
+                            f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                        )
                         score = np.zeros(X.shape[1])
                         if n_max_features is not None and X.shape[1] > n_max_features:
                             selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
@@ -144,15 +141,13 @@ class ReliefFFS:
                         near_hit.append(distance_sort[i][1])
                     elif len(near_hit) == k:
                         stop_dict[y[idx]] = 1
-                else:
-                    # find k nearest miss points for each label
-                    if len(near_miss[distance_sort[i][2]]) < k:
-                        near_miss[distance_sort[i][2]].append(distance_sort[i][1])
-                    else:
-                        if len(near_miss[distance_sort[i][2]]) == k:
-                            stop_dict[distance_sort[i][2]] = 1
+                # find k nearest miss points for each label
+                elif len(near_miss[distance_sort[i][2]]) < k:
+                    near_miss[distance_sort[i][2]].append(distance_sort[i][1])
+                elif len(near_miss[distance_sort[i][2]]) == k:
+                    stop_dict[distance_sort[i][2]] = 1
                 stop = True
-                for (key, value) in stop_dict.items():
+                for _key, value in stop_dict.items():
                     if value != 1:
                         stop = False
                 if stop:
@@ -164,7 +159,7 @@ class ReliefFFS:
                 near_hit_term = np.array(abs(self_fea - X[ele, :])) + np.array(near_hit_term)
 
             near_miss_term = dict()
-            for (label, miss_list) in near_miss.items():
+            for label, miss_list in near_miss.items():
                 near_miss_term[label] = np.zeros(n_features)
                 for ele in miss_list:
                     near_miss_term[label] = np.array(abs(self_fea - X[ele, :])) + np.array(near_miss_term[label])
@@ -173,9 +168,8 @@ class ReliefFFS:
         return score
 
     def feature_ranking(self, score):
-        """
-        Rank features in descending order according to reliefF score, the higher the reliefF score, the more important the
-        feature is
+        """Rank features in descending order according to reliefF score, the higher the reliefF score, the more important the
+        feature is.
         """
         idx = np.argsort(score, 0)
         return idx[::-1]

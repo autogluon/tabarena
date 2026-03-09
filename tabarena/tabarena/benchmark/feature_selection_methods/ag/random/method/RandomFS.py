@@ -1,23 +1,25 @@
 from __future__ import annotations
 
-import pandas as pd
-
-import warnings
 import logging
+import warnings
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+
 logger = logging.getLogger(__name__)
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class RandomFS:
-    """Random feature selector"""
+    """Random feature selector."""
 
     def __init__(self):
         self._y = None
         self._model = None
         self._n_max_features = None
         self._selected_features = None
-
 
     def fit_transform(self, X: pd.DataFrame, y: pd.Series, model, n_max_features, **kwargs) -> pd.DataFrame:
         self._y = y
@@ -26,7 +28,6 @@ class RandomFS:
         X_selected = X.sample(n=n_max_features, axis=1)
         self._selected_features = list(X_selected.columns)
         return X_selected
-
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:

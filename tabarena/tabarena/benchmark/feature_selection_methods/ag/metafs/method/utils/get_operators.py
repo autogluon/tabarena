@@ -1,17 +1,9 @@
+from __future__ import annotations
+
+
 def get_operators():
     # Unary OpenFE Operators
-    unary_operators = [
-        "min",
-        "max",
-        "freq",
-        "abs",
-        "log",
-        "sqrt",
-        "square",
-        "sigmoid",
-        "round",
-        "residual"
-    ]
+    unary_operators = ["min", "max", "freq", "abs", "log", "sqrt", "square", "sigmoid", "round", "residual"]
 
     # Binary OpenFE Operators
     binary_operators = [
@@ -27,6 +19,6 @@ def get_operators():
         "GroupByThenRank",
         "Combine",
         "CombineThenFreq",
-        "GroupByThenNUnique"
+        "GroupByThenNUnique",
     ]
     return unary_operators, binary_operators

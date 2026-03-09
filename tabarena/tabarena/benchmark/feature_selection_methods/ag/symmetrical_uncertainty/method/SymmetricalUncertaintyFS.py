@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import logging
 import time
+import warnings
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
-import warnings
-import logging
-
 from scipy.stats import entropy
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
 
 
 class SymmetricalUncertaintyFS:
-    """SymmetricalUncertainty feature selector"""
+    """SymmetricalUncertainty feature selector."""
 
     def __init__(self, model=None):
         self._y = None
@@ -52,19 +54,17 @@ class SymmetricalUncertaintyFS:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X.loc[:, self._selected_features]
 
-    def symmetrical_uncertainty(self, X: pd.DataFrame, y: pd.Series, n_max_features, **kwargs
-    ) -> np.ndarray:
-        """
-        Symmetrical Uncertainty for each feature:
+    def symmetrical_uncertainty(self, X: pd.DataFrame, y: pd.Series, n_max_features, **kwargs) -> np.ndarray:
+        """Symmetrical Uncertainty for each feature:
           SU(X, Y) = 2 * IG(Y|X) / (H(X) + H(Y))
         where:
-          IG(Y|X) = H(Y) - H(Y|X)  (information gain / mutual information). [web:39][web:31]
+          IG(Y|X) = H(Y) - H(Y|X)  (information gain / mutual information). [web:39][web:31].
 
-        Returns
+        Returns:
         -------
         np.ndarray of shape (n_features,)
         """
-        n_samples, n_features = X.shape
+        _n_samples, n_features = X.shape
         F = np.zeros(n_features, dtype=float)
 
         # H(Y)
@@ -128,8 +128,7 @@ class SymmetricalUncertaintyFS:
 
     @staticmethod
     def _entropy_from_counts(counts: pd.Series) -> float:
-        """
-        Shannon entropy (bits) from counts.
+        """Shannon entropy (bits) from counts.
         scipy.stats.entropy accepts (possibly unnormalized) event counts.
         """
         return float(entropy(counts.to_numpy(), base=2))  # base=2 => bits

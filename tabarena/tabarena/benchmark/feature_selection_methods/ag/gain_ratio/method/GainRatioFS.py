@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import logging
 import time
+import warnings
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
-import warnings
-import logging
-
 from scipy.stats import entropy
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
 
 
 class GainRatioFS:
-    """GainRatio feature selector"""
+    """GainRatio feature selector."""
 
     def __init__(self, model=None):
         self._y = None
@@ -53,14 +55,13 @@ class GainRatioFS:
         return X.loc[:, self._selected_features]
 
     def gain_ratio(self, X: pd.DataFrame, y: pd.Series, n_max_features, **kwargs) -> np.ndarray:
-        """
-        Gain Ratio for each feature:
-          GR = InformationGain(X_i, Y) / SplitInfo(X_i)
+        """Gain Ratio for each feature:
+          GR = InformationGain(X_i, Y) / SplitInfo(X_i).
 
         X: DataFrame (n_samples, n_features)
         y: Series   (n_samples,)
         """
-        n_samples, n_features = X.shape
+        _n_samples, n_features = X.shape
         F = np.zeros(n_features, dtype=float)
 
         # Parent entropy H(Y)
@@ -73,7 +74,8 @@ class GainRatioFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     score = np.zeros(X.shape[1])
                     if n_max_features is not None and X.shape[1] > n_max_features:
                         selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
@@ -96,7 +98,8 @@ class GainRatioFS:
                     kwargs["start_time"] = time_start_fit
                     if kwargs["time_limit"] <= 0:
                         logger.warning(
-                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                        )
                         score = np.zeros(X.shape[1])
                         if n_max_features is not None and X.shape[1] > n_max_features:
                             selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
@@ -119,8 +122,7 @@ class GainRatioFS:
 
     @staticmethod
     def _entropy_from_counts(counts: pd.Series) -> float:
-        """
-        Shannon entropy (bits) from counts.
-        scipy.stats.entropy accepts (possibly unnormalized) event counts. [web:27]
+        """Shannon entropy (bits) from counts.
+        scipy.stats.entropy accepts (possibly unnormalized) event counts. [web:27].
         """
         return float(entropy(counts.to_numpy(), base=2))  # base=2 => bits [web:27]

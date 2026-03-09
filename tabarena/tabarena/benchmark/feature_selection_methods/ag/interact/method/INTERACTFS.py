@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import logging
 import time
+import warnings
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
-import warnings
-import logging
-
 from scipy.stats import entropy
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
 
 
 class INTERACTFS:
-    """INTERACT feature selector"""
+    """INTERACT feature selector."""
 
     def __init__(self, model=None):
         self._y = None
@@ -22,7 +24,9 @@ class INTERACTFS:
         self._n_max_features = None
         self._selected_features = None
 
-    def fit_transform(self, X: pd.DataFrame, y: pd.Series, model=None, n_max_features: int | None = None, **kwargs,) -> pd.DataFrame:
+    def fit_transform(
+        self, X: pd.DataFrame, y: pd.Series, model=None, n_max_features: int | None = None, **kwargs
+    ) -> pd.DataFrame:
         self._y = y
         self._model = model
         self._n_max_features = n_max_features
@@ -46,25 +50,18 @@ class INTERACTFS:
         return X.loc[:, self._selected_features]
 
     def interact(
-            self,
-            X: pd.DataFrame,
-            y: pd.Series,
-            n_max_features: int | None,
-            delta: float = 1e-4,
-            **kwargs
+        self, X: pd.DataFrame, y: pd.Series, n_max_features: int | None, delta: float = 1e-4, **kwargs
     ) -> np.ndarray:
-        """
-        INTERACT (Yu & Liu): rank by SU, then backward eliminate using c-contribution.
+        r"""INTERACT (Yu & Liu): rank by SU, then backward eliminate using c-contribution.
         - SU(Xi, Y) = 2 * IG(Y|Xi) / (H(Xi)+H(Y))
         - CC(Fi, S) = ICR(S \\ {Fi}) - ICR(S)
-        Remove Fi if CC(Fi, S) <= delta
+        Remove Fi if CC(Fi, S) <= delta.
 
 
-        Returns
+        Returns:
         -------
         selected_idx : np.ndarray of selected feature indices (ordered by SU desc)
         """
-
         # 1) Compute SU for each feature (your SU code, slightly factored)
         su_scores = self.symmetrical_uncertainty(X, y, n_max_features=None, **kwargs)
 
@@ -111,19 +108,17 @@ class INTERACTFS:
 
         return np.array(slist, dtype=int)
 
-    def symmetrical_uncertainty(self, X: pd.DataFrame, y: pd.Series, n_max_features, **kwargs
-    ) -> np.ndarray:
-        """
-        Symmetrical Uncertainty for each feature:
+    def symmetrical_uncertainty(self, X: pd.DataFrame, y: pd.Series, n_max_features, **kwargs) -> np.ndarray:
+        """Symmetrical Uncertainty for each feature:
           SU(X, Y) = 2 * IG(Y|X) / (H(X) + H(Y))
         where:
           IG(Y|X) = H(Y) - H(Y|X)  (information gain / mutual information).
 
-        Returns
+        Returns:
         -------
         np.ndarray of shape (n_features,)
         """
-        n_samples, n_features = X.shape
+        _n_samples, n_features = X.shape
         F = np.zeros(n_features, dtype=float)
 
         # H(Y)
@@ -182,15 +177,13 @@ class INTERACTFS:
         return np.abs(F)
 
     def _c_contribution(
-            self,
-            X: pd.DataFrame,
-            y: pd.Series,
-            feature_set: list[int],
-            f_idx: int,
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        feature_set: list[int],
+        f_idx: int,
     ) -> float:
-        """
-        CC(Fi, S) = ICR(S \\ {Fi}) - ICR(S)
-        """
+        r"""CC(Fi, S) = ICR(S \\ {Fi}) - ICR(S)."""
         icr_full = self._inconsistency_rate(X.iloc[:, feature_set], y)
         reduced = [j for j in feature_set if j != f_idx]
         icr_reduced = self._inconsistency_rate(X.iloc[:, reduced], y)
@@ -199,8 +192,7 @@ class INTERACTFS:
         return icr_reduced - icr_full  # non-negative by monotonicity in INTERACT
 
     def _inconsistency_rate(self, X_sub: pd.DataFrame, y: pd.Series, **kwargs) -> float:
-        """
-        Inconsistency rate of a feature subset projection π_S(D) used by INTERACT.
+        """Inconsistency rate of a feature subset projection π_S(D) used by INTERACT.
 
         For each distinct feature pattern, count labels; inconsistency count for that pattern is:
             group_size - max_class_count_in_group
@@ -229,8 +221,7 @@ class INTERACTFS:
 
     @staticmethod
     def _entropy_from_counts(counts: pd.Series) -> float:
-        """
-        Shannon entropy (bits) from counts.
+        """Shannon entropy (bits) from counts.
         scipy.stats.entropy accepts (possibly unnormalized) event counts.
         """
         return float(entropy(counts.to_numpy(), base=2))  # base=2 => bits

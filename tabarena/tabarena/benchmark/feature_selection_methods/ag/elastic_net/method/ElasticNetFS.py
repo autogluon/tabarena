@@ -1,21 +1,24 @@
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-import warnings
 import logging
 import time
+import warnings
+from typing import TYPE_CHECKING
 
+import numpy as np
+from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore")
 
 
 class ElasticNetFS:
-    """Elastic-net feature selector (classification via LogisticRegression)"""
+    """Elastic-net feature selector (classification via LogisticRegression)."""
 
     def __init__(self, C: float = 1.0, l1_ratio: float = 0.5, max_iter: int = 5000, random_state: int = 0):
         self.C = C
@@ -81,6 +84,4 @@ class ElasticNetFS:
 
         # coef_ shape: (n_classes, n_features) or (1, n_features)
         coef = clf.named_steps["logisticregression"].coef_
-        scores = np.mean(np.abs(coef), axis=0)  # collapse multiclass to one score per feature
-
-        return scores
+        return np.mean(np.abs(coef), axis=0)  # collapse multiclass to one score per feature

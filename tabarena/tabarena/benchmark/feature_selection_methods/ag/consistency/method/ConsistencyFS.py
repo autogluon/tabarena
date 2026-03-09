@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import logging
 import time
+import warnings
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
-import warnings
-import logging
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class ConsistencyFS:
-    """Consistency feature selector
+    """Consistency feature selector.
 
     Reference:
     Liu, H., & Setiono, R. (1996, July). A probabilistic approach to feature selection-a filter solution. In ICML (Vol. 96, pp. 319-327).
@@ -25,7 +27,9 @@ class ConsistencyFS:
         self._n_max_features = None
         self._selected_features = None
 
-    def fit_transform(self, X: pd.DataFrame, y: pd.Series, model=None, n_max_features=None, r: int = 77, theta: float = 0.0, **kwargs) -> pd.DataFrame:
+    def fit_transform(
+        self, X: pd.DataFrame, y: pd.Series, model=None, n_max_features=None, r: int = 77, theta: float = 0.0, **kwargs
+    ) -> pd.DataFrame:
         self._y = y
         self._model = model
         self._n_max_features = n_max_features
@@ -40,8 +44,10 @@ class ConsistencyFS:
             raise RuntimeError("Call fit_transform before transform.")
         return X.loc[:, self._selected_features]
 
-    def inconsistency(self, X: pd.DataFrame, y: pd.Series, r: int, theta: float, n_max_features, **kwargs) -> np.ndarray:
-        n_samples, n_features = X.shape
+    def inconsistency(
+        self, X: pd.DataFrame, y: pd.Series, r: int, theta: float, n_max_features, **kwargs
+    ) -> np.ndarray:
+        _n_samples, n_features = X.shape
         rng = np.random.default_rng(1)
 
         c_best = n_features
@@ -73,14 +79,14 @@ class ConsistencyFS:
                 S[keep] = True
 
             C = int(S.sum())  # 5: numOfFeatures(S)
-            if C > c_best:
+            if c_best < C:
                 continue  # can't beat current best size
 
             IR = self._inconsistency_rate(X.loc[:, X.columns[S]], y, n_max_features, **kwargs)  # 7/11
             if IR is None:
                 return np.where(s_best)[0]
             # 6–13: accept if IR < theta and (smaller subset or same size)
-            if IR < theta and (C < c_best or (C == c_best)):
+            if theta > IR and (c_best > C or (c_best == C)):
                 c_best = C
                 s_best = S.copy()
 
@@ -88,9 +94,7 @@ class ConsistencyFS:
 
     @staticmethod
     def _inconsistency_rate(X_sub: pd.DataFrame, y: pd.Series, n_max_features, **kwargs) -> float:
-        """
-        IR(S) = (sum over patterns) (|pattern_group| - max_class_count) / n
-        """
+        """IR(S) = (sum over patterns) (|pattern_group| - max_class_count) / n."""
         if X_sub.shape[1] == 0:
             return 1.0  # empty set cannot discriminate at all
 
@@ -113,4 +117,3 @@ class ConsistencyFS:
             incons += len(grp) - int(counts.max())
 
         return incons / len(df)
-

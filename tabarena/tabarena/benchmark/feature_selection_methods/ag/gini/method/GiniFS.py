@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import logging
 import time
+import warnings
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
-import warnings
-import logging
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class GiniFS:
-    """Gini feature selector"""
+    """Gini feature selector."""
 
     def __init__(self, model):
         self._y = None
@@ -37,16 +39,13 @@ class GiniFS:
         self._selected_features = list(X_selected.columns)
         return X_selected
 
-
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
 
-
     def gini_index(self, X, y, n_max_features, **kwargs):
-        """
-        This function implements the gini index feature selection.
+        """This function implements the gini index feature selection.
 
         Input
         ----------
@@ -60,8 +59,7 @@ class GiniFS:
         gini: {numpy array}, shape (n_features, )
             gini index value of each feature
         """
-
-        n_samples, n_features = X.shape
+        _n_samples, n_features = X.shape
 
         # initialize gini_index for all features to be 0.5
         gini = np.ones(n_features) * 0.5
@@ -74,7 +72,8 @@ class GiniFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     random_gini_score = np.zeros(X.shape[1])
                     if n_max_features is not None and X.shape[1] > n_max_features:
                         selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
@@ -90,7 +89,8 @@ class GiniFS:
                     kwargs["start_time"] = time_start_fit
                     if kwargs["time_limit"] <= 0:
                         logger.warning(
-                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                        )
                         random_gini_score = np.zeros(X.shape[1])
                         if n_max_features is not None and X.shape[1] > n_max_features:
                             selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
@@ -115,7 +115,8 @@ class GiniFS:
                         kwargs["start_time"] = time_start_fit
                         if kwargs["time_limit"] <= 0:
                             logger.warning(
-                                f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                            )
                             random_gini_score = np.zeros(X.shape[1])
                             if n_max_features is not None and X.shape[1] > n_max_features:
                                 selected_idx = np.random.choice(X.shape[1], size=n_max_features, replace=False)
@@ -139,19 +140,16 @@ class GiniFS:
                 gini_right = 1 - gini_right
 
                 # weighted average of len(left_y) and len(right_y)
-                t1_gini = (len(left_y) * gini_left + len(right_y) * gini_right)
+                t1_gini = len(left_y) * gini_left + len(right_y) * gini_right
 
                 # compute the gini_index for the i-th feature
                 value = np.true_divide(t1_gini, len(y))
 
-                if value < gini[i]:
-                    gini[i] = value
+                gini[i] = min(gini[i], value)
         return gini
 
     def feature_ranking(self, W):
+        """Rank features in descending order according to their gini index values, the smaller the gini index,
+        the more important the feature is.
         """
-        Rank features in descending order according to their gini index values, the smaller the gini index,
-        the more important the feature is
-        """
-        idx = np.argsort(W)
-        return idx
+        return np.argsort(W)

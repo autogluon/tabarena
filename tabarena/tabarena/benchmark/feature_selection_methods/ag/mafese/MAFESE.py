@@ -1,19 +1,21 @@
-from pandas import DataFrame, Series
-
-from mafese import Data
-from mafese import UnsupervisedSelector
-
-from autogluon.common.features.types import R_INT, R_FLOAT, R_OBJECT
-from autogluon.features.generators.abstract import AbstractFeatureSelector
+from __future__ import annotations
 
 import logging
 import time
+from typing import TYPE_CHECKING
+
+from autogluon.common.features.types import R_FLOAT, R_INT, R_OBJECT
+from autogluon.features.generators.abstract import AbstractFeatureSelector
+from mafese import Data, UnsupervisedSelector
+
+if TYPE_CHECKING:
+    from pandas import DataFrame, Series
 
 logger = logging.getLogger(__name__)
 
 
 class MAFESE(AbstractFeatureSelector):
-    """ Select features from the data using Boruta algorithm """
+    """Select features from the data using Boruta algorithm."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -29,12 +31,7 @@ class MAFESE(AbstractFeatureSelector):
         self._n_max_features = n_max_features
 
         problem_type = self._infer_problem_type(y=y)
-        if problem_type == "binary":
-            problem = "classification"
-        elif problem_type == "multiclass":
-            problem = "classification"
-        else:
-            problem = "regression"
+        problem = "classification" if problem_type in {"binary", "multiclass"} else "regression"
 
         data = Data(X, y)
         data.split_train_test(test_size=0.1, inplace=True)
@@ -51,24 +48,22 @@ class MAFESE(AbstractFeatureSelector):
             kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
             if kwargs["time_limit"] <= 0:
                 logger.warning(
-                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                )
                 if n_max_features is not None and len(X.columns) > n_max_features:
-                    X_out = X.sample(n=n_max_features, axis=1)
-                    return X_out
-                else:
-                    return X
+                    return X.sample(n=n_max_features, axis=1)
+                return X
         self._mafese.fit(data.X_train, data.y_train)
         if "time_limit" in kwargs and kwargs["time_limit"] is not None:
             time_start_fit = time.time()
             kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
             if kwargs["time_limit"] <= 0:
                 logger.warning(
-                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                )
                 if n_max_features is not None and len(X.columns) > n_max_features:
-                    X_out = X.sample(n=n_max_features, axis=1)
-                    return X_out
-                else:
-                    return X
+                    return X.sample(n=n_max_features, axis=1)
+                return X
         selected_features_indexes = self._mafese.selected_feature_indexes
         X_out = X.iloc[:, selected_features_indexes]
         self._selected_features = list(X_out.columns)

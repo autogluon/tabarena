@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+import logging
+import sys
 import time
+import warnings
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
-import warnings
-import logging
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class tTestFS:
-    """tTest feature selector"""
+    """tTest feature selector."""
 
     def __init__(self, model):
         self._y = None
@@ -37,16 +40,14 @@ class tTestFS:
         self._selected_features = list(X_selected.columns)
         return X_selected
 
-
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
 
     def t_score(self, X, y, n_max_features, **kwargs):
-        """
-        This function calculates t_score for each feature, where t_score is only used for binary problem
-        t_score = |mean1-mean2|/sqrt(((std1^2)/n1)+((std2^2)/n2)))
+        """This function calculates t_score for each feature, where t_score is only used for binary problem
+        t_score = |mean1-mean2|/sqrt(((std1^2)/n1)+((std2^2)/n2))).
 
         Input
         -----
@@ -60,8 +61,7 @@ class tTestFS:
         F: {numpy array}, shape (n_features,)
             t-score for each feature
         """
-
-        n_samples, n_features = X.shape
+        _n_samples, n_features = X.shape
         F = np.zeros(n_features)
         c = np.unique(y)
         if len(c) == 2:
@@ -72,12 +72,11 @@ class tTestFS:
                     kwargs["start_time"] = time_start_fit
                     if kwargs["time_limit"] <= 0:
                         logger.warning(
-                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                        )
                         if n_max_features is not None and len(X.columns) > n_max_features:
-                            X_out = X.sample(n=n_max_features, axis=1)
-                            return X_out
-                        else:
-                            return X
+                            return X.sample(n=n_max_features, axis=1)
+                        return X
                 f = X[:, i]
                 # class0 contains instances belonging to the first class
                 # class1 contains instances belonging to the second class
@@ -90,17 +89,15 @@ class tTestFS:
                 n0 = len(class0)
                 n1 = len(class1)
                 t = mean0 - mean1
-                t0 = np.true_divide(std0 ** 2, n0)
-                t1 = np.true_divide(std1 ** 2, n1)
+                t0 = np.true_divide(std0**2, n0)
+                t1 = np.true_divide(std1**2, n1)
                 F[i] = np.true_divide(t, (t0 + t1) ** 0.5)
         else:
-            print('y should be guaranteed to a binary class vector')
-            exit(0)
+            print("y should be guaranteed to a binary class vector")
+            sys.exit(0)
         return np.abs(F)
 
     def feature_ranking(self, F):
-        """
-        Rank features in descending order according to t-score, the higher the t-score, the more important the feature is
-        """
+        """Rank features in descending order according to t-score, the higher the t-score, the more important the feature is."""
         idx = np.argsort(F)
         return idx[::-1]

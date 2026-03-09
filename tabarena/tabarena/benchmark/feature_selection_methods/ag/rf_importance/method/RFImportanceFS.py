@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-
-import warnings
-
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-
-import copy
 import logging
 import time
+import warnings
+from typing import TYPE_CHECKING
+
+from sklearn.ensemble import RandomForestClassifier
+
+if TYPE_CHECKING:
+    import pandas as pd
+
 logger = logging.getLogger(__name__)
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class RFImportanceFS:
-    """RFImportance feature selector"""
+    """RFImportance feature selector."""
 
     def __init__(self):
         self._y = None
@@ -39,14 +38,12 @@ class RFImportanceFS:
         self._selected_features = list(X_selected.columns)
         return X_selected
 
-
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
 
-
-    def rf_importance(self, X_train, y_train, n_max_features,  **kwargs):
+    def rf_importance(self, X_train, y_train, n_max_features, **kwargs):
         forest = RandomForestClassifier(random_state=0)
         if "time_limit" in kwargs and kwargs["time_limit"] is not None:
             time_start_fit = time.time()
@@ -54,12 +51,11 @@ class RFImportanceFS:
             kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
-                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                )
                 if n_max_features is not None and len(X_train.columns) > n_max_features:
-                    X_out = X_train.sample(n=n_max_features, axis=1)
-                    return X_out
-                else:
-                    return X_train
+                    return X_train.sample(n=n_max_features, axis=1)
+                return X_train
         forest.fit(X_train, y_train)
         if "time_limit" in kwargs and kwargs["time_limit"] is not None:
             time_start_fit = time.time()
@@ -67,11 +63,9 @@ class RFImportanceFS:
             kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
-                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                )
                 if n_max_features is not None and len(X_train.columns) > n_max_features:
-                    X_out = X_train.sample(n=n_max_features, axis=1)
-                    return X_out
-                else:
-                    return X_train
-        importances = forest.feature_importances_
-        return importances
+                    return X_train.sample(n=n_max_features, axis=1)
+                return X_train
+        return forest.feature_importances_

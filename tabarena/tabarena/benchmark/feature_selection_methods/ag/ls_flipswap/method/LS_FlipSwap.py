@@ -1,29 +1,27 @@
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-
-import warnings
-
-from sklearn.model_selection import train_test_split
-
 import copy
 import logging
 import time
+import warnings
+
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+
 logger = logging.getLogger(__name__)
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class LS_FlipSwap:
-    """LS feature selector (only flip and swap)"""
+    """LS feature selector (only flip and swap)."""
 
     def __init__(self, model):
         self._y = None
         self._model = model
         self._n_max_features = None
         self._selected_features = None
-
 
     def fit_transform(self, X: pd.DataFrame, y: pd.Series, model, n_max_features, **kwargs) -> pd.DataFrame:
         self._y = y
@@ -35,12 +33,10 @@ class LS_FlipSwap:
         self._selected_features = list(X_selected.columns)
         return X_selected
 
-
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if self._selected_features is None:
             self.fit_transform(X, self._y, self._model, self._n_max_features)
         return X[self._selected_features]
-
 
     def get_ls_flipswap_indices(self, X_train, y_train, model, n_max_features, feature_indices, **kwargs):
         termination_condition = False
@@ -53,18 +49,17 @@ class LS_FlipSwap:
                 kwargs["time_limit"] -= time_start_fit - kwargs["start_time"]
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     if self._selected_features is None:
                         X_out = X_train.sample(n=n_max_features, axis=1)
                         self._selected_features = list(X_out.columns)
                         return X_out
-                    else:
-                        if n_max_features is not None and len(self._selected_features) > n_max_features:
-                            X_out = X_train.sample(n=n_max_features, axis=1)
-                            self._selected_features = list(X_out.columns)
-                            return X_out
-                        else:
-                            return X_train[self._selected_features]
+                    if n_max_features is not None and len(self._selected_features) > n_max_features:
+                        X_out = X_train.sample(n=n_max_features, axis=1)
+                        self._selected_features = list(X_out.columns)
+                        return X_out
+                    return X_train[self._selected_features]
             list_of_feature_indices = self.get_flipswap_indices(feature_indices)
             print(list_of_feature_indices)
             improvement_found = False
@@ -84,7 +79,6 @@ class LS_FlipSwap:
             self._selected_features = list(X_train_selection.columns)
         return best_indices
 
-
     @staticmethod
     def get_flipswap_indices(feature_indices):
         list_of_feature_indices = []
@@ -102,18 +96,18 @@ class LS_FlipSwap:
             for idx2 in range(idx1 + 1, len(feature_indices)):
                 new_feature_indices = feature_indices.copy()
                 # Swap values at idx1 and idx2
-                new_feature_indices[idx1], new_feature_indices[idx2] = new_feature_indices[idx2], new_feature_indices[
-                    idx1]
+                new_feature_indices[idx1], new_feature_indices[idx2] = (
+                    new_feature_indices[idx2],
+                    new_feature_indices[idx1],
+                )
                 # Only add if at least one feature is selected (not all zeros)
                 if sum(new_feature_indices) > 0:
                     list_of_feature_indices.append(new_feature_indices)
-        list_of_feature_indices = [i for i in list_of_feature_indices if i != feature_indices]
-        return list_of_feature_indices
-
+        return [i for i in list_of_feature_indices if i != feature_indices]
 
     @staticmethod
     def evaluate_subset(self, X, y, model):
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+        X_train, _X_test, y_train, _y_test = train_test_split(X, y, test_size=0.2)
         model_copy = copy.deepcopy(model)
         model_copy.params["fold_fitting_strategy"] = "sequential_local"
         model_copy = model_copy.fit(X=X_train, y=y_train, k_fold=8)

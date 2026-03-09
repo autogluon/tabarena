@@ -1,19 +1,21 @@
 from __future__ import annotations
 
+import logging
 import time
+import warnings
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
-import warnings
-import logging
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class ImpurityFS:
-    """Impurity feature selector"""
+    """Impurity feature selector."""
 
     def __init__(self, model):
         self._y = None
@@ -52,7 +54,8 @@ class ImpurityFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     score = np.zeros(X_np.shape[1])
                     if n_max_features is not None and X_np.shape[1] > n_max_features:
                         selected_idx = np.random.choice(X_np.shape[1], size=n_max_features, replace=False)
@@ -77,7 +80,8 @@ class ImpurityFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     score = np.zeros(X_np.shape[1])
                     if n_max_features is not None and X_np.shape[1] > n_max_features:
                         selected_idx = np.random.choice(X_np.shape[1], size=n_max_features, replace=False)
@@ -90,14 +94,14 @@ class ImpurityFS:
             # Find indices of the current element in the array
             indices = np.where(arr == current_element)[0]
             # Create subarray for the current element
-            arr_element = arr[indices[0]:indices[-1] + 1]
+            arr_element = arr[indices[0] : indices[-1] + 1]
             # Count the occurrences of other elements in the subarray
             n_other = np.count_nonzero(arr_element != current_element)
             # Count the occurrences of the current element in the subarray
             n_current = np.count_nonzero(arr_element == current_element)
             # Avoid division by zero
             if n_current == 0:
-                w_values.append(float('inf'))  # or any other suitable value
+                w_values.append(float("inf"))  # or any other suitable value
             else:
                 w = n_other / (n_current + n_other)
                 w_values.append(w)
@@ -105,8 +109,6 @@ class ImpurityFS:
 
     @staticmethod
     def feature_ranking(F):
-        """
-        Rank features in descending order according to impurity, the higher the impurity, the less important the feature is
-        """
+        """Rank features in descending order according to impurity, the higher the impurity, the less important the feature is."""
         idx = np.argsort(-F)
         return idx[::-1]

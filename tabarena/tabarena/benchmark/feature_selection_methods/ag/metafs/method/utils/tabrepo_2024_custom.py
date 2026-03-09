@@ -17,6 +17,7 @@ XGBoost_r33_BAG_L1
 # Added manually:
 LightGBM, XGBoost, and CatBoost with different max_bin values.
 """
+
 from __future__ import annotations
 
 zeroshot2024 = {

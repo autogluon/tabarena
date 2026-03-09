@@ -1,25 +1,20 @@
-import argparse
-import json
-import os
+from __future__ import annotations
 
-import pandas as pd
-from pymfe.mfe import MFE
 import numpy as np
-import tensorflow as tf
+from pymfe.mfe import MFE
 from tabpfn import TabPFNClassifier
 
 
 def get_pymfe_metafeatures(feature):
     pymfe = MFE()
     pymfe.fit(np.array(feature))
-    metafeatures = pymfe.extract()
-    return metafeatures
+    return pymfe.extract()
 
 
 def get_pandas_metafeatures(feature_df, featurename):
     feature_pandas_description = feature_df.describe(include="all")
     feature_pandas_description = check_and_complete_pandas_description(feature_pandas_description)
-    feature_metadata = {
+    return {
         "feature - count": feature_pandas_description.loc["count"].values[0],
         "feature - unique": feature_pandas_description.loc["unique"].values[0],
         "feature - top": feature_pandas_description.loc["top"].values[0],
@@ -32,7 +27,6 @@ def get_pandas_metafeatures(feature_df, featurename):
         "feature - 75": feature_pandas_description.loc["75%"].values[0],
         "feature - max": feature_pandas_description.loc["max"].values[0],
     }
-    return feature_metadata
 
 
 def check_and_complete_pandas_description(feature_pandas_description):
@@ -67,7 +61,10 @@ def get_mfe_feature_metadata(feature):
     mfe.fit(feature)
     metafeatures = mfe.extract()
     columns = mfe.extract_metafeature_names()
-    groups = mfe.parse_by_group(["general", "statistical", "model-based", "info-theory", "landmarking", "complexity", "clustering"], metafeatures)
+    groups = mfe.parse_by_group(
+        ["general", "statistical", "model-based", "info-theory", "landmarking", "complexity", "clustering"],
+        metafeatures,
+    )
     return metafeatures, columns, groups
 
 
@@ -84,8 +81,7 @@ def get_mfe_dataset_metadata(X, y, group):
 def get_tabpfn_embedding(X, y):
     clf = TabPFNClassifier(device="cuda")
     clf.fit(X, y)
-    embeddings = clf.get_embeddings(X)
-    return embeddings
+    return clf.get_embeddings(X)
 
 
 """

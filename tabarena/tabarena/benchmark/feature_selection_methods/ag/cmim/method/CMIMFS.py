@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import logging
 import time
+import warnings
 from math import log
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
-import warnings
-import logging
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 class CMIMFS:
-    """ CMIM feature selector """
+    """CMIM feature selector."""
 
     def __init__(self, model):
         self._y = None
@@ -36,9 +38,8 @@ class CMIMFS:
         return X[self._selected_features]
 
     def cmim(self, X, y, n_max_features, **kwargs):
-        """
-        This function implement the CMIM feature selection.
-        The scoring criteria is calculated based on the formula j_cmim=sum_j(I(f,fj;y)/H(f,fj,y))
+        """This function implement the CMIM feature selection.
+        The scoring criteria is calculated based on the formula j_cmim=sum_j(I(f,fj;y)/H(f,fj,y)).
 
         Input
         -----
@@ -60,16 +61,15 @@ class CMIMFS:
             kwargs["start_time"] = time_start_fit
             if kwargs["time_limit"] <= 0:
                 logger.warning(
-                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                )
                 if n_max_features is not None and len(X.columns) > n_max_features:
-                    X_out = X.sample(n=n_max_features, axis=1)
-                    return X_out
-                else:
-                    return X
+                    return X.sample(n=n_max_features, axis=1)
+                return X
         X_np = X.to_numpy()
         y_np = y.to_numpy()
 
-        n_samples, n_features = X.shape
+        _n_samples, n_features = X.shape
 
         F = np.nan * np.zeros(n_features)
         CMIM = np.zeros(n_features)
@@ -82,12 +82,11 @@ class CMIMFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     if n_max_features is not None and len(X.columns) > n_max_features:
-                        X_out = X.sample(n=n_max_features, axis=1)
-                        return X_out
-                    else:
-                        return X
+                        return X.sample(n=n_max_features, axis=1)
+                    return X
             f = X_np[:, i]
             CMIM[i] = self.midd(f, y)
 
@@ -98,16 +97,15 @@ class CMIMFS:
                 kwargs["start_time"] = time_start_fit
                 if kwargs["time_limit"] <= 0:
                     logger.warning(
-                        f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                        f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                    )
                     if n_max_features is not None and len(X.columns) > n_max_features:
-                        X_out = X.sample(n=n_max_features, axis=1)
-                        return X_out
-                    else:
-                        return X
+                        return X.sample(n=n_max_features, axis=1)
+                    return X
             if k == 0:
                 idx = np.argmax(CMIM)
                 F[0] = idx
-                f_select = X_np[:, idx]
+                X_np[:, idx]
 
             if np.sum(~np.isnan(F)) == n_max_features:
                 break
@@ -120,12 +118,11 @@ class CMIMFS:
                     kwargs["start_time"] = time_start_fit
                     if kwargs["time_limit"] <= 0:
                         logger.warning(
-                            f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                            f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                        )
                         if n_max_features is not None and len(X.columns) > n_max_features:
-                            X_out = X.sample(n=n_max_features, axis=1)
-                            return X_out
-                        else:
-                            return X
+                            return X.sample(n=n_max_features, axis=1)
+                        return X
                 if i not in F:
                     while (CMIM[i] > sstar) and (m[i] < k - 1):
                         if "time_limit" in kwargs and kwargs["time_limit"] is not None:
@@ -134,14 +131,13 @@ class CMIMFS:
                             kwargs["start_time"] = time_start_fit
                             if kwargs["time_limit"] <= 0:
                                 logger.warning(
-                                    f'\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs["time_limit"]:.1f}s)')
+                                    f"\tWarning: FeatureSelection Method has no time left to train... (Time Left = {kwargs['time_limit']:.1f}s)"
+                                )
                                 if n_max_features is not None and len(X.columns) > n_max_features:
-                                    X_out = X.sample(n=n_max_features, axis=1)
-                                    return X_out
-                                else:
-                                    return X
+                                    return X.sample(n=n_max_features, axis=1)
+                                return X
                         m[i] = m[i] + 1
-                        CMIM[i] = min(CMIM[i], self.cmidd(X_np[:, i],  y_np, X_np[:, int(F[int(m[i])])]))
+                        CMIM[i] = min(CMIM[i], self.cmidd(X_np[:, i], y_np, X_np[:, int(F[int(m[i])])]))
                     if CMIM[i] > sstar:
                         sstar = CMIM[i]
                         F[k + 1] = i
@@ -149,13 +145,10 @@ class CMIMFS:
         sorted_idx = np.argsort(-CMIM)
         selected_features_idx = sorted_idx[:n_max_features]
         selected_features = X.columns[selected_features_idx]
-        X_selected = X[selected_features]
-        return X_selected
-
+        return X[selected_features]
 
     def conditional_entropy(self, f1, f2):
-        """
-        This function calculates the conditional entropy, where ce = H(f1) - I(f1;f2)
+        """This function calculates the conditional entropy, where ce = H(f1) - I(f1;f2).
 
         Input
         -----
@@ -167,33 +160,31 @@ class CMIMFS:
         ce: {float}
             ce is conditional entropy of f1 and f2
         """
-        ce = self.entropyd(f1) - self.midd(f1, f2)
-        return ce
+        return self.entropyd(f1) - self.midd(f1, f2)
 
     def midd(self, x, y):
-        """
-        Discrete mutual information estimator given a list of samples which can be any hashable object
-        """
+        """Discrete mutual information estimator given a list of samples which can be any hashable object."""
         return -self.entropyd(list(zip(x, y))) + self.entropyd(x) + self.entropyd(y)
 
     def entropyd(self, sx, base=2):
-        """
-        Discrete entropy estimator given a list of samples which can be any hashable object
-        """
+        """Discrete entropy estimator given a list of samples which can be any hashable object."""
         return self.entropyfromprobs(self.hist(sx), base=base)
 
     def cmidd(self, x, y, z):
-        """
-        Discrete mutual information estimator given a list of samples which can be any hashable object
-        """
-        return self.entropyd(list(zip(y, z))) + self.entropyd(list(zip(x, z))) - self.entropyd(list(zip(x, y, z))) - self.entropyd(z)
+        """Discrete mutual information estimator given a list of samples which can be any hashable object."""
+        return (
+            self.entropyd(list(zip(y, z)))
+            + self.entropyd(list(zip(x, z)))
+            - self.entropyd(list(zip(x, y, z)))
+            - self.entropyd(z)
+        )
 
     def hist(self, sx):
         # Histogram from list of samples
         d = dict()
         for s in sx:
             d[s] = d.get(s, 0) + 1
-        return map(lambda z: float(z) / len(sx), d.values())
+        return (float(z) / len(sx) for z in d.values())
 
     def entropyfromprobs(self, probs, base=2):
         # Turn a normalized list of probabilities of discrete outcomes into entropy (base 2)
@@ -201,7 +192,6 @@ class CMIMFS:
 
     def elog(self, x):
         # for entropy, 0 log 0 = 0. but we get an error for putting log 0
-        if x <= 0. or x >= 1.:
+        if x <= 0.0 or x >= 1.0:
             return 0
-        else:
-            return x * log(x)
+        return x * log(x)

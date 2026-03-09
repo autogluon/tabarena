@@ -1,6 +1,10 @@
+from __future__ import annotations
+
+import re
+
 import numpy as np
 import pandas as pd
-import re
+
 from .get_operators import get_operators
 
 
@@ -76,16 +80,16 @@ def create_binary_feature_and_featurename(feature1, feature2, operator):
         feature2_factorized = pd.factorize(feature2)[0]
         feature1_float_list = [float(x) for x in feature1_factorized]
         feature2_float_list = [float(x) for x in feature2_factorized]
-    if operator == "+" or operator == "add":
+    if operator in {"+", "add"}:
         feature = [f1 + f2 for f1, f2 in zip(feature1_float_list, feature2_float_list)]
         featurename = "add(" + str(feature1.name) + ", " + str(feature2.name) + ")"
-    elif operator == "-" or operator == "subtract":
+    elif operator in {"-", "subtract"}:
         feature = [f1 - f2 for f1, f2 in zip(feature1_float_list, feature2_float_list)]
         featurename = "subtract(" + str(feature1.name) + ", " + str(feature2.name) + ")"
-    elif operator == "*" or operator == "multiply":
+    elif operator in {"*", "multiply"}:
         feature = [f1 * f2 for f1, f2 in zip(feature1_float_list, feature2_float_list)]
         featurename = "multiply(" + str(feature1.name) + ", " + str(feature2.name) + ")"
-    elif operator == "/" or operator == "divide":
+    elif operator in {"/", "divide"}:
         feature = [f1 / f2 if f2 != 0 else f1 for f1, f2 in zip(feature1_float_list, feature2_float_list)]
         featurename = "divide(" + str(feature1.name) + ", " + str(feature2.name) + ")"
     elif operator == "GroupByThenMin":
@@ -99,29 +103,30 @@ def create_binary_feature_and_featurename(feature1, feature2, operator):
         feature = feature2.apply(lambda x: temp.loc[x]).to_list()
         featurename = "GroupByThenMax(" + str(feature1.name) + ", " + str(feature2.name) + ")"
     elif operator == "GroupByThenMean":
-        feature1 = pd.to_numeric(feature1, errors='coerce')
+        feature1 = pd.to_numeric(feature1, errors="coerce")
         temp = feature1.groupby(feature2)
         temp = temp.mean()
         temp.loc[np.nan] = np.nan
         feature = feature2.apply(lambda x: temp.loc[x]).to_list()
         featurename = "GroupByThenMean(" + str(feature1.name) + ", " + str(feature2.name) + ")"
     elif operator == "GroupByThenMedian":
-        feature1 = pd.to_numeric(feature1, errors='coerce')
+        feature1 = pd.to_numeric(feature1, errors="coerce")
         temp = feature1.groupby(feature2).median()
         temp.loc[np.nan] = np.nan
         feature = feature2.apply(lambda x: temp.loc[x]).to_list()
         featurename = "GroupByThenMedian(" + str(feature1.name) + ", " + str(feature2.name) + ")"
     elif operator == "GroupByThenStd":
-        feature1 = pd.to_numeric(feature1, errors='coerce')
+        feature1 = pd.to_numeric(feature1, errors="coerce")
         temp = feature1.groupby(feature2).std()
         temp.loc[np.nan] = np.nan
         feature = feature2.apply(lambda x: temp.loc[x]).to_list()
         featurename = "GroupByThenStd(" + str(feature1.name) + ", " + str(feature2.name) + ")"
-    elif operator == 'GroupByThenRank':
-        feature1 = pd.to_numeric(feature1, errors='coerce')
+    elif operator == "GroupByThenRank":
+        feature1 = pd.to_numeric(feature1, errors="coerce")
         feature = feature1.groupby(feature2).rank(ascending=True, pct=True).to_list()
         featurename = "GroupByThenRank(" + str(feature1.name) + ", " + str(feature2.name) + ")"
     elif operator == "GroupByThenFreq":
+
         def _f(x):
             value_counts = x.value_counts()
             value_counts.loc[np.nan] = np.nan
@@ -135,13 +140,13 @@ def create_binary_feature_and_featurename(feature1, feature2, operator):
         feature = feature2.apply(lambda x: nunique.loc[x]).to_list()
         featurename = "GroupByThenNUnique(" + str(feature1.name) + ", " + str(feature2.name) + ")"
     elif operator == "Combine":
-        temp = feature1.astype(str) + '_' + feature2.astype(str)
+        temp = feature1.astype(str) + "_" + feature2.astype(str)
         temp[feature1.isna() | feature2.isna()] = np.nan
         temp, _ = temp.factorize()
         feature = pd.Series(temp, index=feature1.index).astype("float64").to_list()
         featurename = "Combine(" + str(feature1.name) + ", " + str(feature2.name) + ")"
     elif operator == "CombineThenFreq":
-        temp = feature1.astype(str) + '_' + feature2.astype(str)
+        temp = feature1.astype(str) + "_" + feature2.astype(str)
         temp[feature1.isna() | feature2.isna()] = np.nan
         value_counts = temp.value_counts()
         value_counts.loc[np.nan] = np.nan
@@ -183,15 +188,15 @@ def extract_operation_and_original_features(s):
     def split_arguments(s):
         args = []
         depth = 0
-        current = ''
+        current = ""
         for char in s:
-            if char == ',' and depth == 0:
+            if char == "," and depth == 0:
                 args.append(current.strip())
-                current = ''
+                current = ""
             else:
-                if char == '(':
+                if char == "(":
                     depth += 1
-                elif char == ')':
+                elif char == ")":
                     depth -= 1
                 current += char
         if current:
