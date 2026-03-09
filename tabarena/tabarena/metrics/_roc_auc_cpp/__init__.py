@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 from numpy.ctypeslib import ndpointer
+from sklearn.metrics import roc_auc_score
 
 
 class CppAuc:
@@ -15,7 +16,7 @@ class CppAuc:
 
     def __init__(self):
 
-        if not self.plugin_path().exists():
+        """if not self.plugin_path().exists():
             self._compile()
             assert self.plugin_path().exists(), f'Missing cpp_auc.so compiled file... ' \
                                           f'You must first compile the C++ code to use this metric. '
@@ -24,7 +25,7 @@ class CppAuc:
                                              ndpointer(ctypes.c_bool, flags="C_CONTIGUOUS"),
                                              ctypes.c_size_t
                                              ]
-        self._handle.cpp_auc_ext.restype = ctypes.c_double
+        self._handle.cpp_auc_ext.restype = ctypes.c_double"""
 
     def roc_auc_score(self, y_true: np.array, y_score: np.array) -> float:
         """a method to calculate AUC via C++ lib.
@@ -35,7 +36,11 @@ class CppAuc:
             float: AUC score
         """
         n = len(y_true)
-        result = self._handle.cpp_auc_ext(y_score.astype(np.float32), y_true, n)
+        """try:
+            result = self._handle.cpp_auc_ext(y_score.astype(np.float32), y_true, n)
+        except ValueError:
+        """
+        result = roc_auc_score(y_true, y_score)
         return result
 
     def _compile(self):
