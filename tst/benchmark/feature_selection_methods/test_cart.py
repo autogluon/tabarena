@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tst.test_feature_selection_method import verify_method
+from tst.benchmark.feature_selection_methods.fs_test_utils import verify_method
 
 
 @pytest.mark.parametrize(

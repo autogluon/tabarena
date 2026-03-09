@@ -9,6 +9,7 @@ from autogluon.features import AbstractFeatureSelector, AutoMLPipelineFeatureSel
 from tabarena.models.utils import get_configs_generator_from_name
 
 
+# TODO: refactor the way we test methods and provide a standard template to avoid code duplication
 def run_method(FeatureSelector, hyperparameters):
     """Runs a feature selector through the standard AutoGluon pipeline.
 
@@ -28,7 +29,7 @@ def run_method(FeatureSelector, hyperparameters):
 
     model_meta = get_configs_generator_from_name(model_name="LightGBM")
     model_config = model_meta.manual_configs[0]
-    model = BaggedEnsembleModel(model_meta.model_cls(problem_type=problem_type **model_config))
+    model = BaggedEnsembleModel(model_meta.model_cls(problem_type=problem_type**model_config))
 
     # FIXME: determine if this is needed
     # Clean labels (same as your script)
@@ -45,8 +46,8 @@ def run_method(FeatureSelector, hyperparameters):
     return feature_selector.fit_transform(X, y, model, **hyperparameters)
 
 
-
-def verify_method(FeatureSelector, hyperparameters, check_time_constraint: bool = False):
+def verify_method(FeatureSelector, hyperparameters, *, check_time_constraint: bool = False):
+    """Wrapper to assert the correct behavior of feature selection method."""
     start_time = time.time()
     df = run_method(FeatureSelector, hyperparameters)
     time_used = time.time() - start_time
