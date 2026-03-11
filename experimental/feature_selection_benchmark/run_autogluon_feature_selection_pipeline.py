@@ -16,8 +16,6 @@ from autogluon.features.generators.abstract import AbstractFeatureGenerator
 from autogluon.tabular import TabularDataset, TabularPredictor
 from autogluon.tabular.models.lgb.lgb_model import LGBModel
 
-from experimental.feature_selection_benchmark.anova.anova import ANOVAFeatureSelector
-
 if TYPE_CHECKING:
     from autogluon.core.models.abstract.abstract_model import AbstractModel
 
@@ -96,7 +94,6 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         self.max_features = max_features
         self.proxy_mode_config = proxy_mode_config
-        self.random_state = kwargs.get("random_state", 0)
         self.raise_on_useless_feature_selection = raise_on_useless_feature_selection
 
         self._selected_features = None
@@ -376,6 +373,9 @@ def run_example():
         model_hyperparameters={"num_boost_round": 1},
     )
     verbosity = 0
+
+    from experimental.feature_selection_benchmark.anova.anova import ANOVAFeatureSelector
+
     for feature_selector in [
         AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
         RandomFeatureSelector(max_features=max_features),
