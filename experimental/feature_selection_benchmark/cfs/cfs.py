@@ -74,8 +74,6 @@ class CFSFeatureSelector(AbstractFeatureSelector):
         selected_features = [self._original_features[i] for i in np.array(F)]
         selected_features = selected_features[:self.max_features]
         return [str(feat) for feat in selected_features]
-        #feature_scores = dict(zip(columns, M))
-        #return feature_scores
 
     def merit_calculation(self, X, y):
         """
