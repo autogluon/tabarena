@@ -94,7 +94,7 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         self.max_features = max_features
         self.proxy_mode_config = proxy_mode_config
-
+        self.random_state = kwargs.get("random_state", 0)
         self.raise_on_useless_feature_selection = raise_on_useless_feature_selection
 
         self._selected_features = None
