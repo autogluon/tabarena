@@ -16,6 +16,8 @@ from autogluon.features.generators.abstract import AbstractFeatureGenerator
 from autogluon.tabular import TabularDataset, TabularPredictor
 from autogluon.tabular.models.lgb.lgb_model import LGBModel
 
+from experimental.feature_selection_benchmark.anova.anova import ANOVAFeatureSelector
+
 if TYPE_CHECKING:
     from autogluon.core.models.abstract.abstract_model import AbstractModel
 
@@ -368,15 +370,16 @@ def run_example():
     test_data = TabularDataset(test_path)
 
     max_features = 5
-    proxy_mode_config = ProxyModelConfig(
+    proxy_model_config = ProxyModelConfig(
         problem_type="binary",
         eval_metric="roc_auc",
         model_hyperparameters={"num_boost_round": 1},
     )
     verbosity = 0
     for feature_selector in [
-        AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_mode_config),
+        AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
         RandomFeatureSelector(max_features=max_features),
+        ANOVAFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config)
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
         predictor = TabularPredictor(
