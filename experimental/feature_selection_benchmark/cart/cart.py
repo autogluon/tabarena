@@ -9,7 +9,12 @@ logger = logging.getLogger(__name__)
 
 
 class CARTFeatureSelector(AbstractFeatureSelector):
-    """CART Feature Selection."""
+    """
+    CART Feature Selection.
+
+    Reference: Breiman, Leo, et al. Classification and regression trees. Chapman and Hall/CRC, 2017.
+    Implementation Source: https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeClassifier.html
+    """
 
     name = "CARTFeatureSelector"
     feature_scoring_method: bool = True

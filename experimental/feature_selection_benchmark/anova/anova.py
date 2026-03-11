@@ -9,7 +9,14 @@ logger = logging.getLogger(__name__)
 
 
 class ANOVAFeatureSelector(AbstractFeatureSelector):
-    """ANOVA Feature Selection."""
+    """
+    ANOVA Feature Selection.
+
+    Reference: St, Lars, and Svante Wold. "Analysis of variance (ANOVA)." Chemometrics and intelligent laboratory systems 6.4 (1989): 259-272.
+    Implementation Source: https://scikit-learn.org/stable/modules/generated/sklearn.feature_selection.f_classif.html
+    """
+
+
 
     name = "ANOVAFeatureSelector"
     feature_scoring_method: bool = True
