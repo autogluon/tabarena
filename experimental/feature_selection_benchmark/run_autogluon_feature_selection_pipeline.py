@@ -375,11 +375,14 @@ def run_example():
     verbosity = 0
 
     from experimental.feature_selection_benchmark.anova.anova import ANOVAFeatureSelector
+    from experimental.feature_selection_benchmark.cart.cart import CARTFeatureSelector
+
 
     for feature_selector in [
         AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
         RandomFeatureSelector(max_features=max_features),
-        ANOVAFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config)
+        ANOVAFeatureSelector(max_features=max_features),
+        CARTFeatureSelector(max_features=max_features)
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
         predictor = TabularPredictor(
