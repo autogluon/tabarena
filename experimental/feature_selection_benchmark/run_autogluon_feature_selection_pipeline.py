@@ -378,6 +378,7 @@ def run_example():
     from experimental.feature_selection_benchmark.cart.cart import CARTFeatureSelector
     from experimental.feature_selection_benchmark.cfs.cfs import CFSFeatureSelector
     from experimental.feature_selection_benchmark.chi2.chi2 import Chi2FeatureSelector
+    from experimental.feature_selection_benchmark.cmim.cmim import CMIMFeatureSelector
 
     for feature_selector in [
         AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
