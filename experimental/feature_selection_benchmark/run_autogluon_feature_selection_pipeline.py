@@ -379,6 +379,7 @@ def run_example():
     from experimental.feature_selection_benchmark.cfs.cfs import CFSFeatureSelector
     from experimental.feature_selection_benchmark.chi2.chi2 import Chi2FeatureSelector
     from experimental.feature_selection_benchmark.cmim.cmim import CMIMFeatureSelector
+    from experimental.feature_selection_benchmark.consistency.consistency import ConsistencyFeatureSelector
 
     for feature_selector in [
         AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
@@ -387,7 +388,8 @@ def run_example():
         CARTFeatureSelector(max_features=max_features),
         CFSFeatureSelector(max_features=max_features),
         Chi2FeatureSelector(max_features=max_features),
-        CMIMFeatureSelector(max_features=max_features)
+        CMIMFeatureSelector(max_features=max_features),
+        ConsistencyFeatureSelector(max_features=max_features),
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
         predictor = TabularPredictor(
