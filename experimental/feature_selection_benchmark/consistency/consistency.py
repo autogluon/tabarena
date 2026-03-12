@@ -15,6 +15,9 @@ class ConsistencyFeatureSelector(AbstractFeatureSelector):
 
     Reference: Liu, H., & Setiono, R. (1996, July). A probabilistic approach to feature selection-a filter solution. In ICML (Vol. 96, pp. 319-327).
     Implementation Source: Algorithm in the paper implemented by Bastian Schäfer
+    Changes to the algorithm by Bastian Schäfer:
+                           - Add time constraint
+                           - Add max_features (number of features to be maximally selected by the method) constraint
     """
 
     name = "ConsistencyFeatureSelector"

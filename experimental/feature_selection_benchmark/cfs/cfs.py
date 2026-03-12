@@ -19,7 +19,9 @@ class CFSFeatureSelector(AbstractFeatureSelector):
                            The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
                            This particular implementation of the repo is based on http://featureselection.asu.edu, which for the CFS algorithm cites Hall, Mark A., and Lloyd A. Smith. "Feature selection for machine learning: comparing a correlation-based filter approach to the wrapper." Proceedings of the twelfth international Florida artificial intelligence research society conference. 1999.
                            The variation implemented here is a forward selection method using Symmetrical Uncertainty.
-    Changes to the implementation:
+    Changes to the implementation by Bastian Schäfer:
+                           - Add time constraint
+                           - Add max_features (number of features to be maximally selected by the method) constraint
                            - Remove early stopping
                            - Break loop when max_features is reached
     """

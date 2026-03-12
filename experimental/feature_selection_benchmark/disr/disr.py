@@ -17,7 +17,9 @@ class DISRFeatureSelector(AbstractFeatureSelector):
     Reference: Meyer, Patrick E., and Gianluca Bontempi. "On the use of variable complementarity for feature selection in cancer classification." Workshops on applications of evolutionary computation. Berlin, Heidelberg: Springer Berlin Heidelberg, 2006.
     Implementation Source: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/information_theoretical_based/DISR.py#L5.
                            The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
-    Changes to the implementation:
+    Changes to the implementation by Bastian Schäfer:
+                           - Add time constraint
+                           - Add max_features (number of features to be maximally selected by the method) constraint
                            - Code adapted so that the formula in the paper is used, the parts of the formula are calculated using the code of the implementation source
     """
 

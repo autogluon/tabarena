@@ -16,6 +16,9 @@ class GainRatioFeatureSelector(AbstractFeatureSelector):
 
     Reference: Quinlan, J. Ross. "Induction of decision trees." Machine learning 1.1 (1986): 81-106.
     Implementation Source: Algorithm in the paper implemented by Bastian Schäfer
+    Changes to the algorithm by Bastian Schäfer:
+                           - Add time constraint
+                           - Add max_features (number of features to be maximally selected by the method) constraint
     """
 
     name = "GainRatioFeatureSelector"

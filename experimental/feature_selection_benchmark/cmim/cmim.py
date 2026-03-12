@@ -17,6 +17,9 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
     Reference: Fleuret, François. "Fast binary feature selection with conditional mutual information." Journal of Machine learning research 5.Nov (2004): 1531-1555.
     Implementation Source: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/information_theoretical_based/CMIM.py#L4.
                            The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
+    Changes to the implementation by Bastian Schäfer:
+                           - Add time constraint
+                           - Add max_features (number of features to be maximally selected by the method) constraint
     """
 
     name = "CMIMFeatureSelector"
@@ -54,7 +57,6 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
                 )
                 break
             # Choose the feature with the highest MI as the next feature
-            # if k == 0:
             idx = np.argmax(CMIM)
             F[k] = idx
             CMIM[idx] = -np.inf
