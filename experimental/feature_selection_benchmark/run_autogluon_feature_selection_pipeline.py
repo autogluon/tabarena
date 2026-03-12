@@ -386,7 +386,8 @@ def run_example():
         ANOVAFeatureSelector(max_features=max_features),
         CARTFeatureSelector(max_features=max_features),
         CFSFeatureSelector(max_features=max_features),
-        Chi2FeatureSelector(max_features=max_features)
+        Chi2FeatureSelector(max_features=max_features),
+        CMIMFeatureSelector(max_features=max_features)
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
         predictor = TabularPredictor(
