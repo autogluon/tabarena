@@ -14,7 +14,7 @@ class GiniFeatureSelector(AbstractFeatureSelector):
     Gini Index Feature Selection.
 
     Reference: Gini, Corrado W. "Variability and mutability, contribution to the study of statistical distributions and relations." Studi Economico-Giuridici della R. Universita de Cagliari (1912).
-    Implementation Source: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/information_theoretical_based/CMIM.py#L4.
+    Implementation Source: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/statistical_based/gini_index.py#L4.
                            The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
