@@ -384,6 +384,7 @@ def run_example():
     from experimental.feature_selection_benchmark.elastic_net.elastic_net import ElasticNetFeatureSelector
     from experimental.feature_selection_benchmark.gain_ratio.gain_ratio import GainRatioFeatureSelector
     from experimental.feature_selection_benchmark.gini.gini import GiniFeatureSelector
+    from experimental.feature_selection_benchmark.impurity.impurity import ImpurityFeatureSelector
 
     for feature_selector in [
         AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
@@ -398,6 +399,7 @@ def run_example():
         ElasticNetFeatureSelector(max_features=max_features),
         GainRatioFeatureSelector(max_features=max_features),
         GiniFeatureSelector(max_features=max_features),
+        ImpurityFeatureSelector(max_features=max_features),
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
         predictor = TabularPredictor(
