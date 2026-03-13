@@ -20,7 +20,6 @@ class InformationGainFeatureSelector(AbstractFeatureSelector):
                            The author of the entropy code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
-                           - Add max_features (number of features to be maximally selected by the method) constraint
     """
 
     name = "InformationGainFeatureSelector"
