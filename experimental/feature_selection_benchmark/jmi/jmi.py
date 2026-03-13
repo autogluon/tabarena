@@ -18,7 +18,7 @@ class JMIFeatureSelector(AbstractFeatureSelector):
                            The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
-                           - Adapt implementation, so that
+                           - Adapt implementation, so that JMI is calculated following the algorithm in the paper directly
     """
 
     name = "JMIFeatureSelector"
