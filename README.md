@@ -81,14 +81,14 @@ If you don't intend to fit models, this is the simplest installation.
 #### UV Install (recommended)
 
 ```
-uv pip install --prerelease=allow -e ./tabarena
+uv pip install --prerelease=allow -e "./tabarena"
 ```
 
 #### PIP Install (not recommended)
 
 ```
-pip install -e ./bencheval
-pip install -e ./tabarena
+pip install -e "./bencheval"
+pip install -e "./tabarena"
 ```
 
 ### Benchmark (Fitting Models)
@@ -96,10 +96,10 @@ pip install -e ./tabarena
 If you intend to fit models, this is required.
 
 ```
-uv pip install --prerelease=allow -e ./tabarena[benchmark]
+uv pip install --prerelease=allow -e "./tabarena[benchmark]"
 
 # use GIT_LFS_SKIP_SMUDGE=1 in front of the command if installing TabDPT fails due to a broken LFS/pip setup
-# GIT_LFS_SKIP_SMUDGE=1 uv pip install --prerelease=allow -e ./tabarena/[benchmark]
+# GIT_LFS_SKIP_SMUDGE=1 uv pip install --prerelease=allow -e "./tabarena/[benchmark]"
 ```
 
 ### Developer Install
@@ -117,7 +117,7 @@ git clone https://github.com/autogluon/autogluon.git
 ./autogluon/full_install.sh
 
 git clone https://github.com/autogluon/tabarena.git
-uv pip install --prerelease=allow -e ./tabarena/tabarena[benchmark]
+uv pip install --prerelease=allow -e "./tabarena/tabarena[benchmark]"
 ```
 
 In PyCharm, make sure to set the directory of `tabarena/` and each `src/` subdirectory of `autogluon/` as 
@@ -134,7 +134,7 @@ git clone https://github.com/autogluon/autogluon.git
 ./autogluon/full_install.sh
 git clone https://github.com/autogluon/tabarena.git
 cd tabarena
-uv pip install --prerelease=allow -e ./tabarena[benchmark]
+uv pip install --prerelease=allow -e "./tabarena[benchmark]"
 cd examples/benchmarking
 python run_quickstart_tabarena.py 
 ```
