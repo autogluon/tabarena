@@ -386,6 +386,8 @@ def run_example():
     from experimental.feature_selection_benchmark.gini.gini import GiniFeatureSelector
     from experimental.feature_selection_benchmark.impurity.impurity import ImpurityFeatureSelector
     from experimental.feature_selection_benchmark.information_gain.information_gain import InformationGainFeatureSelector
+    from experimental.feature_selection_benchmark.interact.interact import INTERACTFeatureSelector
+    from experimental.feature_selection_benchmark.symmetrical_uncertainty.symmetrical_uncertainty import SymmetricalUncertaintyFeatureSelector
 
     for feature_selector in [
         AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
@@ -402,6 +404,8 @@ def run_example():
         GiniFeatureSelector(max_features=max_features),
         ImpurityFeatureSelector(max_features=max_features),
         InformationGainFeatureSelector(max_features=max_features),
+        INTERACTFeatureSelector(max_features=max_features),
+        SymmetricalUncertaintyFeatureSelector(max_features=max_features),
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
         predictor = TabularPredictor(
