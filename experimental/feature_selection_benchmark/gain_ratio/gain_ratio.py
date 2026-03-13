@@ -4,7 +4,6 @@ from math import log
 
 import numpy as np
 import pandas as pd
-from scipy.stats import entropy
 
 from experimental.feature_selection_benchmark.run_autogluon_feature_selection_pipeline import AbstractFeatureSelector
 

@@ -15,9 +15,9 @@ class InformationGainFeatureSelector(AbstractFeatureSelector):
     InformationGain Feature Selection.
 
     Reference: Quinlan, J. Induction of Decision Trees. Mach Learn 1, 81–106 (1986). https://doi.org/10.1023/A:1022643204877
-    Implementation Inspritation: https://github.com/Thijsvanede/info_gain/blob/master/info_gain/info_gain.py & using entropy calculation of https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/information_theoretical_based.
-                           The author of the information gain code is Thijs van Ede, Associate Professor at the University of Twente and main-author of 'FlowPrint: Semi-Supervised Mobile-App Fingerprinting on Encrypted Network Traffic' (2020), where they used information gain
-                           The author of the entropy code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
+    Implementation Inspiration: Information Gain code from https://github.com/Thijsvanede/info_gain/blob/master/info_gain/info_gain.py & Entropy code from https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/information_theoretical_based.
+                           The author of the Information Gain code is Thijs van Ede, Associate Professor at the University of Twente and main-author of 'FlowPrint: Semi-Supervised Mobile-App Fingerprinting on Encrypted Network Traffic' (2020), where they used information gain
+                           The author of the Entropy code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
     """
