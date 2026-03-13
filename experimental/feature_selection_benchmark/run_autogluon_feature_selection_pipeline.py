@@ -358,11 +358,18 @@ class RandomFeatureSelector(AbstractFeatureSelector):
 
 
 def run_example():
-    train_path = "train_data.csv"
-    test_path = "test_data.csv"
+    train_url = "https://autogluon.s3.amazonaws.com/datasets/Inc/train.csv"
+    test_url = "https://autogluon.s3.amazonaws.com/datasets/Inc/test.csv"
+
+    train_path = "inc_train.csv"
+    test_path = "inc_test.csv"
+
     if not os.path.exists(train_path):
-        train_path = "https://autogluon.s3.amazonaws.com/datasets/AdultIncomeBinaryClassification/train_data.csv"
-        test_path = "https://autogluon.s3.amazonaws.com/datasets/AdultIncomeBinaryClassification/test_data.csv"
+        train_df = pd.read_csv(train_url)
+        test_df = pd.read_csv(test_url)
+        train_df.to_csv(train_path, index=False)
+        test_df.to_csv(test_path, index=False)
+
     train_data = TabularDataset(train_path)
     test_data = TabularDataset(test_path)
 
@@ -387,6 +394,7 @@ def run_example():
     from experimental.feature_selection_benchmark.impurity.impurity import ImpurityFeatureSelector
     from experimental.feature_selection_benchmark.information_gain.information_gain import InformationGainFeatureSelector
     from experimental.feature_selection_benchmark.interact.interact import INTERACTFeatureSelector
+    from experimental.feature_selection_benchmark.jmi.jmi import JMIFeatureSelector
     from experimental.feature_selection_benchmark.symmetrical_uncertainty.symmetrical_uncertainty import SymmetricalUncertaintyFeatureSelector
 
     for feature_selector in [
@@ -405,6 +413,7 @@ def run_example():
         ImpurityFeatureSelector(max_features=max_features),
         InformationGainFeatureSelector(max_features=max_features),
         INTERACTFeatureSelector(max_features=max_features),
+        JMIFeatureSelector(max_features=max_features),
         SymmetricalUncertaintyFeatureSelector(max_features=max_features),
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
