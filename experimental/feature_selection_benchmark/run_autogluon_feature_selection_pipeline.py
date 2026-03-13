@@ -94,7 +94,6 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         self.max_features = max_features
         self.proxy_mode_config = proxy_mode_config
-
         self.raise_on_useless_feature_selection = raise_on_useless_feature_selection
 
         self._selected_features = None
@@ -359,24 +358,63 @@ class RandomFeatureSelector(AbstractFeatureSelector):
 
 
 def run_example():
-    train_path = "train_data.csv"
-    test_path = "test_data.csv"
+    train_url = "https://autogluon.s3.amazonaws.com/datasets/Inc/train.csv"
+    test_url = "https://autogluon.s3.amazonaws.com/datasets/Inc/test.csv"
+
+    train_path = "inc_train.csv"
+    test_path = "inc_test.csv"
+
     if not os.path.exists(train_path):
-        train_path = "https://autogluon.s3.amazonaws.com/datasets/AdultIncomeBinaryClassification/train_data.csv"
-        test_path = "https://autogluon.s3.amazonaws.com/datasets/AdultIncomeBinaryClassification/test_data.csv"
+        train_df = pd.read_csv(train_url)
+        test_df = pd.read_csv(test_url)
+        train_df.to_csv(train_path, index=False)
+        test_df.to_csv(test_path, index=False)
+
     train_data = TabularDataset(train_path)
     test_data = TabularDataset(test_path)
 
     max_features = 5
-    proxy_mode_config = ProxyModelConfig(
+    proxy_model_config = ProxyModelConfig(
         problem_type="binary",
         eval_metric="roc_auc",
         model_hyperparameters={"num_boost_round": 1},
     )
     verbosity = 0
+
+    from experimental.feature_selection_benchmark.anova.anova import ANOVAFeatureSelector
+    from experimental.feature_selection_benchmark.cart.cart import CARTFeatureSelector
+    from experimental.feature_selection_benchmark.cfs.cfs import CFSFeatureSelector
+    from experimental.feature_selection_benchmark.chi2.chi2 import Chi2FeatureSelector
+    from experimental.feature_selection_benchmark.cmim.cmim import CMIMFeatureSelector
+    from experimental.feature_selection_benchmark.consistency.consistency import ConsistencyFeatureSelector
+    from experimental.feature_selection_benchmark.disr.disr import DISRFeatureSelector
+    from experimental.feature_selection_benchmark.elastic_net.elastic_net import ElasticNetFeatureSelector
+    from experimental.feature_selection_benchmark.gain_ratio.gain_ratio import GainRatioFeatureSelector
+    from experimental.feature_selection_benchmark.gini.gini import GiniFeatureSelector
+    from experimental.feature_selection_benchmark.impurity.impurity import ImpurityFeatureSelector
+    from experimental.feature_selection_benchmark.information_gain.information_gain import InformationGainFeatureSelector
+    from experimental.feature_selection_benchmark.interact.interact import INTERACTFeatureSelector
+    from experimental.feature_selection_benchmark.jmi.jmi import JMIFeatureSelector
+    from experimental.feature_selection_benchmark.symmetrical_uncertainty.symmetrical_uncertainty import SymmetricalUncertaintyFeatureSelector
+
     for feature_selector in [
-        AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_mode_config),
+        AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
         RandomFeatureSelector(max_features=max_features),
+        ANOVAFeatureSelector(max_features=max_features),
+        CARTFeatureSelector(max_features=max_features),
+        CFSFeatureSelector(max_features=max_features),
+        Chi2FeatureSelector(max_features=max_features),
+        CMIMFeatureSelector(max_features=max_features),
+        ConsistencyFeatureSelector(max_features=max_features),
+        DISRFeatureSelector(max_features=max_features),
+        ElasticNetFeatureSelector(max_features=max_features),
+        GainRatioFeatureSelector(max_features=max_features),
+        GiniFeatureSelector(max_features=max_features),
+        ImpurityFeatureSelector(max_features=max_features),
+        InformationGainFeatureSelector(max_features=max_features),
+        INTERACTFeatureSelector(max_features=max_features),
+        JMIFeatureSelector(max_features=max_features),
+        SymmetricalUncertaintyFeatureSelector(max_features=max_features),
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
         predictor = TabularPredictor(
