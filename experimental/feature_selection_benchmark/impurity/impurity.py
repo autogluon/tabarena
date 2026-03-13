@@ -18,7 +18,7 @@ class ImpurityFeatureSelector(AbstractFeatureSelector):
                            The author of the code is Hossein Nematzadeh, Associate Professor at the University of Malaga and main-author of 'A review of feature selection methods based on meta-heuristic algorithms' (2025).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
-                           - Add max_features (number of features to be maximally selected by the method) constraint    """
+    """
 
     name = "ImpurityFeatureSelector"
     feature_scoring_method: bool = True

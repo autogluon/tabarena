@@ -19,7 +19,6 @@ class DISRFeatureSelector(AbstractFeatureSelector):
                            The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
-                           - Add max_features (number of features to be maximally selected by the method) constraint
                            - Code adapted so that the formula in the paper is used, the parts of the formula are calculated using the code of the implementation source
     """
 
