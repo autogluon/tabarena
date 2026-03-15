@@ -271,12 +271,12 @@ def _parse_int_list(s):
 
 
 def _parse_int_list_or_none(s):
-    if (s is None) or (s.lower() == "none"):
+    if (s is None) or (s.lower() == "none") or (s.lower() == "null"):
         return None
     return _parse_int_list(s)
 
 def _parse_int_or_none(s):
-    if (s is None) or (s.lower() == "none"):
+    if (s is None) or (s.lower() == "none") or (s.lower() == "null"):
         return None
     return int(s)
 
