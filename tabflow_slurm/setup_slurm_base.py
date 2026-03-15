@@ -82,6 +82,8 @@ class BenchmarkSetup:
     """Extra SLURM gres to use for the jobs. Adjust as needed for your cluster setup."""
     slurm_mem_per_handle: bool = True
     """If True, we set SLURM memory per CPU/GPU. If False, we set SLURM memory per job."""
+    slurm_exclusive_node: bool = False
+    """If True, we assume we can use all resources on the node."""
     # Task/Data Settings
     # ------------------
     # TODO: update metadata and usage for non-IID tasks that are not fold-based in the future.
@@ -125,12 +127,15 @@ class BenchmarkSetup:
     # Benchmark Settings
     # ------------------
     """Problem types to run in the benchmark. Adjust as needed to run only specific problem types."""
-    num_cpus: int = 8
-    """Number of CPUs to use for the SLURM jobs. The number of CPUs available on the node."""
+    num_cpus: int | None = 8
+    """Number of CPUs to use for the SLURM jobs. The number of CPUs available on the node.
+    If None, use all CPUs available on the node."""
     num_gpus: int = 0
     """Number of GPUs to use for the SLURM jobs. The number of GPUs available on the node."""
-    memory_limit: int = 32
-    """Memory/RAM limit for the SLURM jobs in GB. The memory limit available on the node."""
+    memory_limit: int | None = 32
+    """Memory/RAM limit for the SLURM jobs in GB. The memory limit available on the node.
+    If None, use all memory available on the node.
+    """
     time_limit: int = 3600
     """Time limit for each fit (all 8 folds) of a model in seconds. By default, 3600 seconds is used."""
     time_limit_overhead: int = 1
@@ -370,19 +375,30 @@ class BenchmarkSetup:
 
         partition = self.slurm_gpu_partition if is_gpu_job else self.slurm_cpu_partition
         partition = "--partition=" + partition
+        slurm_logs = f"--output={self.slurm_log_output}/%A/slurm-%A_%a.out"
+        script = str(Path(__file__).parent / self.slurm_script)
+        time_in_h = (
+            self.time_limit // 3600 * self.configs_per_job + self.time_limit_overhead
+        )
+        time_in_h = f"--time={time_in_h}:00:00"
 
+        # Handle GPU (same for exclusive and non-exclusive)
         gres = f"gpu:{self.num_gpus}" if is_gpu_job else ""
         if self.slurm_extra_gres:
             if len(gres) > 0:
                 gres += ","
             gres += self.slurm_extra_gres
         gres = f"--gres={gres}" if len(gres) > 0 else None
+        cmd_arg = f"{partition}"
+        if gres is not None:
+            cmd_arg += f" {gres}"
 
-        time_in_h = (
-            self.time_limit // 3600 * self.configs_per_job + self.time_limit_overhead
-        )
-        time_in_h = f"--time={time_in_h}:00:00"
+        if self.slurm_exclusive_node:
+            return f"{cmd_arg} {time_in_h} --mem=0 --nodes=1 --exclusive {slurm_logs} {script}"
+
+        # Handle CPU
         cpus = f"--cpus-per-task={self.num_cpus}"
+        # Handle Memory
         if self.slurm_mem_per_handle:
             if is_gpu_job:
                 mem = f"--mem-per-gpu={self.memory_limit // self.num_gpus}G"
@@ -390,13 +406,7 @@ class BenchmarkSetup:
                 mem = f"--mem-per-cpu={self.memory_limit // self.num_cpus}G"
         else:
             mem = f"--mem={self.memory_limit}G"
-        script = str(Path(__file__).parent / self.slurm_script)
 
-        slurm_logs = f"--output={self.slurm_log_output}/%A/slurm-%A_%a.out"
-
-        cmd_arg = f"{partition}"
-        if gres is not None:
-            cmd_arg += f" {gres}"
         return f"{cmd_arg} {time_in_h} {cpus} {mem} {slurm_logs} {script}"
 
     def get_jobs_to_run(self):  # noqa: C901
