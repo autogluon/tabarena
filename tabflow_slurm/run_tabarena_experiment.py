@@ -275,6 +275,11 @@ def _parse_int_list_or_none(s):
         return None
     return _parse_int_list(s)
 
+def _parse_int_or_none(s):
+    if (s is None) or (s.lower() == "none"):
+        return None
+    return int(s)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -337,8 +342,9 @@ if __name__ == "__main__":
     # Hardware settings
     parser.add_argument(
         "--num_cpus",
-        type=int,
-        help="Number of CPUs to use for the experiment.",
+        type=_parse_int_or_none,
+        help="Number of CPUs to use for the experiment. "
+             "If None, Ray will automatically detect the number of CPUs and use that.",
         default=1,
     )
     parser.add_argument(
@@ -349,8 +355,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--memory_limit",
-        type=int,
-        help="Memory limit to use for the experiment.",
+        type=_parse_int_or_none,
+        help="Memory limit to use for the experiment. Given in GB. If None, no memory limit will be set.",
         default=10,
     )
     parser.add_argument(
@@ -361,12 +367,25 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+
+    num_cpus = args.num_cpus
+    if num_cpus is None:
+        from autogluon.common.utils.cpu_utils import get_available_cpu_count
+        num_cpus = get_available_cpu_count(only_physical_cores=False)
+        print(f"Number of CPUs not provided, using detected number of CPUs: {num_cpus}")
+
+    memory_limit = args.memory_limit
+    if memory_limit is None:
+        from autogluon.common.utils.resource_utils import ResourceManager
+        memory_limit = int(ResourceManager.get_memory_size(format="GB"))
+        print(f"Memory limit not provided, using detected memory size: {memory_limit} GB")
+
     ray_temp_dir = setup_slurm_job(
         openml_cache_dir=args.openml_cache_dir,
         setup_ray_for_slurm_shared_resources_environment=args.setup_ray_for_slurm_shared_resources_environment,
-        num_cpus=args.num_cpus,
+        num_cpus=num_cpus,
         num_gpus=args.num_gpus,
-        memory_limit=args.memory_limit,
+        memory_limit=memory_limit,
     )
     try:
         run_experiment(
@@ -377,9 +396,9 @@ if __name__ == "__main__":
             configs_yaml_file=args.configs_yaml_file,
             output_dir=args.output_dir,
             ignore_cache=args.ignore_cache,
-            num_cpus=args.num_cpus,
+            num_cpus=num_cpus,
             num_gpus=args.num_gpus,
-            memory_limit=args.memory_limit,
+            memory_limit=memory_limit,
             sequential_local_fold_fitting=args.sequential_local_fold_fitting,
         )
     finally:
