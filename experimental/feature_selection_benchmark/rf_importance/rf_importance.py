@@ -1,8 +1,8 @@
 import logging
 
+import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.feature_selection import SelectKBest, chi2
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
 from experimental.feature_selection_benchmark.run_autogluon_feature_selection_pipeline import AbstractFeatureSelector
 
@@ -21,7 +21,11 @@ class RFImportanceFeatureSelector(AbstractFeatureSelector):
     feature_scoring_method: bool = True
 
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
-        forest = RandomForestClassifier(random_state=0)
+        c = np.unique(y.to_numpy())
+        if c < 10:
+            forest = RandomForestClassifier(random_state=0)
+        else:
+            forest = RandomForestRegressor(random_state=0)
         forest.fit(X, y)
         importances = forest.feature_importances_
         feature_scores = dict(zip(X.columns, importances))
