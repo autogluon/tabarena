@@ -396,6 +396,7 @@ def run_example():
     from experimental.feature_selection_benchmark.interact.interact import INTERACTFeatureSelector
     from experimental.feature_selection_benchmark.jmi.jmi import JMIFeatureSelector
     from experimental.feature_selection_benchmark.laplacian_score.laplacian_score import LaplacianScoreFeatureSelector
+    from experimental.feature_selection_benchmark.lasso.lasso import LassoFeatureSelector
     from experimental.feature_selection_benchmark.symmetrical_uncertainty.symmetrical_uncertainty import SymmetricalUncertaintyFeatureSelector
 
     for feature_selector in [
@@ -416,6 +417,7 @@ def run_example():
         INTERACTFeatureSelector(max_features=max_features),
         JMIFeatureSelector(max_features=max_features),
         LaplacianScoreFeatureSelector(max_features=max_features),
+        LassoFeatureSelector(max_features=max_features),
         SymmetricalUncertaintyFeatureSelector(max_features=max_features),
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
