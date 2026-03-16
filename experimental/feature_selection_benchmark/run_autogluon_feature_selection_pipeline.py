@@ -309,18 +309,6 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
 
 
-
-
-# TODO: ensure that we get a different random state each time we call this code within TabArena
-class RandomFeatureSelector(AbstractFeatureSelector):
-    """Random Feature Selection."""
-
-    name = "RandomFeatureSelector"
-
-    def _fit_feature_selection(self, **kwargs) -> list[str]:
-        return self.fallback_feature_selection()
-
-
 def run_example():
     train_url = "https://autogluon.s3.amazonaws.com/datasets/Inc/train.csv"
     test_url = "https://autogluon.s3.amazonaws.com/datasets/Inc/test.csv"
@@ -345,6 +333,7 @@ def run_example():
     )
     verbosity = 0
     from experimental.feature_selection_benchmark.accuracy.accuracy import AccuracyFeatureSelector
+    from experimental.feature_selection_benchmark.random.random import RandomFeatureSelector
     from experimental.feature_selection_benchmark.anova.anova import ANOVAFeatureSelector
     from experimental.feature_selection_benchmark.cart.cart import CARTFeatureSelector
     from experimental.feature_selection_benchmark.cfs.cfs import CFSFeatureSelector
