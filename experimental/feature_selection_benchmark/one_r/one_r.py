@@ -5,6 +5,7 @@ import warnings
 import numpy as np
 import pandas as pd
 from scipy.stats import chi2_contingency
+from sklearn.impute import SimpleImputer
 
 from experimental.feature_selection_benchmark.run_autogluon_feature_selection_pipeline import AbstractFeatureSelector
 
@@ -28,7 +29,9 @@ class OneRFeatureSelector(AbstractFeatureSelector):
 
     def _fit_feature_selection(self, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
         start_time = time.monotonic()
-        X = X.to_numpy()
+        imputer = SimpleImputer(strategy='mean')
+        X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns, index=X.index)
+        X = X_imputed.to_numpy()
         self.resolve_ties = "chi-squared"
         for c in range(X.shape[1]):
             elapsed_time = time.time() - start_time

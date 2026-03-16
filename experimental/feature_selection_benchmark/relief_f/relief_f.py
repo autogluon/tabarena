@@ -3,6 +3,7 @@ import time
 
 import numpy as np
 import pandas as pd
+from sklearn.impute import SimpleImputer
 from sklearn.metrics import pairwise_distances
 
 from experimental.feature_selection_benchmark.run_autogluon_feature_selection_pipeline import AbstractFeatureSelector
@@ -28,7 +29,9 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
         start_time = time.monotonic()
         k = 5
         columns = X.columns
-        X = X.to_numpy()
+        imputer = SimpleImputer(strategy='mean')
+        X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns, index=X.index)
+        X = X_imputed.to_numpy()
         n_samples, n_features = X.shape
 
         distance = pairwise_distances(X, metric='manhattan')

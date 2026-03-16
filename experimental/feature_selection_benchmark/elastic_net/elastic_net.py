@@ -1,6 +1,7 @@
 import logging
 
 import pandas as pd
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -22,6 +23,8 @@ class ElasticNetFeatureSelector(AbstractFeatureSelector):
     feature_scoring_method: bool = True
 
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
+        imputer = SimpleImputer(strategy='mean')
+        X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns, index=X.index)
         C = 1.0
         l1_ratio = 0.5
         max_iter = 5000
@@ -37,7 +40,7 @@ class ElasticNetFeatureSelector(AbstractFeatureSelector):
                 n_jobs=-1,
             ),
         )
-        clf.fit(X, y)
+        clf.fit(X_imputed, y)
         scores = clf.named_steps["logisticregression"].coef_[0]
         feature_scores = dict(zip(X.columns, scores))
         return feature_scores

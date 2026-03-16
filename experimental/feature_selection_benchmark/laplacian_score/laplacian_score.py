@@ -4,6 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 from scipy.sparse import diags, csc_matrix
+from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import normalize
 
 from experimental.feature_selection_benchmark.run_autogluon_feature_selection_pipeline import AbstractFeatureSelector
@@ -37,8 +38,9 @@ class LaplacianScoreFeatureSelector(AbstractFeatureSelector):
         """
         start_time = time.monotonic()
         columns = X.columns
+        index = X.index
         X = X.to_numpy()
-        W = self.construct_W(X, time_limit, start_time)
+        W = self.construct_W(X, time_limit, start_time, columns, index)
         D = np.array(W.sum(axis=1))
         L = W
         tmp = np.dot(np.transpose(D), X)
@@ -54,7 +56,7 @@ class LaplacianScoreFeatureSelector(AbstractFeatureSelector):
         return feature_scores
 
     @staticmethod
-    def construct_W(X, time_limit, start_time):
+    def construct_W(X, time_limit, start_time, columns, index):
         """
         Construct the affinity matrix W using cosine similarity and knn neighbor mode
         """
@@ -62,7 +64,9 @@ class LaplacianScoreFeatureSelector(AbstractFeatureSelector):
         # set k = 5 for knn neighbor
         k = 5
         # normalize the data to unit length
-        X = normalize(X, norm='l2', axis=1, copy=False)
+        imputer = SimpleImputer(strategy='mean')
+        X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=columns, index=index)
+        X = normalize(X_imputed, norm='l2', axis=1, copy=False)
         # compute pairwise cosine distances
         D_cosine = np.dot(X, np.transpose(X))
         # sort the distance matrix D in descending order

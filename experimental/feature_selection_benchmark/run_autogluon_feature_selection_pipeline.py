@@ -11,10 +11,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
+import openml
 import pandas as pd
+from autogluon.core.data import LabelCleaner
 from autogluon.features.generators.abstract import AbstractFeatureGenerator
 from autogluon.tabular import TabularDataset, TabularPredictor
 from autogluon.tabular.models.lgb.lgb_model import LGBModel
+from sklearn.model_selection import train_test_split
 
 if TYPE_CHECKING:
     from autogluon.core.models.abstract.abstract_model import AbstractModel
@@ -310,20 +313,16 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
 
 def run_example():
-    train_url = "https://autogluon.s3.amazonaws.com/datasets/Inc/train.csv"
-    test_url = "https://autogluon.s3.amazonaws.com/datasets/Inc/test.csv"
+    dataset_id = 55
+    problem_type = "regression"
 
-    train_path = "inc_train.csv"
-    test_path = "inc_test.csv"
-
-    if not os.path.exists(train_path):
-        train_df = pd.read_csv(train_url)
-        test_df = pd.read_csv(test_url)
-        train_df.to_csv(train_path, index=False)
-        test_df.to_csv(test_path, index=False)
-
-    train_data = TabularDataset(train_path)
-    test_data = TabularDataset(test_path)
+    # Load OpenML dataset
+    dataset = openml.datasets.get_dataset(dataset_id)
+    X, y, _, _ = dataset.get_data(target=dataset.default_target_attribute, dataset_format="dataframe")
+    label_cleaner = LabelCleaner.construct(problem_type=problem_type, y=y)
+    y = label_cleaner.transform(y)
+    data = pd.concat([X, y.rename("class")], axis=1)
+    train_data, test_data = train_test_split(data, test_size=0.33, random_state=0)
 
     max_features = 5
     proxy_model_config = ProxyModelConfig(

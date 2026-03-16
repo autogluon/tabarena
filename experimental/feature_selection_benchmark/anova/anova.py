@@ -2,6 +2,7 @@ import logging
 
 import pandas as pd
 from sklearn.feature_selection import f_classif, SelectKBest
+from sklearn.impute import SimpleImputer
 
 from experimental.feature_selection_benchmark.run_autogluon_feature_selection_pipeline import AbstractFeatureSelector
 
@@ -16,15 +17,15 @@ class ANOVAFeatureSelector(AbstractFeatureSelector):
     Implementation Source: https://scikit-learn.org/stable/modules/generated/sklearn.feature_selection.f_classif.html
     """
 
-
-
     name = "ANOVAFeatureSelector"
     feature_scoring_method: bool = True
 
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
+        imputer = SimpleImputer(strategy='mean')
+        X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns, index=X.index)
         anova_kwargs = {"score_func": f_classif, "k": "all"}
         anova = SelectKBest(**anova_kwargs)
-        anova.fit(X, y)
+        anova.fit(X_imputed, y)
         scores = anova.scores_
         feature_scores = dict(zip(X.columns, scores))
         return feature_scores
