@@ -405,6 +405,7 @@ def run_example():
     from experimental.feature_selection_benchmark.sbe.sbe import SequentialBackwardEliminationFeatureSelector
     from experimental.feature_selection_benchmark.sfs.sfs import SequentialForwardSelectionFeatureSelector
     from experimental.feature_selection_benchmark.symmetrical_uncertainty.symmetrical_uncertainty import SymmetricalUncertaintyFeatureSelector
+    from experimental.feature_selection_benchmark.rf_importance.rf_importance import RFImportanceFeatureSelector
 
     for feature_selector in [
         AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
@@ -433,6 +434,7 @@ def run_example():
         SequentialBackwardEliminationFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
         SequentialForwardSelectionFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
         SymmetricalUncertaintyFeatureSelector(max_features=max_features),
+        RFImportanceFeatureSelector(max_features=max_features),
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
         predictor = TabularPredictor(
