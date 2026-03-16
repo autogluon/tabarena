@@ -20,8 +20,7 @@ class OneRFeatureSelector(AbstractFeatureSelector):
                         The author of the code is Sebastian Raschka, AI Research Engineer and former Assistant Professor at the University of Wisconsin-Madison and main-author of 'MLxtend: Providing machine learning and data science utilities and extensions to Python’s scientific computing stack.' (2018).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
-                           - Remove OneRClassifier class and adapt code to fit into the AbstractFeatureSelector class
-                           -
+                           - Remove OneRClassifier class, only use the fit method and the best feature index for selecting a feature
     """
 
     name = "OneRFeatureSelector"
