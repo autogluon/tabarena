@@ -402,6 +402,8 @@ def run_example():
     from experimental.feature_selection_benchmark.one_r.one_r import OneRFeatureSelector
     from experimental.feature_selection_benchmark.pearson_correlation.pearson_correlation import PearsonCorrelationFeatureSelector
     from experimental.feature_selection_benchmark.relief_f.relief_f import ReliefFFeatureSelector
+    from experimental.feature_selection_benchmark.sbe.sbe import SequentialBackwardEliminationFeatureSelector
+    from experimental.feature_selection_benchmark.sfs.sfs import SequentialForwardSelectionFeatureSelector
     from experimental.feature_selection_benchmark.symmetrical_uncertainty.symmetrical_uncertainty import SymmetricalUncertaintyFeatureSelector
 
     for feature_selector in [
@@ -428,6 +430,8 @@ def run_example():
         OneRFeatureSelector(max_features=max_features),
         PearsonCorrelationFeatureSelector(max_features=max_features),
         ReliefFFeatureSelector(max_features=max_features),
+        SequentialBackwardEliminationFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
+        SequentialForwardSelectionFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
         SymmetricalUncertaintyFeatureSelector(max_features=max_features),
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
