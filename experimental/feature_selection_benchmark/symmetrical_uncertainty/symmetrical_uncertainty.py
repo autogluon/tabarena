@@ -21,6 +21,7 @@ class SymmetricalUncertaintyFeatureSelector(AbstractFeatureSelector):
     Changes to the implementation by Bastian Schäfer:
                            - Adapt Information Gain and Entropy Code to Symmetrical Uncertainty algorithm presented in the paper
                            - Add time constraint
+                           - Use pandas instead of numpy and avoid conversion
     """
 
     name = "SymmetricalUncertaintyFeatureSelector"
@@ -34,7 +35,7 @@ class SymmetricalUncertaintyFeatureSelector(AbstractFeatureSelector):
                   IG(Y|X) = H(Y) - H(Y|X)
         """
         start_time = time.monotonic()
-        n_samples, n_features = X.shape
+        n_features = len(X.columns)
         SU = np.zeros(n_features, dtype=float)
 
         # H(Y)

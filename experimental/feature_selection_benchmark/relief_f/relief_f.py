@@ -20,6 +20,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
                            The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
+                           - Use pandas instead of numpy and avoid conversion
     """
 
     name = "ReliefFFeatureSelector"
@@ -29,10 +30,10 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
         start_time = time.monotonic()
         k = 5
         columns = X.columns
+        n_features = len(X.columns)
+        n_samples = len(X.index)
         imputer = SimpleImputer(strategy='mean')
-        X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns, index=X.index)
-        X = X_imputed.to_numpy()
-        n_samples, n_features = X.shape
+        X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns, index=X.index)
 
         distance = pairwise_distances(X, metric='manhattan')
         score = np.zeros(n_features)
@@ -48,7 +49,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
             near_hit = []
             near_miss = dict()
 
-            self_fea = X[idx, :]
+            self_fea = X.iloc[idx, :]
             c = np.unique(y).tolist()
 
             stop_dict = dict()
@@ -137,7 +138,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
                         f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                     )
                     break
-                near_hit_term = np.array(abs(self_fea - X[ele, :])) + np.array(near_hit_term)
+                near_hit_term = np.array(abs(self_fea - X.iloc[ele, :])) + np.array(near_hit_term)
 
             near_miss_term = dict()
             for (label, miss_list) in near_miss.items():
@@ -157,7 +158,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
                             f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                         )
                         break
-                    near_miss_term[label] = np.array(abs(self_fea - X[ele, :])) + np.array(near_miss_term[label])
+                    near_miss_term[label] = np.array(abs(self_fea - X.iloc[ele, :])) + np.array(near_miss_term[label])
                 score += near_miss_term[label] / (k * p_dict[label])
             score -= near_hit_term / k
 

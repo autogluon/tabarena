@@ -20,6 +20,7 @@ class DISRFeatureSelector(AbstractFeatureSelector):
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
                            - Code adapted so that the formula in the paper is used, the parts of the formula are calculated using the code of the implementation source
+                           - Use pandas instead of numpy and avoid conversion
     """
 
     name = "DISRFeatureSelector"
@@ -27,8 +28,7 @@ class DISRFeatureSelector(AbstractFeatureSelector):
 
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
         start_time = time.monotonic()
-        X_np = X.to_numpy()
-        n_samples, n_features = X_np.shape
+        n_features = len(X.columns)
         DISR = np.zeros(n_features)
         mutual_information = np.zeros(n_features)
         entropy = np.zeros(n_features)
@@ -40,7 +40,7 @@ class DISRFeatureSelector(AbstractFeatureSelector):
                     f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
-            f = X_np[:, i]
+            f = X.iloc[:, i]
             mutual_information[i] = self.midd(f, y)
             entropy[i] = self.entropyd(list(zip(f, y)))
             symmetrical_relevance = mutual_information[i] / entropy[i]

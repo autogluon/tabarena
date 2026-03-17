@@ -20,18 +20,16 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
                            - Add max_features (number of features to be maximally selected by the method) constraint
+                           - Use pandas instead of numpy and avoid conversion
     """
 
     name = "CMIMFeatureSelector"
     feature_scoring_method: bool = False
 
-    def _fit_feature_selection(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
+    def _fit_feature_selection(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[
+        str, float]:
         start_time = time.monotonic()
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
-
-        n_samples, n_features = X.shape
-
+        n_features = len(X.columns)
         F = np.nan * np.zeros(n_features)
         CMIM = np.zeros(n_features)
         m = np.zeros(n_features) - 1
@@ -40,21 +38,17 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
         for i in range(n_features):
             elapsed_time = time.time() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
-                logger.warning(
-                    f"Warning: FeatureSelection Method has no time left to train... "
-                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                )
+                logger.warning(f"Warning: FeatureSelection Method has no time left to train... "
+                               f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)")
                 break
-            f = X_np[:, i]
+            f = X.iloc[:, i]
             CMIM[i] = self.midd(f, y)
 
         for k in range(n_features):
             elapsed_time = time.time() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
-                logger.warning(
-                    f"Warning: FeatureSelection Method has no time left to train... "
-                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                )
+                logger.warning(f"Warning: FeatureSelection Method has no time left to train... "
+                               f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)")
                 break
             # Choose the feature with the highest MI as the next feature
             idx = np.argmax(CMIM)
@@ -68,22 +62,18 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
             for i in range(n_features):
                 elapsed_time = time.time() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
-                    logger.warning(
-                        f"Warning: FeatureSelection Method has no time left to train... "
-                        f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                    )
+                    logger.warning(f"Warning: FeatureSelection Method has no time left to train... "
+                                   f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)")
                     break
                 if i not in F:
                     while (CMIM[i] > sstar) and (m[i] < k - 1):
                         elapsed_time = time.time() - start_time
                         if (time_limit is not None) and (elapsed_time >= time_limit):
-                            logger.warning(
-                                f"Warning: FeatureSelection Method has no time left to train... "
-                                f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                            )
+                            logger.warning(f"Warning: FeatureSelection Method has no time left to train... "
+                                           f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)")
                             break
                         m[i] = m[i] + 1
-                        CMIM[i] = min(CMIM[i], self.cmidd(X_np[:, i], y_np, X_np[:, int(F[int(m[i])])]))
+                        CMIM[i] = min(CMIM[i], self.cmidd(X.iloc[:, i], y, X.iloc[:, int(F[int(m[i])])]))
                     if CMIM[i] > sstar:
                         sstar = CMIM[i]
                         F[k + 1] = i

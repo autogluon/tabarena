@@ -18,6 +18,7 @@ class GiniFeatureSelector(AbstractFeatureSelector):
                            The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
+                           - Use pandas instead of numpy and avoid conversion
     """
 
     name = "GiniFeatureSelector"
@@ -25,10 +26,7 @@ class GiniFeatureSelector(AbstractFeatureSelector):
 
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
         start_time = time.monotonic()
-        columns = X.columns
-        X = X.to_numpy()
-        y = y.to_numpy()
-        n_samples, n_features = X.shape
+        n_features = len(X.columns)
         gini = np.ones(n_features) * 0.5
         for i in range(n_features):
             elapsed_time = time.time() - start_time
@@ -36,7 +34,7 @@ class GiniFeatureSelector(AbstractFeatureSelector):
                 logger.warning(f"Warning: FeatureSelection Method has no time left to train... "
                                f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)")
                 break
-            v = np.unique(X[:, i])
+            v = np.unique(X.iloc[:, i])
             for j in range(len(v)):
                 elapsed_time = time.time() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
@@ -44,9 +42,19 @@ class GiniFeatureSelector(AbstractFeatureSelector):
                                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)")
                     break
                 # left_y contains labels of instances whose i-th feature value is less than or equal to v[j]
-                left_y = y[X[:, i] <= v[j]]
                 # right_y contains labels of instances whose i-th feature value is larger than v[j]
-                right_y = y[X[:, i] > v[j]]
+                col = X.iloc[:, i]
+                if col.dtype.name == 'category':
+                    v = col.cat.codes.unique()
+                    left_mask = col.cat.codes <= v[j]
+                    right_mask = col.cat.codes > v[j]
+                else:
+                    v = sorted(col.unique())
+                    left_mask = col <= v[j]
+                    right_mask = col > v[j]
+
+                left_y = y[left_mask]
+                right_y = y[right_mask]
 
                 # gini_left is sum of square of probability of occurrence of v[i] in left_y
                 # gini_right is sum of square of probability of occurrence of v[i] in right_y
@@ -81,5 +89,5 @@ class GiniFeatureSelector(AbstractFeatureSelector):
 
                     if value < gini[i]:
                         gini[i] = value
-        feature_scores = dict(zip(columns, gini))
+        feature_scores = dict(zip(X.columns, gini))
         return feature_scores

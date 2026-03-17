@@ -19,6 +19,7 @@ class GainRatioFeatureSelector(AbstractFeatureSelector):
                                The author of the entropy code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
     Changes to the algorithm by Bastian Schäfer:
                            - Add time constraint
+                           - Use pandas instead of numpy and avoid conversion
     """
 
     name = "GainRatioFeatureSelector"
@@ -26,7 +27,7 @@ class GainRatioFeatureSelector(AbstractFeatureSelector):
 
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
         start_time = time.monotonic()
-        n_samples, n_features = X.shape
+        n_features = len(X.columns)
         F = np.zeros(n_features, dtype=float)
 
         # Parent entropy H(Y)

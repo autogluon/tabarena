@@ -2,7 +2,6 @@ import logging
 import time
 from math import log
 
-import numpy as np
 import pandas as pd
 
 from experimental.feature_selection_benchmark.run_autogluon_feature_selection_pipeline import AbstractFeatureSelector
@@ -19,6 +18,7 @@ class MIFeatureSelector(AbstractFeatureSelector):
                            The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
+                           - Use pandas instead of numpy and avoid conversion
                            - Code adapted so that the formula in the paper is calculated directly, the parts of the formula are calculated using the entropy code of the implementation inspiration
     """
 
@@ -27,29 +27,19 @@ class MIFeatureSelector(AbstractFeatureSelector):
 
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
         start_time = time.monotonic()
-        X_np = X.to_numpy()
-
-        n_samples, n_features = X_np.shape
-        MI = np.zeros(n_features)
-
-        t1 = np.zeros(n_features)
-        t2 = np.zeros(n_features)
-        t3 = np.zeros(n_features)
-        for i in range(n_features):
+        MI_scores = {}
+        for i, col in enumerate(X.columns):
             elapsed_time = time.time() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
-                logger.warning(
-                    f"Warning: FeatureSelection Method has no time left to train... "
-                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                )
+                logger.warning(f"Warning: FeatureSelection Method has no time left to train... "
+                               f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)")
                 break
-            f = X_np[:, i]
-            t1[i] = self.entropyd(f)
-            t2[i] = self.entropyd(y)
-            t3[i] = self.midd(f, y)
-            MI[i] = t1[i] + t2[i] - t3[i]
-
-        feature_scores = dict(zip(X.columns, MI))
+            f = X[col]
+            H_f = self.entropyd(f)
+            H_y = self.entropyd(y)
+            H_fy = self.midd(f, y)
+            MI_scores[i] = H_f + H_y - H_fy
+        feature_scores = dict(zip(X.columns, MI_scores))
         return feature_scores
 
     def midd(self, x, y):

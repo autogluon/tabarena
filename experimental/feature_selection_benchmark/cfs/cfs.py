@@ -24,41 +24,35 @@ class CFSFeatureSelector(AbstractFeatureSelector):
                            - Add max_features (number of features to be maximally selected by the method) constraint
                            - Remove early stopping
                            - Break loop when max_features is reached
+                           - Use pandas instead of numpy and avoid conversion
     """
 
     name = "CFSFeatureSelector"
     feature_scoring_method: bool = False
 
-    def _fit_feature_selection(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
-        columns = X.columns
+    def _fit_feature_selection(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[
+        str, float]:
         start_time = time.monotonic()
-        X = X.to_numpy()
-        y = y.to_numpy()
-        n_samples, n_features = X.shape
-        F = []
-        M = []  # M stores the merit values
+        F = []  # cfs score
+        M = []  # merit values
         while True:
             elapsed_time = time.time() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
-                logger.warning(
-                    f"Warning: FeatureSelection Method has no time left to train... "
-                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                )
+                logger.warning(f"Warning: FeatureSelection Method has no time left to train... "
+                               f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)")
                 break
             merit = -100000000000
             idx = -1
-            for i in range(n_features):
+            for i, col in enumerate(X.columns):
                 elapsed_time = time.time() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
-                    logger.warning(
-                        f"Warning: FeatureSelection Method has no time left to train... "
-                        f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                    )
+                    logger.warning(f"Warning: FeatureSelection Method has no time left to train... "
+                                   f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)")
                     break
                 if i not in F:
                     F.append(i)
                     # calculate the merit of current selected features
-                    t = self.merit_calculation(X[:, F], y)
+                    t = self.merit_calculation(X.iloc[:, F], y)
                     if t > merit:
                         merit = t
                         idx = i
@@ -89,18 +83,17 @@ class CFSFeatureSelector(AbstractFeatureSelector):
         :return merits: {float}  merit of a feature subset X
         """
 
-        n_samples, n_features = X.shape
         rff = 0
         rcf = 0
-        for i in range(n_features):
-            fi = X[:, i]
+        for i, col in enumerate(X.columns):
+            fi = X.iloc[:, i]
             rcf += self.su_calculation(fi, y)  # su is the symmetrical uncertainty of fi and y
-            for j in range(n_features):
+            for j, col in enumerate(X.columns):
                 if j > i:
-                    fj = X[:, j]
+                    fj = X.iloc[:, j]
                     rff += self.su_calculation(fi, fj)
         rff *= 2
-        merits = rcf / np.sqrt(n_features + rff)
+        merits = rcf / np.sqrt(len(X.columns) + rff)
         return merits
 
     def information_gain(self, f1, f2):

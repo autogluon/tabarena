@@ -18,6 +18,7 @@ class ImpurityFeatureSelector(AbstractFeatureSelector):
                            The author of the code is Hossein Nematzadeh, Associate Professor at the University of Malaga and main-author of 'A review of feature selection methods based on meta-heuristic algorithms' (2025).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
+                           - Use pandas instead of numpy and avoid conversion
     """
 
     name = "ImpurityFeatureSelector"
@@ -25,9 +26,7 @@ class ImpurityFeatureSelector(AbstractFeatureSelector):
 
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
         start_time = time.monotonic()
-        X_np = X.to_numpy()
-        y_np = y.to_numpy()
-        n_features = X_np.shape[1]
+        n_features = len(X.columns)
         alpha = np.zeros(n_features)
         for w in range(n_features):
             elapsed_time = time.time() - start_time
@@ -37,8 +36,8 @@ class ImpurityFeatureSelector(AbstractFeatureSelector):
                     f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
-            sorted_indices = np.argsort(X_np[:, w])
-            sorted_labels = y_np[sorted_indices]
+            sorted_indices = np.argsort(X.iloc[:, w])
+            sorted_labels = y.iloc[sorted_indices]
             alpha[w] = self.classification_error_impurity(sorted_labels, time_limit, start_time)
         feature_scores = dict(zip(X.columns, alpha))
         return feature_scores

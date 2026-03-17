@@ -18,6 +18,7 @@ class JMIFeatureSelector(AbstractFeatureSelector):
                            The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
+                           - Use pandas instead of numpy and avoid conversion
                            - Adapt implementation, so that JMI is calculated following the algorithm in the paper directly
     """
 
@@ -32,10 +33,8 @@ class JMIFeatureSelector(AbstractFeatureSelector):
         I(X_1,...,X_k ; Y) = KL( p(x1,...,xk, y) || p(x1,...,xk) * p(y) )
         """
 
-        X_np = self._discretize(X.to_numpy(), time_limit, start_time)
-        y_np = y.to_numpy()
-
-        n_samples, n_features = X_np.shape
+        X = self._discretize(X, time_limit, start_time)
+        n_features = len(X.columns)
         selected = []  # indices of selected features
         remaining = list(range(n_features))
         scores = np.zeros(n_features)
@@ -47,7 +46,7 @@ class JMIFeatureSelector(AbstractFeatureSelector):
                     f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
-            scores[i] = self._joint_mi_kl(X_np[:, [i]], y_np, time_limit, start_time)
+            scores[i] = self._joint_mi_kl(X.iloc[:, [i]], y, time_limit, start_time)
 
         best_first = int(np.argmax(scores))
         selected.append(best_first)
@@ -65,8 +64,8 @@ class JMIFeatureSelector(AbstractFeatureSelector):
                     )
                     break
                 candidate_cols = selected + [i]
-                X_subset = X_np[:, candidate_cols]
-                score = self._joint_mi_kl(X_subset, y_np, time_limit, start_time)
+                X_subset = X.iloc[:, candidate_cols]
+                score = self._joint_mi_kl(X_subset, y, time_limit, start_time)
                 if score > best_score:
                     best_score = score
                     best_idx = i
@@ -77,10 +76,12 @@ class JMIFeatureSelector(AbstractFeatureSelector):
         return feature_scores
 
     @staticmethod
-    def _discretize(X_np: np.ndarray, time_limit, start_time, n_bins: int = 10) -> np.ndarray:
+    def _discretize(X: pd.DataFrame, time_limit, start_time, n_bins: int = 10) -> pd.DataFrame:
         """Bin continuous features into integers for probability estimation."""
-        X_disc = np.zeros_like(X_np, dtype=int)
-        for i in range(X_np.shape[1]):
+        X_disc = pd.DataFrame(np.zeros(X.shape, dtype='object'), index=X.index, columns=X.columns)
+        numerical_cols = X.select_dtypes(include=['number']).columns.tolist()
+        for col in numerical_cols:
+            i = X.columns.get_loc(col)
             elapsed_time = time.time() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
@@ -88,17 +89,15 @@ class JMIFeatureSelector(AbstractFeatureSelector):
                     f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
-            col = X_np[:, i]
+            col = X.iloc[:, i]
             bins = np.linspace(col.min(), col.max(), n_bins)
-            X_disc[:, i] = np.digitize(col, bins)
+            X_disc.iloc[:, i] = pd.cut(col, bins=bins, labels=False, right=False)
         return X_disc
 
     @staticmethod
-    def _estimate_prob(data: np.ndarray, time_limit, start_time) -> dict:
+    def _estimate_prob(data: pd.DataFrame, time_limit, start_time) -> dict:
         """Estimate joint probability distribution from rows of data."""
-        if data.ndim == 1:
-            data = data.reshape(-1, 1)
-        n = data.shape[0]
+        n = len(data.columns)
         counts = {}
         for row in data:
             elapsed_time = time.time() - start_time
@@ -108,11 +107,10 @@ class JMIFeatureSelector(AbstractFeatureSelector):
                     f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
-            key = tuple(row)
-            counts[key] = counts.get(key, 0) + 1
+            counts[row] = counts.get(row, 0) + 1
         return {k: v / n for k, v in counts.items()}
 
-    def _joint_mi_kl(self, X_subset: np.ndarray, y_np: np.ndarray, time_limit, start_time) -> float:
+    def _joint_mi_kl(self, X_subset: pd.DataFrame, y: pd.Series, time_limit, start_time) -> float:
         """
         I(X_1,...,X_k ; Y) = KL( p(x,y) || p(x)*p(y) )
                            = sum_{x,y} p(x,y) * log( p(x,y) / (p(x)*p(y)) )
@@ -120,11 +118,10 @@ class JMIFeatureSelector(AbstractFeatureSelector):
         if X_subset.ndim == 1:
             X_subset = X_subset.reshape(-1, 1)
 
-        y_col = y_np.reshape(-1, 1)
-
-        p_xy = self._estimate_prob(np.hstack([X_subset, y_col]), time_limit, start_time)
+        X_subset_y = pd.concat([X_subset, y], axis=1)
+        p_xy = self._estimate_prob(X_subset_y, time_limit, start_time)
         p_x = self._estimate_prob(X_subset, time_limit, start_time)
-        p_y = self._estimate_prob(y_col, time_limit, start_time)
+        p_y = self._estimate_prob(y.to_frame(), time_limit, start_time)
 
         jmi = 0.0
         for xy_key, p_xy_val in p_xy.items():
