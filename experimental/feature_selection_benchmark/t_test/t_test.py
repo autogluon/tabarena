@@ -1,6 +1,5 @@
 import logging
 import time
-from math import log
 
 import numpy as np
 import pandas as pd
@@ -55,8 +54,8 @@ class tTestFeatureSelector(AbstractFeatureSelector):
                 t0 = np.true_divide(std0 ** 2, n0)
                 t1 = np.true_divide(std1 ** 2, n1)
                 F[i] = np.true_divide(t, (t0 + t1) ** 0.5)
-            else:
-                print('y should be guaranteed to a binary class vector')
-                exit(0)
+        else:
+            print('y should be guaranteed to a binary class vector')
+            exit(0)
         feature_scores = dict(zip(columns, F))
         return feature_scores
