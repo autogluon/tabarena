@@ -22,9 +22,9 @@ class tTestFeatureSelector(AbstractFeatureSelector):
     """
 
     name = "tTestFeatureSelector"
-    feature_scoring_method: bool = False
+    feature_scoring_method: bool = True
 
-    def _fit_feature_selection(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
+    def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
         start_time = time.monotonic()
         columns = X.columns
         X = X.to_numpy()
