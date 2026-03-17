@@ -21,11 +21,7 @@ class RFImportanceFeatureSelector(AbstractFeatureSelector):
     feature_scoring_method: bool = True
 
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
-        c = np.unique(y.to_numpy())
-        if c < 10:
-            forest = RandomForestClassifier(random_state=0)
-        else:
-            forest = RandomForestRegressor(random_state=0)
+        forest = RandomForestRegressor(random_state=0)
         forest.fit(X, y)
         importances = forest.feature_importances_
         feature_scores = dict(zip(X.columns, importances))
