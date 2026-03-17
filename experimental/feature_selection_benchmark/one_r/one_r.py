@@ -1,11 +1,8 @@
 import logging
 import time
-import warnings
 
 import numpy as np
 import pandas as pd
-from scipy.stats import chi2_contingency
-from sklearn.impute import SimpleImputer
 
 from experimental.feature_selection_benchmark.run_autogluon_feature_selection_pipeline import AbstractFeatureSelector
 
@@ -17,11 +14,9 @@ class OneRFeatureSelector(AbstractFeatureSelector):
     OneR Feature Selection.
 
     Reference: Holte, Robert C. "Very simple classification rules perform well on most commonly used datasets." Machine learning 11.1 (1993): 63-90.
-    Implementation Source: https://github.com/rasbt/mlxtend/blob/366f717b87f2fcaeeb67b70432b6e1a801519eff/docs/sources/user_guide/classifier/OneRClassifier.ipynb#L4
-                        The author of the code is Sebastian Raschka, AI Research Engineer and former Assistant Professor at the University of Wisconsin-Madison and main-author of 'MLxtend: Providing machine learning and data science utilities and extensions to Python’s scientific computing stack.' (2018).
-    Changes to the implementation by Bastian Schäfer:
+    Implementation by Bastian Schäfer
+    Changes to the algorithm in the paper by Bastian Schäfer:
                            - Add time constraint
-                           - Remove OneRClassifier class, only use the fit method and the best feature index for selecting a feature
     """
 
     name = "OneRFeatureSelector"
@@ -29,11 +24,17 @@ class OneRFeatureSelector(AbstractFeatureSelector):
 
     def _fit_feature_selection(self, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
         start_time = time.monotonic()
-        imputer = SimpleImputer(strategy='mean')
-        X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns, index=X.index)
-        X = X_imputed.to_numpy()
-        self.resolve_ties = "chi-squared"
-        for c in range(X.shape[1]):
+        hypotheses = {}
+        class_labels = sorted(y.unique())
+        n_class_labels = len(class_labels)
+
+        X = X.fillna(X.mean(numeric_only=True))
+
+        # 1. Create 3D array with class counts for each feature value and class label
+        max_n_values = X.nunique().max()
+        value_to_idx = {}
+        count_cva = np.zeros((n_class_labels, max_n_values, len(X.columns)), dtype=int)
+        for feature_index, feature_col in enumerate(X.columns):
             elapsed_time = time.time() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
@@ -41,34 +42,9 @@ class OneRFeatureSelector(AbstractFeatureSelector):
                     f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
-            if np.unique(X[:, c]).shape[0] == X.shape[0]:
-                warnings.warn(
-                    "Feature array likely contains at least one"
-                    " non-categorical column."
-                    " Column %d appears to have a unique value"
-                    " in every row." % c
-                )
-            break
-
-        n_class_labels = np.unique(y).shape[0]
-
-        def compute_class_counts(X, y, feature_index, feature_value):
-            mask = X[:, feature_index] == feature_value
-            return np.bincount(y[mask], minlength=n_class_labels)
-
-        prediction_dict = {}  # save feature_idx: feature_val, label, error
-
-        # iterate over features
-        for feature_index in np.arange(X.shape[1]):
-            elapsed_time = time.time() - start_time
-            if (time_limit is not None) and (elapsed_time >= time_limit):
-                logger.warning(
-                    f"Warning: FeatureSelection Method has no time left to train... "
-                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                )
-                break
-            # iterate over each possible value per feature
-            for feature_value in np.unique(X[:, feature_index]):
+            unique_values = sorted(X[feature_col].unique())
+            value_to_idx[feature_index] = {val: idx for idx, val in enumerate(unique_values)}
+            for value_index, feature_val in enumerate(unique_values):
                 elapsed_time = time.time() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
@@ -76,54 +52,9 @@ class OneRFeatureSelector(AbstractFeatureSelector):
                         f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                     )
                     break
-                class_counts = compute_class_counts(X, y, feature_index, feature_value)
-                most_frequent_class = np.argmax(class_counts)
-                self.class_labels_ = np.unique(y)
-
-                # count all classes for that feature match
-                # except the most frequent one
-                inverse_index = np.ones(n_class_labels, dtype=bool)
-                inverse_index[most_frequent_class] = False
-
-                error = np.sum(class_counts[inverse_index])
-
-                # compute the total error for each feature and
-                #  save all the corresponding rules for a given feature
-                if feature_index not in prediction_dict:
-                    prediction_dict[feature_index] = {
-                        "total error": 0,
-                        "rules (value: class)": {},
-                    }
-                prediction_dict[feature_index]["rules (value: class)"][
-                    feature_value
-                ] = most_frequent_class
-                prediction_dict[feature_index]["total error"] += error
-
-            # get best feature (i.e., the feature with the lowest error)
-            best_err = np.inf
-            best_idx = [None]
-            for i in prediction_dict:
-                elapsed_time = time.time() - start_time
-                if (time_limit is not None) and (elapsed_time >= time_limit):
-                    logger.warning(
-                        f"Warning: FeatureSelection Method has no time left to train... "
-                        f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                    )
-                    break
-                if prediction_dict[i]["total error"] < best_err:
-                    best_err = prediction_dict[i]["total error"]
-                    best_idx[-1] = i
-
-            if self.resolve_ties == "chi-squared":
-                # collect duplicates
-                for i in prediction_dict:
-                    if i == best_idx[-1]:
-                        continue
-                    if prediction_dict[i]["total error"] == best_err:
-                        best_idx.append(i)
-
-                p_values = []
-                for feature_idx in best_idx:
+                mask = X[feature_col] == feature_val
+                class_counts = y[mask].value_counts().reindex(class_labels, fill_value=0)
+                for count_index, class_label in enumerate(class_labels):
                     elapsed_time = time.time() - start_time
                     if (time_limit is not None) and (elapsed_time >= time_limit):
                         logger.warning(
@@ -131,35 +62,121 @@ class OneRFeatureSelector(AbstractFeatureSelector):
                             f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                         )
                         break
-                    rules = prediction_dict[feature_idx]["rules (value: class)"]
+                    count_cva[count_index, value_index, feature_index] = class_counts[class_label]
 
-                    ary = np.zeros((n_class_labels, len(rules)))
+        # 2. Determine default class and its accuracy (default_class_accuracy is only used for 1R*)
+        total_per_class = count_cva.sum(axis=(1, 2))
+        default_class_idx = np.argmax(total_per_class)
+        default_class_accuracy = total_per_class[default_class_idx] / len(X.index)
 
-                    for idx, r in enumerate(rules):
-                        elapsed_time = time.time() - start_time
-                        if (time_limit is not None) and (elapsed_time >= time_limit):
-                            logger.warning(
-                                f"Warning: FeatureSelection Method has no time left to train... "
-                                f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                            )
-                            break
-                        ary[:, idx] = np.bincount(
-                            y[X[:, feature_idx] == r], minlength=n_class_labels
-                        )
+        # 3. Transform numerical features into categorical features by binning them
+        numerical_cols = X.select_dtypes(include=['number']).columns.tolist()
+        for col in numerical_cols:
+            elapsed_time = time.time() - start_time
+            if (time_limit is not None) and (elapsed_time >= time_limit):
+                logger.warning(
+                    f"Warning: FeatureSelection Method has no time left to train... "
+                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
+                )
+                break
+            index = X.columns.get_loc(col)
+            intervals = self.create_bins(X[col], count_cva, index, value_to_idx[index])
+            bin_labels = [f"interval_{i}" for i in range(len(intervals))]
+            X[col] = pd.Categorical(self.assign_interval_labels(X[col], intervals, bin_labels))
 
-                    # returns "stat, p, dof, expected"
-                    _, p, _, _ = chi2_contingency(ary)
-                p_values.append(p)
-                best_p_idx = np.argmax(p_values)
-                best_idx = best_idx[best_p_idx]
-                self.p_value_ = p_values[best_p_idx]
+        # 4. Create hypotheses for each feature and select the best one
+        class_to_label = {i: label for i, label in enumerate(class_labels)}
+        for feature_col in X.columns:
+            elapsed_time = time.time() - start_time
+            if (time_limit is not None) and (elapsed_time >= time_limit):
+                logger.warning(
+                    f"Warning: FeatureSelection Method has no time left to train... "
+                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
+                )
+                break
+            values = sorted(X[feature_col].astype(str).dropna().unique())
+            values = [str(v) for v in values]
+            hypothesis = {}
+            for value in values:
+                elapsed_time = time.time() - start_time
+                if (time_limit is not None) and (elapsed_time >= time_limit):
+                    logger.warning(
+                        f"Warning: FeatureSelection Method has no time left to train... "
+                        f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
+                    )
+                    break
+                mask = X[feature_col] == value
+                if mask.sum() == 0:
+                    continue
+                class_counts = y[mask].value_counts().reindex(class_labels, fill_value=0)
+                optimal_idx = np.argmax(class_counts)
+                hypothesis[value] = class_to_label[optimal_idx]
+            hypothesis['missing'] = class_to_label[default_class_idx]
+            hypotheses[feature_col] = hypothesis
 
-            elif self.resolve_ties == "first":
-                best_idx = best_idx[0]
+        # 5. Choose the rule with the highest accuracy on the training set (1R)
+        accuracies = self.hypotheses_accuracy(X, y, hypotheses)
+        best_feature = max(accuracies, key=accuracies.get)
+        best_feature_idx = X.columns.get_loc(best_feature)
 
-        self.feature_idx_ = best_idx
-        self.prediction_dict_ = prediction_dict[best_idx]
-
-        selected_feature_list = [self._original_features[int(i)] for i in [self.feature_idx_]]
+        selected_feature_list = [self._original_features[best_feature_idx]]
         return [str(feat) for feat in selected_feature_list]
 
+    @staticmethod
+    def class_value_counts(X, y, feature_col, class_labels):
+        contingency = pd.crosstab(X[feature_col], y).reindex(columns=class_labels, fill_value=0)
+        return contingency
+
+    @staticmethod
+    def create_bins(X_col, count_cva, feature_idx, value_to_idx, small=3):
+        sorted_values = sorted(X_col.unique())
+
+        def optimal_class(value):
+            value_idx = value_to_idx[value]
+            return np.argmax(count_cva[:, value_idx, feature_idx])
+
+        intervals = []
+        current_interval = [sorted_values[0]]
+        for i, val in enumerate(sorted_values[1:], 1):
+            # Constraint (b): if next value has different optimal class → close interval
+            if optimal_class(val) != optimal_class(current_interval[0]):
+                # Constraint (a): check dominant class covers > SMALL values
+                dominant_class_count = sum(
+                    1 for v in current_interval
+                    if optimal_class(v) == optimal_class(current_interval[0])
+                )
+                if dominant_class_count > small:
+                    intervals.append((current_interval[0], current_interval[-1]))
+                    current_interval = [val]
+                else:
+                    current_interval.append(val)  # merge
+            else:
+                current_interval.append(val)
+        intervals.append((current_interval[0], current_interval[-1]))
+        return intervals
+
+    @staticmethod
+    def assign_interval_labels(X_col, intervals, bin_labels):
+        """Map values to interval labels directly"""
+        result = X_col.astype('object').copy()
+        n_intervals = len(intervals)
+        for i, (low, high) in enumerate(intervals):
+            if i < n_intervals - 1:  # Not last interval
+                mask = (X_col >= low) & (X_col < high)
+            else:  # Last interval: closed='right'
+                mask = X_col >= low
+            result[mask] = bin_labels[i]
+        return result
+
+    @staticmethod
+    def hypotheses_accuracy(X, y, hypotheses):
+        """Vectorized accuracy for all hypotheses"""
+        accuracies = {}
+        for feature_col, hypothesis in hypotheses.items():
+            # Vectorized prediction
+            predicted = X[feature_col].astype(str).map(
+                lambda v: hypothesis.get(v, hypothesis['missing'])
+            )
+            correct = (predicted == y).sum()
+            accuracies[feature_col] = correct / len(X)
+        return accuracies

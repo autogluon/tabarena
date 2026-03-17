@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import logging
-import os
 import tempfile
-import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -15,7 +13,7 @@ import openml
 import pandas as pd
 from autogluon.core.data import LabelCleaner
 from autogluon.features.generators.abstract import AbstractFeatureGenerator
-from autogluon.tabular import TabularDataset, TabularPredictor
+from autogluon.tabular import TabularPredictor
 from autogluon.tabular.models.lgb.lgb_model import LGBModel
 from sklearn.model_selection import train_test_split
 
@@ -313,8 +311,9 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
 
 def run_example():
-    dataset_id = 55
-    problem_type = "regression"
+    dataset_id = 46964  # 10 or 55
+    problem_type = "regression"  # "multiclass" or "binary"
+    eval_metric = "rmse"  # "log_loss" or "roc_auc"
 
     # Load OpenML dataset
     dataset = openml.datasets.get_dataset(dataset_id)
@@ -326,8 +325,8 @@ def run_example():
 
     max_features = 5
     proxy_model_config = ProxyModelConfig(
-        problem_type="binary",
-        eval_metric="roc_auc",
+        problem_type=problem_type,
+        eval_metric=eval_metric,
         model_hyperparameters={"num_boost_round": 1},
     )
     verbosity = 0
@@ -392,7 +391,7 @@ def run_example():
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
         predictor = TabularPredictor(
-            label="class", default_base_path="/tmp/ag_out", eval_metric="roc_auc", problem_type="binary"
+            label="class", default_base_path="/tmp/ag_out", eval_metric=eval_metric, problem_type=problem_type
         ).fit(
             train_data=train_data,
             hyperparameters={"GBM": {"num_boost_round": 10}},
