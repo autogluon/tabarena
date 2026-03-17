@@ -311,9 +311,9 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
 
 def run_example():
-    dataset_id = 46964  # 10 or 55
-    problem_type = "regression"  # "multiclass" or "binary"
-    eval_metric = "rmse"  # "log_loss" or "roc_auc"
+    dataset_id = 55  # 46964  # 10 or 55
+    problem_type = "binary"  # "regression"  # "multiclass" or "binary"
+    eval_metric = "roc_auc"  # "rmse"  # "log_loss" or "roc_auc"
 
     # Load OpenML dataset
     dataset = openml.datasets.get_dataset(dataset_id)
