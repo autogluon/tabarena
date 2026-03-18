@@ -1,115 +1,75 @@
 from __future__ import annotations
 
-from copy import deepcopy
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
 
-def get_default_encoding_pipeline():
-    """Return the default pipeline for encoding non-numerical or categorical data.
-
-    The default pipeline handles:
-        - Text Features
-        - Date Time Features
-
-    Text features are used to generate semantic and statistical embeddings.
-    """
-    from autogluon.features.generators import (
-        AsTypeFeatureGenerator,
-        FillNaFeatureGenerator,
-    )
-    from autogluon.features.generators.selection import FeatureSelectionGenerator
-    return {
-        # Use default pre-generators but disabled conversion of bool features.
-        "pre_generators": [
-            AsTypeFeatureGenerator(convert_bool=False),
-            FillNaFeatureGenerator(),
-        ],
-        "pre_enforce_types": False,
-        "post_generators": [FeatureSelectionGenerator()]
-    }
-
-
-def get_fs_pipeline(fs_method):
-    """Return the pipeline for encoding non-numerical or categorical data and doing feature selection.
-
-        The default pipeline handles:
-            - Text Features
-            - Date Time Features
-
-        Text features are used to generate semantic and statistical embeddings.
-        """
-    from autogluon.features.generators import (
-        AsTypeFeatureGenerator,
-        FillNaFeatureGenerator,
-    )
-    from autogluon.features.generators.selection import FeatureSelectionGenerator
-    return {
-        # Use default pre-generators but disabled conversion of bool features.
-        "pre_generators": [
-            AsTypeFeatureGenerator(convert_bool=False),
-            FillNaFeatureGenerator(),
-        ],
-        "pre_enforce_types": False,
-        "post_generators": [FeatureSelectionGenerator(fs_method)]
-    }
-
-
-def get_dimensionality_reduction_pipeline():
-    from autogluon.features.generators.identity import IdentityFeatureGenerator
-    return [
-        # Passthrough for all non-text-embedding features
-        IdentityFeatureGenerator(
-            infer_features_in_args={
-                "valid_raw_types": None,
-            }
-        ),
-    ]
-
-
-def no_feature_selection(experiment):
-    default_pipeline = get_default_encoding_pipeline()
-    new_experiment = deepcopy(experiment)
-    new_experiment.method_kwargs["fit_kwargs"][
-        "_feature_generator_kwargs"
-    ] = default_pipeline
-    return new_experiment
-
-
-def get_lsflip_feature_selection(experiment):
-    pipeline = get_fs_pipeline("LS_Flip")
-    new_experiment = deepcopy(experiment)
-    new_experiment.method_kwargs["fit_kwargs"][
-        "_feature_generator_kwargs"
-    ] = pipeline
-    return new_experiment
-
-
-def get_lsflipswap_feature_selection(experiment):
-    pipeline = get_fs_pipeline("LS_FlipSwap")
-    new_experiment = deepcopy(experiment)
-    new_experiment.method_kwargs["fit_kwargs"][
-        "_feature_generator_kwargs"
-    ] = pipeline
-    return new_experiment
-
-
-def get_boruta_feature_selection(experiment):
-    pipeline = get_fs_pipeline("Boruta")
-    new_experiment = deepcopy(experiment)
-    new_experiment.method_kwargs["fit_kwargs"][
-        "_feature_generator_kwargs"
-    ] = pipeline
-    return new_experiment
-
-
-DEFAULT_PIPELINE_WITHOUT_FEATURE_SELECTION = "NoFS"
-LSFLIP_FEATURE_SELECTION = "LS_Flip"
-LSFLIPSWAP_FEATURE_SELECTION = "LS_FlipSwap"
-BORUTA_FEATURE_SELECTION = "Boruta"
-
-
-PREPROCESSING_METHODS = {
-    # DEFAULT_PIPELINE_WITHOUT_FEATURE_SELECTION: default_feature_selection,
-    LSFLIP_FEATURE_SELECTION: get_lsflip_feature_selection,
-    LSFLIPSWAP_FEATURE_SELECTION: get_lsflipswap_feature_selection,
-    BORUTA_FEATURE_SELECTION: get_boruta_feature_selection
+NAME_TO_MODULE_MAP = {
+    "AccuracyFeatureSelector": "accuracy.accuracy",
+    "RandomFeatureSelector": "random.random",
+    "ANOVAFeatureSelector": "anova.anova",
+    "CARTFeatureSelector": "cart.cart",
+    "CFSFeatureSelector": "cfs.cfs",
+    "Chi2FeatureSelector": "chi2.chi2",
+    "CMIMFeatureSelector": "cmim.cmim",
+    "ConsistencyFeatureSelector": "consistency.consistency",
+    "DISRFeatureSelector": "disr.disr",
+    "ElasticNetFeatureSelector": "elastic_net.elastic_net",
+    "GainRatioFeatureSelector": "gain_ratio.gain_ratio",
+    "GiniFeatureSelector": "gini.gini",
+    "ImpurityFeatureSelector": "impurity.impurity",
+    "InformationGainFeatureSelector": "information_gain.information_gain",
+    "INTERACTFeatureSelector": "interact.interact",
+    "JMIFeatureSelector": "jmi.jmi",
+    "LaplacianScoreFeatureSelector": "laplacian_score.laplacian_score",
+    "LassoFeatureSelector": "lasso.lasso",
+    "MIFeatureSelector": "mi.mi",
+    "mRMRFeatureSelector": "mrmr.mrmr",
+    "OneRFeatureSelector": "one_r.one_r",
+    "PearsonCorrelationFeatureSelector": "pearson_correlation.pearson_correlation",
+    "ReliefFFeatureSelector": "relief_f.relief_f",
+    "RFImportanceFeatureSelector": "rf_importance.rf_importance",
+    "SequentialBackwardEliminationFeatureSelector": "sbe.sbe",
+    "SequentialForwardSelectionFeatureSelector": "sfs.sfs",
+    "SymmetricalUncertaintyFeatureSelector": "symmetrical_uncertainty.symmetrical_uncertainty",
+    "tTestFeatureSelector": "t_test.t_test",
 }
+FEATURE_SELECTION_METHODS = list(NAME_TO_MODULE_MAP.keys())
+
+
+def get_feature_selector_from_name(*, method_name: str, max_features: int, proxy_config) -> AbstractFeatureSelector:
+    """Get the feature selector class from the method name.
+
+    Parameters
+    ----------
+    method_name : str
+        The name of the feature selection method.
+    max_features : int
+        The maximum number of features to select.
+    proxy_config : ProxyModeConfig
+        The configuration for the proxy mode (if applicable).
+
+    Returns:
+    -------
+    AbstractFeatureSelector
+        An instance of the feature selector class corresponding to the method name.
+    """
+    import importlib
+
+    if method_name not in FEATURE_SELECTION_METHODS:
+        raise ValueError(f"Method name '{method_name}' is not recognized. Options are: {FEATURE_SELECTION_METHODS}")
+
+    base_path = "tabarena.benchmark.feature_selection_methods.ag."
+    method_path = NAME_TO_MODULE_MAP[method_name]
+    SelectorClass = getattr(importlib.import_module(base_path + method_path), method_name)
+
+    kwargs = {"max_features": max_features}
+    if method_name in [
+        "AccuracyFeatureSelector",
+        "SequentialBackwardEliminationFeatureSelector",
+        "SequentialForwardSelectionFeatureSelector",
+    ]:
+        kwargs["proxy_mode_config"] = proxy_config
+
+    return SelectorClass(**kwargs)
