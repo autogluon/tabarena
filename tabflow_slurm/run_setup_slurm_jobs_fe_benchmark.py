@@ -63,15 +63,21 @@ for fs_method, max_feature_threshold, proxy_model in product(
     config_str = f"FSBench__{fs_method}__{max_feature_threshold}__{proxy_model}"
     preprocessing_pipelines.append(config_str)
 
+# -- Get some proxy dataset to run for
+from tabarena.nips2025_utils.fetch_metadata import (
+    load_curated_task_metadata,
+)
+
+metadata = load_curated_task_metadata()
+
 # -- Feature Selection Example Benchmark Setup
 # TODO:
 #   - Ensure output has features etc (not yet)
 #   - Ensure naming of model/job in output is clearly identifiable (not yet)
-#   - Ensure we can pass time limit to FS methods and it works with the time limit of AG?
 #   - Ensure how/if GPU models work with this
 #   - Finalize proxy model and its eval
 #   - Investigate caching of feature selection (long shot)
-#   - Timeout for both fit and fs or just fs? -> now it does for both
+#   - Decide on timeout, for both fit and fs or just fs? -> now it does for both
 BenchmarkSetup(
     benchmark_name="feature_selection_benchmark_example_1803",
     models=[
