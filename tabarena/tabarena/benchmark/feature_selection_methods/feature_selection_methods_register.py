@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
+    from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import (
+        AbstractFeatureSelector,
+    )
 
 NAME_TO_MODULE_MAP = {
     "AccuracyFeatureSelector": "accuracy.accuracy",
@@ -36,19 +38,23 @@ NAME_TO_MODULE_MAP = {
     "tTestFeatureSelector": "t_test.t_test",
 }
 FEATURE_SELECTION_METHODS = list(NAME_TO_MODULE_MAP.keys())
+FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL = [
+    "AccuracyFeatureSelector",
+    "SequentialBackwardEliminationFeatureSelector",
+    "SequentialForwardSelectionFeatureSelector",
+]
 
 
-def get_feature_selector_from_name(*, method_name: str, max_features: int, proxy_config) -> AbstractFeatureSelector:
+def get_feature_selector_from_name(
+    *,
+    name: str,
+) -> type[AbstractFeatureSelector]:
     """Get the feature selector class from the method name.
 
     Parameters
     ----------
-    method_name : str
+    name : str
         The name of the feature selection method.
-    max_features : int
-        The maximum number of features to select.
-    proxy_config : ProxyModeConfig
-        The configuration for the proxy mode (if applicable).
 
     Returns:
     -------
@@ -57,19 +63,10 @@ def get_feature_selector_from_name(*, method_name: str, max_features: int, proxy
     """
     import importlib
 
-    if method_name not in FEATURE_SELECTION_METHODS:
-        raise ValueError(f"Method name '{method_name}' is not recognized. Options are: {FEATURE_SELECTION_METHODS}")
+    if name not in FEATURE_SELECTION_METHODS:
+        raise ValueError(f"Method name '{name}' is not recognized. Options are: {FEATURE_SELECTION_METHODS}")
 
     base_path = "tabarena.benchmark.feature_selection_methods.ag."
-    method_path = NAME_TO_MODULE_MAP[method_name]
-    SelectorClass = getattr(importlib.import_module(base_path + method_path), method_name)
+    method_path = NAME_TO_MODULE_MAP[name]
 
-    kwargs = {"max_features": max_features}
-    if method_name in [
-        "AccuracyFeatureSelector",
-        "SequentialBackwardEliminationFeatureSelector",
-        "SequentialForwardSelectionFeatureSelector",
-    ]:
-        kwargs["proxy_mode_config"] = proxy_config
-
-    return SelectorClass(**kwargs)
+    return getattr(importlib.import_module(base_path + method_path), name)

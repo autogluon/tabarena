@@ -54,7 +54,7 @@ def run_example():
     # Load OpenML dataset
     dataset = openml.datasets.get_dataset(dataset_id)
     X, y, _, _ = dataset.get_data(target=dataset.default_target_attribute, dataset_format="dataframe")
-    label_cleaner = LabelCleaner.construct(problem_type=problem_type, y=y)
+    label_cleaner = LabelCleaner.construct(problem_type=problem_type, y=y, verbose=False)
     y = label_cleaner.transform(y)
     data = pd.concat([X, y.rename("class")], axis=1)
     train_data, test_data = train_test_split(data, test_size=0.33, random_state=0)
@@ -63,47 +63,47 @@ def run_example():
     proxy_model_config = ProxyModelConfig(
         problem_type=problem_type,
         eval_metric=eval_metric,
-        model_hyperparameters={"num_boost_round": 1},
+        model_hyperparameters={"num_boost_round": 1000},
     )
-    verbosity = 0
+    verbosity = 2
 
     for feature_selector in [
         AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
-        RandomFeatureSelector(max_features=max_features),
-        ANOVAFeatureSelector(max_features=max_features),
-        CARTFeatureSelector(max_features=max_features),
-        CFSFeatureSelector(max_features=max_features),
-        Chi2FeatureSelector(max_features=max_features),
-        CMIMFeatureSelector(max_features=max_features),
-        ConsistencyFeatureSelector(max_features=max_features),
-        DISRFeatureSelector(max_features=max_features),
-        ElasticNetFeatureSelector(max_features=max_features),
-        GainRatioFeatureSelector(max_features=max_features),
-        GiniFeatureSelector(max_features=max_features),
-        ImpurityFeatureSelector(max_features=max_features),
-        InformationGainFeatureSelector(max_features=max_features),
-        INTERACTFeatureSelector(max_features=max_features),
-        JMIFeatureSelector(max_features=max_features),
-        LaplacianScoreFeatureSelector(max_features=max_features),
-        LassoFeatureSelector(max_features=max_features),
-        MIFeatureSelector(max_features=max_features),
-        mRMRFeatureSelector(max_features=max_features),
-        OneRFeatureSelector(max_features=max_features),
-        PearsonCorrelationFeatureSelector(max_features=max_features),
-        ReliefFFeatureSelector(max_features=max_features),
-        SequentialBackwardEliminationFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
-        SequentialForwardSelectionFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
-        SymmetricalUncertaintyFeatureSelector(max_features=max_features),
-        RFImportanceFeatureSelector(max_features=max_features),
-        tTestFeatureSelector(max_features=max_features),
+        # RandomFeatureSelector(max_features=max_features),
+        # ANOVAFeatureSelector(max_features=max_features),
+        # CARTFeatureSelector(max_features=max_features),
+        # CFSFeatureSelector(max_features=max_features),
+        # Chi2FeatureSelector(max_features=max_features),
+        # CMIMFeatureSelector(max_features=max_features),
+        # ConsistencyFeatureSelector(max_features=max_features),
+        # DISRFeatureSelector(max_features=max_features),
+        # ElasticNetFeatureSelector(max_features=max_features),
+        # GainRatioFeatureSelector(max_features=max_features),
+        # GiniFeatureSelector(max_features=max_features),
+        # ImpurityFeatureSelector(max_features=max_features),
+        # InformationGainFeatureSelector(max_features=max_features),
+        # INTERACTFeatureSelector(max_features=max_features),
+        # JMIFeatureSelector(max_features=max_features),
+        # LaplacianScoreFeatureSelector(max_features=max_features),
+        # LassoFeatureSelector(max_features=max_features),
+        # MIFeatureSelector(max_features=max_features),
+        # mRMRFeatureSelector(max_features=max_features),
+        # OneRFeatureSelector(max_features=max_features),
+        # PearsonCorrelationFeatureSelector(max_features=max_features),
+        # ReliefFFeatureSelector(max_features=max_features),
+        # SequentialBackwardEliminationFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
+        # SequentialForwardSelectionFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
+        # SymmetricalUncertaintyFeatureSelector(max_features=max_features),
+        # RFImportanceFeatureSelector(max_features=max_features),
+        # tTestFeatureSelector(max_features=max_features),
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
         predictor = TabularPredictor(
-            label="class", default_base_path="/tmp/ag_out", eval_metric=eval_metric, problem_type=problem_type
+            label="class", default_base_path="/tmp/ag_out", eval_metric=eval_metric, problem_type=problem_type,
         ).fit(
             train_data=train_data,
-            hyperparameters={"GBM": {"num_boost_round": 10}},
-            num_bag_folds=2,
+            hyperparameters={"GBM": {"num_boost_round": 1000}},
+            num_bag_folds=8,
             num_bag_sets=1,
             verbosity=verbosity,
             dynamic_stacking=False,
@@ -112,6 +112,8 @@ def run_example():
             _feature_generator_kwargs={
                 "post_generators": [feature_selector],
             },
+            time_limit=60*30,
+            time_limit_fraction_preprocessing=0.33,
         )
 
         predictor.leaderboard(data=test_data, display=True)

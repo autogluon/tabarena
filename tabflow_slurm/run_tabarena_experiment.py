@@ -148,17 +148,60 @@ def _parse_yaml_config(
         methods.append(YamlSingleExperimentSerializer.parse_method(method))
 
     # TODO: Update
-    #   - This is special code for a special branch of TabArena that is not otherwise so far.
+    #   - Make this a general purpose logic inside of TabArena code base to edit feature generator
     for m_i in range(len(methods)):
         preprocessing_name = methods[m_i].method_kwargs.pop("preprocessing_pipeline", None)
 
-        if preprocessing_name is not None:
-            print("Adding preprocessing to the config:", preprocessing_name)
-            from tabarena.benchmark.preprocessing.preprocessing_register import (
-                PREPROCESSING_METHODS,
+        if preprocessing_name is None:
+            continue
+
+        # Logic for feature selection benchmark
+        if preprocessing_name.startswith("FSBench__"):
+            from copy import deepcopy
+            from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import ProxyModelConfig
+            from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (
+                get_feature_selector_from_name,
+                FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL,
             )
 
-            methods[m_i] = PREPROCESSING_METHODS[preprocessing_name](methods[m_i])
+            _, fe_method_name, max_feature_threshold, proxy_model, fe_time = preprocessing_name.split("__")
+            max_feature_threshold = float(max_feature_threshold)
+            fe_time = float(fe_time)
+
+            proxy_config = None
+            if fe_method_name in FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL:
+                if proxy_model == "lgbm":
+                    proxy_config = ProxyModelConfig(
+                        problem_type="X",
+                        eval_metric="X",
+                        model_hyperparameters={"GBM": {}},
+                    )
+                else:
+                    raise ValueError(f"Proxy model name '{proxy_model}' not recognized for preprocessing pipeline '{preprocessing_name}'.")
+
+            selector = get_feature_selector_from_name(name=fe_method_name)
+            selector = selector(
+                max_features=max_feature_threshold,
+                proxy_config=proxy_config,
+            )
+
+            new_experiment = deepcopy(methods[m_i])
+
+            # Add feature selector to model agnostic preprocessing
+            prep_pipeline = new_experiment.method_kwargs["fit_kwargs"].get("_feature_generator_kwargs", {})
+            pipeline = prep_pipeline.get("post_generators", [])
+            pipeline.append(selector)
+            prep_pipeline["post_generators"] = pipeline
+            new_experiment.method_kwargs["fit_kwargs"]["_feature_generator_kwargs"] = prep_pipeline
+
+            # TODO: make this a parameter that we can pass here.
+            # Set the default time limit for preprocessing
+            new_experiment.method_kwargs["fit_kwargs"]["time_limit_fraction_preprocessing"] = 0.33
+
+        else:
+            raise ValueError(f"Preprocessing pipeline name '{preprocessing_name}' not recognized.")
+
+        methods[m_i] = new_experiment
 
     return methods
 

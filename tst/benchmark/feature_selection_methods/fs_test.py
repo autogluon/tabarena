@@ -27,7 +27,9 @@ for dataset_id, problem_type, evaluation_metric in DATASET_CONFIGS:
     for method_name in FEATURE_SELECTION_METHODS:
         test_params.append((dataset_id, problem_type, evaluation_metric, method_name))
 
-
+# TODO:
+#   - Add testing for edge cases in the data state and feature count
+#   - Test time limit here somehow
 @pytest.mark.parametrize(
     ("dataset_id", "problem_type", "evaluation_metric", "method_name"),
     test_params,
@@ -49,8 +51,9 @@ def test_feature_selector_dataset_combo(dataset_id, problem_type, evaluation_met
 
     max_features = 5
     feature_selector = get_feature_selector_from_name(
-        method_name=method_name, max_features=max_features, proxy_config=proxy_config
+        name=method_name,
     )
+    feature_selector = feature_selector(max_features=max_features, proxy_config=proxy_config)
 
     print(f"\n####### Testing {method_name} on dataset {dataset_id} ({problem_type})")
 

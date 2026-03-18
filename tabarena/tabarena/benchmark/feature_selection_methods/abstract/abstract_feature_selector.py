@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import logging
+import math
 import tempfile
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -14,8 +14,6 @@ from autogluon.tabular.models.lgb.lgb_model import LGBModel
 if TYPE_CHECKING:
     import pandas as pd
     from autogluon.core.models.abstract.abstract_model import AbstractModel
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,6 +32,8 @@ class ProxyModelConfig:
     """Whether to use a bagged model as the proxy model."""
     bagging_hyperparameters: dict = field(default_factory=dict)
     """Hyperparameters to set for the bagging model (such as refitting or not)."""
+    verbosity: int = 0
+    """Verbosity to use when fitting the proxy model."""
 
 
 class AbstractFeatureSelector(AbstractFeatureGenerator):
@@ -68,7 +68,7 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
     def __init__(
         self,
-        max_features: int,
+        max_features: int | float,
         *,
         proxy_mode_config: ProxyModelConfig | None = None,
         raise_on_useless_feature_selection: bool = True,
@@ -78,8 +78,11 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         Parameters
         ----------
-        max_features: int
+        max_features: int or float
             The maximum number of features to select.
+            If int, we assume a fixed number of features to select.
+            If float, we assume a fraction of features to select (0 < max_features < 1).
+                We always round up.
         proxy_mode_config:
             Configuration of the proxy model to use inside the feature selection method.
         raise_on_useless_feature_selection:
@@ -106,6 +109,13 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         # Init random generator
         self._rng = np.random.default_rng(self.random_state)
+
+        # Resolve max features if it's a fraction
+        if isinstance(self.max_features, float):
+            if not (0 < self.max_features < 1):
+                raise ValueError("If max_features is a float, it must be in the range (0, 1).")
+            self.max_features = math.ceil(len(self._original_features) * self.max_features)
+            self._log(20, f"Resolved max_features to {self.max_features} based on the fraction provided.")
 
         # Sanity check for feature selection setup
         if len(self._original_features) <= self.max_features:
@@ -210,9 +220,10 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         # Fallback for missing feature scores
         if len(selected_features) < self.max_features:
-            logger.warning(
+            self._log(
+                30,
                 f"Warning: Not enough feature scores computed to select {self.max_features} features. "
-                f"Selected {len(selected_features)} features based on available scores, and randomly selected the rest."
+                f"Selected {len(selected_features)} features based on available scores, and randomly selected the rest.",
             )
 
             selected_features = selected_features + self.fallback_feature_selection(selected_features=selected_features)
@@ -223,6 +234,8 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
     #   - Similar to code in autogluon.core.utils.feature_selection.FeatureSelector
     #     we can add logging, stability, more...
     #   - Add support for cross-validation (instead of holdout?)
+    #   - Figure out how to handle TimeLimitExceeded raise in this code or the code that calls this.
+    #       -> would need to skip step.
     def evaluate_proxy_model(
         self,
         *,
@@ -244,6 +257,8 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
                 "Pass a ProxyModelConfig to the feature selection method!"
             )
 
+        self._log(20, f"\tFitting Proxy Model (remaining time_limit: {time_limit})")
+
         # Init Proxy model
         problem_type = self.proxy_mode_config.problem_type
         eval_metric = self.proxy_mode_config.eval_metric
@@ -251,7 +266,9 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         use_bagged_model = self.proxy_mode_config.use_bagged_model
         hps = self.proxy_mode_config.model_hyperparameters
         bagging_hps = self.proxy_mode_config.bagging_hyperparameters
+        verbosity = self.proxy_mode_config.verbosity
         model_kwargs = dict(
+            name=f"ProxyModel_{model_class.ag_name}",
             problem_type=problem_type,
             eval_metric=eval_metric,
             hyperparameters=hps,
@@ -264,7 +281,7 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         )
         del X, y  # free up memory
         if (n_train_subsample is not None) and (len(X_train) > n_train_subsample):
-            logger.log(
+            self._log(
                 20,
                 f"\tNumber of training samples {len(X_train)} is greater than {n_train_subsample}. "
                 f"Using {n_train_subsample} samples as training data.",
@@ -276,8 +293,8 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         # Preprocessing
         feature_generator, label_cleaner = (
-            AutoMLPipelineFeatureGenerator(),
-            LabelCleaner.construct(problem_type=problem_type, y=y_train),
+            AutoMLPipelineFeatureGenerator(verbosity=verbosity),
+            LabelCleaner.construct(problem_type=problem_type, y=y_train, verbose=verbosity > 1),
         )
         X_train, y_train = (
             feature_generator.fit_transform(X_train),
@@ -296,7 +313,13 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
             else:
                 model = model_class(**model_kwargs)
             model.rename("FeatureSelector_" + model.name)
-            model.fit(X=X_train, y=y_train, time_limit=time_limit)
+            model.fit(
+                X=X_train,
+                y=y_train,
+                time_limit=time_limit,
+                num_classes=label_cleaner.num_classes,
+                label_cleaner=label_cleaner,
+            )
             score = model.score(X=X_val, y=y_val)
 
         # Ensure Python dtype

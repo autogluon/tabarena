@@ -25,7 +25,7 @@ class AccuracyFeatureSelector(AbstractFeatureSelector):
 
             time_to_fit = None
             if time_limit is not None:
-                time_to_fit = int(time_limit - time.monotonic() - start_time)
+                time_to_fit = int(time_limit - (time.monotonic() - start_time))
 
             score = self.evaluate_proxy_model(X=evaluate_X, y=y, time_limit=time_to_fit)
             del evaluate_X  # free up memory
@@ -35,7 +35,7 @@ class AccuracyFeatureSelector(AbstractFeatureSelector):
             feature_scores[feature] = -score
 
             # Check time limit
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
