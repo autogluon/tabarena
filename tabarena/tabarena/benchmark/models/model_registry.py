@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import copy
 
-from autogluon.tabular.register._model_register import ModelRegister
-from autogluon.tabular.register._ag_model_register import ag_model_register
-
+from autogluon.tabular.registry import ModelRegistry, ag_model_registry
 
 from tabarena.benchmark.models.ag import (
     ExplainableBoostingMachineModel,
@@ -22,7 +20,7 @@ from tabarena.benchmark.models.ag import (
     XRFMModel,
 )
 
-tabarena_model_registry: ModelRegister = copy.deepcopy(ag_model_register)
+tabarena_model_registry: ModelRegistry = copy.deepcopy(ag_model_registry)
 
 _models_to_add = [
     ExplainableBoostingMachineModel,
@@ -44,7 +42,7 @@ for _model_cls in _models_to_add:
     tabarena_model_registry.add(_model_cls)
 
 
-def infer_model_cls(model_cls: str, model_register: ModelRegister = None):
+def infer_model_cls(model_cls: str, model_register: ModelRegistry = None):
     if model_register is None:
         model_register = tabarena_model_registry
     if isinstance(model_cls, str):
@@ -55,10 +53,7 @@ def infer_model_cls(model_cls: str, model_register: ModelRegister = None):
                 if real_model_cls.ag_name == model_cls:
                     model_cls = real_model_cls
                     break
-        elif model_cls in [
-            str(real_model_cls.__name__)
-            for real_model_cls in model_register.model_cls_list
-        ]:
+        elif model_cls in [str(real_model_cls.__name__) for real_model_cls in model_register.model_cls_list]:
             for real_model_cls in model_register.model_cls_list:
                 if model_cls == str(real_model_cls.__name__):
                     model_cls = real_model_cls
