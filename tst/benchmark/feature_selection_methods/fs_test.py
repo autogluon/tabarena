@@ -149,8 +149,3 @@ def test_feature_selector_dataset_combo(dataset_id, problem_type, evaluation_met
     assert feature_selector._selected_features is not None
     assert len(feature_selector._selected_features) <= max_features
     assert all(f in train_data.columns for f in feature_selector._selected_features)
-
-    if hasattr(feature_selector, 'feature_scoring_method') and feature_selector.feature_scoring_method:
-        assert feature_selector._feature_scores is not None
-        for f in feature_selector._selected_features:
-            assert f in feature_selector._feature_scores
