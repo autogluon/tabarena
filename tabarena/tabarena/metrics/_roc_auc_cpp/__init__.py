@@ -6,7 +6,6 @@ from pathlib import Path
 
 import numpy as np
 from numpy.ctypeslib import ndpointer
-from sklearn.metrics import roc_auc_score
 
 
 class CppAuc:
