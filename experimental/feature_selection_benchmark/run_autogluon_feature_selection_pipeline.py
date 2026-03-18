@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import logging
-import os
 import tempfile
-import time
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
+import openml
 import pandas as pd
+from autogluon.core.data import LabelCleaner
 from autogluon.features.generators.abstract import AbstractFeatureGenerator
-from autogluon.tabular import TabularDataset, TabularPredictor
+from autogluon.tabular import TabularPredictor
 from autogluon.tabular.models.lgb.lgb_model import LGBModel
+from sklearn.model_selection import train_test_split
 
 if TYPE_CHECKING:
     from autogluon.core.models.abstract.abstract_model import AbstractModel
@@ -94,7 +95,6 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         self.max_features = max_features
         self.proxy_mode_config = proxy_mode_config
-
         self.raise_on_useless_feature_selection = raise_on_useless_feature_selection
 
         self._selected_features = None
@@ -309,78 +309,89 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         return float(score)
 
 
-class AccuracyFeatureSelector(AbstractFeatureSelector):
-    """Accuracy-based Feature Selection."""
-
-    name = "AccuracyFeatureSelector"
-    feature_scoring_method: bool = True
-
-    def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
-        start_time = time.monotonic()
-
-        # Store feature scores, higher is better
-        feature_scores = {}
-
-        for feature in self._original_features:
-            # Evaluate proxy model without the feature
-            evaluate_X = X.drop(columns=[feature]).copy()
-
-            time_to_fit = None
-            if time_limit is not None:
-                time_to_fit = int(time_limit - time.monotonic() - start_time)
-
-            score = self.evaluate_proxy_model(X=evaluate_X, y=y, time_limit=time_to_fit)
-            del evaluate_X  # free up memory
-
-            # We want to keep the features that lead to the highest drop in score,
-            # so we use the negative of the score.
-            feature_scores[feature] = -score
-
-            # Check time limit
-            elapsed_time = time.time() - start_time
-            if (time_limit is not None) and (elapsed_time >= time_limit):
-                logger.warning(
-                    f"Warning: FeatureSelection Method has no time left to train... "
-                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                )
-                break
-
-        return feature_scores
-
-
-# TODO: ensure that we get a different random state each time we call this code within TabArena
-class RandomFeatureSelector(AbstractFeatureSelector):
-    """Random Feature Selection."""
-
-    name = "RandomFeatureSelector"
-
-    def _fit_feature_selection(self, **kwargs) -> list[str]:
-        return self.fallback_feature_selection()
-
 
 def run_example():
-    train_path = "train_data.csv"
-    test_path = "test_data.csv"
-    if not os.path.exists(train_path):
-        train_path = "https://autogluon.s3.amazonaws.com/datasets/AdultIncomeBinaryClassification/train_data.csv"
-        test_path = "https://autogluon.s3.amazonaws.com/datasets/AdultIncomeBinaryClassification/test_data.csv"
-    train_data = TabularDataset(train_path)
-    test_data = TabularDataset(test_path)
+    dataset_id = 55  # 46964  # 10 or 55
+    problem_type = "binary"  # "regression"  # "multiclass" or "binary"
+    eval_metric = "roc_auc"  # "rmse"  # "log_loss" or "roc_auc"
+
+    # Load OpenML dataset
+    dataset = openml.datasets.get_dataset(dataset_id)
+    X, y, _, _ = dataset.get_data(target=dataset.default_target_attribute, dataset_format="dataframe")
+    label_cleaner = LabelCleaner.construct(problem_type=problem_type, y=y)
+    y = label_cleaner.transform(y)
+    data = pd.concat([X, y.rename("class")], axis=1)
+    train_data, test_data = train_test_split(data, test_size=0.33, random_state=0)
 
     max_features = 5
-    proxy_mode_config = ProxyModelConfig(
-        problem_type="binary",
-        eval_metric="roc_auc",
+    proxy_model_config = ProxyModelConfig(
+        problem_type=problem_type,
+        eval_metric=eval_metric,
         model_hyperparameters={"num_boost_round": 1},
     )
     verbosity = 0
+    from experimental.feature_selection_benchmark.accuracy.accuracy import AccuracyFeatureSelector
+    from experimental.feature_selection_benchmark.random.random import RandomFeatureSelector
+    from experimental.feature_selection_benchmark.anova.anova import ANOVAFeatureSelector
+    from experimental.feature_selection_benchmark.cart.cart import CARTFeatureSelector
+    from experimental.feature_selection_benchmark.cfs.cfs import CFSFeatureSelector
+    from experimental.feature_selection_benchmark.chi2.chi2 import Chi2FeatureSelector
+    from experimental.feature_selection_benchmark.cmim.cmim import CMIMFeatureSelector
+    from experimental.feature_selection_benchmark.consistency.consistency import ConsistencyFeatureSelector
+    from experimental.feature_selection_benchmark.disr.disr import DISRFeatureSelector
+    from experimental.feature_selection_benchmark.elastic_net.elastic_net import ElasticNetFeatureSelector
+    from experimental.feature_selection_benchmark.gain_ratio.gain_ratio import GainRatioFeatureSelector
+    from experimental.feature_selection_benchmark.gini.gini import GiniFeatureSelector
+    from experimental.feature_selection_benchmark.impurity.impurity import ImpurityFeatureSelector
+    from experimental.feature_selection_benchmark.information_gain.information_gain import InformationGainFeatureSelector
+    from experimental.feature_selection_benchmark.interact.interact import INTERACTFeatureSelector
+    from experimental.feature_selection_benchmark.jmi.jmi import JMIFeatureSelector
+    from experimental.feature_selection_benchmark.laplacian_score.laplacian_score import LaplacianScoreFeatureSelector
+    from experimental.feature_selection_benchmark.lasso.lasso import LassoFeatureSelector
+    from experimental.feature_selection_benchmark.mi.mi import MIFeatureSelector
+    from experimental.feature_selection_benchmark.mrmr.mrmr import mRMRFeatureSelector
+    from experimental.feature_selection_benchmark.one_r.one_r import OneRFeatureSelector
+    from experimental.feature_selection_benchmark.pearson_correlation.pearson_correlation import PearsonCorrelationFeatureSelector
+    from experimental.feature_selection_benchmark.relief_f.relief_f import ReliefFFeatureSelector
+    from experimental.feature_selection_benchmark.sbe.sbe import SequentialBackwardEliminationFeatureSelector
+    from experimental.feature_selection_benchmark.sfs.sfs import SequentialForwardSelectionFeatureSelector
+    from experimental.feature_selection_benchmark.symmetrical_uncertainty.symmetrical_uncertainty import SymmetricalUncertaintyFeatureSelector
+    from experimental.feature_selection_benchmark.rf_importance.rf_importance import RFImportanceFeatureSelector
+    from experimental.feature_selection_benchmark.t_test.t_test import tTestFeatureSelector
+
     for feature_selector in [
-        AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_mode_config),
+        AccuracyFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
         RandomFeatureSelector(max_features=max_features),
+        ANOVAFeatureSelector(max_features=max_features),
+        CARTFeatureSelector(max_features=max_features),
+        CFSFeatureSelector(max_features=max_features),
+        Chi2FeatureSelector(max_features=max_features),
+        CMIMFeatureSelector(max_features=max_features),
+        ConsistencyFeatureSelector(max_features=max_features),
+        DISRFeatureSelector(max_features=max_features),
+        ElasticNetFeatureSelector(max_features=max_features),
+        GainRatioFeatureSelector(max_features=max_features),
+        GiniFeatureSelector(max_features=max_features),
+        ImpurityFeatureSelector(max_features=max_features),
+        InformationGainFeatureSelector(max_features=max_features),
+        INTERACTFeatureSelector(max_features=max_features),
+        JMIFeatureSelector(max_features=max_features),
+        LaplacianScoreFeatureSelector(max_features=max_features),
+        LassoFeatureSelector(max_features=max_features),
+        MIFeatureSelector(max_features=max_features),
+        mRMRFeatureSelector(max_features=max_features),
+        OneRFeatureSelector(max_features=max_features),
+        PearsonCorrelationFeatureSelector(max_features=max_features),
+        ReliefFFeatureSelector(max_features=max_features),
+        SequentialBackwardEliminationFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
+        SequentialForwardSelectionFeatureSelector(max_features=max_features, proxy_mode_config=proxy_model_config),
+        SymmetricalUncertaintyFeatureSelector(max_features=max_features),
+        RFImportanceFeatureSelector(max_features=max_features),
+        tTestFeatureSelector(max_features=max_features),
     ]:
         print("\n####### Running feature selector:", feature_selector.name)
         predictor = TabularPredictor(
-            label="class", default_base_path="/tmp/ag_out", eval_metric="roc_auc", problem_type="binary"
+            label="class", default_base_path="/tmp/ag_out", eval_metric=eval_metric, problem_type=problem_type
         ).fit(
             train_data=train_data,
             hyperparameters={"GBM": {"num_boost_round": 10}},
