@@ -331,6 +331,7 @@ class AGModelExperiment(Experiment):
         raise_on_model_failure: bool = True,
         method_kwargs: dict = None,
         experiment_kwargs: dict = None,
+        time_limit_with_preprocessing: bool = False,
     ):
         if method_kwargs is None:
             method_kwargs = {}
@@ -342,10 +343,13 @@ class AGModelExperiment(Experiment):
             assert "time_limit" not in method_kwargs["fit_kwargs"], \
                 f"Set `time_limit` directly in {self.__class__.__name__} rather than in `fit_kwargs`"
         assert isinstance(model_hyperparameters, dict)
-        if time_limit is not None:
-            model_hyperparameters = self._insert_time_limit(model_hyperparameters=model_hyperparameters, time_limit=time_limit, method_kwargs=method_kwargs)
         if "fit_kwargs" not in method_kwargs:
             method_kwargs["fit_kwargs"] = {}
+        if time_limit is not None:
+            if time_limit_with_preprocessing:
+                method_kwargs["fit_kwargs"]["time_limit"] = time_limit
+            else:
+                model_hyperparameters = self._insert_time_limit(model_hyperparameters=model_hyperparameters, time_limit=time_limit, method_kwargs=method_kwargs)
         assert "raise_on_model_failure" not in method_kwargs["fit_kwargs"], \
             f"Set `raise_on_model_failure` directly in {self.__class__.__name__} rather than in `fit_kwargs`"
         method_kwargs["fit_kwargs"]["raise_on_model_failure"] = raise_on_model_failure
@@ -436,6 +440,8 @@ class AGModelBagExperiment(AGModelExperiment):
     num_bag_sets: int, default 1
     method_kwargs: dict, optional
     experiment_kwargs: dict, optional
+    time_limit_with_preprocessing: bool, default False
+            If True, time limit also captures the time it takes for preprocessing.
     """
     _method_cls = AGSingleBagWrapper
 
@@ -451,6 +457,7 @@ class AGModelBagExperiment(AGModelExperiment):
         raise_on_model_failure: bool = True,
         method_kwargs: dict = None,
         experiment_kwargs: dict = None,
+        time_limit_with_preprocessing: bool = False,
     ):
         if method_kwargs is None:
             method_kwargs = {}
@@ -476,6 +483,7 @@ class AGModelBagExperiment(AGModelExperiment):
             raise_on_model_failure=raise_on_model_failure,
             method_kwargs=method_kwargs,
             experiment_kwargs=experiment_kwargs,
+            time_limit_with_preprocessing=time_limit_with_preprocessing,
         )
 
 
