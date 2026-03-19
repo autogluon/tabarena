@@ -12,6 +12,7 @@ from tabarena.utils.time_utils import Timer
 class AbstractExecModel:
     can_get_error_val = False
     can_get_oof = False
+    can_get_preprocessing = False
     can_get_per_child_oof = False
     can_get_per_child_test = False
     can_get_per_child_val_idx = False

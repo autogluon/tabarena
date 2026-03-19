@@ -48,6 +48,9 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
     If False, the method cannot compute feature scores, and directly fill _selected_features.
     """
 
+    max_features: int
+    """The maximum number of features to select."""
+
     _original_features: list[str]
     """The list of original features before fitting the feature selector."""
 
@@ -91,7 +94,7 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         """
         super().__init__(**kwargs)
 
-        self.max_features = max_features
+        self.max_features_input = max_features
         self.proxy_mode_config = proxy_mode_config
         self.raise_on_useless_feature_selection = raise_on_useless_feature_selection
 
@@ -111,11 +114,13 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         self._rng = np.random.default_rng(self.random_state)
 
         # Resolve max features if it's a fraction
-        if isinstance(self.max_features, float):
-            if not (0 < self.max_features < 1):
+        if isinstance(self.max_features_input, float):
+            if not (0 < self.max_features_input < 1):
                 raise ValueError("If max_features is a float, it must be in the range (0, 1).")
-            self.max_features = math.ceil(len(self._original_features) * self.max_features)
+            self.max_features = math.ceil(len(self._original_features) * self.max_features_input)
             self._log(20, f"Resolved max_features to {self.max_features} based on the fraction provided.")
+        else:
+            self.max_features = self.max_features_input
 
         # Sanity check for feature selection setup
         if len(self._original_features) <= self.max_features:

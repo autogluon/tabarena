@@ -14,6 +14,7 @@ from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel, 
 class AGWrapper(AbstractExecModel):
     can_get_error_val = True
     can_get_oof = True
+    can_get_preprocessing = True
 
     def __init__(
         self,
@@ -63,6 +64,38 @@ class AGWrapper(AbstractExecModel):
         simulation_artifact = self.predictor.simulation_artifact()
         simulation_artifact["pred_proba_dict_val"] = simulation_artifact["pred_proba_dict_val"][self.predictor.model_best]
         return simulation_artifact
+
+    def get_preprocessing_results(self) -> dict:
+        """Save the results of preprocessing into output artifacts."""
+        # TODO: make more general in the future.
+        #   Current assumptions: one feature selector per piepline
+        from autogluon.features.generators.auto_ml_pipeline import AutoMLPipelineFeatureGenerator
+        from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
+
+        feature_generators: AutoMLPipelineFeatureGenerator = self.predictor._learner.feature_generator
+
+        results = {}
+        found_fs = False
+        for generator_group in feature_generators.generators:
+            for generator in generator_group:
+
+                # Check for feature selector results
+                if isinstance(generator, AbstractFeatureSelector):
+                    if found_fs:
+                        raise NotImplementedError("Getting Metadata for multiple Feature Selectors not supported!")
+
+                    found_fs = True
+                    results["feature_selection"] = {
+                        "method_type": generator.name,
+                        "feature_scoring_method": generator.feature_scoring_method,
+                        "original_feature_names": generator._original_features,
+                        "selected_feature_names": generator._selected_features,
+                        "feature_scores": generator._feature_scores,
+                        "max_features": generator.max_features,
+                        "max_features_input": generator.max_features_input,
+                    }
+
+        return results
 
     def get_metric_error_val(self) -> float:
         # FIXME: this shouldn't be calculating its own val score, that should be external. This should simply give val pred and val pred proba

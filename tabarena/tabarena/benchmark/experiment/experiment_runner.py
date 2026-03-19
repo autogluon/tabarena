@@ -245,12 +245,14 @@ class OOFExperimentRunner(ExperimentRunner):
         compute_simulation_artifacts: bool = True,
         compute_bag_info: bool = True,
         optimize_simulation_artifacts_memory: bool = True,
+        compute_preprocessing_artifacts: bool = True,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.compute_simulation_artifacts = compute_simulation_artifacts
         self.compute_bag_info = compute_bag_info
         self.optimize_simulation_artifacts_memory = optimize_simulation_artifacts_memory
+        self.compute_preprocessing_artifacts = compute_preprocessing_artifacts
 
     def post_evaluate(self, out: dict) -> dict:
         out = super().post_evaluate(out=out)
@@ -297,6 +299,11 @@ class OOFExperimentRunner(ExperimentRunner):
         else:
             simulation_artifact = None
         out["simulation_artifacts"] = simulation_artifact
+
+        # Extract Feature Selection Metadata
+        if self.compute_preprocessing_artifacts and self.model.can_get_preprocessing:
+            out["preprocessing_artifacts"] = self.model.get_preprocessing_results()
+
         return out
 
 
