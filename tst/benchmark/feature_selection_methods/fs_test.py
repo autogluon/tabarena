@@ -18,24 +18,24 @@ logger = logging.getLogger(__name__)
 
 # Parametrization: Combine three small datasets of different problem types (including missing values) with all implemented FS methods
 DATASET_CONFIGS: list[tuple[int, str, str]] = [
-    (55, "binary", "roc_auc"),
-    (10, "multiclass", "log_loss"),
-    (46964, "regression", "rmse"),
+    ("binary", "roc_auc"),
+    ("multiclass", "log_loss"),
+    ("regression", "rmse"),
 ]
 test_params = []
-for dataset_id, problem_type, evaluation_metric in DATASET_CONFIGS:
+for problem_type, evaluation_metric in DATASET_CONFIGS:
     for method_name in FEATURE_SELECTION_METHODS:
-        test_params.append((dataset_id, problem_type, evaluation_metric, method_name))
+        test_params.append((problem_type, evaluation_metric, method_name))
 
 # TODO:
 #   - Add testing for edge cases in the data state and feature count
 #   - Test time limit here somehow
 @pytest.mark.parametrize(
-    ("dataset_id", "problem_type", "evaluation_metric", "method_name"),
+    ("problem_type", "evaluation_metric", "method_name"),
     test_params,
-    ids=[f"{method_name}_{dataset_id}" for dataset_id, problem_type, evaluation_metric, method_name in test_params],
+    ids=[f"{method_name}_{problem_type}" for problem_type, evaluation_metric, method_name in test_params],
 )
-def test_feature_selector_dataset_combo(dataset_id, problem_type, evaluation_metric, method_name, verbosity=0):
+def test_feature_selector_dataset_combo(problem_type, evaluation_metric, method_name, verbosity=0):
     missing_values = True
     only_positive = True
     missing_values_target = False
@@ -68,17 +68,17 @@ def test_feature_selector_dataset_combo(dataset_id, problem_type, evaluation_met
         model_hyperparameters={"num_boost_round": 1},
     )
 
-    max_features = 5
+    max_features = 3
     feature_selector = get_feature_selector_from_name(
         name=method_name,
     )
-    feature_selector = feature_selector(max_features=max_features, proxy_config=proxy_config)
+    feature_selector = feature_selector(max_features=max_features, proxy_mode_config=proxy_config)
 
-    print(f"\n####### Testing {method_name} on dataset {dataset_id} ({problem_type})")
+    print(f"\n####### Testing {method_name} on a {problem_type} dataset")
 
     predictor = TabularPredictor(
-        label="class",
-        default_base_path=f"/tmp/ag_out_ds{dataset_id}_{method_name}",
+        label="target",
+        default_base_path=f"/tmp/ag_out_ds{problem_type}_{method_name}",
         eval_metric=evaluation_metric,
         problem_type=problem_type,
     ).fit(
@@ -96,7 +96,7 @@ def test_feature_selector_dataset_combo(dataset_id, problem_type, evaluation_met
     )
 
     leaderboard = predictor.leaderboard(data=test_data, silent=True)
-    assert not leaderboard.empty, f"Leaderboard empty for {method_name} on dataset {dataset_id}"
+    assert not leaderboard.empty, f"Leaderboard empty for {method_name} on a {problem_type} dataset"
 
     assert feature_selector._selected_features is not None
     assert len(feature_selector._selected_features) <= max_features
