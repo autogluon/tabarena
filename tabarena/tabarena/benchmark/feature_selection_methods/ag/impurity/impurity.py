@@ -68,4 +68,8 @@ class ImpurityFeatureSelector(AbstractFeatureSelector):
             else:
                 w = n_other / (n_current + n_other)
                 w_values.append(w)
-        return 1 - min(w_values)
+        try:
+            classification_error_impurity = 1 - min(w_values)
+        except ValueError:
+            classification_error_impurity = 0
+        return classification_error_impurity
