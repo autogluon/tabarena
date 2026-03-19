@@ -148,17 +148,76 @@ def _parse_yaml_config(
         methods.append(YamlSingleExperimentSerializer.parse_method(method))
 
     # TODO: Update
-    #   - This is special code for a special branch of TabArena that is not otherwise so far.
+    #   - Make this a general purpose logic inside of TabArena code base to edit feature generator
     for m_i in range(len(methods)):
         preprocessing_name = methods[m_i].method_kwargs.pop("preprocessing_pipeline", None)
 
-        if preprocessing_name is not None:
-            print("Adding preprocessing to the config:", preprocessing_name)
-            from tabarena.benchmark.preprocessing.preprocessing_register import (
-                PREPROCESSING_METHODS,
+        if (preprocessing_name is None) or (preprocessing_name == "default"):
+            continue
+
+        # Logic for feature selection benchmark
+        if preprocessing_name.startswith("FSBench__"):
+            from copy import deepcopy
+
+            from autogluon.features.generators.drop_duplicates import DropDuplicatesFeatureGenerator
+            from autogluon.features.generators.drop_unique import DropUniqueFeatureGenerator
+            from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import ProxyModelConfig
+            from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (
+                FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL,
+                get_feature_selector_from_name,
             )
 
-            methods[m_i] = PREPROCESSING_METHODS[preprocessing_name](methods[m_i])
+            _, fs_method_name, max_feature_threshold, proxy_model, fs_time = preprocessing_name.split("__")
+            max_feature_threshold = float(max_feature_threshold)
+            fs_time = float(fs_time)
+            print(f"Using preprocessing pipeline {preprocessing_name}")
+            print(f"\tName: {fs_method_name}")
+            print(f"\tMax feature threshold: {max_feature_threshold}")
+            print(f"\tTime fraction: {fs_time}")
+            print(f"\tProxy model: {proxy_model}")
+
+            proxy_mode_config = None
+            if fs_method_name in FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL:
+                if proxy_model == "lgbm":
+                    proxy_mode_config = ProxyModelConfig(
+                        model_hyperparameters={}, # Default
+                    )
+                else:
+                    raise ValueError(
+                        f"Proxy model name '{proxy_model}' not recognized for preprocessing pipeline '{preprocessing_name}'."
+                    )
+
+            selector = get_feature_selector_from_name(name=fs_method_name)
+            selector = selector(
+                max_features=max_feature_threshold,
+                proxy_mode_config=proxy_mode_config,
+            )
+
+            new_experiment = deepcopy(methods[m_i])
+
+            # TODO: refactor: make this default pre_generators somehow? add a feature selection default?
+            # Add feature selector to model agnostic preprocessing
+            prep_pipeline = new_experiment.method_kwargs["fit_kwargs"].get("_feature_generator_kwargs", {})
+            pipeline = prep_pipeline.get("post_generators", [])
+            pipeline += [
+                # Default post generators
+                DropUniqueFeatureGenerator(),
+                DropDuplicatesFeatureGenerator(post_drop_duplicates=False),
+                # Selector Generator
+                selector,
+            ]
+            prep_pipeline["post_generators"] = pipeline
+            prep_pipeline["post_drop_duplicates"] = False  # Not needed anymore.
+            new_experiment.method_kwargs["fit_kwargs"]["_feature_generator_kwargs"] = prep_pipeline
+
+            # TODO: make this a parameter that we can pass here.
+            # Set the default time limit for preprocessing
+            new_experiment.method_kwargs["fit_kwargs"]["time_limit_fraction_preprocessing"] = fs_time
+
+        else:
+            raise ValueError(f"Preprocessing pipeline name '{preprocessing_name}' not recognized.")
+
+        methods[m_i] = new_experiment
 
     return methods
 
@@ -275,6 +334,7 @@ def _parse_int_list_or_none(s):
         return None
     return _parse_int_list(s)
 
+
 def _parse_int_or_none(s):
     if (s is None) or (s.lower() == "none") or (s.lower() == "null"):
         return None
@@ -344,7 +404,7 @@ if __name__ == "__main__":
         "--num_cpus",
         type=_parse_int_or_none,
         help="Number of CPUs to use for the experiment. "
-             "If None, Ray will automatically detect the number of CPUs and use that.",
+        "If None, Ray will automatically detect the number of CPUs and use that.",
         default=1,
     )
     parser.add_argument(
@@ -367,16 +427,17 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-
     num_cpus = args.num_cpus
     if num_cpus is None:
         from autogluon.common.utils.cpu_utils import get_available_cpu_count
+
         num_cpus = get_available_cpu_count(only_physical_cores=False)
         print(f"Number of CPUs not provided, using detected number of CPUs: {num_cpus}")
 
     memory_limit = args.memory_limit
     if memory_limit is None:
         from autogluon.common.utils.resource_utils import ResourceManager
+
         memory_limit = int(ResourceManager.get_memory_size(format="GB"))
         print(f"Memory limit not provided, using detected memory size: {memory_limit} GB")
 
