@@ -89,6 +89,7 @@ metadata = metadata[
 #   - Investigate caching of feature selection (long shot)
 #   - Decide on timeout, for both fit and fs or just fs? -> now it does for both
 #   - Ensure random seeding works as we want it
+#   - add random order to methods that do iterative search of features
 BenchmarkSetup(
     benchmark_name="feature_selection_benchmark_example_1803",
     models=[

@@ -158,12 +158,13 @@ def _parse_yaml_config(
         # Logic for feature selection benchmark
         if preprocessing_name.startswith("FSBench__"):
             from copy import deepcopy
+
             from autogluon.features.generators.drop_duplicates import DropDuplicatesFeatureGenerator
             from autogluon.features.generators.drop_unique import DropUniqueFeatureGenerator
             from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import ProxyModelConfig
             from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (
-                get_feature_selector_from_name,
                 FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL,
+                get_feature_selector_from_name,
             )
 
             _, fs_method_name, max_feature_threshold, proxy_model, fs_time = preprocessing_name.split("__")
@@ -179,12 +180,12 @@ def _parse_yaml_config(
             if fs_method_name in FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL:
                 if proxy_model == "lgbm":
                     proxy_mode_config = ProxyModelConfig(
-                        problem_type="X",
-                        eval_metric="X",
-                        model_hyperparameters={"GBM": {}},
+                        model_hyperparameters={}, # Default
                     )
                 else:
-                    raise ValueError(f"Proxy model name '{proxy_model}' not recognized for preprocessing pipeline '{preprocessing_name}'.")
+                    raise ValueError(
+                        f"Proxy model name '{proxy_model}' not recognized for preprocessing pipeline '{preprocessing_name}'."
+                    )
 
             selector = get_feature_selector_from_name(name=fs_method_name)
             selector = selector(
@@ -203,10 +204,10 @@ def _parse_yaml_config(
                 DropUniqueFeatureGenerator(),
                 DropDuplicatesFeatureGenerator(post_drop_duplicates=False),
                 # Selector Generator
-                selector
+                selector,
             ]
             prep_pipeline["post_generators"] = pipeline
-            prep_pipeline["post_drop_duplicates"] = False # Not needed anymore.
+            prep_pipeline["post_drop_duplicates"] = False  # Not needed anymore.
             new_experiment.method_kwargs["fit_kwargs"]["_feature_generator_kwargs"] = prep_pipeline
 
             # TODO: make this a parameter that we can pass here.
@@ -333,6 +334,7 @@ def _parse_int_list_or_none(s):
         return None
     return _parse_int_list(s)
 
+
 def _parse_int_or_none(s):
     if (s is None) or (s.lower() == "none") or (s.lower() == "null"):
         return None
@@ -402,7 +404,7 @@ if __name__ == "__main__":
         "--num_cpus",
         type=_parse_int_or_none,
         help="Number of CPUs to use for the experiment. "
-             "If None, Ray will automatically detect the number of CPUs and use that.",
+        "If None, Ray will automatically detect the number of CPUs and use that.",
         default=1,
     )
     parser.add_argument(
@@ -425,16 +427,17 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-
     num_cpus = args.num_cpus
     if num_cpus is None:
         from autogluon.common.utils.cpu_utils import get_available_cpu_count
+
         num_cpus = get_available_cpu_count(only_physical_cores=False)
         print(f"Number of CPUs not provided, using detected number of CPUs: {num_cpus}")
 
     memory_limit = args.memory_limit
     if memory_limit is None:
         from autogluon.common.utils.resource_utils import ResourceManager
+
         memory_limit = int(ResourceManager.get_memory_size(format="GB"))
         print(f"Memory limit not provided, using detected memory size: {memory_limit} GB")
 

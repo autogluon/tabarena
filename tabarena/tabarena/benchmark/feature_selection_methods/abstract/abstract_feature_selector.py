@@ -20,10 +20,6 @@ if TYPE_CHECKING:
 class ProxyModelConfig:
     """Configuration for the proxy model used in feature selection methods."""
 
-    problem_type: str
-    """The problem type of the current datasets."""
-    eval_metric: str
-    """The evaluation metric used to evaluate the proxy model."""
     model_class: AbstractModel = LGBModel
     """Proxy Model class to use within feature selection methods."""
     model_hyperparameters: dict = field(default_factory=dict)
@@ -34,6 +30,10 @@ class ProxyModelConfig:
     """Hyperparameters to set for the bagging model (such as refitting or not)."""
     verbosity: int = 0
     """Verbosity to use when fitting the proxy model."""
+    problem_type: str | None = None
+    """The problem type of the current datasets."""
+    eval_metric: str | None = None
+    """The evaluation metric used to evaluate the proxy model."""
 
 
 class AbstractFeatureSelector(AbstractFeatureGenerator):
@@ -102,7 +102,14 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         self._feature_scores = None
 
     def _fit_transform(
-        self, X: pd.DataFrame, y: pd.Series, *, time_limit: int | None = None, **kwargs
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        *,
+        time_limit: int | None = None,
+        eval_metric: str | None = None,
+        problem_type: str | None = None,
+        **kwargs,
     ) -> tuple[pd.DataFrame, dict[str, list[str]]]:
         """Fit and transform for feature selection methods."""
         self._original_features = list(X.columns)
@@ -112,6 +119,15 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         # Init random generator
         self._rng = np.random.default_rng(self.random_state)
+
+        if self.proxy_mode_config is not None:
+            assert isinstance(self.proxy_mode_config, ProxyModelConfig)
+            if self.proxy_mode_config.problem_type is not None:
+                problem_type = self.proxy_mode_config.problem_type
+            if self.proxy_mode_config.eval_metric is not None:
+                eval_metric = self.proxy_mode_config.eval_metric
+            self.proxy_mode_config.problem_type = problem_type
+            self.proxy_mode_config.eval_metric = eval_metric
 
         # Resolve max features if it's a fraction
         if isinstance(self.max_features_input, float):
@@ -261,7 +277,8 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
                 "Proxy mode is not configured but the feature selection method needs a proxy model. "
                 "Pass a ProxyModelConfig to the feature selection method!"
             )
-
+        assert self.proxy_mode_config.eval_metric is not None, "When ProxyModel is needed, eval_metric must be set."
+        assert self.proxy_mode_config.problem_type is not None, "When ProxyModel is needed, problem_type must be set."
         self._log(20, f"\tFitting Proxy Model (remaining time_limit: {time_limit})")
 
         # Init Proxy model
