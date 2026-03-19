@@ -66,6 +66,7 @@ for fs_method, max_feature_threshold, proxy_model, time_limit in product(
 preprocessing_pipelines.append("default")
 
 # -- Get some proxy dataset to run for
+# TODO: switch data foundry and public bucket (but we have an TabArena bucket now which we might want to use)
 from tabarena.nips2025_utils.fetch_metadata import (
     load_curated_task_metadata,
 )
@@ -84,12 +85,11 @@ metadata = metadata[
 
 # -- Feature Selection Example Benchmark Setup
 # TODO:
-#   - Ensure how/if GPU models work with this
 #   - Finalize proxy model and its eval
-#   - Investigate caching of feature selection (long shot)
 #   - Decide on timeout, for both fit and fs or just fs? -> now it does for both
-#   - Ensure random seeding works as we want it
-#   - add random order to methods that do iterative search of features
+#   - Ensure random seeding works as we want it / add random order to methods that do iterative search of features
+#   - Ensure how/if GPU models work with this (long shot)
+#   - Investigate caching of feature selection (long shot)
 BenchmarkSetup(
     benchmark_name="feature_selection_benchmark_example_1803",
     models=[
