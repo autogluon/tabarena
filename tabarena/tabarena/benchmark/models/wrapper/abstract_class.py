@@ -26,6 +26,8 @@ class AbstractExecModel:
         shuffle_test: bool = True,
         shuffle_seed: int = 0,
         reset_index_test: bool = True,
+        # TODO: default to True in the future.
+        shuffle_features: bool = False,
     ):
         self.problem_type = problem_type
         self.eval_metric = eval_metric
@@ -37,6 +39,7 @@ class AbstractExecModel:
         self.label_cleaner: LabelCleaner = None
         self._feature_generator = None
         self.failure_artifact = None
+        self.shuffle_features = shuffle_features
 
     def transform_y(self, y: pd.Series) -> pd.Series:
         return self.label_cleaner.transform(y)
@@ -69,7 +72,7 @@ class AbstractExecModel:
     def post_fit(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame):
         pass
 
-    def fit_custom(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame) -> dict:
+    def fit_custom(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame, *, split_seed: int | None = None) -> dict:
         og_index = X_test.index
         inv_perm = None
 
@@ -78,6 +81,12 @@ class AbstractExecModel:
             X_test = X_test.iloc[perm]
         if self.reset_index_test:
             X_test = X_test.reset_index(drop=True)
+        if self.shuffle_features:
+            assert split_seed is not None, "If shuffle_features is True, split_seed must not be None!"
+            features = list(X.columns)
+            rng = np.random.default_rng(seed=split_seed)
+            rng.shuffle(features)
+            X, X_test = X[features], X_test[features]
 
         out = self._fit_custom(X=X, y=y, X_test=X_test)
 

@@ -100,8 +100,13 @@ class ExperimentRunner:
         )
         return model
 
+    @property
+    def split_seed(self):
+        """We use the split index as a source for a seed that creates different randomness per split."""
+        return self.task_split_idx
+
     def run_model_fit(self) -> dict:
-        return self.model.fit_custom(X=self.X, y=self.y, X_test=self.X_test)
+        return self.model.fit_custom(X=self.X, y=self.y, X_test=self.X_test, split_seed=self.split_seed)
 
     def run(self) -> dict:
         out = self._run()
