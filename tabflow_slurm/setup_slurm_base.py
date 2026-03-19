@@ -138,6 +138,11 @@ class BenchmarkSetup:
     """
     time_limit: int = 3600
     """Time limit for each fit (all 8 folds) of a model in seconds. By default, 3600 seconds is used."""
+    time_limit_with_preprocessing: bool = False
+    """Whether the preprocessing should influence the fit time of the model.
+        If False (default), we stop fitting a model after `time_limit`.
+        If True, we stop fitting a model after `time_limit - time_fore_preprocessing`.
+    """
     time_limit_overhead: int = 1
     """Overhead time in hours to add to the SLURM time limit to account for
     job scheduling and other non-model fitting overhead."""
@@ -612,6 +617,7 @@ class BenchmarkSetup:
                         name_id_suffix=name_id_suffix,
                         method_kwargs=pipeline_method_kwargs,
                         time_limit=self.time_limit,
+                        time_limit_with_preprocessing=self.time_limit_with_preprocessing,
                     )
                 )
 
