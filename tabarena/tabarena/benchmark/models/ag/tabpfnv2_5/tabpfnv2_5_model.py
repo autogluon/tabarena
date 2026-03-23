@@ -32,6 +32,9 @@ class TabPFNModel(AbstractModel):
     ag_name = "NOTSET"
     ag_priority = 105
     seed_name = "random_state"
+    fixed_random_state: int | None = None
+    """If not None, this fixes the random state to a static value to avoid that the
+    validation score is misleading for the refit model."""
 
     custom_model_dir: str | None = None
     default_classification_model: str | None = "NOTSET"
@@ -175,6 +178,10 @@ class TabPFNModel(AbstractModel):
         use_finetuning = hps.pop("use_finetuning", False)
         if not use_finetuning:
             from tabpfn import TabPFNClassifier, TabPFNRegressor
+
+
+            if self.fixed_random_state is not None:
+                hps[self.seed_name] = self.fixed_random_state
 
             # Use ICL, fit preprocessing only
             model_base = TabPFNClassifier if is_classification else TabPFNRegressor
@@ -388,3 +395,25 @@ class RealTabPFNv25Model(TabPFNModel):
             "tabpfn-v2.5-regressor-v2.5_small-samples.ckpt",
             "tabpfn-v2.5-regressor-v2.5_variant.ckpt",
         ]
+
+class TabPFNv26Model(TabPFNModel):
+    """TabPFN-v2.6 version."""
+
+    ag_key = "TA-TABPFN-V2.6"
+    ag_name = "TA-TabPFN-v2.6"
+
+    fixed_random_state: int = 0
+    """We found that the validation score is misleading for TabPFN, when one uses a
+    different random state for the refit model than for models fit during CV. 
+    This is because TabPFN's random state determines the preprocessing of TabPFN
+    """
+
+    default_classification_model: str | None = "tabpfn-v2.6-classifier-v2.6_default.ckpt"
+    default_regression_model: str | None = "tabpfn-v2.6-regressor-v2.6_default.ckpt"
+
+    @staticmethod
+    def extra_checkpoints_for_tuning(problem_type: str) -> list[str]:
+        """The list of checkpoints to use for hyperparameter tuning."""
+        raise NotImplementedError(
+            "More checkpoints are not available for this model yet."
+        )

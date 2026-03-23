@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from autogluon.common.space import Categorical
 
-from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import RealTabPFNv25Model
+from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import (
+    RealTabPFNv25Model,
+    TabPFNv26Model,
+)
 from tabarena.utils.config_utils import ConfigGenerator
 
 
@@ -74,6 +77,13 @@ search_space = {
 gen_realtabpfnv25 = ConfigGenerator(
     model_cls=RealTabPFNv25Model,
     search_space=search_space,
+    manual_configs=[{}],
+)
+
+# TODO: update search space
+gen_tabpfnv26 = ConfigGenerator(
+    model_cls=TabPFNv26Model,
+    search_space={},
     manual_configs=[{}],
 )
 if __name__ == "__main__":
