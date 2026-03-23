@@ -5,8 +5,9 @@ import pickle
 from collections import OrderedDict
 from collections.abc import Iterable
 from copy import deepcopy
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import numpy as np
 import openml
@@ -25,6 +26,235 @@ from openml.tasks import (
     OpenMLSupervisedTask,
     TaskType,
 )
+
+SplitIndex = Annotated[str, "format: r{int}f{int}"]
+
+
+@dataclass
+class TabArenaTaskMetadata:
+    """Metadata about the task."""
+
+    dataset_name: str
+    """Simple name of the dataset used for the task."""
+
+    problem_type: str
+    """The problem type of the task (e.g., 'binary', 'multiclass', 'regression')."""
+    is_classification: bool
+    """Whether the task is a classification task."""
+
+    target_name: str
+    """The name of the target variable in the dataset."""
+    eval_metric: str
+    """The evaluation metric used for the task."""
+
+    n_splits: int
+    """The number of splits in the task."""
+    splits_metadata: dict[SplitIndex, SplitMetadata]
+    """Mapping of split index to Metadata about the splits in the task."""
+
+    stratify_on: str | None
+    """The name of the column used for stratification during splitting."""
+    group_on: str | None
+    """The name of the column used for grouping during splitting."""
+    time_on: str | None
+    """The name of the column used for temporal splitting."""
+    group_time_on: str | None
+    """The name of the column that contains the time information for"""
+
+    multiclass_min_n_classes_over_splits: int | None
+    """The minimum number of classes across splits for classification tasks,
+    None for regression tasks."""
+    multiclass_max_n_classes_over_splits: int | None
+    """The maximum number of classes across splits for classification tasks,
+    None for regression tasks."""
+    class_consistency_over_splits: bool | None
+    """Whether the number of classes is consistent across splits for classification tasks,
+    None for regression tasks."""
+
+    @property
+    def split_indices(self) -> list[SplitIndex]:
+        """Get a list of all split indices in the task."""
+        return list(self.splits_metadata.keys())
+
+    def to_dict(self, *, exclude_splits_metadata: bool = False) -> dict:
+        """Convert the task metadata to a dictionary for better visualization."""
+        res = asdict(self)
+        if exclude_splits_metadata:
+            res.pop("splits_metadata")
+        return res
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Transform metadata to a DataFrame."""
+        rows = []
+        static_metadata = self.to_dict(exclude_splits_metadata=True)
+        for split_metadata in self.splits_metadata.values():
+            rows.append(
+                {
+                    **static_metadata,
+                    **split_metadata.to_dict(),
+                }
+            )
+        return pd.DataFrame(rows)
+
+
+@dataclass
+class SplitMetadata:
+    """Metadata about the splits in the task."""
+
+    repeat: int
+    """The repeat index of the split.
+
+    All splits with the same repeat index have the same data points,
+    but split into folds differently.
+    """
+    fold: int
+    """The fold index of the split."""
+    num_instances_train: int
+    """The number of training instances in the split."""
+    num_instances_test: int
+    """The number of test instances in the split."""
+    num_classes: int
+    """-1 for regression tasks, and maximal number of unique classes in the training
+    and test set for classification tasks."""
+    num_features_train: int
+    """The number of features (excluding the target) in the training set of the split."""
+    num_features_test: int
+    """The number of features (excluding the target) in the test set of the split."""
+
+    @staticmethod
+    def split_index(*, repeat_i: int, fold_i: int) -> SplitIndex:
+        """Get the split index for the given repeat and fold."""
+        return f"r{repeat_i}f{fold_i}"
+
+    def to_dict(self) -> dict[str, int | str]:
+        """Convert the split metadata to a dictionary."""
+        res = asdict(self)
+        res["split_index"] = self.split_index(repeat_i=self.repeat, fold_i=self.fold)
+        return res
+
+
+class TabArenaTaskMetadataMixin:
+    """A mixin class to add TabArena-specific metadata to OpenML tasks."""
+
+    _task_metadata: TabArenaTaskMetadata | None = None
+
+    def __init__(
+        self,
+        *,
+        stratify_on: str | None = None,
+        group_on: str | None = None,
+        time_on: str | None = None,
+        group_time_on: str | None = None,
+        **kwargs,
+    ) -> None:
+        """Checkout Data Foundry's PredictiveMLTaskMetadata for more information."""
+        super().__init__(**kwargs)
+        self.stratify_on = stratify_on
+        self.group_on = group_on
+        self.time_on = time_on
+        self.group_time_on = group_time_on
+        self._task_metadata = None
+
+    def compute_metadata(self: TabArenaOpenMLSupervisedTask) -> TabArenaTaskMetadata:
+        """Get the metadata for the tasks."""
+        oml_dataset_object = self.get_dataset()
+        oml_dataset, *_ = oml_dataset_object.get_data()
+        dataset_name = oml_dataset_object.name
+        eval_metric = self.evaluation_measure
+        is_classification = self.task_type_id.value == 1
+        target_name = self.target_name
+
+        task_problem_type = None
+        num_classes_list = []
+
+        splits_metadata = {}
+        for repeat_i, splits in self.split.split.items():
+            for fold_i, samples_for_split in splits.items():
+                assert len(samples_for_split) == 1, (
+                    "Only one sample per split is supported so far!."
+                )
+                train_idx, test_idx = samples_for_split[0]
+
+                num_classes = -1
+                if is_classification:
+                    num_classes = max(
+                        int(oml_dataset.iloc[train_idx][target_name].nunique()),
+                        int(oml_dataset.iloc[test_idx][target_name].nunique()),
+                    )
+
+                # -1 for oml_task.target_name
+                num_features_train = oml_dataset.iloc[train_idx].shape[1] - 1
+                num_features_test = oml_dataset.iloc[test_idx].shape[1] - 1
+
+                # Resolve problem type
+                if num_classes == -1:
+                    split_problem_type = "regression"
+                elif num_classes == 2:
+                    split_problem_type = "binary"
+                    num_classes_list.append(num_classes)
+                else:
+                    split_problem_type = "multiclass"
+                    num_classes_list.append(num_classes)
+                if task_problem_type is None:
+                    task_problem_type = split_problem_type
+                else:
+                    assert task_problem_type == split_problem_type, (
+                        "All splits must have the same problem type."
+                    )
+
+                s_index = SplitMetadata.split_index(repeat_i=repeat_i, fold_i=fold_i)
+                splits_metadata[s_index] = SplitMetadata(
+                    repeat=repeat_i,
+                    fold=fold_i,
+                    num_instances_train=len(train_idx),
+                    num_instances_test=len(test_idx),
+                    num_classes=num_classes,
+                    num_features_train=num_features_train,
+                    num_features_test=num_features_test,
+                )
+        n_splits = len(splits_metadata.keys())
+
+        if len(num_classes_list) == 0:
+            min_n_classes = None
+            max_n_classes = None
+            class_consistency_over_splits = None
+        else:
+            min_n_classes = min(num_classes_list)
+            max_n_classes = max(num_classes_list)
+            class_consistency_over_splits = min_n_classes == max_n_classes
+
+        self._task_metadata = TabArenaTaskMetadata(
+            dataset_name=dataset_name,
+            eval_metric=eval_metric,
+            n_splits=n_splits,
+            splits_metadata=splits_metadata,
+            is_classification=is_classification,
+            problem_type=task_problem_type,
+            multiclass_min_n_classes_over_splits=min_n_classes,
+            multiclass_max_n_classes_over_splits=max_n_classes,
+            class_consistency_over_splits=class_consistency_over_splits,
+            target_name=target_name,
+            stratify_on=self.stratify_on,
+            group_on=self.group_on,
+            time_on=self.time_on,
+            group_time_on=self.group_time_on,
+        )
+
+        return self._task_metadata
+
+
+class TabArenaOpenMLSupervisedTask(TabArenaTaskMetadataMixin, OpenMLSupervisedTask):
+    """A local OpenMLSupervisedTask with additional metadata for TabArena."""
+
+
+class TabArenaOpenMLClassificationTask(
+    TabArenaTaskMetadataMixin, OpenMLClassificationTask
+):
+    """A local OpenMLClassificationTask with additional metadata for TabArena."""
+
+
+class TabArenaOpenMLRegressionTask(TabArenaTaskMetadataMixin, OpenMLRegressionTask):
+    """A local OpenMLRegressionTask with additional metadata for TabArena."""
 
 
 # Patch Functions for OpenML Dataset
@@ -108,11 +338,6 @@ class UserTask:
             / self._local_dataset_id
         )
 
-    @property
-    def dataset_name(self) -> str:
-        """The name of the dataset used in the task."""
-        return f"LocalDataset-{self.task_name}"
-
     # TODO: support local OpenML tasks inside of OpenML code...
     def create_local_openml_task(
         self,
@@ -122,6 +347,11 @@ class UserTask:
         dataset: pd.DataFrame,
         splits: dict[int, dict[int, tuple[list, list]]],
         eval_metric: str | None = None,
+        stratify_on: str | None = None,
+        group_on: str | None = None,
+        time_on: str | None = None,
+        group_time_on: str | None = None,
+        dataset_name: str | None = None,
     ) -> OpenMLSupervisedTask:
         """Convert the user-defined task to a local (unpublished) OpenMLSupervisedTask.
 
@@ -171,6 +401,18 @@ class UserTask:
             TabArena metrics are used.
             Otherwise, the metric specified here is used for evaluating the task.
             Note that the metric must be registered in TabArena/AutoGluon.
+        stratify_on:
+            The name of the column used for stratification during splitting.
+        group_on:
+            The name of the column used for grouping during splitting.
+        time_on:
+            The name of the column used for temporal splitting.
+        group_time_on:
+            The name of the column that contains the time information for
+            each group in case of grouped data.
+        dataset_name:
+            Name of the dataset. Must match OpenML allowed names.
+            If None, a default name based on the task name is used.
         """
         dataset = deepcopy(dataset).reset_index(drop=True)
         self._validate_splits(splits=splits, n_samples=len(dataset))
@@ -182,18 +424,20 @@ class UserTask:
         )
         extra_kwargs = {}
         if task_type == TaskType.SUPERVISED_CLASSIFICATION:
-            task_cls = OpenMLClassificationTask  # type: ignore
+            task_cls = TabArenaOpenMLClassificationTask
             extra_kwargs["class_labels"] = list(np.unique(dataset[target_feature]))
         elif task_type == TaskType.SUPERVISED_REGRESSION:
-            task_cls = OpenMLRegressionTask  # type: ignore
+            task_cls = TabArenaOpenMLRegressionTask
         else:
             raise NotImplementedError(f"Task type {task_type:d} not supported.")
 
+        if dataset_name is None:
+            dataset_name = f"Dataset-{self.task_name}"
         print(
-            f"Creating local OpenML task {self.task_id} with dataset '{self.dataset_name}'..."
+            f"Creating local OpenML task {self.task_id} with dataset '{dataset_name}'..."
         )
         local_dataset = openml_create_datasets_without_arff_dump(
-            name=self.dataset_name,
+            name=dataset_name,
             data=dataset,
             default_target_attribute=target_feature,
         )
@@ -210,6 +454,10 @@ class UserTask:
 
         # Create the task
         task = task_cls(
+            stratify_on=stratify_on,
+            group_on=group_on,
+            time_on=time_on,
+            group_time_on=group_time_on,
             task_id=self.task_id,
             task_type_id=task_type,
             task_type="None",  # Placeholder, not used for local tasks
@@ -306,7 +554,7 @@ class UserTask:
         with self.openml_task_path.open("wb") as f:
             pickle.dump(task, f)
 
-    def load_local_openml_task(self) -> OpenMLSupervisedTask:
+    def load_local_openml_task(self) -> TabArenaOpenMLSupervisedTask:
         """Load a local OpenML task from disk."""
         if not self.openml_task_path.exists():
             raise FileNotFoundError(
@@ -414,28 +662,3 @@ def from_sklearn_splits_to_user_task_splits(
             splits[repeat_i] = {}
         splits[repeat_i][fold_i] = (train_idx.tolist(), test_idx.tolist())
     return splits
-
-
-# TODO: fix this
-def get_tabarena_metadata_from_openml_task(oml_task: OpenMLSupervisedTask) -> dict[str, str | int]:
-    """Get the metadata for a UserTask to be used in TabArena.
-
-    Teh returned metadata includes:
-        -
-    """
-
-    oml_dataset, *_ = oml_task.get_dataset().get_data()
-    eval_metric = oml_task.evaluation_measure
-
-    # add splits here as well
-    num_classes = (
-        -1
-        if oml_task.task_type_id.value == 2
-        else oml_dataset[oml_task.target_name].nunique()
-    )
-
-
-    return {
-        "eval_metric": eval_metric,
-        # problem_type: oml_task.task_type_id,
-    }
