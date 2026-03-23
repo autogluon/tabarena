@@ -174,9 +174,6 @@ class MethodDownloaderS3:
         Skips if the object does not exist. Supports public objects by retrying
         with an unsigned client when a signed request is denied or creds are missing.
         """
-        import io
-        import shutil
-        import zipfile
         import boto3
         from botocore import UNSIGNED
         from botocore.config import Config
