@@ -62,13 +62,13 @@ def evaluate_all(
     # TODO: Avoid hardcoding baselines
     baselines = [
         "AutoGluon 1.4 (best, 4h)",
-        "AutoGluon 1.4 (extreme, 4h)",
+        # "AutoGluon 1.4 (extreme, 4h)",
         "AutoGluon 1.5 (extreme, 4h)",
     ]
     baseline_colors = [
         "black",
         "tab:purple",
-        "tab:orange",
+        # "tab:orange",
     ]
 
     df_results = df_results.copy(deep=True)
