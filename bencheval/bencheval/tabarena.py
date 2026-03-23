@@ -818,53 +818,94 @@ class TabArena:
 
     @staticmethod
     def plot_winrate_matrix(
-        winrate_matrix: pd.DataFrame,
-        save_path: str | None,
+            winrate_matrix: pd.DataFrame,
+            save_path: str | None,
     ):
-        import plotly.express as px
-        winrate_matrix = winrate_matrix.copy()
-        winrate_matrix = (winrate_matrix*100).round().astype('Int64')
-        
-        fig = px.imshow(
-            winrate_matrix,
-            color_continuous_scale='PRGn',
-            text_auto=".0f"
-        )
-        fig.update_layout(
-            xaxis_title=" Model B: Loser",
-            yaxis_title="Model A: Winner",
-            xaxis_side="top", height=900, width=1110,
-            title=None,
-            margin=dict(l=0, r=0, t=0, b=0),
-            plot_bgcolor='white',
-            coloraxis_colorbar=dict(
-                orientation='v',     
-                title='Win Rate (%)',
-                title_font=dict(size=18),
-                tickfont=dict(size=16)
-            )
-        )
-        # axis-specific (optional, if you want a bit larger than global)
-        fig.update_xaxes(
-            title_font=dict(size=18), 
-            tickfont=dict(size=16), 
-            showgrid=False
-            )
-        fig.update_yaxes(
-            title_font=dict(size=18), 
-            tickfont=dict(size=16), 
-            showgrid=False
-            )
+        import matplotlib.pyplot as plt
+        z = winrate_matrix.copy()
+        z = (z * 100).round().astype("Int64")
 
-        fig.update_traces(
-            hovertemplate="Model A: %{y}<br>Model B: %{x}<br>Fraction of A Wins: %{z}<extra></extra>",
-            textfont=dict(size=16), # numbers inside the heatmap        
+        n_rows, n_cols = z.shape
+
+        # Scale figure size with matrix size, while keeping a sensible minimum
+        fig_w = max(11.1, 0.55 * n_cols + 3)
+        fig_h = max(9.0, 0.45 * n_rows + 2)
+
+        fig, ax = plt.subplots(figsize=(fig_w, fig_h), constrained_layout=True)
+
+        # PRGn-like colormap
+        im = ax.imshow(z.astype(float).to_numpy(), cmap="PRGn", vmin=0, vmax=100)
+
+        # Ticks / labels
+        ax.set_xticks(range(n_cols))
+        ax.set_yticks(range(n_rows))
+        ax.set_xticklabels(
+            z.columns,
+            fontsize=16,
+            rotation=330,
+            ha="right",
+            va="bottom",
+            rotation_mode="anchor",
         )
-        
+        ax.set_yticklabels(z.index, fontsize=16)
+        ax.tick_params(axis="x", pad=-2)
+        ax.tick_params(axis="x", which="both", length=0)
+        ax.tick_params(axis="y", which="both", length=0)
+
+        ax.xaxis.tick_top()
+        ax.xaxis.set_label_position("top")
+        ax.set_xlabel("Model B: Loser", fontsize=18)
+        ax.set_ylabel("Model A: Winner", fontsize=18)
+
+        cmap = plt.get_cmap("PRGn")
+        norm = plt.Normalize(vmin=0, vmax=100)
+
+        values = z.to_numpy()
+        for i in range(n_rows):
+            for j in range(n_cols):
+                val = values[i, j]
+                if pd.isna(val):
+                    text = ""
+                    text_color = "black"
+                else:
+                    text = f"{int(val)}"
+                    r, g, b, _ = cmap(norm(float(val)))
+                    luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                    text_color = "black" if luminance > 0.5 else "white"
+
+                ax.text(
+                    j,
+                    i,
+                    text,
+                    ha="center",
+                    va="center",
+                    fontsize=16,
+                    color=text_color,
+                )
+
+
+        # Colorbar
+        from matplotlib.ticker import FuncFormatter
+
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.ax.set_title("Win Rate", fontsize=18, pad=12, loc="left")
+        cbar.ax.tick_params(labelsize=16)
+        cbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{int(x)}%"))
+
+        # Clean look
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+        ax.set_facecolor("white")
+        fig.patch.set_facecolor("white")
+
+        # Match imshow orientation expectations
+        ax.set_ylim(n_rows - 0.5, -0.5)
+
         if save_path is not None:
             if os.path.dirname(save_path):
                 os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            fig.write_image(save_path)
+            fig.savefig(save_path, bbox_inches="tight")
 
         return fig
 
