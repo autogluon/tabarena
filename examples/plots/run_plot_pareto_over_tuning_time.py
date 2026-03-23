@@ -526,7 +526,7 @@ def plot_tuning_trajectories(
         leaderboard["name"] = leaderboard["name"].map(method_rename_map).fillna(leaderboard["name"])
 
         if ban_bad_methods:
-            bad_methods = ["KNN", "LR"]
+            bad_methods = ["KNN", "Linear"]
             leaderboard = leaderboard[~leaderboard["config_type"].isin(bad_methods)]
 
         fig_save_dir_subset = fig_save_dir / subset_name
