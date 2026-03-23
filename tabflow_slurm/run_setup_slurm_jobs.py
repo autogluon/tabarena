@@ -6,8 +6,9 @@ from tabflow_slurm.setup_slurm_base import BenchmarkSetup
 
 # -- Benchmark XXX XX/XX/2026
 BenchmarkSetup(
-    benchmark_name="experiment_name_date",
+    benchmark_name="debug",
     models=[
-        ("ag_name", "all"),
+        ("LightGBM", 0),
     ],
+    shuffle_features_per_split=True,
 ).setup_jobs()

@@ -414,3 +414,28 @@ def from_sklearn_splits_to_user_task_splits(
             splits[repeat_i] = {}
         splits[repeat_i][fold_i] = (train_idx.tolist(), test_idx.tolist())
     return splits
+
+
+# TODO: fix this
+def get_tabarena_metadata_from_openml_task(oml_task: OpenMLSupervisedTask) -> dict[str, str | int]:
+    """Get the metadata for a UserTask to be used in TabArena.
+
+    Teh returned metadata includes:
+        -
+    """
+
+    oml_dataset, *_ = oml_task.get_dataset().get_data()
+    eval_metric = oml_task.evaluation_measure
+
+    # add splits here as well
+    num_classes = (
+        -1
+        if oml_task.task_type_id.value == 2
+        else oml_dataset[oml_task.target_name].nunique()
+    )
+
+
+    return {
+        "eval_metric": eval_metric,
+        # problem_type: oml_task.task_type_id,
+    }
