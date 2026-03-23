@@ -133,6 +133,8 @@ def evaluate_single(
     from tabarena.nips2025_utils.compare import subset_tasks
     df_results = df_results.copy()
 
+    method_rename_map = tabarena_context.get_method_rename_map()
+
     subset = []
     folder_name = "all"
     if problem_type is not None:
@@ -186,6 +188,7 @@ def evaluate_single(
         output_dir=eval_save_path / folder_name,
         elo_bootstrap_rounds=elo_bootstrap_rounds,
         tabarena_context=tabarena_context,
+        method_rename_map=method_rename_map,
         **evaluator_kwargs,
     )
 
@@ -195,7 +198,7 @@ def evaluate_single(
     if baseline_colors is not None:
         eval_kwargs["baseline_colors"] = baseline_colors
 
-    plotter.eval(
+    leaderboard = plotter.eval(
         df_results=df_results,
         plot_extra_barplots=False,
         include_norm_score=True,
@@ -204,3 +207,11 @@ def evaluate_single(
         average_seeds=average_seeds,
         **eval_kwargs,
     )
+
+    leaderboard_website_verified = tabarena_context.leaderboard_to_website_format(
+        leaderboard=leaderboard,
+        include_type=True,
+        include_url=True,
+    )
+    path_website_lb = plotter.output_dir / "website_leaderboard.csv"
+    leaderboard_website_verified.to_csv(path_website_lb, index=False)

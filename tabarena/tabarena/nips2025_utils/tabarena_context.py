@@ -158,6 +158,22 @@ class TabArenaContext:
             s3_prefix=s3_prefix,
         )
 
+    def get_method_rename_map(self) -> dict[str, str]:
+        method_rename_map = dict()
+        method_metadatas = self.method_metadata_collection.method_metadata_lst
+        for m in method_metadatas:
+            if m.method_type == "config":
+                display_name = m.display_name
+                if display_name is not None:
+                    if m.config_type in method_rename_map:
+                        print(
+                            f"WARNING: Multiple display_name values detected for the same config_type={m.config_type!r}"
+                            f"\n\tdisplay_name 1: {method_rename_map[m.config_type]!r}"
+                            f"\n\tdisplay_name 2: {display_name!r}"
+                        )
+                    method_rename_map[m.config_type] = display_name
+        return method_rename_map
+
     def load_raw(self, method: str, as_holdout: bool = False) -> list[BaselineResult]:
         metadata: MethodMetadata = self.method_metadata(method=method)
         results_lst = metadata.load_raw(engine=self.engine, as_holdout=as_holdout)
