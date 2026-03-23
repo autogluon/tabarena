@@ -18,7 +18,7 @@ if __name__ == "__main__":
     use_latex: bool = False
     download_results = False  # Set to False to avoid re-download
 
-    include_unverified = False
+    include_unverified = True
     run_ablations = False
 
     tabarena_context = TabArenaContext(include_unverified=include_unverified)
