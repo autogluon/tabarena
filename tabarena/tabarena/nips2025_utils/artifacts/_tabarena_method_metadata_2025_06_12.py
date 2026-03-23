@@ -215,7 +215,7 @@ methods_main_paper = [
     "TabPFNv2_GPU",
 
     "AutoGluon_v130",
-    "Portfolio-N200-4h",
+    # "Portfolio-N200-4h",
 ]
 
 methods_gpu_ablation = [
