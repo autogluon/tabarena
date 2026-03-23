@@ -5,7 +5,7 @@ import pickle
 from collections import OrderedDict
 from collections.abc import Iterable
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields, replace
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -32,7 +32,7 @@ SplitIndex = Annotated[str, "format: r{int}f{int}"]
 
 @dataclass
 class TabArenaTaskMetadata:
-    """Metadata about the task."""
+    """Metadata about the task to run."""
 
     dataset_name: str
     """Simple name of the dataset used for the task."""
@@ -47,7 +47,6 @@ class TabArenaTaskMetadata:
     eval_metric: str
     """The evaluation metric used for the task."""
 
-    n_splits: int
     """The number of splits in the task."""
     splits_metadata: dict[SplitIndex, SplitMetadata]
     """Mapping of split index to Metadata about the splits in the task."""
@@ -70,6 +69,20 @@ class TabArenaTaskMetadata:
     class_consistency_over_splits: bool | None
     """Whether the number of classes is consistent across splits for classification tasks,
     None for regression tasks."""
+
+    tabarena_task_name: str | None
+    """The name of the task used for TabArena. This is used for better identification
+    and can be set by the user."""
+    task_id_str: str | None
+    """The task ID string used for the task. This functions as the unique identifier
+     of the source of the metadat. This can either be an OpenML task ID, or it is the
+     identifier of a local task (see `UserTask.task_id_str`).
+    """
+
+    @property
+    def n_splits(self):
+        """Get the number of splits in the task."""
+        return len(self.splits_metadata)
 
     @property
     def split_indices(self) -> list[SplitIndex]:
@@ -95,6 +108,55 @@ class TabArenaTaskMetadata:
                 }
             )
         return pd.DataFrame(rows)
+
+    @staticmethod
+    def from_row(row: pd.Series) -> TabArenaTaskMetadata:
+        """Reconstruct TabArenaTaskMetadata from a single dataframe row."""
+        row_dict = row.to_dict()
+
+        # Identify TabArenaTaskMetadata fields (excluding splits_metadata)
+        task_field_names = {
+            f.name for f in fields(TabArenaTaskMetadata) if f.name != "splits_metadata"
+        }
+        if not all(name in row_dict for name in task_field_names):
+            raise ValueError(
+                "Metadata row is missing required TabArenaTaskMetadata fields: "
+                f"{task_field_names - row_dict.keys()}"
+            )
+        task_kwargs = {
+            key: row_dict[key] for key in task_field_names if key in row_dict
+        }
+
+        # Identify SplitMetadata fields
+        split_field_names = {f.name for f in fields(SplitMetadata)}
+        if not all(name in row_dict for name in split_field_names):
+            raise ValueError(
+                "Metadata row is missing required SplitMetadata fields: "
+                f"{split_field_names - row_dict.keys()}"
+            )
+        split_kwargs = {
+            key: row_dict[key] for key in split_field_names if key in row_dict
+        }
+        # Reconstruct SplitMetadata
+        split_metadata = SplitMetadata(**split_kwargs)
+
+        # --- Construct final object ---
+        return TabArenaTaskMetadata(
+            **task_kwargs,
+            splits_metadata={split_metadata.split_index: split_metadata},
+        )
+
+    def unroll_splits(self) -> list[TabArenaTaskMetadata]:
+        """Unroll the TabArenaTaskMetadata into a list of TabArenaTaskMetadata instances
+        each containing exactly one split in `splits_metadata`.
+        """
+        return [
+            replace(
+                self,
+                splits_metadata={split_idx: split_meta},
+            )
+            for split_idx, split_meta in self.splits_metadata.items()
+        ]
 
 
 @dataclass
@@ -122,14 +184,19 @@ class SplitMetadata:
     """The number of features (excluding the target) in the test set of the split."""
 
     @staticmethod
-    def split_index(*, repeat_i: int, fold_i: int) -> SplitIndex:
+    def get_split_index(*, repeat_i: int, fold_i: int) -> SplitIndex:
         """Get the split index for the given repeat and fold."""
         return f"r{repeat_i}f{fold_i}"
+
+    @property
+    def split_index(self) -> SplitIndex:
+        """Get the split index for this split metadata."""
+        return self.get_split_index(repeat_i=self.repeat, fold_i=self.fold)
 
     def to_dict(self) -> dict[str, int | str]:
         """Convert the split metadata to a dictionary."""
         res = asdict(self)
-        res["split_index"] = self.split_index(repeat_i=self.repeat, fold_i=self.fold)
+        res["split_index"] = self.split_index
         return res
 
 
@@ -155,7 +222,11 @@ class TabArenaTaskMetadataMixin:
         self.group_time_on = group_time_on
         self._task_metadata = None
 
-    def compute_metadata(self: TabArenaOpenMLSupervisedTask) -> TabArenaTaskMetadata:
+    def compute_metadata(
+        self: TabArenaOpenMLSupervisedTask,
+        tabarena_task_name: str | None = None,
+        task_id_str: str | None = None,
+    ) -> TabArenaTaskMetadata:
         """Get the metadata for the tasks."""
         oml_dataset_object = self.get_dataset()
         oml_dataset, *_ = oml_dataset_object.get_data()
@@ -202,7 +273,9 @@ class TabArenaTaskMetadataMixin:
                         "All splits must have the same problem type."
                     )
 
-                s_index = SplitMetadata.split_index(repeat_i=repeat_i, fold_i=fold_i)
+                s_index = SplitMetadata.get_split_index(
+                    repeat_i=repeat_i, fold_i=fold_i
+                )
                 splits_metadata[s_index] = SplitMetadata(
                     repeat=repeat_i,
                     fold=fold_i,
@@ -212,7 +285,6 @@ class TabArenaTaskMetadataMixin:
                     num_features_train=num_features_train,
                     num_features_test=num_features_test,
                 )
-        n_splits = len(splits_metadata.keys())
 
         if len(num_classes_list) == 0:
             min_n_classes = None
@@ -226,7 +298,6 @@ class TabArenaTaskMetadataMixin:
         self._task_metadata = TabArenaTaskMetadata(
             dataset_name=dataset_name,
             eval_metric=eval_metric,
-            n_splits=n_splits,
             splits_metadata=splits_metadata,
             is_classification=is_classification,
             problem_type=task_problem_type,
@@ -238,6 +309,8 @@ class TabArenaTaskMetadataMixin:
             group_on=self.group_on,
             time_on=self.time_on,
             group_time_on=self.group_time_on,
+            tabarena_task_name=tabarena_task_name,
+            task_id_str=task_id_str,
         )
 
         return self._task_metadata
