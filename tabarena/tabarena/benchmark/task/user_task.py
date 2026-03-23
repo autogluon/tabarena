@@ -32,7 +32,10 @@ SplitIndex = Annotated[str, "format: r{int}f{int}"]
 
 @dataclass
 class TabArenaTaskMetadata:
-    """Metadata about the task to run."""
+    """Metadata about the task to run.
+
+    This metadata has different use cases for 1 or N elements in the splits_metadata.
+    """
 
     dataset_name: str
     """Simple name of the dataset used for the task."""
@@ -88,6 +91,18 @@ class TabArenaTaskMetadata:
     def split_indices(self) -> list[SplitIndex]:
         """Get a list of all split indices in the task."""
         return list(self.splits_metadata.keys())
+
+    @property
+    def split_index(self) -> SplitIndex:
+        """Get the split index for the task.
+        This is only supported for tasks with one split.
+        """
+        if self.n_splits != 1:
+            raise ValueError(
+                f"Cannot get split index for task with {self.n_splits} splits. "
+                "This is only supported for tasks with exactly one split."
+            )
+        return self.split_indices[0]
 
     def to_dict(self, *, exclude_splits_metadata: bool = False) -> dict:
         """Convert the task metadata to a dictionary for better visualization."""

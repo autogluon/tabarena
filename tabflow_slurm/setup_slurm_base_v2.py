@@ -156,7 +156,7 @@ class BenchmarkSetup2026:
     benchmark_name: str
     """Unique name of the benchmark; determines where output artifacts are stored."""
 
-    task_metadata: pd.DataFrame | list[TabArenaTaskMetadata] | str
+    task_metadata: pd.DataFrame | list[TabArenaTaskMetadata] | str | Path
     """Metadat that defines the tasks to benchmark.
 
     If str, we assume it is the path to a CSV file, which we load as DataFrame.
@@ -451,7 +451,8 @@ class BenchmarkSetup2026:
         """Function to parse and filter the task metadata for jobs we want to run."""
         # Parse task metadata
         task_metadata = self.task_metadata
-        if isinstance(task_metadata, str):
+        if isinstance(task_metadata, (str, Path)):
+            print(f"Loading task metadata from {task_metadata}...")
             task_metadata = pd.read_csv(task_metadata, index_col=False)
         if isinstance(task_metadata, pd.DataFrame):
             # Parse task_metadat
@@ -513,11 +514,9 @@ class BenchmarkSetup2026:
         def yield_all_jobs():
             for ta_task_metadata in task_metadata_list:
                 task_id = ta_task_metadata.task_id_str
-
-                assert len(ta_task_metadata.splits_metadata) == 1, (
-                    "Expected only one split per task metadata entry after unrolling!"
-                )
-                split_md = next(iter(ta_task_metadata.splits_metadata.values()))
+                split_md = ta_task_metadata.splits_metadata[
+                    ta_task_metadata.split_index
+                ]
 
                 for config_index, config in list(enumerate(configs)):
                     yield {
@@ -710,13 +709,16 @@ class BenchmarkSetup2026:
                     f"All experiment names must be unique!",
                 )
 
+        configs_path = self.path_setup.get_configs_path(
+            self._parallel_safe_benchmark_name
+        )
         YamlExperimentSerializer.to_yaml(
             experiments=experiments_all,
-            path=self.path_setup.get_configs_path(self._parallel_safe_benchmark_name),
+            path=configs_path,
         )
 
         # Read YAML file and get the number of configs
-        with open(self.configs) as file:
+        with open(configs_path) as file:
             return yaml.safe_load(file)["methods"]
 
     def get_jobs_dict(self):
@@ -730,9 +732,7 @@ class BenchmarkSetup2026:
 
         default_args = {
             "python": self.path_setup.python_path,
-            "run_script": self.path_setup.get_slurm_script_path(
-                self.slurm_setup.script_name
-            ),
+            "run_script": self.path_setup.run_script_path,
             "openml_cache_dir": self.path_setup.openml_cache_path,
             "configs_yaml_file": self.path_setup.get_configs_path(
                 self._parallel_safe_benchmark_name
@@ -762,7 +762,7 @@ class BenchmarkSetup2026:
             ).unlink(missing_ok=True)
             return "N/A"
 
-        with slurm_job_json_path.open("w") as f:
+        with open(slurm_job_json_path, "w") as f:
             json.dump(jobs_dict, f)
 
         run_command = f"sbatch --array=0-{n_jobs - 1}%{array_job_limit} {self.slurm_base_command} {slurm_job_json_path}"
