@@ -10,22 +10,22 @@ from tabarena.website.website_format import format_leaderboard
 
 
 def process_one_folder(
-    *, base_input_path: Path, base_output_path: Path, method_metadata_info
+    *, base_input_path: Path, base_output_path: Path,
 ):
-    # LB CSV
-    path_to_lb = base_input_path / "tabarena_leaderboard.csv"
-    path_to_website_lb = base_output_path / "website_leaderboard.csv"
-    lb = pd.read_csv(path_to_lb)
-    leaderboard_website_verified = format_leaderboard(
-        df_leaderboard=lb, include_type=True, method_metadata_info=method_metadata_info
-    )
-    leaderboard_website_verified.to_csv(path_to_website_lb, index=False)
 
     # N datasets file
     n_datasets = len(
-        pd.read_csv(base_input_path / "results_per_split.csv")["dataset"].unique()
+        pd.read_csv(base_input_path / "results_per_split.csv", low_memory=False)["dataset"].unique()
     )
     (base_output_path / f"n_datasets_{n_datasets}").touch()
+
+    for file_name in [
+        "website_leaderboard.csv",
+    ]:
+        shutil.copy(
+            base_input_path / file_name,
+            base_output_path / file_name,
+        )
 
     # Copy plots
     for fig_path in [
@@ -73,9 +73,6 @@ if __name__ == "__main__":
     path_copy = Path(__file__).parent / "clean_website_artifacts"
 
     file_paths = path_to_output_to_use.glob("**/tabarena_leaderboard.csv")
-    method_metadata_info = pd.read_csv(
-        path_to_output_to_use / "method_metadata_info.csv"
-    )
 
     for path in file_paths:
         base_input_path = Path(path).parent
@@ -86,7 +83,6 @@ if __name__ == "__main__":
         process_one_folder(
             base_input_path=Path(path).parent,
             base_output_path=base_output_path,
-            method_metadata_info=method_metadata_info,
         )
 
     shutil.make_archive(
