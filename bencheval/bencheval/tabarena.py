@@ -818,8 +818,8 @@ class TabArena:
 
     @staticmethod
     def plot_winrate_matrix(
-            winrate_matrix: pd.DataFrame,
-            save_path: str | None,
+        winrate_matrix: pd.DataFrame,
+        save_path: str | None,
     ):
         import matplotlib.pyplot as plt
         z = winrate_matrix.copy()
