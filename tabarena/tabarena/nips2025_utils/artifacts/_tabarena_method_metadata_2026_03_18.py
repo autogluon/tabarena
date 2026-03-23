@@ -1,0 +1,50 @@
+from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+
+
+tabstar_metadata = MethodMetadata(
+    method="TabSTAR",
+    method_type="config",
+    display_name="TabSTAR",
+    compute="gpu",
+    date="2026-03-02",
+    ag_key="TABSTAR",
+    model_key="TABSTAR",
+    config_default="TabSTAR_c1_BAG_L1",
+    can_hpo=True,
+    is_bag=True,
+    has_raw=True,
+    has_processed=True,
+    artifact_name="tabarena-2026-03-18",
+    s3_bucket="tabarena",
+    s3_prefix="cache",
+    upload_as_public=True,
+    has_results=True,
+    name_suffix=None,
+    verified=True,
+    reference_url="https://arxiv.org/abs/2505.18125",
+)
+
+
+
+perpetualbooster_metadata = MethodMetadata(
+    method="PerpetualBooster",
+    method_type="config",
+    display_name="PerpetualBooster",
+    compute="cpu",
+    date="2026-03-06",
+    ag_key="PB",
+    model_key="PB",
+    config_default="PerpetualBooster_c1_BAG_L1",
+    can_hpo=True,
+    is_bag=True,
+    has_raw=True,
+    has_processed=True,
+    artifact_name="tabarena-2026-03-18",
+    s3_bucket="tabarena",
+    s3_prefix="cache",
+    upload_as_public=True,
+    has_results=True,
+    name_suffix=None,
+    verified=False,
+    reference_url="https://perpetual-ml.com/",
+)

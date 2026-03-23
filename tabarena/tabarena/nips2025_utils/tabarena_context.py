@@ -59,6 +59,8 @@ _methods_paper = [
     "RealTabPFN-v2.5",
     "SAP-RPT-OSS",
     "TabICLv2",
+    "TabSTAR",
+    "PerpetualBooster",
 ]
 
 
