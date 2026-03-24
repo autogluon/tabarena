@@ -24,8 +24,6 @@ tabstar_metadata = MethodMetadata(
     reference_url="https://arxiv.org/abs/2505.18125",
 )
 
-
-
 perpetualbooster_metadata = MethodMetadata(
     method="PerpetualBooster",
     method_type="config",
@@ -45,6 +43,6 @@ perpetualbooster_metadata = MethodMetadata(
     upload_as_public=True,
     has_results=True,
     name_suffix=None,
-    verified=False,
+    verified=True,
     reference_url="https://perpetual-ml.com/",
 )
