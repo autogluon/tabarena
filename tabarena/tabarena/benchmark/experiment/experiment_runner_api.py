@@ -367,6 +367,7 @@ def run_experiments_new(
     experiment_count_total = n_splits * len(model_experiments)
     for dataset_index, task_id_or_object in enumerate(tasks):
         task, tabarena_task_name, eval_metric_name = None, None, None
+        validation_split_kwargs = {}
         print(f"Starting Dataset {dataset_index + 1}/{len(tasks)}...")
 
         for split_index, (fold, repeat) in enumerate(
@@ -445,6 +446,18 @@ def run_experiments_new(
 
                         eval_metric_name = task.eval_metric
                         print(f"Using eval metric: {eval_metric_name}")
+                        validation_split_kwargs = task.get_validation_split_kwargs()
+
+
+                    if (task is not None) and validation_split_kwargs:
+                        print(
+                            "Injecting validation split kwargs into experiment:"
+                            f"\n\t{validation_split_kwargs}"
+                        )
+                        model_experiment.method_kwargs = {
+                            **model_experiment.method_kwargs,
+                            **validation_split_kwargs,
+                        }
 
                     try:
                         out = model_experiment.run(
@@ -468,7 +481,10 @@ def run_experiments_new(
 
                 # Safety check for results with non-finite metric errors
                 if (out is not None) and (
-                        not (np.isfinite(out["metric_error"]) and np.isfinite(out["metric_error_val"]))
+                    not (
+                        np.isfinite(out["metric_error"])
+                        and np.isfinite(out["metric_error_val"])
+                    )
                 ):
                     print(
                         "Non-finite final metric error detected: "

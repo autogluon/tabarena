@@ -56,7 +56,7 @@ class TabArenaTaskMetadata:
 
     stratify_on: str | None
     """The name of the column used for stratification during splitting."""
-    group_on: str | None
+    group_on: str | list[str] | None
     """The name of the column used for grouping during splitting."""
     time_on: str | None
     """The name of the column used for temporal splitting."""
@@ -224,7 +224,7 @@ class TabArenaTaskMetadataMixin:
         self,
         *,
         stratify_on: str | None = None,
-        group_on: str | None = None,
+        group_on: str | list[str] | None = None,
         time_on: str | None = None,
         group_time_on: str | None = None,
         **kwargs,
@@ -331,10 +331,6 @@ class TabArenaTaskMetadataMixin:
         return self._task_metadata
 
 
-class TabArenaOpenMLSupervisedTask(TabArenaTaskMetadataMixin, OpenMLSupervisedTask):
-    """A local OpenMLSupervisedTask with additional metadata for TabArena."""
-
-
 class TabArenaOpenMLClassificationTask(
     TabArenaTaskMetadataMixin, OpenMLClassificationTask
 ):
@@ -343,6 +339,12 @@ class TabArenaOpenMLClassificationTask(
 
 class TabArenaOpenMLRegressionTask(TabArenaTaskMetadataMixin, OpenMLRegressionTask):
     """A local OpenMLRegressionTask with additional metadata for TabArena."""
+
+
+# For typing
+TabArenaOpenMLSupervisedTask = (
+    TabArenaOpenMLClassificationTask | TabArenaOpenMLRegressionTask
+)
 
 
 # Patch Functions for OpenML Dataset
@@ -390,7 +392,7 @@ class UserTask:
     def from_task_id_str(task_id_str: str) -> UserTask:
         """Create a UserTask from a task ID string."""
         parts = task_id_str.split("|")
-        if len(parts) != 4 or parts[0] != "UserTask":
+        if (len(parts)) != 4 or (parts[0] != "UserTask"):
             raise ValueError(f"Invalid task ID string: {task_id_str}")
         task_name = parts[2]
         task_cache_path = Path(parts[3])
@@ -436,7 +438,7 @@ class UserTask:
         splits: dict[int, dict[int, tuple[list, list]]],
         eval_metric: str | None = None,
         stratify_on: str | None = None,
-        group_on: str | None = None,
+        group_on: str | list[str] | None = None,
         time_on: str | None = None,
         group_time_on: str | None = None,
         dataset_name: str | None = None,
@@ -492,7 +494,7 @@ class UserTask:
         stratify_on:
             The name of the column used for stratification during splitting.
         group_on:
-            The name of the column used for grouping during splitting.
+            The name(s) of the column used for grouping during splitting.
         time_on:
             The name of the column used for temporal splitting.
         group_time_on:

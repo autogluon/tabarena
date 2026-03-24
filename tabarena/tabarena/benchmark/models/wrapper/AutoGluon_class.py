@@ -10,6 +10,7 @@ import pandas as pd
 
 from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel, _apply_inv_perm, _make_perm
 
+from loguru import logger
 
 class AGWrapper(AbstractExecModel):
     can_get_error_val = True
@@ -21,32 +22,59 @@ class AGWrapper(AbstractExecModel):
         fit_kwargs: dict | None = None,
         preprocess_data: bool = False,
         preprocess_label: bool = False,
+        target_name: str | None = None,
         **kwargs,
     ):
-        super().__init__(preprocess_data=preprocess_data, preprocess_label=preprocess_label, **kwargs)
+        super().__init__(preprocess_data=preprocess_data, preprocess_label=preprocess_label, target_name=target_name, **kwargs)
         if init_kwargs is None:
             init_kwargs = {}
         if fit_kwargs is None:
             fit_kwargs = {}
         self.init_kwargs = init_kwargs
         self.fit_kwargs = fit_kwargs
-        self.label = "__label__"
+        if target_name is None:
+            target_name = "__label__"
+        self.label = target_name
 
-    def _fit(self, X: pd.DataFrame, y: pd.Series, X_val: pd.DataFrame = None, y_val: pd.Series = None, **kwargs):
+    def _fit(self, X: pd.DataFrame, y: pd.Series, X_val: pd.DataFrame = None, y_val: pd.Series = None, groups_indicator: pd.Series | None = None, **kwargs):
         from autogluon.tabular import TabularPredictor
 
+        # FIXME: should we not reset the index of train data here?
         train_data = X.copy()
         train_data[self.label] = y
 
-        fit_kwargs = self.fit_kwargs.copy()
+        fit_kwargs = copy.deepcopy(self.fit_kwargs)
+        init_kwargs = copy.deepcopy(self.init_kwargs)
 
         if X_val is not None:
             tuning_data = X_val.copy()
             tuning_data[self.label] = y_val
             fit_kwargs["tuning_data"] = tuning_data
 
-        self.predictor = TabularPredictor(label=self.label, problem_type=self.problem_type, eval_metric=self.eval_metric, **self.init_kwargs)
-        self.predictor.fit(train_data=train_data, **fit_kwargs)
+        if groups_indicator is not None:
+            n_groups_ind = groups_indicator.nunique()
+            logger.info(
+                "Using groups_indicator to specify groups for validation!"
+                f"\n\tStratify_on: {self.stratify_on}"
+                f"\n\tGroup_on: {self.group_on}"
+                f"\n\t#Group: {n_groups_ind} (Default={self.default_n_groups})"
+                f"\n\tIndicator column: {self.groups_indicator_col_name}"
+            )
+            # .to_numpy needed as we otherwise have an index mismatch
+            train_data[self.groups_indicator_col_name] = groups_indicator.to_numpy()
+            init_kwargs["groups"] = self.groups_indicator_col_name
+
+        self.predictor = TabularPredictor(
+            label=self.label,
+            problem_type=self.problem_type,
+            eval_metric=self.eval_metric,
+            **init_kwargs
+        )
+        self.predictor.fit(
+            train_data=train_data,
+            **fit_kwargs
+        )
+
         # FIXME: persist
         return self
 
