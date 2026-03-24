@@ -47,13 +47,16 @@ class AGWrapper(AbstractExecModel):
         """Update the AutoGluon validation protocol."""
         init_kwargs = copy.deepcopy(self.init_kwargs)
         fit_kwargs = copy.deepcopy(self.fit_kwargs)
-        train_data = X.copy()
+
+        # TODO: ask Nick / figure out if this reset breaks something
+        train_data = X.reset_index(drop=True).copy()
+        y = y.reset_index(drop=True).copy()
 
         num_folds = fit_kwargs.pop("num_bag_folds", None)
         num_repeats = fit_kwargs.pop("num_bag_folds", None)
 
-        groups_indicator, num_folds, num_repeats = self.resolve_validation_splits(
-            X=X,
+        custom_splits, num_folds, num_repeats = self.resolve_validation_splits(
+            X=train_data,
             y=y,
             num_folds=num_folds,
             num_repeats=num_repeats
@@ -65,18 +68,11 @@ class AGWrapper(AbstractExecModel):
         if num_repeats is not None:
             logger.info(f"Using num_repeats: {num_repeats}")
             fit_kwargs["num_bag_sets"] = num_repeats
-        if groups_indicator is not None:
-            n_groups_ind = groups_indicator.nunique()
-            logger.info(
-                "Using groups_indicator to specify groups for validation!"
-                f"\n\tStratify_on: {self.stratify_on}"
-                f"\n\tGroup_on: {self.group_on}"
-                f"\n\t#Group: {n_groups_ind}"
-                f"\n\tIndicator column: {self.groups_indicator_col_name}"
-            )
-            # .to_numpy needed as we otherwise have an index mismatch
-            train_data[self.groups_indicator_col_name] = groups_indicator.to_numpy()
-            init_kwargs["groups"] = self.groups_indicator_col_name
+        if custom_splits is not None:
+            logger.info("Using custom_splits for validation protocol.")
+            if "ag_args_ensemble" not in fit_kwargs:
+                fit_kwargs["ag_args_ensemble"] = {}
+            fit_kwargs["ag_args_ensemble"]["custom_splits"] = custom_splits
 
         train_data[self.label] = y
         if X_val is not None:

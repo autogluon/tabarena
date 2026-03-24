@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 
 class TabArenaValidationProtocolExecMixin:
@@ -45,7 +46,6 @@ class TabArenaValidationProtocolExecMixin:
         self.group_on = group_on
         self.time_on = time_on
         self.group_time_on = group_time_on
-        self.groups_indicator_col_name = "__tabarena_group_split_indicator__"
 
     def resolve_validation_splits(
         self,
@@ -54,15 +54,16 @@ class TabArenaValidationProtocolExecMixin:
         y: pd.Series,
         num_folds: int | None,
         num_repeats: int | None,
-    ) -> tuple[pd.Series | None, int | None, int | None]:
-        """Build a custom group split indicator if needed.
+    ) -> tuple[list[tuple[np.ndarray, np.ndarray]] | None, int | None, int | None]:
+        """Determine which splits setting to use, and if needed, which custom splits.
 
         Returns:
         -------
-        groups_indicator: np.ndarray or None
-            None, if no splits indicator is needed.
-            Otherwise, a Series of shape (n_samples,) where each value is an integer
-            representing the split assignment for that row.
+        custom_splits: list[tuple[np.ndarray, np.ndarray]] or None
+            None, if no custom splits are needed.
+            Otherwise, a list of tuples of train/test indices (as np.ndarrays) to use
+            for validation splitting.
+            IMPORTANT: the split will return the index of the input data X!
         num_folds: int or None
             The number of folds to use for validation.
             This may be updated based on the number of group instances in the data.
@@ -70,32 +71,70 @@ class TabArenaValidationProtocolExecMixin:
             The number of repeats to use for validation.
             This may be updated based on the number of group instances in the data.
         """
-        groups_indicator = None
+        custom_splits = None
 
         if not self.use_task_specific_validation:
             return None, num_folds, num_repeats
 
-        print("==== Using task-specific validation logic!")
         # Stop early if the model does not want to do any validation.
         if (num_folds is None) or (num_folds <= 1):
-            print(
-                "Info: num_folds is None or <= 1, skipping validation splitting logic."
+            logger.info(
+                "\nnum_folds is None or <= 1, skipping validation splitting logic."
                 "\n\t The model is configured to do not validation at all!"
             )
-            return groups_indicator, num_folds, num_repeats
+            return custom_splits, num_folds, num_repeats
 
         num_group_instances = self.get_num_group_instances(X=X)
-        print(f"\tNumber of groups/instances in data: {num_group_instances}")
+        logger.info(
+            "\n=== Using task-specific validation logic!"
+            f"\n\tNumber of groups/instances in data: {num_group_instances}"
+            f"\n\tStratify_on: {self.stratify_on}"
+            f"\n\tGroup_on: {self.group_on}"
+            f"\n\tTime_on: {self.time_on}"
+            f"\n\tGroup_time_on: {self.group_time_on}"
+        )
+
         num_folds, num_repeats = self._resolve_number_of_splits(
             num_folds=num_folds,
             num_repeats=num_repeats,
             num_group_instances=num_group_instances,
         )
 
-        if self.group_on is not None:
-            groups_indicator = self._resolve_group_splits(X=X, y=y, num_folds=num_folds)
+        stratify_on_data = None
+        if self.stratify_on is not None:
+            stratify_on_data = (
+                X[self.stratify_on] if self.stratify_on in X.columns else y
+            )
 
-        return groups_indicator, num_folds, num_repeats
+        if self.group_on is not None:
+            custom_splits = self._resolve_group_splits(
+                X=X,
+                num_folds=num_folds,
+                num_repeats=num_repeats,
+                stratify_on_data=stratify_on_data,
+            )
+
+        # Sanity checks for custom splits
+        if custom_splits is not None:
+            for train_idx, test_idx in custom_splits:
+                if stratify_on_data is not None:
+                    stratify_values = stratify_on_data.unique()
+                    train_stratify_values = set(
+                        stratify_on_data.iloc[train_idx].unique()
+                    )
+                    test_stratify_values = set(stratify_on_data.iloc[test_idx].unique())
+                    assert (
+                        train_stratify_values
+                        == test_stratify_values
+                        == set(stratify_values)
+                    ), (
+                        f"Stratification values in train and test splits do not match!"
+                        f"\n\tOverall stratification values: {stratify_values}"
+                        f"\n\tTrain stratification values: {train_stratify_values}"
+                        f"\n\tTest stratification values: {test_stratify_values}"
+                    )
+
+        return custom_splits, num_folds, num_repeats
 
     def _resolve_number_of_splits(
         self, *, num_folds: int, num_repeats: int, num_group_instances: int
@@ -115,22 +154,22 @@ class TabArenaValidationProtocolExecMixin:
         new_num_folds, new_num_repeats = None, None
         if num_group_instances <= 500:
             new_num_folds = 5
-            new_num_repeats = 10
+            new_num_repeats = 3
         else:
             # We want these by default for all other data in our benchmark.
             assert num_folds == 8
             assert num_repeats == 1
 
         if new_num_folds is not None:
-            print(
-                f"\tUpdating num_bag_folds from {new_num_folds} to {new_num_folds}"
+            logger.info(
+                f"\nUpdating num_bag_folds from {new_num_folds} to {new_num_folds}"
                 f" since number of group instances is less than num_bag_folds."
             )
             num_folds = new_num_folds
 
         if new_num_repeats is not None:
-            print(
-                f"\tUpdating num_bag_sets from {num_repeats} to {new_num_repeats}"
+            logger.info(
+                f"\nUpdating num_bag_sets from {num_repeats} to {new_num_repeats}"
                 f" since number of group instances is less than num_bag_folds."
             )
             num_repeats = new_num_repeats
@@ -138,8 +177,13 @@ class TabArenaValidationProtocolExecMixin:
         return num_folds, num_repeats
 
     def _resolve_group_splits(
-        self, *, X: pd.DataFrame, y: pd.Series, num_folds: int
-    ) -> pd.Series:
+        self,
+        *,
+        X: pd.DataFrame,
+        num_folds: int,
+        num_repeats: int,
+        stratify_on_data: pd.Series | None,
+    ) -> list[tuple[np.ndarray, np.ndarray]]:
         """Create a group-based split given the specified group_on column(s).
         Then transform this into split indices for AutoGluon's group splitter logic.
 
@@ -150,10 +194,7 @@ class TabArenaValidationProtocolExecMixin:
             - We dynamically adjust the number of splits to be the minimum of
                 and the number of unique groups in the data.
         """
-        from sklearn.model_selection import (
-            GroupKFold,
-            StratifiedGroupKFold,
-        )
+        from data_foundry.curation_recommendations import get_recommended_grouped_splits
 
         # Get group label
         group_col = self.group_on
@@ -163,34 +204,40 @@ class TabArenaValidationProtocolExecMixin:
         else:
             groups_data = X[group_col]
 
+        assert not groups_data.isna().any(), "Group column(s) contain NaN values, which is not allowed for group-wise splitting!"
+
         n_groups_in_data = groups_data.nunique()
         assert n_groups_in_data > 1, (
             f"Need at least 2 unique groups for group-wise splitting, but got {n_groups_in_data} unique groups from column(s) {group_col}!"
         )
         num_folds = min(num_folds, n_groups_in_data)
 
-        if self.stratify_on is None:
-            stratify_on_data = None
-        else:
-            assert self.target_name is not None
-            if self.stratify_on == self.target_name:
-                stratify_on_data = y
-            else:
-                assert self.stratify_on in X.columns, (
-                    f"Stratification column '{self.stratify_on}' not found in features!"
-                )
-                stratify_on_data = X[self.stratify_on]
+        splits_data = pd.Series(np.zeros(len(X)), index=X.index).to_frame()
+        splits_data["group"] = groups_data
 
-        splitter = GroupKFold if stratify_on_data is None else StratifiedGroupKFold
-        sklearn_splits = splitter(
-            n_splits=num_folds, random_state=42, shuffle=True
-        ).split(X=X, y=y, groups=groups_data)
+        stratify_on = None
+        if self.stratify_on is not None:
+            splits_data["stratify"] = stratify_on_data
+            stratify_on = "stratify"
 
-        groups_indicator = np.full(shape=len(X), fill_value=-1, dtype=int)
-        for fold_idx, (_, test_index) in enumerate(sklearn_splits):
-            groups_indicator[test_index] = fold_idx
+        # Ensure correct indexing for splits
+        splits_data = splits_data.reset_index(drop=True)
 
-        return pd.Series(groups_indicator)
+        custom_splits = get_recommended_grouped_splits(
+            dataset=splits_data,
+            group_on="group",
+            stratify_on=stratify_on,
+            n_splits=num_folds,
+            n_repeats=num_repeats,
+            test_size=None,
+        )
+        del splits_data
+
+        custom_splits_for_index = []
+        for repeat_splits in custom_splits.values():
+            for train_idx, test_idx in repeat_splits.values():
+                custom_splits_for_index.append((train_idx, test_idx))
+        return custom_splits_for_index
 
     def get_num_group_instances(self, X: pd.DataFrame):
         """Compute the number of rows that represent how much (multi-instance) samples
