@@ -189,6 +189,7 @@ def run_experiments_new(
     raise_on_failure: bool = True,
     debug_mode: bool = False,
     failure_on_non_finite_metric_error: bool = False,
+    dynamic_tabarena_validation_protocol: bool = False,
 ) -> list[dict]:
     """Run model experiments for a set of tasks.
 
@@ -311,6 +312,9 @@ def run_experiments_new(
         the cache file produced for the run. This is useful to ensure that such
         errors resulting from models running into overflows are not ignored silently.
         Moreover, if `raise_on_failure` is also True, the exception will be raised.
+    dynamic_tabarena_validation_protocol: bool, default False
+        If True, the validation split is dynamically configured based on the task
+        type and dataset type.
 
     Returns:
     -------
@@ -367,7 +371,6 @@ def run_experiments_new(
     experiment_count_total = n_splits * len(model_experiments)
     for dataset_index, task_id_or_object in enumerate(tasks):
         task, tabarena_task_name, eval_metric_name = None, None, None
-        validation_split_kwargs = {}
         print(f"Starting Dataset {dataset_index + 1}/{len(tasks)}...")
 
         for split_index, (fold, repeat) in enumerate(
@@ -446,18 +449,25 @@ def run_experiments_new(
 
                         eval_metric_name = task.eval_metric
                         print(f"Using eval metric: {eval_metric_name}")
-                        validation_split_kwargs = task.get_validation_split_kwargs()
 
-
-                    if (task is not None) and validation_split_kwargs:
-                        print(
-                            "Injecting validation split kwargs into experiment:"
-                            f"\n\t{validation_split_kwargs}"
+                    # EXPERIMENTAL: update validation split metadata logic
+                    if (task is not None) and dynamic_tabarena_validation_protocol:
+                        from tabarena.benchmark.experiment.experiment_constructor import (
+                            AGModelBagExperiment,
                         )
-                        model_experiment.method_kwargs = {
-                            **model_experiment.method_kwargs,
-                            **validation_split_kwargs,
-                        }
+
+                        if not isinstance(model_experiment, AGModelBagExperiment):
+                            # TODO: add support
+                            raise NotImplementedError(
+                                "Validation split kwargs only implemented for "
+                                f"AGModelBagExperiment for now, got task {type(task)}"
+                            )
+
+                        # Add info about group and time for the pipeline to handle
+                        model_experiment.load_validation_split_metadata(
+                            use_task_specific_validation=True,
+                            **task.get_validation_split_kwargs(),
+                        )
 
                     try:
                         out = model_experiment.run(

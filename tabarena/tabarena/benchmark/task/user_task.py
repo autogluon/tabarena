@@ -190,6 +190,13 @@ class SplitMetadata:
     """The number of training instances in the split."""
     num_instances_test: int
     """The number of test instances in the split."""
+    num_instance_groups_train: int
+    """The number unique groups of data in the train split.
+    For normal IID data, this is always equal to `num_instances_train`.
+    For non-IID grouped data, this is equal to the number of groups in the data.
+    """
+    num_instance_groups_test: int
+    """The number unique groups of data in the test split."""
     num_classes: int
     """-1 for regression tasks, and maximal number of unique classes in the training
     and test set for classification tasks."""
@@ -236,6 +243,12 @@ class TabArenaTaskMetadataMixin:
         self.time_on = time_on
         self.group_time_on = group_time_on
         self._task_metadata = None
+
+    @staticmethod
+    def get_num_instance_groups(*, X: pd.DataFrame, group_on: str | list[str]) -> int:
+        """Compute the number of instance groups in data based on the group_on."""
+        group_on = group_on if isinstance(group_on, list) else [group_on]
+        return X.groupby(group_on, dropna=False, observed=True).ngroups
 
     def compute_metadata(
         self: TabArenaOpenMLSupervisedTask,
@@ -288,14 +301,30 @@ class TabArenaTaskMetadataMixin:
                         "All splits must have the same problem type."
                     )
 
+                num_instances_train = len(train_idx)
+                num_instances_test = len(test_idx)
+                num_instance_groups_train = num_instances_train
+                num_instance_groups_test = num_instances_test
+
+                # Resolve instance groups
+                if self.group_on is not None:
+                    num_instance_groups_train = self.get_num_instance_groups(
+                        X=oml_dataset.iloc[train_idx], group_on=self.group_on
+                    )
+                    num_instance_groups_test = self.get_num_instance_groups(
+                        X=oml_dataset.iloc[test_idx], group_on=self.group_on
+                    )
+
                 s_index = SplitMetadata.get_split_index(
                     repeat_i=repeat_i, fold_i=fold_i
                 )
                 splits_metadata[s_index] = SplitMetadata(
                     repeat=repeat_i,
                     fold=fold_i,
-                    num_instances_train=len(train_idx),
-                    num_instances_test=len(test_idx),
+                    num_instances_train=num_instances_train,
+                    num_instances_test=num_instances_test,
+                    num_instance_groups_train=num_instance_groups_train,
+                    num_instance_groups_test=num_instance_groups_test,
                     num_classes=num_classes,
                     num_features_train=num_features_train,
                     num_features_test=num_features_test,

@@ -166,6 +166,64 @@ class Experiment:
         return out
 
 
+    def load_validation_split_metadata(
+            self,
+            *,
+            use_task_specific_validation: bool,
+            target_name: str | None = None,
+            stratify_on: str | None = None,
+            group_on: str | list[str] | None = None,
+            time_on: str | None = None,
+            group_time_on: str | None = None,
+            overwrite_existing: bool = False,
+        ) -> None:
+        """Load validation split metadata into the experiment's method_kwargs.
+
+        Parameter
+        ---------
+        use_task_specific_validation: bool
+            If True, we will adapt the validation protocol of the experiment
+            based on the metadat from the task.
+        target_name: str, optional
+            The name of the target column in the dataset.
+        stratify_on: str, optional
+            The name of the column to stratify on when creating validation splits.
+        group_on: str or list of str, optional
+            The name(s) of the column(s) to group on when creating validation splits.
+        time_on: str, optional
+            The name of the column to use for time-based validation splits.
+        group_time_on: str, optional
+            The name of the column to use for group time-based validation splits.
+        overwrite_existing: bool, default False
+            If True, will overwrite existing validation split metadata in method_kwargs.
+        """
+        print(
+            "Loading validation split metadata into experiment:"\
+            f"\n\tUse task specific validation: {use_task_specific_validation}"
+            f"\n\ttarget_name: {target_name}"
+            f"\n\tstratify_on: {stratify_on}"
+            f"\n\tgroup_on: {group_on}"
+            f"\n\ttime_on: {time_on}"
+            f"\n\tgroup_time_on: {group_time_on}"
+        )
+        params = {
+            "use_task_specific_validation": use_task_specific_validation,
+            "target_name": target_name,
+            "stratify_on": stratify_on,
+            "group_on": group_on,
+            "time_on": time_on,
+            "group_time_on": group_time_on,
+        }
+
+        for key, value in params.items():
+            if (not overwrite_existing) and (key in self.method_kwargs):
+                print(
+                    f"{key} already exists, using existing value: "
+                    f"\n\t{self.method_kwargs[key]}"
+                )
+            else:
+                self.method_kwargs[key] = value
+
 class AGModelOuterExperiment(Experiment):
     """
     Simplified Experiment class

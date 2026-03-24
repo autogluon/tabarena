@@ -36,21 +36,36 @@ class AGWrapper(AbstractExecModel):
             target_name = "__label__"
         self.label = target_name
 
-    def _fit(self, X: pd.DataFrame, y: pd.Series, X_val: pd.DataFrame = None, y_val: pd.Series = None, groups_indicator: pd.Series | None = None, **kwargs):
-        from autogluon.tabular import TabularPredictor
+    @staticmethod
+    def _resolve_validation_protocol(
+        *,
+        X: pd.DataFrame,
+        y: pd.Series,
+        X_val: pd.DataFrame | None,
+        y_val: pd.Series | None,
+        init_kwargs: dict,
+        fit_kwargs: dict,
+    ) -> tuple[pd.DataFrame, dict, dict]:
+        """Update the AutoGluon validation protocol."""
+        init_kwargs = copy.deepcopy(init_kwargs)
+        fit_kwargs = copy.deepcopy(fit_kwargs)
 
-        # FIXME: should we not reset the index of train data here?
-        train_data = X.copy()
-        train_data[self.label] = y
+        num_folds = fit_kwargs.pop("num_bag_folds", None)
+        num_repeats = fit_kwargs.pop("num_bag_folds", None)
 
-        fit_kwargs = copy.deepcopy(self.fit_kwargs)
-        init_kwargs = copy.deepcopy(self.init_kwargs)
+        groups_indicator, num_folds, num_repeats = self.resolve_validation_splits(
+            X=X,
+            y=y,
+            num_folds=num_folds,
+            num_repeats=num_repeats
+        )
 
-        if X_val is not None:
-            tuning_data = X_val.copy()
-            tuning_data[self.label] = y_val
-            fit_kwargs["tuning_data"] = tuning_data
-
+        if num_folds is not None:
+            logger.info(f"Using num_folds: {num_folds}")
+            fit_kwargs["num_bag_folds"] = num_folds
+        if num_repeats is not None:
+            logger.info(f"Using num_repeats: {num_repeats}")
+            fit_kwargs["num_bag_sets"] = num_repeats
         if groups_indicator is not None:
             n_groups_ind = groups_indicator.nunique()
             logger.info(
@@ -61,8 +76,38 @@ class AGWrapper(AbstractExecModel):
                 f"\n\tIndicator column: {self.groups_indicator_col_name}"
             )
             # .to_numpy needed as we otherwise have an index mismatch
-            train_data[self.groups_indicator_col_name] = groups_indicator.to_numpy()
+            X[self.groups_indicator_col_name] = groups_indicator.to_numpy()
             init_kwargs["groups"] = self.groups_indicator_col_name
+
+        train_data = X.copy()
+        train_data[self.label] = y
+        if X_val is not None:
+            tuning_data = X_val.copy()
+            tuning_data[self.label] = y_val
+            fit_kwargs["tuning_data"] = tuning_data
+
+        return train_data, init_kwargs, fit_kwargs
+
+
+    def _fit(
+            self,
+            X: pd.DataFrame,
+            y: pd.Series,
+            X_val: pd.DataFrame = None,
+            y_val: pd.Series = None,
+            **kwargs
+    ):
+        from autogluon.tabular import TabularPredictor
+
+        # FIXME: should we not reset the index of train data here?
+        train_data, init_kwargs, fit_kwargs = self._resolve_validation_protocol(
+            X=X,
+            y=y,
+            X_val=X_val,
+            y_val=y_val,
+            init_kwargs=self.init_kwargs,
+            fit_kwargs=self.fit_kwargs,
+        )
 
         self.predictor = TabularPredictor(
             label=self.label,

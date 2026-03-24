@@ -7,9 +7,10 @@ from autogluon.core.metrics import Scorer
 from autogluon.features import AutoMLPipelineFeatureGenerator
 
 from tabarena.utils.time_utils import Timer
+from tabarena.benchmark.models.wrapper.validation_utils import TabArenaValidationProtocolExecMixin
 
 
-class AbstractExecModel:
+class AbstractExecModel(TabArenaValidationProtocolExecMixin):
     can_get_error_val = False
     can_get_oof = False
     can_get_per_child_oof = False
@@ -28,26 +29,9 @@ class AbstractExecModel:
         reset_index_test: bool = True,
         # TODO: default to True in the future.
         shuffle_features: bool = False,
-        target_name: str | None = None,
-        group_on: str | list[str] | None = None,
-        stratify_on: str | None = None,
-        time_on: str | None = None,
-        group_time_on: str | None = None,
-        default_n_splits: int = 8,
+        **kwargs,
     ):
-        """Abstract Model executor class.
-
-        Parameters
-        ----------
-        target_name:
-            The name of the target column. This might be needed for splitting.
-        stratify_on:
-            The name of the column used for stratification during splitting.
-        group_on:
-            Name of the column that identifies groups for group-wise splitting during
-            validation. If not None, this column will be used to ensure that all rows
-            with the same value in this column are kept in the same split.
-        """
+        super().__init__(**kwargs)
         self.problem_type = problem_type
         self.eval_metric = eval_metric
         self.preprocess_data = preprocess_data
@@ -59,15 +43,6 @@ class AbstractExecModel:
         self._feature_generator = None
         self.failure_artifact = None
         self.shuffle_features = shuffle_features
-
-        # New logic for group-wise splitting during validation
-        self.target_name = target_name
-        self.stratify_on = stratify_on
-        self.group_on = group_on
-        self.time_on = time_on
-        self.group_time_on = group_time_on
-        self.default_n_groups = default_n_splits
-        self.groups_indicator_col_name = "__tabarena_group_split_indicator__"
 
     def transform_y(self, y: pd.Series) -> pd.Series:
         return self.label_cleaner.transform(y)
@@ -130,73 +105,6 @@ class AbstractExecModel:
 
         return out
 
-    def _resolve_custom_splits(self, *, X: pd.DataFrame, y: pd.Series) -> pd.Series | None:
-        """Build a custom group split indicator if needed.
-
-        Returns
-        -------
-        groups_indicator: np.ndarray or None
-            None, if no splits indicator is needed.
-            Otherwise, a Series of shape (n_samples,) where each value is an integer
-            representing the split assignment for that row.
-        """
-        groups_indicator = None
-
-        if self.group_on is not None:
-            groups_indicator = self._resolve_group_splits(X=X, y=y)
-
-        return groups_indicator
-
-    def _resolve_group_splits(self, *, X: pd.DataFrame, y: pd.Series) -> pd.Series:
-        """Create a group-based split given the specified group_on column(s).
-        Then transform this into split indices for AutoGluon's group splitter logic.
-
-        Some comments about this logic:
-            - If we are given a list of group_on columns, we create a combined group
-                identifier by concatenating the values in those columns.
-            - We use stratification if stratify_on is specified.
-            - We dynamically adjust the number of splits to be the minimum of
-                default_n_splits (=8) and the number of unique groups in the data.
-        """
-        from sklearn.model_selection import (
-            StratifiedGroupKFold,
-            GroupKFold,
-        )
-
-        # Get group label
-        group_col = self.group_on
-        if isinstance(group_col, list):
-            # If multiple columns are specified, create a combined group identifier
-            groups_data = X[group_col].astype(str).agg("_".join, axis=1)
-        else:
-            groups_data = X[group_col]
-
-        n_groups_in_data = groups_data.nunique()
-        assert n_groups_in_data > 1, f"Need at least 2 unique groups for group-wise splitting, but got {n_groups_in_data} unique groups from column(s) {group_col}!"
-        n_splits = min(self.default_n_groups, n_groups_in_data)
-        print(f"Found #groups in data: {n_groups_in_data}")
-
-        if self.stratify_on is None:
-            stratify_on_data = None
-        else:
-            assert self.target_name is not None
-            if self.stratify_on == self.target_name:
-                stratify_on_data = y
-            else:
-                assert self.stratify_on in X.columns, f"Stratification column '{self.stratify_on}' not found in features!"
-                stratify_on_data = X[self.stratify_on]
-
-        splitter = GroupKFold if stratify_on_data is None else StratifiedGroupKFold
-        sklearn_splits = splitter(
-            n_splits=n_splits, random_state=42, shuffle=True
-        ).split(X=X, y=y, groups=groups_data)
-
-        groups_indicator = np.full(shape=len(X), fill_value=-1, dtype=int)
-        for fold_idx, (_, test_index) in enumerate(sklearn_splits):
-            groups_indicator[test_index] = fold_idx
-
-        return pd.Series(groups_indicator)
-
     # TODO: Prateek, Add a toggle here to see if user wants to fit or fit and predict, also add model saving functionality
     # TODO: Nick: Temporary name
     def _fit_custom(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame) -> dict:
@@ -250,13 +158,10 @@ class AbstractExecModel:
         if X_val is not None:
             X_val = self.transform_X(X_val)
             y_val = self.transform_y(y_val)
-            groups_indicator = None
-        else:
-            groups_indicator = self._resolve_custom_splits(X=X, y=y)
 
-        return self._fit(X=X, y=y, X_val=X_val, y_val=y_val, groups_indicator=groups_indicator)
+        return self._fit(X=X, y=y, X_val=X_val, y_val=y_val)
 
-    def _fit(self, X: pd.DataFrame, y: pd.Series, X_val=None, y_val=None, groups_indicator: pd.Series | None =None):
+    def _fit(self, X: pd.DataFrame, y: pd.Series, X_val=None, y_val=None):
         raise NotImplementedError
 
     def predict_from_proba(self, y_pred_proba: pd.DataFrame) -> pd.Series:
