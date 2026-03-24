@@ -25,6 +25,7 @@ dependencies = [
   "huggingface-hub",
   "numpy",
   "pandas",
+  "sentence_transformers",
 
   # TODO: For 2025 paper, consider making optional
   "tueplots",
