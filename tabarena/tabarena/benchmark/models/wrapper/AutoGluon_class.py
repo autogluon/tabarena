@@ -36,19 +36,17 @@ class AGWrapper(AbstractExecModel):
             target_name = "__label__"
         self.label = target_name
 
-    @staticmethod
     def _resolve_validation_protocol(
+        self,
         *,
         X: pd.DataFrame,
         y: pd.Series,
         X_val: pd.DataFrame | None,
         y_val: pd.Series | None,
-        init_kwargs: dict,
-        fit_kwargs: dict,
     ) -> tuple[pd.DataFrame, dict, dict]:
         """Update the AutoGluon validation protocol."""
-        init_kwargs = copy.deepcopy(init_kwargs)
-        fit_kwargs = copy.deepcopy(fit_kwargs)
+        init_kwargs = copy.deepcopy(self.init_kwargs)
+        fit_kwargs = copy.deepcopy(self.fit_kwargs)
 
         num_folds = fit_kwargs.pop("num_bag_folds", None)
         num_repeats = fit_kwargs.pop("num_bag_folds", None)
@@ -105,8 +103,6 @@ class AGWrapper(AbstractExecModel):
             y=y,
             X_val=X_val,
             y_val=y_val,
-            init_kwargs=self.init_kwargs,
-            fit_kwargs=self.fit_kwargs,
         )
 
         self.predictor = TabularPredictor(
