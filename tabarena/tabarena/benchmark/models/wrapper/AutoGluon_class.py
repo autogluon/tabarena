@@ -47,6 +47,7 @@ class AGWrapper(AbstractExecModel):
         """Update the AutoGluon validation protocol."""
         init_kwargs = copy.deepcopy(self.init_kwargs)
         fit_kwargs = copy.deepcopy(self.fit_kwargs)
+        train_data = X.copy()
 
         num_folds = fit_kwargs.pop("num_bag_folds", None)
         num_repeats = fit_kwargs.pop("num_bag_folds", None)
@@ -70,14 +71,13 @@ class AGWrapper(AbstractExecModel):
                 "Using groups_indicator to specify groups for validation!"
                 f"\n\tStratify_on: {self.stratify_on}"
                 f"\n\tGroup_on: {self.group_on}"
-                f"\n\t#Group: {n_groups_ind} (Default={self.default_n_groups})"
+                f"\n\t#Group: {n_groups_ind}"
                 f"\n\tIndicator column: {self.groups_indicator_col_name}"
             )
             # .to_numpy needed as we otherwise have an index mismatch
-            X[self.groups_indicator_col_name] = groups_indicator.to_numpy()
+            train_data[self.groups_indicator_col_name] = groups_indicator.to_numpy()
             init_kwargs["groups"] = self.groups_indicator_col_name
 
-        train_data = X.copy()
         train_data[self.label] = y
         if X_val is not None:
             tuning_data = X_val.copy()

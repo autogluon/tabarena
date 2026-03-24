@@ -85,7 +85,7 @@ class TabArenaValidationProtocolExecMixin:
             return groups_indicator, num_folds, num_repeats
 
         num_group_instances = self.get_num_group_instances(X=X)
-        print(f"Number of group instances in data: {num_group_instances}")
+        print(f"\tNumber of groups/instances in data: {num_group_instances}")
         num_folds, num_repeats = self._resolve_number_of_splits(
             num_folds=num_folds,
             num_repeats=num_repeats,
@@ -123,14 +123,14 @@ class TabArenaValidationProtocolExecMixin:
 
         if new_num_folds is not None:
             print(
-                f"Updating num_bag_folds from {new_num_folds} to {new_num_folds}"
+                f"\tUpdating num_bag_folds from {new_num_folds} to {new_num_folds}"
                 f" since number of group instances is less than num_bag_folds."
             )
             num_folds = new_num_folds
 
         if new_num_repeats is not None:
             print(
-                f"Updating num_bag_sets from {num_repeats} to {new_num_repeats}"
+                f"\tUpdating num_bag_sets from {num_repeats} to {new_num_repeats}"
                 f" since number of group instances is less than num_bag_folds."
             )
             num_repeats = new_num_repeats
@@ -168,7 +168,6 @@ class TabArenaValidationProtocolExecMixin:
             f"Need at least 2 unique groups for group-wise splitting, but got {n_groups_in_data} unique groups from column(s) {group_col}!"
         )
         num_folds = min(num_folds, n_groups_in_data)
-        print(f"Found #groups in data: {n_groups_in_data}")
 
         if self.stratify_on is None:
             stratify_on_data = None

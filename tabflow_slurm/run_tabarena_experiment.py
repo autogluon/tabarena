@@ -258,6 +258,7 @@ def run_experiment(
     num_gpus: int,
     memory_limit: int,
     sequential_local_fold_fitting: bool,
+    dynamic_tabarena_validation_protocol: bool,
 ):
     """Run an individual experiment for a given task id and dataset name.
 
@@ -310,6 +311,7 @@ def run_experiment(
         repetitions_mode_args=[(fold, repeat)],
         cache_mode="ignore" if ignore_cache else "default",
         failure_on_non_finite_metric_error=True,
+        dynamic_tabarena_validation_protocol=dynamic_tabarena_validation_protocol,
     )[0]
     print("Metric error:", results_lst["metric_error"])
     return results_lst
@@ -425,6 +427,14 @@ if __name__ == "__main__":
         help="If True, setup Ray to work well in a shared resources environment with SLURM.",
         default=False,
     )
+    parser.add_argument(
+        "--dynamic_tabarena_validation_protocol",
+        type=_str2bool,
+        help="Whether to use the dynamic TabArena validation protocol or not. "
+             "If True, the validation protocol will be dynamically updated based "
+             "on the characteristics of the data for an experiment.",
+        default=False,
+    )
     args = parser.parse_args()
 
     num_cpus = args.num_cpus
@@ -461,6 +471,7 @@ if __name__ == "__main__":
             num_gpus=args.num_gpus,
             memory_limit=memory_limit,
             sequential_local_fold_fitting=args.sequential_local_fold_fitting,
+            dynamic_tabarena_validation_protocol=args.dynamic_tabarena_validation_protocol,
         )
     finally:
         if ray_temp_dir is not None:

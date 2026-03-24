@@ -290,6 +290,9 @@ class BenchmarkSetup2026:
 
     # Misc Settings
     # -------------
+    dynamic_tabarena_validation_protocol: bool = True
+    """If True, the validation data will be adapted dynamically based on the task.
+    WARNING: this can overwrite the configured validation of a configuration!"""
     parallel_benchmark_name: str | None = None
     """Set this is to some string value to make sure you can run parallel
     jobs for the same benchmark name.This ensures that the config and job .yaml/.json
@@ -744,6 +747,7 @@ class BenchmarkSetup2026:
             "setup_ray_for_slurm_shared_resources_environment": self.slurm_setup.setup_ray_for_slurm_shared_resources_environment,
             "ignore_cache": self.ignore_cache,
             "sequential_local_fold_fitting": self.sequential_local_fold_fitting,
+            "dynamic_tabarena_validation_protocol": self.dynamic_tabarena_validation_protocol,
         }
         return {"defaults": default_args, "jobs": jobs}
 
