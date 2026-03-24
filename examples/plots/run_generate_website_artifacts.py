@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from run_plot_pareto_over_tuning_time import plot_tuning_trajectories_all
+from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories_all
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.website.process_artifacts_to_website import process_one_folder
 from tabarena.website.process_pngs import process_png_bulk
@@ -82,7 +82,7 @@ def convert_to_website_format(input_path: str | Path, output_path: str | Path):
     shutil.make_archive(
         "clean_website_artifacts",
         "zip",
-        root_dir="clean_website_artifacts/data",
+        root_dir="clean_website_artifacts/website_data",
     )
 
 
@@ -90,13 +90,13 @@ if __name__ == "__main__":
     raw_artifacts_save_path = "output_website_artifacts"
     clean_artifacts_save_path = "clean_website_artifacts"
 
-    # 1. Generate 'output_website_artifacts' folder
+    # 1. Generate 'output_website_artifacts' folder (time-consuming)
     generate_website_artifacts(output_path=raw_artifacts_save_path)
 
-    # 2. Generate 'clean_website_artifacts' folder
+    # 2. Generate 'clean_website_artifacts' folder (fast)
     convert_to_website_format(input_path=raw_artifacts_save_path, output_path=clean_artifacts_save_path)
 
-    # 3. Manually copy/paste the 'clean_website_artifacts/data/'
+    # 3. Manually copy/paste the 'clean_website_artifacts/website_data/'
     # folder contents into the HuggingFace Space 'data/' directory.
 
     # 4. Commit all HuggingFace Space file changes and push.
