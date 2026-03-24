@@ -12,7 +12,7 @@ from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 def get_all_subset_combinations() -> list[tuple[bool, str, bool, str | None, bool, bool]]:
     use_imputation_lst = [False, True]
     problem_type_lst = ["all", "classification", "regression", "binary", "multiclass"]
-    dataset_subset_lst = [None, "small", "medium", "tabpfn"]
+    dataset_subset_lst = [None, "small", "medium"]
     with_baselines_lst = [True]
     lite_lst = [False, True]
     average_seeds_lst = [False]
