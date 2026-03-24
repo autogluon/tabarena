@@ -49,13 +49,18 @@ def evaluate_all(
     elo_bootstrap_rounds: int = 200,
     use_latex: bool = False,
     use_website_folder_names: bool = False,
+    evaluator_kwargs: dict = None,
 ):
+    if evaluator_kwargs is None:
+        evaluator_kwargs = {}
     banned_pareto_methods = ["KNN", "LR"]
 
-    evaluator_kwargs = {
+    evaluator_kwargs_ = {
         "use_latex": use_latex,
         "banned_pareto_methods": banned_pareto_methods,
     }
+    evaluator_kwargs_.update(evaluator_kwargs)
+    evaluator_kwargs = evaluator_kwargs_
 
     eval_save_path = Path(eval_save_path)
 

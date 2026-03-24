@@ -224,7 +224,7 @@ def plot_hpo(
     ax.tick_params(axis='both', labelsize=9)
     fig.tight_layout()
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    fig.savefig(str(save_path))
+    fig.savefig(str(save_path), dpi=300)
 
 
 def compute_tuning_trajectories_leaderboard(
