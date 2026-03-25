@@ -22,6 +22,7 @@ tabstar_metadata = MethodMetadata(
     name_suffix=None,
     verified=True,
     reference_url="https://arxiv.org/abs/2505.18125",
+    cache_type="r2",
 )
 
 perpetualbooster_metadata = MethodMetadata(
@@ -45,4 +46,5 @@ perpetualbooster_metadata = MethodMetadata(
     name_suffix=None,
     verified=True,
     reference_url="https://perpetual-ml.com/",
+    cache_type="r2",
 )
