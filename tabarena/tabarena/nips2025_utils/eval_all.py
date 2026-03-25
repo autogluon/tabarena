@@ -53,7 +53,7 @@ def evaluate_all(
 ):
     if evaluator_kwargs is None:
         evaluator_kwargs = {}
-    banned_pareto_methods = ["KNN", "LR"]
+    banned_pareto_methods = ["KNN", "LR", "PB", "TABSTAR"]
 
     evaluator_kwargs_ = {
         "use_latex": use_latex,
