@@ -245,8 +245,13 @@ class TabArenaTaskMetadataMixin:
         self._task_metadata = None
 
     @staticmethod
-    def get_num_instance_groups(*, X: pd.DataFrame, group_on: str | list[str]) -> int:
+    def get_num_instance_groups(
+        *, X: pd.DataFrame, group_on: str | list[str] | None
+    ) -> int:
         """Compute the number of instance groups in data based on the group_on."""
+        if group_on is None:
+            return len(X)
+
         group_on = group_on if isinstance(group_on, list) else [group_on]
         return X.groupby(group_on, dropna=False, observed=True).ngroups
 

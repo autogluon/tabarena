@@ -242,7 +242,9 @@ class BenchmarkSetup2026:
     This can be disabled by setting this to False. Warning: the model then needs
     to be able to handle this!
     """
-    preprocessing_pipelines: list[str] = field(default_factory=lambda: ["default"])
+    preprocessing_pipelines: list[str] = field(
+        default_factory=lambda: ["tabarena_default"]
+    )
     """EXPERIMENTAL!
     Preprocessing pipelines to add to the configurations we want to run.
 
@@ -252,6 +254,8 @@ class BenchmarkSetup2026:
 
     Options:
         - "default": Use the default preprocessing pipeline.
+        - "tabarena_default": new model agnostic and model specific preprocessing 
+            updates for TabArena (experimental, can be buggy!).
         - Any other string points to custom experimental code for now.
     """
     custom_model_constraints: dict[str, dict[str, int]] | None = None

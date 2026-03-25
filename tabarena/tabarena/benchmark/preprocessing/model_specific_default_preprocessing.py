@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from autogluon.common.features.types import S_TEXT_EMBEDDING
 from autogluon.features import IdentityFeatureGenerator
 
 from tabarena.benchmark.preprocessing.text_feature_generators import (
@@ -26,21 +25,27 @@ class TabArenaModelSpecificPreprocessing:
         if "feature_generators" not in hyperparameters[hp_key_kwargs]:
             hyperparameters[hp_key_kwargs]["feature_generators"] = []
 
-        hyperparameters[hp_key_kwargs]["feature_generators"].append(
+        hyperparameters[hp_key_kwargs]["feature_generators"] += (
             TabArenaModelSpecificPreprocessing.get_model_specific_generator()
         )
         return hyperparameters
 
     @staticmethod
-    def get_model_specific_generator():
+    def get_model_specific_generator() -> list:
         """Grouped PCA Generator with passthrough for non-text-embedding features."""
+        filter_dtypes = TextEmbeddingDimensionalityReductionFeatureGenerator.get_infer_features_in_args_to_drop()[
+            "invalid_special_types"
+        ]
         return [
             # Passthrough for all non-text-embedding features
-            IdentityFeatureGenerator(
-                infer_features_in_args={
-                    "invalid_special_types": [S_TEXT_EMBEDDING],
-                }
+            (
+                IdentityFeatureGenerator,
+                dict(  # noqa: C408
+                    infer_features_in_args={
+                        "invalid_special_types": filter_dtypes,
+                    }
+                ),
             ),
             # PCA for text-embedding features
-            TextEmbeddingDimensionalityReductionFeatureGenerator(),
+            (TextEmbeddingDimensionalityReductionFeatureGenerator, {}),
         ]

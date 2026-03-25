@@ -15,4 +15,5 @@ BenchmarkSetup2026(
         ("LightGBM", 0),
     ],
     split_indices_to_run="lite",
+    ignore_cache=True,
 ).setup_jobs()

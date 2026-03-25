@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -143,31 +144,57 @@ def _parse_yaml_config(
         if sequential_local_fold_fitting:
             if "ag_args_ensemble" not in method["model_hyperparameters"]:
                 method["model_hyperparameters"]["ag_args_ensemble"] = {}
-            method["model_hyperparameters"]["ag_args_ensemble"]["fold_fitting_strategy"] = "sequential_local"
+            method["model_hyperparameters"]["ag_args_ensemble"][
+                "fold_fitting_strategy"
+            ] = "sequential_local"
 
         methods.append(YamlSingleExperimentSerializer.parse_method(method))
 
     # TODO: Update
     #   - Make this a general purpose logic inside of TabArena code base to edit feature generator
     for m_i in range(len(methods)):
-        preprocessing_name = methods[m_i].method_kwargs.pop("preprocessing_pipeline", None)
+        preprocessing_name = methods[m_i].method_kwargs.pop(
+            "preprocessing_pipeline", None
+        )
 
         if (preprocessing_name is None) or (preprocessing_name == "default"):
             continue
 
-        # Logic for feature selection benchmark
-        if preprocessing_name.startswith("FSBench__"):
-            from copy import deepcopy
+        if preprocessing_name == "tabarena_default":
+            print("=== Using new TabArena default preprocessing pipeline for method!")
+            from tabarena.benchmark.preprocessing import (
+                TabArenaModelAgnosticPreprocessing,
+                TabArenaModelSpecificPreprocessing,
+            )
 
-            from autogluon.features.generators.drop_duplicates import DropDuplicatesFeatureGenerator
-            from autogluon.features.generators.drop_unique import DropUniqueFeatureGenerator
-            from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import ProxyModelConfig
+            new_experiment = deepcopy(methods[m_i])
+            new_experiment.method_kwargs["fit_kwargs"]["feature_generator"] = (
+                TabArenaModelAgnosticPreprocessing()
+            )
+            new_experiment.method_kwargs["model_hyperparameters"] = (
+                TabArenaModelSpecificPreprocessing.add_to_hyperparameters(
+                    new_experiment.method_kwargs["model_hyperparameters"]
+                )
+            )
+        elif preprocessing_name.startswith("FSBench__"):
+            # Logic for feature selection benchmark
+            from autogluon.features.generators.drop_duplicates import (
+                DropDuplicatesFeatureGenerator,
+            )
+            from autogluon.features.generators.drop_unique import (
+                DropUniqueFeatureGenerator,
+            )
+            from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import (
+                ProxyModelConfig,
+            )
             from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (
                 FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL,
                 get_feature_selector_from_name,
             )
 
-            _, fs_method_name, max_feature_threshold, proxy_model, fs_time = preprocessing_name.split("__")
+            _, fs_method_name, max_feature_threshold, proxy_model, fs_time = (
+                preprocessing_name.split("__")
+            )
             max_feature_threshold = float(max_feature_threshold)
             fs_time = float(fs_time)
             print(f"Using preprocessing pipeline {preprocessing_name}")
@@ -180,7 +207,7 @@ def _parse_yaml_config(
             if fs_method_name in FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL:
                 if proxy_model == "lgbm":
                     proxy_mode_config = ProxyModelConfig(
-                        model_hyperparameters={}, # Default
+                        model_hyperparameters={},  # Default
                     )
                 else:
                     raise ValueError(
@@ -197,7 +224,9 @@ def _parse_yaml_config(
 
             # TODO: refactor: make this default pre_generators somehow? add a feature selection default?
             # Add feature selector to model agnostic preprocessing
-            prep_pipeline = new_experiment.method_kwargs["fit_kwargs"].get("_feature_generator_kwargs", {})
+            prep_pipeline = new_experiment.method_kwargs["fit_kwargs"].get(
+                "_feature_generator_kwargs", {}
+            )
             pipeline = prep_pipeline.get("post_generators", [])
             pipeline += [
                 # Default post generators
@@ -208,14 +237,20 @@ def _parse_yaml_config(
             ]
             prep_pipeline["post_generators"] = pipeline
             prep_pipeline["post_drop_duplicates"] = False  # Not needed anymore.
-            new_experiment.method_kwargs["fit_kwargs"]["_feature_generator_kwargs"] = prep_pipeline
+            new_experiment.method_kwargs["fit_kwargs"]["_feature_generator_kwargs"] = (
+                prep_pipeline
+            )
 
             # TODO: make this a parameter that we can pass here.
             # Set the default time limit for preprocessing
-            new_experiment.method_kwargs["fit_kwargs"]["time_limit_fraction_preprocessing"] = fs_time
+            new_experiment.method_kwargs["fit_kwargs"][
+                "time_limit_fraction_preprocessing"
+            ] = fs_time
 
         else:
-            raise ValueError(f"Preprocessing pipeline name '{preprocessing_name}' not recognized.")
+            raise ValueError(
+                f"Preprocessing pipeline name '{preprocessing_name}' not recognized."
+            )
 
         methods[m_i] = new_experiment
 
@@ -431,8 +466,8 @@ if __name__ == "__main__":
         "--dynamic_tabarena_validation_protocol",
         type=_str2bool,
         help="Whether to use the dynamic TabArena validation protocol or not. "
-             "If True, the validation protocol will be dynamically updated based "
-             "on the characteristics of the data for an experiment.",
+        "If True, the validation protocol will be dynamically updated based "
+        "on the characteristics of the data for an experiment.",
         default=False,
     )
     args = parser.parse_args()
@@ -449,7 +484,9 @@ if __name__ == "__main__":
         from autogluon.common.utils.resource_utils import ResourceManager
 
         memory_limit = int(ResourceManager.get_memory_size(format="GB"))
-        print(f"Memory limit not provided, using detected memory size: {memory_limit} GB")
+        print(
+            f"Memory limit not provided, using detected memory size: {memory_limit} GB"
+        )
 
     ray_temp_dir = setup_slurm_job(
         openml_cache_dir=args.openml_cache_dir,

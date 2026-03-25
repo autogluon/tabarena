@@ -158,7 +158,7 @@ class TabArenaValidationProtocolExecMixin:
         else:
             # We want these by default for all other data in our benchmark.
             assert num_folds == 8
-            assert num_repeats == 1
+            assert (num_repeats == 1) or (num_repeats is None)
 
         if new_num_folds is not None:
             logger.info(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -11,13 +12,13 @@ from autogluon.common.features.types import (
     S_TEXT,
     S_TEXT_EMBEDDING,
     S_TEXT_EMBEDDING_DR,
+    S_TEXT_SPECIAL,
 )
 from autogluon.features import AbstractFeatureGenerator
+from tqdm import tqdm
 
 
-def sanitize_text(
-    text_data: pd.Series | pd.DataFrame, fillna_str: str = "Missing Data"
-) -> pd.Series | pd.DataFrame:
+def sanitize_text(text_data: pd.Series, fillna_str: str = "Missing Data") -> pd.Series:
     """Normalize text by applying unicode normalization, stripping whitespace,
     replacing multiple spaces with a single space, and converting to lowercase.
     """
@@ -72,7 +73,7 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
         seen_unseen: set[tuple[str, str]] = set()
 
         # Pass 1: discover unseen (col, value)
-        for col in X.columns:
+        for col in tqdm(X.columns, desc="Collecting text to encode..."):
             s = sanitize_text(X[col])
 
             for val in s.unique():
@@ -118,7 +119,11 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
         semantic_embedding = np.empty((n_rows, n_cols * emb_dim), dtype=np.float32)
 
         # Pass 2: build matrix (optimized for repeated values)
-        for j, col in enumerate(X.columns):
+        for j, col in tqdm(
+            enumerate(X.columns),
+            desc="Building semantic embedding matrix...",
+            total=n_cols,
+        ):
             s = sanitize_text(X[col])
             arr = s.to_numpy()
 
@@ -157,7 +162,7 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
 class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
     """Generate a statistical embedding of text features using skrub."""
 
-    LARGE_NUMBER_TO_AVOID_SKRUB_PCA = 1000000000
+    MAX_N_OUTPUT_FEATURES = 384  # Same as intfloat/e5-small-v2
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
         from skrub import StringEncoder, TableVectorizer
@@ -165,11 +170,12 @@ class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
         self._vectorizer = TableVectorizer(
             cardinality_threshold=0,
             high_cardinality=StringEncoder(
-                n_components=self.LARGE_NUMBER_TO_AVOID_SKRUB_PCA,
+                n_components=self.MAX_N_OUTPUT_FEATURES,
                 random_state=0,
             ),
             numeric="drop",
             datetime="drop",
+            n_jobs=-1,
         )
 
         X_out = self._transform(X, is_train=True)
@@ -177,9 +183,18 @@ class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
         return X_out, type_family_groups_special
 
     def _transform(self, X: pd.DataFrame, *, is_train: bool = False) -> pd.DataFrame:
-        X = sanitize_text(X, fillna_str="NA")
+        X = X.copy()
+        for col in X.columns:
+            X[col] = sanitize_text(X[col], fillna_str="NA")
         if is_train:
-            X = self._vectorizer.fit_transform(X)
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=".*too small to fit a truncated SVD.*",
+                    category=UserWarning,
+                    module="skrub._string_encoder",
+                )
+                X = self._vectorizer.fit_transform(X)
         else:
             X = self._vectorizer.transform(X)
 
@@ -212,7 +227,7 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
     @staticmethod
     def get_default_infer_features_in_args() -> dict:
         return {
-            "required_special_types": [S_TEXT_EMBEDDING],
+            "required_special_types": [S_TEXT_EMBEDDING, S_TEXT_SPECIAL],
         }
 
     def _more_tags(self):
@@ -220,7 +235,7 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
 
     @staticmethod
     def get_infer_features_in_args_to_drop() -> dict:
-        return {"invalid_special_types": [S_TEXT_EMBEDDING]}
+        return {"invalid_special_types": [S_TEXT_EMBEDDING, S_TEXT_SPECIAL]}
 
     def _fit_transform(
         self,
