@@ -8,7 +8,15 @@ from pandas.api.types import is_numeric_dtype
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import matplotlib.patheffects as PathEffects
+import matplotlib.patches as mpatches
 import seaborn as sns
+
+try:
+    from adjustText import adjust_text
+
+    HAS_ADJUST_TEXT = True
+except ImportError:
+    HAS_ADJUST_TEXT = False
 
 
 def aggregate_stats(df, on: str, groupby="method", method=["mean", "median", "std"]):
