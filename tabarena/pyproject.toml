@@ -32,6 +32,7 @@ dependencies = [
   "seaborn==0.13.2",
   "matplotlib==3.10.1",
   "plotly>=6.3.0",
+  "adjusttext",  # for pareto front plots
 ]
 
 [project.optional-dependencies]
