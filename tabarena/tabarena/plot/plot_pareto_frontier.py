@@ -115,8 +115,21 @@ def plot_pareto(
     save_path: str | None = None,
     add_optimal_arrow: bool = True,
     show: bool = True,
-    legend_in_plot: bool = True,
-    legend_first: list[str] | None = None,  # NEW
+    legend_in_plot: bool = False,
+    legend_maintain_plot_dims: bool = False,
+    tick_fontsize: int = 12,
+    label_fontsize: int = 10,
+    axis_fontsize: int = 17,
+    legend_fontsize: int = 9,
+    legend_borderpad: float = 0.5,
+    legend_handletextpad: float = 0.5,
+    highlight_prefixes: dict[str, str] | None = None,
+    top_left: bool = True,
+    smart_pos: bool = True,
+    pad_xy: bool = False,
+    force_labels: list[str] | None = None,
+    y_percent_format: bool = False,
+    legend_first: list[str] | None = None,
 ):
     fig_size_ratio = 0.45
     fig_height = 10 * fig_size_ratio
@@ -224,6 +237,28 @@ def plot_pareto(
     if ylim is not None:
         ax.set_ylim(ylim)
 
+    # Draw Pareto frontier
+    if pad_xy:
+        # Get current axis limits and add padding for text labels
+        x_min, x_max = ax.get_xlim()
+        y_min, y_max = ax.get_ylim()
+
+        # Add padding to keep labels inside (in log space for x)
+        x_log_range = np.log10(x_max) - np.log10(x_min)
+        y_range = y_max - y_min
+        x_padding = 0.08 * x_log_range  # 8% padding
+        y_padding = 0.06 * y_range  # 6% padding
+
+        # Apply padding
+        x_min_padded = 10 ** (np.log10(x_min) - x_padding)
+        x_max_padded = 10 ** (np.log10(x_max) + x_padding)
+        y_min_padded = y_min - y_padding
+        y_max_padded = y_max + y_padding
+
+        ax.set_xlim(x_min_padded, x_max_padded)
+        ax.set_ylim(y_min_padded, y_max_padded)
+
+    # Update limits for Pareto frontier calculation
     x_min, x_max = ax.get_xlim()
     y_min, y_max = ax.get_ylim()
 
@@ -264,6 +299,7 @@ def plot_pareto(
     ax.tick_params(axis="both", which="both", color=grid_color, labelcolor="black")
     ax.set_axisbelow(True)
 
+    # ------------------------------------------------------------------
     # Label every real vertex on the Pareto frontier
     offset_pts = 6
     for (x, y), label in zip(pareto_front, pareto_names):
