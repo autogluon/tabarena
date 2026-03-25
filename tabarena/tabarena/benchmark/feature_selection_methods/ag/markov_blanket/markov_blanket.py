@@ -5,6 +5,7 @@ import time
 
 import numpy as np
 import pandas as pd  # noqa: TC002
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.pipeline import make_pipeline
@@ -34,6 +35,10 @@ class MarkovBlanketFeatureSelector(AbstractFeatureSelector):
         cv_splits = 5
         random_state = 0
         k = 5
+
+        columns = X.columns
+        X = SimpleImputer(strategy="mean").fit_transform(X)
+        X = pd.DataFrame(X, columns=columns)
 
         G = list(X.columns)
 
