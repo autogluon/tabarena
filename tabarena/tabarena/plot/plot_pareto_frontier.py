@@ -231,12 +231,18 @@ def plot_pareto(
         pf_X_first = x_min
         pf_X_last = pf_X[-1]
         pf_Y_first = pf_Y[0]
-        pf_Y_last = y_min if max_Y else y_max
+        if max_Y:
+            pf_Y_last = y_min
+        else:
+            pf_Y_last = y_max
     else:
         pf_X_first = pf_X[0]
         pf_X_last = x_max
         pf_Y_last = pf_Y[-1]
-        pf_Y_first = y_min if max_Y else y_max
+        if max_Y:
+            pf_Y_first = y_min
+        else:
+            pf_Y_first = y_max
 
     pf_X = [pf_X_first] + pf_X + [pf_X_last]
     pf_Y = [pf_Y_first] + pf_Y + [pf_Y_last]
@@ -244,17 +250,18 @@ def plot_pareto(
     if add_optimal_arrow:
         plot_optimal_arrow(ax=ax, max_X=max_X, max_Y=max_Y, size=fig_size_ratio, scale=1.2)
 
-    ax.plot(pf_X, pf_Y, linewidth=2 * fig_size_ratio, zorder=1, color='black', linestyle='--')
+    ax.plot(pf_X, pf_Y, linewidth=2 * fig_size_ratio, zorder=1, color="black", linestyle="--")
 
     ax.grid(True, zorder=-2)
     grid_color = ax.xaxis.get_gridlines()[0].get_color()
-    ax.spines['top'].set_visible(True)
-    ax.spines['right'].set_visible(True)
-    ax.spines['top'].set_color(grid_color)
-    ax.spines['right'].set_color(grid_color)
-    ax.spines['bottom'].set_color(grid_color)
-    ax.spines['left'].set_color(grid_color)
-    ax.tick_params(axis='both', which='both', color=grid_color, labelcolor='black')
+    ax.spines["top"].set_visible(True)
+    ax.spines["right"].set_visible(True)
+    ax.spines["top"].set_color(grid_color)
+    ax.spines["right"].set_color(grid_color)
+    ax.spines["bottom"].set_color(grid_color)
+    ax.spines["left"].set_color(grid_color)
+    # Make major and minor tick lines gray, but labels stay black
+    ax.tick_params(axis="both", which="both", color=grid_color, labelcolor="black")
     ax.set_axisbelow(True)
 
     # Label every real vertex on the Pareto frontier
@@ -288,7 +295,9 @@ def plot_pareto(
     y_bottom = ax.get_ylim()[0]
     visible_hue_levels = list(plot_df.loc[plot_df[y_name] >= y_bottom, hue].dropna().unique())
     if hue_order is not None:
-        ordered_visible = [h for h in hue_order if h in visible_hue_levels] + [h for h in visible_hue_levels if h not in hue_order]
+        ordered_visible = [h for h in hue_order if h in visible_hue_levels] + [
+            h for h in visible_hue_levels if h not in hue_order
+        ]
     else:
         ordered_visible = visible_hue_levels
 
@@ -297,7 +306,8 @@ def plot_pareto(
     for base_label in ordered_visible:
         color = palette_map.get(base_label, (0.33, 0.33, 0.33))
         handle = Line2D(
-            [0], [0],
+            [0],
+            [0],
             marker="o",
             linestyle="None",
             markerfacecolor=color,
@@ -314,14 +324,15 @@ def plot_pareto(
         if isinstance(markers_arg, dict):
             marker_map = markers_arg
         elif markers_arg is True:
-            default_cycle = ['o', 'D', '^', 's', 'P', 'X', '*']
+            default_cycle = ["o", "D", "^", "s", "P", "X", "*"]
             marker_map = {lvl: default_cycle[i % len(default_cycle)] for i, lvl in enumerate(style_order or [])}
         else:
             marker_map = {}
-        for lvl in (style_order or []):
-            m = marker_map.get(lvl, 'o')
+        for lvl in style_order or []:
+            m = marker_map.get(lvl, "o")
             h = Line2D(
-                [0], [0],
+                [0],
+                [0],
                 marker=m,
                 linestyle="None",
                 markerfacecolor="white",
@@ -332,7 +343,7 @@ def plot_pareto(
             marker_handles.append(h)
             marker_labels.append(str(lvl))
 
-    frontier_proxy = Line2D([0], [0], linewidth=1.2, color='black', linestyle='--')
+    frontier_proxy = Line2D([0], [0], linewidth=1.2, color="black", linestyle="--")
     marker_handles.append(frontier_proxy)
     marker_labels.append("Pareto Front")
 
@@ -471,7 +482,6 @@ def plot_optimal_arrow(
     return arrow, text
 
 
-
 def plot_pareto_aggregated(
     data: pd.DataFrame,
     x_name: str,
@@ -506,8 +516,8 @@ def plot_pareto_aggregated(
     y_vals = aggregate_stats(df=data, on=y_name, method=[y_method])[y_method]
     x_vals = aggregate_stats(df=data_x, on=x_name, method=[x_method])[x_method]
     if include_method_in_axis_name:
-        x_name = f'{x_name} ({x_method})'
-        y_name = f'{y_name} ({y_method})'
+        x_name = f"{x_name} ({x_method})"
+        y_name = f"{y_name} ({y_method})"
     df_aggregated = y_vals.to_frame(name=y_name)
     df_aggregated[x_name] = x_vals
     df_aggregated[hue] = df_aggregated.index
