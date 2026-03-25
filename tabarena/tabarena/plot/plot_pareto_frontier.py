@@ -18,7 +18,7 @@ def aggregate_stats(df, on: str, groupby="method", method=["mean", "median", "st
 def get_pareto_frontier(
     Xs,
     Ys,
-    names=None,            # ← new
+    names=None,
     *,
     max_X=True,
     max_Y=True,
@@ -450,8 +450,10 @@ def plot_optimal_arrow(
     # Create the arrow (in axes-fraction coordinates)
     arrow = ax.annotate(
         "",
-        xy=end, xytext=start,
-        xycoords="axes fraction", textcoords="axes fraction",
+        xy=end,
+        xytext=start,
+        xycoords="axes fraction",
+        textcoords="axes fraction",
         arrowprops=dict(
             arrowstyle=f"Fancy,head_length={ar_head_length},head_width={ar_head_width},tail_width={ar_tail_width}",
             facecolor="forestgreen",
@@ -462,20 +464,22 @@ def plot_optimal_arrow(
     )
     start_data = ax.transAxes.transform(start)
     end_data = ax.transAxes.transform(end)
-    angle = np.degrees(np.arctan2(
-        end_data[1] - start_data[1],
-        end_data[0] - start_data[0]
-    ))
+    angle = np.degrees(np.arctan2(end_data[1] - start_data[1], end_data[0] - start_data[0]))
 
     if angle < -90 or angle > 90:
         angle += 180
     mid = (np.array(start) + np.array(end)) / 2
     text = ax.text(
-        mid[0], mid[1], "Optimal",
+        mid[0],
+        mid[1],
+        "Optimal",
         transform=ax.transAxes,
-        rotation=angle, rotation_mode="anchor",
-        ha="center", va="center",
-        fontsize=ar_text_size, fontweight="bold",
+        rotation=angle,
+        rotation_mode="anchor",
+        ha="center",
+        va="center",
+        fontsize=ar_text_size,
+        fontweight="bold",
         color="white",
     )
     return arrow, text
