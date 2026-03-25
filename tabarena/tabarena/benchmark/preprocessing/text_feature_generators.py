@@ -15,6 +15,7 @@ from autogluon.common.features.types import (
     S_TEXT_SPECIAL,
 )
 from autogluon.features import AbstractFeatureGenerator
+from sklearn.decomposition import PCA
 from tqdm import tqdm
 
 
@@ -190,7 +191,6 @@ class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
             with warnings.catch_warnings():
                 warnings.filterwarnings(
                     "ignore",
-                    message=".*too small to fit a truncated SVD.*",
                     category=UserWarning,
                     module="skrub._string_encoder",
                 )
@@ -208,13 +208,13 @@ class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
         }
 
 
+# TODO: figure out if we want to pca-batch by source column or not...
 class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenerator):
     """Model-specific preprocessing to reduce the dimensionality of text embeddings.
 
     Pipeline:
         - Validate and remember training feature names.
         - Standard-scale with vectorized NumPy/Pandas ops.
-        - Sort columns by absolute correlation to target.
         - Process columns in batches of 1000.
         - Run PCA on each batch, with up to 30 components.
         - Keep only the components needed to explain 99% cumulative variance.
@@ -227,7 +227,8 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
     @staticmethod
     def get_default_infer_features_in_args() -> dict:
         return {
-            "required_special_types": [S_TEXT_EMBEDDING, S_TEXT_SPECIAL],
+            "valid_special_types": [S_TEXT_EMBEDDING, S_TEXT_SPECIAL],
+            "required_at_least_one_special": True,
         }
 
     def _more_tags(self):
@@ -272,33 +273,29 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
     def _fit_preprocess_and_transform(
         self, X: pd.DataFrame, y: pd.Series
     ) -> pd.DataFrame:
-        from sklearn.decomposition import PCA
+        X = X.copy()
 
         self.pre_pca_feature_names_ = list(X)
 
-        # 2) Standard-scale with vectorized ops.
-        X_scaled, means, stds = self._standard_scale_fit(X)
+        # Standard-scale with vectorized ops.
+        X, means, stds = self._standard_scale_fit(X)
         self._scale_means_ = means
         self._scale_stds_ = stds
 
-        # 3) Sort by absolute correlation to target.
-        sorted_columns = self._sort_columns_by_target_correlation(X_scaled, y)
-        self.sorted_feature_names_ = sorted_columns
-        X_sorted = X_scaled[sorted_columns]
-
-        # 4) Fit PCA per batch.
+        # Fit PCA per batch.
         self._batch_pcas_: list[PCA] = []
         self._batch_input_columns_: list[list[str]] = []
         self._batch_output_columns_: list[list[str]] = []
 
         transformed_batches: list[pd.DataFrame] = []
 
-        for batch_idx, start in enumerate(
-            range(0, X_sorted.shape[1], self._BATCH_SIZE)
+        for batch_idx, start in tqdm(
+            enumerate(range(0, X.shape[1], self._BATCH_SIZE)),
+            desc="Fitting PCA batches...",
         ):
             end = start + self._BATCH_SIZE
-            batch_cols = list(X_sorted.columns[start:end])
-            X_batch = X_sorted[batch_cols]
+            batch_cols = list(X.columns[start:end])
+            X_batch = X[batch_cols]
 
             n_samples, n_features = X_batch.shape
             n_components = min(self._MAX_COMPONENTS_PER_BATCH, n_samples, n_features)
@@ -336,7 +333,13 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
         if not transformed_batches:
             raise ValueError("No PCA features were generated.")
 
-        return pd.concat(transformed_batches, axis=1)
+        X = pd.concat(transformed_batches, axis=1)
+        self._log(
+            20,
+            f"Total PCA features generated: {X.shape[1]}"
+            f" from {len(self.pre_pca_feature_names_)} original features.",
+        )
+        return X
 
     def _transform_inference(self, X: pd.DataFrame) -> pd.DataFrame:
         # Match fit-time raw schema/order exactly.

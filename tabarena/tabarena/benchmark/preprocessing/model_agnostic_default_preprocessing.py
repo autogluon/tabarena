@@ -13,11 +13,15 @@ from autogluon.features.generators.fillna import FillNaFeatureGenerator
 from tabarena.benchmark.preprocessing.date_feature_generators import (
     DateTimeFeatureGenerator,
 )
+from tabarena.benchmark.preprocessing.text_feature_generators import (
+    SemanticTextFeatureGenerator,
+    StatisticalTextFeatureGenerator,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
 
-
+# TODO: we likely need some kind of off-loading logic for text features
 class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
     """TabArena Model Agnostic Preprocessing."""
 
@@ -34,10 +38,10 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
     ):
         """Custom init of the AutoMLPipelineFeatureGenerator with our new changes."""
         custom_feature_generators = []
-        # if enable_sematic_text_features:
-        #     custom_feature_generators.append(SemanticTextFeatureGenerator())
-        # if enable_statistical_text_features:
-        #     custom_feature_generators.append(StatisticalTextFeatureGenerator())
+        if enable_sematic_text_features:
+            custom_feature_generators.append(SemanticTextFeatureGenerator())
+        if enable_statistical_text_features:
+            custom_feature_generators.append(StatisticalTextFeatureGenerator())
         if enable_new_datetime_features:
             custom_feature_generators.append(DateTimeFeatureGenerator())
         if len(custom_feature_generators) == 0:
@@ -51,8 +55,9 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
                 DropDuplicatesFeatureGenerator(),
             ],
             pre_enforce_types=False,
-            # TODO: fix such that text cols are skipped for duplicate check.
-            # Takes too long for text-use case, and we do not expect duplicates.
+            # TODO: change such that text cols are skipped for duplicate check.
+            #   Otherwise, duplicate check akes too long for text-use case, and we
+            #   do not expect duplicates.
             post_drop_duplicates=False,
         )
 

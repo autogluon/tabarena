@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from autogluon.features import IdentityFeatureGenerator
+from autogluon.features import BulkFeatureGenerator, IdentityFeatureGenerator
 
 from tabarena.benchmark.preprocessing.text_feature_generators import (
     TextEmbeddingDimensionalityReductionFeatureGenerator,
@@ -36,16 +36,19 @@ class TabArenaModelSpecificPreprocessing:
         filter_dtypes = TextEmbeddingDimensionalityReductionFeatureGenerator.get_infer_features_in_args_to_drop()[
             "invalid_special_types"
         ]
-        return [
-            # Passthrough for all non-text-embedding features
-            (
-                IdentityFeatureGenerator,
-                dict(  # noqa: C408
-                    infer_features_in_args={
-                        "invalid_special_types": filter_dtypes,
-                    }
-                ),
-            ),
-            # PCA for text-embedding features
-            (TextEmbeddingDimensionalityReductionFeatureGenerator, {}),
-        ]
+
+        bulk_kwargs = dict(  # noqa: C408
+            generators=[
+                [
+                    IdentityFeatureGenerator(
+                        infer_features_in_args={
+                            "invalid_special_types": filter_dtypes,
+                        }
+                    ),
+                    TextEmbeddingDimensionalityReductionFeatureGenerator(),
+                ]
+            ],
+            verbosity=2,
+        )
+
+        return [(BulkFeatureGenerator, bulk_kwargs)]
