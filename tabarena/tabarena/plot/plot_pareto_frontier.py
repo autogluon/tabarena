@@ -129,8 +129,8 @@ def plot_pareto(
     label_fontsize: int = 10,
     axis_fontsize: int = 17,
     legend_fontsize: int = 9,
-    legend_borderpad: float = 0.5,
-    legend_handletextpad: float = 0.5,
+    legend_borderpad: float = 0.1,
+    legend_handletextpad: float = 0,
     highlight_prefixes: dict[str, str] | None = None,
     top_left: bool = True,
     smart_pos: bool = True,
@@ -158,6 +158,25 @@ def plot_pareto(
     else:
         plot_df = data.copy()
         hue_order = None
+
+    # ------------------------------
+    # helper for "specified first, then rest"
+    # ------------------------------
+    def _apply_legend_first(
+        levels: list[str],
+        first: list[str] | None,
+        *,
+        place_first_at_end: bool = False,
+    ) -> list[str]:
+        if not first:
+            return levels
+        first_in = [h for h in first if h in levels]
+        rest = [h for h in levels if h not in first_in]
+        if place_first_at_end:
+            first_in.reverse()
+            return rest + first_in
+        else:
+            return first_in + rest
 
     # Build stable color mapping per hue category (here: method_type)
     hue_levels = list(pd.unique(plot_df[hue]))
@@ -644,13 +663,13 @@ def plot_pareto(
         )
     else:
         # Outside plot: position legends using axes transform
-        # Add small gap (0.02) between plot and legend
+        # Add small gap (0.01) between plot and legend
         # First legend: method colors (on top) - this is typically the wider one
         legend1 = ax.legend(
             color_handles,
             color_labels,
             loc="upper left",
-            bbox_to_anchor=(1.02, 1.0),  # Small gap from axes right edge
+            bbox_to_anchor=(1.01, 1.0),  # Small gap from axes right edge
             frameon=True,
             fontsize=legend_fontsize,
             ncol=1,

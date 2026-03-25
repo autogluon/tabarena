@@ -38,6 +38,7 @@ def plot_hpo(
     optimal_arrow: bool = True,
     ylim: tuple[float | None, float | None] | None = None,
     display_names: dict[str] | None = None,
+    legend_in_plot: bool = False,
 ):
     """
     Plot HPO trajectories for multiple methods.
@@ -106,7 +107,7 @@ def plot_hpo(
         base_methods_for_colors = method_order + [m for m in base_methods_for_colors if m not in method_order]
     color_map = {m: colors60[i % len(colors60)] for i, m in enumerate(base_methods_for_colors)}
 
-    fig, ax = plt.subplots(figsize=(6, 4.5))
+    fig, ax = plt.subplots(figsize=(8, 4.5))
     if xlog:
         ax.set_xscale("log")
 
@@ -194,17 +195,41 @@ def plot_hpo(
         handles_legend = handles[::-1]
         labels_legend = labels[::-1]
 
-    ax.legend(
-        handles_legend,
-        labels_legend,
-        fontsize=legend_fontsize,
-        ncol=1,
-        labelspacing=0.25,
-        handletextpad=0.5,
-        borderpad=0.3,
-        borderaxespad=0.3,
-        columnspacing=0.6,
-    )
+    if legend_in_plot:
+        ax.legend(
+            handles_legend,
+            labels_legend,
+            fontsize=legend_fontsize,
+            ncol=1,
+            labelspacing=0.25,
+            handletextpad=0.5,
+            borderpad=0.3,
+            borderaxespad=0.3,
+            columnspacing=0.6,
+        )
+    else:
+        # Outside plot: position legends using axes transform
+        # Add small gap (0.01) between plot and legend
+        # First legend: method colors (on top) - this is typically the wider one
+        legend1 = ax.legend(
+            handles_legend,
+            labels_legend,
+            loc="upper left",
+            bbox_to_anchor=(1.01, 1.0),  # Small gap from axes right edge
+            frameon=True,
+            fontsize=legend_fontsize,
+            ncol=1,
+            labelspacing=0.15,
+            handletextpad=0.0,
+            borderpad=0.1,
+            borderaxespad=0.0,
+            columnspacing=0.4,
+        )
+
+        # Need to draw to get legend bbox
+        fig.canvas.draw()
+        bbox1 = legend1.get_window_extent()
+        bbox1_axes = bbox1.transformed(ax.transAxes.inverted())
 
     if ylim is not None:
         ax.set_ylim(ylim)
