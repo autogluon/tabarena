@@ -39,7 +39,7 @@ dependencies = [
 
 [project.optional-dependencies]
 tabpfn = [
-  "tabpfn>=6.0.5",       # We used version 6.0.5
+  "tabpfn>=7.0.0",
 ]
 tabicl = ["tabicl>=2.0.0"]
 ebm = ["interpret-core>=0.7.3"]
@@ -58,7 +58,7 @@ perpetualboosting = ["perpetual"] # We used version 2.1.0
 
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [
-  "tabpfn>=6.0.5",
+  "tabpfn>=7.0.0",
   "tabicl>=2.0.0",
   "interpret-core>=0.7.3",
   "configspace>=1.2,<2.0",

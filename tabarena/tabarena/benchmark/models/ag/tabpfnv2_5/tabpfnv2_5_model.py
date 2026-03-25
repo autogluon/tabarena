@@ -397,14 +397,14 @@ class RealTabPFNv25Model(TabPFNModel):
         ]
 
 class TabPFNv26Model(TabPFNModel):
-    """TabPFN-v2.6 version."""
+    """TabPFN-2.6 version."""
 
-    ag_key = "TA-TABPFN-V2.6"
-    ag_name = "TA-TabPFN-v2.6"
+    ag_key = "TABPFN-2.6"
+    ag_name = "TabPFN-2.6"
 
     fixed_random_state: int = 0
     """We found that the validation score is misleading for TabPFN, when one uses a
-    different random state for the refit model than for models fit during CV. 
+    different random state for the refit model than for models fit during CV.
     This is because TabPFN's random state determines the preprocessing of TabPFN
     """
 
@@ -415,5 +415,5 @@ class TabPFNv26Model(TabPFNModel):
     def extra_checkpoints_for_tuning(problem_type: str) -> list[str]:
         """The list of checkpoints to use for hyperparameter tuning."""
         raise NotImplementedError(
-            "More checkpoints are not available for this model yet."
+            "We did not benchmark more checkpoints or tuning."
         )

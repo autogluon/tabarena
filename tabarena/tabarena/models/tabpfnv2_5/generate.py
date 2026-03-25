@@ -80,7 +80,6 @@ gen_realtabpfnv25 = ConfigGenerator(
     manual_configs=[{}],
 )
 
-# TODO: update search space
 gen_tabpfnv26 = ConfigGenerator(
     model_cls=TabPFNv26Model,
     search_space={},

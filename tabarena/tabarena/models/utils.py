@@ -51,7 +51,7 @@ def get_configs_generator_from_name(model_name: str):
         "TabICLv2": lambda: importlib.import_module("tabarena.models.tabicl.generate").gen_tabiclv2,
         "PerpetualBooster": lambda: importlib.import_module("tabarena.models.perpetual_booster.generate").gen_perpetual_booster,
         "TabSTAR": lambda: importlib.import_module("tabarena.models.tabstar.generate").gen_tabstar,
-        "TabPFN-v2.6": lambda: importlib.import_module("tabarena.models.tabpfnv2_5.generate").gen_tabpfnv26,
+        "TabPFN-2.6": lambda: importlib.import_module("tabarena.models.tabpfnv2_5.generate").gen_tabpfnv26,
     }
 
     if model_name not in name_to_import_map:
