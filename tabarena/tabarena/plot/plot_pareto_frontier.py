@@ -100,7 +100,7 @@ def plot_pareto(
     x_name: str,
     y_name: str,
     title: str,
-    palette='tab20',
+    palette="tab20",
     hue: str = "Method",
     *,
     aspect: float = 1.0,
@@ -122,34 +122,23 @@ def plot_pareto(
     fig_height = 10 * fig_size_ratio
 
     if sort_y:
+        # Optionally sort for nicer vertical label spacing while preserving stable colors
         plot_df = data.sort_values(by=y_name, ascending=not max_Y)
 
+        # ------------------------------
+        # Compute hue_order inside here:
+        # ------------------------------
+        # For each hue category (e.g., method_type), take the "best" y value:
+        #   - max if higher is better (max_Y=True)
+        #   - min if lower is better (max_Y=False)
         agg_fun = "max" if max_Y else "min"
-        y_per_hue = (
-            plot_df.groupby(hue)[y_name]
-            .agg(agg_fun)
-            .sort_values(ascending=False)
-        )
+        y_per_hue = plot_df.groupby(hue)[y_name].agg(agg_fun).sort_values(ascending=False)
         hue_order = list(y_per_hue.index)
     else:
         plot_df = data.copy()
         hue_order = None
 
-    # ------------------------------
-    # NEW: helper for "specified first, then rest"
-    # ------------------------------
-    def _apply_legend_first(levels: list[str], first: list[str] | None, *, place_first_at_end: bool = False) -> list[str]:
-        if not first:
-            return levels
-        first_in = [h for h in first if h in levels]
-        rest = [h for h in levels if h not in first_in]
-        if place_first_at_end:
-            first_in.reverse()
-            return rest + first_in
-        else:
-            return first_in + rest
-
-    # Build stable color mapping per hue category
+    # Build stable color mapping per hue category (here: method_type)
     hue_levels = list(pd.unique(plot_df[hue]))
 
     # If we computed a hue_order (sort_y=True), make sure its order respects legend_first too.
@@ -166,10 +155,9 @@ def plot_pareto(
     # Ensure ≥20 visually distinct colors for many method types
     base_palette = sns.color_palette(palette, 20)
     if len(hue_levels) > 20:
+        # Extend deterministically by combining tab20 + tab20b + tab20c if needed
         extended_palette = (
-            sns.color_palette("tab20", 20)
-            + sns.color_palette("tab20b", 20)
-            + sns.color_palette("tab20c", 20)
+            sns.color_palette("tab20", 20) + sns.color_palette("tab20b", 20) + sns.color_palette("tab20c", 20)
         )
         colors = extended_palette[:len(hue_levels)]
     else:
@@ -202,7 +190,7 @@ def plot_pareto(
         y=y_name,
         data=plot_df,
         hue=hue,
-        hue_order=hue_order,              # unchanged but now may include legend_first
+        hue_order=hue_order,
         palette=palette_map,
         style=style_col,
         style_order=style_order,
@@ -225,10 +213,8 @@ def plot_pareto(
     # Compute Pareto frontier (use the plotted order)
     Xs = list(plot_df[x_name])
     Ys = list(plot_df[y_name])
-    labels_for_front = list(plot_df[label_col])
-    pareto_front, pareto_names = get_pareto_frontier(
-        Xs=Xs, Ys=Ys, names=labels_for_front, max_X=max_X, max_Y=max_Y
-    )
+    labels_for_front = list(plot_df[label_col])  # annotate with full method names
+    pareto_front, pareto_names = get_pareto_frontier(Xs=Xs, Ys=Ys, names=labels_for_front, max_X=max_X, max_Y=max_Y)
 
     pf_X = [pair[0] for pair in pareto_front]
     pf_Y = [pair[1] for pair in pareto_front]
