@@ -61,6 +61,8 @@ _methods_paper = [
     "TabICLv2",
     "TabSTAR",
     "PerpetualBooster",
+
+    "TabPFN-v2.6",
 ]
 
 
