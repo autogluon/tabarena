@@ -53,6 +53,7 @@ class MethodMetadata:
         s3_prefix: str = None,
         upload_as_public: bool = False,
         reference_url: str | None = None,
+        cache_type: Literal["s3", "r2", "local"] = "s3",
     ):
         self.method = method
         if artifact_name is None:
@@ -81,6 +82,7 @@ class MethodMetadata:
         self.s3_prefix = s3_prefix
         self.upload_as_public = upload_as_public
         self.reference_url = reference_url
+        self.cache_type = cache_type
 
         assert isinstance(self.method, str) and len(self.method) > 0
         assert isinstance(self.artifact_name, str) and len(self.artifact_name) > 0
@@ -96,6 +98,7 @@ class MethodMetadata:
         self.display_name = display_name
 
         assert isinstance(self.display_name, str) and len(self.display_name) > 0
+        assert self.cache_type in ["s3", "r2", "local"], f"Unknown `cache_type`: {self.cache_type}"
 
     def _compute_display_name(self) -> str:
         if self.name is not None:
@@ -384,7 +387,13 @@ class MethodMetadata:
         s3_cache_path = f"{s3_cache_root}/{path_suffix}"
         return s3_cache_path
 
-    def method_downloader(self, verbose: bool = False) -> MethodDownloaderS3:
+    def method_downloader(
+        self,
+        cache_type: str = "auto",
+        verbose: bool = False,
+    ) -> MethodDownloaderS3:
+        if cache_type == "auto":
+            cache_type = self.cache_type
         if not self.has_s3_cache:
             raise AssertionError(
                 f"Tried to get MethodDownloaderS3 from MethodMetadata, "
@@ -393,16 +402,31 @@ class MethodMetadata:
                 f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
                 f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact download."
             )
-        from tabarena.nips2025_utils.artifacts.method_downloader import MethodDownloaderS3
-        return MethodDownloaderS3(
-            method_metadata=self,
-            s3_bucket=self.s3_bucket,
-            s3_prefix=self.s3_prefix,
-            verbose=verbose,
-            clear_dirs=False,
-        )
 
-    def method_uploader(self) -> MethodUploaderS3:
+        if cache_type == "r2":
+            from tabarena.nips2025_utils.artifacts.method_downloader_public_r2 import MethodDownloaderPublicR2
+            return MethodDownloaderPublicR2(
+                method_metadata=self,
+                base_url="https://data.tabarena.ai/",
+                r2_prefix=self.s3_prefix,
+                verbose=verbose,
+                clear_dirs=False,
+            )
+        elif cache_type == "s3":
+            from tabarena.nips2025_utils.artifacts.method_downloader import MethodDownloaderS3
+            return MethodDownloaderS3(
+                method_metadata=self,
+                s3_bucket=self.s3_bucket,
+                s3_prefix=self.s3_prefix,
+                verbose=verbose,
+                clear_dirs=False,
+            )
+        else:
+            raise ValueError(f"Invalid cache_type for downloads: {cache_type}")
+
+    def method_uploader(self, cache_type: str = "auto") -> MethodUploaderS3:
+        if cache_type == "auto":
+            cache_type = self.cache_type
         if not self.has_s3_cache:
             raise AssertionError(
                 f"Tried to get MethodUploaderS3 from MethodMetadata, "
@@ -411,13 +435,32 @@ class MethodMetadata:
                 f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
                 f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact upload."
             )
-        from tabarena.nips2025_utils.artifacts.method_uploader import MethodUploaderS3
-        return MethodUploaderS3(
-            method_metadata=self,
-            s3_bucket=self.s3_bucket,
-            s3_prefix=self.s3_prefix,
-            upload_as_public=self.upload_as_public,
-        )
+
+        if cache_type == "r2":
+            from tabarena.nips2025_utils.artifacts.method_uploader_r2 import MethodUploaderR2
+
+            R2_ACCOUNT_ID = "TODO"
+            R2_ACCESS_KEY_ID = "TODO"
+            R2_SECRET_ACCESS_KEY = "TODO"
+
+            return MethodUploaderR2(
+                method_metadata=self,
+                r2_account_id=R2_ACCOUNT_ID,
+                r2_bucket=self.s3_bucket,
+                r2_prefix=self.s3_prefix,
+                r2_access_key_id=R2_ACCESS_KEY_ID,
+                r2_secret_access_key=R2_SECRET_ACCESS_KEY,
+            )
+        elif cache_type == "s3":
+            from tabarena.nips2025_utils.artifacts.method_uploader import MethodUploaderS3
+            return MethodUploaderS3(
+                method_metadata=self,
+                s3_bucket=self.s3_bucket,
+                s3_prefix=self.s3_prefix,
+                upload_as_public=self.upload_as_public,
+            )
+        else:
+            raise ValueError(f"Invalid cache_type for uploads: {cache_type}")
 
     def load_model_results(self, holdout: bool = False) -> pd.DataFrame:
         return pd.read_parquet(path=self.path_results_model(holdout=holdout))

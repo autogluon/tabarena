@@ -83,7 +83,7 @@ def get_model_family(model_name: str) -> str:
             "MITRA",
             "LIMIX",
         ],
-        Constants.tree: ["GBM", "CAT", "EBM", "XGB", "XT", "RF"],
+        Constants.tree: ["GBM", "CAT", "EBM", "XGB", "XT", "RF", "PB"],
         Constants.foundational: [
             "TABDPT",
             "TABICL",
@@ -95,6 +95,7 @@ def get_model_family(model_name: str) -> str:
             "REALTABPFN-V2.5",
             "SAP-RPT-OSS",
             "TABICLV2",
+            "TABSTAR",
         ],
         Constants.baseline: ["KNN", "LR"],
         Constants.other: ["XRFM"],

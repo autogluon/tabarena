@@ -59,6 +59,8 @@ _methods_paper = [
     "RealTabPFN-v2.5",
     "SAP-RPT-OSS",
     "TabICLv2",
+    "TabSTAR",
+    "PerpetualBooster",
 ]
 
 
@@ -155,6 +157,22 @@ class TabArenaContext:
             s3_bucket=s3_bucket,
             s3_prefix=s3_prefix,
         )
+
+    def get_method_rename_map(self) -> dict[str, str]:
+        method_rename_map = dict()
+        method_metadatas = self.method_metadata_collection.method_metadata_lst
+        for m in method_metadatas:
+            if m.method_type == "config":
+                display_name = m.display_name
+                if display_name is not None:
+                    if m.config_type in method_rename_map:
+                        print(
+                            f"WARNING: Multiple display_name values detected for the same config_type={m.config_type!r}"
+                            f"\n\tdisplay_name 1: {method_rename_map[m.config_type]!r}"
+                            f"\n\tdisplay_name 2: {display_name!r}"
+                        )
+                    method_rename_map[m.config_type] = display_name
+        return method_rename_map
 
     def load_raw(self, method: str, as_holdout: bool = False) -> list[BaselineResult]:
         metadata: MethodMetadata = self.method_metadata(method=method)
@@ -635,6 +653,7 @@ class TabArenaContext:
         use_latex: bool = False,
         fillna_method: str | None = "RF (default)",  # FIXME: Don't hardcode
         use_website_folder_names: bool = False,
+        evaluator_kwargs: dict = None,
     ):
         if df_results is None:
             df_results = self.load_results_paper(download_results="auto")
@@ -654,6 +673,7 @@ class TabArenaContext:
             elo_bootstrap_rounds=elo_bootstrap_rounds,
             use_latex=use_latex,
             use_website_folder_names=use_website_folder_names,
+            evaluator_kwargs=evaluator_kwargs,
         )
 
     def plot_runtime_per_method(self, save_path: str | Path, df_results_configs: pd.DataFrame = None):

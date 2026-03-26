@@ -9,6 +9,7 @@ from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_10_20 impo
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_12 import realtabpfn25_metadata
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_12 import contexttab_metadata
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_02_16 import tabiclv2_metadata
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_03_18 import perpetualbooster_metadata, tabstar_metadata
 
 
 """
@@ -131,6 +132,18 @@ if __name__ == '__main__':
         **path_args,
     )
 
+    tabstar_info = MethodArtifactManager.from_method_metadata(
+        method_metadata=tabstar_metadata,
+        path_suffix=Path("leaderboard_submissions") / "data_TabSTAR_02032026.zip",
+        **path_args,
+    )
+
+    perpetualbooster_info = MethodArtifactManager.from_method_metadata(
+        method_metadata=perpetualbooster_metadata,
+        path_suffix=Path("leaderboard_submissions") / "data_PerpertualBooster_06032026.zip",
+        **path_args,
+    )
+
 
     # Uncomment whichever artifacts you want to process
     method_infos = [
@@ -145,6 +158,8 @@ if __name__ == '__main__':
         # tabflex_info,
         # betatabpfn_info,
         # tabdpt_info,
+        # perpetualbooster_info,
+        # tabstar_info,
     ]
 
     if len(method_infos) == 0:
