@@ -26,6 +26,7 @@ dependencies = [
   "numpy",
   "pandas",
   "sentence_transformers",
+  "skrub",
 
   # TODO: For 2025 paper, consider making optional
   "tueplots",

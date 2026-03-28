@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-
 from tabarena.benchmark.preprocessing import (
     TabArenaModelAgnosticPreprocessing,
     TabArenaModelSpecificPreprocessing,
@@ -12,8 +11,10 @@ from tabarena.benchmark.preprocessing.date_feature_generators import (
     DateTimeFeatureGenerator,
 )
 from tabarena.benchmark.preprocessing.model_agnostic_default_preprocessing import (
-    NoCatAsStringCategoryFeatureGenerator,
     StringFixAsTypeFeatureGenerator,
+)
+from tabarena.benchmark.preprocessing.model_specific_default_preprocessing import (
+    NoCatAsStringCategoryFeatureGenerator,
 )
 from tabarena.benchmark.preprocessing.text_feature_generators import (
     SemanticTextFeatureGenerator,
@@ -21,7 +22,6 @@ from tabarena.benchmark.preprocessing.text_feature_generators import (
     TextEmbeddingDimensionalityReductionFeatureGenerator,
     sanitize_text,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -36,10 +36,14 @@ def _make_float_df(n_rows: int = 20, n_cols: int = 10) -> pd.DataFrame:
 
 
 def _make_text_df(n_rows: int = 20) -> pd.DataFrame:
-    phrases = ["hello world", "foo bar baz", "quick brown fox", "the lazy dog", "test text"]
-    return pd.DataFrame(
-        {"text": [phrases[i % len(phrases)] for i in range(n_rows)]}
-    )
+    phrases = [
+        "hello world",
+        "foo bar baz",
+        "quick brown fox",
+        "the lazy dog",
+        "test text",
+    ]
+    return pd.DataFrame({"text": [phrases[i % len(phrases)] for i in range(n_rows)]})
 
 
 def _make_datetime_df(n_rows: int = 10) -> pd.DataFrame:
@@ -131,7 +135,10 @@ class TestSanitizeText:
 
 class TestTabArenaModelSpecificPreprocessing:
     def test_hp_key_kwargs_attribute(self):
-        assert TabArenaModelSpecificPreprocessing.hp_key_kwargs == "ag.model_specific_feature_generator_kwargs"
+        assert (
+            TabArenaModelSpecificPreprocessing.hp_key_kwargs
+            == "ag.model_specific_feature_generator_kwargs"
+        )
 
     def test_add_to_hyperparameters_empty_dict(self):
         result = TabArenaModelSpecificPreprocessing.add_to_hyperparameters({})
@@ -247,7 +254,10 @@ class TestTabArenaModelAgnosticPreprocessingFitTransform:
 
     def test_fit_transform_categorical_column(self):
         X = pd.DataFrame(
-            {"num": [1.0, 2.0, 3.0, 4.0, 5.0], "cat": pd.Categorical(["a", "b", "a", "c", "b"])}
+            {
+                "num": [1.0, 2.0, 3.0, 4.0, 5.0],
+                "cat": pd.Categorical(["a", "b", "a", "c", "b"]),
+            }
         )
         gen = _make_no_text_gen()
         X_out = gen.fit_transform(X)
@@ -259,9 +269,9 @@ class TestTabArenaModelAgnosticPreprocessingFitTransform:
         gen = _make_no_text_gen()
         X_out = gen.fit_transform(X)
         # AutoGluon encodes categories to integer codes
-        assert X_out["cat"].dtype.name.startswith("category") or pd.api.types.is_integer_dtype(
-            X_out["cat"]
-        )
+        assert X_out["cat"].dtype.name.startswith(
+            "category"
+        ) or pd.api.types.is_integer_dtype(X_out["cat"])
 
     def test_fit_then_transform_new_data(self):
         X_train = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
@@ -304,7 +314,9 @@ class TestNoCatAsStringCategoryFeatureGenerator:
     def test_is_category_feature_generator_subclass(self):
         from autogluon.features.generators.category import CategoryFeatureGenerator
 
-        assert issubclass(NoCatAsStringCategoryFeatureGenerator, CategoryFeatureGenerator)
+        assert issubclass(
+            NoCatAsStringCategoryFeatureGenerator, CategoryFeatureGenerator
+        )
 
 
 # ===========================================================================
@@ -384,7 +396,7 @@ class TestDateTimeFeatureGenerator:
     def test_fit_transform_datetime_column(self):
         gen = DateTimeFeatureGenerator()
         X = _make_datetime_df(n_rows=8)
-        X_out, sg = gen._fit_transform(X.copy())
+        X_out, _sg = gen._fit_transform(X.copy())
         assert isinstance(X_out, pd.DataFrame)
         assert len(X_out) == 8
 
@@ -440,7 +452,7 @@ class TestStatisticalTextFeatureGenerator:
     def test_fit_transform_text_column(self):
         gen = StatisticalTextFeatureGenerator()
         X = _make_text_df(n_rows=20)
-        X_out, sg = gen._fit_transform(X.copy())
+        X_out, _sg = gen._fit_transform(X.copy())
         assert isinstance(X_out, pd.DataFrame)
         assert len(X_out) == 20
 
@@ -490,11 +502,18 @@ class TestStatisticalTextFeatureGenerator:
         X_out, _ = gen._fit_transform(X.copy())
         # All columns should match "{col}.{integer}" format
         import re
+
         assert all(re.match(r"^text\.\d+$", c) for c in X_out.columns)
 
     def test_two_columns_each_prefixed_correctly(self):
         gen = StatisticalTextFeatureGenerator()
-        phrases = ["hello world", "foo bar baz", "quick brown fox", "test text", "sample"]
+        phrases = [
+            "hello world",
+            "foo bar baz",
+            "quick brown fox",
+            "test text",
+            "sample",
+        ]
         n = 20
         X = pd.DataFrame(
             {
@@ -572,11 +591,15 @@ class TestSemanticTextFeatureGenerator:
 
 class TestTextEmbeddingDRConstants:
     def test_max_components_per_batch(self):
-        assert TextEmbeddingDimensionalityReductionFeatureGenerator._MAX_COMPONENTS_PER_BATCH == 30
+        assert (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._MAX_COMPONENTS_PER_BATCH
+            == 30
+        )
 
     def test_explained_variance_threshold(self):
         assert (
-            TextEmbeddingDimensionalityReductionFeatureGenerator._EXPLAINED_VARIANCE_THRESHOLD == 0.99
+            TextEmbeddingDimensionalityReductionFeatureGenerator._EXPLAINED_VARIANCE_THRESHOLD
+            == 0.99
         )
 
     def test_default_max_features_per_group_is_inf(self):
@@ -584,62 +607,88 @@ class TestTextEmbeddingDRConstants:
         assert gen.max_features_per_group == float("inf")
 
     def test_custom_max_features_per_group(self):
-        gen = TextEmbeddingDimensionalityReductionFeatureGenerator(max_features_per_group=50)
+        gen = TextEmbeddingDimensionalityReductionFeatureGenerator(
+            max_features_per_group=50
+        )
         assert gen.max_features_per_group == 50
 
 
 class TestTextEmbeddingDRParseSourceColumn:
     def test_dot_separator(self):
-        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
-            "my_col.emb_0"
+        result = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+                "my_col.emb_0"
+            )
         )
         assert result == "my_col"
 
     def test_multiple_dots_uses_first(self):
         # Only the first "." separator is used.
-        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
-            "col.semantic_embedding.extra"
+        result = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+                "col.semantic_embedding.extra"
+            )
         )
         assert result == "col"
 
     def test_no_dot_returns_whole_name(self):
-        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column("emb_0")
+        result = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+                "emb_0"
+            )
+        )
         assert result == "emb_0"
 
     def test_empty_prefix(self):
-        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(".emb_0")
+        result = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+                ".emb_0"
+            )
+        )
         assert result == ""
 
     def test_statistical_suffix_convention(self):
         # StatisticalTextFeatureGenerator produces "text.42"
-        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column("text.42")
+        result = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+                "text.42"
+            )
+        )
         assert result == "text"
 
     def test_semantic_suffix_convention(self):
         # SemanticTextFeatureGenerator produces "description.semantic_embedding_5"
-        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
-            "description.semantic_embedding_5"
+        result = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+                "description.semantic_embedding_5"
+            )
         )
         assert result == "description"
 
     def test_text_special_char_count_convention(self):
         # TextSpecialFeatureGenerator produces "col.char_count"
-        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
-            "col.char_count"
+        result = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+                "col.char_count"
+            )
         )
         assert result == "col"
 
     def test_dr_output_convention(self):
         # DR output is "{col}.dr{b}_{i}"
-        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
-            "mytext.dr0_3"
+        result = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+                "mytext.dr0_3"
+            )
         )
         assert result == "mytext"
 
 
 class TestTextEmbeddingDRMakeBatchPlan:
     def _gen(self, max_n=float("inf")):
-        return TextEmbeddingDimensionalityReductionFeatureGenerator(max_features_per_group=max_n)
+        return TextEmbeddingDimensionalityReductionFeatureGenerator(
+            max_features_per_group=max_n
+        )
 
     def test_single_source_no_split(self):
         gen = self._gen()
@@ -749,30 +798,40 @@ class TestTextEmbeddingDRStaticMethods:
 
     def test_standard_scale_fit_zero_mean(self):
         X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [10.0, 10.0, 10.0]})
-        X_scaled, means, stds = TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(X)
+        X_scaled, _means, _stds = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(X)
+        )
         # Scaled data should have approx zero mean
         assert abs(X_scaled["a"].mean()) < 1e-10
 
     def test_standard_scale_fit_unit_std(self):
         X = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0, 5.0]})
-        X_scaled, means, stds = TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(X)
+        X_scaled, _means, _stds = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(X)
+        )
         assert abs(X_scaled["a"].std(ddof=0) - 1.0) < 1e-9
 
     def test_standard_scale_fit_zero_std_column_replaced_with_1(self):
         X = pd.DataFrame({"constant": [5.0, 5.0, 5.0]})
-        _, _, stds = TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(X)
+        _, _, stds = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(X)
+        )
         # Zero std is replaced with 1 to avoid division by zero
         assert stds["constant"] == 1.0
 
     def test_standard_scale_fit_returns_tuple_of_three(self):
         X = pd.DataFrame({"a": [1.0, 2.0, 3.0]})
-        result = TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(X)
+        result = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(X)
+        )
         assert len(result) == 3
 
     def test_standard_scale_transform_consistency(self):
         X = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "b": [10.0, 20.0, 30.0, 40.0]})
-        X_scaled, means, stds = TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(
-            X.copy()
+        X_scaled, means, stds = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(
+                X.copy()
+            )
         )
         X_transform = TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_transform(
             X, means, stds
@@ -781,25 +840,35 @@ class TestTextEmbeddingDRStaticMethods:
 
     def test_encode_target_numeric(self):
         y = pd.Series([0.0, 1.0, 2.0, 3.0])
-        y_enc = TextEmbeddingDimensionalityReductionFeatureGenerator._encode_target_for_correlation(y)
+        y_enc = TextEmbeddingDimensionalityReductionFeatureGenerator._encode_target_for_correlation(
+            y
+        )
         assert y_enc.dtype == np.float64
         np.testing.assert_array_equal(y_enc, [0.0, 1.0, 2.0, 3.0])
 
     def test_encode_target_categorical_is_float64(self):
         y = pd.Series(["cat", "dog", "cat", "bird"])
-        y_enc = TextEmbeddingDimensionalityReductionFeatureGenerator._encode_target_for_correlation(y)
+        y_enc = TextEmbeddingDimensionalityReductionFeatureGenerator._encode_target_for_correlation(
+            y
+        )
         assert y_enc.dtype == np.float64
         assert len(y_enc) == 4
 
     def test_encode_target_categorical_deterministic(self):
         y = pd.Series(["a", "b", "a", "b"])
-        y1 = TextEmbeddingDimensionalityReductionFeatureGenerator._encode_target_for_correlation(y)
-        y2 = TextEmbeddingDimensionalityReductionFeatureGenerator._encode_target_for_correlation(y)
+        y1 = TextEmbeddingDimensionalityReductionFeatureGenerator._encode_target_for_correlation(
+            y
+        )
+        y2 = TextEmbeddingDimensionalityReductionFeatureGenerator._encode_target_for_correlation(
+            y
+        )
         np.testing.assert_array_equal(y1, y2)
 
     def test_encode_target_with_nan_filled(self):
         y = pd.Series([1.0, float("nan"), 3.0])
-        y_enc = TextEmbeddingDimensionalityReductionFeatureGenerator._encode_target_for_correlation(y)
+        y_enc = TextEmbeddingDimensionalityReductionFeatureGenerator._encode_target_for_correlation(
+            y
+        )
         assert not np.isnan(y_enc).any()
 
 
@@ -813,9 +882,7 @@ class TestTextEmbeddingDRFitTransform:
         rng = np.random.default_rng(1)
         cols_per_source = n_cols // n_sources
         cols = [
-            f"src{s}.emb{i}"
-            for s in range(n_sources)
-            for i in range(cols_per_source)
+            f"src{s}.emb{i}" for s in range(n_sources) for i in range(cols_per_source)
         ]
         data = rng.standard_normal((n_rows, len(cols)))
         return pd.DataFrame(data, columns=cols)
@@ -853,6 +920,7 @@ class TestTextEmbeddingDRFitTransform:
         X_out = gen._fit_preprocess_and_transform(X=X, y=y)
         # With single source "src0", output cols should be "src0.dr0_{i}"
         import re as _re
+
         assert all(_re.match(r"^src0\.dr\d+_\d+$", c) for c in X_out.columns)
 
     def test_fit_preprocess_and_transform_max_components_per_batch(self):
@@ -924,7 +992,9 @@ class TestTextEmbeddingDRFitTransform:
         assert len(gen._batch_pcas_) == 2
 
     def test_max_features_per_group_splits_into_sub_batches(self):
-        gen = TextEmbeddingDimensionalityReductionFeatureGenerator(max_features_per_group=5)
+        gen = TextEmbeddingDimensionalityReductionFeatureGenerator(
+            max_features_per_group=5
+        )
         # 10 features from one source → 2 sub-batches
         rng = np.random.default_rng(42)
         cols = [f"src0.emb{i}" for i in range(10)]
@@ -947,8 +1017,10 @@ class TestTextEmbeddingDRFitTransform:
 
     def test_scale_fit_and_transform_are_inverse(self):
         X = self._make_embedding_df(n_rows=20, n_cols=5)
-        X_scaled, means, stds = TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(
-            X.copy()
+        X_scaled, means, stds = (
+            TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_fit(
+                X.copy()
+            )
         )
         # Re-apply transform to the original (un-scaled) X
         X_t = TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_transform(

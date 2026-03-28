@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from autogluon.common.features.types import R_CATEGORY
+from autogluon.features import IdentityFeatureGenerator
 from autogluon.features.generators.astype import AsTypeFeatureGenerator
 from autogluon.features.generators.auto_ml_pipeline import (
     AutoMLPipelineFeatureGenerator,
 )
-from autogluon.features.generators.category import CategoryFeatureGenerator
 from autogluon.features.generators.drop_duplicates import DropDuplicatesFeatureGenerator
 from autogluon.features.generators.fillna import FillNaFeatureGenerator
 
@@ -72,35 +73,12 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
         )
 
     def _get_category_feature_generator(self):
-        return NoCatAsStringCategoryFeatureGenerator()
-
-
-class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):
-    """CategoryFeatureGenerator that does not treat each string column as a category."""
-
-    def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
-        X, type_group_map_special = super()._fit_transform(X=X, **kwargs)
-
-        text_as_category_features = type_group_map_special.pop("text_as_category", None)
-        X = (
-            X.drop(columns=text_as_category_features)
-            if text_as_category_features
-            else X
+        # Pass categorical columns through *without* ordinal encoding.
+        # Ordinal encoding is deferred to TabArenaModelSpecificPreprocessing.
+        return IdentityFeatureGenerator(
+            infer_features_in_args={"valid_raw_types": [R_CATEGORY]}
         )
 
-        return X, type_group_map_special
-
-    def _generate_category_map(self, X: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
-        from autogluon.common.features.types import S_TEXT
-
-        # Remove text features from input to cat maker
-        type_group_map_special = self.feature_metadata_in.type_group_map_special
-        if S_TEXT in type_group_map_special:
-            text_features = type_group_map_special[S_TEXT]
-            X = X.drop(columns=text_features)
-            self._remove_features_in(text_features)
-
-        return super()._generate_category_map(X=X)
 
 # TODO: maybe better cardinality threshold but we assume we only
 #  run on well-curated data for now
