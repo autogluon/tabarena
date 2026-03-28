@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from autogluon.common.features.types import R_CATEGORY
+from autogluon.common.features.types import (
+    R_BOOL,
+    R_CATEGORY,
+    R_OBJECT,
+    S_DATETIME_AS_OBJECT,
+    S_IMAGE_BYTEARRAY,
+    S_IMAGE_PATH,
+    S_TEXT,
+    S_TEXT_SPECIAL,
+)
 from autogluon.features import IdentityFeatureGenerator
 from autogluon.features.generators.astype import AsTypeFeatureGenerator
 from autogluon.features.generators.auto_ml_pipeline import (
@@ -73,10 +82,21 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
         )
 
     def _get_category_feature_generator(self):
-        # Pass categorical columns through *without* ordinal encoding.
-        # Ordinal encoding is deferred to TabArenaModelSpecificPreprocessing.
+        # Pass categorical columns through *without* encoding.
+        # Cat handling is deferred to TabArenaModelSpecificPreprocessing.
         return IdentityFeatureGenerator(
-            infer_features_in_args={"valid_raw_types": [R_CATEGORY]}
+            infer_features_in_args={
+                "valid_raw_types": [R_OBJECT, R_CATEGORY, R_BOOL],
+                # Filter more than normally, as we also have text preprocessing
+                # and we don't want to encode text-object columns.
+                "invalid_special_types": [
+                    S_DATETIME_AS_OBJECT,
+                    S_IMAGE_PATH,
+                    S_IMAGE_BYTEARRAY,
+                    S_TEXT,
+                    S_TEXT_SPECIAL,
+                ],
+            }
         )
 
 
