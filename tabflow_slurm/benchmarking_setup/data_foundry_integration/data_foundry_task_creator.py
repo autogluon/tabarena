@@ -172,6 +172,72 @@ def convert_data_foundry_task_to_user_task(
     return user_task
 
 
+def download_data_foundry_datasets(
+    *,
+    benchmark_suite_name: str,
+    data_foundry_artifacts: list[str],
+    data_foundry_cache: Path,
+):
+    """Prepare data foundry artifacts for TabArena usage.
+
+    1) Converts Data foundry artifacts into TabArena UserTasks and saves them on disk
+    2) Collects metadata about the created UserTasks
+    3) Saves the metadata in a standardized location for later use.
+
+    Parameters
+    ----------
+    benchmark_suite_name:
+        Name of the benchmark suite for which the datasets are being downloaded.
+        This is used to store the metadata of the datasets in a standardized location.
+    data_foundry_artifacts : list[str]
+        A list of Data Foundry artifact identifiers to be downloaded and converted into
+        TabArena UserTasks.
+        Each identifier should be in the format "dataset_name/artifact_uuid".
+    data_foundry_cache : Path
+        The path to the cache directory where to store data foundry data.
+
+    Returns:
+    -------
+    pd.DataFrame
+        A DataFrame containing metadata about the created TabArena UserTasks.
+    """
+    print("Preprocessing data foundry datasets for TabArena...")
+    task_metadata = DataFoundryAdapter(
+        data_foundry_artifacts=data_foundry_artifacts,
+        path_to_data_foundry_cache=data_foundry_cache,
+    ).to_tabarena_user_tasks(show_sample=True)
+
+    path_to_metadata = data_foundry_cache / f"{benchmark_suite_name}_tasks_metadata.csv"
+    print(f"Saving metadata to {path_to_metadata}")
+    task_metadata.to_csv(path_to_metadata, index=False)
+
+
+def get_metadata_for_benchmark_suite(
+    benchmark_suite_name: str, data_foundry_cache: Path
+) -> Path:
+    """Get the path to the metadata CSV file for a given benchmark suite.
+
+    Parameters
+    ----------
+    benchmark_suite_name : str
+        The name of the benchmark suite for which to retrieve the metadata.
+    data_foundry_cache : Path
+        The path to the cache directory from where to load data foundry data.
+
+    Returns:
+    -------
+    Path
+        The path to the metadata CSV file for the specified benchmark suite.
+    """
+    path_to_metadata = data_foundry_cache / f"{benchmark_suite_name}_tasks_metadata.csv"
+    if not path_to_metadata.exists():
+        raise FileNotFoundError(
+            f"Metadata file {path_to_metadata} does not exist. "
+            "Please run download_data_foundry_datasets first."
+        )
+    return path_to_metadata
+
+
 if __name__ == "__main__":
     DataFoundryAdapter(
         data_foundry_artifacts=[

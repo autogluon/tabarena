@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from itertools import product
 
-from tabflow_slurm.setup_slurm_base import BenchmarkSetup
+from tabflow_slurm.setup_slurm_base_v2 import BenchmarkSetup2026
 
 # TODO: improve/optimize how we can pass configs to the benchmark setup!
 #   For now: we create a string with all the information and then decode the string
@@ -90,7 +90,7 @@ metadata = metadata[
 #   - Ensure random seeding works as we want it / add random order to methods that do iterative search of features
 #   - Ensure how/if GPU models work with this (long shot)
 #   - Investigate caching of feature selection (long shot)
-BenchmarkSetup(
+BenchmarkSetup2026(
     benchmark_name="feature_selection_benchmark_example_1803",
     models=[
         ("LightGBM", "all"),
@@ -98,8 +98,8 @@ BenchmarkSetup(
         ("Linear", "all"),
     ],
     n_random_configs=1,
-    tabarena_lite=True,
-    custom_metadata=metadata,
+    split_indices_to_run="lite",
+    task_metadata=get_metadata_for_benchmark_suite("example_benchmark_suite"),
     preprocessing_pipelines=preprocessing_pipelines,
     time_limit=60 * 60 * 2,
     time_limit_with_preprocessing=True,
