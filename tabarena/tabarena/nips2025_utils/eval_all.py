@@ -12,7 +12,7 @@ from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 def get_all_subset_combinations() -> list[tuple[bool, str, bool, str | None, bool, bool]]:
     use_imputation_lst = [False, True]
     problem_type_lst = ["all", "classification", "regression", "binary", "multiclass"]
-    dataset_subset_lst = [None, "small", "medium", "tabpfn"]
+    dataset_subset_lst = [None, "small", "medium"]
     with_baselines_lst = [True]
     lite_lst = [False, True]
     average_seeds_lst = [False]
@@ -49,26 +49,31 @@ def evaluate_all(
     elo_bootstrap_rounds: int = 200,
     use_latex: bool = False,
     use_website_folder_names: bool = False,
+    evaluator_kwargs: dict = None,
 ):
-    banned_pareto_methods = ["KNN", "LR"]
+    if evaluator_kwargs is None:
+        evaluator_kwargs = {}
+    banned_pareto_methods = ["KNN", "LR", "PB", "TABSTAR"]
 
-    evaluator_kwargs = {
+    evaluator_kwargs_ = {
         "use_latex": use_latex,
         "banned_pareto_methods": banned_pareto_methods,
     }
+    evaluator_kwargs_.update(evaluator_kwargs)
+    evaluator_kwargs = evaluator_kwargs_
 
     eval_save_path = Path(eval_save_path)
 
     # TODO: Avoid hardcoding baselines
     baselines = [
         "AutoGluon 1.4 (best, 4h)",
-        "AutoGluon 1.4 (extreme, 4h)",
+        # "AutoGluon 1.4 (extreme, 4h)",
         "AutoGluon 1.5 (extreme, 4h)",
     ]
     baseline_colors = [
         "black",
         "tab:purple",
-        "tab:orange",
+        # "tab:orange",
     ]
 
     df_results = df_results.copy(deep=True)
@@ -133,6 +138,8 @@ def evaluate_single(
     from tabarena.nips2025_utils.compare import subset_tasks
     df_results = df_results.copy()
 
+    method_rename_map = tabarena_context.get_method_rename_map()
+
     subset = []
     folder_name = "all"
     if problem_type is not None:
@@ -186,6 +193,7 @@ def evaluate_single(
         output_dir=eval_save_path / folder_name,
         elo_bootstrap_rounds=elo_bootstrap_rounds,
         tabarena_context=tabarena_context,
+        method_rename_map=method_rename_map,
         **evaluator_kwargs,
     )
 
@@ -195,7 +203,7 @@ def evaluate_single(
     if baseline_colors is not None:
         eval_kwargs["baseline_colors"] = baseline_colors
 
-    plotter.eval(
+    leaderboard = plotter.eval(
         df_results=df_results,
         plot_extra_barplots=False,
         include_norm_score=True,
@@ -204,3 +212,11 @@ def evaluate_single(
         average_seeds=average_seeds,
         **eval_kwargs,
     )
+
+    leaderboard_website_verified = tabarena_context.leaderboard_to_website_format(
+        leaderboard=leaderboard,
+        include_type=True,
+        include_url=True,
+    )
+    path_website_lb = plotter.output_dir / "website_leaderboard.csv"
+    leaderboard_website_verified.to_csv(path_website_lb, index=False)

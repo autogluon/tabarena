@@ -46,7 +46,7 @@ class BenchmarkSetup:
             - slurm_out         -- contains all SLURM output logs
             - .openml-cache     -- contains the OpenML cache
     """
-    python_from_base_path: str = "venvs/tabarena_14022026/bin/python"
+    python_from_base_path: str = "venvs/tabarena_25032026/bin/python"
     """Python executable and environment to use for the SLURM jobs. This should point to a Python
     executable within a (virtual) environment."""
     run_script_from_base_path: str = (
@@ -245,6 +245,10 @@ class BenchmarkSetup:
     By default, we use AutoGluon's automatic preprocessing for all models.
     This can be disabled by setting this to False. Warning: the model then needs
     to be able to handle this!
+    """
+    shuffle_features_per_split: bool = False # TODO: make True by default in the future
+    """If True, we shuffle the features per split before fitting the model.
+        -> Used for TabArena-v0.2.X
     """
 
     # Misc Settings
@@ -559,6 +563,8 @@ class BenchmarkSetup:
             )
         if not self.model_agnostic_preprocessing:
             method_kwargs["fit_kwargs"] = {"feature_generator": None}
+        if self.shuffle_features_per_split:
+            method_kwargs["shuffle_features"] = self.shuffle_features_per_split
 
         print(
             "Generating experiments for models...",

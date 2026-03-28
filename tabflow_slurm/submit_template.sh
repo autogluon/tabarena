@@ -47,6 +47,9 @@ MEMORY_LIMIT=$(jq -r '.defaults.memory_limit' "$JSON_FILE")
 SETUP_RAY=$(jq -r '.defaults.setup_ray_for_slurm_shared_resources_environment' "$JSON_FILE")
 IGNORE_CACHE=$(jq -r '.defaults.ignore_cache' "$JSON_FILE")
 SEQUENTIAL_LOCAL_FOLD_FITTING=$(jq -r '.defaults.sequential_local_fold_fitting' "$JSON_FILE")
+DYNAMIC_TABARENA_VALIDATION_PROTOCOL=$(
+  jq -r '.defaults.dynamic_tabarena_validation_protocol // false' "$JSON_FILE"
+)
 
 echo "Python Path: $PYTHON_PATH"
 echo "Run Script: $RUNSCRIPT"
@@ -59,6 +62,7 @@ echo "Memory Limit: $MEMORY_LIMIT"
 echo "Setup Ray for SLURM Shared Resources Environment: $SETUP_RAY"
 echo "Ignore Cache: $IGNORE_CACHE"
 echo "Sequential Local Fold Fitting: $SEQUENTIAL_LOCAL_FOLD_FITTING"
+echo "Dynamic TabArena Validation Protocol: $DYNAMIC_TABARENA_VALIDATION_PROTOCOL"
 
 # Extract specific job fields
 CONFIG_INDEX=$(jq -r --argjson J "$J" '.jobs[$J].config_index | join(",")' "$JSON_FILE")
@@ -93,5 +97,6 @@ for CI in "${CONFIG_ARRAY[@]}"; do
         --memory_limit $MEMORY_LIMIT \
         --setup_ray_for_slurm_shared_resources_environment $SETUP_RAY \
         --ignore_cache $IGNORE_CACHE \
-        --sequential_local_fold_fitting $SEQUENTIAL_LOCAL_FOLD_FITTING
+        --sequential_local_fold_fitting $SEQUENTIAL_LOCAL_FOLD_FITTING \
+        --dynamic_tabarena_validation_protocol $DYNAMIC_TABARENA_VALIDATION_PROTOCOL
 done

@@ -48,7 +48,7 @@ TabArena code is currently being polished. Detailed Documentation for TabArena w
 
 # 🪄 Installation
 
-To install TabArena, ensure you are using Python 3.9-3.12. Then, run the following:
+To install TabArena, ensure you are using Python 3.10-3.13. Then, run the following:
 
 ### Install UV
 
