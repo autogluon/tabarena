@@ -3,6 +3,16 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
+from autogluon.common.features.types import (
+    R_BOOL,
+    R_CATEGORY,
+    R_OBJECT,
+    S_DATETIME_AS_OBJECT,
+    S_IMAGE_BYTEARRAY,
+    S_IMAGE_PATH,
+    S_TEXT,
+    S_TEXT_SPECIAL,
+)
 from autogluon.features import BulkFeatureGenerator, IdentityFeatureGenerator
 from autogluon.features.generators.category import CategoryFeatureGenerator
 
@@ -77,26 +87,24 @@ class TabArenaModelSpecificPreprocessing:
         * ``TextEmbeddingDimensionalityReductionFeatureGenerator`` — PCA-reduces
           ``S_TEXT_EMBEDDING`` / ``S_TEXT_SPECIAL`` features, grouped by source column.
         """
-        # Special types consumed (and therefore dropped from passthrough) by the DR generator.
-        filter_dtypes = TextEmbeddingDimensionalityReductionFeatureGenerator.get_infer_features_in_args_to_drop()[
-            "invalid_special_types"
-        ]
-
+        # TODO: figure out how to more easily pass IdentityFeatureGenerator / dont drop other columns.
         bulk_kwargs = dict(  # noqa: C408
             generators=[
                 # Cat/Ordinal Encoding
                 [
-                    NoCatAsStringCategoryFeatureGenerator()
+                    # The other features are consumed, and thus can be dropped.
+                    IdentityFeatureGenerator(
+                        infer_features_in_args=NoCatAsStringCategoryFeatureGenerator.get_infer_features_in_args_to_drop()
+                    ),
+                    NoCatAsStringCategoryFeatureGenerator(),
                 ],
                 # PCA
                 [
                     IdentityFeatureGenerator(
-                        infer_features_in_args={
-                            "invalid_special_types": filter_dtypes,
-                        }
+                        infer_features_in_args=TextEmbeddingDimensionalityReductionFeatureGenerator.get_infer_features_in_args_to_drop()
                     ),
                     TextEmbeddingDimensionalityReductionFeatureGenerator(),
-                ]
+                ],
             ],
             verbosity=2,
         )
@@ -123,6 +131,7 @@ class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):
         from autogluon.common.features.types import S_TEXT
 
         # Remove text features from input to cat maker
+        # (Only a sanity check, should be removed from input)
         type_group_map_special = self.feature_metadata_in.type_group_map_special
         if S_TEXT in type_group_map_special:
             text_features = type_group_map_special[S_TEXT]
@@ -130,3 +139,22 @@ class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):
             self._remove_features_in(text_features)
 
         return super()._generate_category_map(X=X)
+
+    @staticmethod
+    def get_default_infer_features_in_args() -> dict:
+        return {
+            "valid_raw_types": [R_OBJECT, R_CATEGORY, R_BOOL],
+            # Filter more than normally, as we also have text preprocessing
+            # and we don't want to encode text-object columns.
+            "invalid_special_types": [
+                S_DATETIME_AS_OBJECT,
+                S_IMAGE_PATH,
+                S_IMAGE_BYTEARRAY,
+                S_TEXT,
+                S_TEXT_SPECIAL,
+            ],
+        }
+
+    @staticmethod
+    def get_infer_features_in_args_to_drop() -> dict:
+        return {"invalid_raw_types": [R_OBJECT, R_CATEGORY, R_BOOL]}

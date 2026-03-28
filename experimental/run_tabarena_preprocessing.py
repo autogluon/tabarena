@@ -23,6 +23,8 @@ Only LightGBM (``"GBM"`` in AutoGluon) is used so the run is fast.
 
 from __future__ import annotations
 
+import tempfile
+
 import numpy as np
 import pandas as pd
 from autogluon.tabular import TabularPredictor
@@ -80,6 +82,12 @@ df["text_description"] = df["text_description"].astype("string")
 train_df, test_df = train_test_split(
     df, test_size=0.2, random_state=42, stratify=df[LABEL]
 )
+
+# Introduce an unseen category in the first test row to verify robustness.
+test_df = test_df.copy()
+test_df["cat_priority"] = test_df["cat_priority"].cat.add_categories("urgent")
+test_df.iloc[0, test_df.columns.get_loc("cat_priority")] = "urgent"
+
 print(f"Train size: {len(train_df)}  Test size: {len(test_df)}")
 print(f"Dtypes:\n{train_df.dtypes}\n")
 
@@ -90,7 +98,7 @@ print(f"Dtypes:\n{train_df.dtypes}\n")
 feature_generator = TabArenaModelAgnosticPreprocessing(
     # Set False to run the example faster without a GPU.
     # Also note that this downloads a model from HuggingFace the first time you run it, which can take some time.
-    enable_sematic_text_features=False,
+    enable_sematic_text_features=True,
 )
 
 # Init model specific preprocessing
@@ -104,37 +112,55 @@ for model_name in list(hyperparameters.keys()):
     hyperparameters[model_name] = model_hp_list
 
 # Run AutoGluon with TabArena preprocessing
-predictor = TabularPredictor(
-    label=LABEL,
-    problem_type="binary",
-    eval_metric="roc_auc",
-    verbosity=2,
-).fit(
-    presets="best_quality",
-    train_data=train_df,
-    hyperparameters=hyperparameters,
-    feature_generator=feature_generator,
-    # Use sequential_local to show logs of preprocessing
-    ag_args_ensemble={"fold_fitting_strategy": "sequential_local"},
-    # Other settings for to ignore for this example
-    fit_weighted_ensemble=False,
-    dynamic_stacking=False,
-)
+with tempfile.TemporaryDirectory() as tmp_path:
+    predictor = TabularPredictor(
+        label=LABEL,
+        problem_type="binary",
+        eval_metric="roc_auc",
+        verbosity=2,
+        path=tmp_path,
+    ).fit(
+        presets="best_quality",
+        train_data=train_df,
+        hyperparameters=hyperparameters,
+        feature_generator=feature_generator,
+        # Use sequential_local to show logs of preprocessing
+        ag_args_ensemble={"fold_fitting_strategy": "sequential_local"},
+        num_bag_folds=2,
+        # Other settings for to ignore for this example
+        fit_weighted_ensemble=False,
+        dynamic_stacking=False,
+    )
 
-# Check output
-pd.set_option("display.max_rows", None)
-pd.set_option("display.max_columns", None)
-pd.set_option("display.width", None)
-pd.set_option("display.max_colwidth", None)
+    # Check output
+    pd.set_option("display.max_rows", None)
+    pd.set_option("display.max_columns", None)
+    pd.set_option("display.width", None)
+    pd.set_option("display.max_colwidth", None)
 
-print("\n=== Leaderboard ===")
-leaderboard = predictor.leaderboard(test_df, display=True)
+    print("\n=== Leaderboard ===")
+    leaderboard = predictor.leaderboard(test_df, display=True)
 
-print("\n=== Data after model agnostic preprocessing ===")
-data_internal, _ = predictor.load_data_internal()
-print(data_internal.head())
+    print("\n=== Train data States ===")
+    print("> Original train data:")
+    print(train_df.head())
+    print("> After model agnostic preprocessing:")
+    data_internal = predictor.transform_features(data=train_df)
+    print(data_internal.head())
+    print("> After model specific preprocessing:")
+    gbm_model_bag = predictor._trainer.load_model("LightGBM_BAG_L1")
+    gbm_child_model = gbm_model_bag.load_child(gbm_model_bag.models[0])
+    data_model_specific = gbm_child_model.preprocess(data_internal)
+    print(data_model_specific.head())
 
-# TODO: get preprocessing from model here...
-print("\n=== Data after model specific preprocessing ===")
-data_model = predictor.transform_features(data=train_df, model="LightGBM_BAG_L1")
-print(data_model.head())
+    print("\n=== Test data States ===")
+    print("> Original test data:")
+    print(test_df.head())
+    print("> After model agnostic preprocessing:")
+    test_internal = predictor.transform_features(data=test_df)
+    print(test_internal.head())
+    print("> After model specific preprocessing:")
+    gbm_model_bag = predictor._trainer.load_model("LightGBM_BAG_L1")
+    gbm_child_model = gbm_model_bag.load_child(gbm_model_bag.models[0])
+    test_model_specific = gbm_child_model.preprocess(data_internal)
+    print(test_model_specific.head())
