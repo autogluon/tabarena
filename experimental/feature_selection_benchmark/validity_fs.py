@@ -1,5 +1,6 @@
 import argparse
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import openml
@@ -29,6 +30,22 @@ def parse_args():  # noqa: D103
                         help="Number of bootstrap repeats [default: 10]")
     return parser.parse_args()
 
+@dataclass
+class ValidityResult:
+    """Single stability result dataclass."""
+    method: str
+    dataset: int
+    problem_type: str
+    max_features: int
+    original_features: int
+    noise_features: int
+    repeats: int
+    elapsed_time_fs: [float]
+    n_samples: [int]
+    confusion_matrices: [[int]]
+    validity: [float]
+    ci_lower: float
+    ci_upper: float
 
 def validity_fs(args):  # noqa: D103
     dataset_id = args.dataset
@@ -86,22 +103,22 @@ def validity_fs(args):  # noqa: D103
     # Stability metrics
     validity = getValidity(Z, max_features)
     ci = confidenceIntervals(validity)
-    validity_results = {
-        "method": method_name,
-        "dataset": dataset_id,
-        "problem_type": problem_type,
-        "max_features": max_features,
-        "original_features": len(X.columns),
-        "noise_features": n_noise,
-        "repeats": n_repeats,
-        "elapsed_time_fs": times,
-        "n_samples": n_samples,
-        "confusion_matrices": Z,
-        "validity": validity,
-        "ci_lower": ci[0],
-        "ci_upper": ci[1],
-    }
-    print(f"Validity: {validity_results}")
+    validity_results = ValidityResult(
+        method=method_name,
+        dataset=dataset_id,
+        problem_type=problem_type,
+        max_features=max_features,
+        original_features=len(X.columns),
+        noise_features=n_noise,
+        repeats=n_repeats,
+        elapsed_time_fs=times,
+        n_samples=n_samples,
+        confusion_matrices=Z,
+        validity=validity,
+        ci_lower=ci[0],
+        ci_upper=ci[1],
+    )
+    print(f"Validity: {validity_results.validity}")
     return validity_results
 
 

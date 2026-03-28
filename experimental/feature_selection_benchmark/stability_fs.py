@@ -1,6 +1,7 @@
 import argparse
 import math
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import openml
@@ -26,6 +27,22 @@ def parse_args():  # noqa: D103
     parser.add_argument("--repeats", type=int, default=10,
                         help="Number of bootstrap repeats [default: 10]")
     return parser.parse_args()
+
+@dataclass
+class StabilityResult:
+    """Single stability result dataclass."""
+    method: str
+    dataset: str
+    problem_type: str
+    max_features: int
+    original_features: int
+    repeats: int
+    elapsed_time_fs: [float]
+    n_samples: [int]
+    selected_features: [int]
+    stability: [float]
+    ci_lower: float
+    ci_upper: float
 
 def stability_fs(args):  # noqa: D103
     dataset_id = args.dataset
@@ -76,22 +93,22 @@ def stability_fs(args):  # noqa: D103
     stability = getStability(Z)
     ci = confidenceIntervals(Z, alpha=0.05)
 
-    stability_results = {
-        "method": method_name,
-        "dataset": dataset_id,
-        "problem_type": problem_type,
-        "max_features": max_features,
-        "original_features": len(X.columns),
-        "repeats": n_repeats,
-        "elapsed_time_fs": times,
-        "n_samples": n_samples,
-        "selected_features": Z,
-        "stability": stability,
-        "ci_lower": ci["lower"],
-        "ci_upper": ci["upper"],
-    }
+    stability_results = StabilityResult(
+        method=method_name,
+        dataset=dataset_id,
+        problem_type=problem_type,
+        max_features=max_features,
+        original_features=len(X.columns),
+        repeats=n_repeats,
+        elapsed_time_fs=times,
+        n_samples=n_samples,
+        selected_features=Z,
+        stability=stability,
+        ci_lower=ci["lower"],
+        ci_upper=ci["upper"]
+    )
 
-    print(f"Stability: {stability_results}")
+    print(f"Stability: {stability_results.stability}")
     return stability_results
 
 
