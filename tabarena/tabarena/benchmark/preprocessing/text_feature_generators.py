@@ -7,7 +7,6 @@ from collections import defaultdict
 
 import numpy as np
 import pandas as pd
-import torch
 from autogluon.common.features.types import (
     S_IMAGE_BYTEARRAY,
     S_IMAGE_PATH,
@@ -55,6 +54,7 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
         on the parameters.
         """
         from sentence_transformers import SentenceTransformer
+        import torch
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self._encoder_model = SentenceTransformer("intfloat/e5-small-v2", device=device)
