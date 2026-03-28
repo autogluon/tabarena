@@ -35,19 +35,7 @@ def compare_on_tabarena(
 
     # TODO: only methods that exist in runs
     #  Pair with (method, artifact_name)
-    method_rename_map = dict()
-    method_metadatas = tabarena_context.method_metadata_collection.method_metadata_lst
-    for m in method_metadatas:
-        if m.method_type == "config":
-            display_name = m.display_name
-            if display_name is not None:
-                if m.config_type in method_rename_map:
-                    print(
-                        f"WARNING: Multiple display_name values detected for the same config_type={m.config_type!r}"
-                        f"\n\tdisplay_name 1: {method_rename_map[m.config_type]!r}"
-                        f"\n\tdisplay_name 2: {display_name!r}"
-                    )
-                method_rename_map[m.config_type] = display_name
+    method_rename_map = tabarena_context.get_method_rename_map()
 
     paper_results = tabarena_context.load_results_paper(
         download_results="auto",
