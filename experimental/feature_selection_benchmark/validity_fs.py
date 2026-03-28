@@ -1,4 +1,5 @@
 import argparse
+import time
 
 import numpy as np
 import openml
@@ -45,7 +46,8 @@ def validity_fs(args):  # noqa: D103
     print("Max features: ", max_features)
     # Store binary selections across repeats
     Z = []
-
+    times = []
+    n_samples = []
     for repeat in range(n_repeats):
         # add noise features
         X_copy, orig_feature_mask = add_noise(X, n_noise)
@@ -57,17 +59,18 @@ def validity_fs(args):  # noqa: D103
         else:
             X_repeat = X_copy
             y_repeat = y
-
+        n_samples.append(len(X_repeat))
         proxy_config = ProxyModelConfig(
             problem_type=problem_type,
             eval_metric="roc_auc",
             model_hyperparameters={"num_boost_round": 1},
         )
-
+        start_time = time.monotonic()
         feature_selector = get_feature_selector_from_name(name=method_name)
         feature_selector = feature_selector(max_features=max_features, proxy_mode_config=proxy_config)
         selected_features = feature_selector.fit_transform(X=X_repeat, y=y_repeat)
-
+        elapsed_time = time.monotonic() - start_time
+        times.append(elapsed_time)
         # Binary row: 1 if selected, 0 otherwise
         selected_binary = np.zeros(len(X_copy.columns), dtype=bool)
         selected_indices = [X_copy.columns.get_loc(f) for f in selected_features]
@@ -84,14 +87,21 @@ def validity_fs(args):  # noqa: D103
     validity = getValidity(Z, max_features)
     ci = confidenceIntervals(validity)
     validity_results = {
+        "method": method_name,
+        "dataset": dataset_id,
+        "problem_type": problem_type,
+        "max_features": max_features,
+        "original_features": len(X.columns),
+        "noise_features": n_noise,
+        "repeats": n_repeats,
+        "elapsed_time_fs": times,
+        "n_samples": n_samples,
+        "confusion_matrices": Z,
         "validity": validity,
         "ci_lower": ci[0],
         "ci_upper": ci[1],
-        "Z": Z  # Save for further analysis
     }
-    print(f"Validity: {validity_results['validity']}")
-    print(
-        f"Validity CI: lower ({validity_results['ci_lower']}) - higher ({validity_results['ci_upper']})")  # noqa: E501
+    print(f"Validity: {validity_results}")
     return validity_results
 
 

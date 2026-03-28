@@ -1,5 +1,6 @@
 import argparse
 import math
+import time
 
 import numpy as np
 import openml
@@ -45,22 +46,25 @@ def stability_fs(args):  # noqa: D103
 
     # Store binary selections across repeats
     Z = []
-
+    times = []
+    n_samples = []
     for _repeat in range(n_repeats):
         # Resample data (bootstrap) for variability
         sample_idx = np.random.choice(len(X), size=len(X), replace=True)
         X_repeat = X.iloc[sample_idx].reset_index(drop=True)
         y_repeat = y.iloc[sample_idx].reset_index(drop=True)
-
+        n_samples.append(len(X_repeat))
         proxy_config = ProxyModelConfig(
             problem_type=problem_type,
             eval_metric="roc_auc",
             model_hyperparameters={"num_boost_round": 1},
         )
-
+        start_time = time.monotonic()
         feature_selector = get_feature_selector_from_name(name=method_name)
         feature_selector = feature_selector(max_features=max_features, proxy_mode_config=proxy_config)
         selected_features = feature_selector.fit_transform(X=X_repeat, y=y_repeat)
+        elapsed_time = time.monotonic() - start_time
+        times.append(elapsed_time)
 
         # Binary row: 1 if selected, 0 otherwise
         selected_binary = np.zeros(n_features)
@@ -72,15 +76,22 @@ def stability_fs(args):  # noqa: D103
     stability = getStability(Z)
     ci = confidenceIntervals(Z, alpha=0.05)
 
-    stability_results[method_name] = {
+    stability_results = {
+        "method": method_name,
+        "dataset": dataset_id,
+        "problem_type": problem_type,
+        "max_features": max_features,
+        "original_features": len(X.columns),
+        "repeats": n_repeats,
+        "elapsed_time_fs": times,
+        "n_samples": n_samples,
+        "selected_features": Z,
         "stability": stability,
         "ci_lower": ci["lower"],
         "ci_upper": ci["upper"],
-        "Z": Z  # Save for further analysis
     }
 
-    print(f"Stability: {stability:.3f} [{ci['lower']:.3f}, {ci['upper']:.3f}]")
-
+    print(f"Stability: {stability_results}")
     return stability_results
 
 
