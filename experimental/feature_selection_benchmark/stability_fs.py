@@ -1,3 +1,4 @@
+import argparse
 import math
 
 import numpy as np
@@ -11,11 +12,26 @@ from tabarena.benchmark.feature_selection_methods.feature_selection_methods_regi
 )
 
 
-def stability_fs(method_names):  # noqa: D103
-    dataset_id = 55
-    problem_type = "binary"
-    n_repeats = 30
-    max_features = 5
+def parse_args():  # noqa: D103
+    parser = argparse.ArgumentParser(description="FS Benchmark Runner")
+    parser.add_argument("--method_name", type=str, default="MIFeatureSelector",
+                        help="Feature Selection Method name [default: 'MIFeatureSelector']")
+    parser.add_argument("--dataset", type=int, default=55,
+                        help="OpenML dataset identifier [default: 55]")
+    parser.add_argument("--problem_type", type=str, default="binary",
+                        help="OpenML dataset problem type [default: 'binary']")
+    parser.add_argument("--max-features", type=int, default=5, nargs="+",
+                        help="Max feature(s) to select [default: 5]")
+    parser.add_argument("--repeats", type=int, default=10,
+                        help="Number of bootstrap repeats [default: 10]")
+    return parser.parse_args()
+
+def stability_fs(args):  # noqa: D103
+    dataset_id = args.dataset
+    problem_type = args.problem_type
+    n_repeats = args.repeats
+    max_features = args.max_features
+    method_name = args.method_name
 
     dataset = openml.datasets.get_dataset(dataset_id)
     X, y, _, _ = dataset.get_data(target=dataset.default_target_attribute, dataset_format="dataframe")
@@ -25,49 +41,45 @@ def stability_fs(method_names):  # noqa: D103
     n_features = len(X.columns)
     stability_results = {}
 
-    for method_name in method_names:
-        print(f"\n=== {method_name} ===")
+    print(f"\n=== {method_name} ===")
 
-        # Store binary selections across repeats
-        Z_repeats = []
+    # Store binary selections across repeats
+    Z = []
 
-        for _repeat in range(n_repeats):
-            # Resample data (bootstrap) for variability
-            sample_idx = np.random.choice(len(X), size=len(X), replace=True)
-            X_repeat = X.iloc[sample_idx].reset_index(drop=True)
-            y_repeat = y.iloc[sample_idx].reset_index(drop=True)
+    for _repeat in range(n_repeats):
+        # Resample data (bootstrap) for variability
+        sample_idx = np.random.choice(len(X), size=len(X), replace=True)
+        X_repeat = X.iloc[sample_idx].reset_index(drop=True)
+        y_repeat = y.iloc[sample_idx].reset_index(drop=True)
 
-            proxy_config = ProxyModelConfig(
-                problem_type=problem_type,
-                eval_metric="roc_auc",
-                model_hyperparameters={"num_boost_round": 1},
-            )
+        proxy_config = ProxyModelConfig(
+            problem_type=problem_type,
+            eval_metric="roc_auc",
+            model_hyperparameters={"num_boost_round": 1},
+        )
 
-            feature_selector = get_feature_selector_from_name(name=method_name)
-            feature_selector = feature_selector(max_features=max_features, proxy_mode_config=proxy_config)
-            selected_features = feature_selector.fit_transform(X=X_repeat, y=y_repeat)
+        feature_selector = get_feature_selector_from_name(name=method_name)
+        feature_selector = feature_selector(max_features=max_features, proxy_mode_config=proxy_config)
+        selected_features = feature_selector.fit_transform(X=X_repeat, y=y_repeat)
 
-            # Binary row: 1 if selected, 0 otherwise
-            selected_binary = np.zeros(n_features)
-            selected_indices = [X.columns.get_loc(f) for f in selected_features]
-            selected_binary[selected_indices] = 1
-            Z_repeats.append(selected_binary)
+        # Binary row: 1 if selected, 0 otherwise
+        selected_binary = np.zeros(n_features)
+        selected_indices = [X.columns.get_loc(f) for f in selected_features]
+        selected_binary[selected_indices] = 1
+        Z.append(selected_binary)
 
-        # Z matrix: n_repeats x n_features
-        Z = np.array(Z_repeats)
+    # Stability metrics
+    stability = getStability(Z)
+    ci = confidenceIntervals(Z, alpha=0.05)
 
-        # Stability metrics
-        stability = getStability(Z)
-        ci = confidenceIntervals(Z, alpha=0.05)
+    stability_results[method_name] = {
+        "stability": stability,
+        "ci_lower": ci["lower"],
+        "ci_upper": ci["upper"],
+        "Z": Z  # Save for further analysis
+    }
 
-        stability_results[method_name] = {
-            "stability": stability,
-            "ci_lower": ci["lower"],
-            "ci_upper": ci["upper"],
-            "Z": Z  # Save for further analysis
-        }
-
-        print(f"Stability: {stability:.3f} [{ci['lower']:.3f}, {ci['upper']:.3f}]")
+    print(f"Stability: {stability:.3f} [{ci['lower']:.3f}, {ci['upper']:.3f}]")
 
     return stability_results
 
@@ -237,4 +249,7 @@ def checkInputType(Z):
 
 
 if __name__ == "__main__":
-    stability_results = stability_fs(FEATURE_SELECTION_METHODS)
+    args = parse_args()
+    for method_name in FEATURE_SELECTION_METHODS:
+        args.method_name = method_name
+        stability_results = stability_fs(args)

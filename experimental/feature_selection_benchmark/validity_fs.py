@@ -1,3 +1,5 @@
+import argparse
+
 import numpy as np
 import openml
 import pandas as pd
@@ -10,74 +12,86 @@ from tabarena.benchmark.feature_selection_methods.feature_selection_methods_regi
 )
 
 
-def validity_fs(method_names, max_features, noise):  # noqa: D103
-    dataset_id = 55
-    problem_type = "binary"
-    n_repeats = 5
+def parse_args():  # noqa: D103
+    parser = argparse.ArgumentParser(description="FS Benchmark Runner")
+    parser.add_argument("--method_name", type=str, default="MIFeatureSelector",
+                        help="Feature Selection Method name [default: 'MIFeatureSelector']")
+    parser.add_argument("--dataset", type=int, default=55,
+                        help="OpenML dataset identifier [default: 55]")
+    parser.add_argument("--problem_type", type=str, default="binary",
+                        help="OpenML dataset problem type [default: 'binary']")
+    parser.add_argument("--noise", type=float, default=1.0, nargs="+",
+                        help="Percentage of noise features relative to original feature count [default: 1.0]")
+    parser.add_argument("--max-features", type=int, default=5, nargs="+",
+                        help="Max feature(s) to select [default: 5]")
+    parser.add_argument("--repeats", type=int, default=10,
+                        help="Number of bootstrap repeats [default: 10]")
+    return parser.parse_args()
 
+
+def validity_fs(args):  # noqa: D103
+    dataset_id = args.dataset
+    problem_type = args.problem_type
+    n_repeats = args.repeats
+    max_features = args.max_features
+    method_name = args.method_name
     dataset = openml.datasets.get_dataset(dataset_id)
     X, y, _, _ = dataset.get_data(target=dataset.default_target_attribute, dataset_format="dataframe")
     label_cleaner = LabelCleaner.construct(problem_type=problem_type, y=y)
     y = label_cleaner.transform(y)
 
-    n_noise = int(len(X.columns) * noise)
-    validity_results = {}
+    n_noise = int(len(X.columns) * args.noise)
+    print(f"\n=== {method_name} ===")
+    print("Max features: ", max_features)
+    # Store binary selections across repeats
+    Z = []
 
-    for method_name in method_names:
-        print(f"\n=== {method_name} ===")
-        print("Max features: ", max_features)
-        # Store binary selections across repeats
-        Z_repeats = []
+    for repeat in range(n_repeats):
+        # add noise features
+        X_copy, orig_feature_mask = add_noise(X, n_noise)
+        if repeat != 0:
+            # Resample data (bootstrap) for variability
+            sample_idx = np.random.choice(len(X_copy), size=len(X_copy), replace=True)
+            X_repeat = X_copy.iloc[sample_idx].reset_index(drop=True)
+            y_repeat = y.iloc[sample_idx].reset_index(drop=True)
+        else:
+            X_repeat = X_copy
+            y_repeat = y
 
-        for repeat in range(n_repeats):
-            # add noise features
-            X_copy, orig_feature_mask = add_noise(X, n_noise)
-            if repeat != 0:
-                # Resample data (bootstrap) for variability
-                sample_idx = np.random.choice(len(X_copy), size=len(X_copy), replace=True)
-                X_repeat = X_copy.iloc[sample_idx].reset_index(drop=True)
-                y_repeat = y.iloc[sample_idx].reset_index(drop=True)
-            else:
-                X_repeat = X_copy
-                y_repeat = y
+        proxy_config = ProxyModelConfig(
+            problem_type=problem_type,
+            eval_metric="roc_auc",
+            model_hyperparameters={"num_boost_round": 1},
+        )
 
-            proxy_config = ProxyModelConfig(
-                problem_type=problem_type,
-                eval_metric="roc_auc",
-                model_hyperparameters={"num_boost_round": 1},
-            )
+        feature_selector = get_feature_selector_from_name(name=method_name)
+        feature_selector = feature_selector(max_features=max_features, proxy_mode_config=proxy_config)
+        selected_features = feature_selector.fit_transform(X=X_repeat, y=y_repeat)
 
-            feature_selector = get_feature_selector_from_name(name=method_name)
-            feature_selector = feature_selector(max_features=max_features, proxy_mode_config=proxy_config)
-            selected_features = feature_selector.fit_transform(X=X_repeat, y=y_repeat)
+        # Binary row: 1 if selected, 0 otherwise
+        selected_binary = np.zeros(len(X_copy.columns), dtype=bool)
+        selected_indices = [X_copy.columns.get_loc(f) for f in selected_features]
+        selected_binary[selected_indices] = True
+        orig_binary = np.array([orig_feature_mask[col] for col in X_copy.columns])
 
-            # Binary row: 1 if selected, 0 otherwise
-            selected_binary = np.zeros(len(X_copy.columns), dtype=bool)
-            selected_indices = [X_copy.columns.get_loc(f) for f in selected_features]
-            selected_binary[selected_indices] = True
-            orig_binary = np.array([orig_feature_mask[col] for col in X_copy.columns])
+        cm = confusion_matrix(orig_binary, selected_binary)
+        tn, fp, fn, tp = cm.ravel()
+        print(f"TP: {tp}  FN: {fn}  FP: {fp}  TN: {tn}")
 
-            cm = confusion_matrix(orig_binary, selected_binary)
-            tn, fp, fn, tp = cm.ravel()
-            print(f"TP: {tp}  FN: {fn}  FP: {fp}  TN: {tn}")
+        Z.append(cm)
 
-            Z_repeats.append(cm)
-        Z = np.array(Z_repeats)
-
-        # Stability metrics
-        validity = getValidity(Z, max_features)
-        # ci = stats.t.interval(0.95, len(validity) - 1, loc=np.mean(validity),
-                            #  scale=np.std(validity, ddof=1) / np.sqrt(len(validity)))
-        ci = confidenceIntervals(validity)
-        validity_results[method_name] = {
-            "validity": validity,
-            "ci_lower": ci[0],
-            "ci_upper": ci[1],
-            "Z": Z  # Save for further analysis
-        }
-        print(f"Validity: {validity_results[method_name]['validity']}")
-        print(
-            f"Validity CI: lower ({validity_results[method_name]['ci_lower']}) - higher ({validity_results[method_name]['ci_upper']})")  # noqa: E501
+    # Stability metrics
+    validity = getValidity(Z, max_features)
+    ci = confidenceIntervals(validity)
+    validity_results = {
+        "validity": validity,
+        "ci_lower": ci[0],
+        "ci_upper": ci[1],
+        "Z": Z  # Save for further analysis
+    }
+    print(f"Validity: {validity_results['validity']}")
+    print(
+        f"Validity CI: lower ({validity_results['ci_lower']}) - higher ({validity_results['ci_upper']})")  # noqa: E501
     return validity_results
 
 
@@ -146,8 +160,7 @@ def add_noise(X, n_noise, noise_type="gaussian"):  # noqa: D103
 
 
 if __name__ == "__main__":
-    noise = [1]  # Percentage of noise features to add to the original dataframe
-    max_features = [5]  # Set to a list of values (including max_features = len(X.columns))
-    for noise_value in noise:
-        for max_feature in max_features:
-            validity_results = validity_fs(FEATURE_SELECTION_METHODS, max_feature, noise_value)
+    args = parse_args()
+    for method_name in FEATURE_SELECTION_METHODS:
+        args.method_name = method_name
+        validity_results = validity_fs(args)
