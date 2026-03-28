@@ -104,7 +104,7 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
         # --- Stable feature names ---
         if is_train:
             self._feature_names = [
-                f"__semantic_embedding_{i}__{col}"
+                f"{col}__semantic_embedding_{i}"
                 for col in X.columns
                 for i in range(emb_dim)
             ]
