@@ -21,6 +21,7 @@ from tabarena.benchmark.preprocessing.text_feature_generators import (
 if TYPE_CHECKING:
     import pandas as pd
 
+
 # TODO: we likely need some kind of off-loading logic for text features
 class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
     """TabArena Model Agnostic Preprocessing."""
@@ -101,19 +102,48 @@ class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):
 
         return super()._generate_category_map(X=X)
 
-
+# TODO: maybe better cardinality threshold but we assume we only
+#  run on well-curated data for now
 class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
-    """Custom AsTypeFeatureGenerator to fix string dtype handling.
+    """Custom AsTypeFeatureGenerator to fix string dtype handling and column name sanitization.
 
     The default string detection from AutoGluon is hardcoded in a weird way. Thus, we
     overwrite it here before passing feature metadata to the rest of the pipeline.
+    We overwrite it such that we believe the dtype of the input dataframe.
 
-    Currently, we overwrite it such that we believe the dtype of the input dataframe.
+    Additionally, any input column whose name contains ``"."`` is renamed so that
+    ``"."`` is replaced by ``"_"``.  The ``"."`` character is reserved as the
+    source-column separator in text feature names produced downstream (e.g.
+    ``TextSpecialFeatureGenerator`` produces ``{col}.char_count``).  Sanitizing
+    raw column names here prevents parsing ambiguity in
+    ``TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column``.
     """
 
-    # TODO: maybe better cardinality threshold but we assume we only
-    #  run on well-curated data for now
+    def fit_transform(
+        self, X: pd.DataFrame, y: pd.Series | None = None, **kwargs
+    ) -> pd.DataFrame:
+        """Rename columns with '.' before AutoGluon stores feature metadata.
+
+        AutoGluon's ``AbstractFeatureGenerator.fit_transform`` records ``features_in``
+        from the *original* X before calling ``_fit_transform``.  We must therefore
+        rename at the public API level so that the stored metadata matches what the
+        parent's ``_fit_transform`` will see.
+        """
+        self._dot_rename_map_: dict[str, str] = {
+            c: str(c).replace(".", "_") for c in X.columns if "." in str(c)
+        }
+        if self._dot_rename_map_:
+            X = X.rename(columns=self._dot_rename_map_)
+        return super().fit_transform(X, y=y, **kwargs)
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Apply the same dot-renaming as fit before passing to parent transform."""
+        if self._dot_rename_map_:
+            X = X.rename(columns=self._dot_rename_map_)
+        return super().transform(X)
+
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> (pd.DataFrame, dict):
+        # X arrives here with '.' already replaced by '_' (done in fit_transform above).
         X, type_group_map_special = super()._fit_transform(X=X, **kwargs)
 
         found_text_cols = type_group_map_special.get("text", [])

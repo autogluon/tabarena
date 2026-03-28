@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 import unicodedata
 import warnings
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -18,16 +20,20 @@ from autogluon.features import AbstractFeatureGenerator
 from sklearn.decomposition import PCA
 from tqdm import tqdm
 
+# Non-printable ASCII control characters excluding whitespace (tab \x09, LF \x0a, CR \x0d).
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
+
 
 def sanitize_text(text_data: pd.Series, fillna_str: str = "Missing Data") -> pd.Series:
-    """Normalize text by applying unicode normalization, stripping whitespace,
-    replacing multiple spaces with a single space, and converting to lowercase.
+    """Normalize text by applying unicode normalization, removing control characters,
+    stripping whitespace, replacing multiple spaces with a single space, and converting
+    to lowercase.
     """
     return (
         text_data.fillna(fillna_str)
         .astype(str)
         # Unicode & canonical form normalization
-        .map(lambda x: unicodedata.normalize("NFKC", x))
+        .map(lambda x: _CONTROL_CHAR_RE.sub("", unicodedata.normalize("NFKC", x)))
         .str.strip()
         .str.replace(r"\s+", " ", regex=True)
         .str.lower()
@@ -101,10 +107,10 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
         # Infer embedding dimension
         emb_dim = len(next(iter(self._embedding_look_up.values())))
 
-        # --- Stable feature names ---
+        # --- Stable feature names: source column is the prefix ---
         if is_train:
             self._feature_names = [
-                f"{col}__semantic_embedding_{i}"
+                f"{col}.semantic_embedding_{i}"
                 for col in X.columns
                 for i in range(emb_dim)
             ]
@@ -161,7 +167,15 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
 
 
 class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
-    """Generate a statistical embedding of text features using skrub."""
+    """Generate a statistical embedding of text features using skrub.
+
+    Uses a ``TableVectorizer`` backed by ``StringEncoder`` to produce dense numeric
+    embeddings for each text column.  Output columns are renamed from the
+    ``{col}_{i}`` format produced by ``TableVectorizer`` to ``{col}.{i}`` so that the
+    source column can be recovered by splitting on the first ``"."``, consistent with
+    the naming convention used by ``TextSpecialFeatureGenerator`` and
+    ``SemanticTextFeatureGenerator``.
+    """
 
     MAX_N_OUTPUT_FEATURES = 384  # Same as intfloat/e5-small-v2
 
@@ -195,10 +209,15 @@ class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
                     module="skrub._string_encoder",
                 )
                 X = self._vectorizer.fit_transform(X)
+            # TableVectorizer produces "{col}_{i}"; remap to "{col}.{i}" so that
+            # the source column prefix is separated by "." (the project convention).
+            self._col_rename_map_: dict[str, str] = {
+                c: re.sub(r"_(\d+)$", r".\1", c) for c in X.columns
+            }
         else:
             X = self._vectorizer.transform(X)
 
-        return X
+        return X.rename(columns=self._col_rename_map_)
 
     @staticmethod
     def get_default_infer_features_in_args() -> dict:
@@ -208,21 +227,35 @@ class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
         }
 
 
-# TODO: figure out if we want to pca-batch by source column or not...
 class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenerator):
     """Model-specific preprocessing to reduce the dimensionality of text embeddings.
+
+    Features are grouped by their source column. A separate PCA is fitted for each group
+    (or sub-group when ``max_features_per_group`` is finite).
 
     Pipeline:
         - Validate and remember training feature names.
         - Standard-scale with vectorized NumPy/Pandas ops.
-        - Process columns in batches of 1000.
-        - Run PCA on each batch, with up to 30 components.
+        - Group columns by source column prefix.
+        - Optionally split large groups into sub-batches of ``max_features_per_group``.
+        - Run PCA on each (sub-)batch, with up to 30 components.
         - Keep only the components needed to explain 99% cumulative variance.
+
+    Parameters
+    ----------
+    max_features_per_group:
+        Maximum number of input features per PCA batch.  When ``float("inf")``
+        (default) all features sharing the same source-column prefix are reduced
+        with a single PCA.  When finite, each group is further split into
+        sub-batches of at most this many features.
     """
 
-    _BATCH_SIZE = 1000
     _MAX_COMPONENTS_PER_BATCH = 30
     _EXPLAINED_VARIANCE_THRESHOLD = 0.99
+
+    def __init__(self, max_features_per_group: int | float = float("inf"), **kwargs):
+        super().__init__(**kwargs)
+        self.max_features_per_group = max_features_per_group
 
     @staticmethod
     def get_default_infer_features_in_args() -> dict:
@@ -237,6 +270,60 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
     @staticmethod
     def get_infer_features_in_args_to_drop() -> dict:
         return {"invalid_special_types": [S_TEXT_EMBEDDING, S_TEXT_SPECIAL]}
+
+    @staticmethod
+    def _parse_source_column(feature_name: str) -> str:
+        """Return the source column name encoded in *feature_name*.
+
+        The project-wide convention is ``{source_col}.{rest}`` — a single ``"."``
+        separates the original column name from the feature-specific suffix.
+        If ``"."`` is absent the entire feature name is treated as the source column.
+
+        This covers all text-feature naming schemes:
+
+        * ``TextSpecialFeatureGenerator``: ``{col}.char_count``, ``{col}.word_count``
+        * ``SemanticTextFeatureGenerator``: ``{col}.semantic_embedding_{i}``
+        * ``StatisticalTextFeatureGenerator``: ``{col}.{i}``
+        * ``TextEmbeddingDimensionalityReductionFeatureGenerator`` output: ``{col}.dr{b}_{i}``
+        """
+        return feature_name.split(".", 1)[0]
+
+    def _make_batch_plan(
+        self, feature_names: list[str]
+    ) -> list[tuple[str, int, list[str]]]:
+        """Build a PCA batch plan grouped by source column.
+
+        Parameters
+        ----------
+        feature_names:
+            Ordered list of input feature names.
+
+        Returns:
+        -------
+        list of ``(source_col, sub_batch_idx, feature_list)`` tuples, one entry
+        per PCA that will be fitted.
+        """
+        # Group features by source column, preserving encounter order.
+        groups: dict[str, list[str]] = defaultdict(list)
+        for feat in feature_names:
+            src = self._parse_source_column(feat)
+            groups[src].append(feat)
+
+        plan: list[tuple[str, int, list[str]]] = []
+        max_n = self.max_features_per_group
+
+        for src_col, feats in groups.items():
+            if max_n == float("inf") or len(feats) <= max_n:
+                plan.append((src_col, 0, feats))
+            else:
+                max_n_int = int(max_n)
+                sub_batches = [
+                    feats[i : i + max_n_int] for i in range(0, len(feats), max_n_int)
+                ]
+                for sub_idx, sub_feats in enumerate(sub_batches):
+                    plan.append((src_col, sub_idx, sub_feats))
+
+        return plan
 
     def _fit_transform(
         self,
@@ -282,6 +369,9 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
         self._scale_means_ = means
         self._scale_stds_ = stds
 
+        # Build batch plan based on source column grouping.
+        batch_plan = self._make_batch_plan(list(X.columns))
+
         # Fit PCA per batch.
         self._batch_pcas_: list[PCA] = []
         self._batch_input_columns_: list[list[str]] = []
@@ -289,12 +379,9 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
 
         transformed_batches: list[pd.DataFrame] = []
 
-        for batch_idx, start in tqdm(
-            enumerate(range(0, X.shape[1], self._BATCH_SIZE)),
-            desc="Fitting PCA batches...",
+        for src_col, sub_batch_idx, batch_cols in tqdm(
+            batch_plan, desc="Fitting PCA batches..."
         ):
-            end = start + self._BATCH_SIZE
-            batch_cols = list(X.columns[start:end])
             X_batch = X[batch_cols]
 
             n_samples, n_features = X_batch.shape
@@ -319,8 +406,7 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
             X_pca = X_pca[:, :keep_count]
 
             output_cols = [
-                f"__text_embedding__batch_{batch_idx}_pca_{i}"
-                for i in range(keep_count)
+                f"{src_col}.dr{sub_batch_idx}_{i}" for i in range(keep_count)
             ]
 
             X_pca_df = pd.DataFrame(X_pca, index=X.index, columns=output_cols)
@@ -352,18 +438,14 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
             means=self._scale_means_,
             stds=self._scale_stds_,
         )
-        # Apply fit-time sort order.
-        X_sorted = X_scaled[self.sorted_feature_names_]
 
         transformed_batches: list[pd.DataFrame] = []
-        for _, (pca, batch_cols, output_cols) in enumerate(
-            zip(
-                self._batch_pcas_,
-                self._batch_input_columns_,
-                self._batch_output_columns_,
-            )
+        for pca, batch_cols, output_cols in zip(
+            self._batch_pcas_,
+            self._batch_input_columns_,
+            self._batch_output_columns_,
         ):
-            X_batch = X_sorted[batch_cols]
+            X_batch = X_scaled[batch_cols]
             X_pca = pca.transform(X_batch.to_numpy(copy=False))
             X_pca = X_pca[:, : len(output_cols)]
 

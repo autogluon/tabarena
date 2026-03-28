@@ -106,6 +106,23 @@ class TestSanitizeText:
         assert s.iloc[0] == "42.0"
         assert s.iloc[1] == "3.14"
 
+    def test_control_chars_removed(self):
+        # \x01 (SOH) is a non-printable control char and should be removed.
+        s = sanitize_text(pd.Series(["hello\x01world", "foo\x07bar"]))
+        assert s.iloc[0] == "helloworld"
+        assert s.iloc[1] == "foobar"
+
+    def test_whitespace_control_chars_preserved(self):
+        # Tab \x09 and newline \x0a are whitespace and should NOT be removed
+        # (they get collapsed to a single space by the \s+ replace).
+        s = sanitize_text(pd.Series(["foo\x09bar"]))
+        assert s.iloc[0] == "foo bar"
+
+    def test_del_char_removed(self):
+        # \x7f (DEL) is a control char and should be stripped.
+        s = sanitize_text(pd.Series(["abc\x7fdef"]))
+        assert s.iloc[0] == "abcdef"
+
 
 # ===========================================================================
 # TabArenaModelSpecificPreprocessing
@@ -305,6 +322,41 @@ class TestStringFixAsTypeFeatureGenerator:
 
         assert issubclass(StringFixAsTypeFeatureGenerator, AsTypeFeatureGenerator)
 
+    def test_fit_transform_renames_dot_columns(self):
+        gen = StringFixAsTypeFeatureGenerator()
+        X = pd.DataFrame({"a.b": [1.0, 2.0, 3.0], "c": [4.0, 5.0, 6.0]})
+        X_out = gen.fit_transform(X.copy())
+        assert "a_b" in X_out.columns
+        assert "a.b" not in X_out.columns
+
+    def test_fit_transform_leaves_clean_columns_unchanged(self):
+        gen = StringFixAsTypeFeatureGenerator()
+        X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b_c": [4.0, 5.0, 6.0]})
+        X_out = gen.fit_transform(X.copy())
+        assert "a" in X_out.columns
+        assert "b_c" in X_out.columns
+
+    def test_fit_transform_multiple_dots_all_replaced(self):
+        gen = StringFixAsTypeFeatureGenerator()
+        X = pd.DataFrame({"a.b.c": [1.0, 2.0, 3.0]})
+        X_out = gen.fit_transform(X.copy())
+        assert "a_b_c" in X_out.columns
+
+    def test_transform_also_renames_dot_columns(self):
+        gen = StringFixAsTypeFeatureGenerator()
+        X_train = pd.DataFrame({"a.b": [1.0, 2.0, 3.0], "c": [4.0, 5.0, 6.0]})
+        gen.fit_transform(X_train.copy())
+        X_test = pd.DataFrame({"a.b": [7.0, 8.0], "c": [9.0, 10.0]})
+        X_out = gen.transform(X_test)
+        assert "a_b" in X_out.columns
+        assert "a.b" not in X_out.columns
+
+    def test_no_dot_columns_produces_empty_rename_map(self):
+        gen = StringFixAsTypeFeatureGenerator()
+        X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+        gen.fit_transform(X.copy())
+        assert gen._dot_rename_map_ == {}
+
 
 # ===========================================================================
 # DateTimeFeatureGenerator
@@ -425,6 +477,38 @@ class TestStatisticalTextFeatureGenerator:
     def test_max_n_output_features_constant(self):
         assert StatisticalTextFeatureGenerator.MAX_N_OUTPUT_FEATURES == 384
 
+    def test_output_columns_prefixed_with_source_column(self):
+        gen = StatisticalTextFeatureGenerator()
+        X = _make_text_df(n_rows=20)  # column named "text"
+        X_out, _ = gen._fit_transform(X.copy())
+        # TableVectorizer produces "text_0", "text_1", ... which get renamed to "text.0", "text.1", ...
+        assert all(c.startswith("text.") for c in X_out.columns)
+
+    def test_output_column_format_uses_dot_separator(self):
+        gen = StatisticalTextFeatureGenerator()
+        X = _make_text_df(n_rows=20)
+        X_out, _ = gen._fit_transform(X.copy())
+        # All columns should match "{col}.{integer}" format
+        import re
+        assert all(re.match(r"^text\.\d+$", c) for c in X_out.columns)
+
+    def test_two_columns_each_prefixed_correctly(self):
+        gen = StatisticalTextFeatureGenerator()
+        phrases = ["hello world", "foo bar baz", "quick brown fox", "test text", "sample"]
+        n = 20
+        X = pd.DataFrame(
+            {
+                "col_a": [phrases[i % len(phrases)] for i in range(n)],
+                "col_b": [phrases[(i + 1) % len(phrases)] for i in range(n)],
+            }
+        )
+        X_out, _ = gen._fit_transform(X.copy())
+        a_cols = [c for c in X_out.columns if c.startswith("col_a.")]
+        b_cols = [c for c in X_out.columns if c.startswith("col_b.")]
+        assert len(a_cols) > 0
+        assert len(b_cols) > 0
+        assert len(a_cols) + len(b_cols) == X_out.shape[1]
+
 
 # ===========================================================================
 # SemanticTextFeatureGenerator (init/static tests only; model download needed)
@@ -487,9 +571,6 @@ class TestSemanticTextFeatureGenerator:
 
 
 class TestTextEmbeddingDRConstants:
-    def test_batch_size(self):
-        assert TextEmbeddingDimensionalityReductionFeatureGenerator._BATCH_SIZE == 1000
-
     def test_max_components_per_batch(self):
         assert TextEmbeddingDimensionalityReductionFeatureGenerator._MAX_COMPONENTS_PER_BATCH == 30
 
@@ -497,6 +578,123 @@ class TestTextEmbeddingDRConstants:
         assert (
             TextEmbeddingDimensionalityReductionFeatureGenerator._EXPLAINED_VARIANCE_THRESHOLD == 0.99
         )
+
+    def test_default_max_features_per_group_is_inf(self):
+        gen = TextEmbeddingDimensionalityReductionFeatureGenerator()
+        assert gen.max_features_per_group == float("inf")
+
+    def test_custom_max_features_per_group(self):
+        gen = TextEmbeddingDimensionalityReductionFeatureGenerator(max_features_per_group=50)
+        assert gen.max_features_per_group == 50
+
+
+class TestTextEmbeddingDRParseSourceColumn:
+    def test_dot_separator(self):
+        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+            "my_col.emb_0"
+        )
+        assert result == "my_col"
+
+    def test_multiple_dots_uses_first(self):
+        # Only the first "." separator is used.
+        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+            "col.semantic_embedding.extra"
+        )
+        assert result == "col"
+
+    def test_no_dot_returns_whole_name(self):
+        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column("emb_0")
+        assert result == "emb_0"
+
+    def test_empty_prefix(self):
+        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(".emb_0")
+        assert result == ""
+
+    def test_statistical_suffix_convention(self):
+        # StatisticalTextFeatureGenerator produces "text.42"
+        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column("text.42")
+        assert result == "text"
+
+    def test_semantic_suffix_convention(self):
+        # SemanticTextFeatureGenerator produces "description.semantic_embedding_5"
+        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+            "description.semantic_embedding_5"
+        )
+        assert result == "description"
+
+    def test_text_special_char_count_convention(self):
+        # TextSpecialFeatureGenerator produces "col.char_count"
+        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+            "col.char_count"
+        )
+        assert result == "col"
+
+    def test_dr_output_convention(self):
+        # DR output is "{col}.dr{b}_{i}"
+        result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
+            "mytext.dr0_3"
+        )
+        assert result == "mytext"
+
+
+class TestTextEmbeddingDRMakeBatchPlan:
+    def _gen(self, max_n=float("inf")):
+        return TextEmbeddingDimensionalityReductionFeatureGenerator(max_features_per_group=max_n)
+
+    def test_single_source_no_split(self):
+        gen = self._gen()
+        features = ["src.emb_0", "src.emb_1", "src.emb_2"]
+        plan = gen._make_batch_plan(features)
+        assert len(plan) == 1
+        assert plan[0][0] == "src"
+        assert plan[0][1] == 0
+        assert plan[0][2] == features
+
+    def test_two_sources_two_batches(self):
+        gen = self._gen()
+        features = ["a.emb_0", "a.emb_1", "b.emb_0"]
+        plan = gen._make_batch_plan(features)
+        assert len(plan) == 2
+        sources = [p[0] for p in plan]
+        assert "a" in sources
+        assert "b" in sources
+
+    def test_max_features_per_group_splits(self):
+        gen = self._gen(max_n=2)
+        features = ["src.emb_0", "src.emb_1", "src.emb_2"]
+        plan = gen._make_batch_plan(features)
+        # 3 features with max 2 → 2 sub-batches
+        assert len(plan) == 2
+        assert plan[0][1] == 0
+        assert plan[1][1] == 1
+
+    def test_max_features_per_group_no_split_when_exact(self):
+        gen = self._gen(max_n=3)
+        features = ["src.emb_0", "src.emb_1", "src.emb_2"]
+        plan = gen._make_batch_plan(features)
+        assert len(plan) == 1
+
+    def test_no_dot_in_feature_name_each_is_its_own_group(self):
+        gen = self._gen()
+        features = ["emb_0", "emb_1"]
+        plan = gen._make_batch_plan(features)
+        # Each feature is its own source column (no dot separator)
+        assert len(plan) == 2
+
+    def test_plan_covers_all_features(self):
+        gen = self._gen(max_n=2)
+        features = ["a.0", "a.1", "a.2", "b.0", "b.1"]
+        plan = gen._make_batch_plan(features)
+        covered = [f for _, _, feats in plan for f in feats]
+        assert sorted(covered) == sorted(features)
+
+    def test_sub_batch_indices_are_sequential_per_source(self):
+        gen = self._gen(max_n=2)
+        features = [f"src.{i}" for i in range(5)]
+        plan = gen._make_batch_plan(features)
+        src_plan = [(p[1], p[2]) for p in plan if p[0] == "src"]
+        indices = [p[0] for p in src_plan]
+        assert indices == list(range(len(indices)))
 
 
 class TestTextEmbeddingDRStaticMethods:
@@ -606,12 +804,21 @@ class TestTextEmbeddingDRStaticMethods:
 
 
 class TestTextEmbeddingDRFitTransform:
-    def _make_embedding_df(self, n_rows=30, n_cols=50) -> pd.DataFrame:
+    def _make_embedding_df(self, n_rows=30, n_cols=50, n_sources=1) -> pd.DataFrame:
+        """Create a DataFrame of embedding features with proper source-column naming.
+
+        Columns are named ``src{s}.emb{i}`` (dot separator) so that
+        ``_parse_source_column`` returns the source group ``src{s}``.
+        """
         rng = np.random.default_rng(1)
-        return pd.DataFrame(
-            rng.standard_normal((n_rows, n_cols)),
-            columns=[f"emb_{i}" for i in range(n_cols)],
-        )
+        cols_per_source = n_cols // n_sources
+        cols = [
+            f"src{s}.emb{i}"
+            for s in range(n_sources)
+            for i in range(cols_per_source)
+        ]
+        data = rng.standard_normal((n_rows, len(cols)))
+        return pd.DataFrame(data, columns=cols)
 
     def _make_target(self, n_rows=30) -> pd.Series:
         rng = np.random.default_rng(1)
@@ -639,19 +846,21 @@ class TestTextEmbeddingDRFitTransform:
         # PCA + variance thresholding should reduce features
         assert X_out.shape[1] <= 50
 
-    def test_fit_preprocess_and_transform_output_cols_named_with_pca(self):
+    def test_fit_preprocess_and_transform_output_cols_named_with_source_and_pca(self):
         gen = TextEmbeddingDimensionalityReductionFeatureGenerator()
-        X = self._make_embedding_df()
+        X = self._make_embedding_df()  # single source "src0"
         y = self._make_target()
         X_out = gen._fit_preprocess_and_transform(X=X, y=y)
-        assert all("__text_embedding__" in c for c in X_out.columns)
+        # With single source "src0", output cols should be "src0.dr0_{i}"
+        import re as _re
+        assert all(_re.match(r"^src0\.dr\d+_\d+$", c) for c in X_out.columns)
 
     def test_fit_preprocess_and_transform_max_components_per_batch(self):
         gen = TextEmbeddingDimensionalityReductionFeatureGenerator()
         X = self._make_embedding_df(n_rows=100, n_cols=50)
         y = self._make_target(n_rows=100)
         X_out = gen._fit_preprocess_and_transform(X=X, y=y)
-        # At most _MAX_COMPONENTS_PER_BATCH components per batch
+        # At most _MAX_COMPONENTS_PER_BATCH components per batch (single source → single batch)
         assert X_out.shape[1] <= gen._MAX_COMPONENTS_PER_BATCH
 
     def test_fit_transform_sets_feature_names_in(self):
@@ -678,15 +887,24 @@ class TestTextEmbeddingDRFitTransform:
         assert hasattr(gen, "feature_names_out_")
         assert len(gen.feature_names_out_) > 0
 
-    def test_transform_raises_attribute_error_on_missing_sorted_features(self):
-        # Known limitation: _transform_inference references `self.sorted_feature_names_`
-        # which is never set by _fit_transform. Tracked here to catch when it gets fixed.
+    def test_fit_then_transform_works(self):
+        # The sorted_feature_names_ bug is now fixed; transform must succeed.
         gen = TextEmbeddingDimensionalityReductionFeatureGenerator()
         X = self._make_embedding_df()
         y = self._make_target()
         gen._fit_transform(X=X.copy(), y=y)
-        with pytest.raises(AttributeError, match="sorted_feature_names_"):
-            gen._transform(X.copy())
+        X_out = gen._transform(X.copy())
+        assert isinstance(X_out, pd.DataFrame)
+        assert list(X_out.columns) == gen.feature_names_out_
+
+    def test_fit_then_transform_preserves_row_count(self):
+        gen = TextEmbeddingDimensionalityReductionFeatureGenerator()
+        X = self._make_embedding_df(n_rows=30)
+        y = self._make_target(n_rows=30)
+        gen._fit_transform(X=X.copy(), y=y)
+        X_test = self._make_embedding_df(n_rows=10)
+        X_out = gen._transform(X_test)
+        assert len(X_out) == 10
 
     def test_transform_raises_on_column_mismatch(self):
         gen = TextEmbeddingDimensionalityReductionFeatureGenerator()
@@ -694,8 +912,26 @@ class TestTextEmbeddingDRFitTransform:
         y = self._make_target()
         gen._fit_transform(X=X.copy(), y=y)
         X_wrong = self._make_embedding_df(n_cols=10)
-        with pytest.raises((ValueError, AttributeError)):
+        with pytest.raises(ValueError):
             gen._transform(X_wrong)
+
+    def test_multiple_sources_produce_separate_pca_batches(self):
+        gen = TextEmbeddingDimensionalityReductionFeatureGenerator()
+        X = self._make_embedding_df(n_rows=40, n_cols=20, n_sources=2)
+        y = self._make_target(n_rows=40)
+        gen._fit_transform(X=X.copy(), y=y)
+        # Two source columns → two PCA batches
+        assert len(gen._batch_pcas_) == 2
+
+    def test_max_features_per_group_splits_into_sub_batches(self):
+        gen = TextEmbeddingDimensionalityReductionFeatureGenerator(max_features_per_group=5)
+        # 10 features from one source → 2 sub-batches
+        rng = np.random.default_rng(42)
+        cols = [f"src0.emb{i}" for i in range(10)]
+        X = pd.DataFrame(rng.standard_normal((30, 10)), columns=cols)
+        y = self._make_target(n_rows=30)
+        gen._fit_transform(X=X.copy(), y=y)
+        assert len(gen._batch_pcas_) == 2
 
     def test_single_row_input(self):
         gen = TextEmbeddingDimensionalityReductionFeatureGenerator()
