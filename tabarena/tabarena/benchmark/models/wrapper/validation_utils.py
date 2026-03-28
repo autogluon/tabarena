@@ -1,12 +1,28 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pandas as pd
 from loguru import logger
 
+from tabarena.benchmark.task.user_task import (
+    GroupLabelTypes,
+)
+
+if TYPE_CHECKING:
+    from tabarena.benchmark.task.user_task import (
+        SplitTimeHorizonTypes,
+        SplitTimeHorizonUnitTypes,
+    )
+
 
 class TabArenaValidationProtocolExecMixin:
     """Logic to adjust to various validation data use cases for benchmarking."""
+
+    tiny_data_num_folds: int = 5
+    tiny_data_num_repeats: int = 3
+    max_samples_for_tiny_data: int = 500
 
     def __init__(
         self,
@@ -17,6 +33,9 @@ class TabArenaValidationProtocolExecMixin:
         stratify_on: str | None = None,
         time_on: str | None = None,
         group_time_on: str | None = None,
+        group_labels: GroupLabelTypes | None = None,
+        split_time_horizon: SplitTimeHorizonTypes | None = None,
+        split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
     ):
         """Mixin to handle validation protocol logic for benchmarking.
 
@@ -39,6 +58,12 @@ class TabArenaValidationProtocolExecMixin:
         group_time_on:
             The name of the column that identifies column that identifies time within
             groups.
+        group_labels:
+            Whether the group_on column(s) contain labels for each sample, or for each group.
+        split_time_horizon:
+            Time horizon for deployment/test data
+        split_time_horizon_unit:
+            Unit for time horizon for deployment/test data (e.g. days, months, years)
         """
         self.use_task_specific_validation = use_task_specific_validation
         self.target_name = target_name
@@ -46,6 +71,9 @@ class TabArenaValidationProtocolExecMixin:
         self.group_on = group_on
         self.time_on = time_on
         self.group_time_on = group_time_on
+        self.group_labels = group_labels
+        self.split_time_horizon = split_time_horizon
+        self.split_time_horizon_unit = split_time_horizon_unit
 
     def resolve_validation_splits(
         self,
@@ -92,6 +120,9 @@ class TabArenaValidationProtocolExecMixin:
             f"\n\tGroup_on: {self.group_on}"
             f"\n\tTime_on: {self.time_on}"
             f"\n\tGroup_time_on: {self.group_time_on}"
+            f"\n\tGroup_labels: {self.group_labels}"
+            f"\n\tSplit_time_horizon: {self.split_time_horizon}"
+            f"\n\tSplit_time_horizon_unit: {self.split_time_horizon_unit}"
         )
 
         num_folds, num_repeats = self._resolve_number_of_splits(
@@ -170,11 +201,10 @@ class TabArenaValidationProtocolExecMixin:
         num_group_instances: int
             The number of group instances in the data.
         """
-        # FIXME: do not hardcode this in the future.
         new_num_folds, new_num_repeats = None, None
-        if num_group_instances <= 500:
-            new_num_folds = 5
-            new_num_repeats = 3
+        if num_group_instances <= self.max_samples_for_tiny_data:
+            new_num_folds = self.tiny_data_num_folds
+            new_num_repeats = self.tiny_data_num_repeats
         else:
             # We want these by default for all other data in our benchmark.
             assert num_folds == 8
@@ -221,21 +251,26 @@ class TabArenaValidationProtocolExecMixin:
             "Group column(s) contain NaN values, which is not allowed for group-wise splitting!"
         )
 
-        n_groups_in_data = groups_data.nunique()
-        assert n_groups_in_data > 1, (
-            f"Need at least 2 unique groups for group-wise splitting, but got {n_groups_in_data} unique groups from column(s) {group_col}!"
-        )
-        num_folds = min(num_folds, n_groups_in_data)
+        if self.group_labels not in [
+            GroupLabelTypes.PER_GROUP,
+            GroupLabelTypes.PER_SAMPLE,
+        ]:
+            raise ValueError(f"Invalid group_labels value: {self.group_labels}")
 
+        if self.group_labels == GroupLabelTypes.PER_GROUP:
+            n_groups_in_data = groups_data.nunique()
+            assert n_groups_in_data > 1, (
+                f"Need at least 2 unique groups for group-wise splitting, but got {n_groups_in_data} unique groups from column(s)!"
+            )
+            num_folds = min(num_folds, n_groups_in_data)
+
+        # Build dummy split data object
         splits_data = pd.Series(np.zeros(len(X)), index=X.index).to_frame()
         splits_data["group"] = groups_data
-
         stratify_on = None
         if self.stratify_on is not None:
             splits_data["stratify"] = stratify_on_data
             stratify_on = "stratify"
-
-        # Ensure correct indexing for splits
         splits_data = splits_data.reset_index(drop=True)
 
         custom_splits = get_recommended_grouped_splits(
@@ -245,6 +280,7 @@ class TabArenaValidationProtocolExecMixin:
             n_splits=num_folds,
             n_repeats=num_repeats,
             test_size=None,
+            group_labels=self.group_labels.value,
         )
         del splits_data
 
@@ -290,7 +326,9 @@ class TabArenaValidationProtocolExecMixin:
         from tabarena.benchmark.task.user_task import TabArenaTaskMetadataMixin
 
         return TabArenaTaskMetadataMixin.get_num_instance_groups(
-            X=X, group_on=self.group_on
+            X=X,
+            group_on=self.group_on,
+            group_labels=self.group_labels,
         )
 
 

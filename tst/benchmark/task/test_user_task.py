@@ -83,7 +83,7 @@ def test_user_task_as_openml_task(problem_type, expected_cls, tmp_path):
     # Check Dataset Metadata
     oml_dataset = oml_task.get_dataset()
     assert isinstance(oml_dataset, openml.datasets.OpenMLDataset)
-    assert oml_dataset.name == ut.dataset_name
+    assert oml_dataset.name == ut.get_dataset_name()
     assert oml_dataset.default_target_attribute == target_feature
     assert oml_dataset.parquet_file == (ut._local_cache_path / "data.pq")
     assert (ut._local_cache_path / "data.pq").exists()

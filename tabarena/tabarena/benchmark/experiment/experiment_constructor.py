@@ -16,7 +16,7 @@ from tabarena.benchmark.experiment.experiment_runner import ExperimentRunner, OO
 from tabarena.benchmark.models.model_registry import infer_model_cls
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
-
+from tabarena.benchmark.task.user_task import GroupLabelTypes, SplitTimeHorizonTypes, SplitTimeHorizonUnitTypes
 
 class Experiment:
     """
@@ -175,6 +175,9 @@ class Experiment:
             group_on: str | list[str] | None = None,
             time_on: str | None = None,
             group_time_on: str | None = None,
+            group_labels: GroupLabelTypes | None = None,
+            split_time_horizon: SplitTimeHorizonTypes | None = None,
+            split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
             overwrite_existing: bool = False,
         ) -> None:
         """Load validation split metadata into the experiment's method_kwargs.
@@ -194,6 +197,12 @@ class Experiment:
             The name of the column to use for time-based validation splits.
         group_time_on: str, optional
             The name of the column to use for group time-based validation splits.
+        group_labels:
+            Whether the group_on column(s) contain labels for each sample, or for each group.
+        split_time_horizon:
+            The time horizon of the test data.
+        split_time_horizon_unit:
+            The unit for the time horizon.
         overwrite_existing: bool, default False
             If True, will overwrite existing validation split metadata in method_kwargs.
         """
@@ -202,9 +211,12 @@ class Experiment:
             f"\n\tUse task specific validation: {use_task_specific_validation}"
             f"\n\ttarget_name: {target_name}"
             f"\n\tstratify_on: {stratify_on}"
-            f"\n\tgroup_on: {group_on}"
             f"\n\ttime_on: {time_on}"
+            f"\n\tsplit_time_horizon: {split_time_horizon}"
+            f"\n\tsplit_time_horizon_unit: {split_time_horizon_unit}"
+            f"\n\tgroup_on: {group_on}"
             f"\n\tgroup_time_on: {group_time_on}"
+            f"\n\tgroup_labels: {group_labels}"
         )
         params = {
             "use_task_specific_validation": use_task_specific_validation,
@@ -213,6 +225,9 @@ class Experiment:
             "group_on": group_on,
             "time_on": time_on,
             "group_time_on": group_time_on,
+            "group_labels": group_labels,
+            "split_time_horizon": split_time_horizon,
+            "split_time_horizon_unit": split_time_horizon_unit,
         }
 
         for key, value in params.items():

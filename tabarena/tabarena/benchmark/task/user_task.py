@@ -26,9 +26,16 @@ from openml.tasks import (
     OpenMLSupervisedTask,
     TaskType,
 )
+from enum import StrEnum
 
 SplitIndex = Annotated[str, "format: r{int}f{int}"]
 
+SplitTimeHorizonTypes = str | int | float
+SplitTimeHorizonUnitTypes = Literal["steps", "days", "weeks", "months", "years"] | str
+
+class GroupLabelTypes(StrEnum):
+    PER_SAMPLE = "per_sample"
+    PER_GROUP = "per_group"
 
 @dataclass
 class TabArenaTaskMetadata:
@@ -53,15 +60,22 @@ class TabArenaTaskMetadata:
     """The number of splits in the task."""
     splits_metadata: dict[SplitIndex, SplitMetadata]
     """Mapping of split index to Metadata about the splits in the task."""
+    split_time_horizon: SplitTimeHorizonTypes | None
+    """The time horizon used for temporal splitting. This can be a number (e.g., 5)."""
+    split_time_horizon_unit: SplitTimeHorizonUnitTypes | None
+    """The unit of the time horizon used for temporal splitting. This can be a string (e.g., 'days') or one of
+    the predefined literals."""
 
     stratify_on: str | None
     """The name of the column used for stratification during splitting."""
-    group_on: str | list[str] | None
-    """The name of the column used for grouping during splitting."""
     time_on: str | None
     """The name of the column used for temporal splitting."""
+    group_on: str | list[str] | None
+    """The name of the column used for grouping during splitting."""
     group_time_on: str | None
     """The name of the column that contains the time information for"""
+    group_labels: GroupLabelTypes | None
+    """Whether the group_on column(s) contain labels for each sample, or for each group."""
 
     multiclass_min_n_classes_over_splits: int | None
     """The minimum number of classes across splits for classification tasks,
@@ -72,6 +86,18 @@ class TabArenaTaskMetadata:
     class_consistency_over_splits: bool | None
     """Whether the number of classes is consistent across splits for classification tasks,
     None for regression tasks."""
+
+    num_instances: int
+    """The total number of instances in the dataset."""
+    num_features: int
+    """The total number of features (excluding the target) in the dataset."""
+    num_classes: int
+    """The total number of classes in the dataset. -1 for regression tasks."""
+    num_instance_groups: int
+    """The total number of unique groups of data in the dataset. For normal IID data,
+    this is equal to num_instances. For non-IID grouped data, this is equal to the number
+    of groups in the data.
+    """
 
     tabarena_task_name: str | None
     """The name of the task used for TabArena. This is used for better identification
@@ -197,9 +223,11 @@ class SplitMetadata:
     """
     num_instance_groups_test: int
     """The number unique groups of data in the test split."""
-    num_classes: int
+    num_classes_train: int
     """-1 for regression tasks, and maximal number of unique classes in the training
-    and test set for classification tasks."""
+    set for classification tasks."""
+    num_classes_test: int
+    """Classes in test data"""
     num_features_train: int
     """The number of features (excluding the target) in the training set of the split."""
     num_features_test: int
@@ -227,13 +255,17 @@ class TabArenaTaskMetadataMixin:
 
     _task_metadata: TabArenaTaskMetadata | None = None
 
+    # TODO: move split metadata to the split object itself and create a TabArena split object
     def __init__(
         self,
         *,
         stratify_on: str | None = None,
-        group_on: str | list[str] | None = None,
         time_on: str | None = None,
+        group_on: str | list[str] | None = None,
         group_time_on: str | None = None,
+        group_labels: GroupLabelTypes | None = None,
+        split_time_horizon: SplitTimeHorizonTypes | None = None,
+        split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
         **kwargs,
     ) -> None:
         """Checkout Data Foundry's PredictiveMLTaskMetadata for more information."""
@@ -242,18 +274,51 @@ class TabArenaTaskMetadataMixin:
         self.group_on = group_on
         self.time_on = time_on
         self.group_time_on = group_time_on
+        self.group_labels = group_labels
         self._task_metadata = None
+        self.split_time_horizon = split_time_horizon
+        self.split_time_horizon_unit = split_time_horizon_unit
 
     @staticmethod
     def get_num_instance_groups(
-        *, X: pd.DataFrame, group_on: str | list[str] | None
+        *,
+        X: pd.DataFrame,
+        group_on: str | list[str] | None,
+        group_labels: GroupLabelTypes | None,
     ) -> int:
         """Compute the number of instance groups in data based on the group_on."""
-        if group_on is None:
+        if (group_on is None) or (group_labels == GroupLabelTypes.PER_SAMPLE):
             return len(X)
 
         group_on = group_on if isinstance(group_on, list) else [group_on]
         return X.groupby(group_on, dropna=False, observed=True).ngroups
+
+    def _get_dataset_stats(
+        self, *, oml_dataset: pd.DataFrame, is_classification: bool, target_name: str
+    ) -> tuple[int, int, int, int]:
+        num_instance = len(oml_dataset)
+        num_features = oml_dataset.shape[1] - 1  # -1 for target
+        num_classes = -1
+        if is_classification:
+            num_classes = max(
+                int(oml_dataset[target_name].nunique()),
+                int(oml_dataset[target_name].nunique()),
+            )
+
+        num_instance_groups = num_instance
+
+        # Resolve instance groups
+        if self.group_on is not None:
+            num_instance_groups = self.get_num_instance_groups(
+                X=oml_dataset, group_on=self.group_on
+            )
+
+        return (
+            num_instance,
+            num_features,
+            num_classes,
+            num_instance_groups,
+        )
 
     def compute_metadata(
         self: TabArenaOpenMLSupervisedTask,
@@ -271,6 +336,18 @@ class TabArenaTaskMetadataMixin:
         task_problem_type = None
         num_classes_list = []
 
+        # Get overall stats of the dataset
+        (
+            full_num_instance,
+            full_num_features,
+            full_num_classes,
+            full_num_instance_groups,
+        ) = self._get_dataset_stats(
+            oml_dataset=oml_dataset,
+            is_classification=is_classification,
+            target_name=target_name,
+        )
+
         splits_metadata = {}
         for repeat_i, splits in self.split.split.items():
             for fold_i, samples_for_split in splits.items():
@@ -279,60 +356,57 @@ class TabArenaTaskMetadataMixin:
                 )
                 train_idx, test_idx = samples_for_split[0]
 
-                num_classes = -1
-                if is_classification:
-                    num_classes = max(
-                        int(oml_dataset.iloc[train_idx][target_name].nunique()),
-                        int(oml_dataset.iloc[test_idx][target_name].nunique()),
-                    )
-
-                # -1 for oml_task.target_name
-                num_features_train = oml_dataset.iloc[train_idx].shape[1] - 1
-                num_features_test = oml_dataset.iloc[test_idx].shape[1] - 1
+                (
+                    train_num_instance,
+                    train_num_features,
+                    train_num_classes,
+                    train_num_instance_groups,
+                ) = self._get_dataset_stats(
+                    oml_dataset=oml_dataset.iloc[train_idx],
+                    is_classification=is_classification,
+                    target_name=target_name,
+                )
+                (
+                    test_num_instance,
+                    test_num_features,
+                    test_num_classes,
+                    test_num_instance_groups,
+                ) = self._get_dataset_stats(
+                    oml_dataset=oml_dataset.iloc[test_idx],
+                    is_classification=is_classification,
+                    target_name=target_name,
+                )
 
                 # Resolve problem type
-                if num_classes == -1:
+                max_num_classes = max(train_num_classes, test_num_classes)
+                if max_num_classes == -1:
                     split_problem_type = "regression"
-                elif num_classes == 2:
+                elif max_num_classes == 2:
                     split_problem_type = "binary"
-                    num_classes_list.append(num_classes)
+                    num_classes_list.append(max_num_classes)
                 else:
                     split_problem_type = "multiclass"
-                    num_classes_list.append(num_classes)
+                    num_classes_list.append(max_num_classes)
                 if task_problem_type is None:
                     task_problem_type = split_problem_type
                 else:
                     assert task_problem_type == split_problem_type, (
                         "All splits must have the same problem type."
                     )
-
-                num_instances_train = len(train_idx)
-                num_instances_test = len(test_idx)
-                num_instance_groups_train = num_instances_train
-                num_instance_groups_test = num_instances_test
-
-                # Resolve instance groups
-                if self.group_on is not None:
-                    num_instance_groups_train = self.get_num_instance_groups(
-                        X=oml_dataset.iloc[train_idx], group_on=self.group_on
-                    )
-                    num_instance_groups_test = self.get_num_instance_groups(
-                        X=oml_dataset.iloc[test_idx], group_on=self.group_on
-                    )
-
                 s_index = SplitMetadata.get_split_index(
                     repeat_i=repeat_i, fold_i=fold_i
                 )
                 splits_metadata[s_index] = SplitMetadata(
                     repeat=repeat_i,
                     fold=fold_i,
-                    num_instances_train=num_instances_train,
-                    num_instances_test=num_instances_test,
-                    num_instance_groups_train=num_instance_groups_train,
-                    num_instance_groups_test=num_instance_groups_test,
-                    num_classes=num_classes,
-                    num_features_train=num_features_train,
-                    num_features_test=num_features_test,
+                    num_instances_train=train_num_instance,
+                    num_instances_test=test_num_instance,
+                    num_instance_groups_train=train_num_instance_groups,
+                    num_instance_groups_test=test_num_instance_groups,
+                    num_classes_train=train_num_classes,
+                    num_classes_test=test_num_classes,
+                    num_features_train=train_num_features,
+                    num_features_test=test_num_features,
                 )
 
         if len(num_classes_list) == 0:
@@ -358,8 +432,15 @@ class TabArenaTaskMetadataMixin:
             group_on=self.group_on,
             time_on=self.time_on,
             group_time_on=self.group_time_on,
+            group_labels=self.group_labels,
             tabarena_task_name=tabarena_task_name,
             task_id_str=task_id_str,
+            num_instances=full_num_instance,
+            num_features=full_num_features,
+            num_classes=full_num_classes,
+            num_instance_groups=full_num_instance_groups,
+            split_time_horizon=self.split_time_horizon,
+            split_time_horizon_unit=self.split_time_horizon_unit,
         )
 
         return self._task_metadata
@@ -462,6 +543,12 @@ class UserTask:
             / self._local_dataset_id
         )
 
+    def get_dataset_name(self, dataset_name: str | None = None) -> str:
+        """Get the dataset name to use for the local OpenML dataset."""
+        if dataset_name is not None:
+            return dataset_name
+        return f"Dataset-{self.task_name}"
+
     # TODO: support local OpenML tasks inside of OpenML code...
     def create_local_openml_task(
         self,
@@ -475,6 +562,7 @@ class UserTask:
         group_on: str | list[str] | None = None,
         time_on: str | None = None,
         group_time_on: str | None = None,
+        group_labels: GroupLabelTypes | None = None,
         dataset_name: str | None = None,
     ) -> OpenMLSupervisedTask:
         """Convert the user-defined task to a local (unpublished) OpenMLSupervisedTask.
@@ -555,8 +643,7 @@ class UserTask:
         else:
             raise NotImplementedError(f"Task type {task_type:d} not supported.")
 
-        if dataset_name is None:
-            dataset_name = f"Dataset-{self.task_name}"
+        dataset_name = self.get_dataset_name(dataset_name=None)
         print(
             f"Creating local OpenML task {self.task_id} with dataset '{dataset_name}'..."
         )
@@ -582,6 +669,7 @@ class UserTask:
             group_on=group_on,
             time_on=time_on,
             group_time_on=group_time_on,
+            group_labels=group_labels,
             task_id=self.task_id,
             task_type_id=task_type,
             task_type="None",  # Placeholder, not used for local tasks

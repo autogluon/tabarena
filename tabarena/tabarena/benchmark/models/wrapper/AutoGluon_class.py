@@ -48,16 +48,15 @@ class AGWrapper(AbstractExecModel):
         init_kwargs = copy.deepcopy(self.init_kwargs)
         fit_kwargs = copy.deepcopy(self.fit_kwargs)
 
-        # TODO: ask Nick / figure out if this reset breaks something
-        train_data = X.reset_index(drop=True).copy()
-        y = y.reset_index(drop=True).copy()
+        # TODO: think about if we can reset the index here without breaking simulation artifacts
+        train_data = X
 
         num_folds = fit_kwargs.pop("num_bag_folds", None)
         num_repeats = fit_kwargs.pop("num_bag_folds", None)
 
         custom_splits, num_folds, num_repeats = self.resolve_validation_splits(
-            X=train_data,
-            y=y,
+            X=train_data.reset_index(drop=True),
+            y=y.reset_index(drop=True),
             num_folds=num_folds,
             num_repeats=num_repeats
         )
