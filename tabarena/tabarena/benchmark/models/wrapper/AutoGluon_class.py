@@ -10,6 +10,7 @@ import pandas as pd
 
 from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel, _apply_inv_perm, _make_perm
 
+from loguru import logger
 
 class AGWrapper(AbstractExecModel):
     can_get_error_val = True
@@ -21,32 +22,95 @@ class AGWrapper(AbstractExecModel):
         fit_kwargs: dict | None = None,
         preprocess_data: bool = False,
         preprocess_label: bool = False,
+        target_name: str | None = None,
         **kwargs,
     ):
-        super().__init__(preprocess_data=preprocess_data, preprocess_label=preprocess_label, **kwargs)
+        super().__init__(preprocess_data=preprocess_data, preprocess_label=preprocess_label, target_name=target_name, **kwargs)
         if init_kwargs is None:
             init_kwargs = {}
         if fit_kwargs is None:
             fit_kwargs = {}
         self.init_kwargs = init_kwargs
         self.fit_kwargs = fit_kwargs
-        self.label = "__label__"
+        if target_name is None:
+            target_name = "__label__"
+        self.label = target_name
 
-    def _fit(self, X: pd.DataFrame, y: pd.Series, X_val: pd.DataFrame = None, y_val: pd.Series = None, **kwargs):
-        from autogluon.tabular import TabularPredictor
+    def _resolve_validation_protocol(
+        self,
+        *,
+        X: pd.DataFrame,
+        y: pd.Series,
+        X_val: pd.DataFrame | None,
+        y_val: pd.Series | None,
+    ) -> tuple[pd.DataFrame, dict, dict]:
+        """Update the AutoGluon validation protocol."""
+        init_kwargs = copy.deepcopy(self.init_kwargs)
+        fit_kwargs = copy.deepcopy(self.fit_kwargs)
 
-        train_data = X.copy()
+        # TODO: think about if we can reset the index here without breaking simulation artifacts
+        train_data = X
+
+        num_folds = fit_kwargs.pop("num_bag_folds", None)
+        num_repeats = fit_kwargs.pop("num_bag_folds", None)
+
+        custom_splits, num_folds, num_repeats = self.resolve_validation_splits(
+            X=train_data.reset_index(drop=True),
+            y=y.reset_index(drop=True),
+            num_folds=num_folds,
+            num_repeats=num_repeats
+        )
+
+        if num_folds is not None:
+            logger.info(f"Using num_folds: {num_folds}")
+            fit_kwargs["num_bag_folds"] = num_folds
+        if num_repeats is not None:
+            logger.info(f"Using num_repeats: {num_repeats}")
+            fit_kwargs["num_bag_sets"] = num_repeats
+        if custom_splits is not None:
+            logger.info("Using custom_splits for validation protocol.")
+            if "ag_args_ensemble" not in fit_kwargs:
+                fit_kwargs["ag_args_ensemble"] = {}
+            fit_kwargs["ag_args_ensemble"]["custom_splits"] = custom_splits
+
         train_data[self.label] = y
-
-        fit_kwargs = self.fit_kwargs.copy()
-
         if X_val is not None:
             tuning_data = X_val.copy()
             tuning_data[self.label] = y_val
             fit_kwargs["tuning_data"] = tuning_data
 
-        self.predictor = TabularPredictor(label=self.label, problem_type=self.problem_type, eval_metric=self.eval_metric, **self.init_kwargs)
-        self.predictor.fit(train_data=train_data, **fit_kwargs)
+        return train_data, init_kwargs, fit_kwargs
+
+
+    def _fit(
+            self,
+            X: pd.DataFrame,
+            y: pd.Series,
+            X_val: pd.DataFrame = None,
+            y_val: pd.Series = None,
+            **kwargs
+    ):
+        from autogluon.tabular import TabularPredictor
+
+        # FIXME: should we not reset the index of train data here?
+        train_data, init_kwargs, fit_kwargs = self._resolve_validation_protocol(
+            X=X,
+            y=y,
+            X_val=X_val,
+            y_val=y_val,
+        )
+
+        self.predictor = TabularPredictor(
+            label=self.label,
+            problem_type=self.problem_type,
+            eval_metric=self.eval_metric,
+            **init_kwargs
+        )
+        self.predictor.fit(
+            train_data=train_data,
+            **fit_kwargs
+        )
+
         # FIXME: persist
         return self
 

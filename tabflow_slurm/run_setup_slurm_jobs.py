@@ -16,3 +16,11 @@ BenchmarkSetup(
     fake_memory_for_estimates=140,
     time_limit=60*60*2,
 ).setup_jobs()
+
+# -- Benchmark XXX XX/XX/2026
+BenchmarkSetup(
+    benchmark_name="experiment_name_date",
+    models=[
+        ("ag_name", "all"),
+    ],
+).setup_jobs()

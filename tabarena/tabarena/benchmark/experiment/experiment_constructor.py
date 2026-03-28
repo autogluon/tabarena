@@ -16,7 +16,7 @@ from tabarena.benchmark.experiment.experiment_runner import ExperimentRunner, OO
 from tabarena.benchmark.models.model_registry import infer_model_cls
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
-
+from tabarena.benchmark.task.user_task import GroupLabelTypes, SplitTimeHorizonTypes, SplitTimeHorizonUnitTypes
 
 class Experiment:
     """
@@ -165,6 +165,79 @@ class Experiment:
             out = cacher.cache(fun=None, fun_kwargs=None, ignore_cache=ignore_cache)
         return out
 
+
+    def load_validation_split_metadata(
+            self,
+            *,
+            use_task_specific_validation: bool,
+            target_name: str | None = None,
+            stratify_on: str | None = None,
+            group_on: str | list[str] | None = None,
+            time_on: str | None = None,
+            group_time_on: str | None = None,
+            group_labels: GroupLabelTypes | None = None,
+            split_time_horizon: SplitTimeHorizonTypes | None = None,
+            split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
+            overwrite_existing: bool = False,
+        ) -> None:
+        """Load validation split metadata into the experiment's method_kwargs.
+
+        Parameter
+        ---------
+        use_task_specific_validation: bool
+            If True, we will adapt the validation protocol of the experiment
+            based on the metadat from the task.
+        target_name: str, optional
+            The name of the target column in the dataset.
+        stratify_on: str, optional
+            The name of the column to stratify on when creating validation splits.
+        group_on: str or list of str, optional
+            The name(s) of the column(s) to group on when creating validation splits.
+        time_on: str, optional
+            The name of the column to use for time-based validation splits.
+        group_time_on: str, optional
+            The name of the column to use for group time-based validation splits.
+        group_labels:
+            Whether the group_on column(s) contain labels for each sample, or for each group.
+        split_time_horizon:
+            The time horizon of the test data.
+        split_time_horizon_unit:
+            The unit for the time horizon.
+        overwrite_existing: bool, default False
+            If True, will overwrite existing validation split metadata in method_kwargs.
+        """
+        print(
+            "Loading validation split metadata into experiment:"\
+            f"\n\tUse task specific validation: {use_task_specific_validation}"
+            f"\n\ttarget_name: {target_name}"
+            f"\n\tstratify_on: {stratify_on}"
+            f"\n\ttime_on: {time_on}"
+            f"\n\tsplit_time_horizon: {split_time_horizon}"
+            f"\n\tsplit_time_horizon_unit: {split_time_horizon_unit}"
+            f"\n\tgroup_on: {group_on}"
+            f"\n\tgroup_time_on: {group_time_on}"
+            f"\n\tgroup_labels: {group_labels}"
+        )
+        params = {
+            "use_task_specific_validation": use_task_specific_validation,
+            "target_name": target_name,
+            "stratify_on": stratify_on,
+            "group_on": group_on,
+            "time_on": time_on,
+            "group_time_on": group_time_on,
+            "group_labels": group_labels,
+            "split_time_horizon": split_time_horizon,
+            "split_time_horizon_unit": split_time_horizon_unit,
+        }
+
+        for key, value in params.items():
+            if (not overwrite_existing) and (key in self.method_kwargs):
+                print(
+                    f"{key} already exists, using existing value: "
+                    f"\n\t{self.method_kwargs[key]}"
+                )
+            else:
+                self.method_kwargs[key] = value
 
 class AGModelOuterExperiment(Experiment):
     """

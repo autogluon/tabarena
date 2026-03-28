@@ -202,6 +202,49 @@ class OpenMLTaskWrapper:
         data, _ = self.subsample(X=data, y=data[self.label], size=size, random_state=random_state)
         return data
 
+    def get_validation_split_kwargs(self) -> dict:
+        """Extra splits kwargs from the TabArenaOpenMLSupervisedTask task,
+        or fallback to defaults.
+        """
+        from openml.tasks import OpenMLSupervisedTask
+
+        from tabarena.benchmark.task.user_task import TabArenaOpenMLSupervisedTask
+
+        oml_task: TabArenaOpenMLSupervisedTask | OpenMLSupervisedTask  = self.task
+
+        if isinstance(oml_task, TabArenaOpenMLSupervisedTask):
+            stratify_on = oml_task.stratify_on
+            group_on = oml_task.group_on
+            time_on = oml_task.time_on
+            group_time_on = oml_task.group_time_on
+            group_labels = oml_task.group_labels
+            split_time_horizon = oml_task.split_time_horizon
+            split_time_horizon_uni = oml_task.split_time_horizon_unit
+        else:
+            (
+                stratify_on,
+                group_on,
+                time_on,
+                group_time_on,
+                group_labels,
+                split_time_horizon,
+                split_time_horizon_uni
+            )= None, None, None, None, None, None, None
+
+
+
+        return dict(  # noqa: C408
+            target_name=oml_task.target_name,
+            stratify_on=stratify_on,
+            group_on=group_on,
+            time_on=time_on,
+            group_time_on=group_time_on,
+            group_labels=group_labels,
+            split_time_horizon=split_time_horizon,
+            split_time_horizon_uni=split_time_horizon_uni,
+        )
+
+
 
 class OpenMLS3TaskWrapper(OpenMLTaskWrapper):
     """
