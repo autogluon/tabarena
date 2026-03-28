@@ -56,7 +56,7 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
             ],
             pre_enforce_types=False,
             # TODO: change such that text cols are skipped for duplicate check.
-            #   Otherwise, duplicate check akes too long for text-use case, and we
+            #   Otherwise, duplicate check take too long for text-use case, and we
             #   do not expect duplicates.
             post_drop_duplicates=False,
         )
