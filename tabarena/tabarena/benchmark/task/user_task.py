@@ -643,7 +643,7 @@ class UserTask:
         else:
             raise NotImplementedError(f"Task type {task_type:d} not supported.")
 
-        dataset_name = self.get_dataset_name(dataset_name=None)
+        dataset_name = self.get_dataset_name(dataset_name=dataset_name)
         print(
             f"Creating local OpenML task {self.task_id} with dataset '{dataset_name}'..."
         )
