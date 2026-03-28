@@ -1,11 +1,7 @@
-import math
-
 import numpy as np
 import openml
 import pandas as pd
 from autogluon.core.data import LabelCleaner
-from scipy import stats
-from scipy.stats import norm
 from sklearn.metrics import confusion_matrix
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import ProxyModelConfig
 from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (
@@ -14,17 +10,17 @@ from tabarena.benchmark.feature_selection_methods.feature_selection_methods_regi
 )
 
 
-def validity_fs(method_names):  # noqa: D103
+def validity_fs(method_names, max_features, noise):  # noqa: D103
     dataset_id = 55
     problem_type = "binary"
     n_repeats = 5
-    max_features = 5
 
     dataset = openml.datasets.get_dataset(dataset_id)
     X, y, _, _ = dataset.get_data(target=dataset.default_target_attribute, dataset_format="dataframe")
     label_cleaner = LabelCleaner.construct(problem_type=problem_type, y=y)
     y = label_cleaner.transform(y)
 
+    n_noise = int(len(X.columns) * noise)
     validity_results = {}
 
     for method_name in method_names:
@@ -33,14 +29,17 @@ def validity_fs(method_names):  # noqa: D103
         # Store binary selections across repeats
         Z_repeats = []
 
-        for _repeat in range(n_repeats):
+        for repeat in range(n_repeats):
             # add noise features
-            X_copy, orig_feature_mask = add_noise(X)
-            # TODO - One run without bootstrapping für den originalen Run, bootstrappin für CI
-            # Resample data (bootstrap) for variability
-            sample_idx = np.random.choice(len(X_copy), size=len(X_copy), replace=True)
-            X_repeat = X_copy.iloc[sample_idx].reset_index(drop=True)
-            y_repeat = y.iloc[sample_idx].reset_index(drop=True)
+            X_copy, orig_feature_mask = add_noise(X, n_noise)
+            if repeat != 0:
+                # Resample data (bootstrap) for variability
+                sample_idx = np.random.choice(len(X_copy), size=len(X_copy), replace=True)
+                X_repeat = X_copy.iloc[sample_idx].reset_index(drop=True)
+                y_repeat = y.iloc[sample_idx].reset_index(drop=True)
+            else:
+                X_repeat = X_copy
+                y_repeat = y
 
             proxy_config = ProxyModelConfig(
                 problem_type=problem_type,
@@ -66,8 +65,10 @@ def validity_fs(method_names):  # noqa: D103
         Z = np.array(Z_repeats)
 
         # Stability metrics
-        validity = getValidity(Z, len(X.columns), max_features)
-        ci = stats.t.interval(0.95, len(validity) - 1, loc=np.mean(validity), scale=np.std(validity, ddof=1) / np.sqrt(len(validity)))
+        validity = getValidity(Z, max_features)
+        # ci = stats.t.interval(0.95, len(validity) - 1, loc=np.mean(validity),
+                            #  scale=np.std(validity, ddof=1) / np.sqrt(len(validity)))
+        ci = confidenceIntervals(validity)
         validity_results[method_name] = {
             "validity": validity,
             "ci_lower": ci[0],
@@ -75,21 +76,12 @@ def validity_fs(method_names):  # noqa: D103
             "Z": Z  # Save for further analysis
         }
         print(f"Validity: {validity_results[method_name]['validity']}")
-        print(f"Validity CI: lower ({validity_results[method_name]['ci_lower']}) - higher ({validity_results[method_name]['ci_upper']})")  # noqa: E501
+        print(
+            f"Validity CI: lower ({validity_results[method_name]['ci_lower']}) - higher ({validity_results[method_name]['ci_upper']})")  # noqa: E501
     return validity_results
 
 
-def getValidity(Z, real_features, max_features):
-    """Let us assume we have M>1 feature sets and d>0 features in total.
-    This function computes the stability estimate as given in Definition 4 in  [1].
-
-    INPUT: A BINARY matrix Z (given as a list or as a numpy.ndarray of size M*d).
-           Each row of the binary matrix represents a feature set, where a 1 at the f^th position
-           means the f^th feature has been selected and a 0 means it has not been selected.
-
-    OUTPUT: The stability of the feature selection procedure
-    """
-    # TODO Parametrize max_feature including max_features = real_features
+def getValidity(Z, max_features):
     # Normalized recall
     selection_precision = []
     for elem in Z:
@@ -99,21 +91,22 @@ def getValidity(Z, real_features, max_features):
     return selection_precision
 
 
-def confidenceIntervals(validity, real_features, max_features, alpha=0.05, res=None):
-    """Confidence intervals for stability (Corollary 9)."""
-    # TODO Percentile based CI - lookup for bootstrapping
-    if alpha >= 1 or alpha <= 0:
-        raise ValueError("Alpha must be in (0,1)")
+def confidenceIntervals(validity):
+    """Confidence intervals for stability."""
+    boot_validity = validity[1:]
 
-    z_score = norm.ppf(1 - alpha / 2)
-    variance = np.var(validity, ddof=1) / len(validity)
-    margin = z_score * math.sqrt(variance)
-    return {"validity": res["validity"], "lower": validity - margin, "upper": validity + margin}
+    lower = np.percentile(boot_validity, 2.5)
+    upper = np.percentile(boot_validity, 97.5)
 
-def add_noise(X, noise_type="gaussian"):  # noqa: D103
+    # z_score = norm.ppf(1 - alpha / 2)
+    # variance = np.var(validity, ddof=1) / len(validity)
+    # margin = z_score * math.sqrt(variance)
+    return [lower, upper]
+
+
+def add_noise(X, n_noise, noise_type="gaussian"):  # noqa: D103
     noise_cols = {}
     n_samples, n_features = X.shape
-    n_noise = int(n_features)  # TODO 50% / 75%, Anzahl der noise features variieren -> Parameter
 
     all_feature_names = [f"feature{i}" for i in range(n_features + n_noise)]
     orig_feature_mask = {name: i < n_features for i, name in enumerate(all_feature_names)}
@@ -148,9 +141,13 @@ def add_noise(X, noise_type="gaussian"):  # noqa: D103
     X_final_shuffled = X_final.iloc[:, shuffle_order]
     # Update mask to match new positions!
     orig_feature_mask_shuffled = {all_feature_names[i]: orig_feature_mask[all_feature_names[shuffle_order[i]]]
-                         for i in range(len(all_feature_names))}
+                                  for i in range(len(all_feature_names))}
     return X_final_shuffled, orig_feature_mask_shuffled
 
 
 if __name__ == "__main__":
-    validity_results = validity_fs(FEATURE_SELECTION_METHODS)
+    noise = [1]  # Percentage of noise features to add to the original dataframe
+    max_features = [5]  # Set to a list of values (including max_features = len(X.columns))
+    for noise_value in noise:
+        for max_feature in max_features:
+            validity_results = validity_fs(FEATURE_SELECTION_METHODS, max_feature, noise_value)
