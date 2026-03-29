@@ -178,7 +178,7 @@ class BenchmarkSetup2026:
 
     Can be understood as a filter on top of the TabArenaTaskMetadata.
     """
-    split_indices_to_run: list[int] | Literal["lite"] | None = None
+    split_indices_to_run: list[str] | Literal["lite"] | None = None
     """Split indices to run in the benchmark. Adjust as needed to run only specific
     splits. If None, we run all splits. If "lite", we run only the first split."""
 
@@ -336,6 +336,11 @@ class BenchmarkSetup2026:
     verbosity: int = 2
     """Verbosity level for logging and printing."""
 
+    def __post_init__(self):
+        # Max number of configs per job. Might be overridden.
+        # Determines total time for a job.
+        self._max_configs_per_job = self.slurm_setup.configs_per_job
+
     @property
     def time_limit_per_config(self):
         """Compute the maximal time limit per config plus some overhead."""
@@ -443,7 +448,7 @@ class BenchmarkSetup2026:
             num_gpus=self.num_gpus,
             memory_limit=self.memory_limit,
             time_limit_per_config=self.time_limit_per_config,
-            configs_per_job=self.slurm_setup.configs_per_job,
+            configs_per_job=self._max_configs_per_job,
             time_limit_overhead=self.slurm_setup.time_limit_overhead,
             slurm_log_output=self.path_setup.get_slurm_log_output_path(p_bm),
             slurm_script_path=slurm_script_path,
@@ -534,7 +539,7 @@ class BenchmarkSetup2026:
                         "repeat_i": split_md.repeat,
                         "n_samples_train_per_fold": split_md.num_instances_train,
                         "n_features": split_md.num_features_train,
-                        "n_classes": split_md.num_classes,
+                        "n_classes": split_md.num_classes_train,
                     }
 
         jobs_to_check = list(yield_all_jobs())
@@ -574,11 +579,13 @@ class BenchmarkSetup2026:
         # Convert the map to a list of jobs
         jobs = []
         to_run_jobs = 0
+        max_config_batch = 1
         for job_key, config_indices in to_run_job_map.items():
             to_run_jobs += len(config_indices)
             for config_batch in to_batch_list(
                 config_indices, self.slurm_setup.configs_per_job
             ):
+                max_config_batch = max(max_config_batch, len(config_batch))
                 jobs.append(
                     {
                         "task_id": job_key[0],
@@ -587,7 +594,7 @@ class BenchmarkSetup2026:
                         "config_index": config_batch,
                     },
                 )
-
+        self._max_configs_per_job = max_config_batch
         print(f"Generated {to_run_jobs} jobs to run without batching.")
         print(f"Jobs with batching: {len(jobs)}")
         return jobs

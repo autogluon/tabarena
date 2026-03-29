@@ -76,7 +76,7 @@ ignore = [
     "S101", # Use of assert detected.
     "W292", # No newline at end of file
     "PLC1901", # "" can be simplified to be falsey
-    "TC003", # Move stdlib import into TYPE_CHECKING
+    "TCH003", # Move stdlib import into TYPE_CHECKING
     "PLR2004", # Magic numbers, gets in the way a lot
     "PLR0915", # Too many statements
     "N803", # Argument name `X` should be lowercase
