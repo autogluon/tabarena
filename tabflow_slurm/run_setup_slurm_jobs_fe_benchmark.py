@@ -56,8 +56,11 @@ BenchmarkSetup2026(
         ("Linear", "all"),
     ],
     n_random_configs=1,
-    split_indices_to_run="lite",
-    task_metadata=get_metadata_for_benchmark_suite("example_benchmark_suite", data_foundry_cache=DEFAULT_DATA_FOUNDRY_CACHE),
+    split_indices_to_run=["r0f0", "r0r1", "r0f2", "r1f0"],
+    task_metadata=get_metadata_for_benchmark_suite(
+        "feature_selection_benchmark_examples",
+        data_foundry_cache=DEFAULT_DATA_FOUNDRY_CACHE
+    ),
     preprocessing_pipelines=preprocessing_pipelines,
     time_limit=3600,
     time_limit_for_model_agnostic_preprocessing=3600,
