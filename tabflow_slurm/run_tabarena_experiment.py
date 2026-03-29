@@ -200,7 +200,7 @@ def _parse_yaml_config(
             print(f"Using preprocessing pipeline {preprocessing_name}")
             print(f"\tName: {fs_method_name}")
             print(f"\tMax feature threshold: {max_feature_threshold}")
-            print(f"\tTime fraction: {fs_time}")
+            print(f"\tTime limit (fraction or seconds): {fs_time}")
             print(f"\tProxy model: {proxy_model}")
 
             proxy_mode_config = None
@@ -242,9 +242,9 @@ def _parse_yaml_config(
             )
 
             # TODO: make this a parameter that we can pass here.
-            # Set the default time limit for preprocessing
+            # Set the default time limit for preprocessing (fraction if <1, seconds if >=1)
             new_experiment.method_kwargs["fit_kwargs"][
-                "time_limit_fraction_preprocessing"
+                "time_limit_preprocessing"
             ] = fs_time
 
         else:

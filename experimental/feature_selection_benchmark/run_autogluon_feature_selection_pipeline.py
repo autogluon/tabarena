@@ -63,7 +63,7 @@ def run_example():
     proxy_model_config = ProxyModelConfig(
         problem_type=problem_type,
         eval_metric=eval_metric,
-        model_hyperparameters={"num_boost_round": 1000},
+        model_hyperparameters={"num_boost_round": 10},
     )
     verbosity = 2
 
@@ -102,7 +102,7 @@ def run_example():
             label="class", default_base_path="/tmp/ag_out", eval_metric=eval_metric, problem_type=problem_type,
         ).fit(
             train_data=train_data,
-            hyperparameters={"GBM": {"num_boost_round": 1000}},
+            hyperparameters={"GBM": {"num_boost_round": 100}},
             num_bag_folds=8,
             num_bag_sets=1,
             verbosity=verbosity,
@@ -113,7 +113,7 @@ def run_example():
                 "post_generators": [feature_selector],
             },
             time_limit=60*30,
-            time_limit_fraction_preprocessing=0.33,
+            time_limit_preprocessing=60*30,
         )
 
         predictor.leaderboard(data=test_data, display=True)
