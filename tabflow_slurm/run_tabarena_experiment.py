@@ -178,7 +178,7 @@ def _parse_yaml_config(
             )
         elif preprocessing_name.startswith("FSBench__"):
             # Logic for feature selection benchmark
-            from tabflow_slurm.benchmark_utils.feature_selection_benchmark_utils import (
+            from tabarena.benchmark.feature_selection_methods.feature_selection_benchmark_utils import (
                 apply_fs_bench_preprocessing,
             )
 

@@ -16,7 +16,7 @@ from tabflow_slurm.benchmarking_setup.data_foundry_integration.data_foundry_task
     get_metadata_for_benchmark_suite,
 )
 from tabflow_slurm.benchmarking_setup.download_feature_selection_datasets import DEFAULT_DATA_FOUNDRY_CACHE
-from tabflow_slurm.benchmark_utils.feature_selection_benchmark_utils import (
+from tabarena.benchmark.feature_selection_methods.feature_selection_benchmark_utils import (
     get_fs_benchmark_preprocessing_pipelines,
 )
 
@@ -49,7 +49,7 @@ preprocessing_pipelines = get_fs_benchmark_preprocessing_pipelines(
 #       -> must be done inside the split after dropping useless features (constant, duplicates).
 #       -> so the value might change per split and cannot be really passed to the model. Added workaround.
 BenchmarkSetup2026(
-    benchmark_name="feature_selection_benchmark_example_1803",
+    benchmark_name="feature_selection_benchmark_example_2903",
     models=[
         ("LightGBM", "all"),
         ("RandomForest", "all"),
