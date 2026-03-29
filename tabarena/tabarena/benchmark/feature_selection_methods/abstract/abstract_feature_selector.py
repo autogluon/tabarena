@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import tempfile
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -71,7 +72,7 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
     def __init__(
         self,
-        max_features: int | float,
+        max_features: int | float | Callable[[int], int],
         *,
         proxy_mode_config: ProxyModelConfig | None = None,
         raise_on_useless_feature_selection: bool = True,
@@ -81,11 +82,13 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         Parameters
         ----------
-        max_features: int or float
+        max_features: int, float, or Callable[[int], int]
             The maximum number of features to select.
             If int, we assume a fixed number of features to select.
             If float, we assume a fraction of features to select (0 < max_features < 1).
                 We always round up.
+            If callable, it receives the total number of input features as its single argument
+                and must return the desired feature count as an int. Resolved at fit time.
         proxy_mode_config:
             Configuration of the proxy model to use inside the feature selection method.
         raise_on_useless_feature_selection:
@@ -129,8 +132,11 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
             self.proxy_mode_config.problem_type = problem_type
             self.proxy_mode_config.eval_metric = eval_metric
 
-        # Resolve max features if it's a fraction
-        if isinstance(self.max_features_input, float):
+        # Resolve max features from int, fraction, or callable
+        if callable(self.max_features_input):
+            self.max_features = self.max_features_input(len(self._original_features))
+            self._log(20, f"Resolved max_features to {self.max_features} via callable.")
+        elif isinstance(self.max_features_input, float):
             if not (0 < self.max_features_input < 1):
                 raise ValueError("If max_features is a float, it must be in the range (0, 1).")
             self.max_features = math.ceil(len(self._original_features) * self.max_features_input)

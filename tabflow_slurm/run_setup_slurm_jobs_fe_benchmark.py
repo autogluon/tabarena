@@ -1,95 +1,53 @@
-"""Code to use pre-defined benchmark environment and setup slurm jobs for (parallel) scheduling."""
+"""Code to use pre-defined benchmark environment and setup slurm jobs for (parallel) scheduling.
 
-# FIXME: merge this branch with minor fixes and support to get this running into mainline!
-# https://github.com/LennartPurucker/autogluon/tree/minor_changes_for_tabarena
+Special setup:
+    # FIXME: merge this branch with minor fixes and support to get this running into mainline!
+    (1) Install AutoGluon from https://github.com/LennartPurucker/autogluon/tree/minor_changes_for_tabarena
+
+Usage:
+    (1) download data foundry artifacts and run download_feature_selection_datasets.py
+
+"""
 
 from __future__ import annotations
 
-from itertools import product
-
 from tabflow_slurm.setup_slurm_base_v2 import BenchmarkSetup2026
+from tabflow_slurm.benchmarking_setup.data_foundry_integration.data_foundry_task_creator import (
+    get_metadata_for_benchmark_suite,
+)
+from tabflow_slurm.benchmarking_setup.download_feature_selection_datasets import DEFAULT_DATA_FOUNDRY_CACHE
+from tabflow_slurm.benchmark_utils.feature_selection_benchmark_utils import (
+    get_fs_benchmark_preprocessing_pipelines,
+)
+
 
 # TODO: improve/optimize how we can pass configs to the benchmark setup!
 #   For now: we create a string with all the information and then decode the string
 #   afterwards in run_tabarena_experiment.py
 #   Ideally, we can support this in a nice way as we do for configs or other logic.
-fs_methods = [
-    "RandomFeatureSelector",
-    "PearsonCorrelationFeatureSelector",
-    # "ANOVAFeatureSelector",
-    # "CARTFeatureSelector",
-    # "CFSFeatureSelector",
-    # "Chi2FeatureSelector",
-    # "CMIMFeatureSelector",
-    # "ConsistencyFeatureSelector",
-    # "DISRFeatureSelector",
-    # "ElasticNetFeatureSelector",
-    # "GainRatioFeatureSelector",
-    # "GiniFeatureSelector",
-    # "ImpurityFeatureSelector",
-    # "InformationGainFeatureSelector",
-    # "INTERACTFeatureSelector",
-    # "JMIFeatureSelector",
-    # "LaplacianScoreFeatureSelector",
-    # "LassoFeatureSelector",
-    # "MIFeatureSelector",
-    # "mRMRFeatureSelector",
-    # "OneRFeatureSelector",
-    # "ReliefFFeatureSelector",
-    # "RFImportanceFeatureSelector",
-    # "SymmetricalUncertaintyFeatureSelector",
-    # --- Require ProxyModelConfig
-    "AccuracyFeatureSelector",
-    # "SequentialBackwardEliminationFeatureSelector",
-    # "SequentialForwardSelectionFeatureSelector",
-    # --- Broke
-    # "tTestFeatureSelector", # Only works for binary classification?
-]
-# TODO: make this int / per dataset?
-max_feature_thresholds = [
-    0.25,
-    0.50,
-    0.75,
-]
-proxy_model_config = [
-    "lgbm",
-]
-preprocessing_pipelines = []
-time_limit_fe = [0.33]
-for fs_method, max_feature_threshold, proxy_model, time_limit in product(
-    fs_methods, max_feature_thresholds, proxy_model_config, time_limit_fe
-):
-    config_str = f"FSBench__{fs_method}__{max_feature_threshold}__{proxy_model}__{time_limit}"
-    preprocessing_pipelines.append(config_str)
-
-# Add default config
-preprocessing_pipelines.append("default")
-
-# -- Get some proxy dataset to run for
-# TODO: switch data foundry and public bucket (but we have an TabArena bucket now which we might want to use)
-from tabarena.nips2025_utils.fetch_metadata import (
-    load_curated_task_metadata,
+preprocessing_pipelines = get_fs_benchmark_preprocessing_pipelines(
+    fs_methods=[
+        "RandomFeatureSelector",
+        "PearsonCorrelationFeatureSelector",
+        "AccuracyFeatureSelector",
+    ],
+    proxy_model_config=["lgbm"],
+    time_limit=[3600],
+    total_budget=5,
+    include_default=True,
 )
-
-metadata = load_curated_task_metadata()
-metadata = metadata[
-    metadata["dataset_id"].isin(
-        [
-            46953,  # QSAR-TID-11 (regression)
-            46933,  # hiva_agnostic (multiclass)
-            46912,  # Bioresponse (binary)
-        ]
-    )
-]
-
 
 # -- Feature Selection Example Benchmark Setup
 # TODO:
-#   - Finalize proxy model and its eval
-#   - Decide on timeout, for both fit and fs or just fs? -> now it does for both
+#   - Finalize proxy model and its eval -> are we happy with its holdout validation?
+#   - Finalize budget (evals per dataset) (b in formula)
 #   - Ensure random seeding works as we want it / add random order to methods that do iterative search of features
-#   - Ensure how/if GPU models work with this (long shot)
+#       -> ensure each config for one split of one dataset gets the same features/seed to simulate tuning correctly
 #   - Investigate caching of feature selection (long shot)
+#   - Finalize number of folds for downstream model evaluation
+#   - Talk about problem with defining max_features based on n_features
+#       -> must be done inside the split after dropping useless features (constant, duplicates).
+#       -> so the value might change per split and cannot be really passed to the model. Added workaround.
 BenchmarkSetup2026(
     benchmark_name="feature_selection_benchmark_example_1803",
     models=[
@@ -99,8 +57,9 @@ BenchmarkSetup2026(
     ],
     n_random_configs=1,
     split_indices_to_run="lite",
-    task_metadata=get_metadata_for_benchmark_suite("example_benchmark_suite"),
+    task_metadata=get_metadata_for_benchmark_suite("example_benchmark_suite", data_foundry_cache=DEFAULT_DATA_FOUNDRY_CACHE),
     preprocessing_pipelines=preprocessing_pipelines,
-    time_limit=60 * 60 * 2,
-    time_limit_with_preprocessing=True,
+    time_limit=3600,
+    time_limit_for_model_agnostic_preprocessing=3600,
+    dynamic_tabarena_validation_protocol=False,
 ).setup_jobs()

@@ -178,74 +178,14 @@ def _parse_yaml_config(
             )
         elif preprocessing_name.startswith("FSBench__"):
             # Logic for feature selection benchmark
-            from autogluon.features.generators.drop_duplicates import (
-                DropDuplicatesFeatureGenerator,
-            )
-            from autogluon.features.generators.drop_unique import (
-                DropUniqueFeatureGenerator,
-            )
-            from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import (
-                ProxyModelConfig,
-            )
-            from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (
-                FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL,
-                get_feature_selector_from_name,
+            from tabflow_slurm.benchmark_utils.feature_selection_benchmark_utils import (
+                apply_fs_bench_preprocessing,
             )
 
-            _, fs_method_name, max_feature_threshold, proxy_model, fs_time = (
-                preprocessing_name.split("__")
+            new_experiment = apply_fs_bench_preprocessing(
+                preprocessing_name=preprocessing_name,
+                experiment=methods[m_i],
             )
-            max_feature_threshold = float(max_feature_threshold)
-            fs_time = float(fs_time)
-            print(f"Using preprocessing pipeline {preprocessing_name}")
-            print(f"\tName: {fs_method_name}")
-            print(f"\tMax feature threshold: {max_feature_threshold}")
-            print(f"\tTime limit (fraction or seconds): {fs_time}")
-            print(f"\tProxy model: {proxy_model}")
-
-            proxy_mode_config = None
-            if fs_method_name in FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL:
-                if proxy_model == "lgbm":
-                    proxy_mode_config = ProxyModelConfig(
-                        model_hyperparameters={},  # Default
-                    )
-                else:
-                    raise ValueError(
-                        f"Proxy model name '{proxy_model}' not recognized for preprocessing pipeline '{preprocessing_name}'."
-                    )
-
-            selector = get_feature_selector_from_name(name=fs_method_name)
-            selector = selector(
-                max_features=max_feature_threshold,
-                proxy_mode_config=proxy_mode_config,
-            )
-
-            new_experiment = deepcopy(methods[m_i])
-
-            # TODO: refactor: make this default pre_generators somehow? add a feature selection default?
-            # Add feature selector to model agnostic preprocessing
-            prep_pipeline = new_experiment.method_kwargs["fit_kwargs"].get(
-                "_feature_generator_kwargs", {}
-            )
-            pipeline = prep_pipeline.get("post_generators", [])
-            pipeline += [
-                # Default post generators
-                DropUniqueFeatureGenerator(),
-                DropDuplicatesFeatureGenerator(post_drop_duplicates=False),
-                # Selector Generator
-                selector,
-            ]
-            prep_pipeline["post_generators"] = pipeline
-            prep_pipeline["post_drop_duplicates"] = False  # Not needed anymore.
-            new_experiment.method_kwargs["fit_kwargs"]["_feature_generator_kwargs"] = (
-                prep_pipeline
-            )
-
-            # TODO: make this a parameter that we can pass here.
-            # Set the default time limit for preprocessing (fraction if <1, seconds if >=1)
-            new_experiment.method_kwargs["fit_kwargs"][
-                "time_limit_preprocessing"
-            ] = fs_time
 
         else:
             raise ValueError(
