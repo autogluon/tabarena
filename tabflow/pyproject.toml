@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tabflow"
 version = "0.0.1"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "boto3>=1.36",
-    "sagemaker>=2.239,<3.0",
+    "sagemaker>=3.4,<4.0",  # Originally "sagemaker>=2.239,<3.0", bumped for security issue, haven't confirmed it works with >=3
     "pyyaml>=6.0.2",
     "tabarena",
     "autogluon",
