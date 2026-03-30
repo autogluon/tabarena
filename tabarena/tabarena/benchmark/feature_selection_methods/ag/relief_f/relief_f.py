@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import pairwise_distances
+from sklearn.preprocessing import LabelEncoder, OrdinalEncoder
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
 
@@ -33,8 +34,12 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
         columns = X.columns
         n_features = len(X.columns)
         n_samples = len(X.index)
-        imputer = SimpleImputer(strategy="mean")
-        X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns, index=X.index)
+        data_encoder = OrdinalEncoder()
+        X = pd.DataFrame(data_encoder.fit_transform(X), columns=X.columns, index=X.index)
+        label_encoder = LabelEncoder()
+        y = label_encoder.fit_transform(y)
+        numeric_imputer = SimpleImputer(strategy="mean")
+        X = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
 
         distance = pairwise_distances(X, metric="manhattan")
         score = np.zeros(n_features)

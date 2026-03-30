@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +14,11 @@ logger = logging.getLogger(__name__)
 class GiniFeatureSelector(AbstractFeatureSelector):
     """Gini Index Feature Selection.
 
-    Reference: Gini, Corrado W. "Variability and mutability, contribution to the study of statistical distributions and relations." Studi Economico-Giuridici della R. Universita de Cagliari (1912).
+    Reference: Gini, Corrado W. "Variability and mutability, contribution to the study of statistical distributions and
+    relations." Studi Economico-Giuridici della R. Universita de Cagliari (1912).
     Implementation Source: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/statistical_based/gini_index.py#L4.
-                           The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
+                           The author of the code is Li, Jundong, Associate Professor at the University of Virginia and
+                           main-author of 'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
                            - Use pandas instead of numpy and avoid conversion
@@ -40,7 +39,7 @@ class GiniFeatureSelector(AbstractFeatureSelector):
                     f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
-            v = np.unique(X.iloc[:, i])
+            v = np.unique(X.iloc[:, i].astype(str))
             for j in range(len(v)):
                 elapsed_time = time.time() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):

@@ -5,6 +5,7 @@ import logging
 import pandas as pd
 from sklearn.feature_selection import SelectKBest, r_regression
 from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import LabelEncoder, OrdinalEncoder
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
 
@@ -22,8 +23,13 @@ class PearsonCorrelationFeatureSelector(AbstractFeatureSelector):
     feature_scoring_method: bool = True
 
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
-        imputer = SimpleImputer(strategy="mean")
-        X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns, index=X.index)
+        data_encoder = OrdinalEncoder()
+        X = pd.DataFrame(data_encoder.fit_transform(X), columns=X.columns, index=X.index)
+        label_encoder = LabelEncoder()
+        y = label_encoder.fit_transform(y)
+        numeric_imputer = SimpleImputer(strategy="mean")
+        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
+
         pc_kwargs = {"score_func": r_regression, "k": "all"}
         pcFS = SelectKBest(**pc_kwargs)
         pcFS.fit(X_imputed, y)

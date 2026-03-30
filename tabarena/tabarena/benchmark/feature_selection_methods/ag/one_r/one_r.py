@@ -43,7 +43,7 @@ class OneRFeatureSelector(AbstractFeatureSelector):
                     f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
-            unique_values = sorted(X[feature_col].unique())
+            unique_values = sorted(X[feature_col].astype(str).unique())
             value_to_idx[feature_index] = {val: idx for idx, val in enumerate(unique_values)}
             for value_index, feature_val in enumerate(unique_values):
                 elapsed_time = time.time() - start_time
@@ -132,7 +132,7 @@ class OneRFeatureSelector(AbstractFeatureSelector):
         sorted_values = sorted(X_col.unique())
 
         def optimal_class(value):
-            value_idx = value_to_idx[value]
+            value_idx = value_to_idx[str(value)]
             return np.argmax(count_cva[:, value_idx, feature_idx])
 
         intervals = []
