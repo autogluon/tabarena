@@ -40,7 +40,7 @@ class ImpurityFeatureSelector(AbstractFeatureSelector):
                     f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
-            sorted_indices = np.argsort(X.iloc[:, w])
+            sorted_indices = X.iloc[:, w].sort_values(na_position="last").index
             sorted_labels = y.iloc[sorted_indices]
             alpha[w] = self.classification_error_impurity(sorted_labels, time_limit, start_time)
         return dict(zip(X.columns, alpha))
