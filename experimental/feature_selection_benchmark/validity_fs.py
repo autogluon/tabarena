@@ -1,6 +1,7 @@
 import argparse
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import openml
@@ -8,18 +9,24 @@ import pandas as pd
 from autogluon.core.data import LabelCleaner
 from sklearn.metrics import confusion_matrix
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import ProxyModelConfig
+from tabarena.benchmark.feature_selection_methods.feature_selection_benchmark_utils import (
+    get_fs_benchmark_preprocessing_pipelines,
+)
 from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (
     FEATURE_SELECTION_METHODS,
     get_feature_selector_from_name,
+)
+from tabflow_slurm.benchmarking_setup.data_foundry_integration.data_foundry_task_creator import (
+    download_data_foundry_datasets,
 )
 
 
 def parse_args():  # noqa: D103
     parser = argparse.ArgumentParser(description="FS Benchmark Runner")
-    parser.add_argument("--method_name", type=str, default="MIFeatureSelector",
-                        help="Feature Selection Method name [default: 'MIFeatureSelector']")
-    parser.add_argument("--dataset", type=int, default=55,
-                        help="OpenML dataset identifier [default: 55]")
+    parser.add_argument("--method_name", type=str, default="FSBench__AccuracyFeatureSelector__5__0__lgbm__3600",
+                    help="Feature Selection Method name [default: FSBench__AccuracyFeatureSelector__5__0__lgbm__3600]")
+    parser.add_argument("--dataset", type=str, default="anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792",
+                        help="OpenML dataset identifier [default: anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792]")
     parser.add_argument("--problem_type", type=str, default="binary",
                         help="OpenML dataset problem type [default: 'binary']")
     parser.add_argument("--noise", type=float, default=1.0, nargs="+",
@@ -123,7 +130,7 @@ def validity_fs(args):  # noqa: D103
 
 
 def getValidity(Z, max_features):
-    # Normalized recall
+    """Normalized recall."""
     selection_precision = []
     for elem in Z:
         _tn, _fp, _fn, tp = elem.ravel()
@@ -138,10 +145,6 @@ def confidenceIntervals(validity):
 
     lower = np.percentile(boot_validity, 2.5)
     upper = np.percentile(boot_validity, 97.5)
-
-    # z_score = norm.ppf(1 - alpha / 2)
-    # variance = np.var(validity, ddof=1) / len(validity)
-    # margin = z_score * math.sqrt(variance)
     return [lower, upper]
 
 
@@ -188,6 +191,30 @@ def add_noise(X, n_noise, noise_type="gaussian"):  # noqa: D103
 
 if __name__ == "__main__":
     args = parse_args()
-    for method_name in FEATURE_SELECTION_METHODS:
+
+    DEFAULT_DATA_FOUNDRY_CACHE = Path(__file__).parent / ".data_foundry_cache"
+
+    EXAMPLE_DATA_FOUNDRY_TASKS = [
+        "anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792",
+        "ancestry_study/019d3f8b-5610-71fa-9135-a7642f26294b",
+    ]
+
+    datasets = download_data_foundry_datasets(
+        benchmark_suite_name="feature_selection_benchmark_validity_examples",
+        data_foundry_artifacts=EXAMPLE_DATA_FOUNDRY_TASKS,
+        data_foundry_cache=DEFAULT_DATA_FOUNDRY_CACHE,
+    ).get_metadata_for_benchmark_suite()
+
+    preprocessing_pipeline = get_fs_benchmark_preprocessing_pipelines(
+        fs_methods=FEATURE_SELECTION_METHODS,
+        proxy_model_config=["lgbm"],
+        time_limit=[3600],
+        total_budget=5,
+        include_default=True,
+    )
+
+    for method_name in preprocessing_pipeline:
         args.method_name = method_name
-        validity_results = validity_fs(args)
+        for dataset in EXAMPLE_DATA_FOUNDRY_TASKS:
+            args.dataset = dataset
+            validity_results = validity_fs(args)
