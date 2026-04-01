@@ -48,24 +48,15 @@ TabArena code is currently being polished. Detailed Documentation for TabArena w
 
 # 🪄 Installation
 
-To install TabArena, ensure you are using Python 3.10-3.13. Then, run the following:
+To install TabArena, ensure you are using Python 3.11-3.13. Then, run the following:
 
-### Install UV
+## Install UV
 
-Ensure [UV is installed](https://docs.astral.sh/uv/getting-started/installation/) for the most stable install.
+Ensure [UV is installed](https://docs.astral.sh/uv/getting-started/installation/).
 
-```
-pip install uv  # if pip is available
-```
+## User Install
 
-### Install AutoGluon
-
-In future AutoGluon installation will occur automatically, but due to changes yet to be released, we need to install AutoGluon from source.
-
-```
-git clone https://github.com/autogluon/autogluon.git
-./autogluon/full_install.sh
-```
+The following is installation instructions for users who intend to use but not develop TabArena.
 
 ### Clone the repository
 
@@ -78,36 +69,22 @@ cd tabarena  # ensure the working directory is the project root, otherwise the b
 
 If you don't intend to fit models, this is the simplest installation.
 
-#### UV Install (recommended)
-
 ```
-uv pip install --prerelease=allow -e "./tabarena"
-```
-
-#### PIP Install (not recommended)
-
-```
-pip install -e "./bencheval"
-pip install -e "./tabarena"
+uv sync
 ```
 
 ### Benchmark (Fitting Models)
 
 If you intend to fit models, this is required.
-
 ```
-uv pip install --prerelease=allow -e "./tabarena[benchmark]"
-
-# use GIT_LFS_SKIP_SMUDGE=1 in front of the command if installing TabDPT fails due to a broken LFS/pip setup
-# GIT_LFS_SKIP_SMUDGE=1 uv pip install --prerelease=allow -e "./tabarena/[benchmark]"
+uv sync --extra benchmark
 ```
 
-### Developer Install
+## Developer Install with editable AutoGluon
 
-Creating a custom virtual environment (if needed or use `uv sync`):
+Creating a custom virtual environment:
 ```
-pip install uv
-uv venv --seed --python 3.11 ~/.venvs/tabarena
+uv venv --seed --python 3.12 ~/.venvs/tabarena
 source ~/.venvs/tabarena/bin/activate
 ```
 
@@ -128,7 +105,7 @@ In PyCharm, make sure to set the directory of `tabarena/` and each `src/` subdir
 Creating a project:
 ```
 pip install uv
-uv init -p 3.11
+uv init -p 3.12
 uv sync
 git clone https://github.com/autogluon/autogluon.git
 ./autogluon/full_install.sh
