@@ -119,7 +119,7 @@ def validity_fs(args) -> ValidityResult:
     tabarena_task_name = task_id.tabarena_task_name
     task = OpenMLTaskWrapper(
         task=task_id.load_local_openml_task(),
-        use_task_eval_metric=True,
+        use_task_eval_metric=False,
     )
     eval_metric = task.eval_metric
     problem_type = task.problem_type
