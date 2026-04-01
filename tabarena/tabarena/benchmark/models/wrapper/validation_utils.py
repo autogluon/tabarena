@@ -286,7 +286,7 @@ class TabArenaValidationProtocolExecMixin:
             n_splits=num_folds,
             n_repeats=num_repeats,
             test_size=None,
-            group_labels=group_labels.value,
+            group_labels=group_labels,
         )
         del splits_data
 
