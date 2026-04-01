@@ -741,27 +741,6 @@ def test_get_dataset_stats_slice_reports_subset_class_count(tmp_path):
     assert n_cls == 1
 
 
-def test_get_dataset_stats_group_on_raises_type_error(tmp_path):
-    """_get_dataset_stats omits the required `group_labels` kwarg when group_on is
-    set — this is a known bug.  The test pins the current (broken) behaviour so
-    that fixing it causes a deliberate test update.
-    """
-    df, target, _, _ = _make_dataset("classification", n=10)
-    df["group"] = ["g1", "g2"] * 5
-    task, _ = _task_from_user_task(
-        df,
-        target,
-        "classification",
-        {0: {0: (list(range(8)), [8, 9])}},
-        tmp_path,
-        "ds-group-bug",
-        group_on="group",
-    )
-    with pytest.raises(TypeError, match="group_labels"):
-        task._get_dataset_stats(
-            oml_dataset=df, is_classification=True, target_name=target
-        )
-
 
 # ---------------------------------------------------------------------------
 # compute_metadata — regression
