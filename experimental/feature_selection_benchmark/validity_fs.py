@@ -4,9 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import openml
 import pandas as pd
-from autogluon.core.data import LabelCleaner
 from sklearn.metrics import confusion_matrix
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import ProxyModelConfig
 from tabarena.benchmark.feature_selection_methods.feature_selection_benchmark_utils import (
@@ -16,9 +14,11 @@ from tabarena.benchmark.feature_selection_methods.feature_selection_methods_regi
     FEATURE_SELECTION_METHODS,
     get_feature_selector_from_name,
 )
+from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 from tabflow_slurm.benchmarking_setup.data_foundry_integration.data_foundry_task_creator import (
     download_data_foundry_datasets,
 )
+from tabflow_slurm.run_tabarena_experiment import _parse_task_id
 
 
 def parse_args():  # noqa: D103
@@ -116,15 +116,21 @@ def validity_fs(args) -> ValidityResult:
         Object containing validity metrics, confusion matrices, timing information,
         and confidence intervals for the feature selection method's performance.
     """
-    dataset_id = args.dataset
+    dataset = args.dataset
+    task_id = _parse_task_id(dataset)
+    tabarena_task_name = task_id.tabarena_task_name
+    task = OpenMLTaskWrapper(
+        task=task_id.load_local_openml_task(),
+        use_task_eval_metric=True,
+    )
+    eval_metric = task.eval_metric
     problem_type = args.problem_type
     n_repeats = args.repeats
     max_features = args.max_features
-    method_name = args.method_name
-    dataset = openml.datasets.get_dataset(dataset_id)
-    X, y, _, _ = dataset.get_data(target=dataset.default_target_attribute, dataset_format="dataframe")
-    label_cleaner = LabelCleaner.construct(problem_type=problem_type, y=y)
-    y = label_cleaner.transform(y)
+    method_name = args.method_name.split("__")[1].split("__")[0]
+
+    X = task.X
+    y = task.y
 
     n_noise = int(len(X.columns) * args.noise)
     print(f"\n=== {method_name} ===")
@@ -147,7 +153,7 @@ def validity_fs(args) -> ValidityResult:
         n_samples.append(len(X_repeat))
         proxy_config = ProxyModelConfig(
             problem_type=problem_type,
-            eval_metric="roc_auc",
+            eval_metric=eval_metric,
             model_hyperparameters={"num_boost_round": 1},
         )
         start_time = time.monotonic()
@@ -173,7 +179,7 @@ def validity_fs(args) -> ValidityResult:
     ci = confidenceIntervals(validity)
     validity_results = ValidityResult(
         method=method_name,
-        dataset=dataset_id,
+        dataset=dataset,
         problem_type=problem_type,
         max_features=max_features,
         original_features=len(X.columns),
@@ -302,15 +308,15 @@ if __name__ == "__main__":
     DEFAULT_DATA_FOUNDRY_CACHE = Path(__file__).parent / ".data_foundry_cache"
 
     EXAMPLE_DATA_FOUNDRY_TASKS = [
+        # "ancestry_study/019d3f8b-5610-71fa-9135-a7642f26294b",
         "anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792",
-        "ancestry_study/019d3f8b-5610-71fa-9135-a7642f26294b",
     ]
 
-    datasets = download_data_foundry_datasets(
+    download_data_foundry_datasets(
         benchmark_suite_name="feature_selection_benchmark_validity_examples",
         data_foundry_artifacts=EXAMPLE_DATA_FOUNDRY_TASKS,
-        data_foundry_cache=DEFAULT_DATA_FOUNDRY_CACHE,
-    ).get_metadata_for_benchmark_suite()
+        data_foundry_cache=DEFAULT_DATA_FOUNDRY_CACHE
+    )
 
     preprocessing_pipeline = get_fs_benchmark_preprocessing_pipelines(
         fs_methods=FEATURE_SELECTION_METHODS,
@@ -319,9 +325,10 @@ if __name__ == "__main__":
         total_budget=5,
         include_default=True,
     )
-
+    path_to_metadata = DEFAULT_DATA_FOUNDRY_CACHE / "feature_selection_benchmark_validity_examples_tasks_metadata.csv"
+    task_metadata = pd.read_csv(path_to_metadata)
     for method_name in preprocessing_pipeline:
         args.method_name = method_name
-        for dataset in EXAMPLE_DATA_FOUNDRY_TASKS:
+        for dataset in task_metadata["task_id_str"]:
             args.dataset = dataset
             validity_results = validity_fs(args)
