@@ -1037,3 +1037,56 @@ def test_compute_metadata_split_time_horizon_passthrough(tmp_path):
 
     assert meta.split_time_horizon == 30
     assert meta.split_time_horizon_unit == "days"
+
+
+# ---------------------------------------------------------------------------
+# Unsupported ARFF dtype workaround (datetime64, timedelta64, complex)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("col_name", "col_values", "dtype"),
+    [
+        (
+            "date_col",
+            pd.to_datetime(["2020-01-01", "2021-06-15"] * 5),
+            "datetime64[ns]",
+        ),
+        (
+            "delta_col",
+            pd.to_timedelta(range(10), unit="D"),
+            "timedelta64[ns]",
+        ),
+        # Note: complex128 is also unsupported by liac-arff, but pyarrow (parquet)
+        # cannot serialize it either, so it fails at a later stage and is excluded here.
+    ],
+    ids=["datetime64", "timedelta64"],
+)
+def test_create_local_openml_task_unsupported_arff_dtype_does_not_raise(
+    col_name, col_values, dtype, tmp_path
+):
+    """Columns with dtypes unsupported by liac-arff (datetime64, timedelta64, complex)
+    must not prevent task creation — they are cast to string only for ARFF attribute
+    inference and do not affect the data persisted to parquet.
+    """
+    n = 10
+    df = pd.DataFrame(
+        {
+            "num": np.arange(n, dtype="int64"),
+            col_name: col_values,
+            "target": np.linspace(0.0, 1.0, num=n),
+        }
+    )
+    assert df[col_name].dtype == np.dtype(dtype)
+
+    splits = {0: {0: (list(range(8)), [8, 9])}}
+    ut = UserTask(task_name=f"unsupported-dtype-{col_name}", task_cache_path=tmp_path)
+    # Must not raise
+    ut.create_local_openml_task(
+        dataset=df, target_feature="target", problem_type="regression", splits=splits
+    )
+
+    # The parquet file must store the original dtype — the workaround must not
+    # modify the persisted data.
+    stored = pd.read_parquet(ut._local_cache_path / "data.pq")
+    assert stored[col_name].dtype == df[col_name].dtype
