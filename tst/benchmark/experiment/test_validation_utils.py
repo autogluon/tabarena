@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -8,6 +10,8 @@ from tabarena.benchmark.models.wrapper.validation_utils import (
     split_time_index_into_intervals,
 )
 from tabarena.benchmark.task.user_task import GroupLabelTypes
+
+_DATA_FOUNDRY_AVAILABLE = importlib.util.find_spec("data_foundry") is not None
 
 # ---------------------------------------------------------------------------
 # Concrete subclass for testing the mixin
@@ -25,9 +29,7 @@ class _Validation(TabArenaValidationProtocolExecMixin):
 
 def test_basic_integer_split_produces_correct_n_intervals():
     time_data = pd.Series([1, 2, 3, 4, 5, 6])
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=3
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=3)
     assert n == 3
     assert intervals.nunique() == 3
 
@@ -35,39 +37,29 @@ def test_basic_integer_split_produces_correct_n_intervals():
 def test_intervals_are_monotonically_nondecreasing():
     """Interval IDs must weakly increase as time values increase."""
     time_data = pd.Series(range(12))
-    intervals, _ = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=4
-    )
+    intervals, _ = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=4)
     sorted_vals = intervals.sort_index().to_numpy()
-    assert all(
-        sorted_vals[i] <= sorted_vals[i + 1] for i in range(len(sorted_vals) - 1)
-    )
+    assert all(sorted_vals[i] <= sorted_vals[i + 1] for i in range(len(sorted_vals) - 1))
 
 
 def test_duplicate_time_values_land_in_same_interval():
     # Both occurrences of value 1 must receive the same interval label.
     time_data = pd.Series([1, 1, 2, 3, 4, 5])
-    intervals, _ = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=3
-    )
+    intervals, _ = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=3)
     assert intervals.iloc[0] == intervals.iloc[1]
 
 
 def test_fewer_unique_values_than_goal_caps_at_unique_count():
     # 2 unique values → at most 2 intervals, regardless of goal.
     time_data = pd.Series([1, 1, 2, 2, 2])
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=5
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=5)
     assert n == 2
     assert intervals.nunique() == 2
 
 
 def test_original_index_is_preserved():
     time_data = pd.Series([3, 1, 2, 1], index=[10, 20, 30, 40])
-    intervals, _ = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=2
-    )
+    intervals, _ = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=2)
     assert list(intervals.index) == [10, 20, 30, 40]
     # Both 1s (idx 20 and 40) must share an interval; 3 (idx 10) must be later.
     assert intervals[20] == intervals[40]
@@ -77,9 +69,7 @@ def test_original_index_is_preserved():
 def test_balance_on_rows_and_unique_both_produce_correct_interval_count():
     time_data = pd.Series([1, 1, 1, 1, 2, 3])
     for mode in ("rows", "unique"):
-        intervals, n = split_time_index_into_intervals(
-            time_data=time_data, goal_n_intervals=2, balance_on=mode
-        )
+        intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=2, balance_on=mode)
         assert n == 2
         assert intervals.nunique() == 2
 
@@ -88,19 +78,13 @@ def test_balance_on_rows_puts_heavy_bucket_together():
     # Values: four 1s, one 2, one 3.  With balance_on="rows" and goal=2,
     # the greedy split should keep all four 1s in interval 0.
     time_data = pd.Series([1, 1, 1, 1, 2, 3])
-    intervals, _ = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=2, balance_on="rows"
-    )
-    assert (
-        intervals[intervals.index[0]] == intervals[intervals.index[3]]
-    )  # same interval for all 1s
+    intervals, _ = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=2, balance_on="rows")
+    assert intervals[intervals.index[0]] == intervals[intervals.index[3]]  # same interval for all 1s
 
 
 def test_datetime_dtype_is_accepted():
     time_data = pd.Series(pd.date_range("2020-01-01", periods=6, freq="D"))
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=3
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=3)
     assert n == 3
     assert intervals.nunique() == 3
 
@@ -114,9 +98,7 @@ def test_goal_n_intervals_less_than_2_raises():
 def test_invalid_balance_on_raises():
     time_data = pd.Series([1, 2, 3])
     with pytest.raises(ValueError, match="balance_on"):
-        split_time_index_into_intervals(
-            time_data=time_data, goal_n_intervals=2, balance_on="invalid"
-        )
+        split_time_index_into_intervals(time_data=time_data, goal_n_intervals=2, balance_on="invalid")
 
 
 def test_nan_in_time_data_raises():
@@ -134,9 +116,7 @@ def test_single_unique_value_raises():
 @pytest.mark.parametrize("n_intervals", [2, 4, 8])
 def test_output_length_equals_input_length(n_intervals):
     time_data = pd.Series(range(20))
-    intervals, _ = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=n_intervals
-    )
+    intervals, _ = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=n_intervals)
     assert len(intervals) == len(time_data)
 
 
@@ -159,9 +139,7 @@ def test_group_on_to_groups_data_multi_column():
 
 def test_time_on_to_groups_data_integer():
     X = pd.DataFrame({"time": [1, 2, 3, 4, 5, 6]})
-    groups, n_intervals = _Validation.time_on_to_groups_data(
-        X=X, time_on="time", num_folds=3
-    )
+    groups, n_intervals = _Validation.time_on_to_groups_data(X=X, time_on="time", num_folds=3)
     assert n_intervals == 3
     assert len(groups) == 6
     assert (groups.diff().dropna() >= 0).all()
@@ -169,9 +147,7 @@ def test_time_on_to_groups_data_integer():
 
 def test_time_on_to_groups_data_datetime():
     X = pd.DataFrame({"time": pd.date_range("2020-01-01", periods=6, freq="D")})
-    groups, n_intervals = _Validation.time_on_to_groups_data(
-        X=X, time_on="time", num_folds=3
-    )
+    groups, n_intervals = _Validation.time_on_to_groups_data(X=X, time_on="time", num_folds=3)
     assert n_intervals == 3
     assert len(groups) == 6
 
@@ -190,9 +166,7 @@ def test_resolve_validation_splits_disabled_returns_unchanged():
     v = _Validation(use_task_specific_validation=False)
     X = _make_X(10)
     y = pd.Series(np.zeros(10))
-    custom_splits, folds, repeats = v.resolve_validation_splits(
-        X=X, y=y, num_folds=8, num_repeats=1
-    )
+    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
     assert custom_splits is None
     assert folds == 8
     assert repeats == 1
@@ -202,9 +176,7 @@ def test_resolve_validation_splits_num_folds_none_returns_early():
     v = _Validation(use_task_specific_validation=True)
     X = _make_X(10)
     y = pd.Series(np.zeros(10))
-    custom_splits, folds, _repeats = v.resolve_validation_splits(
-        X=X, y=y, num_folds=None, num_repeats=1
-    )
+    custom_splits, folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=None, num_repeats=1)
     assert custom_splits is None
     assert folds is None
 
@@ -213,9 +185,7 @@ def test_resolve_validation_splits_num_folds_one_returns_early():
     v = _Validation(use_task_specific_validation=True)
     X = _make_X(10)
     y = pd.Series(np.zeros(10))
-    custom_splits, folds, _repeats = v.resolve_validation_splits(
-        X=X, y=y, num_folds=1, num_repeats=1
-    )
+    custom_splits, folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=1, num_repeats=1)
     assert custom_splits is None
     assert folds == 1
 
@@ -225,9 +195,7 @@ def test_resolve_validation_splits_tiny_data_updates_folds_and_repeats():
     v = _Validation(use_task_specific_validation=True)
     X = _make_X(100)  # 100 < 500 → tiny
     y = pd.Series(np.zeros(100))
-    custom_splits, folds, repeats = v.resolve_validation_splits(
-        X=X, y=y, num_folds=8, num_repeats=1
-    )
+    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
     assert custom_splits is None
     assert folds == _Validation.tiny_data_num_folds
     assert repeats == _Validation.tiny_data_num_repeats
@@ -238,9 +206,7 @@ def test_resolve_validation_splits_normal_data_unchanged():
     v = _Validation(use_task_specific_validation=True)
     X = _make_X(600)  # > 500
     y = pd.Series(np.zeros(600))
-    custom_splits, folds, repeats = v.resolve_validation_splits(
-        X=X, y=y, num_folds=8, num_repeats=1
-    )
+    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
     assert custom_splits is None
     assert folds == 8
     assert repeats == 1
@@ -267,18 +233,14 @@ def test_resolve_validation_splits_time_on_and_group_on_raises_not_implemented()
 
 def test_resolve_number_of_splits_tiny_data():
     v = _Validation(use_task_specific_validation=True)
-    folds, repeats = v._resolve_number_of_splits(
-        num_folds=8, num_repeats=1, num_group_instances=50
-    )
+    folds, repeats = v._resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=50)
     assert folds == _Validation.tiny_data_num_folds
     assert repeats == _Validation.tiny_data_num_repeats
 
 
 def test_resolve_number_of_splits_normal_data_unchanged():
     v = _Validation(use_task_specific_validation=True)
-    folds, repeats = v._resolve_number_of_splits(
-        num_folds=8, num_repeats=1, num_group_instances=1000
-    )
+    folds, repeats = v._resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=1000)
     assert folds == 8
     assert repeats == 1
 
@@ -287,18 +249,14 @@ def test_resolve_number_of_splits_normal_data_wrong_folds_asserts():
     """The normal path asserts num_folds == 8."""
     v = _Validation(use_task_specific_validation=True)
     with pytest.raises(AssertionError):
-        v._resolve_number_of_splits(
-            num_folds=5, num_repeats=1, num_group_instances=1000
-        )
+        v._resolve_number_of_splits(num_folds=5, num_repeats=1, num_group_instances=1000)
 
 
 def test_resolve_number_of_splits_normal_data_wrong_repeats_asserts():
     """The normal path asserts num_repeats is 1 or None."""
     v = _Validation(use_task_specific_validation=True)
     with pytest.raises(AssertionError):
-        v._resolve_number_of_splits(
-            num_folds=8, num_repeats=3, num_group_instances=1000
-        )
+        v._resolve_number_of_splits(num_folds=8, num_repeats=3, num_group_instances=1000)
 
 
 # ---------------------------------------------------------------------------
@@ -367,9 +325,7 @@ def test_single_element_series_raises():
 def test_returned_n_always_equals_actual_interval_count(goal, n_unique, balance_on):
     """The returned integer n must equal the number of distinct labels in the output."""
     time_data = pd.Series(range(n_unique))
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=goal, balance_on=balance_on
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=goal, balance_on=balance_on)
     assert n == intervals.nunique()
 
 
@@ -381,9 +337,7 @@ def test_returned_n_always_equals_actual_interval_count(goal, n_unique, balance_
 def test_interval_labels_are_zero_indexed_and_contiguous(goal, n_unique):
     """Labels must be exactly {0, 1, …, n−1} with no gaps."""
     time_data = pd.Series(range(n_unique))
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=goal
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=goal)
     assert set(intervals) == set(range(n))
 
 
@@ -395,9 +349,7 @@ def test_interval_labels_are_zero_indexed_and_contiguous(goal, n_unique):
 def test_all_intervals_are_nonempty(goal, n_unique):
     """Each interval from 0 to n−1 must contain at least one row."""
     time_data = pd.Series(range(n_unique))
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=goal
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=goal)
     for label in range(n):
         assert (intervals == label).any(), f"Interval {label} is empty"
 
@@ -412,9 +364,7 @@ def test_temporal_ordering_invariant_with_unsorted_input():
     n = 40
     time_vals = rng.integers(1, 15, size=n)  # values drawn from 1..14
     time_data = pd.Series(time_vals)
-    intervals, _ = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=5
-    )
+    intervals, _ = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=5)
     for _t1, _i1, _t2, _i2 in zip(time_data, intervals, time_data, intervals):
         pass  # just verifying iteration works; real check below
 
@@ -425,17 +375,14 @@ def test_temporal_ordering_invariant_with_unsorted_input():
         t_b, lbl_b = sorted_pairs[idx + 1]
         if t_a < t_b:
             assert lbl_a <= lbl_b, (
-                f"Temporal ordering violated: time {t_a} → label {lbl_a}, "
-                f"time {t_b} → label {lbl_b}"
+                f"Temporal ordering violated: time {t_a} → label {lbl_a}, " f"time {t_b} → label {lbl_b}"
             )
 
 
 def test_all_rows_covered_by_valid_label():
     """Every row must receive a label in [0, n−1]; no row may be unassigned (NaN)."""
     time_data = pd.Series([3, 1, 4, 1, 5, 9, 2, 6])
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=3
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=3)
     assert not intervals.isna().any()
     assert intervals.min() == 0
     assert intervals.max() == n - 1
@@ -452,9 +399,7 @@ def test_goal_equals_n_unique_each_unique_gets_own_interval():
     Traced manually: time=[1,2,3], goal=3 → labels=[0,1,2].
     """
     time_data = pd.Series([1, 2, 3])
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=3
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=3)
     assert n == 3
     assert list(intervals) == [0, 1, 2]
 
@@ -462,9 +407,7 @@ def test_goal_equals_n_unique_each_unique_gets_own_interval():
 def test_goal_larger_than_n_unique_caps_actual_n_at_n_unique():
     """Goal >> n_unique: actual_n returned is n_unique, not goal."""
     time_data = pd.Series([10, 20, 30])  # 3 unique values
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=100
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=100)
     assert n == 3
     assert intervals.nunique() == 3
 
@@ -479,9 +422,7 @@ def test_balance_on_rows_vs_unique_produce_different_partitions_for_skewed_data(
     """
     time_data = pd.Series([1, 1, 1, 2, 3, 4])
 
-    intervals_rows, n_rows = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=2, balance_on="rows"
-    )
+    intervals_rows, n_rows = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=2, balance_on="rows")
     intervals_unique, n_unique = split_time_index_into_intervals(
         time_data=time_data, goal_n_intervals=2, balance_on="unique"
     )
@@ -499,9 +440,7 @@ def test_balance_on_unique_distributes_unique_values_evenly():
     Traced: [0,1,2,3,4,5] → [0,0,1,1,2,2].
     """
     time_data = pd.Series(range(6))
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=3, balance_on="unique"
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=3, balance_on="unique")
     assert n == 3
     assert list(intervals) == [0, 0, 1, 1, 2, 2]
     for label in range(3):
@@ -516,9 +455,7 @@ def test_unsorted_input_labels_are_consistent_with_time_order():
         output:  [2, 1, 0, 2, 0]
     """
     time_data = pd.Series([5, 3, 1, 4, 2])
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=3
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=3)
     assert n == 3
     assert list(intervals) == [2, 1, 0, 2, 0]
     # Confirm the mapping is monotone: t=1,2 → 0; t=3 → 1; t=4,5 → 2
@@ -531,21 +468,15 @@ def test_unsorted_input_labels_are_consistent_with_time_order():
 def test_heavy_duplicate_cluster_cannot_be_split():
     """10 copies of value 1 must all receive the same interval label."""
     time_data = pd.Series([1] * 10 + [2, 3])
-    intervals, _ = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=2
-    )
+    intervals, _ = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=2)
     one_labels = intervals[time_data == 1].unique()
-    assert len(one_labels) == 1, (
-        "All duplicates of value 1 must be in the same interval"
-    )
+    assert len(one_labels) == 1, "All duplicates of value 1 must be in the same interval"
 
 
 def test_two_unique_values_always_yields_two_intervals():
     """Exactly 2 unique values is the minimum; both must get distinct labels."""
     time_data = pd.Series([7, 7, 7, 99])
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=2
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=2)
     assert n == 2
     assert intervals[time_data == 7].unique().tolist() == [0]
     assert intervals[time_data == 99].unique().tolist() == [1]
@@ -555,9 +486,7 @@ def test_actual_n_equals_goal_when_n_unique_exceeds_goal():
     """When there are more unique values than goal, actual_n == goal."""
     time_data = pd.Series(range(20))  # 20 unique values
     for goal in (2, 5, 7):
-        _, n = split_time_index_into_intervals(
-            time_data=time_data, goal_n_intervals=goal
-        )
+        _, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=goal)
         assert n == goal, f"Expected actual_n={goal}, got {n}"
 
 
@@ -569,9 +498,7 @@ def test_actual_n_equals_goal_when_n_unique_exceeds_goal():
 def test_float_time_values_work():
     """Non-integer numeric series must be accepted and produce valid output."""
     time_data = pd.Series([0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=3
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=3)
     assert n == 3
     assert len(intervals) == 6
     assert set(intervals) == {0, 1, 2}
@@ -580,9 +507,7 @@ def test_float_time_values_work():
 def test_negative_time_values_work():
     """Negative values are valid time inputs (only relative order matters)."""
     time_data = pd.Series([-3, -2, -1, 0, 1, 2])
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=3
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=3)
     assert n == 3
     assert len(intervals) == 6
     # Monotonicity: labels must not decrease as time increases
@@ -594,9 +519,7 @@ def test_large_integer_time_values_work():
     """Very large integers (near int64 range) should not cause overflow."""
     big = 10**15
     time_data = pd.Series([big, big + 1, big + 2, big + 3, big + 4, big + 5])
-    intervals, n = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=3
-    )
+    intervals, n = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=3)
     assert n == 3
     assert len(intervals) == 6
 
@@ -625,9 +548,7 @@ def test_mixin_class_constants():
 def test_resolve_number_of_splits_at_exact_boundary_500_is_tiny():
     """500 instances == max_samples_for_tiny_data → tiny-data path."""
     v = _Validation(use_task_specific_validation=True)
-    folds, repeats = v._resolve_number_of_splits(
-        num_folds=8, num_repeats=1, num_group_instances=500
-    )
+    folds, repeats = v._resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=500)
     assert folds == _Validation.tiny_data_num_folds
     assert repeats == _Validation.tiny_data_num_repeats
 
@@ -635,9 +556,7 @@ def test_resolve_number_of_splits_at_exact_boundary_500_is_tiny():
 def test_resolve_number_of_splits_at_501_is_normal():
     """501 instances > max_samples_for_tiny_data → normal path."""
     v = _Validation(use_task_specific_validation=True)
-    folds, repeats = v._resolve_number_of_splits(
-        num_folds=8, num_repeats=1, num_group_instances=501
-    )
+    folds, repeats = v._resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=501)
     assert folds == 8
     assert repeats == 1
 
@@ -645,9 +564,7 @@ def test_resolve_number_of_splits_at_501_is_normal():
 def test_resolve_number_of_splits_num_repeats_none_allowed_on_normal_path():
     """Normal path assertion is: num_repeats == 1 OR num_repeats is None."""
     v = _Validation(use_task_specific_validation=True)
-    folds, repeats = v._resolve_number_of_splits(
-        num_folds=8, num_repeats=None, num_group_instances=1000
-    )
+    folds, repeats = v._resolve_number_of_splits(num_folds=8, num_repeats=None, num_group_instances=1000)
     assert folds == 8
     assert repeats is None  # unchanged — no new value was assigned
 
@@ -662,9 +579,7 @@ def test_resolve_validation_splits_num_folds_zero_returns_early():
     v = _Validation(use_task_specific_validation=True)
     X = _make_X(10)
     y = pd.Series(np.zeros(10))
-    custom_splits, folds, _repeats = v.resolve_validation_splits(
-        X=X, y=y, num_folds=0, num_repeats=1
-    )
+    custom_splits, folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=0, num_repeats=1)
     assert custom_splits is None
     assert folds == 0
 
@@ -674,9 +589,7 @@ def test_resolve_validation_splits_num_repeats_none_normal_data():
     v = _Validation(use_task_specific_validation=True)
     X = _make_X(600)
     y = pd.Series(np.zeros(600))
-    custom_splits, folds, repeats = v.resolve_validation_splits(
-        X=X, y=y, num_folds=8, num_repeats=None
-    )
+    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=None)
     assert custom_splits is None
     assert folds == 8
     assert repeats is None
@@ -687,9 +600,7 @@ def test_resolve_validation_splits_exactly_500_instances_is_tiny():
     v = _Validation(use_task_specific_validation=True)
     X = _make_X(500)
     y = pd.Series(np.zeros(500))
-    custom_splits, folds, repeats = v.resolve_validation_splits(
-        X=X, y=y, num_folds=8, num_repeats=1
-    )
+    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
     assert custom_splits is None
     assert folds == _Validation.tiny_data_num_folds
     assert repeats == _Validation.tiny_data_num_repeats
@@ -700,9 +611,7 @@ def test_resolve_validation_splits_501_instances_is_normal():
     v = _Validation(use_task_specific_validation=True)
     X = _make_X(501)
     y = pd.Series(np.zeros(501))
-    custom_splits, folds, repeats = v.resolve_validation_splits(
-        X=X, y=y, num_folds=8, num_repeats=1
-    )
+    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
     assert custom_splits is None
     assert folds == 8
     assert repeats == 1
@@ -713,9 +622,7 @@ def test_resolve_validation_splits_disabled_ignores_tiny_data():
     v = _Validation(use_task_specific_validation=False)
     X = _make_X(50)  # would be tiny if validation were enabled
     y = pd.Series(np.zeros(50))
-    _custom_splits, folds, repeats = v.resolve_validation_splits(
-        X=X, y=y, num_folds=8, num_repeats=1
-    )
+    _custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
     # Folds must NOT be changed to tiny_data_num_folds
     assert folds == 8
     assert repeats == 1
@@ -823,3 +730,222 @@ def test_get_num_group_instances_per_sample_label_returns_len():
     )
     X = pd.DataFrame({"a": [1, 2, 3, 4], "g": ["x", "x", "y", "y"]})
     assert v.get_num_group_instances(X) == 4  # len(X), not 2 groups
+
+
+# ===========================================================================
+# resolve_validation_splits — group_on and time_on settings
+# ===========================================================================
+# data_foundry (used inside _resolve_group_splits) is not installed in the test
+# environment, so we monkeypatch _resolve_group_splits to return a trivial split
+# and focus on the surrounding logic in resolve_validation_splits.
+# ===========================================================================
+
+
+def _dummy_splits(n: int) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Simple 50/50 split covering all n rows, used as mock return value."""
+    half = n // 2
+    return [(np.arange(half), np.arange(half, n))]
+
+
+def _patch_group_splits(
+    v: _Validation,
+    monkeypatch: pytest.MonkeyPatch,
+    n: int,
+    captured: dict | None = None,
+) -> None:
+    """Conditionally patch ``_resolve_group_splits`` on instance *v*.
+
+    * When ``data_foundry`` is **not** installed the method is replaced with a
+      dummy that returns a trivial 50/50 split.
+    * When ``data_foundry`` **is** installed the real method is wrapped so that
+      its keyword arguments are still captured (when *captured* is given) while
+      the genuine implementation runs.
+    """
+    if _DATA_FOUNDRY_AVAILABLE:
+        original = v._resolve_group_splits
+
+        def _wrapper(**kw):
+            if captured is not None:
+                captured.update(kw)
+            return original(**kw)
+    else:
+
+        def _wrapper(**kw):
+            if captured is not None:
+                captured.update(kw)
+            return _dummy_splits(n)
+
+    monkeypatch.setattr(v, "_resolve_group_splits", _wrapper)
+
+
+# ---------------------------------------------------------------------------
+# group_on settings
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_validation_splits_group_on_returns_custom_splits(monkeypatch):
+    """group_on set → custom_splits is a non-empty list of (train, test) pairs."""
+    n = 600
+    v = _Validation(
+        use_task_specific_validation=True,
+        group_on="group",
+        group_labels=GroupLabelTypes.PER_GROUP,
+    )
+    X = pd.DataFrame(
+        {
+            "feature": np.arange(n, dtype=float),
+            "group": [f"g{i % 20}" for i in range(n)],  # 20 unique groups
+        }
+    )
+    y = pd.Series(np.zeros(n))
+    _patch_group_splits(v, monkeypatch, n)
+
+    custom_splits, _folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    assert custom_splits is not None
+    assert len(custom_splits) > 0
+    train_idx, test_idx = custom_splits[0]
+    assert len(train_idx) > 0
+    assert len(test_idx) > 0
+
+
+def test_resolve_validation_splits_group_on_indices_do_not_overlap(monkeypatch):
+    """Train and test index arrays returned for group_on must be disjoint."""
+    n = 600
+    v = _Validation(
+        use_task_specific_validation=True,
+        group_on="group",
+        group_labels=GroupLabelTypes.PER_GROUP,
+    )
+    X = pd.DataFrame(
+        {
+            "feature": np.arange(n, dtype=float),
+            "group": [f"g{i % 20}" for i in range(n)],
+        }
+    )
+    y = pd.Series(np.zeros(n))
+    _patch_group_splits(v, monkeypatch, n)
+
+    custom_splits, _folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    for train_idx, test_idx in custom_splits:
+        assert len(set(train_idx).intersection(set(test_idx))) == 0
+
+
+def test_resolve_validation_splits_group_on_tiny_data_uses_tiny_folds(monkeypatch):
+    """group_on with PER_SAMPLE label and tiny data uses tiny_data_num_folds."""
+    n = 100  # < 500 → tiny
+    v = _Validation(
+        use_task_specific_validation=True,
+        group_on="group",
+        group_labels=GroupLabelTypes.PER_SAMPLE,
+    )
+    X = pd.DataFrame(
+        {
+            "feature": np.arange(n, dtype=float),
+            "group": [f"g{i % 5}" for i in range(n)],
+        }
+    )
+    y = pd.Series(np.zeros(n))
+    captured: dict = {}
+    _patch_group_splits(v, monkeypatch, n, captured)
+
+    v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    assert captured["num_folds"] == _Validation.tiny_data_num_folds
+    assert captured["num_repeats"] == _Validation.tiny_data_num_repeats
+
+
+def test_resolve_validation_splits_group_on_passes_correct_groups_data(monkeypatch):
+    """The groups_data passed to _resolve_group_splits must match group_on column."""
+    n = 600
+    v = _Validation(
+        use_task_specific_validation=True,
+        group_on="grp",
+        group_labels=GroupLabelTypes.PER_GROUP,
+    )
+    group_values = [f"g{i % 20}" for i in range(n)]
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values})
+    y = pd.Series(np.zeros(n))
+    captured: dict = {}
+    _patch_group_splits(v, monkeypatch, n, captured)
+
+    v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    assert list(captured["groups_data"]) == group_values
+
+
+# ---------------------------------------------------------------------------
+# time_on settings
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_validation_splits_time_on_forces_num_repeats_to_one(monkeypatch):
+    """time_on set → num_repeats is always forced to 1, regardless of input."""
+    n = 600
+    v = _Validation(use_task_specific_validation=True, time_on="time")
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
+    y = pd.Series(np.zeros(n))
+    _patch_group_splits(v, monkeypatch, n)
+
+    _custom_splits, _folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    assert repeats == 1
+
+
+def test_resolve_validation_splits_time_on_folds_capped_at_unique_values(monkeypatch):
+    """time_on with fewer unique values than num_folds → folds capped at n_unique."""
+    n = 600
+    v = _Validation(use_task_specific_validation=True, time_on="time")
+    # Only 4 unique time values; num_folds=8 must be capped to 4.
+    X = pd.DataFrame(
+        {
+            "feature": np.arange(n, dtype=float),
+            "time": [i % 4 for i in range(n)],
+        }
+    )
+    y = pd.Series(np.zeros(n))
+    _patch_group_splits(v, monkeypatch, n)
+
+    _custom_splits, folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    assert folds == 4
+
+
+def test_resolve_validation_splits_time_on_returns_custom_splits(monkeypatch):
+    """time_on set → custom_splits is a non-empty list."""
+    n = 600
+    v = _Validation(use_task_specific_validation=True, time_on="time")
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
+    y = pd.Series(np.zeros(n))
+    _patch_group_splits(v, monkeypatch, n)
+
+    custom_splits, _folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    assert custom_splits is not None
+    assert len(custom_splits) > 0
+
+
+def test_resolve_validation_splits_time_on_group_labels_set_to_per_sample(monkeypatch):
+    """time_on sets group_labels=PER_SAMPLE when calling _resolve_group_splits."""
+    n = 600
+    v = _Validation(use_task_specific_validation=True, time_on="time")
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
+    y = pd.Series(np.zeros(n))
+    captured: dict = {}
+    _patch_group_splits(v, monkeypatch, n, captured)
+
+    v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    assert captured["group_labels"] == GroupLabelTypes.PER_SAMPLE
+
+
+def test_resolve_validation_splits_time_on_passes_interval_labels_as_groups(monkeypatch):
+    """groups_data passed to _resolve_group_splits must be the interval labels, not raw time."""
+    n = 600
+    v = _Validation(use_task_specific_validation=True, time_on="time")
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
+    y = pd.Series(np.zeros(n))
+    captured: dict = {}
+    _patch_group_splits(v, monkeypatch, n, captured)
+
+    v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    groups = captured["groups_data"]
+    # Interval labels must be non-negative integers, not the original time values
+    assert groups.min() == 0
+    assert groups.max() < n  # labels are interval IDs, not raw timestamps
+    # Temporal ordering: labels must not decrease as time increases
+    sorted_by_time = groups.iloc[np.argsort(X["time"].to_numpy())]
+    assert (sorted_by_time.diff().dropna() >= 0).all()
