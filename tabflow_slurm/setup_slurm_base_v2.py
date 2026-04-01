@@ -557,6 +557,7 @@ class BenchmarkSetup2026:
             func_kwargs={
                 "output_dir": self.path_setup.get_output_path(self.benchmark_name),
                 "models_to_constraints": self.models_to_constraints,
+                "ignore_cache": self.ignore_cache,
             },
             track_progress=True,
             tqdm_kwargs={"desc": "Checking Cache and Filter Invalid Jobs"},
@@ -911,6 +912,7 @@ def should_run_job(
     input_data: dict,
     output_dir: str,
     models_to_constraints: dict,
+    ignore_cache: bool,
 ) -> bool:
     """Check if a job should be run based on the configuration and cache.
     Must be not a class function to be used with Ray.
@@ -941,6 +943,9 @@ def should_run_job(
         models_to_constraints=models_to_constraints,
     ):
         return False
+
+    if ignore_cache:
+        return True
 
     return not check_cache_hit(
         result_dir=output_dir,
