@@ -138,6 +138,7 @@ class TabArenaValidationProtocolExecMixin:
             )
 
         groups_data = None
+        group_labels = None
         if (self.time_on is not None) and (self.group_on is not None):
             raise NotImplementedError
 
@@ -152,9 +153,12 @@ class TabArenaValidationProtocolExecMixin:
                 f"\n\tnum_repeats set to 1!"
             )
             num_folds = num_folds_new
+            # Set group labels as needed for time split
+            group_labels = GroupLabelTypes.PER_SAMPLE
 
         if self.group_on is not None:
             groups_data = self.group_on_to_groups_data(X=X, group_on=self.group_on)
+            group_labels = self.group_labels
 
         if groups_data is not None:
             custom_splits = self._resolve_group_splits(
@@ -163,6 +167,7 @@ class TabArenaValidationProtocolExecMixin:
                 num_repeats=num_repeats,
                 stratify_on_data=stratify_on_data,
                 groups_data=groups_data,
+                group_labels=group_labels,
             )
 
         # Sanity checks for custom splits
@@ -234,6 +239,7 @@ class TabArenaValidationProtocolExecMixin:
         num_repeats: int,
         stratify_on_data: pd.Series | None,
         groups_data: pd.Series,
+        group_labels: GroupLabelTypes | None,
     ) -> list[tuple[np.ndarray, np.ndarray]]:
         """Create a group-based split given the specified group_on column(s).
         Then transform this into split indices for AutoGluon's group splitter logic.
@@ -251,13 +257,13 @@ class TabArenaValidationProtocolExecMixin:
             "Group column(s) contain NaN values, which is not allowed for group-wise splitting!"
         )
 
-        if self.group_labels not in [
+        if group_labels not in [
             GroupLabelTypes.PER_GROUP,
             GroupLabelTypes.PER_SAMPLE,
         ]:
-            raise ValueError(f"Invalid group_labels value: {self.group_labels}")
+            raise ValueError(f"Invalid group_labels value: {group_labels}")
 
-        if self.group_labels == GroupLabelTypes.PER_GROUP:
+        if group_labels == GroupLabelTypes.PER_GROUP:
             n_groups_in_data = groups_data.nunique()
             assert n_groups_in_data > 1, (
                 f"Need at least 2 unique groups for group-wise splitting, but got {n_groups_in_data} unique groups from column(s)!"
@@ -280,7 +286,7 @@ class TabArenaValidationProtocolExecMixin:
             n_splits=num_folds,
             n_repeats=num_repeats,
             test_size=None,
-            group_labels=self.group_labels.value,
+            group_labels=group_labels.value,
         )
         del splits_data
 
