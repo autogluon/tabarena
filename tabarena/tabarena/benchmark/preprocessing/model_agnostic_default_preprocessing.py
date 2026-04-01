@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+import pandas as pd
 from autogluon.common.features.types import (
     R_BOOL,
     R_CATEGORY,
@@ -27,9 +26,6 @@ from tabarena.benchmark.preprocessing.text_feature_generators import (
     SemanticTextFeatureGenerator,
     StatisticalTextFeatureGenerator,
 )
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 # TODO: we likely need some kind of off-loading logic for text features
@@ -58,7 +54,7 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
         if len(custom_feature_generators) == 0:
             custom_feature_generators = None
 
-        post_and_pre_handling = dict(  # noqa: C408
+        post_and_pre_handling = dict(
             # Fix string handling by passing own versions of the default pre-generators
             pre_generators=[
                 StringFixAsTypeFeatureGenerator(),
@@ -115,11 +111,13 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
     ``TextSpecialFeatureGenerator`` produces ``{col}.char_count``).  Sanitizing
     raw column names here prevents parsing ambiguity in
     ``TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column``.
+
+    We further adjust the original logic to better handle unseen categories or suddenly appearing
+    nan values at test time.
+
     """
 
-    def fit_transform(
-        self, X: pd.DataFrame, y: pd.Series | None = None, **kwargs
-    ) -> pd.DataFrame:
+    def fit_transform(self, X: pd.DataFrame, y: pd.Series | None = None, **kwargs) -> pd.DataFrame:
         """Rename columns with '.' before AutoGluon stores feature metadata.
 
         AutoGluon's ``AbstractFeatureGenerator.fit_transform`` records ``features_in``
@@ -127,9 +125,7 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
         rename at the public API level so that the stored metadata matches what the
         parent's ``_fit_transform`` will see.
         """
-        self._dot_rename_map_: dict[str, str] = {
-            c: str(c).replace(".", "_") for c in X.columns if "." in str(c)
-        }
+        self._dot_rename_map_: dict[str, str] = {c: str(c).replace(".", "_") for c in X.columns if "." in str(c)}
         if self._dot_rename_map_:
             X = X.rename(columns=self._dot_rename_map_)
         return super().fit_transform(X, y=y, **kwargs)
@@ -140,7 +136,94 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
             X = X.rename(columns=self._dot_rename_map_)
         return super().transform(X)
 
-    def _fit_transform(self, X: pd.DataFrame, **kwargs) -> (pd.DataFrame, dict):
+    def _handle_nan_in_int_only_at_test_time(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Handle int features that contain null values at inference time but not at fit time.
+        This logic is copied from the original AsTypeFeatureGenerator._transform.
+        """
+        null_count = X[self._int_features].isnull().any()
+        # If int feature contains null during inference but not during fit.
+        if null_count.any():
+            # TODO: Consider imputing to mode? This is tricky because training data had no missing values.
+            # TODO: Add unit test for this situation, to confirm it is handled properly.
+            with_null = null_count[null_count]
+            with_null_features = list(with_null.index)
+            self._log(
+                20,
+                "WARNING: Int features without null values "
+                "at train time contain null values at inference time! "
+                "Imputing nulls to 0. To avoid this, pass the features as floats during fit!",
+            )
+            self._log(10, f"WARNING: Int features with nulls: {with_null_features}")
+            X[with_null_features] = X[with_null_features].fillna(0)
+
+        return X
+
+    def _handle_dtype_mismatch_at_test_time(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Handle situation where dtypes of test data do not match those of training data.
+
+        The logic is split between cat and non-cat features to avoid the issue where
+        astype(CategoricalDtype(categories=[...])) silently maps unknown categories to NaN.
+        By converting through object dtype first, we ensure that all values are preserved as valid categories,
+        even if they were not seen during training.
+        """
+        non_cat_type_map = {
+            col: dtype for col, dtype in self._type_map_real_opt.items() if not isinstance(dtype, pd.CategoricalDtype)
+        }
+        if non_cat_type_map:
+            try:
+                X = X.astype(non_cat_type_map)
+            except Exception as e:
+                self._log_invalid_dtypes(X=X)
+                raise e
+
+        cat_type_map = {
+            col: dtype for col, dtype in self._type_map_real_opt.items() if isinstance(dtype, pd.CategoricalDtype)
+        }
+        for col, dtype in cat_type_map.items():
+            if col in X.columns:
+                X[col] = X[col].astype(object).astype(pd.CategoricalDtype(ordered=dtype.ordered))
+
+        return X
+
+    def _transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Override the default handling for unseen values!"""
+        if self._bool_features:
+            X = self._convert_to_bool(X)
+
+        # This means we have unobserved nans/categories
+        if self._type_map_real_opt != X.dtypes.to_dict():
+            if self._int_features.size:
+                X = self._handle_nan_in_int_only_at_test_time(X)
+
+            if self._type_map_real_opt:
+                # TODO: Confirm this works with sparse and other feature types!
+                # FIXME: Address situation where test-time invalid type values cause crash:
+                #  https://stackoverflow.com/questions/49256211/how-to-set-unexpected-data-type-to-na?noredirect=1&lq=1
+                # For categorical columns, astype(CategoricalDtype(categories=[...])) silently
+                # maps unknown categories to NaN.  Convert through object dtype instead so all
+                # values are preserved as valid categories.
+                cat_type_map = {
+                    col: dtype
+                    for col, dtype in self._type_map_real_opt.items()
+                    if isinstance(dtype, pd.CategoricalDtype)
+                }
+                non_cat_type_map = {
+                    col: dtype
+                    for col, dtype in self._type_map_real_opt.items()
+                    if not isinstance(dtype, pd.CategoricalDtype)
+                }
+                if non_cat_type_map:
+                    try:
+                        X = X.astype(non_cat_type_map)
+                    except Exception as e:
+                        self._log_invalid_dtypes(X=X)
+                        raise e
+                for col, dtype in cat_type_map.items():
+                    if col in X.columns:
+                        X[col] = X[col].astype(object).astype(pd.CategoricalDtype(ordered=dtype.ordered))
+        return X
+
+    def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
         # X arrives here with '.' already replaced by '_' (done in fit_transform above).
         X, type_group_map_special = super()._fit_transform(X=X, **kwargs)
 
