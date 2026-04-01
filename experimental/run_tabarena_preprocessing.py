@@ -162,5 +162,5 @@ with tempfile.TemporaryDirectory() as tmp_path:
     print("> After model specific preprocessing:")
     gbm_model_bag = predictor._trainer.load_model("LightGBM_BAG_L1")
     gbm_child_model = gbm_model_bag.load_child(gbm_model_bag.models[0])
-    test_model_specific = gbm_child_model.preprocess(data_internal)
+    test_model_specific = gbm_child_model.preprocess(test_internal)
     print(test_model_specific.head())
