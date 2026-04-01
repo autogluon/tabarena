@@ -30,7 +30,35 @@ def parse_args():  # noqa: D103
 
 @dataclass
 class StabilityResult:
-    """Single stability result dataclass."""
+    """Result object containing feature selection stability metrics from multiple repeats.
+
+    Attributes:
+    ----------
+    method : str
+        Name of the feature selection method evaluated.
+    dataset : str
+        Dataset identifier used for evaluation.
+    problem_type : str
+        ML problem type ('binary_classification', 'multiclass_classification', 'regression').
+    max_features : int
+        Maximum number of features requested by the selector.
+    original_features : int
+        Number of features in the original dataset.
+    repeats : int
+        Number of bootstrap repeats performed.
+    elapsed_time_fs : list[float]
+        List of runtime measurements (seconds) for each repeat.
+    n_samples : list[int]
+        List of sample sizes used in each repeat.
+    selected_features : list[int]
+        List of number of features selected in each repeat.
+    stability : list[float]
+        List of stability scores computed for each repeat.
+    ci_lower : float
+        Lower bound of the confidence interval for mean stability.
+    ci_upper : float
+        Upper bound of the confidence interval for mean stability.
+    """
     method: str
     dataset: str
     problem_type: str
@@ -44,7 +72,35 @@ class StabilityResult:
     ci_lower: float
     ci_upper: float
 
-def stability_fs(args):  # noqa: D103
+def stability_fs(args) -> StabilityResult:
+    """Evaluate feature selection method stability through bootstrap consistency analysis.
+
+    This function assesses how consistently a feature selection method selects the same
+    features across multiple bootstrap repeats of the same dataset. It performs
+    repeated feature selection on bootstrap samples and computes stability metrics
+    based on feature selection overlap.
+
+    Parameters
+    ----------
+    args : Namespace
+        Argument object containing:
+        - dataset : int
+            OpenML dataset ID.
+        - problem_type : str
+            Problem type ('binary_classification', 'multiclass_classification', etc.).
+        - repeats : int
+            Number of bootstrap repeats for stability assessment.
+        - max_features : int
+            Maximum number of features to select.
+        - method_name : str
+            Name of the feature selection method to evaluate.
+
+    Returns:
+    -------
+    StabilityResult
+        Object containing stability metrics, timing information, sample sizes,
+        and confidence intervals for the feature selection method's consistency.
+    """
     dataset_id = args.dataset
     problem_type = args.problem_type
     n_repeats = args.repeats
@@ -117,15 +173,31 @@ def stability_fs(args):  # noqa: D103
 # Nogueira, Sarah, Konstantinos Sechidis, and Gavin Brown. "On the stability of feature selection algorithms."
 # Journal of Machine Learning Research 18.174 (2018): 1-54.
 
-def getStability(Z):
-    """Let us assume we have M>1 feature sets and d>0 features in total.
-    This function computes the stability estimate as given in Definition 4 in  [1].
+def getStability(Z) -> float:
+    """Compute feature selection stability (Nogueira et al., 2017).
 
-    INPUT: A BINARY matrix Z (given as a list or as a numpy.ndarray of size M*d).
-           Each row of the binary matrix represents a feature set, where a 1 at the f^th position
-           means the f^th feature has been selected and a 0 means it has not been selected.
+    Calculates the stability estimator for M feature sets over d features, measuring
+    consistency of feature selection across bootstrap repeats. The estimator is
+    defined as 1 minus the normalized average pairwise feature selection variance,
+    achieving maximum value (1.0) when all feature sets are identical.
 
-    OUTPUT: The stability of the feature selection procedure
+    Parameters
+    ----------
+    Z : array-like of shape (M, d)
+        Binary selection matrix where rows are feature sets (M repeats) and
+        columns are features (d total). Z[m, f] = 1 if feature f was selected
+        in repeat m, 0 otherwise.
+
+    Returns:
+    -------
+    float
+        Stability score in range [0, 1], where 1 indicates perfect consistency
+        across all repeats.
+
+    Notes:
+    -----
+    [1] Nogueira, S., Brown, G., & Jorge, A. (2017). On the Stability of
+    Feature Selection Algorithms. JMLR, 18(1), 6345-6378.
     """
     Z = checkInputType(Z)
     M, d = Z.shape
@@ -135,17 +207,27 @@ def getStability(Z):
     return 1 - (M / (M - 1)) * np.mean(np.multiply(hatPF, 1 - hatPF)) / denom
 
 
-def getVarianceofStability(Z):
-    """Let us assume we have M>1 feature sets and d>0 features in total.
-    This function computes the stability estimate and its variance as given in [1].
+def getVarianceofStability(Z) -> dict[str, float]:
+    """Compute feature selection stability variance (Nogueira et al., 2017).
 
-    INPUT: A BINARY matrix Z (given as a list or as a numpy.ndarray of size M*d, raises a ValueError exception
-    otherwise).
-           Each row of the binary matrix represents a feature set, where a 1 at the f^th position
-           means the f^th feature has been selected and a 0 means it has not been selected.
+    Parameters
+    ----------
+    Z : array-like of shape (M, d)
+        Binary selection matrix where rows are feature sets (M repeats) and
+        columns are features (d total). Z[m, f] = 1 if feature f was selected
+        in repeat m, 0 otherwise.
 
-    OUTPUT: A dictionnary where the key 'stability' provides the corresponding stability value #
-            and where the key 'variance' provides the variance of the stability estimate
+    Returns:
+    -------
+    dict[str, float]
+        Dictionary with keys:
+        - 'stability': Stability score in range [0, 1] (1 = perfect consistency).
+        - 'variance': Variance of the stability estimator.
+
+    Notes
+    -----
+    [1] Nogueira, S., Brown, G., & Jorge, A. (2017). On the Stability of
+    Feature Selection Algorithms. JMLR, 18(1), 6345-6378.
     """
     Z = checkInputType(Z)  # check the input Z is of the right type
     M, d = Z.shape  # M is the number of feature sets and d the total number of features
@@ -164,25 +246,31 @@ def getVarianceofStability(Z):
 
 
 def confidenceIntervals(Z, alpha=0.05, res=None):
-    """Let us assume we have M>1 feature sets and d>0 features in total.
-    This function provides the stability estimate and the lower and upper bounds of the (1-alpha)- approximate
-    confidence
-    interval as given by Corollary 9 in [1].
+    """Compute feature selection stability confidence intervals (Nogueira et al., 2017).
 
-    INPUTS: - A BINARY matrix Z (given as a list or as a numpy.ndarray of size M*d, raises a ValueError exception
-    otherwise).
-              Each row of the binary matrix represents a feature set, where a 1 at the f^th position
-              means the f^th feature has been selected and a 0 means it has not been selected.
-            - alpha is an optional argument corresponding to the level of significance for the confidence interval
-              (default is 0.05), e.g. alpha=0.05 give the lower and upper bound of for a (1-alpha)=95% confidence
-              interval.
-            - In case you already computed the stability estimate of Z using the function getVarianceofStability(Z),
-              you can provide theresult (a dictionnary) as an optional argument to this function for faster computation.
+    Parameters:
+    ----------
+    Z : array-like of shape (M, d)
+        Binary selection matrix where rows are feature sets (M repeats) and
+        columns are features (d total). Z[m, f] = 1 if feature f was selected
+        in repeat m, 0 otherwise.
+    alpha : float, optional
+        Significance level for confidence interval (default: 0.05 for 95% CI).
+    res : dict, optional
+        Pre-computed result from `getVarianceofStability(Z)` for faster computation.
 
-    OUTPUT: - A dictionnary where the key 'stability' provides the corresponding stability value, where:
-                  - the key 'variance' provides the variance of the stability estimate;
-                  - the keys 'lower' and 'upper' respectively give the lower and upper bounds
-                    of the (1-alpha)-confidence interval.
+    Returns:
+    -------
+    dict[str, float]
+        Dictionary with keys:
+        - 'stability': Stability score in range [0, 1] (1 = perfect consistency).
+        - 'lower': Lower bound of (1-alpha) confidence interval.
+        - 'upper': Upper bound of (1-alpha) confidence interval.
+
+    Notes:
+    -----
+    [1] Nogueira, S., Brown, G., & Jorge, A. (2017). On the Stability of
+    Feature Selection Algorithms. JMLR, 18(1), 6345-6378.
     """
     if res is None:
         res = {}

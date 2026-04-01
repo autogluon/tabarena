@@ -39,7 +39,37 @@ def parse_args():  # noqa: D103
 
 @dataclass
 class ValidityResult:
-    """Single stability result dataclass."""
+    """Result object containing feature selection validity metrics from multiple repeats.
+
+    Attributes:
+    ----------
+    method : str
+        Name of the feature selection method evaluated.
+    dataset : int
+        OpenML dataset ID used for evaluation.
+    problem_type : str
+        ML problem type ('binary_classification', 'multiclass_classification', 'regression').
+    max_features : int
+        Maximum number of features requested by the selector.
+    original_features : int
+        Number of true (non-noise) features in the dataset.
+    noise_features : int
+        Number of synthetic noise features added for evaluation.
+    repeats : int
+        Number of bootstrap repeats performed.
+    elapsed_time_fs : list[float]
+        List of runtime measurements (seconds) for each repeat.
+    n_samples : list[int]
+        List of sample sizes used in each repeat.
+    confusion_matrices : list[list[int]]
+        List of 2x2 confusion matrices [TN, FP, FN, TP] for each repeat.
+    validity : list[float]
+        List of validity scores computed for each repeat.
+    ci_lower : float
+        Lower bound of the confidence interval for mean validity.
+    ci_upper : float
+        Upper bound of the confidence interval for mean validity.
+    """
     method: str
     dataset: int
     problem_type: str
@@ -54,7 +84,38 @@ class ValidityResult:
     ci_lower: float
     ci_upper: float
 
-def validity_fs(args):  # noqa: D103
+def validity_fs(args) -> ValidityResult:
+    """Evaluate feature selection method validity through confusion matrix analysis.
+
+    This function assesses how well a feature selection method distinguishes original
+    features from noisy synthetic features across multiple bootstrap repeats. It adds
+    noise features, applies the specified feature selector, and computes validity
+    metrics based on the confusion matrix between true original features and selected
+    features.
+
+    Parameters
+    ----------
+    args : Namespace
+        Argument object containing:
+        - dataset : int
+            OpenML dataset ID.
+        - problem_type : str
+            Problem type ('binary_classification', 'multiclass_classification', etc.).
+        - repeats : int
+            Number of bootstrap repeats for stability assessment.
+        - max_features : int
+            Maximum number of features to select.
+        - method_name : str
+            Name of the feature selection method to evaluate.
+        - noise : float
+            Proportion of noise features to add relative to original features.
+
+    Returns:
+    -------
+    ValidityResult
+        Object containing validity metrics, confusion matrices, timing information,
+        and confidence intervals for the feature selection method's performance.
+    """
     dataset_id = args.dataset
     problem_type = args.problem_type
     n_repeats = args.repeats
@@ -107,7 +168,7 @@ def validity_fs(args):  # noqa: D103
 
         Z.append(cm)
 
-    # Stability metrics
+    # Validity metrics
     validity = getValidity(Z, max_features)
     ci = confidenceIntervals(validity)
     validity_results = ValidityResult(
@@ -129,8 +190,23 @@ def validity_fs(args):  # noqa: D103
     return validity_results
 
 
-def getValidity(Z, max_features):
-    """Normalized recall."""
+def getValidity(Z, max_features) -> list[float]:
+    """Compute normalized recall (validity) for feature selection.
+
+    Parameters
+    ----------
+    Z : list of array-like, shape (n_repeats, 4)
+        List of 2x2 confusion matrices [TN, FP, FN, TP] from validity_fs where
+        true positives (TP) represent original features correctly identified.
+    max_features : int
+        Maximum number of features requested by the selector.
+
+    Returns:
+    -------
+    list[float]
+        List of normalized recall scores (TP / max_features) for each repeat,
+        measuring proportion of selected features that are true originals.
+    """
     selection_precision = []
     for elem in Z:
         _tn, _fp, _fn, tp = elem.ravel()
@@ -139,8 +215,21 @@ def getValidity(Z, max_features):
     return selection_precision
 
 
-def confidenceIntervals(validity):
-    """Confidence intervals for stability."""
+def confidenceIntervals(validity) -> list[float]:
+    """Compute bootstrap confidence interval for validity scores.
+
+    Parameters
+    ----------
+    validity : list[float]
+        List of validity scores from multiple repeats, where validity[0] is typically
+        the first repeat and validity[1:] contains bootstrap repeat scores.
+
+    Returns:
+    -------
+    list[float]
+        95% confidence interval [lower, upper] using 2.5th and 97.5th percentiles
+        of bootstrap validity scores (validity[1:]).
+    """
     boot_validity = validity[1:]
 
     lower = np.percentile(boot_validity, 2.5)
@@ -148,7 +237,25 @@ def confidenceIntervals(validity):
     return [lower, upper]
 
 
-def add_noise(X, n_noise, noise_type="gaussian"):  # noqa: D103
+def add_noise(X, n_noise, noise_type="gaussian") -> tuple[pd.DataFrame, dict[str, bool]]:
+    """Add noisy synthetic features to a dataset and shuffle all features.
+
+    Parameters
+    ----------
+    X : DataFrame
+        The input feature matrix.
+    n_noise : int
+        The number of noisy features to add.
+    noise_type : str, optional
+        The type of noise to generate for numeric features. Use "gaussian" for
+        normally distributed noise or any other value for uniform noise, by default "gaussian".
+
+    Returns:
+    -------
+    tuple[DataFrame, dict[str, bool]]
+        A tuple containing the augmented and shuffled feature matrix and a mask
+        indicating which shuffled features correspond to original features.
+    """
     noise_cols = {}
     n_samples, n_features = X.shape
 
