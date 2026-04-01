@@ -158,16 +158,33 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
 
         return X
 
-    def _handle_dtype_mismatch_at_test_time(self, X: pd.DataFrame) -> pd.DataFrame:
+    def _handle_dtype_mismatch_at_test_time(self, X: pd.DataFrame, bool_cols_with_extra_cats: set) -> pd.DataFrame:
         """Handle situation where dtypes of test data do not match those of training data.
 
         The logic is split between cat and non-cat features to avoid the issue where
         astype(CategoricalDtype(categories=[...])) silently maps unknown categories to NaN.
         By converting through object dtype first, we ensure that all values are preserved as valid categories,
         even if they were not seen during training.
+        bool_cols_with_extra_cats are excluded from non_cat_type_map because they
+        are still typed as int8 in _type_map_real_opt but have not been bool-encoded;
+        trying to astype them to int8 would silently discard the extra category values.
         """
+        # TODO: Confirm this works with sparse and other feature types!
+        # FIXME: Address situation where test-time invalid type values cause crash:
+        #  https://stackoverflow.com/questions/49256211/how-to-set-unexpected-data-type-to-na?noredirect=1&lq=1
+        # For categorical columns, astype(CategoricalDtype(categories=[...])) silently
+        # maps unknown categories to NaN.  Convert through object dtype instead so all
+        # values are preserved as valid categories.
+
+        cat_type_map = {
+            col: dtype
+            for col, dtype in self._type_map_real_opt.items()
+            if isinstance(dtype, pd.CategoricalDtype)
+        }
         non_cat_type_map = {
-            col: dtype for col, dtype in self._type_map_real_opt.items() if not isinstance(dtype, pd.CategoricalDtype)
+            col: dtype
+            for col, dtype in self._type_map_real_opt.items()
+            if not isinstance(dtype, pd.CategoricalDtype) and col not in bool_cols_with_extra_cats
         }
         if non_cat_type_map:
             try:
@@ -175,20 +192,43 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
             except Exception as e:
                 self._log_invalid_dtypes(X=X)
                 raise e
-
-        cat_type_map = {
-            col: dtype for col, dtype in self._type_map_real_opt.items() if isinstance(dtype, pd.CategoricalDtype)
-        }
         for col, dtype in cat_type_map.items():
             if col in X.columns:
                 X[col] = X[col].astype(object).astype(pd.CategoricalDtype(ordered=dtype.ordered))
-
         return X
+
+    def _handle_bool_cols_with_extra_cats_at_test_time(self, X: pd.DataFrame) -> tuple[pd.DataFrame, set]:
+        """Handle situation where bool columns gain extra categories at test time.
+
+        If a bool column gains more than the expected 2 unique non-null values at test time,
+        we skip bool-encoding for that column and convert it to categorical at the end of the transform method.
+        This is because encoding a 3rd value through the bool path (== true_val → 1, else → 0) silently maps unknown categories to 0 (false).
+        By skipping bool-encoding and converting to categorical, we ensure that all values are preserved as valid categories,
+        even if they were not seen during training.
+        """
+        bool_cols_with_extra_cats = {
+            col for col in self._bool_features if col in X.columns and X[col].dropna().nunique() > 2
+        }
+        if bool_cols_with_extra_cats:
+            saved_extra = {col: self._bool_features.pop(col) for col in bool_cols_with_extra_cats}
+            self._set_bool_features_val()
+        if self._bool_features:
+            X = self._convert_to_bool(X)
+        if bool_cols_with_extra_cats:
+            self._bool_features.update(saved_extra)
+            self._set_bool_features_val()
+
+        return X, bool_cols_with_extra_cats
 
     def _transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Override the default handling for unseen values!"""
+        # Identify bool columns that gained more than the expected 2 unique non-null values
+        # at test time.  Encoding a 3rd value through the bool path (== true_val → 1, else → 0)
+        # silently maps unknown categories to 0 (false).  We instead skip bool-encoding for
+        # those columns and convert them to categorical at the end of this method.
+        bool_cols_with_extra_cats: set[str] = set()
         if self._bool_features:
-            X = self._convert_to_bool(X)
+            X, bool_cols_with_extra_cats = self._handle_bool_cols_with_extra_cats_at_test_time(X)
 
         # This means we have unobserved nans/categories
         if self._type_map_real_opt != X.dtypes.to_dict():
@@ -196,31 +236,15 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
                 X = self._handle_nan_in_int_only_at_test_time(X)
 
             if self._type_map_real_opt:
-                # TODO: Confirm this works with sparse and other feature types!
-                # FIXME: Address situation where test-time invalid type values cause crash:
-                #  https://stackoverflow.com/questions/49256211/how-to-set-unexpected-data-type-to-na?noredirect=1&lq=1
-                # For categorical columns, astype(CategoricalDtype(categories=[...])) silently
-                # maps unknown categories to NaN.  Convert through object dtype instead so all
-                # values are preserved as valid categories.
-                cat_type_map = {
-                    col: dtype
-                    for col, dtype in self._type_map_real_opt.items()
-                    if isinstance(dtype, pd.CategoricalDtype)
-                }
-                non_cat_type_map = {
-                    col: dtype
-                    for col, dtype in self._type_map_real_opt.items()
-                    if not isinstance(dtype, pd.CategoricalDtype)
-                }
-                if non_cat_type_map:
-                    try:
-                        X = X.astype(non_cat_type_map)
-                    except Exception as e:
-                        self._log_invalid_dtypes(X=X)
-                        raise e
-                for col, dtype in cat_type_map.items():
-                    if col in X.columns:
-                        X[col] = X[col].astype(object).astype(pd.CategoricalDtype(ordered=dtype.ordered))
+                X = self._handle_dtype_mismatch_at_test_time(X, bool_cols_with_extra_cats=bool_cols_with_extra_cats)
+
+
+        # Convert bool columns that gained extra categories to categorical so that
+        # all values (including novel ones) are preserved rather than silently mapped to 0.
+        for col in bool_cols_with_extra_cats:
+            if col in X.columns:
+                X[col] = X[col].astype(object).astype(pd.CategoricalDtype(ordered=False))
+
         return X
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:

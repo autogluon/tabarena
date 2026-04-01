@@ -371,6 +371,214 @@ class TestStringFixAsTypeFeatureGenerator:
 
 
 # ===========================================================================
+# StringFixAsTypeFeatureGenerator – categorical dtype special cases
+# ===========================================================================
+
+
+class TestStringFixAsTypeFeatureGeneratorCategoricals:
+    """Tests for the fix that prevents unknown categories from becoming NaN at test time."""
+
+    def _fit_gen(self, X_train: pd.DataFrame) -> StringFixAsTypeFeatureGenerator:
+        gen = StringFixAsTypeFeatureGenerator()
+        gen.fit_transform(X_train.copy())
+        return gen
+
+    # ------------------------------------------------------------------
+    # Core regression: unknown categories must NOT become NaN
+    # ------------------------------------------------------------------
+
+    def test_unknown_category_at_test_time_not_nan(self):
+        """A category value unseen during training must not be silently mapped to NaN."""
+        X_train = pd.DataFrame({"cat": pd.Categorical(["a", "b", "a", "c", "b"])})
+        gen = self._fit_gen(X_train)
+        X_test = pd.DataFrame({"cat": pd.Categorical(["a", "d", "b"])})  # 'd' is new
+        X_out = gen.transform(X_test.copy())
+        assert X_out["cat"].isna().sum() == 0, "Unknown category 'd' was converted to NaN"
+
+    def test_unknown_category_value_present_in_output(self):
+        """The actual unknown value must appear in the transformed output.
+
+        Requires 3+ training categories so the column is stored as CategoricalDtype
+        (not bool/int8) in _type_map_real_opt, which is the path our fix protects.
+        """
+        X_train = pd.DataFrame({"cat": pd.Categorical(["x", "y", "w"])})
+        gen = self._fit_gen(X_train)
+        X_test = pd.DataFrame({"cat": pd.Categorical(["x", "z"])})  # 'z' is new
+        X_out = gen.transform(X_test.copy())
+        values = set(X_out["cat"].astype(object).tolist())
+        assert "z" in values, "Unknown category 'z' missing from output"
+
+    def test_multiple_unknown_categories_all_preserved(self):
+        """All novel category values must survive the transform.
+
+        Requires 3+ training categories so the column is stored as CategoricalDtype
+        (not bool/int8) in _type_map_real_opt, which is the path our fix protects.
+        """
+        X_train = pd.DataFrame({"cat": pd.Categorical(["a", "b", "base"])})
+        gen = self._fit_gen(X_train)
+        X_test = pd.DataFrame({"cat": pd.Categorical(["c", "d", "e"])})
+        X_out = gen.transform(X_test.copy())
+        assert X_out["cat"].isna().sum() == 0
+        values = set(X_out["cat"].astype(object).tolist())
+        assert values == {"c", "d", "e"}
+
+    def test_mix_of_known_and_unknown_categories_no_nan(self):
+        """Mix of seen and unseen category values should both survive."""
+        X_train = pd.DataFrame({"cat": pd.Categorical(["a", "b", "c"])})
+        gen = self._fit_gen(X_train)
+        X_test = pd.DataFrame({"cat": pd.Categorical(["a", "b", "NEW"])})
+        X_out = gen.transform(X_test.copy())
+        assert X_out["cat"].isna().sum() == 0
+        values = set(X_out["cat"].astype(object).tolist())
+        assert "NEW" in values
+
+    # ------------------------------------------------------------------
+    # Known categories still work correctly (regression guard)
+    # ------------------------------------------------------------------
+
+    def test_known_categories_at_test_time_no_nan(self):
+        """Values seen during training must not become NaN."""
+        X_train = pd.DataFrame({"cat": pd.Categorical(["a", "b", "c"])})
+        gen = self._fit_gen(X_train)
+        X_test = pd.DataFrame({"cat": pd.Categorical(["a", "b", "c"])})
+        X_out = gen.transform(X_test.copy())
+        assert X_out["cat"].isna().sum() == 0
+
+    def test_known_categories_at_test_time_values_preserved(self):
+        X_train = pd.DataFrame({"cat": pd.Categorical(["p", "q", "r"])})
+        gen = self._fit_gen(X_train)
+        X_test = pd.DataFrame({"cat": pd.Categorical(["p", "r"])})
+        X_out = gen.transform(X_test.copy())
+        values = set(X_out["cat"].astype(object).tolist())
+        assert values == {"p", "r"}
+
+    # ------------------------------------------------------------------
+    # Ordered categoricals
+    # ------------------------------------------------------------------
+
+    def test_ordered_categorical_unknown_value_not_nan(self):
+        """Unknown values in an ordered categorical must not become NaN.
+
+        The test data is passed as object dtype to avoid pandas itself NaN-ifying
+        'extreme' when constructing a Categorical restricted to training categories.
+        """
+        dtype = pd.CategoricalDtype(categories=["low", "med", "high"], ordered=True)
+        X_train = pd.DataFrame({"level": pd.Categorical(["low", "med", "high"], dtype=dtype)})
+        gen = self._fit_gen(X_train)
+        # Pass as object so pandas does not NaN 'extreme' at DataFrame construction time.
+        X_test = pd.DataFrame({"level": pd.Series(["low", "extreme"], dtype=object)})
+        X_out = gen.transform(X_test.copy())
+        assert X_out["level"].isna().sum() == 0
+
+    # ------------------------------------------------------------------
+    # Object-typed column at test time (not yet categorical)
+    # ------------------------------------------------------------------
+
+    def test_object_column_with_unknown_value_not_nan(self):
+        """If test data arrives as object dtype (not categorical), unknown values must survive."""
+        X_train = pd.DataFrame({"cat": pd.Categorical(["a", "b", "c"])})
+        gen = self._fit_gen(X_train)
+        # Deliver as plain object, not Categorical
+        X_test = pd.DataFrame({"cat": pd.Series(["a", "b", "NEW"], dtype=object)})
+        X_out = gen.transform(X_test.copy())
+        assert X_out["cat"].isna().sum() == 0
+
+    # ------------------------------------------------------------------
+    # Multiple categorical columns
+    # ------------------------------------------------------------------
+
+    def test_multiple_categorical_columns_unknown_values_preserved(self):
+        X_train = pd.DataFrame(
+            {
+                "c1": pd.Categorical(["a", "b"]),
+                "c2": pd.Categorical(["x", "y"]),
+            }
+        )
+        gen = self._fit_gen(X_train)
+        X_test = pd.DataFrame(
+            {
+                "c1": pd.Categorical(["a", "NOVEL"]),
+                "c2": pd.Categorical(["x", "ALSO_NEW"]),
+            }
+        )
+        X_out = gen.transform(X_test.copy())
+        assert X_out["c1"].isna().sum() == 0
+        assert X_out["c2"].isna().sum() == 0
+
+    # ------------------------------------------------------------------
+    # Non-categorical columns are unaffected
+    # ------------------------------------------------------------------
+
+    def test_float_column_unchanged_by_categorical_fix(self):
+        """Float columns must still pass through correctly alongside categoricals."""
+        X_train = pd.DataFrame(
+            {
+                "num": [1.0, 2.0, 3.0],
+                "cat": pd.Categorical(["a", "b", "c"]),
+            }
+        )
+        gen = self._fit_gen(X_train)
+        X_test = pd.DataFrame(
+            {
+                "num": [4.0, 5.0],
+                "cat": pd.Categorical(["a", "NEW"]),
+            }
+        )
+        X_out = gen.transform(X_test.copy())
+        assert X_out["cat"].isna().sum() == 0
+        assert X_out["num"].isna().sum() == 0
+
+    # ------------------------------------------------------------------
+    # Int columns: NaN at test time but not at train time → imputed to 0
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Binary column gaining a third category at test time
+    # ------------------------------------------------------------------
+
+    def test_binary_column_gaining_third_category_not_silently_mapped(self):
+        """A binary column (bool-encoded as int8 at fit time) that gains a third value
+        at test time must not silently map that value to 0 (false).
+
+        With only 2 unique values at fit time the column is stored in _bool_features and
+        encoded as int8 via _convert_to_bool (== true_val → 1, else → 0).  A 3rd value
+        that appears at test time would silently become 0 without our fix; instead we
+        convert the whole column to categorical so all values are preserved.
+        """
+        X_train = pd.DataFrame({"col": pd.Categorical(["yes", "no", "yes", "no"])})
+        gen = StringFixAsTypeFeatureGenerator()
+        gen.fit_transform(X_train.copy())
+        assert "col" in gen._bool_features, "Expected binary column to be bool-encoded at fit time"
+
+        X_test = pd.DataFrame({"col": pd.Categorical(["yes", "no", "maybe"])})
+        X_out = gen.transform(X_test.copy())
+        assert X_out["col"].isna().sum() == 0, "'maybe' was converted to NaN"
+        values = set(X_out["col"].astype(object).tolist())
+        assert "maybe" in values, "'maybe' was silently discarded / mapped to 0 or 1"
+
+    def test_binary_column_without_extra_categories_still_bool_encoded(self):
+        """When no new categories appear the bool-encoding path must still run normally."""
+        X_train = pd.DataFrame({"col": pd.Categorical(["yes", "no", "yes", "no"])})
+        gen = StringFixAsTypeFeatureGenerator()
+        gen.fit_transform(X_train.copy())
+        # Only known values at test time → normal bool encoding expected
+        X_test = pd.DataFrame({"col": pd.Categorical(["yes", "no", "yes"])})
+        X_out = gen.transform(X_test.copy())
+        assert X_out["col"].isna().sum() == 0
+        # Values should be 0/1 (int8 bool encoding), not strings
+        assert set(X_out["col"].tolist()).issubset({0, 1})
+
+    def test_int_column_with_nan_at_test_time_imputed_to_zero(self):
+        """Int features that were never NaN at train time must be imputed to 0 at test time."""
+        X_train = pd.DataFrame({"val": [1, 2, 3, 4, 5]})
+        gen = self._fit_gen(X_train)
+        X_test = pd.DataFrame({"val": [1, None, 3]})
+        X_out = gen.transform(X_test.copy())
+        assert X_out["val"].isna().sum() == 0
+        assert X_out["val"].iloc[1] == 0
+
+
+# ===========================================================================
 # DateTimeFeatureGenerator
 # ===========================================================================
 
