@@ -310,7 +310,7 @@ class TabArenaTaskMetadataMixin:
         # Resolve instance groups
         if self.group_on is not None:
             num_instance_groups = self.get_num_instance_groups(
-                X=oml_dataset, group_on=self.group_on
+                X=oml_dataset, group_on=self.group_on, group_labels=self.group_labels,
             )
 
         return (
@@ -563,6 +563,8 @@ class UserTask:
         time_on: str | None = None,
         group_time_on: str | None = None,
         group_labels: GroupLabelTypes | None = None,
+        split_time_horizon: SplitTimeHorizonTypes | None = None,
+        split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
         dataset_name: str | None = None,
     ) -> OpenMLSupervisedTask:
         """Convert the user-defined task to a local (unpublished) OpenMLSupervisedTask.
@@ -622,6 +624,10 @@ class UserTask:
         group_time_on:
             The name of the column that contains the time information for
             each group in case of grouped data.
+        split_time_horizon:
+            The time horizon used for temporal splitting. This can be a number (e.g., 5).
+        split_time_horizon_unit:
+            The unit of the time horizon used for temporal splitting. This can be a string (e.g., 'days').
         dataset_name:
             Name of the dataset. Must match OpenML allowed names.
             If None, a default name based on the task name is used.
@@ -670,6 +676,8 @@ class UserTask:
             time_on=time_on,
             group_time_on=group_time_on,
             group_labels=group_labels,
+            split_time_horizon=split_time_horizon,
+            split_time_horizon_unit=split_time_horizon_unit,
             task_id=self.task_id,
             task_type_id=task_type,
             task_type="None",  # Placeholder, not used for local tasks
