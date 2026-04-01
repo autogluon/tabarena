@@ -813,6 +813,17 @@ def openml_create_datasets_without_arff_dump(
     if data.index.name is not None:
         data = data.reset_index()
 
+    # liac-arff only supports integer, floating, string, categorical, and boolean dtypes.
+    # Types like datetime64, timedelta64, complex, period, and interval are unsupported
+    # and will raise a ValueError in attributes_arff_from_df.
+    # We cast such columns to string here solely so that attributes_arff_from_df can
+    # infer ARFF attribute metadata. This does NOT affect the actual stored data — the
+    # dataset is persisted as parquet (see caller) and loaded from there, never from ARFF.
+    unsupported_cols = data.select_dtypes(include=["datetime64", "timedelta64", "complex"]).columns
+    if len(unsupported_cols) > 0:
+        data = data.copy()
+        data[unsupported_cols] = data[unsupported_cols].astype(str)
+
     # infer the type of data for each column of the DataFrame
     attributes_ = attributes_arff_from_df(data)
 
