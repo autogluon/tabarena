@@ -219,7 +219,7 @@ class OpenMLTaskWrapper:
             group_time_on = oml_task.group_time_on
             group_labels = oml_task.group_labels
             split_time_horizon = oml_task.split_time_horizon
-            split_time_horizon_uni = oml_task.split_time_horizon_unit
+            split_time_horizon_unit = oml_task.split_time_horizon_unit
         else:
             (
                 stratify_on,
@@ -228,7 +228,7 @@ class OpenMLTaskWrapper:
                 group_time_on,
                 group_labels,
                 split_time_horizon,
-                split_time_horizon_uni
+                split_time_horizon_unit
             )= None, None, None, None, None, None, None
 
 
@@ -241,7 +241,7 @@ class OpenMLTaskWrapper:
             group_time_on=group_time_on,
             group_labels=group_labels,
             split_time_horizon=split_time_horizon,
-            split_time_horizon_uni=split_time_horizon_uni,
+            split_time_horizon_unit=split_time_horizon_unit,
         )
 
 
