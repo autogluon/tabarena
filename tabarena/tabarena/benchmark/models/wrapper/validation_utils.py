@@ -21,7 +21,7 @@ class TabArenaValidationProtocolExecMixin:
     """Logic to adjust to various validation data use cases for benchmarking."""
 
     tiny_data_num_folds: int = 5
-    tiny_data_num_repeats: int = 3
+    tiny_data_num_repeats: int = 5
     max_samples_for_tiny_data: int = 500
 
     def __init__(

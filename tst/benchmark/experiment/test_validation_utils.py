@@ -613,7 +613,7 @@ def test_large_integer_time_values_work():
 def test_mixin_class_constants():
     """The constants govern the tiny-data regime — pin their values explicitly."""
     assert _Validation.tiny_data_num_folds == 5
-    assert _Validation.tiny_data_num_repeats == 3
+    assert _Validation.tiny_data_num_repeats == 5
     assert _Validation.max_samples_for_tiny_data == 500
 
 
