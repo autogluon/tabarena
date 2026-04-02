@@ -17,6 +17,7 @@ from autogluon.common.features.types import (
     S_TEXT_SPECIAL,
 )
 from autogluon.features import AbstractFeatureGenerator
+from tqdm import tqdm
 
 GROUP_INDEX_FEATURES = "group_index_features"
 
@@ -27,10 +28,11 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
     When ``generate_features=True`` (dataset has per-group labels):
       - Computes per-group aggregations (mean/std/min/max/last for numeric;
         count/last/nunique for non-numeric) joined back to all original rows.
-      - Scores numeric agg features by absolute Pearson correlation with ``y``;
-        scores categorical agg features by ``1 - normalized_entropy`` of their
-        value distribution (unsupervised, no ``y`` needed).
-      - Selects the top ``n_top_features`` columns across both score types.
+      - Scores all agg features (numeric and categorical) uniformly via mutual
+        information with ``y`` and applies diversity-based column-primary
+        round-robin selection (maximize relevance while ensuring coverage
+        across source columns).
+      - Selects the top ``n_top_features`` columns.
       - At transform time only the aggregations needed for selected features
         are recomputed (no wasted work on discarded columns).
       - Drops the group column(s) from output.
@@ -65,7 +67,7 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
     ):
         super().__init__(**kwargs)
         self.group_col: list[str] = [group_col] if isinstance(group_col, str) else list(group_col)
-        self.generate_features = generate_index_features
+        self.generate_features = False # generate_index_features
         self.n_top_features = n_top_features
         self.group_time_on = group_time_on
         self._selected_features: list[str] = []
@@ -87,99 +89,126 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         self._log(
             20,
             f"GroupAggregationFeatureGenerator: generating groupby aggregation "
-            f"features for group columns {self.group_col}.",
+            f"features and then drop group columns {self.group_col}.",
         )
 
-        X_agg, feature_source = self._compute_all_agg_features(X)
         group_key = self._build_group_key(X)
-        self._log(20, f"GroupAggregationFeatureGenerator: dropping group columns {self.group_col}.")
-        X = X.drop(columns=self.group_col)
+        feature_cols = [c for c in X.columns if c not in self.group_col]
+        num_cols = [c for c in feature_cols if pd.api.types.is_numeric_dtype(X[c])]
+        cat_cols = [c for c in feature_cols if not pd.api.types.is_numeric_dtype(X[c])]
+        time_cols = [self.group_time_on] if self.group_time_on and self.group_time_on in X.columns else []
 
-        for col in X_agg.columns:
-            X[col] = group_key.map(X_agg[col])
+        # Pass 1: MI relevance scores for each candidate feature.
+        # One source column at a time.
+        relevance: dict[str, float] = {}
+        feature_source: dict[str, tuple[str, str, bool]] = {}
 
-        # Score and select top-N features.
-        scores = self._score_features(X, list(X_agg.columns), y)
-        sorted_features = sorted(scores, key=scores.__getitem__, reverse=True)
-        self._selected_features = sorted_features[: self.n_top_features]
+        col_iter = [(c, True, list(self._NUM_AGGS)) for c in num_cols] + [
+            (c, False, list(self._CAT_AGGS)) for c in cat_cols
+        ]
+        for col, is_num, aggs in tqdm(col_iter, desc="Computing groupby aggregations and MI scores", unit="col"):
+            slice_cols = list(dict.fromkeys(self.group_col + time_cols + [col]))
+            X_col = self._sort_by_time(X[slice_cols])
+            agg_df = X_col.groupby(self._build_group_key(X_col), observed=True)[[col]].agg(aggs)
+            agg_df.columns = [f"{col}_{a}" for a in aggs]
+            for feat in agg_df.columns:
+                relevance[feat] = self._mi_score(group_key.map(agg_df[feat]), y)
+            for agg in aggs:
+                feature_source[f"{col}_{agg}"] = (col, agg, is_num)
 
-        # Build efficient test-time agg maps: only compute what was selected.
+        # Pass 2: diversity-based selection — column-primary round-robin with relevance ranking.
+        # Pick one feature per source column per round (ordered by relevance), cycling
+        # through columns until the budget is filled.  Avoids all pairwise MI computation.
+        column_queues: dict[str, list[tuple[float, str]]] = defaultdict(list)
+        for feat, (src_col, _agg, _is_num) in feature_source.items():
+            column_queues[src_col].append((relevance[feat], feat))
+        for _src_col, queue in column_queues.items():
+            queue.sort(key=lambda x: (-x[0], x[1]))
+
+        active_columns = sorted(
+            column_queues.keys(),
+            key=lambda c: (-column_queues[c][0][0], c),
+        )
+
+        selected: list[str] = []
+        while len(selected) < self.n_top_features and active_columns:
+            next_active = []
+            for src_col in active_columns:
+                if len(selected) >= self.n_top_features:
+                    break
+                queue = column_queues[src_col]
+                if queue:
+                    _rel, feat = queue.pop(0)
+                    selected.append(feat)
+                    if queue:
+                        next_active.append(src_col)
+            active_columns = sorted(
+                next_active,
+                key=lambda c: (-column_queues[c][0][0], c),
+            )
+        self._selected_features = selected
+
+        # Build test-time agg maps.
         num_map: dict[str, list[str]] = defaultdict(list)
         cat_map: dict[str, list[str]] = defaultdict(list)
         for feat in self._selected_features:
             src_col, agg_func, is_num = feature_source[feat]
-            if is_num:
-                num_map[src_col].append(agg_func)
-            else:
-                cat_map[src_col].append(agg_func)
+            (num_map if is_num else cat_map)[src_col].append(agg_func)
         self._num_agg_map = dict(num_map)
         self._cat_agg_map = dict(cat_map)
-
-        drop_cols = [c for c in X_agg.columns if c not in self._selected_features]
-        if drop_cols:
-            X = X.drop(columns=drop_cols)
 
         self._log(
             20,
             f"GroupAggregationFeatureGenerator: selected {len(self._selected_features)} "
-            f"groupby features out of {len(X_agg.columns)} generated.",
+            f"groupby features out of {len(relevance)} generated.",
         )
-        type_family_groups_special = {GROUP_INDEX_FEATURES: list(X_agg.columns)}
-        return X, type_family_groups_special
+        return self._transform(X), {GROUP_INDEX_FEATURES: self._selected_features}
 
     def _transform(self, X: pd.DataFrame) -> pd.DataFrame:
         if not self.generate_features:
-            return X.drop(columns=self.group_col, errors="ignore")
+            return X.drop(columns=self.group_col)
 
         # Only compute the aggregations needed for selected features.
         X_agg = self._compute_selected_agg_features(X)
         group_key = self._build_group_key(X)
-        X = X.drop(columns=self.group_col, errors="ignore")
+        X = X.drop(columns=self.group_col)
 
-        for col in self._selected_features:
-            if col in X_agg.columns:
-                X[col] = group_key.map(X_agg[col])
-            else:
-                X[col] = float("nan")
-        return X
-
-    def _score_features(self, X: pd.DataFrame, agg_cols: list[str], y: pd.Series) -> dict[str, float]:
-        """Return a score in [0, 1] for every agg column.
-
-        Numeric columns are scored by |Pearson corr with y|.
-        Non-numeric columns are scored by ``1 - normalized_entropy`` of their
-        value distribution (unsupervised).
-        """
-        scores: dict[str, float] = {}
-
-        num_cols = [c for c in agg_cols if pd.api.types.is_numeric_dtype(X[c])]
-        cat_cols = [c for c in agg_cols if not pd.api.types.is_numeric_dtype(X[c])]
-
-        if num_cols:
-            y_numeric = pd.to_numeric(y, errors="coerce")
-            corrs = X[num_cols].corrwith(y_numeric).abs().fillna(0.0)
-            scores.update(corrs.to_dict())
-
-        for col in cat_cols:
-            scores[col] = self._concentration_score(X[col])
-
-        return scores
+        mapped = pd.DataFrame(
+            {col: group_key.map(X_agg[col]) for col in self._selected_features},
+            index=X.index,
+        )
+        return pd.concat([X, mapped], axis=1)
 
     @staticmethod
-    def _concentration_score(series: pd.Series) -> float:
-        """Unsupervised score for a categorical series: ``1 - normalized_entropy``.
+    def _mi_score(x: pd.Series, y: pd.Series) -> float:
+        """Estimate mutual information between two Series.
 
-        A column where all groups share the same last category scores 1.0
-        (maximally concentrated); a uniformly distributed column scores 0.0.
+        Non-numeric values are encoded as integer category codes and treated as
+        discrete.  Uses sklearn's kNN-based MI estimator, which handles both
+        continuous and discrete variables uniformly.
         """
-        counts = series.dropna().value_counts()
-        n_unique = len(counts)
-        if n_unique <= 1:
-            return 1.0
-        probs = counts / counts.sum()
-        entropy = float(-(probs * np.log(probs + 1e-12)).sum())
-        max_entropy = float(np.log(n_unique))
-        return 1.0 - entropy / max_entropy if max_entropy > 0 else 1.0
+        from sklearn.feature_selection import mutual_info_regression
+
+        def _to_float(s: pd.Series) -> tuple[np.ndarray, bool]:
+            s = pd.Series(s)
+            if not pd.api.types.is_numeric_dtype(s):
+                arr = s.astype("category").cat.codes.to_numpy(dtype=float)
+                arr[arr < 0] = np.nan  # cat.codes uses -1 for NaN
+                return arr, True
+            return s.to_numpy(dtype=float), pd.api.types.is_integer_dtype(s)
+
+        x_arr, x_discrete = _to_float(x)
+        y_arr, _ = _to_float(y)
+        valid = ~(np.isnan(x_arr) | np.isnan(y_arr))
+        if valid.sum() < 2:
+            return 0.0
+        return float(
+            mutual_info_regression(
+                x_arr[valid].reshape(-1, 1),
+                y_arr[valid],
+                discrete_features=[x_discrete],
+            )[0]
+        )
 
     def _sort_by_time(self, X: pd.DataFrame) -> pd.DataFrame:
         """Return X with rows within each group sorted by ``group_time_on``.
@@ -189,52 +218,12 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         """
         if self.group_time_on is not None and self.group_time_on in X.columns:
             sorted_index = (
-                X.groupby(self.group_col, sort=False, group_keys=False)
+                X.groupby(self.group_col, sort=False, observed=True, group_keys=False)
                 .apply(lambda g: g.sort_values(self.group_time_on), include_groups=False)
                 .index
             )
             return X.loc[sorted_index]
         return X
-
-    def _compute_all_agg_features(self, X: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, tuple[str, str, bool]]]:
-        """Compute all per-group aggregations.
-
-        Returns:
-        -------
-        agg_df : pd.DataFrame
-            One row per unique group key.
-        feature_source : dict
-            ``{feature_name: (source_col, agg_func, is_numeric)}``
-        """
-        X = self._sort_by_time(X)
-        group_key = self._build_group_key(X)
-        feature_cols = [c for c in X.columns if c not in self.group_col]
-        num_cols = [c for c in feature_cols if pd.api.types.is_numeric_dtype(X[c])]
-        cat_cols = [c for c in feature_cols if not pd.api.types.is_numeric_dtype(X[c])]
-
-        feature_source: dict[str, tuple[str, str, bool]] = {}
-        parts: list[pd.DataFrame] = []
-
-        if num_cols:
-            num_agg = X.groupby(group_key)[num_cols].agg(list(self._NUM_AGGS))
-            num_agg.columns = ["_".join(x) for x in num_agg.columns]
-            for col in num_cols:
-                for agg in self._NUM_AGGS:
-                    feature_source[f"{col}_{agg}"] = (col, agg, True)
-            parts.append(num_agg)
-
-        if cat_cols:
-            cat_agg = X.groupby(group_key)[cat_cols].agg(list(self._CAT_AGGS))
-            cat_agg.columns = ["_".join(x) for x in cat_agg.columns]
-            for col in cat_cols:
-                for agg in self._CAT_AGGS:
-                    feature_source[f"{col}_{agg}"] = (col, agg, False)
-            parts.append(cat_agg)
-
-        if not parts:
-            return pd.DataFrame(), {}
-
-        return pd.concat(parts, axis=1), feature_source
 
     def _compute_selected_agg_features(self, X: pd.DataFrame) -> pd.DataFrame:
         """Compute only the aggregations needed for the selected features."""
@@ -246,7 +235,7 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
             for col, aggs in self._num_agg_map.items():
                 if col not in X.columns:
                     continue
-                agg_df = X.groupby(group_key)[[col]].agg(aggs)
+                agg_df = X.groupby(group_key, observed=True)[[col]].agg(aggs)
                 agg_df.columns = [f"{col}_{a}" for a in aggs]
                 parts.append(agg_df)
 
@@ -254,7 +243,7 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
             for col, aggs in self._cat_agg_map.items():
                 if col not in X.columns:
                     continue
-                agg_df = X.groupby(group_key)[[col]].agg(aggs)
+                agg_df = X.groupby(group_key, observed=True)[[col]].agg(aggs)
                 agg_df.columns = [f"{col}_{a}" for a in aggs]
                 parts.append(agg_df)
 
