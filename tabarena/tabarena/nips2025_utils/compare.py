@@ -12,6 +12,7 @@ from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 def compare_on_tabarena(
     output_dir: str | Path,
     new_results: pd.DataFrame | None = None,
+    ta_results: pd.DataFrame | None = None,
     *,
     only_valid_tasks: bool | str | list[str] = False,
     subset: str | list[str] | None = None,
@@ -37,19 +38,20 @@ def compare_on_tabarena(
     #  Pair with (method, artifact_name)
     method_rename_map = tabarena_context.get_method_rename_map()
 
-    paper_results = tabarena_context.load_results_paper(
-        download_results="auto",
-    )
+    if ta_results is None:
+        ta_results = tabarena_context.load_results_paper(
+            download_results="auto",
+        )
 
     if new_results is not None:
         new_results = new_results.copy(deep=True)
-        if "method_subtype" not in new_results:
+        if "method_subtype" not in new_results.columns:
             new_results["method_subtype"] = np.nan
 
     if new_results is not None:
-        df_results = pd.concat([paper_results, new_results], ignore_index=True)
+        df_results = pd.concat([ta_results, new_results], ignore_index=True)
     else:
-        df_results = paper_results
+        df_results = ta_results
 
     kwargs = kwargs.copy()
     if isinstance(only_valid_tasks, (str, list)):
@@ -88,6 +90,7 @@ def compare(
     output_dir: str | Path,
     task_metadata: pd.DataFrame = None,
     only_valid_tasks: str | list[str] | None = None,
+    datasets: list[str] | None = None,
     calibration_framework: str | None = None,
     fillna: str | pd.DataFrame | None = None,
     score_on_val: bool = False,
@@ -104,6 +107,9 @@ def compare(
         fillna=fillna,
         remove_imputed=remove_imputed,
     )
+
+    if datasets is not None:
+        df_results = df_results[df_results["dataset"].isin(datasets)]
 
     if score_on_val:
         error_col = "metric_error_val"
