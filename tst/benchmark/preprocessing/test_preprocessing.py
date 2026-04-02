@@ -1271,3 +1271,309 @@ class TestTextEmbeddingDRFitTransform:
         # Re-apply transform to the original (un-scaled) X
         X_t = TextEmbeddingDimensionalityReductionFeatureGenerator._standard_scale_transform(X, means, stds)
         pd.testing.assert_frame_equal(X_scaled, X_t)
+
+
+# ===========================================================================
+# GroupAggregationFeatureGenerator
+# ===========================================================================
+
+from tabarena.benchmark.preprocessing.group_feature_generators import (
+    GROUP_INDEX_FEATURES,
+    GroupAggregationFeatureGenerator,
+)
+
+
+def _make_grouped_df(
+    n_groups: int = 5,
+    rows_per_group: int = 4,
+    rng: np.random.Generator | None = None,
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Build a simple grouped DataFrame with numeric + categorical columns."""
+    rng = rng or np.random.default_rng(42)
+    n_rows = n_groups * rows_per_group
+    groups = np.repeat(np.arange(n_groups), rows_per_group)
+    X = pd.DataFrame(
+        {
+            "gid": groups,
+            "num_a": rng.standard_normal(n_rows) + groups * 10,
+            "num_b": rng.uniform(0, 1, n_rows),
+            "cat_c": rng.choice(["x", "y", "z"], n_rows),
+        }
+    )
+    y = pd.Series(rng.standard_normal(n_rows), name="target")
+    return X, y
+
+
+class TestGroupAggregationFeatureGenerator:
+    """Tests for the variance-based group aggregation feature generator."""
+
+    # ------------------------------------------------------------------
+    # Basic fit_transform
+    # ------------------------------------------------------------------
+
+    def test_fit_transform_returns_dataframe_and_metadata(self):
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid")
+        X_out, meta = gen._fit_transform(X.copy(), y)
+        assert isinstance(X_out, pd.DataFrame)
+        assert GROUP_INDEX_FEATURES in meta
+
+    def test_group_col_dropped_from_output(self):
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid")
+        X_out, _ = gen._fit_transform(X.copy(), y)
+        assert "gid" not in X_out.columns
+
+    def test_row_count_preserved(self):
+        X, y = _make_grouped_df(n_groups=3, rows_per_group=7)
+        gen = GroupAggregationFeatureGenerator(group_col="gid")
+        X_out, _ = gen._fit_transform(X.copy(), y)
+        assert len(X_out) == 21
+
+    def test_original_feature_columns_preserved(self):
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid")
+        X_out, _ = gen._fit_transform(X.copy(), y)
+        assert "num_a" in X_out.columns
+        assert "num_b" in X_out.columns
+        assert "cat_c" in X_out.columns
+
+    # ------------------------------------------------------------------
+    # Aggregation columns
+    # ------------------------------------------------------------------
+
+    def test_numeric_agg_features_created(self):
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=100)
+        X_out, _ = gen._fit_transform(X.copy(), y)
+        for agg in ("mean", "std", "min", "max", "last"):
+            assert f"num_a_{agg}" in X_out.columns or f"num_b_{agg}" in X_out.columns
+
+    def test_categorical_agg_features_created(self):
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=100)
+        X_out, _ = gen._fit_transform(X.copy(), y)
+        for agg in ("count", "last", "nunique"):
+            assert f"cat_c_{agg}" in X_out.columns
+
+    def test_all_possible_aggs_generated_when_budget_large(self):
+        """With a large budget, every (column, agg) pair is selected."""
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=200)
+        X_out, _ = gen._fit_transform(X.copy(), y)
+        expected_num = {f"{c}_{a}" for c in ("num_a", "num_b") for a in ("mean", "std", "min", "max", "last")}
+        expected_cat = {f"cat_c_{a}" for a in ("count", "last", "nunique")}
+        expected = expected_num | expected_cat
+        agg_cols = set(X_out.columns) - {"num_a", "num_b", "cat_c"}
+        assert expected == agg_cols
+
+    # ------------------------------------------------------------------
+    # Variance-based selection
+    # ------------------------------------------------------------------
+
+    def test_n_top_features_limits_selection(self):
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=3)
+        X_out, meta = gen._fit_transform(X.copy(), y)
+        assert len(meta[GROUP_INDEX_FEATURES]) == 3
+
+    def test_highest_variance_feature_selected(self):
+        """A column engineered to have much higher variance should be selected first."""
+        rng = np.random.default_rng(99)
+        n_groups, rpg = 10, 5
+        n_rows = n_groups * rpg
+        groups = np.repeat(np.arange(n_groups), rpg)
+        X = pd.DataFrame(
+            {
+                "gid": groups,
+                # High variance: group means spread from 0 to 9000
+                "high_var": rng.standard_normal(n_rows) + groups * 1000,
+                # Low variance: nearly constant
+                "low_var": rng.standard_normal(n_rows) * 0.001,
+            }
+        )
+        y = pd.Series(rng.standard_normal(n_rows))
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=1)
+        gen._fit_transform(X.copy(), y)
+        selected = gen._selected_features[0]
+        assert selected.startswith("high_var"), f"Expected high_var_*, got {selected}"
+
+    def test_selected_features_ordered_by_variance_descending(self):
+        rng = np.random.default_rng(7)
+        n_groups, rpg = 8, 5
+        n_rows = n_groups * rpg
+        groups = np.repeat(np.arange(n_groups), rpg)
+        X = pd.DataFrame(
+            {
+                "gid": groups,
+                "a": rng.standard_normal(n_rows) + groups * 100,
+                "b": rng.standard_normal(n_rows) + groups * 10,
+                "c": rng.standard_normal(n_rows) + groups * 1,
+            }
+        )
+        y = pd.Series(rng.standard_normal(n_rows))
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=3)
+        gen._fit_transform(X.copy(), y)
+        # The top 3 should all come from column 'a' (highest inter-group spread)
+        assert all(f.startswith("a_") for f in gen._selected_features)
+
+    # ------------------------------------------------------------------
+    # generate_index_features=False
+    # ------------------------------------------------------------------
+
+    def test_generate_features_false_drops_group_col_only(self):
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid", generate_index_features=False)
+        X_out, meta = gen._fit_transform(X.copy(), y)
+        assert "gid" not in X_out.columns
+        assert set(X_out.columns) == {"num_a", "num_b", "cat_c"}
+        assert meta == {}
+
+    # ------------------------------------------------------------------
+    # Transform (test-time)
+    # ------------------------------------------------------------------
+
+    def test_transform_produces_same_columns_as_fit_transform(self):
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=5)
+        X_fit, _ = gen._fit_transform(X.copy(), y)
+        X_trans = gen._transform(X.copy())
+        assert list(X_fit.columns) == list(X_trans.columns)
+
+    def test_transform_on_new_data(self):
+        X_train, y = _make_grouped_df(n_groups=5, rows_per_group=4)
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=5)
+        gen._fit_transform(X_train.copy(), y)
+        # Build new data with same groups but different values
+        rng = np.random.default_rng(123)
+        X_test = pd.DataFrame(
+            {
+                "gid": [0, 1, 2],
+                "num_a": rng.standard_normal(3),
+                "num_b": rng.uniform(0, 1, 3),
+                "cat_c": ["x", "y", "z"],
+            }
+        )
+        X_out = gen._transform(X_test)
+        assert len(X_out) == 3
+        assert "gid" not in X_out.columns
+
+    def test_transform_aggregation_values_are_per_group(self):
+        """Rows in the same group should have identical aggregation feature values."""
+        X, y = _make_grouped_df(n_groups=3, rows_per_group=4)
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=5)
+        X_out, _ = gen._fit_transform(X.copy(), y)
+        agg_cols = [c for c in X_out.columns if c not in ("num_a", "num_b", "cat_c")]
+        for col in agg_cols:
+            for gid in range(3):
+                group_rows = X_out.iloc[gid * 4 : (gid + 1) * 4]
+                vals = group_rows[col].dropna().unique()
+                assert len(vals) <= 1, f"Non-constant agg value for group {gid}, col {col}"
+
+    # ------------------------------------------------------------------
+    # Composite group key
+    # ------------------------------------------------------------------
+
+    def test_composite_group_key(self):
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(
+            {
+                "g1": ["a", "a", "b", "b", "a", "b"],
+                "g2": [1, 1, 1, 1, 2, 2],
+                "val": rng.standard_normal(6),
+            }
+        )
+        y = pd.Series(rng.standard_normal(6))
+        gen = GroupAggregationFeatureGenerator(group_col=["g1", "g2"], n_top_features=5)
+        X_out, _ = gen._fit_transform(X.copy(), y)
+        assert "g1" not in X_out.columns
+        assert "g2" not in X_out.columns
+        assert "val" in X_out.columns
+
+    # ------------------------------------------------------------------
+    # Time-based sorting
+    # ------------------------------------------------------------------
+
+    def test_group_time_on_affects_last(self):
+        """With group_time_on, 'last' should return the value from the latest timestamp."""
+        X = pd.DataFrame(
+            {
+                "gid": [0, 0, 0, 1, 1, 1],
+                "ts": pd.to_datetime(
+                    ["2020-01-03", "2020-01-01", "2020-01-02", "2020-02-01", "2020-02-03", "2020-02-02"]
+                ),
+                "val": [30.0, 10.0, 20.0, 100.0, 300.0, 200.0],
+            }
+        )
+        y = pd.Series([1.0] * 6)
+        gen = GroupAggregationFeatureGenerator(group_col="gid", group_time_on="ts", n_top_features=100)
+        X_out, _ = gen._fit_transform(X.copy(), y)
+        # Group 0: sorted by ts → [10, 20, 30], last = 30
+        # Group 1: sorted by ts → [100, 200, 300], last = 300
+        last_col = "val_last"
+        assert last_col in X_out.columns
+        group0_last = X_out[last_col].iloc[0]
+        group1_last = X_out[last_col].iloc[3]
+        assert group0_last == pytest.approx(30.0)
+        assert group1_last == pytest.approx(300.0)
+
+    # ------------------------------------------------------------------
+    # Determinism
+    # ------------------------------------------------------------------
+
+    def test_deterministic_selection(self):
+        X, y = _make_grouped_df()
+        gen1 = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=5)
+        gen1._fit_transform(X.copy(), y)
+        gen2 = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=5)
+        gen2._fit_transform(X.copy(), y)
+        assert gen1._selected_features == gen2._selected_features
+
+    # ------------------------------------------------------------------
+    # Edge cases
+    # ------------------------------------------------------------------
+
+    def test_n_top_features_exceeds_total_selects_all(self):
+        """When budget > total features, all features are selected."""
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=500)
+        _, meta = gen._fit_transform(X.copy(), y)
+        # 2 numeric cols × 5 aggs + 1 cat col × 3 aggs = 13
+        assert len(meta[GROUP_INDEX_FEATURES]) == 13
+
+    def test_single_group(self):
+        """All rows in one group: agg features are constant (zero variance)."""
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(
+            {
+                "gid": [0, 0, 0, 0],
+                "val": rng.standard_normal(4),
+            }
+        )
+        y = pd.Series(rng.standard_normal(4))
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=5)
+        X_out, _ = gen._fit_transform(X.copy(), y)
+        assert "gid" not in X_out.columns
+        assert len(X_out) == 4
+
+    def test_generate_features_false_transform(self):
+        """Transform after fit with generate_features=False just drops group col."""
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid", generate_index_features=False)
+        gen._fit_transform(X.copy(), y)
+        X_out = gen._transform(X.copy())
+        assert "gid" not in X_out.columns
+        assert set(X_out.columns) == {"num_a", "num_b", "cat_c"}
+
+    def test_agg_maps_built_correctly(self):
+        """Internal _num_agg_map and _cat_agg_map should only contain selected aggs."""
+        X, y = _make_grouped_df()
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=100)
+        gen._fit_transform(X.copy(), y)
+        # All numeric aggs for num_a and num_b should be present
+        for col in ("num_a", "num_b"):
+            assert col in gen._num_agg_map
+            assert set(gen._num_agg_map[col]) == {"mean", "std", "min", "max", "last"}
+        # All categorical aggs for cat_c
+        assert "cat_c" in gen._cat_agg_map
+        assert set(gen._cat_agg_map["cat_c"]) == {"count", "last", "nunique"}
