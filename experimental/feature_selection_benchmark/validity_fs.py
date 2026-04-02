@@ -1,6 +1,6 @@
 import argparse
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -27,12 +27,17 @@ def parse_args():  # noqa: D103
                     help="Feature Selection Method name [default: FSBench__AccuracyFeatureSelector__5__0__lgbm__3600]")
     parser.add_argument("--dataset", type=str, default="anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792",
                         help="OpenML dataset identifier [default: anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792]")
+    parser.add_argument("--repeat", type=int, default=0,
+                        help="Repeat [default: 0]")
+    parser.add_argument("--problem_type", type=str, default="regression",
+                        help="Problem Type [default: 'regression']")
+    parser.add_argument("--eval_metric", type=str, default="rmse",
+                        help="Evaluation Metrix [default: 'rmse']")
     parser.add_argument("--noise", type=float, default=1.0, nargs="+",
                         help="Percentage of noise features relative to original feature count [default: 1.0]")
     parser.add_argument("--max-features", type=int, default=5, nargs="+",
                         help="Max feature(s) to select [default: 5]")
-    parser.add_argument("--repeats", type=int, default=10,
-                        help="Number of bootstrap repeats [default: 10]")
+
     return parser.parse_args()
 
 @dataclass
@@ -63,10 +68,10 @@ class ValidityResult:
         List of 2x2 confusion matrices [TN, FP, FN, TP] for each repeat.
     validity : list[float]
         List of validity scores computed for each repeat.
-    ci_lower : float
-        Lower bound of the confidence interval for mean validity.
-    ci_upper : float
-        Upper bound of the confidence interval for mean validity.
+    # ci_lower : float
+        # Lower bound of the confidence interval for mean validity.
+    # ci_upper : float
+        # Upper bound of the confidence interval for mean validity.
     """
     method: str
     dataset: int
@@ -74,10 +79,10 @@ class ValidityResult:
     max_features: int
     original_features: int
     noise_features: int
-    repeats: int
+    repeat: int
     elapsed_time_fs: [float]
-    n_samples: [int]
-    confusion_matrices: [[int]]
+    n_sample: [int]
+    confusion_matrice: [[int]]
     validity: [float]
     ci_lower: float
     ci_upper: float
@@ -114,70 +119,56 @@ def validity_fs(args) -> ValidityResult:
         Object containing validity metrics, confusion matrices, timing information,
         and confidence intervals for the feature selection method's performance.
     """
+    method_name = args.method_name
     dataset = args.dataset
-    task_id = _parse_task_id(dataset)
-    tabarena_task_name = task_id.tabarena_task_name
-    task = OpenMLTaskWrapper(
-        task=task_id.load_local_openml_task(),
-        use_task_eval_metric=False,
-    )
-    eval_metric = task.eval_metric
-    problem_type = task.problem_type
-    n_repeats = args.repeats
+    repeat = args.repeat
+    problem_type = args.problem_type
+    eval_metric = args.eval_metric
     max_features = args.max_features
-    method_name = args.method_name.split("__")[1].split("__")[0]
+    split = args.split_index.split("r")[-1].split("f")[0]
 
     X = task.X
     y = task.y
-
     n_noise = int(len(X.columns) * args.noise)
+
     print(f"\n=== {method_name} ===")
-    print("Max features: ", max_features)
-    print("Dataset: ", dataset)
-    print("Problem type: ", problem_type)
-    print("Eval metric: ", eval_metric)
-    # Store binary selections across repeats
-    Z = []
-    times = []
-    n_samples = []
-    for repeat in range(n_repeats):
-        # add noise features
-        X_copy, orig_feature_mask = add_noise(X, n_noise)
-        if repeat != 0:
-            # Resample data (bootstrap) for variability
-            sample_idx = np.random.choice(len(X_copy), size=len(X_copy), replace=True)
-            X_repeat = X_copy.iloc[sample_idx].reset_index(drop=True)
-            y_repeat = y.iloc[sample_idx].reset_index(drop=True)
-        else:
-            X_repeat = X_copy
-            y_repeat = y
-        n_samples.append(len(X_repeat))
-        proxy_config = ProxyModelConfig(
-            problem_type=problem_type,
-            eval_metric=eval_metric,
-            model_hyperparameters={"num_boost_round": 1},
-        )
-        start_time = time.monotonic()
-        feature_selector = get_feature_selector_from_name(name=method_name)
-        feature_selector = feature_selector(max_features=max_features, proxy_mode_config=proxy_config)
-        selected_features = feature_selector.fit_transform(X=X_repeat, y=y_repeat)
-        elapsed_time = time.monotonic() - start_time
-        times.append(elapsed_time)
-        # Binary row: 1 if selected, 0 otherwise
-        selected_binary = np.zeros(len(X_copy.columns), dtype=bool)
-        selected_indices = [X_copy.columns.get_loc(f) for f in selected_features]
-        selected_binary[selected_indices] = True
-        orig_binary = np.array([orig_feature_mask[col] for col in X_copy.columns])
+    print("Dataset: ", dataset, "Problem type: ", problem_type, "Eval metric: ", eval_metric, "Max features: ", max_features)
+    print("Repeat: ", repeat)
 
-        cm = confusion_matrix(orig_binary, selected_binary)
-        tn, fp, fn, tp = cm.ravel()
-        print(f"TP: {tp}  FN: {fn}  FP: {fp}  TN: {tn}")
+    # add noise features
+    X_copy, orig_feature_mask = add_noise(X, n_noise)
+    if repeat > 0:
+        # Resample data (bootstrap) for variability
+        sample_idx = np.random.choice(len(X_copy), size=len(X_copy), replace=True)
+        X_repeat = X_copy.iloc[sample_idx].reset_index(drop=True)
+        y_repeat = y.iloc[sample_idx].reset_index(drop=True)
+    else:
+        X_repeat = X_copy
+        y_repeat = y
+    n_sample = len(X_repeat)
+    proxy_config = ProxyModelConfig(
+        problem_type=problem_type,
+        eval_metric=eval_metric,
+        model_hyperparameters={"num_boost_round": 1},
+    )
+    start_time = time.monotonic()
+    feature_selector = get_feature_selector_from_name(name=method_name)
+    feature_selector = feature_selector(max_features=max_features, proxy_mode_config=proxy_config)
+    selected_features = feature_selector.fit_transform(X=X_repeat, y=y_repeat)
+    elapsed_time = time.monotonic() - start_time
+    # Binary row: 1 if selected, 0 otherwise
+    selected_binary = np.zeros(len(X_copy.columns), dtype=bool)
+    selected_indices = [X_copy.columns.get_loc(f) for f in selected_features]
+    selected_binary[selected_indices] = True
+    orig_binary = np.array([orig_feature_mask[col] for col in X_copy.columns])
 
-        Z.append(cm)
+    cm = confusion_matrix(orig_binary, selected_binary)
+    tn, fp, fn, tp = cm.ravel()
+    print(f"TP: {tp}  FN: {fn}  FP: {fp}  TN: {tn}")
 
     # Validity metrics
-    validity = getValidity(Z, max_features)
-    ci = confidenceIntervals(validity)
+    validity = getValidity(cm, max_features)
+    #ci = confidenceIntervals(validity)
     validity_results = ValidityResult(
         method=method_name,
         dataset=dataset,
@@ -185,19 +176,19 @@ def validity_fs(args) -> ValidityResult:
         max_features=max_features,
         original_features=len(X.columns),
         noise_features=n_noise,
-        repeats=n_repeats,
-        elapsed_time_fs=times,
-        n_samples=n_samples,
-        confusion_matrices=Z,
+        repeat=repeat,
+        elapsed_time_fs=elapsed_time,
+        n_sample=n_sample,
+        confusion_matrice=cm,
         validity=validity,
-        ci_lower=ci[0],
-        ci_upper=ci[1],
+        ci_lower=None,
+        ci_upper=None,
     )
     print(f"Validity: {validity_results.validity}")
     return validity_results
 
 
-def getValidity(Z, max_features) -> list[float]:
+def getValidity(cm, max_features) -> list[float]:
     """Compute normalized recall (validity) for feature selection.
 
     Parameters
@@ -215,10 +206,9 @@ def getValidity(Z, max_features) -> list[float]:
         measuring proportion of selected features that are true originals.
     """
     selection_precision = []
-    for elem in Z:
-        _tn, _fp, _fn, tp = elem.ravel()
-        precision = tp / max_features
-        selection_precision.append(precision)
+    _tn, _fp, _fn, tp = cm.ravel()
+    precision = tp / max_features
+    selection_precision.append(precision)
     return selection_precision
 
 
@@ -395,10 +385,35 @@ if __name__ == "__main__":
         total_budget=5,
         include_default=True,
     )
+
     path_to_metadata = DEFAULT_DATA_FOUNDRY_CACHE / "feature_selection_benchmark_validity_examples_tasks_metadata.csv"
     task_metadata = pd.read_csv(path_to_metadata)
-    for method_name in preprocessing_pipeline:
-        args.method_name = method_name
-        for dataset in task_metadata["task_id_str"]:
-            args.dataset = dataset
+
+    for method in FEATURE_SELECTION_METHODS:
+        validity_results_method = []
+        args.method_name = method
+        task_metadata = task_metadata.drop_duplicates(subset="repeat", keep="first")
+        for idx, row in enumerate(task_metadata.itertuples()):
+            args.dataset = task_metadata["task_id_str"].iloc[idx]
+            args.repeat = task_metadata["repeat"].iloc[idx]
+            args.split_index = task_metadata["split_index"].iloc[idx]
+            task_id = _parse_task_id(args.dataset)
+            tabarena_task_name = task_id.tabarena_task_name
+            task = OpenMLTaskWrapper(
+                task=task_id.load_local_openml_task(),
+                use_task_eval_metric=False,
+            )
+            args.eval_metric = task.eval_metric
+            args.problem_type = task.problem_type
             validity_results = validity_fs(args)
+            validity_results_method.append(validity_results)
+        # Calculate confidence intervals for all repeats but the first one
+        validities = [r.validity for r in validity_results_method if r.repeat > 0]
+        ci = confidenceIntervals(validities)  # [lower, upper]
+        for r in validity_results_method:
+            if r.repeat > 0:
+                r.ci_lower = ci[0]
+                r.ci_upper = ci[1]
+        pd.DataFrame([asdict(r) for r in validity_results_method]).to_csv(
+            f"validity_results_{method}.csv", index=False
+        )
