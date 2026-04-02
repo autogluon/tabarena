@@ -22,10 +22,14 @@ from autogluon.features.generators.fillna import FillNaFeatureGenerator
 from tabarena.benchmark.preprocessing.date_feature_generators import (
     DateTimeFeatureGenerator,
 )
+from tabarena.benchmark.preprocessing.group_feature_generators import (
+    GroupAggregationFeatureGenerator,
+)
 from tabarena.benchmark.preprocessing.text_feature_generators import (
     SemanticTextFeatureGenerator,
     StatisticalTextFeatureGenerator,
 )
+from tabarena.benchmark.task.user_task import GroupLabelTypes
 
 
 # TODO: we likely need some kind of off-loading logic for text features
@@ -41,6 +45,9 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
         enable_sematic_text_features: bool = True,
         enable_statistical_text_features: bool = True,
         enable_new_datetime_features: bool = True,
+        group_cols: str | list[str] | None = None,
+        group_labels: GroupLabelTypes | None = None,
+        group_time_on: str | None = None,
         **kwargs,
     ):
         """Custom init of the AutoMLPipelineFeatureGenerator with our new changes."""
@@ -51,8 +58,30 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
             custom_feature_generators.append(StatisticalTextFeatureGenerator())
         if enable_new_datetime_features:
             custom_feature_generators.append(DateTimeFeatureGenerator())
+
+        # TODO(future):
+        #   - refactor such that we automatically detect group labels type.
+        #   - We add it as a post-generator mostly to allow for dropping the group col.
+        #       In theory, we could filter it differently via some dtype setting.
+        post_generators = []
+        if group_cols is not None:
+            assert group_labels is not None, "If group_cols is specified, group_labels must also be specified."
+            assert group_labels in [
+                GroupLabelTypes.PER_GROUP,
+                GroupLabelTypes.PER_SAMPLE,
+            ], "group_labels must be either PER_GROUP or PER_SAMPLE if group_cols is specified."
+            post_generators.append(
+                GroupAggregationFeatureGenerator(
+                    group_col=group_cols,
+                    generate_index_features=group_labels == GroupLabelTypes.PER_GROUP,
+                    group_time_on=group_time_on,
+                )
+            )
+
         if len(custom_feature_generators) == 0:
             custom_feature_generators = None
+        if len(post_generators) == 0:
+            post_generators = None
 
         post_and_pre_handling = dict(
             # Fix string handling by passing own versions of the default pre-generators
@@ -61,6 +90,7 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
                 FillNaFeatureGenerator(),
                 DropDuplicatesFeatureGenerator(),
             ],
+            post_generators=post_generators,
             pre_enforce_types=False,
             # TODO: change such that text cols are skipped for duplicate check.
             #   Otherwise, duplicate check take too long for text-use case, and we
@@ -177,9 +207,7 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
         # values are preserved as valid categories.
 
         cat_type_map = {
-            col: dtype
-            for col, dtype in self._type_map_real_opt.items()
-            if isinstance(dtype, pd.CategoricalDtype)
+            col: dtype for col, dtype in self._type_map_real_opt.items() if isinstance(dtype, pd.CategoricalDtype)
         }
         non_cat_type_map = {
             col: dtype
@@ -237,7 +265,6 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
 
             if self._type_map_real_opt:
                 X = self._handle_dtype_mismatch_at_test_time(X, bool_cols_with_extra_cats=bool_cols_with_extra_cats)
-
 
         # Convert bool columns that gained extra categories to categorical so that
         # all values (including novel ones) are preserved rather than silently mapped to 0.
