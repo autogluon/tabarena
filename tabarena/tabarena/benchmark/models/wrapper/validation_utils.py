@@ -36,7 +36,6 @@ class TabArenaValidationProtocolExecMixin:
         group_labels: GroupLabelTypes | None = None,
         split_time_horizon: SplitTimeHorizonTypes | None = None,
         split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
-        drop_group_columns: bool = True,
     ):
         """Mixin to handle validation protocol logic for benchmarking.
 
@@ -65,10 +64,6 @@ class TabArenaValidationProtocolExecMixin:
             Time horizon for deployment/test data
         split_time_horizon_unit:
             Unit for time horizon for deployment/test data (e.g. days, months, years)
-        drop_group_columns:
-            If True (default), drop group_on from the training (and tuning) data after
-            using them to compute the splits. These columns are used solely for defining
-            the validation protocol and should not be fed to the model as features.
         """
         self.use_task_specific_validation = use_task_specific_validation
         self.target_name = target_name
@@ -79,7 +74,6 @@ class TabArenaValidationProtocolExecMixin:
         self.group_labels = group_labels
         self.split_time_horizon = split_time_horizon
         self.split_time_horizon_unit = split_time_horizon_unit
-        self.drop_group_columns = drop_group_columns
 
     def resolve_validation_splits(
         self,
@@ -330,20 +324,6 @@ class TabArenaValidationProtocolExecMixin:
             time_data=time_data,
             goal_n_intervals=num_folds,
         )
-
-    def _get_group_columns_to_drop(self) -> list[str]:
-        """Return the group/time columns that should be dropped from the model input.
-
-        Only populated when ``drop_group_columns=True``.  The caller is responsible
-        for dropping these columns *after* the splits have been computed (the columns
-        are still needed by ``resolve_validation_splits``).
-        """
-        if not self.drop_group_columns:
-            return []
-        cols: list[str] = []
-        if self.group_on is not None:
-            cols += self.group_on if isinstance(self.group_on, list) else [self.group_on]
-        return cols
 
     def get_num_group_instances(self, X: pd.DataFrame):
         """Compute the number of rows that represent how much (multi-instance) samples
