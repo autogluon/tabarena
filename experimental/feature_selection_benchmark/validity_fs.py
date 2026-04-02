@@ -37,7 +37,6 @@ def parse_args():  # noqa: D103
                         help="Percentage of noise features relative to original feature count [default: 1.0]")
     parser.add_argument("--max-features", type=int, default=5, nargs="+",
                         help="Max feature(s) to select [default: 5]")
-
     return parser.parse_args()
 
 @dataclass
