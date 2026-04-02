@@ -168,14 +168,16 @@ def _parse_yaml_config(
             )
 
             new_experiment = deepcopy(methods[m_i])
-            new_experiment.method_kwargs["fit_kwargs"]["feature_generator"] = (
-                TabArenaModelAgnosticPreprocessing()
-            )
+            new_experiment.method_kwargs["fit_kwargs"]["feature_generator_cls"] = TabArenaModelAgnosticPreprocessing
+            new_experiment.method_kwargs["fit_kwargs"]["feature_generator_kwargs"] = {}
             new_experiment.method_kwargs["model_hyperparameters"] = (
                 TabArenaModelSpecificPreprocessing.add_to_hyperparameters(
                     new_experiment.method_kwargs["model_hyperparameters"]
                 )
             )
+            # Group col drop is now handled inside the feature generator.
+            if new_experiment.method_kwargs.get("group_on") is not None:
+                new_experiment.method_kwargs["drop_group_columns"] = False
         elif preprocessing_name.startswith("FSBench__"):
             # Logic for feature selection benchmark
             from tabarena.benchmark.feature_selection_methods.feature_selection_benchmark_utils import (

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import gc
+import inspect
 import shutil
 from typing import Type
 
@@ -73,15 +74,23 @@ class AGWrapper(AbstractExecModel):
                 fit_kwargs["ag_args_ensemble"] = {}
             fit_kwargs["ag_args_ensemble"]["custom_splits"] = custom_splits
 
-        cols_to_drop = self._get_group_columns_to_drop()
-        if cols_to_drop:
-            train_data = train_data.drop(columns=cols_to_drop)
+        feature_generator_cls = fit_kwargs.pop("feature_generator_cls", None)
+        if feature_generator_cls is not None:
+            feature_generator_kwargs = fit_kwargs.pop("feature_generator_kwargs", {})
+            sig = inspect.signature(feature_generator_cls.__init__)
+            group_params = {
+                "group_cols": self.group_on,
+                "group_labels": self.group_labels,
+                "group_time_on": self.group_time_on,
+            }
+            for param, value in group_params.items():
+                if param in sig.parameters:
+                    feature_generator_kwargs[param] = value
+            fit_kwargs["feature_generator"] = feature_generator_cls(**feature_generator_kwargs)
 
         train_data[self.label] = y
         if X_val is not None:
             tuning_data = X_val.copy()
-            if cols_to_drop:
-                tuning_data = tuning_data.drop(columns=cols_to_drop)
             tuning_data[self.label] = y_val
             fit_kwargs["tuning_data"] = tuning_data
 
