@@ -28,11 +28,8 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
     When ``generate_features=True`` (dataset has per-group labels):
       - Computes per-group aggregations (mean/std/min/max/last for numeric;
         count/last/nunique for non-numeric) joined back to all original rows.
-      - Scores all agg features (numeric and categorical) uniformly via mutual
-        information with ``y`` and applies diversity-based column-primary
-        round-robin selection (maximize relevance while ensuring coverage
-        across source columns).
-      - Selects the top ``n_top_features`` columns.
+      - Selects the top ``n_top_features`` aggregation columns by variance
+        (unsupervised — no target information used during selection).
       - At transform time only the aggregations needed for selected features
         are recomputed (no wasted work on discarded columns).
       - Drops the group column(s) from output.
@@ -98,55 +95,32 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         cat_cols = [c for c in feature_cols if not pd.api.types.is_numeric_dtype(X[c])]
         time_cols = [self.group_time_on] if self.group_time_on and self.group_time_on in X.columns else []
 
-        # Pass 1: MI relevance scores for each candidate feature.
-        # One source column at a time.
-        relevance: dict[str, float] = {}
+        # Compute all per-group aggregations and select the top n_top_features
+        # by variance (unsupervised).  Categorical aggregations are encoded as
+        # integer category codes before computing variance.
+        variance: dict[str, float] = {}
         feature_source: dict[str, tuple[str, str, bool]] = {}
 
         col_iter = [(c, True, list(self._NUM_AGGS)) for c in num_cols] + [
             (c, False, list(self._CAT_AGGS)) for c in cat_cols
         ]
-        for col, is_num, aggs in tqdm(col_iter, desc="Computing groupby aggregations and MI scores", unit="col"):
+        for col, is_num, aggs in tqdm(col_iter, desc="Computing groupby aggregations", unit="col"):
             slice_cols = list(dict.fromkeys(self.group_col + time_cols + [col]))
             X_col = self._sort_by_time(X[slice_cols])
             agg_df = X_col.groupby(self._build_group_key(X_col), observed=True)[[col]].agg(aggs)
             agg_df.columns = [f"{col}_{a}" for a in aggs]
             for feat in agg_df.columns:
-                relevance[feat] = self._mi_score(group_key.map(agg_df[feat]), y)
+                s = group_key.map(agg_df[feat])
+                if not pd.api.types.is_numeric_dtype(s):
+                    s = s.astype("category").cat.codes.astype(float)
+                    s[s < 0] = np.nan
+                variance[feat] = float(s.var())
             for agg in aggs:
                 feature_source[f"{col}_{agg}"] = (col, agg, is_num)
 
-        # Pass 2: diversity-based selection — column-primary round-robin with relevance ranking.
-        # Pick one feature per source column per round (ordered by relevance), cycling
-        # through columns until the budget is filled.  Avoids all pairwise MI computation.
-        column_queues: dict[str, list[tuple[float, str]]] = defaultdict(list)
-        for feat, (src_col, _agg, _is_num) in feature_source.items():
-            column_queues[src_col].append((relevance[feat], feat))
-        for _src_col, queue in column_queues.items():
-            queue.sort(key=lambda x: (-x[0], x[1]))
-
-        active_columns = sorted(
-            column_queues.keys(),
-            key=lambda c: (-column_queues[c][0][0], c),
-        )
-
-        selected: list[str] = []
-        while len(selected) < self.n_top_features and active_columns:
-            next_active = []
-            for src_col in active_columns:
-                if len(selected) >= self.n_top_features:
-                    break
-                queue = column_queues[src_col]
-                if queue:
-                    _rel, feat = queue.pop(0)
-                    selected.append(feat)
-                    if queue:
-                        next_active.append(src_col)
-            active_columns = sorted(
-                next_active,
-                key=lambda c: (-column_queues[c][0][0], c),
-            )
-        self._selected_features = selected
+        # Select top n_top_features by variance (descending), tie-break by name.
+        ranked = sorted(variance.keys(), key=lambda f: (-variance[f], f))
+        self._selected_features = ranked[: self.n_top_features]
 
         # Build test-time agg maps.
         num_map: dict[str, list[str]] = defaultdict(list)
@@ -160,7 +134,7 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         self._log(
             20,
             f"GroupAggregationFeatureGenerator: selected {len(self._selected_features)} "
-            f"groupby features out of {len(relevance)} generated.",
+            f"groupby features out of {len(variance)} generated.",
         )
         return self._transform(X), {GROUP_INDEX_FEATURES: self._selected_features}
 
@@ -178,37 +152,6 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
             index=X.index,
         )
         return pd.concat([X, mapped], axis=1)
-
-    @staticmethod
-    def _mi_score(x: pd.Series, y: pd.Series) -> float:
-        """Estimate mutual information between two Series.
-
-        Non-numeric values are encoded as integer category codes and treated as
-        discrete.  Uses sklearn's kNN-based MI estimator, which handles both
-        continuous and discrete variables uniformly.
-        """
-        from sklearn.feature_selection import mutual_info_regression
-
-        def _to_float(s: pd.Series) -> tuple[np.ndarray, bool]:
-            s = pd.Series(s)
-            if not pd.api.types.is_numeric_dtype(s):
-                arr = s.astype("category").cat.codes.to_numpy(dtype=float)
-                arr[arr < 0] = np.nan  # cat.codes uses -1 for NaN
-                return arr, True
-            return s.to_numpy(dtype=float), pd.api.types.is_integer_dtype(s)
-
-        x_arr, x_discrete = _to_float(x)
-        y_arr, _ = _to_float(y)
-        valid = ~(np.isnan(x_arr) | np.isnan(y_arr))
-        if valid.sum() < 2:
-            return 0.0
-        return float(
-            mutual_info_regression(
-                x_arr[valid].reshape(-1, 1),
-                y_arr[valid],
-                discrete_features=[x_discrete],
-            )[0]
-        )
 
     def _sort_by_time(self, X: pd.DataFrame) -> pd.DataFrame:
         """Return X with rows within each group sorted by ``group_time_on``.
