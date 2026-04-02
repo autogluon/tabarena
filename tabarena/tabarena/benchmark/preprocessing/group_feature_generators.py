@@ -67,7 +67,7 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
     ):
         super().__init__(**kwargs)
         self.group_col: list[str] = [group_col] if isinstance(group_col, str) else list(group_col)
-        self.generate_features = False # generate_index_features
+        self.generate_features = generate_index_features
         self.n_top_features = n_top_features
         self.group_time_on = group_time_on
         self._selected_features: list[str] = []
