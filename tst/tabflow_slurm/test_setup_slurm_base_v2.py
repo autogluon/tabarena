@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
+import pandas as pd
 import pytest
 
 # setup_slurm_base_v2 imports ray and other heavy deps at the top level.
@@ -529,3 +532,201 @@ class TestLoadTaskMetadata:
         result = bs._load_task_metadata()
         assert len(result) == 1
         assert result[0].dataset_name == meta_obj.dataset_name
+
+
+# ---------------------------------------------------------------------------
+# BenchmarkSetup2026._load_task_metadata — Literal["tabarena-v0.1"] path
+# ---------------------------------------------------------------------------
+
+
+def _fake_curated_metadata(
+    rows: list[dict] | None = None,
+) -> pd.DataFrame:
+    """Build a minimal DataFrame that mimics load_curated_task_metadata()."""
+    if rows is None:
+        rows = [
+            {
+                "dataset_name": "fake_ds",
+                "problem_type": "binary",
+                "is_classification": True,
+                "target_feature": "target",
+                "task_id": "999",
+                "num_instances": 100,
+                "num_features": 5,
+                "num_classes": 2,
+                "tabarena_num_repeats": 1,
+                "num_folds": 3,
+            },
+        ]
+    return pd.DataFrame(rows)
+
+
+_CURATED_PATCH = "tabarena.nips2025_utils.fetch_metadata.load_curated_task_metadata"
+
+
+class TestLoadTaskMetadataLiteral:
+    """Tests for task_metadata = Literal["tabarena-v0.1"]."""
+
+    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
+    def test_literal_returns_task_metadata_list(self, _mock):
+        bs = _benchmark_setup(task_metadata="tabarena-v0.1")
+        result = bs._load_task_metadata()
+        assert isinstance(result, list)
+        assert len(result) > 0
+        assert all(isinstance(r, TabArenaTaskMetadata) for r in result)
+
+    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
+    def test_literal_creates_splits_per_repeat_and_fold(self, _mock):
+        """1 repeat x 3 folds = 3 unrolled entries."""
+        bs = _benchmark_setup(task_metadata="tabarena-v0.1")
+        result = bs._load_task_metadata()
+        assert len(result) == 3
+
+    @patch(
+        _CURATED_PATCH,
+        return_value=_fake_curated_metadata(
+            [
+                {
+                    "dataset_name": "ds_multi_repeat",
+                    "problem_type": "binary",
+                    "is_classification": True,
+                    "target_feature": "target",
+                    "task_id": "111",
+                    "num_instances": 60,
+                    "num_features": 3,
+                    "num_classes": 2,
+                    "tabarena_num_repeats": 2,
+                    "num_folds": 3,
+                },
+            ]
+        ),
+    )
+    def test_literal_multiple_repeats(self, _mock):
+        """2 repeats x 3 folds = 6 entries."""
+        bs = _benchmark_setup(task_metadata="tabarena-v0.1")
+        result = bs._load_task_metadata()
+        assert len(result) == 6
+
+    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
+    def test_literal_dataset_name_propagated(self, _mock):
+        bs = _benchmark_setup(task_metadata="tabarena-v0.1")
+        result = bs._load_task_metadata()
+        assert all(r.dataset_name == "fake_ds" for r in result)
+
+    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
+    def test_literal_task_id_str_propagated(self, _mock):
+        bs = _benchmark_setup(task_metadata="tabarena-v0.1")
+        result = bs._load_task_metadata()
+        assert all(r.task_id_str == "999" for r in result)
+
+    @patch(
+        _CURATED_PATCH,
+        return_value=_fake_curated_metadata(
+            [
+                {
+                    "dataset_name": "bin_ds",
+                    "problem_type": "binary",
+                    "is_classification": True,
+                    "target_feature": "t",
+                    "task_id": "1",
+                    "num_instances": 50,
+                    "num_features": 3,
+                    "num_classes": 2,
+                    "tabarena_num_repeats": 1,
+                    "num_folds": 1,
+                },
+                {
+                    "dataset_name": "reg_ds",
+                    "problem_type": "regression",
+                    "is_classification": False,
+                    "target_feature": "t",
+                    "task_id": "2",
+                    "num_instances": 50,
+                    "num_features": 3,
+                    "num_classes": 0,
+                    "tabarena_num_repeats": 1,
+                    "num_folds": 1,
+                },
+            ]
+        ),
+    )
+    def test_literal_problem_type_filter_applied(self, _mock):
+        bs = _benchmark_setup(
+            task_metadata="tabarena-v0.1",
+            problem_types_to_run=["binary"],
+        )
+        result = bs._load_task_metadata()
+        assert len(result) == 1
+        assert result[0].problem_type == "binary"
+
+    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
+    def test_literal_split_indices_lite_filter(self, _mock):
+        """With 'lite', only r0f0 should survive out of 3 folds."""
+        bs = _benchmark_setup(
+            task_metadata="tabarena-v0.1",
+            split_indices_to_run="lite",
+        )
+        result = bs._load_task_metadata()
+        assert len(result) == 1
+        assert result[0].split_index == "r0f0"
+
+    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
+    def test_literal_eval_metric_binary_is_roc_auc(self, _mock):
+        bs = _benchmark_setup(task_metadata="tabarena-v0.1")
+        result = bs._load_task_metadata()
+        assert all(r.eval_metric == "roc_auc" for r in result)
+
+    @patch(
+        _CURATED_PATCH,
+        return_value=_fake_curated_metadata(
+            [
+                {
+                    "dataset_name": "mc_ds",
+                    "problem_type": "multiclass",
+                    "is_classification": True,
+                    "target_feature": "t",
+                    "task_id": "3",
+                    "num_instances": 200,
+                    "num_features": 10,
+                    "num_classes": 5,
+                    "tabarena_num_repeats": 1,
+                    "num_folds": 1,
+                },
+            ]
+        ),
+    )
+    def test_literal_eval_metric_multiclass_is_log_loss(self, _mock):
+        bs = _benchmark_setup(task_metadata="tabarena-v0.1")
+        result = bs._load_task_metadata()
+        assert result[0].eval_metric == "log_loss"
+
+    @patch(
+        _CURATED_PATCH,
+        return_value=_fake_curated_metadata(
+            [
+                {
+                    "dataset_name": "reg_ds",
+                    "problem_type": "regression",
+                    "is_classification": False,
+                    "target_feature": "t",
+                    "task_id": "4",
+                    "num_instances": 150,
+                    "num_features": 8,
+                    "num_classes": 0,
+                    "tabarena_num_repeats": 1,
+                    "num_folds": 1,
+                },
+            ]
+        ),
+    )
+    def test_literal_eval_metric_regression_is_rmse(self, _mock):
+        bs = _benchmark_setup(task_metadata="tabarena-v0.1")
+        result = bs._load_task_metadata()
+        assert result[0].eval_metric == "rmse"
+
+    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
+    def test_literal_each_result_has_one_split(self, _mock):
+        bs = _benchmark_setup(task_metadata="tabarena-v0.1")
+        result = bs._load_task_metadata()
+        for item in result:
+            assert item.n_splits == 1
