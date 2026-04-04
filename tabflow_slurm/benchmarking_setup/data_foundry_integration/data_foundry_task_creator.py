@@ -203,12 +203,10 @@ def download_data_foundry_datasets(
         A DataFrame containing metadata about the created TabArena UserTasks.
     """
     if openml_cache is not None:
-        import os
-
         import openml
-        print(f"Setting OpenML cache directory to: {openml_cache}")
 
-        os.environ[openml.config.OPENML_CACHE_DIR_ENV_VAR] = str(openml_cache)
+        print(f"Setting OpenML cache directory to: {openml_cache}")
+        openml.config.set_root_cache_directory(root_cache_directory=openml_cache)
 
     print("Preprocessing data foundry datasets for TabArena...")
     task_metadata = DataFoundryAdapter(
