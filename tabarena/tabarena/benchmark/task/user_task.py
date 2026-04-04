@@ -498,7 +498,7 @@ class UserTask:
         if self._task_cache_path is not None:
             return self._task_cache_path
         return (
-            (openml.config._resolve_default_cache_dir() / "tabarena_tasks")
+            (openml.config._root_cache_directory / "tabarena_tasks")
             .expanduser()
             .resolve()
         )
