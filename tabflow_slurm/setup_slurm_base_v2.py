@@ -70,7 +70,7 @@ class PathSetup:
         This should point to the script that runs the benchmark for TabArena.
         """
         return self.base_path + (
-            f"code/{self.tabarena_repo_name}"
+            f"code/{self.tabarena_repo_name}/tabarena"
             f"/tabflow_slurm/run_tabarena_experiment.py"
         )
 
@@ -82,7 +82,7 @@ class PathSetup:
         {self._safe_benchmark_name}.yaml".
         """
         return (
-            f"code/{self.tabarena_repo_name}/tabflow_slurm/benchmark_configs_"
+            f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/benchmark_configs_"
         )
 
     def get_slurm_job_json_path(self, safe_benchmark_name: str) -> str:
@@ -112,7 +112,7 @@ class PathSetup:
         """Path to the SLURM script to run."""
         return (
             self.base_path
-            + f"code/{self.tabarena_repo_name}/tabflow_slurm/{script_name}"
+            + f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/{script_name}"
         )
 
 
