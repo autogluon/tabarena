@@ -1,9 +1,14 @@
+"""Accuracy-based feature selection."""
+from __future__ import annotations
+
 import logging
 import time
-
-import pandas as pd
+from typing import TYPE_CHECKING
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 

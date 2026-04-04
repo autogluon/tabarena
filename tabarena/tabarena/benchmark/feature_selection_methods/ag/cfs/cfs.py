@@ -1,3 +1,4 @@
+"""Correlation-based Feature Selection (CFS)."""
 from __future__ import annotations
 
 import logging
@@ -18,11 +19,23 @@ logger = logging.getLogger(__name__)
 class CFSFeatureSelector(AbstractFeatureSelector):
     """CFS Feature Selection.
 
-    Reference: Hall, Mark A. Correlation-based feature selection for machine learning. Diss. The University of Waikato, 1999.
-    Implementation Source: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/statistical_based/CFS.py#L40.
-                           The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
-                           This particular implementation of the repo is based on http://featureselection.asu.edu, which for the CFS algorithm cites Hall, Mark A., and Lloyd A. Smith. "Feature selection for machine learning: comparing a correlation-based filter approach to the wrapper." Proceedings of the twelfth international Florida artificial intelligence research society conference. 1999.
-                           The variation implemented here is a forward selection method using Symmetrical Uncertainty.
+    Reference: Hall, Mark A. Correlation-based feature selection for
+    machine learning. Diss. The University of Waikato, 1999.
+    Implementation Source:
+    https://github.com/jundongl/scikit-feature/blob/
+    48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/
+    function/statistical_based/CFS.py#L40.
+    The author of the code is Li, Jundong, Associate Professor at the
+    University of Virginia and main-author of
+    'Feature selection: A data perspective' (2017).
+    This particular implementation of the repo is based on
+    http://featureselection.asu.edu, which for the CFS algorithm cites
+    Hall, Mark A., and Lloyd A. Smith. "Feature selection for machine
+    learning: comparing a correlation-based filter approach to the
+    wrapper." Proceedings of the twelfth international Florida
+    artificial intelligence research society conference. 1999.
+    The variation implemented here is a forward selection method using
+    Symmetrical Uncertainty.
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
                            - Add max_features (number of features to be maximally selected by the method) constraint
@@ -68,9 +81,11 @@ class CFSFeatureSelector(AbstractFeatureSelector):
                     F.pop()
             F.append(idx)
             M.append(merit)
-            if len(M) > 5 and M[len(M) - 1] <= M[len(M) - 2] and M[len(M) - 2] <= M[len(M) - 3]:
-                if M[len(M) - 3] <= M[len(M) - 4] and M[len(M) - 4] <= M[len(M) - 5]:
-                    break
+            if (
+                len(M) > 5
+                and M[-1] <= M[-2] <= M[-3] <= M[-4] <= M[-5]
+            ):
+                break
             if len(F) >= self.max_features:
                 break
         selected_features = [self._original_features[i] for i in np.array(F)]
@@ -138,19 +153,19 @@ class CFSFeatureSelector(AbstractFeatureSelector):
 
     @staticmethod
     def hist(sx):
-        # Histogram from list of samples
+        """Compute histogram (probability distribution) from a list of samples."""
         d = dict()
         for s in sx:
             d[s] = d.get(s, 0) + 1
         return (float(z) / len(sx) for z in d.values())
 
     def entropyfromprobs(self, probs, base=2):
-        # Turn a normalized list of probabilities of discrete outcomes into entropy (base 2)
+        """Compute entropy from a probability distribution."""
         return -sum(map(self.elog, probs)) / log(base)
 
     @staticmethod
     def elog(x):
-        # for entropy, 0 log 0 = 0. but we get an error for putting log 0
+        """Compute x*log(x), returning 0 for x <= 0 or x >= 1."""
         if x <= 0.0 or x >= 1.0:
             return 0
         return x * log(x)
