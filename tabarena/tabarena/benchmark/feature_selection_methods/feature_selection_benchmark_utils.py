@@ -1,4 +1,5 @@
 """Utilities for the feature selection benchmark pipeline."""
+
 from __future__ import annotations
 
 import math
@@ -124,6 +125,37 @@ def get_fs_benchmark_preprocessing_pipelines(
     return pipelines
 
 
+def selector_and_config_from_string(*, preprocessing_name: str):
+    """Parse a preprocessing pipeline config string and return the corresponding feature selector instance and config."""
+    from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import (
+        ProxyModelConfig,
+    )
+    from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (
+        FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL,
+        get_feature_selector_from_name,
+    )
+
+    config = FSBenchConfig.from_string(preprocessing_name)
+    print(
+        f"Using preprocessing pipeline: {config.to_string()}\n"
+        f"  fs_method:   {config.fs_method}\n"
+        f"  budget:      index {config.budget_index} of {config.total_budget} (max_features resolved at fit time)\n"
+        f"  proxy_model: {config.proxy_model}\n"
+        f"  fs_time:     {config.fs_time}"
+    )
+
+    proxy_mode_config = None
+    if config.fs_method in FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL:
+        if config.proxy_model == "lgbm":
+            proxy_mode_config = ProxyModelConfig(model_hyperparameters={})
+        else:
+            raise ValueError(f"Proxy model '{config.proxy_model}' not recognised for pipeline '{preprocessing_name}'.")
+
+    max_features_fn = partial(_get_budget_feature_count, b=config.total_budget, idx=config.budget_index)
+    selector_cls = get_feature_selector_from_name(name=config.fs_method)
+    return selector_cls(max_features=max_features_fn, proxy_mode_config=proxy_mode_config), config
+
+
 def apply_fs_bench_preprocessing(*, preprocessing_name: str, experiment):
     """Apply a FSBench preprocessing pipeline to a deep-copied experiment.
 
@@ -144,40 +176,12 @@ def apply_fs_bench_preprocessing(*, preprocessing_name: str, experiment):
     experiment
         A new experiment object with the feature selection pipeline applied.
     """
-    from copy import deepcopy  # noqa: PLC0415
+    from copy import deepcopy
 
-    from autogluon.features.generators.drop_duplicates import DropDuplicatesFeatureGenerator  # noqa: PLC0415
-    from autogluon.features.generators.drop_unique import DropUniqueFeatureGenerator  # noqa: PLC0415
+    from autogluon.features.generators.drop_duplicates import DropDuplicatesFeatureGenerator
+    from autogluon.features.generators.drop_unique import DropUniqueFeatureGenerator
 
-    from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import (  # noqa: PLC0415
-        ProxyModelConfig,
-    )
-    from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (  # noqa: PLC0415
-        FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL,
-        get_feature_selector_from_name,
-    )
-
-    config = FSBenchConfig.from_string(preprocessing_name)
-    print(
-        f"Using preprocessing pipeline: {config.to_string()}\n"
-        f"  fs_method:   {config.fs_method}\n"
-        f"  budget:      index {config.budget_index} of {config.total_budget} (max_features resolved at fit time)\n"
-        f"  proxy_model: {config.proxy_model}\n"
-        f"  fs_time:     {config.fs_time}"
-    )
-
-    proxy_mode_config = None
-    if config.fs_method in FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL:
-        if config.proxy_model == "lgbm":
-            proxy_mode_config = ProxyModelConfig(model_hyperparameters={})
-        else:
-            raise ValueError(
-                f"Proxy model '{config.proxy_model}' not recognised for pipeline '{preprocessing_name}'."
-            )
-
-    max_features_fn = partial(_get_budget_feature_count, b=config.total_budget, idx=config.budget_index)
-    selector_cls = get_feature_selector_from_name(name=config.fs_method)
-    selector = selector_cls(max_features=max_features_fn, proxy_mode_config=proxy_mode_config)
+    selector, config = selector_and_config_from_string(preprocessing_name=preprocessing_name)
 
     # TODO: refactor: make this its own model agnostic preprocessing class instead.
     # Inject feature selection config into experiment
