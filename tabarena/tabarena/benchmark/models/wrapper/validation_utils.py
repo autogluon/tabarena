@@ -21,7 +21,7 @@ class TabArenaValidationProtocolExecMixin:
     """Logic to adjust to various validation data use cases for benchmarking."""
 
     tiny_data_num_folds: int = 5
-    tiny_data_num_repeats: int = 3
+    tiny_data_num_repeats: int = 5
     max_samples_for_tiny_data: int = 500
 
     def __init__(
@@ -36,6 +36,7 @@ class TabArenaValidationProtocolExecMixin:
         group_labels: GroupLabelTypes | None = None,
         split_time_horizon: SplitTimeHorizonTypes | None = None,
         split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
+        drop_group_columns: bool = True,
     ):
         """Mixin to handle validation protocol logic for benchmarking.
 
@@ -64,6 +65,10 @@ class TabArenaValidationProtocolExecMixin:
             Time horizon for deployment/test data
         split_time_horizon_unit:
             Unit for time horizon for deployment/test data (e.g. days, months, years)
+        drop_group_columns:
+            If True (default), drop group_on from the training (and tuning) data after
+            using them to compute the splits. These columns are used solely for defining
+            the validation protocol and should not be fed to the model as features.
         """
         self.use_task_specific_validation = use_task_specific_validation
         self.target_name = target_name
@@ -74,6 +79,7 @@ class TabArenaValidationProtocolExecMixin:
         self.group_labels = group_labels
         self.split_time_horizon = split_time_horizon
         self.split_time_horizon_unit = split_time_horizon_unit
+        self.drop_group_columns = drop_group_columns
 
     def resolve_validation_splits(
         self,
@@ -138,6 +144,7 @@ class TabArenaValidationProtocolExecMixin:
             )
 
         groups_data = None
+        group_labels = None
         if (self.time_on is not None) and (self.group_on is not None):
             raise NotImplementedError
 
@@ -152,9 +159,12 @@ class TabArenaValidationProtocolExecMixin:
                 f"\n\tnum_repeats set to 1!"
             )
             num_folds = num_folds_new
+            # Set group labels as needed for time split
+            group_labels = GroupLabelTypes.PER_SAMPLE
 
         if self.group_on is not None:
             groups_data = self.group_on_to_groups_data(X=X, group_on=self.group_on)
+            group_labels = self.group_labels
 
         if groups_data is not None:
             custom_splits = self._resolve_group_splits(
@@ -163,6 +173,7 @@ class TabArenaValidationProtocolExecMixin:
                 num_repeats=num_repeats,
                 stratify_on_data=stratify_on_data,
                 groups_data=groups_data,
+                group_labels=group_labels,
             )
 
         # Sanity checks for custom splits
@@ -234,6 +245,7 @@ class TabArenaValidationProtocolExecMixin:
         num_repeats: int,
         stratify_on_data: pd.Series | None,
         groups_data: pd.Series,
+        group_labels: GroupLabelTypes | None,
     ) -> list[tuple[np.ndarray, np.ndarray]]:
         """Create a group-based split given the specified group_on column(s).
         Then transform this into split indices for AutoGluon's group splitter logic.
@@ -251,13 +263,13 @@ class TabArenaValidationProtocolExecMixin:
             "Group column(s) contain NaN values, which is not allowed for group-wise splitting!"
         )
 
-        if self.group_labels not in [
+        if group_labels not in [
             GroupLabelTypes.PER_GROUP,
             GroupLabelTypes.PER_SAMPLE,
         ]:
-            raise ValueError(f"Invalid group_labels value: {self.group_labels}")
+            raise ValueError(f"Invalid group_labels value: {group_labels}")
 
-        if self.group_labels == GroupLabelTypes.PER_GROUP:
+        if group_labels == GroupLabelTypes.PER_GROUP:
             n_groups_in_data = groups_data.nunique()
             assert n_groups_in_data > 1, (
                 f"Need at least 2 unique groups for group-wise splitting, but got {n_groups_in_data} unique groups from column(s)!"
@@ -280,7 +292,7 @@ class TabArenaValidationProtocolExecMixin:
             n_splits=num_folds,
             n_repeats=num_repeats,
             test_size=None,
-            group_labels=self.group_labels.value,
+            group_labels=group_labels,
         )
         del splits_data
 
@@ -318,6 +330,20 @@ class TabArenaValidationProtocolExecMixin:
             time_data=time_data,
             goal_n_intervals=num_folds,
         )
+
+    def _get_group_columns_to_drop(self) -> list[str]:
+        """Return the group/time columns that should be dropped from the model input.
+
+        Only populated when ``drop_group_columns=True``.  The caller is responsible
+        for dropping these columns *after* the splits have been computed (the columns
+        are still needed by ``resolve_validation_splits``).
+        """
+        if not self.drop_group_columns:
+            return []
+        cols: list[str] = []
+        if self.group_on is not None:
+            cols += self.group_on if isinstance(self.group_on, list) else [self.group_on]
+        return cols
 
     def get_num_group_instances(self, X: pd.DataFrame):
         """Compute the number of rows that represent how much (multi-instance) samples

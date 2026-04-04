@@ -167,6 +167,9 @@ def convert_data_foundry_task_to_user_task(
         time_on=task_container.task_metadata.time_on,
         group_time_on=task_container.task_metadata.group_time_on,
         dataset_name=task_container.dataset_metadata.unique_name,
+        group_labels=task_container.task_metadata.group_labels,
+        split_time_horizon=task_container.experiment_metadata.time_horizon,
+        split_time_horizon_unit=task_container.experiment_metadata.time_horizon_unit,
     )
     user_task.save_local_openml_task(oml_task)
     return user_task

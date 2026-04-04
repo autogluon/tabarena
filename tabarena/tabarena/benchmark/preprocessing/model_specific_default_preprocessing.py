@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import TYPE_CHECKING
 
+import pandas as pd
 from autogluon.common.features.types import (
     R_BOOL,
     R_CATEGORY,
@@ -19,9 +19,6 @@ from autogluon.features.generators.category import CategoryFeatureGenerator
 from tabarena.benchmark.preprocessing.text_feature_generators import (
     TextEmbeddingDimensionalityReductionFeatureGenerator,
 )
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 class TabArenaModelSpecificPreprocessing:
@@ -88,7 +85,7 @@ class TabArenaModelSpecificPreprocessing:
           ``S_TEXT_EMBEDDING`` / ``S_TEXT_SPECIAL`` features, grouped by source column.
         """
         # TODO: figure out how to more easily pass IdentityFeatureGenerator / dont drop other columns.
-        bulk_kwargs = dict(  # noqa: C408
+        bulk_kwargs = dict(
             generators=[
                 # Cat/Ordinal Encoding
                 [
@@ -113,17 +110,35 @@ class TabArenaModelSpecificPreprocessing:
 
 
 class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):
-    """CategoryFeatureGenerator that does not treat each string column as a category."""
+    """CategoryFeatureGenerator that does not treat each string column as a category.
+
+
+    CategoryFeatureGenerator that preserves unseen categories instead of NaN.
+
+    At transform time, category values not seen during fit are mapped to the integer code
+    n (max_seen_code + 1) rather than being silently converted to NaN.  This is achieved
+    by two cooperating changes:
+
+    1. ``_generate_features_category`` replaces each unseen non-NaN value with the
+       sentinel ``_UNSEEN_CAT`` and adds that sentinel to the category list, so the
+       Categorical dtype keeps the value rather than encoding it as NaN.
+
+    2. ``TabArenaCategoryMemoryMinimizeFeatureGenerator`` (used as the post-generator
+       instead of the plain ``CategoryMemoryMinimizeFeatureGenerator``) detects codes
+       >= n at transform time and maps them to the integer n.
+    """
+
+    def __init__(self, **kwargs) -> None:
+        # Disable memory minimization to keep the original cat dtypes and pass them to the model
+        # This avoids issues where we have to count up for unseen categories and leave it to the model to handle.
+        kwargs.pop("minimize_memory", None)
+        super().__init__(minimize_memory=False, **kwargs)
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
         X, type_group_map_special = super()._fit_transform(X=X, **kwargs)
 
         text_as_category_features = type_group_map_special.pop("text_as_category", None)
-        X = (
-            X.drop(columns=text_as_category_features)
-            if text_as_category_features
-            else X
-        )
+        X = X.drop(columns=text_as_category_features) if text_as_category_features else X
 
         return X, type_group_map_special
 
@@ -139,6 +154,31 @@ class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):
             self._remove_features_in(text_features)
 
         return super()._generate_category_map(X=X)
+
+    def _generate_features_category(self, X: pd.DataFrame) -> pd.DataFrame:
+        if self.features_in:
+            X_category = dict()
+            if self.category_map is not None:
+                for column, column_map in self.category_map.items():
+                    col_values = X[column]
+                    known = set(column_map)
+                    # Detect non-NaN values absent from the train-time category set.
+                    is_unseen = col_values.notna() & ~col_values.astype(object).isin(known)
+                    if is_unseen.any():
+                        # Keep the original unseen values by extending the category list with them.
+                        col_values = col_values.astype(object)
+                        unseen_vals = col_values[is_unseen].unique().tolist()
+                        cats: pd.Index = pd.Index(list(column_map) + unseen_vals, dtype=object)
+                    else:
+                        cats = column_map
+                    X_category[column] = pd.Categorical(col_values, categories=cats)
+                X_category = pd.DataFrame(X_category, index=X.index)
+                if self._fillna_map is not None:
+                    for column, col_fill in self._fillna_map.items():
+                        X_category[column] = X_category[column].fillna(col_fill)
+        else:
+            X_category = pd.DataFrame(index=X.index)
+        return X_category
 
     @staticmethod
     def get_default_infer_features_in_args() -> dict:

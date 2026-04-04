@@ -70,7 +70,7 @@ class PathSetup:
         This should point to the script that runs the benchmark for TabArena.
         """
         return self.base_path + (
-            f"code/{self.tabarena_repo_name}/tabarena"
+            f"code/{self.tabarena_repo_name}"
             f"/tabflow_slurm/run_tabarena_experiment.py"
         )
 
@@ -82,7 +82,7 @@ class PathSetup:
         {self._safe_benchmark_name}.yaml".
         """
         return (
-            f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/benchmark_configs_"
+            f"code/{self.tabarena_repo_name}/tabflow_slurm/benchmark_configs_"
         )
 
     def get_slurm_job_json_path(self, safe_benchmark_name: str) -> str:
@@ -112,7 +112,7 @@ class PathSetup:
         """Path to the SLURM script to run."""
         return (
             self.base_path
-            + f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/{script_name}"
+            + f"code/{self.tabarena_repo_name}/tabflow_slurm/{script_name}"
         )
 
 
@@ -156,7 +156,7 @@ class BenchmarkSetup2026:
     benchmark_name: str
     """Unique name of the benchmark; determines where output artifacts are stored."""
 
-    task_metadata: pd.DataFrame | list[TabArenaTaskMetadata] | str | Path
+    task_metadata: Literal["tabarena-v0.1"] | pd.DataFrame | list[TabArenaTaskMetadata] | str | Path
     """Metadat that defines the tasks to benchmark.
 
     If str, we assume it is the path to a CSV file, which we load as DataFrame.
@@ -297,6 +297,9 @@ class BenchmarkSetup2026:
     dynamic_tabarena_validation_protocol: bool = True
     """If True, the validation data will be adapted dynamically based on the task.
     WARNING: this can overwrite the configured validation of a configuration!"""
+    shuffle_features: bool = True
+    """Whether to shuffle the features of the datasets. Only here for backward compatibility 
+    with the original TabArena setup, but not recommended to change."""
     parallel_benchmark_name: str | None = None
     """Set this is to some string value to make sure you can run parallel
     jobs for the same benchmark name.This ensures that the config and job .yaml/.json
@@ -432,6 +435,8 @@ class BenchmarkSetup2026:
                 mem = f"--mem-per-cpu={memory_limit // num_cpus}G"
         else:
             mem = f"--mem={memory_limit}G"
+        if memory_limit is None:
+            mem = mem[:-1]
 
         return f"{cmd_arg} {time_in_h} {cpus} {mem} {slurm_logs} {slurm_script_path}"
 
@@ -463,6 +468,76 @@ class BenchmarkSetup2026:
         """Function to parse and filter the task metadata for jobs we want to run."""
         # Parse task metadata
         task_metadata = self.task_metadata
+
+        if isinstance(task_metadata, str) and (task_metadata == "tabarena-v0.1"):
+            print("Loading task metadata from TabArena v0.1 and converting to new TabArenaTaskMetadata fromat...")
+            from tabarena.nips2025_utils.fetch_metadata import (
+                load_curated_task_metadata,
+            )
+
+            metadata = load_curated_task_metadata()
+            task_metadata = []
+            for row in metadata.itertuples():
+                num_classes = row.num_classes
+                num_instances = row.num_instances
+                num_features = row.num_features
+
+                n_repeats = row.tabarena_num_repeats
+                n_folds = row.num_folds
+
+                metric_map = {
+                    "binary": "roc_auc",
+                    "multiclass": "log_loss",
+                    "regression": "rmse",
+                }
+                eval_metric = metric_map[row.problem_type]
+
+                for repeat_i in range(n_repeats):
+                    for fold_i in range(n_folds):
+
+                        split_index = SplitMetadata.get_split_index(repeat_i=repeat_i, fold_i=fold_i)
+                        splits_metadata = {
+                            split_index:
+                            SplitMetadata(
+                                repeat=repeat_i,
+                                fold=fold_i,
+                                num_instances_train=num_instances * 2/3,
+                                num_instances_test=num_instances * 1/3,
+                                num_instance_groups_train=num_instances * 2/3,
+                                num_instance_groups_test=num_instances * 1/3,
+                                num_classes_train=num_classes,
+                                num_classes_test=num_classes,
+                                num_features_train=num_features,
+                                num_features_test=num_features,
+                            )
+                        }
+
+                        task_metadata.append(
+                            TabArenaTaskMetadata(
+                                task_id_str=row.task_id,
+                                dataset_name=row.dataset_name,
+                                tabarena_task_name=row.dataset_name,
+                                problem_type=row.problem_type,
+                                is_classification=row.is_classification,
+                                target_name=row.target_feature,
+                                stratify_on=row.target_feature if row.is_classification else None,
+                                split_time_horizon=None,
+                                split_time_horizon_unit=None,
+                                time_on=None,
+                                group_on=None,
+                                group_time_on=None,
+                                group_labels=None,
+                                multiclass_max_n_classes_over_splits=num_classes,
+                                multiclass_min_n_classes_over_splits=num_classes,
+                                class_consistency_over_splits=True,
+                                num_instances=num_instances,
+                                num_features=num_features,
+                                num_instance_groups=num_instances,
+                                num_classes=num_classes,
+                                splits_metadata=splits_metadata,
+                                eval_metric=eval_metric,
+                            )
+                        )
         if isinstance(task_metadata, (str, Path)):
             print(f"Loading task metadata from {task_metadata}...")
             task_metadata = pd.read_csv(task_metadata, index_col=False)
@@ -557,6 +632,7 @@ class BenchmarkSetup2026:
             func_kwargs={
                 "output_dir": self.path_setup.get_output_path(self.benchmark_name),
                 "models_to_constraints": self.models_to_constraints,
+                "ignore_cache": self.ignore_cache,
             },
             track_progress=True,
             tqdm_kwargs={"desc": "Checking Cache and Filter Invalid Jobs"},
@@ -662,7 +738,7 @@ class BenchmarkSetup2026:
         experiments_lst = []
         method_kwargs = {
             "init_kwargs": {"verbosity": self.verbosity},
-            "shuffle_features": True,
+            "shuffle_features": self.shuffle_features,
         }
         if self.model_artifacts_base_path is not None:
             method_kwargs["init_kwargs"]["default_base_path"] = (
@@ -911,6 +987,7 @@ def should_run_job(
     input_data: dict,
     output_dir: str,
     models_to_constraints: dict,
+    ignore_cache: bool,
 ) -> bool:
     """Check if a job should be run based on the configuration and cache.
     Must be not a class function to be used with Ray.
@@ -941,6 +1018,9 @@ def should_run_job(
         models_to_constraints=models_to_constraints,
     ):
         return False
+
+    if ignore_cache:
+        return True
 
     return not check_cache_hit(
         result_dir=output_dir,
