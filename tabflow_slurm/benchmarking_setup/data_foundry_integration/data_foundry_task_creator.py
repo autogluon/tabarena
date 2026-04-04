@@ -136,8 +136,8 @@ def convert_data_foundry_task_to_user_task(
 
     # Resolve eval metric
     eval_metric = task_container.task_metadata.objective_metric_name
-    if evaluation_metrics is None:
-        allowed_eval_metrics = evaluation_metrics[problem_type]
+    if evaluation_metrics is not None:
+        allowed_eval_metrics = evaluation_metrics[task_container.task_metadata.problem_type]
         fallback_metric = allowed_eval_metrics[0]
         if eval_metric not in allowed_eval_metrics:
             logger.info(
