@@ -1,10 +1,11 @@
+"""Markov blanket feature selection."""
 from __future__ import annotations
 
 import logging
 import time
 
 import numpy as np
-import pandas as pd  # noqa: TC002
+import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold, cross_val_score

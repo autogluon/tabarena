@@ -1,3 +1,4 @@
+"""OneR feature selection."""
 from __future__ import annotations
 
 import logging
@@ -14,7 +15,9 @@ logger = logging.getLogger(__name__)
 class OneRFeatureSelector(AbstractFeatureSelector):
     """OneR Feature Selection.
 
-    Reference: Holte, Robert C. "Very simple classification rules perform well on most commonly used datasets." Machine learning 11.1 (1993): 63-90.
+    Reference: Holte, Robert C. "Very simple classification rules
+    perform well on most commonly used datasets." Machine learning
+    11.1 (1993): 63-90.
     Implementation by Bastian Schäfer
     Changes to the algorithm in the paper by Bastian Schäfer:
                            - Add time constraint
@@ -23,7 +26,9 @@ class OneRFeatureSelector(AbstractFeatureSelector):
     name = "OneRFeatureSelector"
     feature_scoring_method: bool = False
 
-    def _fit_feature_selection(self, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
+    def _fit_feature_selection(  # noqa: C901, PLR0912
+        self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None,
+    ) -> dict[str, float]:
         start_time = time.monotonic()
         hypotheses = {}
         class_labels = sorted(y.unique())
@@ -68,7 +73,6 @@ class OneRFeatureSelector(AbstractFeatureSelector):
         # 2. Determine default class and its accuracy (default_class_accuracy is only used for 1R*)
         total_per_class = count_cva.sum(axis=(1, 2))
         default_class_idx = np.argmax(total_per_class)
-        total_per_class[default_class_idx] / len(X.index)
 
         # 3. Transform numerical features into categorical features by binning them
         numerical_cols = X.select_dtypes(include=["number"]).columns.tolist()
@@ -125,10 +129,12 @@ class OneRFeatureSelector(AbstractFeatureSelector):
 
     @staticmethod
     def class_value_counts(X, y, feature_col, class_labels):
+        """Compute class value counts as a crosstab for a given feature column."""
         return pd.crosstab(X[feature_col], y).reindex(columns=class_labels, fill_value=0)
 
     @staticmethod
     def create_bins(X_col, count_cva, feature_idx, value_to_idx, small=3):
+        """Create bins for a numerical feature column based on optimal class boundaries."""
         sorted_values = sorted(X_col.unique())
 
         def optimal_class(value):
@@ -160,10 +166,7 @@ class OneRFeatureSelector(AbstractFeatureSelector):
         result = X_col.astype("object").copy()
         n_intervals = len(intervals)
         for i, (low, high) in enumerate(intervals):
-            if i < n_intervals - 1:  # Not last interval
-                mask = (X_col >= low) & (X_col < high)
-            else:  # Last interval: closed='right'
-                mask = X_col >= low
+            mask = (X_col >= low) & (X_col < high) if i < n_intervals - 1 else X_col >= low
             result[mask] = bin_labels[i]
         return result
 
@@ -173,7 +176,7 @@ class OneRFeatureSelector(AbstractFeatureSelector):
         accuracies = {}
         for feature_col, hypothesis in hypotheses.items():
             # Vectorized prediction
-            predicted = X[feature_col].astype(str).map(lambda v: hypothesis.get(v, hypothesis["missing"]))
+            predicted = X[feature_col].astype(str).map(lambda v, h=hypothesis: h.get(v, h["missing"]))
             correct = (predicted == y).sum()
             accuracies[feature_col] = correct / len(X)
         return accuracies

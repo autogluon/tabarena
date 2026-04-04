@@ -1,3 +1,4 @@
+"""Utilities for the feature selection benchmark pipeline."""
 from __future__ import annotations
 
 import math
@@ -63,7 +64,7 @@ def get_num_selected_features(d: int, b: int, thr: int = 100) -> list[int]:
     thr : int
         Threshold separating the uniform (d <= thr) from the exponential (d > thr) regime.
 
-    Returns
+    Returns:
     -------
     list[int]
         List of b feature counts in increasing order.
@@ -83,6 +84,7 @@ def get_fs_benchmark_preprocessing_pipelines(
     proxy_model_config: list[str],
     time_limit: list[int],
     total_budget: int,
+    *,
     include_default: bool = True,
 ) -> list[str]:
     """Build the list of preprocessing pipeline config strings for the feature selection benchmark.
@@ -100,7 +102,7 @@ def get_fs_benchmark_preprocessing_pipelines(
     include_default : bool
         If True, append ``"default"`` as the last pipeline entry.
 
-    Returns
+    Returns:
     -------
     list[str]
         Ordered list of pipeline config strings.
@@ -137,17 +139,20 @@ def apply_fs_bench_preprocessing(*, preprocessing_name: str, experiment):
     experiment :
         A ``YamlSingleExperimentSerializer``-parsed experiment object (will be deep-copied).
 
-    Returns
+    Returns:
     -------
     experiment
         A new experiment object with the feature selection pipeline applied.
     """
-    from copy import deepcopy
+    from copy import deepcopy  # noqa: PLC0415
 
-    from autogluon.features.generators.drop_duplicates import DropDuplicatesFeatureGenerator
-    from autogluon.features.generators.drop_unique import DropUniqueFeatureGenerator
-    from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import ProxyModelConfig
-    from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (
+    from autogluon.features.generators.drop_duplicates import DropDuplicatesFeatureGenerator  # noqa: PLC0415
+    from autogluon.features.generators.drop_unique import DropUniqueFeatureGenerator  # noqa: PLC0415
+
+    from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import (  # noqa: PLC0415
+        ProxyModelConfig,
+    )
+    from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (  # noqa: PLC0415
         FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL,
         get_feature_selector_from_name,
     )
@@ -174,13 +179,13 @@ def apply_fs_bench_preprocessing(*, preprocessing_name: str, experiment):
     selector_cls = get_feature_selector_from_name(name=config.fs_method)
     selector = selector_cls(max_features=max_features_fn, proxy_mode_config=proxy_mode_config)
 
-
     # TODO: refactor: make this its own model agnostic preprocessing class instead.
     # Inject feature selection config into experiment
     new_experiment = deepcopy(experiment)
     fit_kwargs = new_experiment.method_kwargs["fit_kwargs"]
     prep_pipeline = fit_kwargs.get("_feature_generator_kwargs", {})
-    prep_pipeline["post_generators"] = prep_pipeline.get("post_generators", []) + [
+    prep_pipeline["post_generators"] = [
+        *prep_pipeline.get("post_generators", []),
         # Default post generators
         DropUniqueFeatureGenerator(),
         DropDuplicatesFeatureGenerator(post_drop_duplicates=False),

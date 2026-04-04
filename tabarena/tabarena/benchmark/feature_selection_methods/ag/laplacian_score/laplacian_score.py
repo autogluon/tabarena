@@ -1,15 +1,18 @@
+"""Laplacian score feature selection."""
 from __future__ import annotations
 
 import logging
-import time
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 from scipy.sparse import csc_matrix, diags
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OrdinalEncoder, normalize
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +22,11 @@ class LaplacianScoreFeatureSelector(AbstractFeatureSelector):
 
     Reference: He, Xiaofei, Deng Cai, and Partha Niyogi. "Laplacian score for feature selection." Advances in neural
     information processing systems 18 (2005).
-    Implementation Source: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/similarity_based/lap_score.py#L6
-                           The author of the code is Li, Jundong, Associate Professor at the University of Virginia and
-                           main-author of 'Feature selection: A data perspective' (2017).
+    Implementation Source:
+    https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/similarity_based/lap_score.py#L6
+    The author of the code is Li, Jundong, Associate Professor at the
+    University of Virginia and main-author of
+    'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
                            - Remove overhead code for the construction of the weight matrix
@@ -33,14 +38,15 @@ class LaplacianScoreFeatureSelector(AbstractFeatureSelector):
     name = "LaplacianScoreFeatureSelector"
     feature_scoring_method: bool = True
 
-    def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
+    def _fit_feature_scoring(
+        self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None,  # noqa: ARG002
+    ) -> dict[str, float]:
         """This function implements the laplacian score feature selection, steps are as follows:
         1. Construct the affinity matrix W if it is not specified
         2. For the r-th feature, we define fr = X(:,r), D = diag(W*ones), ones = [1,...,1]', L = D - W
         3. Let fr_hat = fr - (fr'*D*ones)*ones/(ones'*D*ones)
         4. Laplacian score for the r-th feature is score = (fr_hat'*L*fr_hat)/(fr_hat'*D*fr_hat).
         """
-        start_time = time.monotonic()
         columns = X.columns
         X = X.to_numpy()
         data_encoder = OrdinalEncoder()

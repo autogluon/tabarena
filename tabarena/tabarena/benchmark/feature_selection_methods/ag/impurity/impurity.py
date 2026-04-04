@@ -1,3 +1,4 @@
+"""Impurity-based feature selection."""
 from __future__ import annotations
 
 import logging
@@ -17,9 +18,16 @@ logger = logging.getLogger(__name__)
 class ImpurityFeatureSelector(AbstractFeatureSelector):
     """Impurity Feature Selection.
 
-    Reference: (this is not the original source, even if it is cited a lot) Duch, W. (2006). Filter Methods. In: Guyon, I., Nikravesh, M., Gunn, S., Zadeh, L.A. (eds) Feature Extraction. Studies in Fuzziness and Soft Computing, vol 207. Springer, Berlin, Heidelberg. https://doi.org/10.1007/978-3-540-35488-8_4.
-    Implementation Source: https://github.com/KhaosResearch/CMF-AGAwER/blob/d24e61e78ac197ad75342e8f4be5d63d17bd9e7a/CMF-AGAwER.py#L59
-                           The author of the code is Hossein Nematzadeh, Associate Professor at the University of Malaga and main-author of 'A review of feature selection methods based on meta-heuristic algorithms' (2025).
+    Reference: (this is not the original source, even if it is cited a
+    lot) Duch, W. (2006). Filter Methods. In: Guyon, I., Nikravesh, M.,
+    Gunn, S., Zadeh, L.A. (eds) Feature Extraction. Studies in
+    Fuzziness and Soft Computing, vol 207. Springer, Berlin, Heidelberg.
+    https://doi.org/10.1007/978-3-540-35488-8_4.
+    Implementation Source:
+    https://github.com/KhaosResearch/CMF-AGAwER/blob/d24e61e78ac197ad75342e8f4be5d63d17bd9e7a/CMF-AGAwER.py#L59
+    The author of the code is Hossein Nematzadeh, Associate Professor
+    at the University of Malaga and main-author of 'A review of feature
+    selection methods based on meta-heuristic algorithms' (2025).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
                            - Use pandas instead of numpy and avoid conversion
@@ -47,6 +55,7 @@ class ImpurityFeatureSelector(AbstractFeatureSelector):
 
     @staticmethod
     def classification_error_impurity(arr, time_limit, start_time):
+        """Compute classification error impurity for a sorted label array."""
         unique_elements = np.unique(arr)
         w_values = []
         for current_element in unique_elements:

@@ -1,12 +1,16 @@
+"""Gini index feature selection."""
 from __future__ import annotations
 
 import logging
 import time
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +20,11 @@ class GiniFeatureSelector(AbstractFeatureSelector):
 
     Reference: Gini, Corrado W. "Variability and mutability, contribution to the study of statistical distributions and
     relations." Studi Economico-Giuridici della R. Universita de Cagliari (1912).
-    Implementation Source: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/statistical_based/gini_index.py#L4.
-                           The author of the code is Li, Jundong, Associate Professor at the University of Virginia and
-                           main-author of 'Feature selection: A data perspective' (2017).
+    Implementation Source:
+    https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/statistical_based/gini_index.py#L4.
+    The author of the code is Li, Jundong, Associate Professor at the
+    University of Virginia and main-author of
+    'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
                            - Use pandas instead of numpy and avoid conversion
@@ -82,19 +88,19 @@ class GiniFeatureSelector(AbstractFeatureSelector):
                         t2_left = np.power(t1_left, 2)
                         gini_left += t2_left
                     if len(right_y) != 0:
-                        # t1_right is probability of occurrence of k in left_y
+                        # t1_right is probability of occurrence of k in right_y
                         t1_right = np.true_divide(len(right_y[right_y == k]), len(right_y))
                         t2_right = np.power(t1_right, 2)
                         gini_right += t2_right
 
-                    gini_left = 1 - gini_left
-                    gini_right = 1 - gini_right
+                gini_left = 1 - gini_left
+                gini_right = 1 - gini_right
 
-                    # weighted average of len(left_y) and len(right_y)
-                    t1_gini = len(left_y) * gini_left + len(right_y) * gini_right
+                # weighted average of len(left_y) and len(right_y)
+                t1_gini = len(left_y) * gini_left + len(right_y) * gini_right
 
-                    # compute the gini_index for the i-th feature
-                    value = np.true_divide(t1_gini, len(y))
+                # compute the gini_index for the i-th feature
+                value = np.true_divide(t1_gini, len(y))
 
-                    gini[i] = min(gini[i], value)
+                gini[i] = min(gini[i], value)
         return dict(zip(X.columns, gini))

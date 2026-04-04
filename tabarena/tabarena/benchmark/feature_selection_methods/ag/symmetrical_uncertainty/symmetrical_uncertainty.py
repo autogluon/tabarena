@@ -1,3 +1,4 @@
+"""Symmetrical uncertainty feature selection."""
 from __future__ import annotations
 
 import logging
@@ -18,14 +19,29 @@ logger = logging.getLogger(__name__)
 class SymmetricalUncertaintyFeatureSelector(AbstractFeatureSelector):
     """Symmetrical Uncertainty Feature Selection.
 
-    Reference: (this is not the original source, even if it is cited a lot) Flannery, Brian P., et al. "Numerical recipes in C." Press Syndicate of the University of Cambridge, New York 24.78 (1992): 36.
-    Implementation Inspiration: Information Gain code from https://github.com/Thijsvanede/info_gain/blob/master/info_gain/info_gain.py & Entropy code from https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/information_theoretical_based.
-                           The author of the Information Gain code is Thijs van Ede, Associate Professor at the University of Twente and main-author of 'FlowPrint: Semi-Supervised Mobile-App Fingerprinting on Encrypted Network Traffic' (2020), where they used information gain
-                           The author of the Entropy code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
+    Reference: (this is not the original source, even if it is cited a
+    lot) Flannery, Brian P., et al. "Numerical recipes in C." Press
+    Syndicate of the University of Cambridge, New York 24.78
+    (1992): 36.
+    Implementation Inspiration: Information Gain code from
+    https://github.com/Thijsvanede/info_gain/blob/
+    master/info_gain/info_gain.py
+    & Entropy code from
+    https://github.com/jundongl/scikit-feature/blob/
+    48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/
+    function/information_theoretical_based.
+    The author of the Information Gain code is Thijs van Ede, Associate
+    Professor at the University of Twente and main-author of
+    'FlowPrint: Semi-Supervised Mobile-App Fingerprinting on Encrypted
+    Network Traffic' (2020), where they used information gain
+    The author of the Entropy code is Li, Jundong, Associate Professor
+    at the University of Virginia and main-author of
+    'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
-                           - Adapt Information Gain and Entropy Code to Symmetrical Uncertainty algorithm presented in the paper
-                           - Add time constraint
-                           - Use pandas instead of numpy and avoid conversion
+        - Adapt Information Gain and Entropy Code to Symmetrical
+          Uncertainty algorithm presented in the paper
+        - Add time constraint
+        - Use pandas instead of numpy and avoid conversion
     """
 
     name = "SymmetricalUncertaintyFeatureSelector"
@@ -41,7 +57,6 @@ class SymmetricalUncertaintyFeatureSelector(AbstractFeatureSelector):
         n_features = len(X.columns)
         SU = np.zeros(n_features, dtype=float)
 
-        # H(Y)
         H_y = self.entropyd(y.value_counts(dropna=False).values)
 
         for i in range(n_features):
@@ -53,7 +68,6 @@ class SymmetricalUncertaintyFeatureSelector(AbstractFeatureSelector):
                 )
                 break
             f = X.iloc[:, i]
-            # H(X)
             H_x = self.entropyd(f.value_counts(dropna=False).values)
 
             # H(Y|X) = sum_v p(v) * H(Y | X=v)
@@ -84,19 +98,19 @@ class SymmetricalUncertaintyFeatureSelector(AbstractFeatureSelector):
 
     @staticmethod
     def hist(sx):
-        # Histogram from list of samples
+        """Compute histogram (probability distribution) from a list of samples."""
         d = dict()
         for s in sx:
             d[s] = d.get(s, 0) + 1
         return (float(z) / len(sx) for z in d.values())
 
     def entropyfromprobs(self, probs, base=2):
-        # Turn a normalized list of probabilities of discrete outcomes into entropy (base 2)
+        """Compute entropy from a probability distribution."""
         return -sum(map(self.elog, probs)) / log(base)
 
     @staticmethod
     def elog(x):
-        # for entropy, 0 log 0 = 0. but we get an error for putting log 0
+        """Compute x*log(x), returning 0 for x <= 0 or x >= 1."""
         if x <= 0.0 or x >= 1.0:
             return 0
         return x * log(x)

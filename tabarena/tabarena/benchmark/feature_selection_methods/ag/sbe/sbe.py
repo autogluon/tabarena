@@ -1,3 +1,4 @@
+"""Sequential backward elimination feature selection."""
 from __future__ import annotations
 
 import logging
@@ -17,7 +18,8 @@ logger = logging.getLogger(__name__)
 class SequentialBackwardEliminationFeatureSelector(AbstractFeatureSelector):
     """SequentialBackwardElimination Feature Selection.
 
-    Implementation Source: Algorithm implemented by Bastian Schäfer (including time constraint using the autogluon model)
+    Implementation Source: Algorithm implemented by Bastian Schäfer
+    (including time constraint using the autogluon model)
     """
 
     name = "SequentialBackwardEliminationFeatureSelector"

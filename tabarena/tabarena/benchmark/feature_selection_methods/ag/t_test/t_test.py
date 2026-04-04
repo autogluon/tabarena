@@ -1,7 +1,7 @@
+"""t-test feature selection."""
 from __future__ import annotations
 
 import logging
-import sys
 import time
 from typing import TYPE_CHECKING
 
@@ -15,12 +15,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class tTestFeatureSelector(AbstractFeatureSelector):
+class tTestFeatureSelector(AbstractFeatureSelector):  # noqa: N801
     """t-Test Feature Selection.
 
-    Reference: Peck R, Devore JL. Statistics: the exploration & analysis of data. Cengage learning. 2011; pp.516–9.
-    Implementation Source: https://github.com/jundongl/scikit-feature/blob/master/skfeature/function/statistical_based/t_score.py
-                           The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
+    Reference: Peck R, Devore JL. Statistics: the exploration & analysis of data. Cengage learning. 2011; pp.516-9.
+    Implementation Source:
+    https://github.com/jundongl/scikit-feature/blob/
+    master/skfeature/function/statistical_based/t_score.py
+    The author of the code is Li, Jundong, Associate Professor at the
+    University of Virginia and main-author of
+    'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
                            - Use pandas instead of numpy and avoid conversion
@@ -60,6 +64,5 @@ class tTestFeatureSelector(AbstractFeatureSelector):
                 t1 = (std1**2) / n1
                 F[i] = t / np.sqrt(t0 + t1)
         else:
-            print("y should be guaranteed to a binary class vector")
-            sys.exit(0)
+            raise ValueError("tTestFeatureSelector requires a binary class vector (exactly 2 classes).")
         return dict(zip(columns, F))

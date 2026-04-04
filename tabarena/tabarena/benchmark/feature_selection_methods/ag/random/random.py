@@ -1,3 +1,6 @@
+"""Random feature selection."""
+from __future__ import annotations
+
 import logging
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
@@ -10,5 +13,5 @@ class RandomFeatureSelector(AbstractFeatureSelector):
 
     name = "RandomFeatureSelector"
 
-    def _fit_feature_selection(self, **kwargs) -> list[str]:
+    def _fit_feature_selection(self, **kwargs) -> list[str]:  # noqa: ARG002
         return self.fallback_feature_selection()
