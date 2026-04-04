@@ -68,9 +68,7 @@ class DataFoundryAdapter:
         """
         task_metadata = None
 
-        for data_foundry_uri in tqdm(
-            self.data_foundry_artifacts, desc="Caching tasks and saving metadata..."
-        ):
+        for data_foundry_uri in tqdm(self.data_foundry_artifacts, desc="Caching tasks and saving metadata..."):
             task = convert_data_foundry_task_to_user_task(
                 path_to_local_task=self.path_to_data_foundry_cache / data_foundry_uri,
                 evaluation_metrics=self.evaluation_metrics,
@@ -89,9 +87,7 @@ class DataFoundryAdapter:
             if task_metadata is None:
                 task_metadata = new_task_metadata
             else:
-                task_metadata = pd.concat(
-                    [task_metadata, new_task_metadata], ignore_index=True
-                )
+                task_metadata = pd.concat([task_metadata, new_task_metadata], ignore_index=True)
 
         self._user_tasks_metadata = task_metadata
 
@@ -136,9 +132,7 @@ def convert_data_foundry_task_to_user_task(
     elif task_container.task_metadata.problem_type in ProblemTypeClassification:
         problem_type = "classification"
     else:
-        raise ValueError(
-            f"Unknown problem type {task_container.task_metadata.problem_type}"
-        )
+        raise ValueError(f"Unknown problem type {task_container.task_metadata.problem_type}")
 
     # Resolve eval metric
     eval_metric = task_container.task_metadata.objective_metric_name
@@ -180,6 +174,7 @@ def download_data_foundry_datasets(
     benchmark_suite_name: str,
     data_foundry_artifacts: list[str],
     data_foundry_cache: Path,
+    openml_cache: str | Path | None = None,
 ):
     """Prepare data foundry artifacts for TabArena usage.
 
@@ -198,12 +193,23 @@ def download_data_foundry_datasets(
         Each identifier should be in the format "dataset_name/artifact_uuid".
     data_foundry_cache : Path
         The path to the cache directory where to store data foundry data.
+    openml_cache: str | None
+        If not None, sets the OpenML cache directory to the specified path for
+        downloading and caching TabArenaOpenML tasks.
 
     Returns:
     -------
     pd.DataFrame
         A DataFrame containing metadata about the created TabArena UserTasks.
     """
+    if openml_cache is not None:
+        import os
+
+        import openml
+        print(f"Setting OpenML cache directory to: {openml_cache}")
+
+        os.environ[openml.config.OPENML_CACHE_DIR_ENV_VAR] = str(openml_cache)
+
     print("Preprocessing data foundry datasets for TabArena...")
     task_metadata = DataFoundryAdapter(
         data_foundry_artifacts=data_foundry_artifacts,
@@ -215,9 +221,7 @@ def download_data_foundry_datasets(
     task_metadata.to_csv(path_to_metadata, index=False)
 
 
-def get_metadata_for_benchmark_suite(
-    benchmark_suite_name: str, data_foundry_cache: Path
-) -> Path:
+def get_metadata_for_benchmark_suite(benchmark_suite_name: str, data_foundry_cache: Path) -> Path:
     """Get the path to the metadata CSV file for a given benchmark suite.
 
     Parameters
@@ -235,8 +239,7 @@ def get_metadata_for_benchmark_suite(
     path_to_metadata = data_foundry_cache / f"{benchmark_suite_name}_tasks_metadata.csv"
     if not path_to_metadata.exists():
         raise FileNotFoundError(
-            f"Metadata file {path_to_metadata} does not exist. "
-            "Please run download_data_foundry_datasets first."
+            f"Metadata file {path_to_metadata} does not exist. " "Please run download_data_foundry_datasets first."
         )
     return path_to_metadata
 
