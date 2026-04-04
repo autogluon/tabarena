@@ -1,3 +1,5 @@
+"""Utilities for the feature selection benchmark pipeline."""
+
 from __future__ import annotations
 
 import math
@@ -63,7 +65,7 @@ def get_num_selected_features(d: int, b: int, thr: int = 100) -> list[int]:
     thr : int
         Threshold separating the uniform (d <= thr) from the exponential (d > thr) regime.
 
-    Returns
+    Returns:
     -------
     list[int]
         List of b feature counts in increasing order.
@@ -83,6 +85,7 @@ def get_fs_benchmark_preprocessing_pipelines(
     proxy_model_config: list[str],
     time_limit: list[int],
     total_budget: int,
+    *,
     include_default: bool = True,
 ) -> list[str]:
     """Build the list of preprocessing pipeline config strings for the feature selection benchmark.
@@ -100,7 +103,7 @@ def get_fs_benchmark_preprocessing_pipelines(
     include_default : bool
         If True, append ``"default"`` as the last pipeline entry.
 
-    Returns
+    Returns:
     -------
     list[str]
         Ordered list of pipeline config strings.
@@ -122,31 +125,11 @@ def get_fs_benchmark_preprocessing_pipelines(
     return pipelines
 
 
-def apply_fs_bench_preprocessing(*, preprocessing_name: str, experiment):
-    """Apply a FSBench preprocessing pipeline to a deep-copied experiment.
-
-    Parses ``preprocessing_name`` into an :class:`FSBenchConfig`, attaches the
-    corresponding feature selector (with a deferred ``max_features`` callable),
-    and sets the preprocessing time limit on the experiment.
-
-    Parameters
-    ----------
-    preprocessing_name : str
-        Config string of the form
-        ``FSBench__<fs_method>__<total_budget>__<budget_index>__<proxy_model>__<fs_time>``.
-    experiment :
-        A ``YamlSingleExperimentSerializer``-parsed experiment object (will be deep-copied).
-
-    Returns
-    -------
-    experiment
-        A new experiment object with the feature selection pipeline applied.
-    """
-    from copy import deepcopy
-
-    from autogluon.features.generators.drop_duplicates import DropDuplicatesFeatureGenerator
-    from autogluon.features.generators.drop_unique import DropUniqueFeatureGenerator
-    from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import ProxyModelConfig
+def selector_and_config_from_string(*, preprocessing_name: str):
+    """Parse a preprocessing pipeline config string and return the corresponding feature selector instance and config."""
+    from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import (
+        ProxyModelConfig,
+    )
     from tabarena.benchmark.feature_selection_methods.feature_selection_methods_register import (
         FEATURE_SELECTION_METHODS_WITH_PROXY_MODEL,
         get_feature_selector_from_name,
@@ -166,21 +149,47 @@ def apply_fs_bench_preprocessing(*, preprocessing_name: str, experiment):
         if config.proxy_model == "lgbm":
             proxy_mode_config = ProxyModelConfig(model_hyperparameters={})
         else:
-            raise ValueError(
-                f"Proxy model '{config.proxy_model}' not recognised for pipeline '{preprocessing_name}'."
-            )
+            raise ValueError(f"Proxy model '{config.proxy_model}' not recognised for pipeline '{preprocessing_name}'.")
 
     max_features_fn = partial(_get_budget_feature_count, b=config.total_budget, idx=config.budget_index)
     selector_cls = get_feature_selector_from_name(name=config.fs_method)
-    selector = selector_cls(max_features=max_features_fn, proxy_mode_config=proxy_mode_config)
+    return selector_cls(max_features=max_features_fn, proxy_mode_config=proxy_mode_config), config
 
+
+def apply_fs_bench_preprocessing(*, preprocessing_name: str, experiment):
+    """Apply a FSBench preprocessing pipeline to a deep-copied experiment.
+
+    Parses ``preprocessing_name`` into an :class:`FSBenchConfig`, attaches the
+    corresponding feature selector (with a deferred ``max_features`` callable),
+    and sets the preprocessing time limit on the experiment.
+
+    Parameters
+    ----------
+    preprocessing_name : str
+        Config string of the form
+        ``FSBench__<fs_method>__<total_budget>__<budget_index>__<proxy_model>__<fs_time>``.
+    experiment :
+        A ``YamlSingleExperimentSerializer``-parsed experiment object (will be deep-copied).
+
+    Returns:
+    -------
+    experiment
+        A new experiment object with the feature selection pipeline applied.
+    """
+    from copy import deepcopy
+
+    from autogluon.features.generators.drop_duplicates import DropDuplicatesFeatureGenerator
+    from autogluon.features.generators.drop_unique import DropUniqueFeatureGenerator
+
+    selector, config = selector_and_config_from_string(preprocessing_name=preprocessing_name)
 
     # TODO: refactor: make this its own model agnostic preprocessing class instead.
     # Inject feature selection config into experiment
     new_experiment = deepcopy(experiment)
     fit_kwargs = new_experiment.method_kwargs["fit_kwargs"]
     prep_pipeline = fit_kwargs.get("_feature_generator_kwargs", {})
-    prep_pipeline["post_generators"] = prep_pipeline.get("post_generators", []) + [
+    prep_pipeline["post_generators"] = [
+        *prep_pipeline.get("post_generators", []),
         # Default post generators
         DropUniqueFeatureGenerator(),
         DropDuplicatesFeatureGenerator(post_drop_duplicates=False),

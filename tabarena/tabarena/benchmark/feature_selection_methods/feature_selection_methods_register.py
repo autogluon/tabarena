@@ -1,3 +1,4 @@
+"""Registry of feature selection methods."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -26,6 +27,7 @@ NAME_TO_MODULE_MAP = {
     "JMIFeatureSelector": "jmi.jmi",
     "LaplacianScoreFeatureSelector": "laplacian_score.laplacian_score",
     "LassoFeatureSelector": "lasso.lasso",
+    "MarkovBlanketFeatureSelector": "markov_blanket.markov_blanket",
     "MIFeatureSelector": "mi.mi",
     "mRMRFeatureSelector": "mrmr.mrmr",
     "OneRFeatureSelector": "one_r.one_r",
@@ -61,7 +63,7 @@ def get_feature_selector_from_name(
     AbstractFeatureSelector
         An instance of the feature selector class corresponding to the method name.
     """
-    import importlib
+    import importlib  # noqa: PLC0415
 
     if name not in FEATURE_SELECTION_METHODS:
         raise ValueError(f"Method name '{name}' is not recognized. Options are: {FEATURE_SELECTION_METHODS}")

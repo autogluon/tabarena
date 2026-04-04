@@ -1,3 +1,4 @@
+"""Consistency-based feature selection."""
 from __future__ import annotations
 
 import logging
@@ -18,7 +19,9 @@ logger = logging.getLogger(__name__)
 class ConsistencyFeatureSelector(AbstractFeatureSelector):
     """(In-)Consistency Feature Selection.
 
-    Reference: Liu, H., & Setiono, R. (1996, July). A probabilistic approach to feature selection-a filter solution. In ICML (Vol. 96, pp. 319-327).
+    Reference: Liu, H., & Setiono, R. (1996, July). A probabilistic
+    approach to feature selection-a filter solution.
+    In ICML (Vol. 96, pp. 319-327).
     Implementation Source: Algorithm in the paper implemented by Bastian Schäfer
     Changes to the algorithm by Bastian Schäfer:
                            - Add time constraint
@@ -26,7 +29,7 @@ class ConsistencyFeatureSelector(AbstractFeatureSelector):
     """
 
     name = "ConsistencyFeatureSelector"
-    _fit_feature_scoring: bool = False
+    feature_scoring_method: bool = False
 
     def _fit_feature_selection(
         self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None

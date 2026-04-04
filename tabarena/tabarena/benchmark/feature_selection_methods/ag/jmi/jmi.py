@@ -1,3 +1,4 @@
+"""Joint Mutual Information (JMI) feature selection."""
 from __future__ import annotations
 
 import logging
@@ -14,25 +15,33 @@ logger = logging.getLogger(__name__)
 class JMIFeatureSelector(AbstractFeatureSelector):
     """JMI Feature Selection.
 
-    Reference: Yang, Howard, and John Moody. "Data visualization and feature selection: New algorithms for nongaussian data." Advances in neural information processing systems 12 (1999).
-    Implementation Inspiration: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/information_theoretical_based/JMI.py#L4.
-                           The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
+    Reference: Yang, Howard, and John Moody. "Data visualization and
+    feature selection: New algorithms for nongaussian data." Advances
+    in neural information processing systems 12 (1999).
+    Implementation Inspiration:
+    https://github.com/jundongl/scikit-feature/blob/
+    48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/
+    function/information_theoretical_based/JMI.py#L4.
+    The author of the code is Li, Jundong, Associate Professor at the
+    University of Virginia and main-author of
+    'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
-                           - Add time constraint
-                           - Use pandas instead of numpy and avoid conversion
-                           - Adapt implementation, so that JMI is calculated following the algorithm in the paper directly
+        - Add time constraint
+        - Use pandas instead of numpy and avoid conversion
+        - Adapt implementation, so that JMI is calculated following
+          the algorithm in the paper directly
     """
 
     name = "JMIFeatureSelector"
     feature_scoring_method: bool = True
 
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
-        start_time = time.monotonic()
-        """
-        Implements Joint Mutual Information (JMI) feature selection using
-        the Kullback-Leibler divergence definition:
+        """Implement Joint Mutual Information (JMI) feature selection.
+
+        Uses the Kullback-Leibler divergence definition:
         I(X_1,...,X_k ; Y) = KL( p(x1,...,xk, y) || p(x1,...,xk) * p(y) )
         """
+        start_time = time.monotonic()
 
         X = self._discretize(X, time_limit, start_time)
         n_features = len(X.columns)
@@ -80,8 +89,8 @@ class JMIFeatureSelector(AbstractFeatureSelector):
         """Bin continuous features into integers for probability estimation."""
         X_disc = pd.DataFrame(np.zeros(X.shape, dtype="object"), index=X.index, columns=X.columns)
         numerical_cols = X.select_dtypes(include=["number"]).columns.tolist()
-        for col in numerical_cols:
-            i = X.columns.get_loc(col)
+        for col_name in numerical_cols:
+            i = X.columns.get_loc(col_name)
             elapsed_time = time.time() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
@@ -89,9 +98,9 @@ class JMIFeatureSelector(AbstractFeatureSelector):
                     f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
-            col = X.iloc[:, i]
-            bins = np.linspace(col.min(), col.max(), n_bins)
-            X_disc.iloc[:, i] = pd.cut(col, bins=bins, labels=False, right=False)
+            col_data = X.iloc[:, i]
+            bins = np.linspace(col_data.min(), col_data.max(), n_bins)
+            X_disc.iloc[:, i] = pd.cut(col_data, bins=bins, labels=False, right=False)
         return X_disc
 
     @staticmethod

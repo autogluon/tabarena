@@ -1,3 +1,4 @@
+"""Double Input Symmetrical Relevance (DISR) feature selection."""
 from __future__ import annotations
 
 import logging
@@ -18,12 +19,19 @@ logger = logging.getLogger(__name__)
 class DISRFeatureSelector(AbstractFeatureSelector):
     """DISR Feature Selection.
 
-    Reference: Meyer, Patrick E., and Gianluca Bontempi. "On the use of variable complementarity for feature selection in cancer classification." Workshops on applications of evolutionary computation. Berlin, Heidelberg: Springer Berlin Heidelberg, 2006.
-    Implementation Source: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/information_theoretical_based/DISR.py#L5.
-                           The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
+    Reference: Meyer, Patrick E., and Gianluca Bontempi. "On the use
+    of variable complementarity for feature selection in cancer
+    classification." Workshops on applications of evolutionary
+    computation. Berlin, Heidelberg: Springer Berlin Heidelberg, 2006.
+    Implementation Source:
+    https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/information_theoretical_based/DISR.py#L5.
+    The author of the code is Li, Jundong, Associate Professor at the
+    University of Virginia and main-author of
+    'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
-                           - Code adapted so that the formula in the paper is used, the parts of the formula are calculated using the code of the implementation source
+                           - Code adapted so that the formula in the paper is used, the parts of the formula
+                             are calculated using the code of the implementation source
                            - Use pandas instead of numpy and avoid conversion
     """
 
@@ -85,19 +93,19 @@ class DISRFeatureSelector(AbstractFeatureSelector):
 
     @staticmethod
     def hist(sx):
-        # Histogram from list of samples
+        """Compute histogram (probability distribution) from a list of samples."""
         d = dict()
         for s in sx:
             d[s] = d.get(s, 0) + 1
         return (float(z) / len(sx) for z in d.values())
 
     def entropyfromprobs(self, probs, base=2):
-        # Turn a normalized list of probabilities of discrete outcomes into entropy (base 2)
+        """Compute entropy from a probability distribution."""
         return -sum(map(self.elog, probs)) / log(base)
 
     @staticmethod
     def elog(x):
-        # for entropy, 0 log 0 = 0. but we get an error for putting log 0
+        """Compute x*log(x), returning 0 for x <= 0 or x >= 1."""
         if x <= 0.0 or x >= 1.0:
             return 0
         return x * log(x)

@@ -1,3 +1,4 @@
+"""Elastic net feature selection."""
 from __future__ import annotations
 
 import logging
@@ -6,7 +7,7 @@ import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import LabelEncoder, OrdinalEncoder, StandardScaler
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
 
@@ -16,16 +17,27 @@ logger = logging.getLogger(__name__)
 class ElasticNetFeatureSelector(AbstractFeatureSelector):
     """ElasticNet Feature Selection.
 
-    Reference: Zou, Hui, and Trevor Hastie. "Regularization and variable selection via the elastic net." Journal of the Royal Statistical Society Series B: Statistical Methodology 67.2 (2005): 301-320.
-    Implementation Source: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html
+    Reference: Zou, Hui, and Trevor Hastie. "Regularization and
+    variable selection via the elastic net." Journal of the Royal
+    Statistical Society Series B: Statistical Methodology 67.2
+    (2005): 301-320.
+    Implementation Source:
+    https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html
     """
 
     name = "ElasticNetFeatureSelector"
     feature_scoring_method: bool = True
 
-    def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
-        imputer = SimpleImputer(strategy="mean")
-        X_imputed = pd.DataFrame(imputer.fit_transform(X), columns=X.columns, index=X.index)
+    def _fit_feature_scoring(
+        self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None,  # noqa: ARG002
+    ) -> dict[str, float]:
+        data_encoder = OrdinalEncoder()
+        X = pd.DataFrame(data_encoder.fit_transform(X), columns=X.columns, index=X.index)
+        label_encoder = LabelEncoder()
+        y = label_encoder.fit_transform(y)
+        numeric_imputer = SimpleImputer(strategy="mean")
+        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
+
         C = 1.0
         l1_ratio = 0.5
         max_iter = 5000

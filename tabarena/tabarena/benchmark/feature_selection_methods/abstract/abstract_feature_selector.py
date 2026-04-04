@@ -1,3 +1,5 @@
+"""Abstract base class for feature selection methods."""
+
 from __future__ import annotations
 
 import math
@@ -112,7 +114,7 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         time_limit: int | None = None,
         eval_metric: str | None = None,
         problem_type: str | None = None,
-        **kwargs,
+        **kwargs,  # noqa: ARG002
     ) -> tuple[pd.DataFrame, dict[str, list[str]]]:
         """Fit and transform for feature selection methods."""
         self._original_features = list(X.columns)
@@ -123,26 +125,8 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         # Init random generator
         self._rng = np.random.default_rng(self.random_state)
 
-        if self.proxy_mode_config is not None:
-            assert isinstance(self.proxy_mode_config, ProxyModelConfig)
-            if self.proxy_mode_config.problem_type is not None:
-                problem_type = self.proxy_mode_config.problem_type
-            if self.proxy_mode_config.eval_metric is not None:
-                eval_metric = self.proxy_mode_config.eval_metric
-            self.proxy_mode_config.problem_type = problem_type
-            self.proxy_mode_config.eval_metric = eval_metric
-
-        # Resolve max features from int, fraction, or callable
-        if callable(self.max_features_input):
-            self.max_features = self.max_features_input(len(self._original_features))
-            self._log(20, f"Resolved max_features to {self.max_features} via callable.")
-        elif isinstance(self.max_features_input, float):
-            if not (0 < self.max_features_input < 1):
-                raise ValueError("If max_features is a float, it must be in the range (0, 1).")
-            self.max_features = math.ceil(len(self._original_features) * self.max_features_input)
-            self._log(20, f"Resolved max_features to {self.max_features} based on the fraction provided.")
-        else:
-            self.max_features = self.max_features_input
+        self._resolve_proxy_config(eval_metric=eval_metric, problem_type=problem_type)
+        self._resolve_max_features()
 
         # Sanity check for feature selection setup
         if len(self._original_features) <= self.max_features:
@@ -158,9 +142,9 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         feature_fit_kwargs = dict(X=X, y=y, time_limit=time_limit)
         if self.feature_scoring_method:
             self._feature_scores = self._fit_feature_scoring(**feature_fit_kwargs)
-            assert isinstance(self._feature_scores, dict), (
-                "The feature scores must be a dictionary mapping from feature name to score."
-            )
+            assert isinstance(
+                self._feature_scores, dict
+            ), "The feature scores must be a dictionary mapping from feature name to score."
             self._selected_features = self.selected_features_from_feature_scores()
         else:
             self._selected_features = self._fit_feature_selection(**feature_fit_kwargs)
@@ -169,14 +153,38 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         X_out = self._transform(X=X)
         assert list(X_out) == self._selected_features, "The output features must be the same as the selected features."
 
-        # Update the type family groups in the output feature metadata according to the selected features.
-        type_family_groups_special: dict[str, list[str]] = {}
-        for type_group_name, feature_names in old_type_family_groups_special.items():
-            type_family_groups_special[type_group_name] = [
-                feature for feature in feature_names if feature in self._selected_features
-            ]
+        # Update the type family groups in the output feature metadata.
+        type_family_groups_special: dict[str, list[str]] = {
+            type_group_name: [f for f in feature_names if f in self._selected_features]
+            for type_group_name, feature_names in old_type_family_groups_special.items()
+        }
 
         return X_out, type_family_groups_special
+
+    def _resolve_proxy_config(self, *, eval_metric: str | None, problem_type: str | None) -> None:
+        """Synchronize proxy model config with the given eval_metric/problem_type."""
+        if self.proxy_mode_config is None:
+            return
+        assert isinstance(self.proxy_mode_config, ProxyModelConfig)
+        if self.proxy_mode_config.problem_type is not None:
+            problem_type = self.proxy_mode_config.problem_type
+        if self.proxy_mode_config.eval_metric is not None:
+            eval_metric = self.proxy_mode_config.eval_metric
+        self.proxy_mode_config.problem_type = problem_type
+        self.proxy_mode_config.eval_metric = eval_metric
+
+    def _resolve_max_features(self) -> None:
+        """Resolve max_features from int, fraction, or callable."""
+        if callable(self.max_features_input):
+            self.max_features = self.max_features_input(len(self._original_features))
+            self._log(20, f"Resolved max_features to {self.max_features} via callable.")
+        elif isinstance(self.max_features_input, float):
+            if not (0 < self.max_features_input < 1):
+                raise ValueError("If max_features is a float, it must be in the range (0, 1).")
+            self.max_features = math.ceil(len(self._original_features) * self.max_features_input)
+            self._log(20, f"Resolved max_features to {self.max_features} based on the fraction provided.")
+        else:
+            self.max_features = self.max_features_input
 
     def _fit_feature_selection(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> list[str]:
         """Code that fills self._selected_features. Used if feature_scoring_method is False."""
@@ -250,7 +258,8 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
             self._log(
                 30,
                 f"Warning: Not enough feature scores computed to select {self.max_features} features. "
-                f"Selected {len(selected_features)} features based on available scores, and randomly selected the rest.",
+                f"Selected {len(selected_features)} features based on available scores, "
+                f"and randomly selected the rest.",
             )
 
             selected_features = selected_features + self.fallback_feature_selection(selected_features=selected_features)

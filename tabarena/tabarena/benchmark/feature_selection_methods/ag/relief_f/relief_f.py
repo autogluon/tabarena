@@ -1,3 +1,4 @@
+"""ReliefF feature selection."""
 from __future__ import annotations
 
 import logging
@@ -7,6 +8,7 @@ import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import pairwise_distances
+from sklearn.preprocessing import LabelEncoder, OrdinalEncoder
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
 
@@ -16,9 +18,16 @@ logger = logging.getLogger(__name__)
 class ReliefFFeatureSelector(AbstractFeatureSelector):
     """ReliefF Feature Selection.
 
-    Reference: Kononenko, Igor, Edvard Šimec, and Marko Robnik-Šikonja. "Overcoming the myopia of inductive learning algorithms with RELIEFF." Applied Intelligence 7.1 (1997): 39-55.
-    Implementation Source: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/similarity_based/reliefF.py
-                           The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
+    Reference: Kononenko, Igor, Edvard Simec, and Marko
+    Robnik-Sikonja. "Overcoming the myopia of inductive learning
+    algorithms with RELIEFF." Applied Intelligence 7.1 (1997): 39-55.
+    Implementation Source:
+    https://github.com/jundongl/scikit-feature/blob/
+    48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/
+    function/similarity_based/reliefF.py
+    The author of the code is Li, Jundong, Associate Professor at the
+    University of Virginia and main-author of
+    'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
                            - Use pandas instead of numpy and avoid conversion
@@ -27,14 +36,20 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
     name = "ReliefFFeatureSelector"
     feature_scoring_method: bool = True
 
-    def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
+    def _fit_feature_scoring(  # noqa: C901, PLR0912
+        self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None,
+    ) -> dict[str, float]:
         start_time = time.monotonic()
         k = 5
         columns = X.columns
         n_features = len(X.columns)
         n_samples = len(X.index)
-        imputer = SimpleImputer(strategy="mean")
-        X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns, index=X.index)
+        data_encoder = OrdinalEncoder()
+        X = pd.DataFrame(data_encoder.fit_transform(X), columns=X.columns, index=X.index)
+        label_encoder = LabelEncoder()
+        y = label_encoder.fit_transform(y)
+        numeric_imputer = SimpleImputer(strategy="mean")
+        X = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
 
         distance = pairwise_distances(X, metric="manhattan")
         score = np.zeros(n_features)
