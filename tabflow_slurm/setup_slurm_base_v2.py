@@ -469,7 +469,7 @@ class BenchmarkSetup2026:
         # Parse task metadata
         task_metadata = self.task_metadata
 
-        if task_metadata == "tabarena-v0.1":
+        if isinstance(task_metadata, str) and (task_metadata == "tabarena-v0.1"):
             print("Loading task metadata from TabArena v0.1 and converting to new TabArenaTaskMetadata fromat...")
             from tabarena.nips2025_utils.fetch_metadata import (
                 load_curated_task_metadata,
@@ -478,8 +478,6 @@ class BenchmarkSetup2026:
             metadata = load_curated_task_metadata()
             task_metadata = []
             for row in metadata.itertuples():
-                # dataset_id,task_id,openml_dataset_name,num_features,num_instances,num_classes,percentage_cat_features,num_folds,openml_num_repeats,tabarena_num_repeats,can_run_tabpfnv2,can_run_tabicl,reference,data_source,domain,year,licence,original_data_url
-
                 num_classes = row.num_classes
                 num_instances = row.num_instances
                 num_features = row.num_features
@@ -540,7 +538,6 @@ class BenchmarkSetup2026:
                                 eval_metric=eval_metric,
                             )
                         )
-
         if isinstance(task_metadata, (str, Path)):
             print(f"Loading task metadata from {task_metadata}...")
             task_metadata = pd.read_csv(task_metadata, index_col=False)
