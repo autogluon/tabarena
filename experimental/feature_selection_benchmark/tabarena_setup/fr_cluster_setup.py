@@ -26,8 +26,7 @@ FS_TIME_LIMIT = 3600
 class UniPathSetup(PathSetup):
     """Path setup for Lennart's environment."""
 
-    base_path: str = "/work/dlclarge1/purucker-fs_benchmark"
-    openml_cache_from_base_path: str = "/work/dlclarge1/purucker-fs_benchmark/.openml-cache"
+    base_path: str = "/work/dlclarge1/purucker-fs_benchmark/"
     tabarena_repo_name: str = "fsbench"
     venv_name: str = "fs_bench_env"
 
@@ -35,8 +34,6 @@ class UniPathSetup(PathSetup):
 @dataclass
 class UniSlurmSetup(SlurmSetup):
     """We can use mostly the defaults."""
-
-    mem_per_handle: bool = True
 
 
 @dataclass
@@ -46,6 +43,7 @@ class TabArenaBenchmarkSetup(BenchmarkSetup2026):
     """
 
     benchmark_name: str = "feature_selection_benchmark_2026"
+    task_metadata: str = "NOTSET"  # Placeholder due to dataclass inheritance problems
 
     n_random_configs: int = 25
     """Adjusted to our compute budget"""
@@ -72,7 +70,7 @@ class FSBenchmarkConfig:
     """The time limit(s) for the feature selection methods to run (in seconds)."""
     total_selection_budget: int = 5
     """The total budget of feature selection steps (b in the feature-count formula)."""
-    include_default: bool = True
+    include_default: bool = False
     """Whether to include the default model (no feature selection) as a baseline in the benchmark."""
 
     def get_default_preprocessing_configs(self, fs_methods: list[str]) -> list[str]:
