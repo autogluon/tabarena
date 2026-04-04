@@ -8,7 +8,6 @@ from tabarena.benchmark.feature_selection_methods.feature_selection_benchmark_ut
 from tabflow_slurm.benchmarking_setup.data_foundry_integration.data_foundry_task_creator import (
     get_metadata_for_benchmark_suite,
 )
-from tabflow_slurm.benchmarking_setup.download_feature_selection_datasets import DEFAULT_DATA_FOUNDRY_CACHE
 
 from experimental.feature_selection_benchmark.extra_benchmark.feature_selection_benchmark_runner import run_benchmark
 
@@ -21,7 +20,7 @@ def simple_loop_runner():
     """
     # Get metadata for the benchmark suite
     benchmark_task_metadata = get_metadata_for_benchmark_suite(
-        "feature_selection_benchmark", data_foundry_cache=DEFAULT_DATA_FOUNDRY_CACHE
+        "feature_selection_benchmark", data_foundry_cache="path/to/data_foundry_cache"
     )
     # We only need the task_id_str and can ignore the rest of the metadata.
     all_task_id_str = list(benchmark_task_metadata[["task_id_str"]].drop_duplicates()["task_id_str"])

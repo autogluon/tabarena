@@ -2,18 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tabflow_slurm.benchmarking_setup.data_foundry_integration.data_foundry_task_creator import (
-    download_data_foundry_datasets,
-)
 
-DEFAULT_DATA_FOUNDRY_CACHE = Path(__file__).parent / ".data_foundry_cache"
+DATA_FOUNDRY_CACHE = Path("/work/dlclarge1/purucker-fs_benchmark/.data_foundry_cache")
+OPENML_CACHE = Path("/work/dlclarge1/purucker-fs_benchmark/.openml_cache")
 
-EXAMPLE_DATA_FOUNDRY_TASKS = [
-    "heart_failure_followup_survival/019c7bff-a1d3-788d-8b8d-86bad1c6fb5f",
-    "lymphography/019c75c5-725c-708c-9794-eccc46c0bf81",
-    "heart_disease_cleveland/019c7513-909c-707d-a9da-9852f346a015",
-]
-
+BENCHMARK_TASK_COLLECTION_NAME = "feature_selection_benchmark"
 BENCHMARK_DATA_FOUNDRY_TASKS = [
     "allstate_claims_severity/019c0a71-9029-727e-a7d9-a4c48238c737",
     "ancestry_study/019d43f5-abb6-7530-8864-c21f082363b3",
@@ -87,16 +80,3 @@ BENCHMARK_DATA_FOUNDRY_TASKS = [
     "thyroid_discordant/019c7a7b-48ff-7471-8c09-3a07b8434a16",
     "wine_quality/019d4816-2a31-7d60-a95f-2f6167c8e008",
 ]
-
-if __name__ == "__main__":
-    download_data_foundry_datasets(
-        benchmark_suite_name="feature_selection_benchmark_examples",
-        data_foundry_artifacts=EXAMPLE_DATA_FOUNDRY_TASKS,
-        data_foundry_cache=DEFAULT_DATA_FOUNDRY_CACHE,
-    )
-
-    download_data_foundry_datasets(
-        benchmark_suite_name="feature_selection_benchmark",
-        data_foundry_artifacts=BENCHMARK_DATA_FOUNDRY_TASKS,
-        data_foundry_cache=DEFAULT_DATA_FOUNDRY_CACHE,
-    )
