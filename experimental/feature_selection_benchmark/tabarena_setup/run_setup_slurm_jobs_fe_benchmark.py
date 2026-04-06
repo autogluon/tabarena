@@ -6,11 +6,36 @@ from fr_cluster_setup import ALL_TASK_METADATA, FSBenchmarkConfig, TabArenaBench
 
 preprocessing_pipelines = FSBenchmarkConfig().get_default_preprocessing_configs(
     fs_methods=[
-        "SequentialBackwardEliminationFeatureSelector",
+        "AccuracyFeatureSelector",
         "RandomFeatureSelector",
+        "ANOVAFeatureSelector",
+        "CARTFeatureSelector",
+        "CFSFeatureSelector",
+        "Chi2FeatureSelector",
+        "CMIMFeatureSelector",
+        "ConsistencyFeatureSelector",
+        "DISRFeatureSelector",
+        "ElasticNetFeatureSelector",
+        "GainRatioFeatureSelector",
+        "GiniFeatureSelector",
+        "ImpurityFeatureSelector",
+        "InformationGainFeatureSelector",
+        "INTERACTFeatureSelector",
+        "JMIFeatureSelector",
+        "LaplacianScoreFeatureSelector",
+        "LassoFeatureSelector",
+        "MarkovBlanketFeatureSelector",
+        "MIFeatureSelector",
+        "mRMRFeatureSelector",
+        "OneRFeatureSelector",
         "PearsonCorrelationFeatureSelector",
-    ]
-)
+        "ReliefFFeatureSelector",
+        "RFImportanceFeatureSelector",
+        "SequentialBackwardEliminationFeatureSelector",
+        "SequentialForwardSelectionFeatureSelector",
+        "SymmetricalUncertaintyFeatureSelector"
+        # "tTestFeatureSelector", # Skipped as it does not work for all types
+])
 
 # Setup for CPU Methods (need to create another one for GPU models)
 TabArenaBenchmarkSetup(
