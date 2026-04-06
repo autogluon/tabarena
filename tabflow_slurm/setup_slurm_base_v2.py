@@ -144,6 +144,11 @@ class SlurmSetup:
     configs_per_job: int = 5
     """Batching of several experiments per job to reduce the number of  SLURM jobs."""
 
+    max_array_size: int = 29_999
+    """Maximum number of array tasks per SLURM array job.
+    If the total number of jobs exceeds this limit, the jobs are split
+    into multiple array jobs, each with its own JSON file and sbatch command."""
+
     setup_ray_for_slurm_shared_resources_environment: bool = True
     """Prepare Ray for a SLURM shared resource environment.
     Recommended to set to True if sequential_local_fold_fitting is False."""
@@ -839,32 +844,70 @@ class BenchmarkSetup2026:
         }
         return {"defaults": default_args, "jobs": jobs}
 
-    def setup_jobs(self, array_job_limit: int = 100) -> str:
-        """Setup the jobs to run by generating the SLURM job JSON file."""
+    def setup_jobs(self, array_job_limit: int = 100) -> str | list[str]:
+        """Setup the jobs to run by generating the SLURM job JSON file(s).
+
+        If the number of jobs exceeds `slurm_setup.max_array_size`, the jobs
+        are split into multiple array jobs, each with its own JSON file.
+
+        Returns a single command string if one batch, or a list of command
+        strings if multiple batches are needed.
+        """
         jobs_dict = self.get_jobs_dict()
-        slurm_job_json_path = self.path_setup.get_slurm_job_json_path(
+        base_json_path = self.path_setup.get_slurm_job_json_path(
             self._parallel_safe_benchmark_name
         )
-        n_jobs = len(jobs_dict["jobs"])
+        all_jobs = jobs_dict["jobs"]
+        n_jobs = len(all_jobs)
         if n_jobs == 0:
             print("No jobs to run.")
-            Path(slurm_job_json_path).unlink(missing_ok=True)
+            Path(base_json_path).unlink(missing_ok=True)
             Path(
                 self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)
             ).unlink(missing_ok=True)
             return "N/A"
 
-        with open(slurm_job_json_path, "w") as f:
-            json.dump(jobs_dict, f)
+        max_array_size = self.slurm_setup.max_array_size
+        job_batches = list(to_batch_list(all_jobs, max_array_size))
 
-        run_command = f"sbatch --array=0-{n_jobs - 1}%{array_job_limit} {self.slurm_base_command} {slurm_job_json_path}"
+        run_commands = []
+        for batch_idx, batch_jobs in enumerate(job_batches):
+            batch_jobs = list(batch_jobs)
+            # Use original path for single batch, append _batch{i} for multiple
+            if len(job_batches) == 1:
+                json_path = base_json_path
+            else:
+                json_path = base_json_path.replace(
+                    ".json", f"_batch{batch_idx}.json"
+                )
+
+            batch_dict = {"defaults": jobs_dict["defaults"], "jobs": batch_jobs}
+            with open(json_path, "w") as f:
+                json.dump(batch_dict, f)
+
+            batch_size = len(batch_jobs)
+            run_command = (
+                f"sbatch --array=0-{batch_size - 1}%{array_job_limit}"
+                f" {self.slurm_base_command} {json_path}"
+            )
+            run_commands.append(run_command)
+
+        batch_info = ""
+        if len(job_batches) > 1:
+            batch_info = (
+                f"\nSplit into {len(job_batches)} array job batches"
+                f" (max {max_array_size} per batch)."
+            )
         print(
             f"##### Setup Jobs for {self._parallel_safe_benchmark_name}"
-            "\nRun the following command to start the jobs:"
-            f"\n{run_command}"
-            "\n"
+            f"{batch_info}"
+            "\nRun the following command(s) to start the jobs:"
+            f"\n" + "\n".join(run_commands) + "\n"
         )
-        return run_command
+
+        if len(run_commands) == 1:
+            return run_commands[0]
+        return run_commands
 
     @property
     def models_to_constraints(self) -> dict[str, dict[str, int]]:

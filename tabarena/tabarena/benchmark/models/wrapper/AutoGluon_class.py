@@ -51,7 +51,7 @@ class AGWrapper(AbstractExecModel):
         fit_kwargs = copy.deepcopy(self.fit_kwargs)
 
         # TODO: think about if we can reset the index here without breaking simulation artifacts
-        train_data = X
+        train_data = X.copy()
 
         num_folds = fit_kwargs.pop("num_bag_folds", None)
         num_repeats = fit_kwargs.pop("num_bag_folds", None)
@@ -115,6 +115,7 @@ class AGWrapper(AbstractExecModel):
             X_val=X_val,
             y_val=y_val,
         )
+        del X, y, X_val, y_val # encourage memory release
 
         self.predictor = TabularPredictor(
             label=self.label,
