@@ -125,6 +125,7 @@ def plot_pareto(
     show: bool = True,
     legend_in_plot: bool = False,
     legend_maintain_plot_dims: bool = False,
+    title_fontsize: int = 17,
     tick_fontsize: int = 12,
     label_fontsize: int = 10,
     axis_fontsize: int = 17,
@@ -715,7 +716,8 @@ def plot_pareto(
         ax.set_yticklabels([f"{int(y)}\\%" for y in yticks])
 
     # Title + save/show
-    # g.fig.suptitle(title, fontsize=14)
+    if title is not None:
+        ax.set_title(title, fontsize=title_fontsize)
     if save_path is not None:
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         # Include extra artists (legends) in bounding box calculation

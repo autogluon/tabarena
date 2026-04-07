@@ -123,6 +123,7 @@ class TabArenaContext:
         remove_imputed: bool = False,
         tmp_treat_tasks_independently: bool = False,
         leaderboard_kwargs: dict | None = None,
+        figure_file_type: str = "pdf",
         **kwargs,
     ) -> pd.DataFrame:
         from tabarena.nips2025_utils.compare import compare_on_tabarena
@@ -139,6 +140,7 @@ class TabArenaContext:
             remove_imputed=remove_imputed,
             tmp_treat_tasks_independently=tmp_treat_tasks_independently,
             leaderboard_kwargs=leaderboard_kwargs,
+            figure_file_type=figure_file_type,
             **kwargs,
         )
 
@@ -160,12 +162,16 @@ class TabArenaContext:
             datasets = sorted(datasets + [d for d in new_datasets if d not in datasets])
 
         outs = {}
+        plot_tuning_kwargs = kwargs.pop("plot_tuning_kwargs", {})
         for dataset in datasets:
+            plot_tuning_kwargs_dataset = copy.deepcopy(plot_tuning_kwargs)
+            plot_tuning_kwargs_dataset["title"] = f"Dataset: {dataset}"
             outs[dataset] = self.compare(
                 output_dir=output_dir / "per_dataset" / dataset,
                 ta_results=ta_results,
                 new_results=new_results,
                 datasets=[dataset],
+                plot_tuning_kwargs=plot_tuning_kwargs_dataset,
                 **kwargs,
             )
         return outs

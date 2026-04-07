@@ -231,7 +231,6 @@ class TabArenaEvaluator:
         plot_cdd: bool = True,
         plot_runtimes: bool = False,
         plot_pareto: bool = True,
-        plot_other: bool = False,
         calibration_framework: str | None = "auto",
         average_seeds: bool = False,
         tmp_treat_tasks_independently: bool = False,  # FIXME: Need to make a weighted elo logic
@@ -545,22 +544,6 @@ class TabArenaEvaluator:
                 plot_tuning_kwargs=plot_tuning_kwargs,
             )
 
-        if plot_other:
-            try:
-                import autogluon_benchmark
-            except:
-                print(f"WARNING: autogluon_benchmark failed to import... skipping extra figure generation")
-            else:
-                results_per_task_ag_benchmark = results_per_task.rename(columns={
-                    "improvability": "bestdiff",
-                })
-                self.run_autogluon_benchmark_logic(
-                    results_per_task=results_per_task_ag_benchmark,
-                    elo_map=elo_map,
-                    tabarena=tabarena,
-                    calibration_framework=calibration_framework,
-                )
-
         return leaderboard
 
     def assert_no_duplicates(self, df_results: pd.DataFrame):
@@ -669,6 +652,7 @@ class TabArenaEvaluator:
         f_map_suffix = get_f_map_suffix_plots()
         leaderboard_pareto["suffix"] = leaderboard_pareto["Type"].map(f_map_suffix).fillna("")
         method_order = None
+        plot_pareto_kwargs = {}
         if plot_tuning_kwargs is not None:
             if "hidden_methods" in plot_tuning_kwargs:
                 leaderboard_pareto = leaderboard_pareto[~leaderboard_pareto["Method"].isin(plot_tuning_kwargs["hidden_methods"])]
@@ -680,6 +664,8 @@ class TabArenaEvaluator:
                 leaderboard_pareto["Method"] = leaderboard_pareto["Method"].map(display_name_map).fillna(leaderboard_pareto["Method"])
                 if method_order is not None:
                     method_order = [display_name_map.get(m, m) for m in method_order]
+            if "title" in plot_tuning_kwargs:
+                plot_pareto_kwargs["title"] = plot_tuning_kwargs["title"]
 
         leaderboard_pareto[self.method_col] = leaderboard_pareto["Method"] + leaderboard_pareto["suffix"]
         fig_rename_dict = {
@@ -699,60 +685,23 @@ class TabArenaEvaluator:
         if not with_baselines:
             leaderboard_pareto = leaderboard_pareto[leaderboard_pareto["Type"] != "Baseline"]
 
-        self.plot_pareto_elo_vs_time_infer(leaderboard=leaderboard_pareto, method_order=method_order)
-        self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto, method_order=method_order)
-        self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto, method_order=method_order)
-        self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto, method_order=method_order)
+        self.plot_pareto_elo_vs_time_infer(leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs)
+        self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs)
+        self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs)
+        self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs)
 
-    def run_autogluon_benchmark_logic(self, results_per_task: pd.DataFrame, elo_map: dict, tabarena: TabArena,
-                                      calibration_framework: str):
-        """
-        Requires autogluon_benchmark installed:
-
-        Parameters
-        ----------
-        results_per_task
-        elo_map
-        tabarena
-        calibration_framework
-
-        Returns
-        -------
-
-        """
-        results_per_task_rename = results_per_task.rename(columns={
-            tabarena.method_col: "framework",
-            tabarena.task_col: "dataset",
-            tabarena.error_col: "metric_error",
-        })
-
-        results_per_task_rename["elo"] = results_per_task_rename["framework"].map(elo_map)
-
-        # Nick: Comment out this code if you don't have autogluon_benchmark
-        from autogluon_benchmark.plotting.plotter import Plotter
-        plotter = Plotter(
-            results_ranked_df=results_per_task_rename,
-            results_ranked_fillna_df=results_per_task_rename,
-            save_dir=f"{self.output_dir}/figures/plotter",
-            show=False,
-        )
-
-        # FIXME: Nick: This isn't yet merged, as I haven't made it nice yet
-        # plotter.plot_pareto_time_infer_elo(data=results_per_task_rename)
-        # plotter.plot_pareto_time_train_elo(data=results_per_task_rename)
-
-        plotter.plot_all(
-            calibration_framework=calibration_framework,
-            calibration_elo=1000,
-            BOOTSTRAP_ROUNDS=self.elo_bootstrap_rounds,
-        )
-
-    def plot_pareto_elo_vs_time_train(self, leaderboard: pd.DataFrame, method_order: list[str] | None = None):
+    def plot_pareto_elo_vs_time_train(
+        self,
+        leaderboard: pd.DataFrame,
+        method_order: list[str] | None = None,
+        title: str | None = "auto",
+    ):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_elo_vs_time_train.{self.figure_file_type}")
         y_name = "Elo"
         x_name = "Train time per 1K samples (s) (median)"
-        title = "Elo vs Train Time"
+        if title == "auto":
+            title = "Elo vs Train Time"
 
         data = leaderboard.copy()
         data[x_name] = data["median_time_train_s_per_1K"]
@@ -777,12 +726,18 @@ class TabArenaEvaluator:
             legend_first=method_order,
         )
 
-    def plot_pareto_elo_vs_time_infer(self, leaderboard: pd.DataFrame, method_order: list[str] | None = None):
+    def plot_pareto_elo_vs_time_infer(
+        self,
+        leaderboard: pd.DataFrame,
+        method_order: list[str] | None = None,
+        title: str | None = "auto",
+    ):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_elo_vs_time_infer.{self.figure_file_type}")
         y_name = "Elo"
         x_name = "Inference time per 1K samples (s) (median)"
-        title = f"Elo vs Inference Time"
+        if title == "auto":
+            title = f"Elo vs Inference Time"
 
         data = leaderboard.copy()
         data[x_name] = data["median_time_infer_s_per_1K"]
@@ -807,12 +762,18 @@ class TabArenaEvaluator:
             legend_first=method_order,
         )
 
-    def plot_pareto_improvability_vs_time_infer(self, leaderboard: pd.DataFrame, method_order: list[str] | None = None):
+    def plot_pareto_improvability_vs_time_infer(
+        self,
+        leaderboard: pd.DataFrame,
+        method_order: list[str] | None = None,
+        title: str | None = "auto",
+    ):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_improvability_vs_time_infer.{self.figure_file_type}")
         y_name = "Improvability (%)"
         x_name = "Inference time per 1K samples (s) (median)"
-        title = "Improvability vs Inference Time"
+        if title == "auto":
+            title = "Improvability vs Inference Time"
 
         data = leaderboard.copy()
         data[x_name] = data["median_time_infer_s_per_1K"]
@@ -838,12 +799,18 @@ class TabArenaEvaluator:
             legend_first=method_order,
         )
 
-    def plot_pareto_improvability_vs_time_train(self, leaderboard: pd.DataFrame, method_order: list[str] | None = None):
+    def plot_pareto_improvability_vs_time_train(
+        self,
+        leaderboard: pd.DataFrame,
+        method_order: list[str] | None = None,
+        title: str | None = "auto",
+    ):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_improvability_vs_time_train.{self.figure_file_type}")
         y_name = "Improvability (%)"
         x_name = "Train time per 1K samples (s) (median)"
-        title = "Improvability vs Train Time"
+        if title == "auto":
+            title = "Improvability vs Train Time"
 
         data = leaderboard.copy()
         data[x_name] = data["median_time_train_s_per_1K"]
