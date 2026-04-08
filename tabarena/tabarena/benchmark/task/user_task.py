@@ -827,9 +827,14 @@ def openml_create_datasets_without_arff_dump(
     # We cast such columns to string here solely so that attributes_arff_from_df can
     # infer ARFF attribute metadata. This does NOT affect the actual stored data — the
     # dataset is persisted as parquet (see caller) and loaded from there, never from ARFF.
-    # Note: complex dtypes are also unsupported by liac-arff, but pyarrow (parquet)
-    # cannot serialize them either, so they will fail at a later stage regardless.
     unsupported_cols = data.select_dtypes(include=["datetime64", "timedelta64"]).columns
+    # select_dtypes doesn't support "period" or "interval" as strings, so detect manually
+    unsupported_cols = unsupported_cols.append(
+        pd.Index(
+            col for col in data.columns
+            if isinstance(data[col].dtype, (pd.PeriodDtype, pd.IntervalDtype))
+        )
+    )
     if len(unsupported_cols) > 0:
         data = data.copy()
         data[unsupported_cols] = data[unsupported_cols].astype(str)

@@ -99,6 +99,7 @@ def compare(
     leaderboard_kwargs: dict | None = None,
     remove_imputed: bool = False,
     method_rename_map: dict | None = None,
+    figure_file_type: str = "pdf",
     **kwargs,
 ):
     df_results = prepare_data(
@@ -122,13 +123,13 @@ def compare(
         task_metadata=task_metadata,
         error_col=error_col,
         method_rename_map=method_rename_map,
+        figure_file_type=figure_file_type,
     )
 
     return plotter.eval(
         df_results=df_results,
         plot_extra_barplots=False,
         plot_times=True,
-        plot_other=False,
         calibration_framework=calibration_framework,
         average_seeds=average_seeds,
         tmp_treat_tasks_independently=tmp_treat_tasks_independently,

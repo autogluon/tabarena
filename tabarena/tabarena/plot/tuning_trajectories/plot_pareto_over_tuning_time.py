@@ -527,6 +527,7 @@ def plot_tuning_trajectories(
     average_seeds: bool = False,
     exclude_imputed: bool = True,
     ban_bad_methods: bool = True,
+    include_baselines: bool = False,
     include_portfolio: bool = False,  # TODO: True not yet supported
     file_ext: str = ".pdf",
     extra_results = None,
@@ -553,8 +554,8 @@ def plot_tuning_trajectories(
     elo_bootstrap_rounds = 1
     method_rename_map = get_method_rename_map()  # TODO: avoid hard-coding
 
-    method_metadata_lst = tabarena_context.method_metadata_collection.method_metadata_lst
-    method_metadata_lst = [m for m in method_metadata_lst if m.method_type == "config"]
+    method_metadata_lst_og = tabarena_context.method_metadata_collection.method_metadata_lst
+    method_metadata_lst = [m for m in method_metadata_lst_og if m.method_type == "config"]
     results_hpo_lst = []
     for m in method_metadata_lst:
         if methods_to_display is not None:
@@ -580,6 +581,22 @@ def plot_tuning_trajectories(
     results_lst = [
         results_hpo_mean,
     ]
+
+    if include_baselines:
+        results_baselines = []
+        method_metadata_lst_baselines = [m for m in method_metadata_lst_og if m.method_type == "baseline"]
+        for m in method_metadata_lst_baselines:
+            if methods_to_display is not None:
+                if m.method not in methods_to_display:
+                    continue
+            results_baseline = m.load_model_results()
+            results_baseline["n_configs"] = 1
+            results_baseline["n_iterations"] = 1
+            results_baseline["config_type"] = results_baseline["method"]
+            results_baseline["method"] = results_baseline["method"] + "-" + results_baseline["n_configs"].astype(str)
+            results_baselines.append(results_baseline)
+
+        results_lst += results_baselines
 
     if include_hpo_seeds:
         results_hpo_seeds = results_hpo.copy()

@@ -208,7 +208,6 @@ def evaluate_single(
         plot_extra_barplots=False,
         include_norm_score=True,
         plot_times=True,
-        plot_other=False,
         average_seeds=average_seeds,
         **eval_kwargs,
     )

@@ -1019,7 +1019,7 @@ def test_compute_metadata_split_time_horizon_passthrough(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Unsupported ARFF dtype workaround (datetime64, timedelta64, complex)
+# Unsupported ARFF dtype workaround (datetime64, timedelta64, period, interval)
 # ---------------------------------------------------------------------------
 
 
@@ -1036,10 +1036,20 @@ def test_compute_metadata_split_time_horizon_passthrough(tmp_path):
             pd.to_timedelta(range(10), unit="D"),
             "timedelta64[ns]",
         ),
+        (
+            "period_col",
+            pd.period_range("2020-01", periods=10, freq="M"),
+            pd.PeriodDtype(freq="M"),
+        ),
+        (
+            "interval_col",
+            pd.arrays.IntervalArray.from_breaks(range(11)),
+            pd.IntervalDtype(subtype="int64", closed="right"),
+        ),
         # Note: complex128 is also unsupported by liac-arff, but pyarrow (parquet)
         # cannot serialize it either, so it fails at a later stage and is excluded here.
     ],
-    ids=["datetime64", "timedelta64"],
+    ids=["datetime64", "timedelta64", "period", "interval"],
 )
 def test_create_local_openml_task_unsupported_arff_dtype_does_not_raise(
     col_name, col_values, dtype, tmp_path
@@ -1056,7 +1066,7 @@ def test_create_local_openml_task_unsupported_arff_dtype_does_not_raise(
             "target": np.linspace(0.0, 1.0, num=n),
         }
     )
-    assert df[col_name].dtype == np.dtype(dtype)
+    assert df[col_name].dtype == dtype
 
     splits = {0: {0: (list(range(8)), [8, 9])}}
     ut = UserTask(task_name=f"unsupported-dtype-{col_name}", task_cache_path=tmp_path)

@@ -906,8 +906,7 @@ class TabArena:
             if os.path.dirname(save_path):
                 os.makedirs(os.path.dirname(save_path), exist_ok=True)
             fig.savefig(save_path, bbox_inches="tight")
-
-        return fig
+        plt.close(fig)
 
     def compare_rank_per(
         self,
