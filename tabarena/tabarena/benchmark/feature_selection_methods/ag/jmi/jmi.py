@@ -59,10 +59,13 @@ class JMIFeatureSelector(AbstractFeatureSelector):
             scores[i] = self._joint_mi_kl(X.iloc[:, [i]], y, time_limit, start_time)
 
         best_first = int(np.argmax(scores))
-        selected.append(best_first)
-        remaining.remove(best_first)
+        if best_first is not None:
+            selected.append(best_first)
+            remaining.remove(best_first)
+        else:
+            logger.warning("No valid feature found to remove. Stopping early.")
 
-        while len(selected) < self.max_features and remaining:
+        while len(selected) < self.max_features and remaining and best_first is not None:
             best_score = -np.inf
             best_idx = None
             for i in remaining:
