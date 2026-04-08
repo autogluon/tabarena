@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -259,7 +260,7 @@ class BenchmarkSetup2026:
 
     Options:
         - "default": Use the default preprocessing pipeline.
-        - "tabarena_default": new model agnostic and model specific preprocessing 
+        - "tabarena_default": new model agnostic and model specific preprocessing
             updates for TabArena (experimental, can be buggy!).
         - Any other string points to custom experimental code for now.
     """
@@ -303,7 +304,7 @@ class BenchmarkSetup2026:
     """If True, the validation data will be adapted dynamically based on the task.
     WARNING: this can overwrite the configured validation of a configuration!"""
     shuffle_features: bool = True
-    """Whether to shuffle the features of the datasets. Only here for backward compatibility 
+    """Whether to shuffle the features of the datasets. Only here for backward compatibility
     with the original TabArena setup, but not recommended to change."""
     parallel_benchmark_name: str | None = None
     """Set this is to some string value to make sure you can run parallel
@@ -553,11 +554,13 @@ class BenchmarkSetup2026:
                 for _, row in task_metadata.iterrows()
             ]
         assert all(isinstance(x, TabArenaTaskMetadata) for x in task_metadata)
+        n_rolled_up_tasks = len(task_metadata)
 
         # Unify format to be unrolled
         task_metadata = [
             single_ttm for ttm in task_metadata for single_ttm in ttm.unroll_splits()
         ]
+        n_unrolled_tasks = len(task_metadata)
 
         # -- Perform general filters/slices
         task_metadata = [
@@ -565,6 +568,7 @@ class BenchmarkSetup2026:
             for ttm in task_metadata
             if ttm.problem_type in self.problem_types_to_run
         ]
+        n_problem_types_filtered_tasks = len(task_metadata)
 
         if self.split_indices_to_run is not None:
             if self.split_indices_to_run == "lite":
@@ -573,9 +577,18 @@ class BenchmarkSetup2026:
                 ]
             else:
                 split_indices_to_run = self.split_indices_to_run
+
+            # Assert split indices are valid
+            split_index_pattern = re.compile(r"^r\d+f\d+$")
+            for split_index in split_indices_to_run:
+                assert (
+                    split_index_pattern.match(split_index)
+                ), f"Invalid SplitIndex format: {split_index!r}, expected 'r{{int}}f{{int}}'"
+
             task_metadata = [
                 ttm for ttm in task_metadata if ttm.split_index in split_indices_to_run
             ]
+        n_splits_filtered_tasks = len(task_metadata)
 
         # -- Sanity checks
         for ttm in task_metadata:
@@ -584,7 +597,13 @@ class BenchmarkSetup2026:
                     f"Task metadata for task {ttm.tabarena_task_name} does not have a task_id_str!"
                 )
 
-        print(f"Found {len(task_metadata)} tasks from metadata.")
+        print(
+            f"Found {len(task_metadata)} tasks from metadata."
+            f"\n\tTask Filter History:"
+            f"\n\t(1) {n_rolled_up_tasks} datasets -> {n_unrolled_tasks} Tasks."
+            f"\n\t(2) Filter to problem types: {n_problem_types_filtered_tasks}"
+            f"\n\t(3) Filter to splits: {n_splits_filtered_tasks}."
+        )
         return task_metadata
 
     def get_jobs_to_run(self):  # noqa: C901
