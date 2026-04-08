@@ -59,6 +59,12 @@ class OpenMLTaskWrapper:
         }
         return metric_map[self.problem_type]
 
+    def compute_error(self, y_true, y_pred) -> float:
+        eval_metric = self.eval_metric
+        from autogluon.core.metrics import get_metric
+        scorer = get_metric(metric=eval_metric, problem_type=self.problem_type)
+        return scorer.error(y_true, y_pred)
+
     def get_split_dimensions(self) -> tuple[int, int, int]:
         n_repeats, n_folds, n_samples = self.task.get_split_dimensions()
         return n_repeats, n_folds, n_samples
