@@ -121,6 +121,9 @@ class OneRFeatureSelector(AbstractFeatureSelector):
 
         # 5. Choose the rule with the highest accuracy on the training set (1R)
         accuracies = self.hypotheses_accuracy(X, y, hypotheses)
+        if not accuracies:
+            logger.warning("No valid hypotheses generated. Returning an empty selection.")
+            return []
         best_feature = max(accuracies, key=accuracies.get)
         best_feature_idx = X.columns.get_loc(best_feature)
 
