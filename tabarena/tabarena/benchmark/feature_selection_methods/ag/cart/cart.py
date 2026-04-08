@@ -6,7 +6,7 @@ import logging
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import LabelEncoder, OrdinalEncoder
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
 
@@ -28,12 +28,15 @@ class CARTFeatureSelector(AbstractFeatureSelector):
     ) -> dict[str, float]:
         data_encoder = OrdinalEncoder()
         X = pd.DataFrame(data_encoder.fit_transform(X), columns=X.columns, index=X.index)
-        label_encoder = LabelEncoder()
-        y = label_encoder.fit_transform(y)
+        if self.problem_type == "regression":
+            y_processed = y
+            CART = DecisionTreeRegressor(random_state=0)
+        else:
+            label_encoder = LabelEncoder()
+            y_processed = label_encoder.fit_transform(y)
+            CART = DecisionTreeClassifier(random_state=0)
         numeric_imputer = SimpleImputer(strategy="mean")
         X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
-
-        CART = DecisionTreeClassifier(random_state=0)
-        CART.fit(X_imputed, y)
+        CART.fit(X_imputed, y_processed)
         importances = CART.feature_importances_
         return dict(zip(X.columns, importances))
