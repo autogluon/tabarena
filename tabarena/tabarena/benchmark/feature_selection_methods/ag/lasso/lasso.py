@@ -39,7 +39,7 @@ class LassoFeatureSelector(AbstractFeatureSelector):
             y_processed = label_encoder.fit_transform(y)
             lasso = LogisticRegression(penalty="l1", random_state=1)
         numeric_imputer = SimpleImputer(strategy="mean")
-        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
+        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=numeric_imputer.get_feature_names_out(), index=X.index)
         lasso.fit(X_imputed, y_processed)
         scores = lasso.coef_
         return dict(zip(X.columns, scores))

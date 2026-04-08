@@ -35,7 +35,7 @@ class Chi2FeatureSelector(AbstractFeatureSelector):
         label_encoder = LabelEncoder()
         y = label_encoder.fit_transform(y)
         numeric_imputer = SimpleImputer(strategy="mean")
-        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
+        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=numeric_imputer.get_feature_names_out(), index=X.index)
 
         chi2_kwargs = {"score_func": chi2, "k": "all"}
         chi2FS = SelectKBest(**chi2_kwargs)

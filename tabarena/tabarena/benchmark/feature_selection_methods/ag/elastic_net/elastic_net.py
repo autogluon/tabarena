@@ -34,7 +34,7 @@ class ElasticNetFeatureSelector(AbstractFeatureSelector):
         data_encoder = OrdinalEncoder()
         X = pd.DataFrame(data_encoder.fit_transform(X), columns=X.columns, index=X.index)
         numeric_imputer = SimpleImputer(strategy="mean")
-        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
+        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=numeric_imputer.get_feature_names_out(), index=X.index)
         if self.problem_type == "regression":
             y_processed = y
             C = 1.0

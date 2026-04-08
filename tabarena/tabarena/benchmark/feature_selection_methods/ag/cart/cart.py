@@ -36,7 +36,7 @@ class CARTFeatureSelector(AbstractFeatureSelector):
             y_processed = label_encoder.fit_transform(y)
             CART = DecisionTreeClassifier(random_state=0)
         numeric_imputer = SimpleImputer(strategy="mean")
-        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
+        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=numeric_imputer.get_feature_names_out(), index=X.index)
         CART.fit(X_imputed, y_processed)
         importances = CART.feature_importances_
         return dict(zip(X.columns, importances))
