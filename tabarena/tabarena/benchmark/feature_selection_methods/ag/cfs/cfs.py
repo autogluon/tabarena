@@ -54,7 +54,7 @@ class CFSFeatureSelector(AbstractFeatureSelector):
         F = []  # cfs score
         M = []  # merit values
         while True:
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -64,7 +64,7 @@ class CFSFeatureSelector(AbstractFeatureSelector):
             merit = -100000000000
             idx = -1
             for i, _col in enumerate(X.columns):
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
