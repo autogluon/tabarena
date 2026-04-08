@@ -43,9 +43,9 @@ TabArenaBenchmarkSetup(
     # You could filter this to run less tasks
     task_metadata=ALL_TASK_METADATA,
     # Only run first three folds for now
-    split_indices_to_run=["r0f0", "r0r1", "r0f2"],
+    split_indices_to_run=["r0f0"],
     # Run methods for 5 configs (1 default + 4 random) each for now
-    n_random_configs=4,
+    n_random_configs=0,
     models=[
         ("LightGBM", "all"),
         ("RandomForest", "all"),
