@@ -38,7 +38,7 @@ class GiniFeatureSelector(AbstractFeatureSelector):
         n_features = len(X.columns)
         gini = np.ones(n_features) * 0.5
         for i in range(n_features):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -47,7 +47,7 @@ class GiniFeatureSelector(AbstractFeatureSelector):
                 break
             v = np.unique(X.iloc[:, i].astype(str))
             for j in range(len(v)):
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -75,7 +75,7 @@ class GiniFeatureSelector(AbstractFeatureSelector):
                 gini_right = 0
 
                 for k in range(np.min(y), np.max(y) + 1):
-                    elapsed_time = time.time() - start_time
+                    elapsed_time = time.monotonic() - start_time
                     if (time_limit is not None) and (elapsed_time >= time_limit):
                         logger.warning(
                             f"Warning: FeatureSelection Method has no time left to train... "

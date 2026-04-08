@@ -48,7 +48,7 @@ class mRMRFeatureSelector(AbstractFeatureSelector):  # noqa: N801
         redundancy = np.zeros(n_features)
         mRMR_score = np.zeros(n_features)
         for i in range(n_features):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -58,7 +58,7 @@ class mRMRFeatureSelector(AbstractFeatureSelector):  # noqa: N801
             f = X.iloc[:, i]
             relevance[i] = self.midd(f, y)
             for j in range(n_features):
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "

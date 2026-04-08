@@ -26,15 +26,15 @@ preprocessing_pipelines = FSBenchmarkConfig().get_default_preprocessing_configs(
         "SequentialBackwardEliminationFeatureSelector",
         "SequentialForwardSelectionFeatureSelector",
         "SymmetricalUncertaintyFeatureSelector",
-        # "LassoFeatureSelector", # just for regression but with label encoder for classification?
+        "LassoFeatureSelector",
         # "LaplacianScoreFeatureSelector", # OOM, Segmentation fault issues
         # "ConsistencyFeatureSelector", # selected_indices = np.where(S)[0].tolist(), UnboundLocalError: cannot access local variable 'S' where it is not associated with a value
         # "JMIFeatureSelector", # time limit computed incorrectly, and error at remaining.remove(best_idx), ValueError: list.remove(x): x not in list
-        # "OneRFeatureSelector", # major OOM errors (tries to allocate one major array), wrong time limit computation,  max(accuracies, key=accuracies.get) -> max() iterable argument is empty
-        # "ElasticNetFeatureSelector", # Only for classification
+        # "OneRFeatureSelector", # major OOM errors (tries to allocate one major array), wrong time limit computation, max(accuracies, key=accuracies.get) -> max() iterable argument is empty
+        "ElasticNetFeatureSelector",
         # "CMIMFeatureSelector", # problems with time limit and fallback of features
         # "tTestFeatureSelector", # Does not work for regression
-        # "CARTFeatureSelector", # Only implemented for classification, OOM problems as well
+        "CARTFeatureSelector", # Only implemented for classification, OOM problems as well
     ]
 )
 

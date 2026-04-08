@@ -55,7 +55,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
         score = np.zeros(n_features)
         # the number of sampled instances is equal to the number of total instances
         for idx in range(n_samples):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -70,7 +70,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
 
             stop_dict = dict()
             for label in c:
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -84,7 +84,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
             p_label_idx = float(len(y[y == y[idx]])) / float(n_samples)
 
             for label in c:
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -99,7 +99,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
             distance[idx, idx] = np.max(distance[idx, :])
 
             for i in range(n_samples):
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -110,7 +110,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
             distance_sort.sort(key=lambda x: x[0])
 
             for i in range(n_samples):
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -130,7 +130,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
                     stop_dict[distance_sort[i][2]] = 1
                 stop = True
                 for _key, value in stop_dict.items():
-                    elapsed_time = time.time() - start_time
+                    elapsed_time = time.monotonic() - start_time
                     if (time_limit is not None) and (elapsed_time >= time_limit):
                         logger.warning(
                             f"Warning: FeatureSelection Method has no time left to train... "
@@ -145,7 +145,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
                 # update reliefF score
             near_hit_term = np.zeros(n_features)
             for ele in near_hit:
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -156,7 +156,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
 
             near_miss_term = dict()
             for label, miss_list in near_miss.items():
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -165,7 +165,7 @@ class ReliefFFeatureSelector(AbstractFeatureSelector):
                     break
                 near_miss_term[label] = np.zeros(n_features)
                 for ele in miss_list:
-                    elapsed_time = time.time() - start_time
+                    elapsed_time = time.monotonic() - start_time
                     if (time_limit is not None) and (elapsed_time >= time_limit):
                         logger.warning(
                             f"Warning: FeatureSelection Method has no time left to train... "
