@@ -5,7 +5,7 @@ import logging
 
 import pandas as pd
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import Lasso
+from sklearn.linear_model import Lasso, LogisticRegression
 from sklearn.preprocessing import LabelEncoder, OrdinalEncoder
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
@@ -31,12 +31,15 @@ class LassoFeatureSelector(AbstractFeatureSelector):
     ) -> dict[str, float]:
         data_encoder = OrdinalEncoder()
         X = pd.DataFrame(data_encoder.fit_transform(X), columns=X.columns, index=X.index)
-        label_encoder = LabelEncoder()
-        y = label_encoder.fit_transform(y)
+        if self.problem_type == "regression":
+            y_processed = y
+            lasso = Lasso(random_state=1)
+        else:
+            label_encoder = LabelEncoder()
+            y_processed = label_encoder.fit_transform(y)
+            lasso = LogisticRegression(penalty="l1", random_state=1)
         numeric_imputer = SimpleImputer(strategy="mean")
         X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
-
-        lasso = Lasso(random_state=1)
-        lasso.fit(X_imputed, y)
+        lasso.fit(X_imputed, y_processed)
         scores = lasso.coef_
         return dict(zip(X.columns, scores))
