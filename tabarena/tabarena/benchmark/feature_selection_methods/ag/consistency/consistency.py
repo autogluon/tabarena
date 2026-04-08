@@ -42,6 +42,7 @@ class ConsistencyFeatureSelector(AbstractFeatureSelector):
 
         c_best = n_features
         s_best = np.ones(n_features, dtype=bool)
+        S = rng.random(n_features) < 0.5
 
         for _ in tqdm(range(r)):
             elapsed_time = time.monotonic() - start_time
@@ -52,7 +53,6 @@ class ConsistencyFeatureSelector(AbstractFeatureSelector):
                 )
                 break
 
-            S = rng.random(n_features) < 0.5
             if not S.any():
                 S[rng.integers(0, n_features)] = True
 
