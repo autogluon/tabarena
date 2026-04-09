@@ -790,10 +790,11 @@ class BenchmarkSetup2026:
             pipeline_method_kwargs = deepcopy(method_kwargs)
 
             name_id_suffix = ""
-            if preprocessing_name != "default":
-                pipeline_method_kwargs["preprocessing_pipeline"] = preprocessing_name
-            if preprocessing_name != "tabarena_default":
-                name_id_suffix = f"_{preprocessing_name}"
+            if self.model_agnostic_preprocessing:
+                if preprocessing_name != "default":
+                    pipeline_method_kwargs["preprocessing_pipeline"] = preprocessing_name
+                if preprocessing_name != "tabarena_default":
+                    name_id_suffix = f"_{preprocessing_name}"
 
             for model_name, n_configs_or_kwargs in self.models:
                 # Resolve AutoGluon Config
