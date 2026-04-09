@@ -1,0 +1,5701 @@
+methods:
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__AccuracyFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__AccuracyFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__AccuracyFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__AccuracyFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__AccuracyFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__AccuracyFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__AccuracyFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__AccuracyFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__AccuracyFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__AccuracyFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__AccuracyFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__AccuracyFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__AccuracyFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__AccuracyFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__AccuracyFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__AccuracyFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__AccuracyFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__RandomFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__RandomFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__RandomFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__RandomFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__RandomFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__RandomFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__RandomFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__RandomFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__RandomFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__RandomFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__RandomFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__RandomFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__RandomFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__RandomFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RandomFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RandomFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__RandomFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ANOVAFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ANOVAFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ANOVAFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ANOVAFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ANOVAFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ANOVAFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ANOVAFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ANOVAFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ANOVAFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ANOVAFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ANOVAFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ANOVAFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ANOVAFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ANOVAFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ANOVAFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ANOVAFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ANOVAFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__CFSFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__CFSFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__CFSFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__CFSFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__CFSFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__CFSFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__CFSFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__CFSFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__CFSFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__CFSFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__CFSFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__CFSFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__CFSFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__CFSFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__CFSFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__CFSFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__CFSFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__Chi2FeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__Chi2FeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__Chi2FeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__Chi2FeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__Chi2FeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__Chi2FeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__Chi2FeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__Chi2FeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__Chi2FeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__Chi2FeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__Chi2FeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__Chi2FeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__Chi2FeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__Chi2FeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__Chi2FeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__Chi2FeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__Chi2FeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__DISRFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__DISRFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__DISRFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__DISRFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__DISRFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__DISRFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__DISRFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__DISRFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__DISRFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__DISRFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__DISRFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__DISRFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__DISRFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__DISRFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__DISRFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__DISRFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__DISRFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__GainRatioFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__GainRatioFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__GainRatioFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__GainRatioFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__GainRatioFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__GainRatioFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__GainRatioFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__GainRatioFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__GainRatioFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__GainRatioFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__GainRatioFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__GainRatioFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__GainRatioFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__GainRatioFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GainRatioFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GainRatioFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__GainRatioFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__GiniFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__GiniFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__GiniFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__GiniFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__GiniFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__GiniFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__GiniFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__GiniFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__GiniFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__GiniFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__GiniFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__GiniFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__GiniFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__GiniFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__GiniFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__GiniFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__GiniFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ImpurityFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ImpurityFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ImpurityFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ImpurityFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ImpurityFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ImpurityFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ImpurityFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ImpurityFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ImpurityFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ImpurityFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ImpurityFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ImpurityFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ImpurityFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ImpurityFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ImpurityFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ImpurityFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ImpurityFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__InformationGainFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__InformationGainFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__InformationGainFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__InformationGainFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__InformationGainFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__InformationGainFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__InformationGainFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__InformationGainFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__InformationGainFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__InformationGainFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__InformationGainFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__InformationGainFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__InformationGainFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__InformationGainFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__InformationGainFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__InformationGainFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__InformationGainFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__INTERACTFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__INTERACTFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__INTERACTFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__INTERACTFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__INTERACTFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__INTERACTFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__INTERACTFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__INTERACTFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__INTERACTFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__INTERACTFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__INTERACTFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__INTERACTFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__INTERACTFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__INTERACTFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__INTERACTFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__INTERACTFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__INTERACTFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__MarkovBlanketFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__MarkovBlanketFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__MarkovBlanketFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__MarkovBlanketFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__MarkovBlanketFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__MarkovBlanketFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__MarkovBlanketFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__MarkovBlanketFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__MarkovBlanketFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__MarkovBlanketFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__MarkovBlanketFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__MarkovBlanketFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__MarkovBlanketFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__MarkovBlanketFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MarkovBlanketFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MarkovBlanketFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__MarkovBlanketFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__MIFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__MIFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__MIFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__MIFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__MIFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__MIFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__MIFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__MIFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__MIFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__MIFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__MIFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__MIFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__MIFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__MIFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__MIFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__MIFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__MIFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__mRMRFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__mRMRFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__mRMRFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__mRMRFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__mRMRFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__mRMRFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__mRMRFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__mRMRFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__mRMRFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__mRMRFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__mRMRFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__mRMRFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__mRMRFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__mRMRFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__mRMRFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__mRMRFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__mRMRFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__PearsonCorrelationFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__PearsonCorrelationFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__PearsonCorrelationFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__PearsonCorrelationFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__PearsonCorrelationFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__PearsonCorrelationFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__PearsonCorrelationFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__PearsonCorrelationFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__PearsonCorrelationFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__PearsonCorrelationFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__PearsonCorrelationFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__PearsonCorrelationFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__PearsonCorrelationFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__PearsonCorrelationFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__PearsonCorrelationFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__PearsonCorrelationFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__PearsonCorrelationFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ReliefFFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ReliefFFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ReliefFFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ReliefFFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ReliefFFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ReliefFFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ReliefFFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ReliefFFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ReliefFFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ReliefFFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ReliefFFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ReliefFFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__ReliefFFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__ReliefFFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__ReliefFFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__ReliefFFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__ReliefFFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__RFImportanceFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__RFImportanceFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__RFImportanceFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__RFImportanceFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__RFImportanceFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__RFImportanceFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__RFImportanceFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__RFImportanceFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__RFImportanceFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__RFImportanceFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__RFImportanceFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__RFImportanceFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__RFImportanceFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__RFImportanceFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__RFImportanceFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__RFImportanceFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__RFImportanceFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialBackwardEliminationFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SequentialBackwardEliminationFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SequentialForwardSelectionFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SequentialForwardSelectionFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SequentialForwardSelectionFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__0__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__0__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__0__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__1__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__1__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__1__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__2__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__2__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__2__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__3__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__3__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__3__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: GBM
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LightGBM_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: RF
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: RandomForest_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
+- method_kwargs:
+    init_kwargs:
+      default_base_path: /tmp/ag
+      verbosity: 2
+    preprocessing_pipeline: FSBench__SymmetricalUncertaintyFeatureSelector__5__4__lgbm__3600
+    shuffle_features: true
+  model_cls: LR
+  model_hyperparameters:
+    ag_args:
+      name_suffix: _c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__4__lgbm__3600
+    ag_args_ensemble:
+      model_random_seed: 0
+      vary_seed_across_folds: true
+  name: LinearModel_c1_FSBench__SymmetricalUncertaintyFeatureSelector__5__4__lgbm__3600_BAG_L1
+  num_bag_folds: 8
+  num_bag_sets: 1
+  time_limit: 3600
+  time_limit_with_preprocessing: false
+  type: AGModelBagExperiment
