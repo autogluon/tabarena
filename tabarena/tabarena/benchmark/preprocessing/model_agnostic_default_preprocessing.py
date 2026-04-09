@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pandas as pd
 from autogluon.common.features.types import (
     R_BOOL,
@@ -30,6 +32,9 @@ from tabarena.benchmark.preprocessing.text_feature_generators import (
     StatisticalTextFeatureGenerator,
 )
 from tabarena.benchmark.task.user_task import GroupLabelTypes
+
+if TYPE_CHECKING:
+    from autogluon.common.features.feature_metadata import FeatureMetadata
 
 
 # TODO: we likely need some kind of off-loading logic for text features
@@ -155,7 +160,9 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
       fit are imputed to 0.
     """
 
-    def fit_transform(self, X: pd.DataFrame, y: pd.Series | None = None, **kwargs) -> pd.DataFrame:
+    def fit_transform(
+        self, X: pd.DataFrame, y: pd.Series | None = None, feature_metadata_in: FeatureMetadata = None, **kwargs
+    ) -> pd.DataFrame:
         """Rename columns with '.' before AutoGluon stores feature metadata.
 
         AutoGluon's ``AbstractFeatureGenerator.fit_transform`` records ``features_in``
@@ -166,7 +173,9 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
         self._dot_rename_map_: dict[str, str] = {c: str(c).replace(".", "_") for c in X.columns if "." in str(c)}
         if self._dot_rename_map_:
             X = X.rename(columns=self._dot_rename_map_)
-        return super().fit_transform(X, y=y, **kwargs)
+            if feature_metadata_in is not None:
+                feature_metadata_in = feature_metadata_in.rename_features(rename_map=self._dot_rename_map_)
+        return super().fit_transform(X, y=y, feature_metadata_in=feature_metadata_in, **kwargs)
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Apply the same dot-renaming as fit before passing to parent transform."""
@@ -244,9 +253,9 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
             self._log(
                 level=20,
                 msg=f"WARNING: Bool column '{col}' has more than 2 unique non-null values at test time. "
-                    "Unseen values will be mapped to 0 (False). "
-                    "Consider passing this column with >2 values at train time to avoid bool encoding, or"
-                    "force to treat this as a numerical column!",
+                "Unseen values will be mapped to 0 (False). "
+                "Consider passing this column with >2 values at train time to avoid bool encoding, or"
+                "force to treat this as a numerical column!",
             )
         if self._bool_features:
             X = self._convert_to_bool(X)
