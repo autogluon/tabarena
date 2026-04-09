@@ -143,8 +143,16 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
     ``TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column``.
 
     We further adjust the original logic to better handle unseen categories or suddenly appearing
-    nan values at test time.
+    nan values at test time:
 
+    * **Categorical columns** — unknown category values at test time are preserved
+      (not silently mapped to NaN) by converting through ``object`` dtype.
+    * **Bool columns** — columns with exactly 2 unique values at fit time are
+      bool-encoded to int8 (``true_val`` → 1, else → 0).  If a bool column gains
+      additional unique values at test time, the normal bool encoding still applies
+      and the unseen values are mapped to 0 (False).  A warning is logged.
+    * **Int columns** — NaN values that appear at test time but were absent during
+      fit are imputed to 0.
     """
 
     def fit_transform(self, X: pd.DataFrame, y: pd.Series | None = None, **kwargs) -> pd.DataFrame:
@@ -188,16 +196,13 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
 
         return X
 
-    def _handle_dtype_mismatch_at_test_time(self, X: pd.DataFrame, bool_cols_with_extra_cats: set) -> pd.DataFrame:
+    def _handle_dtype_mismatch_at_test_time(self, X: pd.DataFrame) -> pd.DataFrame:
         """Handle situation where dtypes of test data do not match those of training data.
 
         The logic is split between cat and non-cat features to avoid the issue where
         astype(CategoricalDtype(categories=[...])) silently maps unknown categories to NaN.
         By converting through object dtype first, we ensure that all values are preserved as valid categories,
         even if they were not seen during training.
-        bool_cols_with_extra_cats are excluded from non_cat_type_map because they
-        are still typed as int8 in _type_map_real_opt but have not been bool-encoded;
-        trying to astype them to int8 would silently discard the extra category values.
         """
         # TODO: Confirm this works with sparse and other feature types!
         # FIXME: Address situation where test-time invalid type values cause crash:
@@ -210,9 +215,7 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
             col: dtype for col, dtype in self._type_map_real_opt.items() if isinstance(dtype, pd.CategoricalDtype)
         }
         non_cat_type_map = {
-            col: dtype
-            for col, dtype in self._type_map_real_opt.items()
-            if not isinstance(dtype, pd.CategoricalDtype) and col not in bool_cols_with_extra_cats
+            col: dtype for col, dtype in self._type_map_real_opt.items() if not isinstance(dtype, pd.CategoricalDtype)
         }
         if non_cat_type_map:
             try:
@@ -225,38 +228,35 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
                 X[col] = X[col].astype(object).astype(pd.CategoricalDtype(ordered=dtype.ordered))
         return X
 
-    def _handle_bool_cols_with_extra_cats_at_test_time(self, X: pd.DataFrame) -> tuple[pd.DataFrame, set]:
-        """Handle situation where bool columns gain extra categories at test time.
+    def _handle_bool_cols_with_unseen_values_at_test_time(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Handle bool columns that gain unseen values at test time.
 
-        If a bool column gains more than the expected 2 unique non-null values at test time,
-        we skip bool-encoding for that column and convert it to categorical at the end of the transform method.
-        This is because encoding a 3rd value through the bool path (== true_val → 1, else → 0) silently maps unknown categories to 0 (false).
-        By skipping bool-encoding and converting to categorical, we ensure that all values are preserved as valid categories,
-        even if they were not seen during training.
+        Bool columns are always bool-encoded (``true_val`` → 1, else → 0)
+        regardless of whether unseen values appear.  This means unseen values
+        are silently mapped to 0 (False), which keeps the output dtype
+        identical to training (int8) and avoids downstream dtype mismatches.
+        A warning is logged for each affected column.
         """
-        bool_cols_with_extra_cats = {
+        bool_cols_with_unseen = {
             col for col in self._bool_features if col in X.columns and X[col].dropna().nunique() > 2
         }
-        if bool_cols_with_extra_cats:
-            saved_extra = {col: self._bool_features.pop(col) for col in bool_cols_with_extra_cats}
-            self._set_bool_features_val()
+        for col in bool_cols_with_unseen:
+            self._log(
+                level=20,
+                msg=f"WARNING: Bool column '{col}' has more than 2 unique non-null values at test time. "
+                    "Unseen values will be mapped to 0 (False). "
+                    "Consider passing this column with >2 values at train time to avoid bool encoding, or"
+                    "force to treat this as a numerical column!",
+            )
         if self._bool_features:
             X = self._convert_to_bool(X)
-        if bool_cols_with_extra_cats:
-            self._bool_features.update(saved_extra)
-            self._set_bool_features_val()
 
-        return X, bool_cols_with_extra_cats
+        return X
 
     def _transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Override the default handling for unseen values!"""
-        # Identify bool columns that gained more than the expected 2 unique non-null values
-        # at test time.  Encoding a 3rd value through the bool path (== true_val → 1, else → 0)
-        # silently maps unknown categories to 0 (false).  We instead skip bool-encoding for
-        # those columns and convert them to categorical at the end of this method.
-        bool_cols_with_extra_cats: set[str] = set()
         if self._bool_features:
-            X, bool_cols_with_extra_cats = self._handle_bool_cols_with_extra_cats_at_test_time(X)
+            X = self._handle_bool_cols_with_unseen_values_at_test_time(X)
 
         # This means we have unobserved nans/categories
         if self._type_map_real_opt != X.dtypes.to_dict():
@@ -264,13 +264,7 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
                 X = self._handle_nan_in_int_only_at_test_time(X)
 
             if self._type_map_real_opt:
-                X = self._handle_dtype_mismatch_at_test_time(X, bool_cols_with_extra_cats=bool_cols_with_extra_cats)
-
-        # Convert bool columns that gained extra categories to categorical so that
-        # all values (including novel ones) are preserved rather than silently mapped to 0.
-        for col in bool_cols_with_extra_cats:
-            if col in X.columns:
-                X[col] = X[col].astype(object).astype(pd.CategoricalDtype(ordered=False))
+                X = self._handle_dtype_mismatch_at_test_time(X)
 
         return X
 

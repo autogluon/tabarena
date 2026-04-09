@@ -113,19 +113,8 @@ class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):
     """CategoryFeatureGenerator that does not treat each string column as a category.
 
 
-    CategoryFeatureGenerator that preserves unseen categories instead of NaN.
-
-    At transform time, category values not seen during fit are mapped to the integer code
-    n (max_seen_code + 1) rather than being silently converted to NaN.  This is achieved
-    by two cooperating changes:
-
-    1. ``_generate_features_category`` replaces each unseen non-NaN value with the
-       sentinel ``_UNSEEN_CAT`` and adds that sentinel to the category list, so the
-       Categorical dtype keeps the value rather than encoding it as NaN.
-
-    2. ``TabArenaCategoryMemoryMinimizeFeatureGenerator`` (used as the post-generator
-       instead of the plain ``CategoryMemoryMinimizeFeatureGenerator``) detects codes
-       >= n at transform time and maps them to the integer n.
+    CategoryFeatureGenerator that preserves unseen categories to be handled by
+    the downstream model instead of setting them to NaN.
     """
 
     def __init__(self, **kwargs) -> None:
