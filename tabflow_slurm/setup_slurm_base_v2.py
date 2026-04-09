@@ -776,7 +776,7 @@ class BenchmarkSetup2026:
         if not self.model_agnostic_preprocessing:
             method_kwargs["fit_kwargs"]["feature_generator"] = None
         if self.adapt_num_folds_to_n_classes:
-            method_kwargs["fit_kwargs"]["adapt_num_folds_to_n_classes"] = True
+            method_kwargs["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"] = True
 
         print(
             "Generating experiments for models...",
