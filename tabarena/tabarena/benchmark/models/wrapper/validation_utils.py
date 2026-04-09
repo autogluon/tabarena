@@ -139,9 +139,7 @@ class TabArenaValidationProtocolExecMixin:
 
         stratify_on_data = None
         if self.stratify_on is not None:
-            stratify_on_data = (
-                X[self.stratify_on] if self.stratify_on in X.columns else y
-            )
+            stratify_on_data = X[self.stratify_on] if self.stratify_on in X.columns else y
 
         groups_data = None
         group_labels = None
@@ -149,14 +147,10 @@ class TabArenaValidationProtocolExecMixin:
             raise NotImplementedError
 
         if self.time_on is not None:
-            groups_data, num_folds_new = self.time_on_to_groups_data(
-                X=X, time_on=self.time_on, num_folds=num_folds
-            )
+            groups_data, num_folds_new = self.time_on_to_groups_data(X=X, time_on=self.time_on, num_folds=num_folds)
             num_repeats = 1
             logger.info(
-                f"\n\tFolds time-based grouping: before={num_folds}; "
-                f"after={num_folds_new}"
-                f"\n\tnum_repeats set to 1!"
+                f"\n\tFolds time-based grouping: before={num_folds}; after={num_folds_new}\n\tnum_repeats set to 1!"
             )
             num_folds = num_folds_new
             # Set group labels as needed for time split
@@ -167,6 +161,9 @@ class TabArenaValidationProtocolExecMixin:
             group_labels = self.group_labels
 
         if groups_data is not None:
+            if num_repeats is None:
+                num_repeats = 1
+
             custom_splits = self._resolve_group_splits(
                 X=X,
                 num_folds=num_folds,
@@ -181,15 +178,9 @@ class TabArenaValidationProtocolExecMixin:
             for train_idx, test_idx in custom_splits:
                 if stratify_on_data is not None:
                     stratify_values = stratify_on_data.unique()
-                    train_stratify_values = set(
-                        stratify_on_data.iloc[train_idx].unique()
-                    )
+                    train_stratify_values = set(stratify_on_data.iloc[train_idx].unique())
                     test_stratify_values = set(stratify_on_data.iloc[test_idx].unique())
-                    assert (
-                        train_stratify_values
-                        == test_stratify_values
-                        == set(stratify_values)
-                    ), (
+                    assert train_stratify_values == test_stratify_values == set(stratify_values), (
                         f"Stratification values in train and test splits do not match!"
                         f"\n\tOverall stratification values: {stratify_values}"
                         f"\n\tTrain stratification values: {train_stratify_values}"
@@ -199,8 +190,8 @@ class TabArenaValidationProtocolExecMixin:
         return custom_splits, num_folds, num_repeats
 
     def _resolve_number_of_splits(
-        self, *, num_folds: int, num_repeats: int, num_group_instances: int
-    ) -> tuple[int, int]:
+        self, *, num_folds: int, num_repeats: int | None, num_group_instances: int
+    ) -> tuple[int, int | None]:
         """Determine the number of splits we want to use.
 
         Parameters
@@ -314,17 +305,13 @@ class TabArenaValidationProtocolExecMixin:
         return groups_data.copy()
 
     @staticmethod
-    def time_on_to_groups_data(
-        *, X: pd.DataFrame, time_on: str, num_folds: int
-    ) -> tuple[pd.Series, int]:
+    def time_on_to_groups_data(*, X: pd.DataFrame, time_on: str, num_folds: int) -> tuple[pd.Series, int]:
         """Go from time column to a group column for splits."""
         time_data = X[time_on]
 
         if pd.api.types.is_datetime64_any_dtype(time_data):
             time_data = time_data.view("int64")
-        assert pd.api.types.is_numeric_dtype(time_data), (
-            "Time_on column is not datetime or numeric!"
-        )
+        assert pd.api.types.is_numeric_dtype(time_data), "Time_on column is not datetime or numeric!"
 
         return split_time_index_into_intervals(
             time_data=time_data,
@@ -405,9 +392,7 @@ def split_time_index_into_intervals(
 
     n_unique = len(counts)
     if n_unique < 2:
-        raise ValueError(
-            "Need at least 2 unique time values to create at least 2 intervals."
-        )
+        raise ValueError("Need at least 2 unique time values to create at least 2 intervals.")
     actual_n_intervals = min(goal_n_intervals, n_unique)
     if actual_n_intervals < 2:
         raise ValueError("Could not create at least 2 intervals.")
