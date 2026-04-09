@@ -245,7 +245,8 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
                 level=20,
                 msg=f"WARNING: Bool column '{col}' has more than 2 unique non-null values at test time. "
                     "Unseen values will be mapped to 0 (False). "
-                    "Consider passing this column with >2 values at train time to avoid bool encoding.",
+                    "Consider passing this column with >2 values at train time to avoid bool encoding, or"
+                    "force to treat this as a numerical column!",
             )
         if self._bool_features:
             X = self._convert_to_bool(X)
