@@ -306,6 +306,10 @@ class BenchmarkSetup2026:
     shuffle_features: bool = True
     """Whether to shuffle the features of the datasets. Only here for backward compatibility
     with the original TabArena setup, but not recommended to change."""
+    adapt_num_folds_to_n_classes: bool = True
+    """Whether to adapt the number of folds to the number of classes for classification tasks.
+    Ensures that each fold has at least one sample of each class.
+    """
     parallel_benchmark_name: str | None = None
     """Set this is to some string value to make sure you can run parallel
     jobs for the same benchmark name.This ensures that the config and job .yaml/.json
@@ -763,13 +767,16 @@ class BenchmarkSetup2026:
         method_kwargs = {
             "init_kwargs": {"verbosity": self.verbosity},
             "shuffle_features": self.shuffle_features,
+            "fit_kwargs": dict(),
         }
         if self.model_artifacts_base_path is not None:
             method_kwargs["init_kwargs"]["default_base_path"] = (
                 self.model_artifacts_base_path
             )
         if not self.model_agnostic_preprocessing:
-            method_kwargs["fit_kwargs"] = {"feature_generator": None}
+            method_kwargs["fit_kwargs"]["feature_generator"] = None
+        if self.adapt_num_folds_to_n_classes:
+            method_kwargs["fit_kwargs"]["adapt_num_folds_to_n_classes"] = True
 
         print(
             "Generating experiments for models...",
