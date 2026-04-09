@@ -835,9 +835,19 @@ def openml_create_datasets_without_arff_dump(
             if isinstance(data[col].dtype, (pd.PeriodDtype, pd.IntervalDtype))
         )
     )
-    if len(unsupported_cols) > 0:
+    # Cast categories of categorical columns to string so that
+    # attributes_arff_from_df can handle them (e.g. integer categories).
+    cat_cols_to_fix = [
+        col for col in data.select_dtypes(include=["category"]).columns
+        if not pd.api.types.is_string_dtype(data[col].cat.categories)
+    ]
+
+    if len(unsupported_cols) > 0 or len(cat_cols_to_fix) > 0:
         data = data.copy()
+    if len(unsupported_cols) > 0:
         data[unsupported_cols] = data[unsupported_cols].astype(str)
+    for col in cat_cols_to_fix:
+        data[col] = data[col].cat.rename_categories(str)
 
     # infer the type of data for each column of the DataFrame
     attributes_ = attributes_arff_from_df(data)

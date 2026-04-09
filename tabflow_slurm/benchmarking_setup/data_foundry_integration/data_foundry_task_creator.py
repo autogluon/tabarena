@@ -152,12 +152,14 @@ def convert_data_foundry_task_to_user_task(
         problem_type = "classification"
         if not isinstance(y.dtype, pd.CategoricalDtype):
             raise ValueError(
-                f"Target column {task_container.task_metadata.target_column_name} is not categorical for classification problem."
+                f"Target column {task_container.task_metadata.target_column_name} is not categorical for "
+                f"classification problem. ({task_container.dataset_metadata.unique_name})"
             )
         if y.nunique() < 3:
             raise ValueError(
                 f"Target column {task_container.task_metadata.target_column_name} has {y.nunique()} classes, "
-                "but expected at least 3 for multiclass classification problem."
+                f"but expected at least 3 for multiclass classification "
+                f"problem. ({task_container.dataset_metadata.unique_name})"
             )
     else:
         raise ValueError(f"Unknown problem type {task_container.task_metadata.problem_type}")

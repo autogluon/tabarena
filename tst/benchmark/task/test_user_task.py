@@ -1079,3 +1079,51 @@ def test_create_local_openml_task_unsupported_arff_dtype_does_not_raise(
     # modify the persisted data.
     stored = pd.read_parquet(ut._local_cache_path / "data.pq")
     assert stored[col_name].dtype == df[col_name].dtype
+
+
+@pytest.mark.parametrize(
+    ("cat_values", "cat_dtype", "test_id"),
+    [
+        (
+            pd.Categorical([0, 1, 2, 1, 0, 2, 1, 0, 2, 1]),
+            "int64",
+            "int_categories",
+        ),
+        (
+            pd.Categorical([1.5, 2.5, 1.5, 2.5, 1.5, 2.5, 1.5, 2.5, 1.5, 2.5]),
+            "float64",
+            "float_categories",
+        ),
+    ],
+    ids=lambda x: x if isinstance(x, str) and "_categories" in x else "",
+)
+def test_create_local_openml_task_non_string_categorical_does_not_raise(
+    cat_values, cat_dtype, test_id, tmp_path
+):
+    """Categorical columns whose categories have a non-string dtype (e.g. int, float)
+    must not break ARFF attribute inference — categories are cast to string only for
+    metadata and do not affect the data persisted to parquet.
+    """
+    n = 10
+    df = pd.DataFrame(
+        {
+            "num": np.arange(n, dtype="int64"),
+            "cat_col": cat_values,
+            "target": np.linspace(0.0, 1.0, num=n),
+        }
+    )
+    assert df["cat_col"].dtype.name == "category"
+    assert df["cat_col"].cat.categories.dtype == cat_dtype
+
+    splits = {0: {0: (list(range(8)), [8, 9])}}
+    ut = UserTask(task_name=f"non-str-cat-{test_id}", task_cache_path=tmp_path)
+    # Must not raise
+    ut.create_local_openml_task(
+        dataset=df, target_feature="target", problem_type="regression", splits=splits
+    )
+
+    # The parquet file must store the original data values unchanged.
+    stored = pd.read_parquet(ut._local_cache_path / "data.pq")
+    pd.testing.assert_series_equal(
+        stored["cat_col"].astype(str), df["cat_col"].astype(str), check_names=True
+    )
