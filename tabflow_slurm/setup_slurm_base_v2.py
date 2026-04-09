@@ -346,7 +346,7 @@ class BenchmarkSetup2026:
         - For models that use CPU memory as a proxy for GPU memory (e.g. most TFMs),
           this can be used if the job has much more VRAM than CPU memory.
     """
-    verbosity: int = 4
+    verbosity: int = 2
     """Verbosity level for logging and printing."""
 
     def __post_init__(self):

@@ -643,40 +643,104 @@ class TestStringFixAsTypeFeatureGeneratorCategoricals:
     # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
-    # Binary column gaining a third category at test time
+    # Bool columns with unseen values at test time
+    #
+    # Bool encoding always applies: true_val → 1, everything else → 0.
+    # Unseen values are mapped to 0 (False) and a warning is logged.
+    # The column stays in _bool_features and keeps its int8 dtype.
     # ------------------------------------------------------------------
 
-    def test_binary_column_gaining_third_category_not_silently_mapped(self):
-        """A binary column (bool-encoded as int8 at fit time) that gains a third value
-        at test time must not silently map that value to 0 (false).
-
-        With only 2 unique values at fit time the column is stored in _bool_features and
-        encoded as int8 via _convert_to_bool (== true_val → 1, else → 0).  A 3rd value
-        that appears at test time would silently become 0 without our fix; instead we
-        convert the whole column to categorical so all values are preserved.
-        """
+    def test_bool_col_unseen_value_mapped_to_false(self):
+        """An unseen value in a bool column must be mapped to 0 (False)."""
         X_train = pd.DataFrame({"col": pd.Categorical(["yes", "no", "yes", "no"])})
         gen = StringFixAsTypeFeatureGenerator()
         gen.fit_transform(X_train.copy())
-        assert "col" in gen._bool_features, "Expected binary column to be bool-encoded at fit time"
+        assert "col" in gen._bool_features
 
         X_test = pd.DataFrame({"col": pd.Categorical(["yes", "no", "maybe"])})
         X_out = gen.transform(X_test.copy())
-        assert X_out["col"].isna().sum() == 0, "'maybe' was converted to NaN"
-        values = set(X_out["col"].astype(object).tolist())
-        assert "maybe" in values, "'maybe' was silently discarded / mapped to 0 or 1"
+        assert X_out["col"].dtype == np.int8
+        assert X_out["col"].iloc[0] == 1   # 'yes' (true_val) → 1
+        assert X_out["col"].iloc[1] == 0   # 'no' (false_val) → 0
+        assert X_out["col"].iloc[2] == 0   # 'maybe' (unseen) → 0
 
-    def test_binary_column_without_extra_categories_still_bool_encoded(self):
+    def test_bool_int_col_unseen_value_mapped_to_false(self):
+        """An unseen integer in a bool int column (0/1) must be mapped to 0."""
+        X_train = pd.DataFrame({"b": [0, 1, 0, 1]})
+        gen = self._fit_gen(X_train)
+        X_out = gen.transform(pd.DataFrame({"b": [0, 1, 2]}))
+        assert X_out["b"].dtype == np.int8
+        assert list(X_out["b"]) == [0, 1, 0]  # 2 is unseen → 0
+
+    def test_bool_int_col_multiple_unseen_values_all_map_to_false(self):
+        """All unseen integer values must be mapped to 0."""
+        X_train = pd.DataFrame({"b": [0, 1, 0, 1]})
+        gen = self._fit_gen(X_train)
+        X_out = gen.transform(pd.DataFrame({"b": [0, 1, 5, 7, 9]}))
+        assert list(X_out["b"]) == [0, 1, 0, 0, 0]
+
+    def test_bool_string_col_unseen_value_mapped_to_false(self):
+        """An unseen string in a bool string column must be mapped to 0."""
+        X_train = pd.DataFrame({"b": pd.Categorical(["yes", "no", "yes", "no"])})
+        gen = self._fit_gen(X_train)
+        X_out = gen.transform(pd.DataFrame({"b": pd.Categorical(["yes", "no", "maybe"])}))
+        assert X_out["b"].dtype == np.int8
+        assert X_out["b"].iloc[0] == 1   # 'yes' → 1
+        assert X_out["b"].iloc[1] == 0   # 'no' → 0
+        assert X_out["b"].iloc[2] == 0   # 'maybe' → 0
+
+    def test_bool_col_stays_in_bool_features_after_unseen(self):
+        """A bool column with unseen values must remain in _bool_features."""
+        X_train = pd.DataFrame({"b": [0, 1, 0, 1]})
+        gen = self._fit_gen(X_train)
+        assert "b" in gen._bool_features
+
+        gen.transform(pd.DataFrame({"b": [0, 1, 2]}))
+        assert "b" in gen._bool_features, "Column must remain a bool feature"
+
+    def test_bool_col_second_transform_still_bool_encodes(self):
+        """A second transform call must still apply bool encoding."""
+        X_train = pd.DataFrame({"b": [0, 1, 0, 1]})
+        gen = self._fit_gen(X_train)
+
+        gen.transform(pd.DataFrame({"b": [0, 1, 2]}))
+
+        X_out = gen.transform(pd.DataFrame({"b": [0, 1, 3]}))
+        assert X_out["b"].dtype == np.int8
+        assert list(X_out["b"]) == [0, 1, 0]  # 3 is unseen → 0
+
+    def test_bool_col_unseen_other_bool_col_unaffected(self):
+        """A sibling bool column without unseen values must still be bool-encoded normally."""
+        X_train = pd.DataFrame({"a": [0, 1, 0, 1], "b": [0, 1, 0, 1]})
+        gen = self._fit_gen(X_train)
+
+        X_test = pd.DataFrame({"a": [0, 1, 2], "b": [0, 1, 0]})
+        X_out = gen.transform(X_test.copy())
+        # 'a' gained unseen → still int8, unseen mapped to 0
+        assert X_out["a"].dtype == np.int8
+        assert list(X_out["a"]) == [0, 1, 0]
+        # 'b' no unseen → normal bool-encoded 0/1
+        assert X_out["b"].dtype == np.int8
+        assert set(X_out["b"].tolist()).issubset({0, 1})
+
+    def test_bool_col_without_unseen_values_still_bool_encoded(self):
         """When no new categories appear the bool-encoding path must still run normally."""
         X_train = pd.DataFrame({"col": pd.Categorical(["yes", "no", "yes", "no"])})
         gen = StringFixAsTypeFeatureGenerator()
         gen.fit_transform(X_train.copy())
-        # Only known values at test time → normal bool encoding expected
         X_test = pd.DataFrame({"col": pd.Categorical(["yes", "no", "yes"])})
         X_out = gen.transform(X_test.copy())
         assert X_out["col"].isna().sum() == 0
-        # Values should be 0/1 (int8 bool encoding), not strings
         assert set(X_out["col"].tolist()).issubset({0, 1})
+
+    def test_bool_col_with_nan_at_test_time(self):
+        """NaN in a bool column with unseen values is imputed to 0, consistent
+        with how all int columns handle test-time NaN."""
+        X_train = pd.DataFrame({"b": [0, 1, 0, 1]})
+        gen = self._fit_gen(X_train)
+        X_out = gen.transform(pd.DataFrame({"b": [0, 1, 2, None]}))
+        assert X_out["b"].iloc[3] == 0
+        assert X_out["b"].dtype == np.int8
 
     def test_int_column_with_nan_at_test_time_imputed_to_zero(self):
         """Int features that were never NaN at train time must be imputed to 0 at test time."""
