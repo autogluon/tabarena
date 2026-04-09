@@ -2,3 +2,4 @@ from .repository.evaluation_repository import EvaluationRepository, load_reposit
 from .repository.evaluation_repository_collection import EvaluationRepositoryCollection
 from .contexts._context_fetcher import get_context, list_contexts
 from .evaluation.evaluator import Evaluator
+from .nips2025_utils.tabarena_context import TabArenaContext
