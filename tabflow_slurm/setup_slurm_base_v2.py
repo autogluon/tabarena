@@ -776,7 +776,7 @@ class BenchmarkSetup2026:
         if not self.model_agnostic_preprocessing:
             method_kwargs["fit_kwargs"]["feature_generator"] = None
         if self.adapt_num_folds_to_n_classes:
-            method_kwargs["fit_kwargs"]["adapt_num_folds_to_n_classes"] = True
+            method_kwargs["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"] = True
 
         print(
             "Generating experiments for models...",
@@ -790,10 +790,11 @@ class BenchmarkSetup2026:
             pipeline_method_kwargs = deepcopy(method_kwargs)
 
             name_id_suffix = ""
-            if preprocessing_name != "default":
-                pipeline_method_kwargs["preprocessing_pipeline"] = preprocessing_name
-            if preprocessing_name != "tabarena_default":
-                name_id_suffix = f"_{preprocessing_name}"
+            if self.model_agnostic_preprocessing:
+                if preprocessing_name != "default":
+                    pipeline_method_kwargs["preprocessing_pipeline"] = preprocessing_name
+                if preprocessing_name != "tabarena_default":
+                    name_id_suffix = f"_{preprocessing_name}"
 
             for model_name, n_configs_or_kwargs in self.models:
                 # Resolve AutoGluon Config
