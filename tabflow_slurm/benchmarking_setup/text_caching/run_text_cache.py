@@ -12,7 +12,6 @@ def pre_generate_text_cache(task_id_str: str) -> Path:
     from tabarena.benchmark.task.openml import OpenMLTaskWrapper
     from tabarena.benchmark.task.user_task import UserTask
 
-
     task_id_or_object = UserTask.from_task_id_str(task_id_str)
     task = OpenMLTaskWrapper(
         task=task_id_or_object.load_local_openml_task(),
@@ -27,10 +26,8 @@ def pre_generate_text_cache(task_id_str: str) -> Path:
         verbosity=2,
     )
     preprocessing.fit_transform(X=task.X)
-    cache_for_dataset = SemanticTextFeatureGenerator._embedding_look_up
-    print(cache_for_dataset)
 
-    cache_path = SemanticTextFeatureGenerator.get_text_cache_dir(task_id_str=task_id_str)
+    cache_path = SemanticTextFeatureGenerator.get_text_cache_dir(task_id_str=str(task.task_id))
     SemanticTextFeatureGenerator.save_embedding_cache(
         cache=SemanticTextFeatureGenerator._embedding_look_up, path=cache_path
     )
