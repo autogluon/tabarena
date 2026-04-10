@@ -102,6 +102,7 @@ def get_info_from_result(result: BaselineResult) -> dict:
 
 def load_raw(
     path_raw: str | Path | list[str | Path] = None,
+    name_pattern: str | None = None,
     engine: str = "ray",
     as_holdout: bool = False,
 ) -> list[BaselineResult]:
@@ -120,7 +121,7 @@ def load_raw(
     """
 
     suffix = "results.pkl"
-    file_paths_method = fetch_all_pickles(dir_path=path_raw, suffix=suffix)
+    file_paths_method = fetch_all_pickles(dir_path=path_raw, suffix=suffix, name_pattern=name_pattern)
     if len(file_paths_method) == 0:
         # Look at every file to provide debugging info
         all_files = [p for p in Path(path_raw).rglob("*") if p.is_file()]
