@@ -5,7 +5,7 @@ import unicodedata
 import warnings
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -59,12 +59,25 @@ class TabArenaDefaultTextEncoder:
             processor_kwargs={"padding_side": "left"},
         )
 
+    # TODO: could optimize this much more + ideally compute on-the-fly
+    # Length-bucket thresholds (chars) and batch sizes, ordered from longest to shortest.
+    # Texts longer than the threshold get the corresponding batch size.
+    _LENGTH_BUCKETS: ClassVar[list[tuple[int, int]]] = [
+        (20_000, 8),
+        (15_000, 16),
+        (10_000, 32),
+        (5_000, 64),
+        (500, 128),
+        (0, 256),
+    ]
+
     @staticmethod
     def encode_texts(*, texts: list[str], encoder_model: SentenceTransformer) -> np.ndarray:
-        """Encode texts with length-sorted batching.
+        """Encode texts with adaptive batch sizes based on text length.
 
-        Texts are sorted by character length before encoding so that
-        similarly-sized texts land in the same batch, minimising padding waste.
+        Texts are sorted by character length and split into buckets.
+        Longer texts use smaller batch sizes to limit peak memory, while
+        shorter texts use larger batch sizes for throughput.
         """
         # guess-timate + overhead for characters per token
         max_chars = int(encoder_model.max_seq_length * 3)
@@ -82,17 +95,37 @@ class TabArenaDefaultTextEncoder:
         sorted_indices = sorted(range(len(texts)), key=lambda k: len(texts[k]))
         sorted_texts = [texts[k] for k in sorted_indices]
 
-        encode_batch_size = 64
-        print(f"Encoding {len(texts)} unique text values with batch size {encode_batch_size}...")
+        print(f"Encoding {len(texts)} unique text values...")
+        print(f"\tShortest text: {len(sorted_texts[0])} chars, longest text: {len(sorted_texts[-1])} chars.")
+        print(f"\tAverage text length: {sum(len(t) for t in sorted_texts) / len(sorted_texts):.1f} chars.")
 
-        all_embs_sorted = encoder_model.encode(
-            sorted_texts,
-            prompt_name="query",
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-            batch_size=encode_batch_size,
-            show_progress_bar=True,
-        )
+        # Split sorted texts into length buckets and encode each with its own batch size.
+        buckets = TabArenaDefaultTextEncoder._LENGTH_BUCKETS
+        all_embs_parts: list[np.ndarray] = []
+        start = len(sorted_texts)  # walk backwards (longest first)
+        for char_threshold, batch_size in buckets:
+            # Find the first text that is shorter than the threshold.
+            end = start
+            start = end
+            while start > 0 and len(sorted_texts[start - 1]) >= char_threshold:
+                start -= 1
+            bucket_texts = sorted_texts[start:end]
+            if not bucket_texts:
+                continue
+            print(f"\tBucket >={char_threshold} chars: {len(bucket_texts)} texts, batch_size={batch_size}")
+            embs = encoder_model.encode(
+                bucket_texts,
+                prompt_name="query",
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+                batch_size=batch_size,
+                show_progress_bar=True,
+            )
+            all_embs_parts.append(embs)
+
+        # Reverse parts so they follow the original sorted order (shortest first).
+        all_embs_parts.reverse()
+        all_embs_sorted = np.concatenate(all_embs_parts, axis=0)
 
         # Unsort back to original ordering.
         return all_embs_sorted[np.argsort(sorted_indices)]
