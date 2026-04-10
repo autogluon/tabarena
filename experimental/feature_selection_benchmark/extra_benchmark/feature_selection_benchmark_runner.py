@@ -1,10 +1,9 @@
 """Shared infrastructure and entry point for feature selection benchmark evaluation.
 
 Usage:
-    python feature_selection_benchmark_runner.py --mode validity
-    python feature_selection_benchmark_runner.py --mode stability
+    python feature_selection_benchmark_runner.py --mode validity --method_name FSBench__RandomFeatureSelector__5__0__lgbm__3600
+    python feature_selection_benchmark_runner.py --mode stability --method_name FSBench__RandomFeatureSelector__5__0__lgbm__3600
 """
-
 from __future__ import annotations
 
 import argparse
@@ -19,15 +18,7 @@ from tabarena.benchmark.feature_selection_methods.feature_selection_benchmark_ut
     selector_and_config_from_string,
 )
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
-from tabflow_slurm.benchmarking_setup.data_foundry_integration.data_foundry_task_creator import (
-    download_data_foundry_datasets,
-)
 from tabflow_slurm.run_tabarena_experiment import _parse_task_id
-
-from experimental.feature_selection_benchmark.data_integration.fs_data_constants import (
-    BENCHMARK_DATA_FOUNDRY_TASKS,
-    DATA_FOUNDRY_CACHE,
-)
 
 
 @dataclass
@@ -162,8 +153,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data_foundry_task_id",
         type=str,
-        default="anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792",
-        help="TabArena/OpenML task identifier [default: anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792]",
+        default="UserTask|1386903908|anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792|/Users/schaefer.bastian/.openml/tabarena_tasks",
+        help="TabArena/OpenML task metadata identifier [default: UserTask|1386903908|anneal/019d3f7b-494a-71fa-8eb2-25d"
+             "01dfb7792|/Users/schaefer.bastian/.openml/tabarena_tasks]",
     )
     parser.add_argument("--repeat", type=int, default=0, help="Repeat [default: 0]")
 
@@ -188,7 +180,7 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_args()
 
-    download_data_foundry_datasets(
+    """download_data_foundry_datasets(
         benchmark_suite_name="feature_selection_benchmark_extra",
         data_foundry_artifacts=BENCHMARK_DATA_FOUNDRY_TASKS,
         data_foundry_cache=DATA_FOUNDRY_CACHE
@@ -196,7 +188,8 @@ if __name__ == "__main__":
     path_to_metadata = DATA_FOUNDRY_CACHE / "feature_selection_benchmark_extra_tasks_metadata.csv"
     task_metadata = pd.read_csv(path_to_metadata)
     task_metadata = task_metadata.drop_duplicates(subset="repeat", keep="first")
-    args.data_foundry_task_id = task_metadata["task_id_str"].iloc[0]
+    args.data_foundry_task_id = task_metadata["task_id_str"].iloc[0]"""
+
     result = run_benchmark(
         data_foundry_task_id=args.data_foundry_task_id,
         mode=args.mode,
@@ -205,6 +198,7 @@ if __name__ == "__main__":
         noise=args.noise,
         noise_type=args.noise_type,
     )
+
     print(result)
     result = pd.DataFrame([result.__dict__])
     path = f"results/{args.mode}_{args.method_name}_{args.data_foundry_task_id.split('|')[3].split('/')[0]}_{args.repeat}.csv"
