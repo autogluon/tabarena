@@ -1,8 +1,8 @@
 """Shared infrastructure and entry point for feature selection benchmark evaluation.
 
 Usage:
-    python fs_benchmark_runner.py --mode validity --seed 42
-    python fs_benchmark_runner.py --mode stability --seed 42
+    python feature_selection_benchmark_runner.py --mode validity
+    python feature_selection_benchmark_runner.py --mode stability
 """
 
 from __future__ import annotations
@@ -10,17 +10,16 @@ from __future__ import annotations
 import argparse
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import numpy as np
+import pandas as pd
 from tabarena.benchmark.feature_selection_methods.feature_selection_benchmark_utils import (
     selector_and_config_from_string,
 )
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 from tabflow_slurm.run_tabarena_experiment import _parse_task_id
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 
 @dataclass
@@ -109,7 +108,7 @@ def run_benchmark(
     feature_selector, config = selector_and_config_from_string(preprocessing_name=method_name)
 
     # Augment dataset with new feature based on mode.
-    X, y, original_features = _augment_dataset(mode=mode, X=X, rng=rng, **kwargs)
+    X, y, original_features = _augment_dataset(mode=mode, X=X, y=y, rng=rng, **kwargs)
 
     # Run Feature Selection
     start_time = time.monotonic()
@@ -149,7 +148,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--method_name",
         type=str,
-        default="FSBench__AccuracyFeatureSelector__5__0__lgbm__3600",
+        default="FSBench__RandomFeatureSelector__5__0__lgbm__3600",
         help="Feature Selection Method name [default: FSBench__AccuracyFeatureSelector__5__0__lgbm__3600]",
     )
     parser.add_argument(
@@ -169,7 +168,7 @@ def parse_args() -> argparse.Namespace:
         help="Noise features relative to original count (validity mode only) [default: 1.0]",
     )
     parser.add_argument(
-        "--nose_type",
+        "--noise_type",
         type=str,
         choices=["gaussian", "uniform"],
         default="gaussian",
@@ -187,5 +186,5 @@ if __name__ == "__main__":
         method_name=args.method_name,
         repeat=args.repeat,
         noise=args.noise,
-        nose_type=args.nose_type,
+        noise_type=args.noise_type,
     )
