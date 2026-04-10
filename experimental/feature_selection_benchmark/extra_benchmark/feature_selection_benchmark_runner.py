@@ -24,6 +24,11 @@ from tabflow_slurm.benchmarking_setup.data_foundry_integration.data_foundry_task
 )
 from tabflow_slurm.run_tabarena_experiment import _parse_task_id
 
+from experimental.feature_selection_benchmark.data_integration.fs_data_constants import (
+    BENCHMARK_DATA_FOUNDRY_TASKS,
+    DATA_FOUNDRY_CACHE,
+)
+
 
 @dataclass
 class FeatureSelectionResult:
@@ -183,15 +188,12 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_args()
 
-    DEFAULT_DATA_FOUNDRY_CACHE = Path(__file__).parent / ".data_foundry_cache"
-    DATA_FOUNDRY_TASKS = ["anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792"]
-
     download_data_foundry_datasets(
-        benchmark_suite_name="feature_selection_benchmark_validity_examples",
-        data_foundry_artifacts=DATA_FOUNDRY_TASKS,
-        data_foundry_cache=DEFAULT_DATA_FOUNDRY_CACHE
+        benchmark_suite_name="feature_selection_benchmark_extra",
+        data_foundry_artifacts=BENCHMARK_DATA_FOUNDRY_TASKS,
+        data_foundry_cache=DATA_FOUNDRY_CACHE
     )
-    path_to_metadata = DEFAULT_DATA_FOUNDRY_CACHE / "feature_selection_benchmark_validity_examples_tasks_metadata.csv"
+    path_to_metadata = DATA_FOUNDRY_CACHE / "feature_selection_benchmark_extra_tasks_metadata.csv"
     task_metadata = pd.read_csv(path_to_metadata)
     task_metadata = task_metadata.drop_duplicates(subset="repeat", keep="first")
     args.data_foundry_task_id = task_metadata["task_id_str"].iloc[0]
