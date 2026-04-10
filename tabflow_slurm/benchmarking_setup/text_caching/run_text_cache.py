@@ -31,6 +31,7 @@ def pre_generate_text_cache(task_id_str: str) -> Path:
     SemanticTextFeatureGenerator.save_embedding_cache(
         cache=SemanticTextFeatureGenerator._embedding_look_up, path=cache_path
     )
+    SemanticTextFeatureGenerator._embedding_look_up.clear()
     return cache_path
 
 
