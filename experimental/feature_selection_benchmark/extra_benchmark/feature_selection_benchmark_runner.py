@@ -1,9 +1,23 @@
 """Shared infrastructure and entry point for feature selection benchmark evaluation.
 
 Usage:
-    python feature_selection_benchmark_runner.py --mode validity --method_name FSBench__RandomFeatureSelector__5__0__lgbm__3600
-    python feature_selection_benchmark_runner.py --mode stability --method_name FSBench__RandomFeatureSelector__5__0__lgbm__3600
+    python feature_selection_benchmark_runner.py \
+        --mode validity \
+        --method_name FSBench__RandomFeatureSelector__5__0__lgbm__3600 \
+        --data_foundry_task_id "UserTask|1386903908|anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792|/Users/schaefer.bastian/.openml/tabarena_tasks" \
+        --repeat 0 \
+        --noise 1.0 \
+        --noise_type gaussian
+
+    python feature_selection_benchmark_runner.py \
+        --mode stability \
+        --method_name FSBench__RandomFeatureSelector__5__0__lgbm__3600 \
+        --data_foundry_task_id "UserTask|1386903908|anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792|/Users/schaefer.bastian/.openml/tabarena_tasks" \
+        --repeat 0 \
+        --noise 1.0 \
+        --noise_type gaussian
 """
+
 from __future__ import annotations
 
 import argparse
@@ -164,7 +178,6 @@ def parse_args() -> argparse.Namespace:
         "--noise",
         type=float,
         default=1.0,
-        nargs="+",
         help="Noise features relative to original count (validity mode only) [default: 1.0]",
     )
     parser.add_argument(
@@ -179,16 +192,6 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_args()
-
-    """download_data_foundry_datasets(
-        benchmark_suite_name="feature_selection_benchmark_extra",
-        data_foundry_artifacts=BENCHMARK_DATA_FOUNDRY_TASKS,
-        data_foundry_cache=DATA_FOUNDRY_CACHE
-    )
-    path_to_metadata = DATA_FOUNDRY_CACHE / "feature_selection_benchmark_extra_tasks_metadata.csv"
-    task_metadata = pd.read_csv(path_to_metadata)
-    task_metadata = task_metadata.drop_duplicates(subset="repeat", keep="first")
-    args.data_foundry_task_id = task_metadata["task_id_str"].iloc[0]"""
 
     result = run_benchmark(
         data_foundry_task_id=args.data_foundry_task_id,
