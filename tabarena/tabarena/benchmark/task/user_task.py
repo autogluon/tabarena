@@ -142,6 +142,30 @@ class TabArenaTaskMetadata:
             )
         return self.split_indices[0]
 
+    def has_supported_dtypes(self, *, required_dtypes: list[str] | None, forbidden_dtypes: list[str] | None) -> bool:
+        """Check if the dataset contains only allowed dtypes based on the feature dtype flags."""
+        if required_dtypes is not None:
+            if "datetime" in required_dtypes and not self.has_datetime:
+                return False
+            if "text" in required_dtypes and not self.has_text:
+                return False
+            if "categorical" in required_dtypes and not self.has_categorical:
+                return False
+            if "numeric" in required_dtypes and not self.has_numeric:
+                return False
+
+        if forbidden_dtypes is not None:
+            if self.has_datetime and "datetime" in forbidden_dtypes:
+                return False
+            if self.has_text and "text" in forbidden_dtypes:
+                return False
+            if self.has_categorical and "categorical" in forbidden_dtypes:
+                return False
+            if self.has_numeric and "numeric" in forbidden_dtypes:
+                return False
+
+        return True
+
     def to_dict(self, *, exclude_splits_metadata: bool = False) -> dict:
         """Convert the task metadata to a dictionary for better visualization."""
         res = asdict(self)
