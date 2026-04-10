@@ -207,5 +207,5 @@ if __name__ == "__main__":
     )
     print(result)
     result = pd.DataFrame([result.__dict__])
-    path = f"{args.mode}_{args.method_name}_{args.data_foundry_task_id.split('|')[3].split('/')[0]}_{args.repeat}.csv"
+    path = f"results/{args.mode}_{args.method_name}_{args.data_foundry_task_id.split('|')[3].split('/')[0]}_{args.repeat}.csv"
     result.to_csv(Path(__file__).parent / path, index=False)
