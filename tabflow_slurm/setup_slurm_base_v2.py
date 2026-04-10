@@ -219,7 +219,12 @@ class BenchmarkSetup2026:
     """Number of CPUs to use for the job.
     If None, use all available CPUs."""
     num_gpus: int = 0
-    """Number of GPUs to use for the jobs."""
+    """Number of GPUs to use for the jobs (SLURM allocation and Ray)."""
+    num_gpus_model: int | None = None
+    """Number of GPUs passed to a model for fitting.
+    If None (default), uses the same value as ``num_gpus``.
+    Set to 0 to reserve the GPU for preprocessing (e.g. sentence-transformer
+    encoding) while fitting models on CPU only."""
     memory_limit: int | None = 32
     """Memory/RAM limit for the jobs in GB.
     If None, use all available memory."""
@@ -857,6 +862,7 @@ class BenchmarkSetup2026:
             "output_dir": self.path_setup.get_output_path(self.benchmark_name),
             "num_cpus": self.num_cpus,
             "num_gpus": self.num_gpus,
+            "num_gpus_model": self.num_gpus_model,
             "memory_limit": memory_limit,
             "setup_ray_for_slurm_shared_resources_environment": self.slurm_setup.setup_ray_for_slurm_shared_resources_environment,
             "ignore_cache": self.ignore_cache,

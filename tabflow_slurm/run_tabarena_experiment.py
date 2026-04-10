@@ -389,8 +389,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num_gpus",
         type=int,
-        help="Number of GPUs to use for the experiment.",
+        help="Number of GPUs to use for the experiment (SLURM node allocation and Ray).",
         default=0,
+    )
+    parser.add_argument(
+        "--num_gpus_model",
+        type=_parse_int_or_none,
+        help="Number of GPUs passed to AutoGluon for model fitting. "
+        "If None, defaults to --num_gpus. Set to 0 to reserve the GPU "
+        "for preprocessing only (e.g. text embedding) while fitting models on CPU.",
+        default=None,
     )
     parser.add_argument(
         "--memory_limit",
@@ -430,6 +438,9 @@ if __name__ == "__main__":
             f"Memory limit not provided, using detected memory size: {memory_limit} GB"
         )
 
+    num_gpus_model = args.num_gpus_model if args.num_gpus_model is not None else args.num_gpus
+    print(f"GPUs for node/Ray: {args.num_gpus}, GPUs for model fitting: {num_gpus_model}")
+
     ray_temp_dir = setup_slurm_job(
         openml_cache_dir=args.openml_cache_dir,
         setup_ray_for_slurm_shared_resources_environment=args.setup_ray_for_slurm_shared_resources_environment,
@@ -447,7 +458,7 @@ if __name__ == "__main__":
             output_dir=args.output_dir,
             ignore_cache=args.ignore_cache,
             num_cpus=num_cpus,
-            num_gpus=args.num_gpus,
+            num_gpus=num_gpus_model,
             memory_limit=memory_limit,
             sequential_local_fold_fitting=args.sequential_local_fold_fitting,
             dynamic_tabarena_validation_protocol=args.dynamic_tabarena_validation_protocol,
