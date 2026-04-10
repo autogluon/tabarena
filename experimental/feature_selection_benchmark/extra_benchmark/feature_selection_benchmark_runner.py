@@ -19,6 +19,9 @@ from tabarena.benchmark.feature_selection_methods.feature_selection_benchmark_ut
     selector_and_config_from_string,
 )
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
+from tabflow_slurm.benchmarking_setup.data_foundry_integration.data_foundry_task_creator import (
+    download_data_foundry_datasets,
+)
 from tabflow_slurm.run_tabarena_experiment import _parse_task_id
 
 
@@ -180,6 +183,19 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_args()
 
+    DEFAULT_DATA_FOUNDRY_CACHE = Path(__file__).parent / ".data_foundry_cache"
+
+    DATA_FOUNDRY_TASKS = ["anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792"]
+
+    download_data_foundry_datasets(
+        benchmark_suite_name="feature_selection_benchmark_validity_examples",
+        data_foundry_artifacts=DATA_FOUNDRY_TASKS,
+        data_foundry_cache=DEFAULT_DATA_FOUNDRY_CACHE
+    )
+    path_to_metadata = DEFAULT_DATA_FOUNDRY_CACHE / "feature_selection_benchmark_validity_examples_tasks_metadata.csv"
+    task_metadata = pd.read_csv(path_to_metadata)
+    task_metadata = task_metadata.drop_duplicates(subset="repeat", keep="first")
+    args.data_foundry_task_id = task_metadata["task_id_str"].iloc[0]
     run_benchmark(
         data_foundry_task_id=args.data_foundry_task_id,
         mode=args.mode,
