@@ -40,7 +40,16 @@ def sanitize_text(text_data: pd.Series, fillna_str: str = "Missing Data") -> pd.
 
 
 class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
-    """Create semantic text embeddings using a pre-trained sentencetransformer model."""
+    """Create semantic text embeddings using a pre-trained sentencetransformer model.
+
+    Uses ``Qwen/Qwen3-Embedding-0.6B`` with Matryoshka Representation Learning
+    (MRL) to produce compact ``_MRL_DIM``-dimensional embeddings per text value.
+    """
+
+    _MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
+    _MODEL_WEIGHTS_MB = 1_200  # ~1.2 GB in FP16
+    _MRL_DIM = 32
+    """Output embedding dimension after MRL truncation"""
 
     _embedding_look_up: dict[str, np.ndarray] = {}
     """Class-level cache for the embeddings of unique text values, shared across all instances within a process."""
@@ -49,41 +58,83 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
     _feature_names: list[str]
     """Stable feature names for the generated embedding features."""
 
-    @staticmethod
-    def _estimate_encode_batch_size() -> int:
-        """Estimate encoding batch size based on available GPU VRAM.
+    def _encode_texts(self, texts: list[str]) -> np.ndarray:
+        """Encode texts with length-sorted batching.
 
-        For intfloat/e5-small-v2 (~130 MB model), we budget ~2 MB per sample
-        as a conservative estimate for inference-time activations (attention
-        matrices, intermediates) at typical text lengths.  sentence-transformers
-        pads to the longest sequence in the batch, not to max_length, so real
-        usage is usually well below the theoretical ceiling.
+        Texts are sorted by character length before encoding so that
+        similarly-sized texts land in the same batch, minimising padding waste.
+        MRL truncation to ``_MRL_DIM`` dimensions and L2 normalisation are
+        handled by the ``SentenceTransformer`` instance (via ``truncate_dim``
+        and ``normalize_embeddings=True``).
         """
+        max_tokens = self._encoder_model.max_seq_length
+        # guess-timate + overhead for characters per token
+        max_chars = int(max_tokens * 3)
+
+        long_texts = [t for t in texts if len(t) > max_chars]
+        if long_texts:
+            warnings.warn(
+                f"{len(long_texts)} of {len(texts)} text value(s) exceed "
+                f"~{max_chars:,} characters and may be truncated by the model's "
+                f"{max_tokens:,}-token context window. "
+                f"Longest text: {max(len(t) for t in long_texts):,} characters.",
+                stacklevel=2,
+            )
+
+        # Sort by character length (good proxy for token length, avoids tokenization overhead).
+        sorted_indices = sorted(range(len(texts)), key=lambda k: len(texts[k]))
+        sorted_texts = [texts[k] for k in sorted_indices]
+
+        # Pick batch size based on median character length.
+        max_chars = len(sorted_texts[-1]) if sorted_texts else 50
+        encode_batch_size = self._estimate_encode_batch_size(max_chars)
+        self._log(20, f"Encoding {len(texts)} unique text values with batch size {encode_batch_size}...")
+
+        all_embs_sorted = self._encoder_model.encode(
+            sorted_texts,
+            prompt_name="query",
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            batch_size=encode_batch_size,
+            show_progress_bar=True,
+        )
+
+        # Unsort back to original ordering.
+        return all_embs_sorted[np.argsort(sorted_indices)]
+
+    @classmethod
+    def _estimate_encode_batch_size(cls, max_chars) -> int:
+        """Estimate encoding batch size from max character length and free VRAM."""
         import torch
 
         if not torch.cuda.is_available():
             return 64
 
-        free_vram_bytes = torch.cuda.mem_get_info()[0]
-        free_vram_mb = free_vram_bytes / (1024**2)
+        # Tier by text length.
+        if max_chars < 100:
+            batch_size = 256
+        elif max_chars < 500:
+            batch_size = 128
+        elif max_chars < 2000:
+            batch_size = 64
+        else:
+            batch_size = 16
 
-        # Reserve 512 MB for model weights, CUDA context, and fragmentation.
-        usable_mb = max(free_vram_mb - 512, 256)
-        per_sample_mb = 2
-        batch_size = int(usable_mb / per_sample_mb)
-
-        return max(32, min(batch_size, 2048))
+        return batch_size
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
         """See parameters of the parent class AbstractFeatureGenerator for more details
         on the parameters.
         """
-        from sentence_transformers import SentenceTransformer
         import torch
+        from sentence_transformers import SentenceTransformer
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._encoder_model = SentenceTransformer("intfloat/e5-small-v2", device=device)
-        self._encode_batch_size = self._estimate_encode_batch_size()
+        self._encoder_model = SentenceTransformer(
+            self._MODEL_NAME,
+            truncate_dim=self._MRL_DIM,
+            model_kwargs={"dtype": torch.float16, "attn_implementation": "sdpa"},
+            processor_kwargs={"padding_side": "left"},
+        )
 
         X_out = self._transform(X, is_train=True)
         return X_out, {S_TEXT_EMBEDDING: list(X_out.columns)}
@@ -114,17 +165,8 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
 
         # Encode unseen
         if unseen_keys:
-            texts_to_encode = [f"query: {col} = {val}" for col, val in unseen_keys]
-
-            embeddings = self._encoder_model.encode(
-                texts_to_encode,
-                convert_to_numpy=True,
-                normalize_embeddings=False,
-                batch_size=self._encode_batch_size,
-                show_progress_bar=True,
-                precision="float32",
-            )
-
+            texts_to_encode = [f"{col} = {val}" for col, val in unseen_keys]
+            embeddings = self._encode_texts(texts_to_encode)
             self._embedding_look_up.update(zip(unseen_keys, embeddings))
 
         # Infer embedding dimension
@@ -200,7 +242,7 @@ class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
     ``SemanticTextFeatureGenerator``.
     """
 
-    MAX_N_OUTPUT_FEATURES = 384  # Same as intfloat/e5-small-v2
+    MAX_N_OUTPUT_FEATURES = 32
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
         from skrub import StringEncoder, TableVectorizer
