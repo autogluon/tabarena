@@ -112,6 +112,35 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
             **kwargs,
         )
 
+    def fit_transform(
+        self, X: pd.DataFrame, y: pd.Series | None = None, feature_metadata_in: FeatureMetadata = None, **kwargs
+    ) -> pd.DataFrame:
+        """Rename columns with '.' before AutoGluon stores feature metadata.
+
+        AutoGluon's ``AbstractFeatureGenerator.fit_transform`` records ``features_in``
+        from the *original* X before calling ``_fit_transform``.  We must therefore
+        rename at the public API level so that the stored metadata matches what the
+        downstream generators will see.
+
+        The ``"."`` character is reserved as the source-column separator in text
+        feature names produced downstream (e.g. ``TextSpecialFeatureGenerator``
+        produces ``{col}.char_count``).  Sanitizing raw column names here prevents
+        parsing ambiguity in
+        ``TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column``.
+        """
+        self._dot_rename_map_: dict[str, str] = {c: str(c).replace(".", "_") for c in X.columns if "." in str(c)}
+        if self._dot_rename_map_:
+            X = X.rename(columns=self._dot_rename_map_)
+            if feature_metadata_in is not None:
+                feature_metadata_in = feature_metadata_in.rename_features(rename_map=self._dot_rename_map_)
+        return super().fit_transform(X, y=y, feature_metadata_in=feature_metadata_in, **kwargs)
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Apply the same dot-renaming as fit before passing to parent transform."""
+        if self._dot_rename_map_:
+            X = X.rename(columns=self._dot_rename_map_)
+        return super().transform(X)
+
     def _get_category_feature_generator(self):
         # Pass categorical columns through *without* encoding.
         # Cat handling is deferred to TabArenaModelSpecificPreprocessing.
@@ -134,18 +163,11 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
 # TODO: maybe better cardinality threshold but we assume we only
 #  run on well-curated data for now
 class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
-    """Custom AsTypeFeatureGenerator to fix string dtype handling and column name sanitization.
+    """Custom AsTypeFeatureGenerator to fix string dtype handling.
 
     The default string detection from AutoGluon is hardcoded in a weird way. Thus, we
     overwrite it here before passing feature metadata to the rest of the pipeline.
     We overwrite it such that we believe the dtype of the input dataframe.
-
-    Additionally, any input column whose name contains ``"."`` is renamed so that
-    ``"."`` is replaced by ``"_"``.  The ``"."`` character is reserved as the
-    source-column separator in text feature names produced downstream (e.g.
-    ``TextSpecialFeatureGenerator`` produces ``{col}.char_count``).  Sanitizing
-    raw column names here prevents parsing ambiguity in
-    ``TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column``.
 
     We further adjust the original logic to better handle unseen categories or suddenly appearing
     nan values at test time:
@@ -159,29 +181,6 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
     * **Int columns** — NaN values that appear at test time but were absent during
       fit are imputed to 0.
     """
-
-    def fit_transform(
-        self, X: pd.DataFrame, y: pd.Series | None = None, feature_metadata_in: FeatureMetadata = None, **kwargs
-    ) -> pd.DataFrame:
-        """Rename columns with '.' before AutoGluon stores feature metadata.
-
-        AutoGluon's ``AbstractFeatureGenerator.fit_transform`` records ``features_in``
-        from the *original* X before calling ``_fit_transform``.  We must therefore
-        rename at the public API level so that the stored metadata matches what the
-        parent's ``_fit_transform`` will see.
-        """
-        self._dot_rename_map_: dict[str, str] = {c: str(c).replace(".", "_") for c in X.columns if "." in str(c)}
-        if self._dot_rename_map_:
-            X = X.rename(columns=self._dot_rename_map_)
-            if feature_metadata_in is not None:
-                feature_metadata_in = feature_metadata_in.rename_features(rename_map=self._dot_rename_map_)
-        return super().fit_transform(X, y=y, feature_metadata_in=feature_metadata_in, **kwargs)
-
-    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Apply the same dot-renaming as fit before passing to parent transform."""
-        if self._dot_rename_map_:
-            X = X.rename(columns=self._dot_rename_map_)
-        return super().transform(X)
 
     def _handle_nan_in_int_only_at_test_time(self, X: pd.DataFrame) -> pd.DataFrame:
         """Handle int features that contain null values at inference time but not at fit time.
@@ -278,7 +277,7 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
         return X
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
-        # X arrives here with '.' already replaced by '_' (done in fit_transform above).
+        # X arrives here with '.' already replaced by '_' (done in TabArenaModelAgnosticPreprocessing.fit_transform).
         X, type_group_map_special = super()._fit_transform(X=X, **kwargs)
 
         found_text_cols = type_group_map_special.get("text", [])

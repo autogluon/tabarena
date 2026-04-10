@@ -295,6 +295,41 @@ class TestTabArenaModelAgnosticPreprocessingFitTransform:
         X_out = gen.fit_transform(X)
         assert len(X_out) == 3
 
+    def test_fit_transform_renames_dot_columns(self):
+        gen = _make_no_text_gen()
+        X = pd.DataFrame({"a.b": [1.0, 2.0, 3.0], "c": [4.0, 5.0, 6.0]})
+        X_out = gen.fit_transform(X.copy())
+        assert "a_b" in X_out.columns
+        assert "a.b" not in X_out.columns
+
+    def test_fit_transform_leaves_clean_columns_unchanged(self):
+        gen = _make_no_text_gen()
+        X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b_c": [4.0, 5.0, 6.0]})
+        X_out = gen.fit_transform(X.copy())
+        assert "a" in X_out.columns
+        assert "b_c" in X_out.columns
+
+    def test_fit_transform_multiple_dots_all_replaced(self):
+        gen = _make_no_text_gen()
+        X = pd.DataFrame({"a.b.c": [1.0, 2.0, 3.0]})
+        X_out = gen.fit_transform(X.copy())
+        assert "a_b_c" in X_out.columns
+
+    def test_transform_also_renames_dot_columns(self):
+        gen = _make_no_text_gen()
+        X_train = pd.DataFrame({"a.b": [1.0, 2.0, 3.0], "c": [4.0, 5.0, 6.0]})
+        gen.fit_transform(X_train.copy())
+        X_test = pd.DataFrame({"a.b": [7.0, 8.0], "c": [9.0, 10.0]})
+        X_out = gen.transform(X_test)
+        assert "a_b" in X_out.columns
+        assert "a.b" not in X_out.columns
+
+    def test_no_dot_columns_produces_empty_rename_map(self):
+        gen = _make_no_text_gen()
+        X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+        gen.fit_transform(X.copy())
+        assert gen._dot_rename_map_ == {}
+
 
 # ===========================================================================
 # NoCatAsStringCategoryFeatureGenerator
@@ -443,41 +478,6 @@ class TestStringFixAsTypeFeatureGenerator:
         from autogluon.features.generators.astype import AsTypeFeatureGenerator
 
         assert issubclass(StringFixAsTypeFeatureGenerator, AsTypeFeatureGenerator)
-
-    def test_fit_transform_renames_dot_columns(self):
-        gen = StringFixAsTypeFeatureGenerator()
-        X = pd.DataFrame({"a.b": [1.0, 2.0, 3.0], "c": [4.0, 5.0, 6.0]})
-        X_out = gen.fit_transform(X.copy())
-        assert "a_b" in X_out.columns
-        assert "a.b" not in X_out.columns
-
-    def test_fit_transform_leaves_clean_columns_unchanged(self):
-        gen = StringFixAsTypeFeatureGenerator()
-        X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b_c": [4.0, 5.0, 6.0]})
-        X_out = gen.fit_transform(X.copy())
-        assert "a" in X_out.columns
-        assert "b_c" in X_out.columns
-
-    def test_fit_transform_multiple_dots_all_replaced(self):
-        gen = StringFixAsTypeFeatureGenerator()
-        X = pd.DataFrame({"a.b.c": [1.0, 2.0, 3.0]})
-        X_out = gen.fit_transform(X.copy())
-        assert "a_b_c" in X_out.columns
-
-    def test_transform_also_renames_dot_columns(self):
-        gen = StringFixAsTypeFeatureGenerator()
-        X_train = pd.DataFrame({"a.b": [1.0, 2.0, 3.0], "c": [4.0, 5.0, 6.0]})
-        gen.fit_transform(X_train.copy())
-        X_test = pd.DataFrame({"a.b": [7.0, 8.0], "c": [9.0, 10.0]})
-        X_out = gen.transform(X_test)
-        assert "a_b" in X_out.columns
-        assert "a.b" not in X_out.columns
-
-    def test_no_dot_columns_produces_empty_rename_map(self):
-        gen = StringFixAsTypeFeatureGenerator()
-        X = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
-        gen.fit_transform(X.copy())
-        assert gen._dot_rename_map_ == {}
 
 
 # ===========================================================================
