@@ -142,6 +142,8 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
     """Expected columns during transform, set during fit."""
     _feature_names: list[str]
     """Stable feature names for the generated embedding features."""
+    only_load_from_cache: bool = False
+    """Whether to only load embeddings from cache and crash for on-the-fly encoding of unseen text values."""
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
         """See parameters of the parent class AbstractFeatureGenerator for more details
@@ -165,6 +167,13 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
         # Encode text
         unseen_text = TabArenaDefaultTextEncoder.get_text_to_encode(X=X, seen_texts=set(self._embedding_look_up.keys()))
         if unseen_text:
+
+            if self.only_load_from_cache:
+                raise ValueError(
+                    "Cache miss for text values during transform with only_load_from_cache=True. "
+                    f"Unseen text values: {unseen_text[:10]} (showing up to 10)."
+                )
+
             embeddings = TabArenaDefaultTextEncoder.encode_texts(
                 texts=list(unseen_text),
                 encoder_model=self._encoder_model,
