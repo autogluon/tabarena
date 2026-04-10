@@ -464,7 +464,6 @@ class BenchmarkSetup2026:
     @property
     def slurm_base_command(self):
         """SLURM command to run the benchmark."""
-        p_bm = self._parallel_safe_benchmark_name
         slurm_script_path = self.path_setup.get_slurm_script_path(self.slurm_setup.script_name)
 
         return self._get_slurm_base_command(
@@ -474,7 +473,7 @@ class BenchmarkSetup2026:
             time_limit_per_config=self.time_limit_per_config,
             configs_per_job=self._max_configs_per_job,
             time_limit_overhead=self.slurm_setup.time_limit_overhead,
-            slurm_log_output=self.path_setup.get_slurm_log_output_path(p_bm),
+            slurm_log_output=self.path_setup.get_slurm_log_output_path(self.benchmark_name),
             slurm_script_path=slurm_script_path,
             slurm_extra_gres=self.slurm_setup.extra_gres,
             slurm_exclusive_node=self.slurm_setup.exclusive_node,
