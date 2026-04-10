@@ -40,6 +40,7 @@ class TabArenaModelSpecificPreprocessing:
     """
 
     hp_key_kwargs: str = "ag.model_specific_feature_generator_kwargs"
+    use_pca: bool = False
 
     @staticmethod
     def add_to_hyperparameters(hyperparameters: dict) -> dict:
@@ -85,24 +86,28 @@ class TabArenaModelSpecificPreprocessing:
           ``S_TEXT_EMBEDDING`` / ``S_TEXT_SPECIAL`` features, grouped by source column.
         """
         # TODO: figure out how to more easily pass IdentityFeatureGenerator / dont drop other columns.
-        bulk_kwargs = dict(
-            generators=[
-                # Cat/Ordinal Encoding
-                [
-                    # The other features are consumed, and thus can be dropped.
-                    IdentityFeatureGenerator(
-                        infer_features_in_args=NoCatAsStringCategoryFeatureGenerator.get_infer_features_in_args_to_drop()
-                    ),
-                    NoCatAsStringCategoryFeatureGenerator(),
-                ],
-                # PCA
+
+        generators = [
+            [
+                # The other features are consumed, and thus can be dropped.
+                IdentityFeatureGenerator(
+                    infer_features_in_args=NoCatAsStringCategoryFeatureGenerator.get_infer_features_in_args_to_drop()
+                ),
+                NoCatAsStringCategoryFeatureGenerator(),
+            ],
+        ]
+        if TabArenaModelSpecificPreprocessing.use_pca:
+            generators.append(
                 [
                     IdentityFeatureGenerator(
                         infer_features_in_args=TextEmbeddingDimensionalityReductionFeatureGenerator.get_infer_features_in_args_to_drop()
                     ),
                     TextEmbeddingDimensionalityReductionFeatureGenerator(),
-                ],
-            ],
+                ]
+            )
+
+        bulk_kwargs = dict(
+            generators=generators,
             verbosity=2,
         )
 

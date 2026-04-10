@@ -85,16 +85,12 @@ def _parse_repetitions_mode_and_args(
         metadata_task_ids = tasks_metadata["task_id"].astype(str).tolist()
         for task in tasks:
             t_id = task.task_id_str if isinstance(task, UserTask) else str(task)
-            assert t_id in metadata_task_ids, (
-                f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`"
-            )
+            assert t_id in metadata_task_ids, f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`"
 
             task_meta = tasks_metadata[metadata_task_ids == t_id].iloc[0]
             n_folds = int(task_meta["num_folds"])
             n_repeats = int(task_meta["tabarena_num_repeats"])
-            fold_repeat_pairs = [
-                (f, r) for r in range(n_repeats) for f in range(n_folds)
-            ]
+            fold_repeat_pairs = [(f, r) for r in range(n_repeats) for f in range(n_folds)]
             fold_repeat_pairs_per_task.append(fold_repeat_pairs)
         return fold_repeat_pairs_per_task
 
@@ -113,17 +109,12 @@ def _parse_repetitions_mode_and_args(
             assert all(isinstance(rep, tuple) for rep in repetitions_mode_args), (
                 "If `repetitions_mode_args` for 'matrix' is a list, all elements must be tuples"
             )
-            repetitions_mode_args = [
-                _clean_repetitions_mode_args_for_matrix(rep)
-                for rep in repetitions_mode_args
-            ]
+            repetitions_mode_args = [_clean_repetitions_mode_args_for_matrix(rep) for rep in repetitions_mode_args]
         else:
             assert isinstance(repetitions_mode_args, tuple), (
                 "If `repetitions_mode_args` for 'matrix' is not a list, it must be a tuple"
             )
-            repetitions_mode_args = [
-                _clean_repetitions_mode_args_for_matrix(repetitions_mode_args)
-            ] * len(tasks)
+            repetitions_mode_args = [_clean_repetitions_mode_args_for_matrix(repetitions_mode_args)] * len(tasks)
         return [[(f, r) for f in e[0] for r in e[1]] for e in repetitions_mode_args]
 
     if repetitions_mode == "individual":
@@ -133,15 +124,11 @@ def _parse_repetitions_mode_and_args(
         assert isinstance(repetitions_mode_args, list), (
             "If `repetitions_mode` is 'individual', `repetitions_mode_args` must be a list"
         )
-        assert len(repetitions_mode_args) > 0, (
-            "`repetitions_mode_args` for 'individual' must not be empty"
-        )
+        assert len(repetitions_mode_args) > 0, "`repetitions_mode_args` for 'individual' must not be empty"
 
         if isinstance(repetitions_mode_args[0], tuple):
             assert all(
-                isinstance(rep, tuple)
-                and (len(rep) == 2)
-                and all(isinstance(i, int) for i in rep)
+                isinstance(rep, tuple) and (len(rep) == 2) and all(isinstance(i, int) for i in rep)
                 for rep in repetitions_mode_args
             ), (
                 "If `repetitions_mode_args` for 'individual' is a list of tuples, all elements must be tuples of integers of (fold_index, repeat_index) pairs"
@@ -323,9 +310,7 @@ def run_experiments_new(
     """
     if run_mode == "aws":
         if s3_kwargs is None:
-            raise ValueError(
-                f"s3_kwargs parameter is required when mode is 'aws', got {s3_kwargs}"
-            )
+            raise ValueError(f"s3_kwargs parameter is required when mode is 'aws', got {s3_kwargs}")
         if s3_kwargs.get("bucket") is None or s3_kwargs.get("bucket") == "":
             raise ValueError(
                 f"bucket parameter in s3_kwargs is required when mode is 'aws', got {s3_kwargs.get('bucket')}"
@@ -334,9 +319,7 @@ def run_experiments_new(
     elif run_mode == "local":
         base_cache_path = output_dir
     else:
-        raise ValueError(
-            f"Invalid mode: {run_mode}. Supported modes are 'local' and 'aws'."
-        )
+        raise ValueError(f"Invalid mode: {run_mode}. Supported modes are 'local' and 'aws'.")
 
     assert all(isinstance(exp, Experiment) for exp in model_experiments), (
         "All `model_experiments` elements must be instances of Experiment class"
@@ -373,23 +356,15 @@ def run_experiments_new(
         task, tabarena_task_name, eval_metric_name = None, None, None
         print(f"Starting Dataset {dataset_index + 1}/{len(tasks)}...")
 
-        for split_index, (fold, repeat) in enumerate(
-            fold_repeat_pairs_per_task[dataset_index], start=1
-        ):
-            subtask_cache_name = ExperimentBatchRunner._subtask_name(
-                fold=fold, repeat=repeat
-            )
+        for split_index, (fold, repeat) in enumerate(fold_repeat_pairs_per_task[dataset_index], start=1):
+            subtask_cache_name = ExperimentBatchRunner._subtask_name(fold=fold, repeat=repeat)
             print(
                 f"Starting Split {split_index}/{len(fold_repeat_pairs_per_task[dataset_index])} (Fold {fold}, Repeat {repeat})..."
             )
 
             for me_index, model_experiment in enumerate(model_experiments, start=1):
                 cur_experiment_idx += 1
-                cache_task_key = (
-                    task_id_or_object
-                    if isinstance(task_id_or_object, int)
-                    else task_id_or_object.task_id
-                )
+                cache_task_key = task_id_or_object if isinstance(task_id_or_object, int) else task_id_or_object.task_id
                 print(
                     f"Starting Model {me_index}/{len(model_experiments)}..."
                     f"\n\t"
@@ -405,9 +380,7 @@ def run_experiments_new(
                 cache_name = "results"
                 cache_prefix = f"data/{model_experiment.name}/{cache_task_key}/{subtask_cache_name}"
                 cache_path = f"{base_cache_path}/{cache_prefix}"
-                cacher = CacheFunctionPickle(
-                    cache_name=cache_name, cache_path=cache_path
-                )
+                cacher = CacheFunctionPickle(cache_name=cache_name, cache_path=cache_path)
                 cache_exists = cacher.exists
 
                 # Check cache state
@@ -420,13 +393,9 @@ def run_experiments_new(
                 if cache_mode == "only":
                     out = cacher.load_cache()
                 else:
-                    if (task is None) and (
-                        (cache_mode == "ignore") or (not cache_exists)
-                    ):
+                    if (task is None) and ((cache_mode == "ignore") or (not cache_exists)):
                         if isinstance(task_id_or_object, int):
-                            if (s3_kwargs is not None) and (
-                                "dataset_cache" in s3_kwargs
-                            ):
+                            if (s3_kwargs is not None) and ("dataset_cache" in s3_kwargs):
                                 assert isinstance(s3_kwargs["dataset_cache"], str), (
                                     "'s3_kwargs `dataset_cache` must be a str!"
                                 )
@@ -435,9 +404,7 @@ def run_experiments_new(
                                     s3_dataset_cache=s3_kwargs["dataset_cache"],
                                 )
                             else:
-                                task = OpenMLTaskWrapper.from_task_id(
-                                    task_id=task_id_or_object
-                                )
+                                task = OpenMLTaskWrapper.from_task_id(task_id=task_id_or_object)
                             # TODO: maybe add a prefix to this.
                             tabarena_task_name = task.task.get_dataset().name
                         else:
@@ -455,6 +422,13 @@ def run_experiments_new(
                         from tabarena.benchmark.experiment.experiment_constructor import (
                             AGModelBagExperiment,
                         )
+                        from tabarena.benchmark.task.user_task import TabArenaOpenMLSupervisedTask
+
+                        if not isinstance(task.task, TabArenaOpenMLSupervisedTask):
+                            raise ValueError(
+                                "`dynamic_tabarena_validation_protocol` is only "
+                                "implemented for `TabArenaOpenMLSupervisedTask`!"
+                            )
 
                         if not isinstance(model_experiment, AGModelBagExperiment):
                             # TODO: add support
@@ -468,6 +442,20 @@ def run_experiments_new(
                             use_task_specific_validation=True,
                             **task.get_validation_split_kwargs(),
                         )
+
+                        # FIXME: move this somewhere else and allow to enable/disable this.
+                        # Load text cache into memory for the current task
+                        from tabarena.benchmark.preprocessing.text_feature_generators import (
+                            SemanticTextFeatureGenerator,
+                        )
+
+                        cache_path = SemanticTextFeatureGenerator.get_text_cache_dir(task_id_str=str(task.task_id))
+                        if cache_path.exists():
+                            print("[LOADING TEXT CACHE] Loading text embedding cache into memory...")
+                            SemanticTextFeatureGenerator._embedding_look_up = (
+                                SemanticTextFeatureGenerator.load_embedding_cache(path=cache_path)
+                            )
+                            SemanticTextFeatureGenerator.only_load_from_cache = True
 
                     try:
                         out = model_experiment.run(
@@ -491,10 +479,7 @@ def run_experiments_new(
 
                 # Safety check for results with non-finite metric errors
                 if (out is not None) and (
-                    not (
-                        np.isfinite(out["metric_error"])
-                        and np.isfinite(out["metric_error_val"])
-                    )
+                    not (np.isfinite(out["metric_error"]) and np.isfinite(out["metric_error_val"]))
                 ):
                     print(
                         "Non-finite final metric error detected: "

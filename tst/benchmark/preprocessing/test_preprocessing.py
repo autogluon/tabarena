@@ -19,6 +19,7 @@ from tabarena.benchmark.preprocessing.model_specific_default_preprocessing impor
 from tabarena.benchmark.preprocessing.text_feature_generators import (
     SemanticTextFeatureGenerator,
     StatisticalTextFeatureGenerator,
+    TabArenaDefaultTextEncoder,
     TextEmbeddingDimensionalityReductionFeatureGenerator,
     sanitize_text,
 )
@@ -660,9 +661,9 @@ class TestStringFixAsTypeFeatureGeneratorCategoricals:
         X_test = pd.DataFrame({"col": pd.Categorical(["yes", "no", "maybe"])})
         X_out = gen.transform(X_test.copy())
         assert X_out["col"].dtype == np.int8
-        assert X_out["col"].iloc[0] == 1   # 'yes' (true_val) → 1
-        assert X_out["col"].iloc[1] == 0   # 'no' (false_val) → 0
-        assert X_out["col"].iloc[2] == 0   # 'maybe' (unseen) → 0
+        assert X_out["col"].iloc[0] == 1  # 'yes' (true_val) → 1
+        assert X_out["col"].iloc[1] == 0  # 'no' (false_val) → 0
+        assert X_out["col"].iloc[2] == 0  # 'maybe' (unseen) → 0
 
     def test_bool_int_col_unseen_value_mapped_to_false(self):
         """An unseen integer in a bool int column (0/1) must be mapped to 0."""
@@ -685,9 +686,9 @@ class TestStringFixAsTypeFeatureGeneratorCategoricals:
         gen = self._fit_gen(X_train)
         X_out = gen.transform(pd.DataFrame({"b": pd.Categorical(["yes", "no", "maybe"])}))
         assert X_out["b"].dtype == np.int8
-        assert X_out["b"].iloc[0] == 1   # 'yes' → 1
-        assert X_out["b"].iloc[1] == 0   # 'no' → 0
-        assert X_out["b"].iloc[2] == 0   # 'maybe' → 0
+        assert X_out["b"].iloc[0] == 1  # 'yes' → 1
+        assert X_out["b"].iloc[1] == 0  # 'no' → 0
+        assert X_out["b"].iloc[2] == 0  # 'maybe' → 0
 
     def test_bool_col_stays_in_bool_features_after_unseen(self):
         """A bool column with unseen values must remain in _bool_features."""
@@ -735,7 +736,8 @@ class TestStringFixAsTypeFeatureGeneratorCategoricals:
 
     def test_bool_col_with_nan_at_test_time(self):
         """NaN in a bool column with unseen values is imputed to 0, consistent
-        with how all int columns handle test-time NaN."""
+        with how all int columns handle test-time NaN.
+        """
         X_train = pd.DataFrame({"b": [0, 1, 0, 1]})
         gen = self._fit_gen(X_train)
         X_out = gen.transform(pd.DataFrame({"b": [0, 1, 2, None]}))
@@ -964,6 +966,183 @@ class TestSemanticTextFeatureGenerator:
         gen._embedding_look_up = {}
         with pytest.raises(ValueError, match="empty"):
             gen._transform(X)
+
+
+class TestSemanticTextFeatureGeneratorCacheRoundTrip:
+    """End-to-end: fit_transform → save cache to parquet → clear → load cache → transform → compare."""
+
+    EMB_DIM = 32
+
+    @pytest.fixture(autouse=True)
+    def _clean_embedding_cache(self):
+        """Isolate the class-level cache for each test."""
+        saved = dict(SemanticTextFeatureGenerator._embedding_look_up)
+        SemanticTextFeatureGenerator._embedding_look_up.clear()
+        yield
+        SemanticTextFeatureGenerator._embedding_look_up.clear()
+        SemanticTextFeatureGenerator._embedding_look_up.update(saved)
+
+    @staticmethod
+    def _deterministic_embeddings(texts: list[str]) -> np.ndarray:
+        """Hash-based deterministic 32-dim embeddings."""
+        import hashlib
+
+        embs = []
+        for t in texts:
+            seed = int(hashlib.md5(t.encode()).hexdigest(), 16) % (2**31)
+            rng = np.random.RandomState(seed)
+            emb = rng.randn(32).astype(np.float32)
+            emb /= np.linalg.norm(emb)
+            embs.append(emb)
+        return np.vstack(embs)
+
+    def test_save_load_roundtrip_produces_identical_output(self, tmp_path, monkeypatch):
+        """Full pipeline: fit_transform, save cache, clear, load cache, transform, compare."""
+        monkeypatch.setattr(TabArenaDefaultTextEncoder, "get_default_encoder", lambda: None)
+        monkeypatch.setattr(
+            TabArenaDefaultTextEncoder,
+            "encode_texts",
+            lambda *, texts, encoder_model: self._deterministic_embeddings(texts),
+        )
+
+        X = _make_text_df(n_rows=20)
+        gen = SemanticTextFeatureGenerator()
+
+        # 1. fit_transform populates _embedding_look_up and produces output
+        X_out_fit, _type_map = gen._fit_transform(X)
+        assert not X_out_fit.empty
+        cache = dict(SemanticTextFeatureGenerator._embedding_look_up)
+        assert len(cache) > 0
+
+        # 2. Save cache to parquet
+        cache_path = tmp_path / "text_cache.parquet"
+        SemanticTextFeatureGenerator.save_embedding_cache(cache=cache, path=cache_path)
+        assert cache_path.exists()
+
+        # 3. Clear class-level cache
+        SemanticTextFeatureGenerator._embedding_look_up.clear()
+        assert len(SemanticTextFeatureGenerator._embedding_look_up) == 0
+
+        # 4. Load cache from disk
+        loaded = SemanticTextFeatureGenerator.load_embedding_cache(cache_path)
+        SemanticTextFeatureGenerator._embedding_look_up.update(loaded)
+        assert set(loaded.keys()) == set(cache.keys())
+
+        # 5. Transform with loaded cache (no encoding happens)
+        X_out_cached = gen._transform(X)
+
+        # 6. Output must be identical
+        pd.testing.assert_frame_equal(X_out_fit, X_out_cached)
+
+    def test_loaded_embeddings_match_original_values(self, tmp_path, monkeypatch):
+        """Verify that individual embedding vectors survive the parquet round-trip."""
+        monkeypatch.setattr(TabArenaDefaultTextEncoder, "get_default_encoder", lambda: None)
+        monkeypatch.setattr(
+            TabArenaDefaultTextEncoder,
+            "encode_texts",
+            lambda *, texts, encoder_model: self._deterministic_embeddings(texts),
+        )
+
+        X = _make_text_df(n_rows=20)
+        gen = SemanticTextFeatureGenerator()
+        gen._fit_transform(X)
+
+        original_cache = {k: v.copy() for k, v in SemanticTextFeatureGenerator._embedding_look_up.items()}
+
+        cache_path = tmp_path / "emb_cache.parquet"
+        SemanticTextFeatureGenerator.save_embedding_cache(cache=original_cache, path=cache_path)
+        loaded_cache = SemanticTextFeatureGenerator.load_embedding_cache(cache_path)
+
+        for key in original_cache:
+            np.testing.assert_array_almost_equal(loaded_cache[key], original_cache[key], decimal=5)
+
+    def test_cache_roundtrip_with_unseen_data_at_transform(self, tmp_path, monkeypatch):
+        """Load cache from one fit, then transform data that includes new unseen text values."""
+        monkeypatch.setattr(TabArenaDefaultTextEncoder, "get_default_encoder", lambda: None)
+        monkeypatch.setattr(
+            TabArenaDefaultTextEncoder,
+            "encode_texts",
+            lambda *, texts, encoder_model: self._deterministic_embeddings(texts),
+        )
+
+        X_train = _make_text_df(n_rows=20)
+        gen = SemanticTextFeatureGenerator()
+        gen._fit_transform(X_train)
+
+        cache_path = tmp_path / "partial_cache.parquet"
+        SemanticTextFeatureGenerator.save_embedding_cache(
+            cache=SemanticTextFeatureGenerator._embedding_look_up, path=cache_path
+        )
+
+        # Clear and reload
+        SemanticTextFeatureGenerator._embedding_look_up.clear()
+        loaded = SemanticTextFeatureGenerator.load_embedding_cache(cache_path)
+        SemanticTextFeatureGenerator._embedding_look_up.update(loaded)
+
+        # Transform with data that has a mix of seen and unseen text
+        X_new = pd.DataFrame({"text": ["hello world", "brand new text", "foo bar baz", "never seen before"]})
+        X_out = gen._transform(X_new)
+
+        assert X_out.shape == (4, self.EMB_DIM)
+        assert not X_out.isnull().any().any()
+
+    def test_full_pipeline_cache_roundtrip_with_e5_model(self, tmp_path, monkeypatch):
+        """End-to-end via TabArenaModelAgnosticPreprocessing with intfloat/e5-small-v2."""
+        from sentence_transformers import SentenceTransformer
+
+        # Monkey patch Small model for tests
+        fast_model = SentenceTransformer("sentence-transformers/paraphrase-MiniLM-L3-v2", truncate_dim=4)
+        monkeypatch.setattr(TabArenaDefaultTextEncoder, "get_default_encoder", lambda: fast_model)
+
+        X = pd.DataFrame(
+            {
+                "description": [
+                    f"This is a detailed text description for sample number {i} with unique content" for i in range(50)
+                ]
+            }
+        )
+
+        preprocessing = TabArenaModelAgnosticPreprocessing(
+            enable_sematic_text_features=True,
+            enable_new_datetime_features=False,
+            enable_text_special_features=False,
+            enable_statistical_text_features=False,
+            enable_text_ngram_features=False,
+            enable_datetime_features=False,
+            verbosity=0,
+        )
+
+        # 1. fit_transform through the full pipeline
+        X_out_fit = preprocessing.fit_transform(X=X)
+        assert not X_out_fit.empty
+
+        cache = dict(SemanticTextFeatureGenerator._embedding_look_up)
+        assert len(cache) > 0
+
+        # 2. Save cache to parquet
+        cache_path = tmp_path / "pipeline_cache.parquet"
+        SemanticTextFeatureGenerator.save_embedding_cache(cache=cache, path=cache_path)
+
+        # 3. Clear and reload cache from disk
+        SemanticTextFeatureGenerator._embedding_look_up.clear()
+        loaded = SemanticTextFeatureGenerator.load_embedding_cache(cache_path)
+        SemanticTextFeatureGenerator._embedding_look_up.update(loaded)
+        assert set(loaded.keys()) == set(cache.keys())
+
+        # 4. Transform same data with the loaded cache
+        preprocessing = TabArenaModelAgnosticPreprocessing(
+            enable_sematic_text_features=True,
+            enable_new_datetime_features=False,
+            enable_text_special_features=False,
+            enable_statistical_text_features=False,
+            enable_text_ngram_features=False,
+            enable_datetime_features=False,
+            verbosity=0,
+        )
+        X_out_cached = preprocessing.fit_transform(X)
+
+        # 5. Output must be identical
+        pd.testing.assert_frame_equal(X_out_fit, X_out_cached)
 
 
 # ===========================================================================
@@ -1438,7 +1617,7 @@ class TestGroupAggregationFeatureGenerator:
     def test_n_top_features_limits_selection(self):
         X, y = _make_grouped_df()
         gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=3)
-        X_out, meta = gen._fit_transform(X.copy(), y)
+        _X_out, meta = gen._fit_transform(X.copy(), y)
         assert len(meta[GROUP_INDEX_FEATURES]) == 3
 
     def test_highest_variance_feature_selected(self):

@@ -4,6 +4,8 @@ import re
 import unicodedata
 import warnings
 from collections import defaultdict
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -18,6 +20,10 @@ from autogluon.common.features.types import (
 from autogluon.features import AbstractFeatureGenerator
 from sklearn.decomposition import PCA
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
+
 
 # Non-printable ASCII control characters excluding whitespace (tab \x09, LF \x0a, CR \x0d).
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0e-\x1f\x7f]")
@@ -39,8 +45,96 @@ def sanitize_text(text_data: pd.Series, fillna_str: str = "Missing Data") -> pd.
     )
 
 
+class TabArenaDefaultTextEncoder:
+    @staticmethod
+    def get_default_encoder():
+        """Get the default sentence transformer model for encoding text features."""
+        import torch
+        from sentence_transformers import SentenceTransformer
+
+        return SentenceTransformer(
+            "Qwen/Qwen3-Embedding-8B",
+            truncate_dim=32,  # minimal MRL dimension for Qwen3-Embedding
+            model_kwargs={"dtype": torch.float16, "attn_implementation": "sdpa"},
+            processor_kwargs={"padding_side": "left"},
+        )
+
+    @staticmethod
+    def encode_texts(*, texts: list[str], encoder_model: SentenceTransformer) -> np.ndarray:
+        """Encode texts with length-sorted batching.
+
+        Texts are sorted by character length before encoding so that
+        similarly-sized texts land in the same batch, minimising padding waste.
+        """
+        # guess-timate + overhead for characters per token
+        max_chars = int(encoder_model.max_seq_length * 3)
+        long_texts = [t for t in texts if len(t) > max_chars]
+        if long_texts:
+            warnings.warn(
+                f"{len(long_texts)} of {len(texts)} text value(s) exceed "
+                f"~{max_chars:,} characters and may be truncated by the model's "
+                f"{encoder_model.max_seq_length:,}-token context window. "
+                f"Longest text: {max(len(t) for t in long_texts):,} characters.",
+                stacklevel=2,
+            )
+
+        # Sort by character length (good proxy for token length, avoids tokenization overhead).
+        sorted_indices = sorted(range(len(texts)), key=lambda k: len(texts[k]))
+        sorted_texts = [texts[k] for k in sorted_indices]
+
+        encode_batch_size = 64
+        print(f"Encoding {len(texts)} unique text values with batch size {encode_batch_size}...")
+
+        all_embs_sorted = encoder_model.encode(
+            sorted_texts,
+            prompt_name="query",
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            batch_size=encode_batch_size,
+            show_progress_bar=True,
+        )
+
+        # Unsort back to original ordering.
+        return all_embs_sorted[np.argsort(sorted_indices)]
+
+    @staticmethod
+    def get_text_to_encode(*, X: pd.DataFrame, seen_texts: set[str]) -> list[str]:
+        """Collect unique (column, value) pairs from *X* that are not present in *embedding_look_up*."""
+        unseen_keys = []
+
+        # Pass 1: discover unseen (col, value)
+        for col in tqdm(X.columns, desc="Collecting text to encode..."):
+            s = sanitize_text(X[col])
+
+            for val in s.unique():
+                if val not in seen_texts:
+                    unseen_keys.append(val)
+
+        return unseen_keys
+
+    @staticmethod
+    def get_cache_data_for_dataset(*, X: pd.DataFrame, seen_texts: set[str]) -> dict:
+        """Get the cache data for the given dataset, which is a dict mapping (col, value) pairs to their embeddings."""
+        text_to_encode = TabArenaDefaultTextEncoder.get_text_to_encode(
+            X=X,
+            seen_texts=seen_texts,
+        )
+        if not text_to_encode:
+            return {}
+
+        new_embeddings = TabArenaDefaultTextEncoder.encode_texts(
+            texts=text_to_encode,
+            encoder_model=TabArenaDefaultTextEncoder.get_default_encoder(),
+        )
+        return dict(zip(text_to_encode, new_embeddings))
+
+
 class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
-    """Create semantic text embeddings using a pre-trained sentencetransformer model."""
+    """Create semantic text embeddings using a pre-trained sentencetransformer model.
+
+    Uses ``Qwen/Qwen3-Embedding-0.6B`` with Matryoshka Representation Learning
+    (MRL) to produce compact ``_MRL_DIM``-dimensional embeddings per text value.
+    """
 
     _embedding_look_up: dict[str, np.ndarray] = {}
     """Class-level cache for the embeddings of unique text values, shared across all instances within a process."""
@@ -48,43 +142,14 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
     """Expected columns during transform, set during fit."""
     _feature_names: list[str]
     """Stable feature names for the generated embedding features."""
-
-    @staticmethod
-    def _estimate_encode_batch_size() -> int:
-        """Estimate encoding batch size based on available GPU VRAM.
-
-        For intfloat/e5-small-v2 (~130 MB model), we budget ~2 MB per sample
-        as a conservative estimate for inference-time activations (attention
-        matrices, intermediates) at typical text lengths.  sentence-transformers
-        pads to the longest sequence in the batch, not to max_length, so real
-        usage is usually well below the theoretical ceiling.
-        """
-        import torch
-
-        if not torch.cuda.is_available():
-            return 64
-
-        free_vram_bytes = torch.cuda.mem_get_info()[0]
-        free_vram_mb = free_vram_bytes / (1024**2)
-
-        # Reserve 512 MB for model weights, CUDA context, and fragmentation.
-        usable_mb = max(free_vram_mb - 512, 256)
-        per_sample_mb = 2
-        batch_size = int(usable_mb / per_sample_mb)
-
-        return max(32, min(batch_size, 2048))
+    only_load_from_cache: bool = False
+    """Whether to only load embeddings from cache and crash for on-the-fly encoding of unseen text values."""
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
         """See parameters of the parent class AbstractFeatureGenerator for more details
         on the parameters.
         """
-        from sentence_transformers import SentenceTransformer
-        import torch
-
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._encoder_model = SentenceTransformer("intfloat/e5-small-v2", device=device)
-        self._encode_batch_size = self._estimate_encode_batch_size()
-
+        self._encoder_model = TabArenaDefaultTextEncoder.get_default_encoder()
         X_out = self._transform(X, is_train=True)
         return X_out, {S_TEXT_EMBEDDING: list(X_out.columns)}
 
@@ -99,44 +164,27 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
         if n_rows == 0 or n_cols == 0:
             raise ValueError("Input DataFrame is empty!")
 
-        unseen_keys: list[tuple[str, str]] = []
-        seen_unseen: set[tuple[str, str]] = set()
+        # Encode text
+        unseen_text = TabArenaDefaultTextEncoder.get_text_to_encode(X=X, seen_texts=set(self._embedding_look_up.keys()))
+        if unseen_text:
 
-        # Pass 1: discover unseen (col, value)
-        for col in tqdm(X.columns, desc="Collecting text to encode..."):
-            s = sanitize_text(X[col])
+            if self.only_load_from_cache:
+                raise ValueError(
+                    "Cache miss for text values during transform with only_load_from_cache=True. "
+                    f"Unseen text values: {unseen_text[:10]} (showing up to 10)."
+                )
 
-            for val in s.unique():
-                key = (col, val)
-                if key not in self._embedding_look_up and key not in seen_unseen:
-                    seen_unseen.add(key)
-                    unseen_keys.append(key)
-
-        # Encode unseen
-        if unseen_keys:
-            texts_to_encode = [f"query: {col} = {val}" for col, val in unseen_keys]
-
-            embeddings = self._encoder_model.encode(
-                texts_to_encode,
-                convert_to_numpy=True,
-                normalize_embeddings=False,
-                batch_size=self._encode_batch_size,
-                show_progress_bar=True,
-                precision="float32",
+            embeddings = TabArenaDefaultTextEncoder.encode_texts(
+                texts=list(unseen_text),
+                encoder_model=self._encoder_model,
             )
-
-            self._embedding_look_up.update(zip(unseen_keys, embeddings))
+            self._embedding_look_up.update(zip(unseen_text, embeddings))
 
         # Infer embedding dimension
         emb_dim = len(next(iter(self._embedding_look_up.values())))
-
         # --- Stable feature names: source column is the prefix ---
         if is_train:
-            self._feature_names = [
-                f"{col}.semantic_embedding_{i}"
-                for col in X.columns
-                for i in range(emb_dim)
-            ]
+            self._feature_names = [f"{col}.semantic_embedding_{i}" for col in X.columns for i in range(emb_dim)]
             self._expected_columns = list(X.columns)
         elif list(X.columns) != self._expected_columns:
             raise ValueError(
@@ -145,10 +193,9 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
                 f"Got: {list(X.columns)}"
             )
 
+        # Pass 2: build matrix (optimized for repeated values)
         # Preallocate
         semantic_embedding = np.empty((n_rows, n_cols * emb_dim), dtype=np.float32)
-
-        # Pass 2: build matrix (optimized for repeated values)
         for j, col in tqdm(
             enumerate(X.columns),
             desc="Building semantic embedding matrix...",
@@ -158,9 +205,7 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
             arr = s.to_numpy()
 
             uniques, inverse = np.unique(arr, return_inverse=True)
-            unique_embs = np.vstack(
-                [self._embedding_look_up[(col, val)] for val in uniques]
-            )
+            unique_embs = np.vstack([self._embedding_look_up[val] for val in uniques])
             col_matrix = unique_embs[inverse]
 
             start = j * emb_dim
@@ -188,6 +233,26 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
     def _more_tags(self):
         return {"feature_interactions": True}
 
+    @staticmethod
+    def save_embedding_cache(cache: dict[str, np.ndarray], path: str | Path) -> None:
+        keys = list(cache.keys())
+        embs = np.vstack(list(cache.values()))
+        df = pd.DataFrame(embs, index=pd.Index(keys, name="text"))
+        df.to_parquet(path)
+
+    @staticmethod
+    def load_embedding_cache(path: str | Path) -> dict[str, np.ndarray]:
+        df = pd.read_parquet(path)
+        return dict(zip(df.index, df.to_numpy()))
+
+    @staticmethod
+    def get_text_cache_dir(task_id_str: str) -> Path:
+        import openml
+
+        base_path = (openml.config._root_cache_directory / "tabarena_text_cache").expanduser().resolve() / "text_cache"
+        Path(base_path).mkdir(parents=True, exist_ok=True)
+
+        return base_path / f"{task_id_str}_cache.parquet"
 
 class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
     """Generate a statistical embedding of text features using skrub.
@@ -200,7 +265,7 @@ class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
     ``SemanticTextFeatureGenerator``.
     """
 
-    MAX_N_OUTPUT_FEATURES = 384  # Same as intfloat/e5-small-v2
+    MAX_N_OUTPUT_FEATURES = 32
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
         from skrub import StringEncoder, TableVectorizer
@@ -234,9 +299,7 @@ class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
                 X = self._vectorizer.fit_transform(X)
             # TableVectorizer produces "{col}_{i}"; remap to "{col}.{i}" so that
             # the source column prefix is separated by "." (the project convention).
-            self._col_rename_map_: dict[str, str] = {
-                c: re.sub(r"_(\d+)$", r".\1", c) for c in X.columns
-            }
+            self._col_rename_map_: dict[str, str] = {c: re.sub(r"_(\d+)$", r".\1", c) for c in X.columns}
         else:
             X = self._vectorizer.transform(X)
 
@@ -311,9 +374,7 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
         """
         return feature_name.split(".", 1)[0]
 
-    def _make_batch_plan(
-        self, feature_names: list[str]
-    ) -> list[tuple[str, int, list[str]]]:
+    def _make_batch_plan(self, feature_names: list[str]) -> list[tuple[str, int, list[str]]]:
         """Build a PCA batch plan grouped by source column.
 
         Parameters
@@ -340,9 +401,7 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
                 plan.append((src_col, 0, feats))
             else:
                 max_n_int = int(max_n)
-                sub_batches = [
-                    feats[i : i + max_n_int] for i in range(0, len(feats), max_n_int)
-                ]
+                sub_batches = [feats[i : i + max_n_int] for i in range(0, len(feats), max_n_int)]
                 for sub_idx, sub_feats in enumerate(sub_batches):
                     plan.append((src_col, sub_idx, sub_feats))
 
@@ -375,14 +434,10 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
         X_out = self._transform_inference(X)
         missing_output = [c for c in self.feature_names_out_ if c not in X_out.columns]
         if missing_output:
-            raise ValueError(
-                f"Transformed output is missing expected columns: {missing_output[:10]}"
-            )
+            raise ValueError(f"Transformed output is missing expected columns: {missing_output[:10]}")
         return X_out[self.feature_names_out_]
 
-    def _fit_preprocess_and_transform(
-        self, X: pd.DataFrame, y: pd.Series
-    ) -> pd.DataFrame:
+    def _fit_preprocess_and_transform(self, X: pd.DataFrame, y: pd.Series) -> pd.DataFrame:
         X = X.copy()
 
         self.pre_pca_feature_names_ = list(X)
@@ -402,9 +457,7 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
 
         transformed_batches: list[pd.DataFrame] = []
 
-        for src_col, sub_batch_idx, batch_cols in tqdm(
-            batch_plan, desc="Fitting PCA batches..."
-        ):
+        for src_col, sub_batch_idx, batch_cols in tqdm(batch_plan, desc="Fitting PCA batches..."):
             X_batch = X[batch_cols]
 
             n_samples, n_features = X_batch.shape
@@ -428,9 +481,7 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
             )
             X_pca = X_pca[:, :keep_count]
 
-            output_cols = [
-                f"{src_col}.dr{sub_batch_idx}_{i}" for i in range(keep_count)
-            ]
+            output_cols = [f"{src_col}.dr{sub_batch_idx}_{i}" for i in range(keep_count)]
 
             X_pca_df = pd.DataFrame(X_pca, index=X.index, columns=output_cols)
 
@@ -445,8 +496,7 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
         X = pd.concat(transformed_batches, axis=1)
         self._log(
             20,
-            f"Total PCA features generated: {X.shape[1]}"
-            f" from {len(self.pre_pca_feature_names_)} original features.",
+            f"Total PCA features generated: {X.shape[1]} from {len(self.pre_pca_feature_names_)} original features.",
         )
         return X
 
@@ -505,14 +555,10 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
     @staticmethod
     def _encode_target_for_correlation(y: pd.Series) -> np.ndarray:
         if pd.api.types.is_numeric_dtype(y):
-            y_num = pd.to_numeric(y, errors="coerce").to_numpy(
-                dtype=np.float64, copy=False
-            )
+            y_num = pd.to_numeric(y, errors="coerce").to_numpy(dtype=np.float64, copy=False)
         else:
             # Deterministic encoding for non-numeric labels.
-            y_num = pd.Series(pd.factorize(y)[0], index=y.index).to_numpy(
-                dtype=np.float64, copy=False
-            )
+            y_num = pd.Series(pd.factorize(y)[0], index=y.index).to_numpy(dtype=np.float64, copy=False)
 
         if np.isnan(y_num).any():
             # Fill NaNs with mean to keep correlation computation vectorized/stable.
