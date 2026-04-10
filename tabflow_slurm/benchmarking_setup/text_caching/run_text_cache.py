@@ -16,6 +16,7 @@ def pre_generate_text_cache(task_id_str: str) -> Path:
     task = OpenMLTaskWrapper(
         task=task_id_or_object.load_local_openml_task(),
     )
+    print(f"Loaded {task_id_str}, with {len(task.X)} rows and {len(task.X.columns)} columns.")
     preprocessing = TabArenaModelAgnosticPreprocessing(
         enable_sematic_text_features=True,
         enable_raw_text_features=False,
@@ -23,7 +24,7 @@ def pre_generate_text_cache(task_id_str: str) -> Path:
         enable_statistical_text_features=False,
         enable_text_ngram_features=False,
         enable_datetime_features=False,
-        verbosity=2,
+        verbosity=4,
     )
     preprocessing.fit_transform(X=task.X)
 
@@ -37,6 +38,9 @@ def pre_generate_text_cache(task_id_str: str) -> Path:
 
 if __name__ == "__main__":
     import argparse
+    import logging
+
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(name)s %(levelname)s: %(message)s")
 
     # TODO: add support for setting the OpenML cache dir here as well.
     parser = argparse.ArgumentParser()
