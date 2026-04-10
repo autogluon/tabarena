@@ -64,11 +64,11 @@ def _augment_dataset(
     original_features = list(X.columns)
 
     if mode == "validity":
-        from validity_fs_metric import get_dataset_for_validity
+        from validity_fs_metric import get_dataset_for_validity  # noqa: PLC0415
 
         X = get_dataset_for_validity(X=X, rng=rng, **kwargs)
     elif mode == "stability":
-        from stability_fs_metric import get_dataset_for_stability
+        from stability_fs_metric import get_dataset_for_stability  # noqa: PLC0415
 
         X, y = get_dataset_for_stability(X=X, y=y, rng=rng, **kwargs)
     else:
@@ -81,7 +81,7 @@ def _augment_dataset(
     return X, y, original_features
 
 
-def run_benchmark(
+def run_benchmark(  # noqa: D417
     *,
     data_foundry_task_id: str,
     mode: str,
@@ -184,7 +184,6 @@ if __name__ == "__main__":
     args = parse_args()
 
     DEFAULT_DATA_FOUNDRY_CACHE = Path(__file__).parent / ".data_foundry_cache"
-
     DATA_FOUNDRY_TASKS = ["anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792"]
 
     download_data_foundry_datasets(
@@ -196,7 +195,7 @@ if __name__ == "__main__":
     task_metadata = pd.read_csv(path_to_metadata)
     task_metadata = task_metadata.drop_duplicates(subset="repeat", keep="first")
     args.data_foundry_task_id = task_metadata["task_id_str"].iloc[0]
-    run_benchmark(
+    result = run_benchmark(
         data_foundry_task_id=args.data_foundry_task_id,
         mode=args.mode,
         method_name=args.method_name,
@@ -204,3 +203,7 @@ if __name__ == "__main__":
         noise=args.noise,
         noise_type=args.noise_type,
     )
+    print(result)
+    result = pd.DataFrame([result.__dict__])
+    path = f"{args.mode}_{args.method_name}_{args.data_foundry_task_id.split('|')[3].split('/')[0]}_{args.repeat}.csv"
+    result.to_csv(Path(__file__).parent / path, index=False)
