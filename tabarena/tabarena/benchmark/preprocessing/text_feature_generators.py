@@ -42,12 +42,37 @@ def sanitize_text(text_data: pd.Series, fillna_str: str = "Missing Data") -> pd.
 class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
     """Create semantic text embeddings using a pre-trained sentencetransformer model."""
 
-    _embedding_look_up: dict[str, np.ndarray]
-    """Cache for the embeddings of unique text values."""
+    _embedding_look_up: dict[str, np.ndarray] = {}
+    """Class-level cache for the embeddings of unique text values, shared across all instances within a process."""
     _expected_columns: list[str]
     """Expected columns during transform, set during fit."""
     _feature_names: list[str]
     """Stable feature names for the generated embedding features."""
+
+    @staticmethod
+    def _estimate_encode_batch_size() -> int:
+        """Estimate encoding batch size based on available GPU VRAM.
+
+        For intfloat/e5-small-v2 (~130 MB model), we budget ~2 MB per sample
+        as a conservative estimate for inference-time activations (attention
+        matrices, intermediates) at typical text lengths.  sentence-transformers
+        pads to the longest sequence in the batch, not to max_length, so real
+        usage is usually well below the theoretical ceiling.
+        """
+        import torch
+
+        if not torch.cuda.is_available():
+            return 64
+
+        free_vram_bytes = torch.cuda.mem_get_info()[0]
+        free_vram_mb = free_vram_bytes / (1024**2)
+
+        # Reserve 512 MB for model weights, CUDA context, and fragmentation.
+        usable_mb = max(free_vram_mb - 512, 256)
+        per_sample_mb = 2
+        batch_size = int(usable_mb / per_sample_mb)
+
+        return max(32, min(batch_size, 2048))
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
         """See parameters of the parent class AbstractFeatureGenerator for more details
@@ -58,6 +83,7 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self._encoder_model = SentenceTransformer("intfloat/e5-small-v2", device=device)
+        self._encode_batch_size = self._estimate_encode_batch_size()
 
         X_out = self._transform(X, is_train=True)
         return X_out, {S_TEXT_EMBEDDING: list(X_out.columns)}
@@ -66,9 +92,6 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
         """See parameters of the parent class AbstractFeatureGenerator for more details
         on the parameters.
         """
-        if is_train and not hasattr(self, "_embedding_look_up"):
-            self._embedding_look_up = {}
-
         n_rows = len(X)
         n_cols = len(X.columns)
 
@@ -97,7 +120,7 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
                 texts_to_encode,
                 convert_to_numpy=True,
                 normalize_embeddings=False,
-                batch_size=128,
+                batch_size=self._encode_batch_size,
                 show_progress_bar=True,
                 precision="float32",
             )
