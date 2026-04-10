@@ -4,7 +4,7 @@ Usage:
     python feature_selection_benchmark_runner.py \
         --mode validity \
         --method_name FSBench__RandomFeatureSelector__5__0__lgbm__3600 \
-        --data_foundry_task_id "UserTask|1386903908|anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792|/Users/schaefer.bastian/.openml/tabarena_tasks" \
+        --data_foundry_task_id "UserTask|1386903908|anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792|/work/dlclarge1/purucker-fs_benchmark/.openml/tabarena_tasks" \
         --repeat 0 \
         --noise 1.0 \
         --noise_type gaussian
@@ -12,7 +12,7 @@ Usage:
     python feature_selection_benchmark_runner.py \
         --mode stability \
         --method_name FSBench__RandomFeatureSelector__5__0__lgbm__3600 \
-        --data_foundry_task_id "UserTask|1386903908|anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792|/Users/schaefer.bastian/.openml/tabarena_tasks" \
+        --data_foundry_task_id "UserTask|1386903908|anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792|/work/dlclarge1/purucker-fs_benchmark/.openml/tabarena_tasks" \
         --repeat 0 \
         --noise 1.0 \
         --noise_type gaussian
