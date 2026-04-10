@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import operator
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -88,8 +89,9 @@ def test_user_task_as_openml_task(problem_type, expected_cls, tmp_path):
     assert isinstance(oml_dataset, openml.datasets.OpenMLDataset)
     assert oml_dataset.name == ut.get_dataset_name()
     assert oml_dataset.default_target_attribute == target_feature
-    assert oml_dataset.parquet_file == (ut._local_cache_path / "data.pq")
-    assert (ut._local_cache_path / "data.pq").exists()
+    assert oml_dataset.data_pickle_file == (ut._local_cache_path / "data.pkl.py3")
+    assert oml_dataset.cache_format == "pickle"
+    assert (ut._local_cache_path / "data.pkl.py3").exists()
     assert oml_dataset.data_file == "ignored"
 
     # Check Dataset State
@@ -1094,15 +1096,14 @@ def test_compute_metadata_split_time_horizon_passthrough(tmp_path):
             pd.arrays.IntervalArray.from_breaks(range(11)),
             pd.IntervalDtype(subtype="int64", closed="right"),
         ),
-        # Note: complex128 is also unsupported by liac-arff, but pyarrow (parquet)
-        # cannot serialize it either, so it fails at a later stage and is excluded here.
+        # Note: complex128 is also unsupported by liac-arff and excluded here.
     ],
     ids=["datetime64", "timedelta64", "period", "interval"],
 )
 def test_create_local_openml_task_unsupported_arff_dtype_does_not_raise(col_name, col_values, dtype, tmp_path):
     """Columns with dtypes unsupported by liac-arff (datetime64, timedelta64, complex)
     must not prevent task creation — they are cast to string only for ARFF attribute
-    inference and do not affect the data persisted to parquet.
+    inference and do not affect the data persisted to pickle.
     """
     n = 10
     df = pd.DataFrame(
@@ -1119,9 +1120,10 @@ def test_create_local_openml_task_unsupported_arff_dtype_does_not_raise(col_name
     # Must not raise
     ut.create_local_openml_task(dataset=df, target_feature="target", problem_type="regression", splits=splits)
 
-    # The parquet file must store the original dtype — the workaround must not
+    # The pickle file must store the original dtype — the workaround must not
     # modify the persisted data.
-    stored = pd.read_parquet(ut._local_cache_path / "data.pq")
+    with (ut._local_cache_path / "data.pkl.py3").open("rb") as fh:
+        stored, _, _ = pickle.load(fh)
     assert stored[col_name].dtype == df[col_name].dtype
 
 
@@ -1144,7 +1146,7 @@ def test_create_local_openml_task_unsupported_arff_dtype_does_not_raise(col_name
 def test_create_local_openml_task_non_string_categorical_does_not_raise(cat_values, cat_dtype, test_id, tmp_path):
     """Categorical columns whose categories have a non-string dtype (e.g. int, float)
     must not break ARFF attribute inference — categories are cast to string only for
-    metadata and do not affect the data persisted to parquet.
+    metadata and do not affect the data persisted to pickle.
     """
     n = 10
     df = pd.DataFrame(
@@ -1162,6 +1164,7 @@ def test_create_local_openml_task_non_string_categorical_does_not_raise(cat_valu
     # Must not raise
     ut.create_local_openml_task(dataset=df, target_feature="target", problem_type="regression", splits=splits)
 
-    # The parquet file must store the original data values unchanged.
-    stored = pd.read_parquet(ut._local_cache_path / "data.pq")
+    # The pickle file must store the original data values unchanged.
+    with (ut._local_cache_path / "data.pkl.py3").open("rb") as fh:
+        stored, _, _ = pickle.load(fh)
     pd.testing.assert_series_equal(stored["cat_col"].astype(str), df["cat_col"].astype(str), check_names=True)

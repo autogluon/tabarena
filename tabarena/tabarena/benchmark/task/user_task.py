@@ -452,8 +452,15 @@ class TabArenaTaskMetadataMixin:
 
         # Detect feature dtype flags (exclude target column)
         feature_df = oml_dataset.drop(columns=[target_name])
+
+        # FIXME: make this less strict?
+        if len(feature_df.select_dtypes(include=["object"]).columns) > 0:
+            raise ValueError(
+                "Object dtype columns are not supported. Please convert them to string dtype or categorical dtype!"
+            )
+
         has_datetime = len(feature_df.select_dtypes(include=["datetime64"]).columns) > 0
-        has_text = len(feature_df.select_dtypes(include=["string", "object"]).columns) > 0
+        has_text = len(feature_df.select_dtypes(include=["string"]).columns) > 0
         has_categorical = len(feature_df.select_dtypes(include=["category"]).columns) > 0
         has_numeric = len(feature_df.select_dtypes(include=["number"]).columns) > 0
 
@@ -683,14 +690,22 @@ class UserTask:
             default_target_attribute=target_feature,
         )
         # Cache data to disk
-        parquet_file = self._local_cache_path / "data.pq"
-        parquet_file.parent.mkdir(parents=True, exist_ok=True)
-        dataset.to_parquet(parquet_file)
+        #   This ensures to keep the dtypes of the original dataframe (and not lose it via parquet or similar)
+        #   Moreover, this skips that OpenML itself has do pickle dump the dataset again.
+        pickle_file = self._local_cache_path / "data.pkl.py3"
+        pickle_file.parent.mkdir(parents=True, exist_ok=True)
+        with pickle_file.open("wb") as fh:
+            pickle.dump(
+                (dataset, [dataset[c].dtype.name == "category" for c in dataset.columns], list(dataset.columns)),
+                fh,
+                pickle.HIGHEST_PROTOCOL,
+            )
         del dataset  # Free memory
 
         # We only need local_dataset.get_data() from the OpenMLDataset, thus, we make
         # sure with the code below that get_data() returns the data.
-        local_dataset.parquet_file = parquet_file
+        local_dataset.data_pickle_file = pickle_file
+        local_dataset.cache_format = "pickle"
         local_dataset.data_file = "ignored"  # not used for local datasets
 
         # Create the task
