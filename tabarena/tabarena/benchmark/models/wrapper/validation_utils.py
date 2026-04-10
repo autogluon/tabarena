@@ -177,15 +177,43 @@ class TabArenaValidationProtocolExecMixin:
         if custom_splits is not None:
             for train_idx, test_idx in custom_splits:
                 if stratify_on_data is not None:
-                    stratify_values = stratify_on_data.unique()
+                    stratify_values = set(stratify_on_data.unique())
                     train_stratify_values = set(stratify_on_data.iloc[train_idx].unique())
                     test_stratify_values = set(stratify_on_data.iloc[test_idx].unique())
-                    assert train_stratify_values == test_stratify_values == set(stratify_values), (
-                        f"Stratification values in train and test splits do not match!"
+
+                    assert train_stratify_values == stratify_values, (
+                        "[Missing Train Stratification Values] "
+                        "Stratification values in train split do not match overall stratification values!"
                         f"\n\tOverall stratification values: {stratify_values}"
+                        f"\n\tTrain stratification values: {train_stratify_values}"
+                    )
+                    assert test_stratify_values.issubset(train_stratify_values), (
+                        "[Unseen Test Stratification Values] "
+                        "Stratification values in test split are not a subset of train stratification values!"
                         f"\n\tTrain stratification values: {train_stratify_values}"
                         f"\n\tTest stratification values: {test_stratify_values}"
                     )
+
+                    if train_stratify_values != stratify_values:
+                        # Check if test has all labels for binary, as metrics require it.
+                        if len(stratify_values) == 2:
+                            raise ValueError(
+                                "[Binary Metric Missing Stratification Values in Test] "
+                                "Stratification values in train and test splits do not match!"
+                                f"\n\tOverall stratification values: {stratify_values}"
+                                f"\n\tTrain stratification values: {train_stratify_values}"
+                                f"\n\tTest stratification values: {test_stratify_values}"
+                            )
+
+                        # For multi-stratify values, we do not allow missing a stratify value in the test split
+                        logger.warning(
+                            "[Stratification Value Missing in Test Data] "
+                            "Stratification values in train and test splits are not identical."
+                            "This means the validation data is likely missing some classes."
+                            f"\n\tOverall stratification values: {stratify_values}"
+                            f"\n\tTrain stratification values: {train_stratify_values}"
+                            f"\n\tTest stratification values: {test_stratify_values}"
+                        )
 
         return custom_splits, num_folds, num_repeats
 
