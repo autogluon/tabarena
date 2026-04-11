@@ -48,6 +48,9 @@ def setup_slurm_job(
         import tempfile
 
         import ray
+        import os
+
+        os.environ["RAY_DISABLE_RETRIES"] = "1"
 
         ray_dir = tempfile.mkdtemp() + "/ray"
 
