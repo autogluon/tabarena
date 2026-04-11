@@ -10,14 +10,14 @@ import time
 
 import pandas as pd
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.core.models import AbstractModel
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 from autogluon.tabular import __version__
 
 logger = logging.getLogger(__name__)
 
 
-class TabMModel(AbstractModel):
+class TabMModel(AbstractTorchModel):
     """TabM is an efficient ensemble of MLPs that is trained simultaneously with mostly shared parameters.
 
     TabM is one of the top performing methods overall on TabArena-v0.1: https://tabarena.ai
@@ -142,6 +142,14 @@ class TabMModel(AbstractModel):
             X[self._features_bool] = X[self._features_bool].astype("category")
 
         return X
+
+    def get_device(self) -> str:
+        return self.model.device_.type
+
+    def _set_device(self, device: str):
+        device = self.to_torch_device(device)
+        self.model.device_ = device
+        self.model.model_ = self.model.model_.to(device)
 
     def _set_default_params(self):
         default_params = dict(
@@ -284,7 +292,7 @@ class TabMModel(AbstractModel):
             return 256
         if n_samples < 108_000:
             return 512
-        return 1024
+        return 768 # Adjust to be lower to fit on 80 GB for very large datasets.
 
     @classmethod
     def _class_tags(cls):

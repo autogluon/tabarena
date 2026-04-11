@@ -43,7 +43,7 @@ def get_tabm_auto_batch_size(n_train: int) -> int:
         return 256
     if n_train < 108_000:
         return 512
-    return 1024
+    return 768 # Adjust to be lower to fit on 80 GB for very large datasets.
 
 
 class RTDLQuantileTransformer(BaseEstimator, TransformerMixin):
