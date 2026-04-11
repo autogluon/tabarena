@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.core.models import AbstractModel
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 # FIXME: model is for some reason super slow for 200 features and 50k samples (363616)
-class SAPRPTOSSModel(AbstractModel):
+class SAPRPTOSSModel(AbstractTorchModel):
     """ConTextTab Model: https://github.com/SAP-samples/sap-rpt-1-oss."""
 
     ag_key = "SAP-RPT-OSS"
@@ -69,10 +69,16 @@ class SAPRPTOSSModel(AbstractModel):
             "checkpoint": "2025-11-04_sap-rpt-one-oss.pt",
             "max_context_size": 8192,
             "bagging": 8,
-            "test_chunk_size": 1000,  # TODO, optimize based on dataset/VRAM?
+            "test_chunk_size": 4000,  # TODO, optimize based on dataset/VRAM?
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
+
+    def get_device(self) -> str:
+        return self.model.model.device
+
+    def _set_device(self, device: str):
+        self.model.model.to(device)
 
     @classmethod
     def supported_problem_types(cls) -> list[str] | None:
@@ -90,7 +96,7 @@ class SAPRPTOSSModel(AbstractModel):
     ) -> dict[str, int | float]:
         return {
             "num_cpus": 1,
-            "num_gpus": 1 if is_gpu_available else 0,
+            "num_gpus": 0.5 if is_gpu_available else 0,
         }
 
     @classmethod
@@ -100,7 +106,6 @@ class SAPRPTOSSModel(AbstractModel):
         """
         default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
         extra_ag_args_ensemble = {
-            "fold_fitting_strategy": "sequential_local",
             "refit_folds": True,
         }
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
