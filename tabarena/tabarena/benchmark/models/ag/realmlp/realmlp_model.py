@@ -4,17 +4,16 @@ import copy
 import logging
 import time
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import pandas as pd
+import numpy as np
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.models import AbstractModel
 from sklearn.impute import SimpleImputer
 
 from autogluon.tabular import __version__
 
-if TYPE_CHECKING:
-    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +56,7 @@ class RealMLPModel(AbstractModel):
         self._features_bool = None
         self._bool_to_cat = None
         self._cat_col_names = None
+        self._category_mapping = None
 
     def get_model_cls(self, default_hyperparameters: Literal["td", "td_s"] = "td"):
         from pytabkit import (
@@ -278,10 +278,24 @@ class RealMLPModel(AbstractModel):
         if is_train:
             self._cat_col_names = X.select_dtypes(include="category").columns.tolist()
 
-        # avoid bad dtype for cat categories in later ordinal encoding.
+        # Avoid bad dtype for cat categories in later ordinal encoding.
+        # Maps unseen categories to a new high integer.
         if self._cat_col_names is not None:
-            for category in self._cat_col_names:
-                X[category] = X[category].cat.rename_categories(str)
+            if self._category_mapping is None:
+                self._category_mapping = {}
+                for col in self._cat_col_names:
+                    cats = X[col].cat.categories
+                    self._category_mapping[col] = {cat: code for code, cat in enumerate(cats)}
+
+            if self._category_mapping is not None:
+                for col in self._cat_col_names:
+                    mapping = self._category_mapping[col]
+                    unseen_code = len(mapping)
+                    nan_mask = X[col].isna()
+                    X[col] = X[col].astype(object)
+                    X[col] = X[col].map(mapping).fillna(unseen_code).astype(int).astype("category")
+                    X.loc[nan_mask, col] = np.nan
+
         return X
 
     def _set_default_params(self):
