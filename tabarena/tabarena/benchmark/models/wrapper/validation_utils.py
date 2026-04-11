@@ -246,12 +246,12 @@ class TabArenaValidationProtocolExecMixin:
             The number of group instances in the data.
         """
         new_num_folds, new_num_repeats = None, None
-        new_num_folds_reason, new_num_repeats = "", ""
+        new_num_folds_reason, new_num_repeats_reason = "", ""
         if num_group_instances <= self.max_samples_for_tiny_data:
             new_num_folds = self.tiny_data_num_folds
             new_num_repeats = self.tiny_data_num_repeats
             new_num_folds_reason += "Tiny data"
-            new_num_repeats += "Tiny data"
+            new_num_repeats_reason += "Tiny data"
         else:
             # We want these by default for all other data in our benchmark.
             assert num_folds == 8
@@ -261,15 +261,15 @@ class TabArenaValidationProtocolExecMixin:
 
         if new_num_folds is not None:
             logger.info(
-                f"\nUpdating num_bag_folds from {num_folds} to {new_num_folds}"
-                f"because: {um_folds_reason}"
+                f"\nUpdating num_bag_folds from {num_folds} to {new_num_folds} "
+                f"because: {new_num_folds_reason}"
             )
             num_folds = new_num_folds
 
         if new_num_repeats is not None:
             logger.info(
-                f"\nUpdating num_bag_sets from {num_repeats} to {new_num_repeats}"
-                f" since number of group instances is less than num_bag_folds."
+                f"\nUpdating new_num_repeats from {num_repeats} to {new_num_repeats}"
+                f"because: {new_num_repeats_reason}"
             )
             num_repeats = new_num_repeats
 
