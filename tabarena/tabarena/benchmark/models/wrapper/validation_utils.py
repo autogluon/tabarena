@@ -359,7 +359,7 @@ class TabArenaValidationProtocolExecMixin:
         time_data = X[time_on]
 
         if pd.api.types.is_datetime64_any_dtype(time_data):
-            time_data = time_data.view("int64")
+            time_data = time_data.astype("int64")
         assert pd.api.types.is_numeric_dtype(time_data), "Time_on column is not datetime or numeric!"
 
         return split_time_index_into_intervals(

@@ -260,9 +260,16 @@ class TabMModel(AbstractModel):
         mem_ds = n_samples * (4 * n_numerical + 8 * len(cat_sizes))
 
         # some safety constants and offsets (the 5 is probably excessive)
-        return (
+        res = (
             5 * mem_ds + 1.2 * mem_forward_backward + 1.2 * mem_params + 0.3 * (1024**3)
         )
+        # Safety overhead
+        res = res * 1.5
+        logger.log(
+            40,
+            f"\tEstimated memory usage {res/1e9:4}.",
+        )
+        return res
 
     @classmethod
     def get_tabm_auto_batch_size(cls, n_samples: int) -> int:
