@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Callable
+
 import numpy as np
 import pandas as pd
 from autogluon.core.data.label_cleaner import LabelCleaner, LabelCleanerDummy
@@ -8,7 +10,6 @@ from autogluon.features import AutoMLPipelineFeatureGenerator
 
 from tabarena.utils.time_utils import Timer
 from tabarena.benchmark.models.wrapper.validation_utils import TabArenaValidationProtocolExecMixin
-
 
 class AbstractExecModel(TabArenaValidationProtocolExecMixin):
     can_get_error_val = False
@@ -43,6 +44,7 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
         self._feature_generator = None
         self.failure_artifact = None
         self.shuffle_features = shuffle_features
+        self._can_use_data_in_place = False
 
     def transform_y(self, y: pd.Series) -> pd.Series:
         return self.label_cleaner.transform(y)
@@ -75,41 +77,27 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
     def post_fit(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame):
         pass
 
-    def fit_custom(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame, *, split_seed: int | None = None) -> dict:
-        og_index = X_test.index
-        inv_perm = None
-
-        if self.shuffle_test:
-            perm, inv_perm = _make_perm(len(X_test), seed=self.shuffle_seed)
-            X_test = X_test.iloc[perm]
-        if self.reset_index_test:
-            X_test = X_test.reset_index(drop=True)
-        if self.shuffle_features:
-            assert split_seed is not None, "If shuffle_features is True, split_seed must not be None!"
-            features = list(X.columns)
-            rng = np.random.default_rng(seed=split_seed)
-            rng.shuffle(features)
-            X, X_test = X[features], X_test[features]
-
-        out = self._fit_custom(X=X, y=y, X_test=X_test)
-
-        if self.shuffle_test:
-            # Inverse-permute outputs back to original X_test order
-            out["predictions"] = _apply_inv_perm(out["predictions"], inv_perm, index=og_index)
-            if out["probabilities"] is not None:
-                out["probabilities"] = _apply_inv_perm(out["probabilities"], inv_perm, index=og_index)
-        elif self.reset_index_test:
-            out["predictions"].index = og_index
-            if out["probabilities"] is not None:
-                out["probabilities"].index = og_index
-
-        return out
-
     # TODO: Prateek, Add a toggle here to see if user wants to fit or fit and predict, also add model saving functionality
     # TODO: Nick: Temporary name
-    def _fit_custom(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame) -> dict:
+    def fit_custom(
+            self,
+            X: pd.DataFrame | None,
+            y: pd.Series | None,
+            X_test: pd.DataFrame | None,
+            *,
+            split_seed: int | None = None,
+            lazy_load_function: Callable | None = None
+    ) -> dict:
         """
         Calls the fit function of the inheriting class and proceeds to perform predictions based on the problem type
+
+        Arguments
+        ---------
+        split_seed:
+            If not None, the seed that is different per split to use for shuffling features.
+        lazy_load_function:
+            If not None, a function that one can call to load X, y, X_test lazily (e.g. to save memory by not
+            loading them until needed). If provided, X, y, and X_test arguments must be None.
 
         Returns
         -------
@@ -118,8 +106,37 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
         """
         from tabarena.utils.memory_utils import CpuMemoryTracker, GpuMemoryTracker
 
+        if lazy_load_function is not None:
+            assert X is None and y is None and X_test is None, "If lazy_load_function is provided, X and y must be None"
+            X, y, _ = lazy_load_function()
+            self._can_use_data_in_place = True
+
+        shuffled_features = None
+        if self.shuffle_features:
+            assert split_seed is not None, "If shuffle_features is True, split_seed must not be None!"
+            shuffled_features = list(X.columns)
+            rng = np.random.default_rng(seed=split_seed)
+            rng.shuffle(shuffled_features)
+            X = X[shuffled_features]
+
         with CpuMemoryTracker() as cpu_tracker, GpuMemoryTracker(device=0) as gpu_tracker, Timer() as timer_fit:
             self.fit(X, y)
+
+        # Reload all, allows X,y to be used in-place
+        if lazy_load_function is not None:
+            del X, y, X_test  # Free memory from previous load
+            X, y, X_test = lazy_load_function()
+
+        og_index = X_test.index
+        inv_perm = None
+        if self.shuffle_test:
+            perm, inv_perm = _make_perm(len(X_test), seed=self.shuffle_seed)
+            X_test = X_test.iloc[perm]
+        if self.reset_index_test:
+            X_test = X_test.reset_index(drop=True)
+        if shuffled_features is not None:
+            X_test = X_test[shuffled_features]
+            X = X[shuffled_features]
 
         self.post_fit(X=X, y=y, X_test=X_test)
 
@@ -150,6 +167,16 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
 
             gpu_tracking_enabled=gpu_tracker.enabled,
         )
+
+        if self.shuffle_test:
+            # Inverse-permute outputs back to original X_test order
+            out["predictions"] = _apply_inv_perm(out["predictions"], inv_perm, index=og_index)
+            if out["probabilities"] is not None:
+                out["probabilities"] = _apply_inv_perm(out["probabilities"], inv_perm, index=og_index)
+        elif self.reset_index_test:
+            out["predictions"].index = og_index
+            if out["probabilities"] is not None:
+                out["probabilities"].index = og_index
 
         return out
 

@@ -82,11 +82,19 @@ class ExperimentRunner:
         self.eval_metric: Scorer = get_metric(metric=self.eval_metric_name, problem_type=self.task.problem_type)
         self.model: AbstractExecModel | None = None
         self.task_split_idx = self.task.get_split_idx(fold=self.fold, repeat=self.repeat, sample=self.sample)
-        self.X, self.y, self.X_test, self.y_test = self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
+
+        if self.task.lazy_load_data:
+            assert input_format == "openml", "Lazy load data only works with input_format='openml'"
+            self.X, self.y, self.X_test, self.y_test = None, None, None, None
+            _, y, _, _ = self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
+        else:
+            self.X, self.y, self.X_test, self.y_test = self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
+            y = self.y
+
         if input_format == "csv":
             self.X = self.task.to_csv_format(X=self.X)
             self.X_test = self.task.to_csv_format(X=self.X_test)
-        self.label_cleaner = LabelCleaner.construct(problem_type=self.task.problem_type, y=self.y)
+        self.label_cleaner = LabelCleaner.construct(problem_type=self.task.problem_type, y=y)
         if cacher is None:
             cacher = CacheFunctionDummy()
         self.cacher = cacher
@@ -105,8 +113,19 @@ class ExperimentRunner:
         """We use the split index as a source for a seed that creates different randomness per split."""
         return self.task_split_idx
 
+    def _lazy_load_for_run_model_fit(self):
+        X, y, X_test, _ = self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
+        return X, y, X_test
+
+
     def run_model_fit(self) -> dict:
-        return self.model.fit_custom(X=self.X, y=self.y, X_test=self.X_test, split_seed=self.split_seed)
+        if self.task.lazy_load_data:
+            lazy_load_function = self._lazy_load_for_run_model_fit
+            X, y, X_test = None, None, None
+        else:
+            lazy_load_function = None
+            X, y, X_test = self.X, self.y, self.X_test
+        return self.model.fit_custom(X=X, y=y, X_test=X_test, split_seed=self.split_seed, lazy_load_function=lazy_load_function)
 
     def run(self) -> dict:
         out = self._run()
@@ -157,11 +176,19 @@ class ExperimentRunner:
                 self.handle_failure(exc=exc)
             raise
         out = self.post_fit(out=out)
+
+        if self.task.lazy_load_data:
+            _, _, _, y_test = self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
+        else:
+            y_test = self.y_test
         out["metric_error"] = self.evaluate(
-            y_true=self.y_test,
+            y_true=y_test,
             y_pred=out["predictions"],
             y_pred_proba=out["probabilities"],
         )
+        if self.task.lazy_load_data:
+            del y_test
+
         out = self.post_evaluate(out=out)
         out["experiment_metadata"] = self._experiment_metadata(time_start=time_start, time_start_str=time_start_str)
         out = self.convert_to_output(out=out)
@@ -267,7 +294,12 @@ class OOFExperimentRunner(ExperimentRunner):
                 simulation_artifact["pred_proba_dict_test"] = self.label_cleaner.transform_proba(out["probabilities"], as_pandas=True)
                 if self.task.problem_type == "binary":
                     simulation_artifact["pred_proba_dict_test"] = simulation_artifact["pred_proba_dict_test"].iloc[:, 1]
-            simulation_artifact["y_test"] = self.label_cleaner.transform(self.y_test)
+
+            if self.task.lazy_load_data:
+                _, _, _, y_test = self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
+            else:
+                y_test = self.y_test
+            simulation_artifact["y_test"] = self.label_cleaner.transform(y_test)
 
             if self.optimize_simulation_artifacts_memory:
                 # optimize memory
@@ -294,7 +326,12 @@ class OOFExperimentRunner(ExperimentRunner):
             simulation_artifact["metric"] = self.eval_metric_name
 
             if self.compute_bag_info and (self.model.can_get_per_child_oof and self.model.can_get_per_child_val_idx):
-                simulation_artifact["bag_info"] = self.model.bag_artifact(X_test=self.X_test)
+                if self.task.lazy_load_data:
+                    _, _, X_test, _ = self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
+                else:
+                    X_test = self.X_test
+
+                simulation_artifact["bag_info"] = self.model.bag_artifact(X_test=X_test)
 
 
             simulation_artifact["pred_proba_dict_val"] = {self.method: simulation_artifact["pred_proba_dict_val"]}

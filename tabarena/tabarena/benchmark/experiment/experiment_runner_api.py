@@ -412,6 +412,7 @@ def run_experiments_new(
                             task = OpenMLTaskWrapper(
                                 task=task_id_or_object.load_local_openml_task(),
                                 use_task_eval_metric=True,
+                                lazy_load_data=True,
                             )
 
                         eval_metric_name = task.eval_metric

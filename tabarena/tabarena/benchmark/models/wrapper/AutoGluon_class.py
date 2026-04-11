@@ -49,14 +49,11 @@ class AGWrapper(AbstractExecModel):
         init_kwargs = copy.deepcopy(self.init_kwargs)
         fit_kwargs = copy.deepcopy(self.fit_kwargs)
 
-        # TODO: think about if we can reset the index here without breaking simulation artifacts
-        train_data = X.copy()
-
         num_folds = fit_kwargs.pop("num_bag_folds", None)
         num_repeats = fit_kwargs.pop("num_bag_folds", None)
 
         custom_splits, num_folds, num_repeats = self.resolve_validation_splits(
-            X=train_data.reset_index(drop=True),
+            X=X.reset_index(drop=True),
             y=y.reset_index(drop=True),
             num_folds=num_folds,
             num_repeats=num_repeats
@@ -88,9 +85,18 @@ class AGWrapper(AbstractExecModel):
                     feature_generator_kwargs[param] = value
             fit_kwargs["feature_generator"] = feature_generator_cls(**feature_generator_kwargs)
 
+        # TODO: think about if we can reset the index here without breaking simulation artifacts
+        if self._can_use_data_in_place:
+            train_data = X
+            if X_val is not None:
+                tuning_data = X_val
+        else:
+            train_data = X.copy()
+            if X_val is not None:
+                tuning_data = X_val.copy()
+
         train_data[self.label] = y
         if X_val is not None:
-            tuning_data = X_val.copy()
             tuning_data[self.label] = y_val
             fit_kwargs["tuning_data"] = tuning_data
 
@@ -114,7 +120,6 @@ class AGWrapper(AbstractExecModel):
             X_val=X_val,
             y_val=y_val,
         )
-        del X, y, X_val, y_val # encourage memory release
 
         self.predictor = TabularPredictor(
             label=self.label,

@@ -19,10 +19,15 @@ logger = logging.getLogger(__name__)
 
 
 class OpenMLTaskWrapper:
-    def __init__(self, task: OpenMLSupervisedTask, *, use_task_eval_metric: bool = False):
+    def __init__(self, task: OpenMLSupervisedTask, *, use_task_eval_metric: bool = False, lazy_load_data: bool = False):
         assert isinstance(task, OpenMLSupervisedTask)
         self.task: OpenMLSupervisedTask = task
+        self.lazy_load_data = lazy_load_data
         self.X, self.y = get_task_data(task=self.task)
+        self._n_rows, self._n_cols = self.X.shape
+        if self.lazy_load_data:
+            del self.X, self.y
+
         self.problem_type = get_ag_problem_type(self.task)
         self.label = self.task.target_name
 
@@ -70,7 +75,11 @@ class OpenMLTaskWrapper:
         return n_repeats, n_folds, n_samples
 
     def combine_X_y(self) -> pd.DataFrame:
-        return pd.concat([self.X, self.y.to_frame(name=self.label)], axis=1)
+        if self.lazy_load_data:
+            X, y = get_task_data(task=self.task)
+        else:
+            X, y = self.X, self.y
+        return pd.concat([X, y.to_frame(name=self.label)], axis=1)
 
     def save_data(self, path: str, file_type='.csv', train_indices=None, test_indices=None):
         data = self.combine_X_y()
@@ -86,8 +95,8 @@ class OpenMLTaskWrapper:
         metadata = dict(
             label=self.label,
             problem_type=self.problem_type,
-            num_rows=len(self.X),
-            num_cols=len(self.X.columns),
+            num_rows=self._n_rows,
+            num_cols=self._n_cols,
             task_id=self.task.task_id,
             dataset_id=self.task.dataset_id,
             openml_url=self.task.openml_url,
@@ -133,10 +142,20 @@ class OpenMLTaskWrapper:
     ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
         if train_indices is None or test_indices is None:
             train_indices, test_indices = self.get_split_indices(fold=fold, repeat=repeat, sample=sample)
-        X_train = self.X.loc[train_indices]
-        y_train = self.y[train_indices]
-        X_test = self.X.loc[test_indices]
-        y_test = self.y[test_indices]
+
+        if self.lazy_load_data:
+            X, y = get_task_data(task=self.task)
+            X_train = X.loc[train_indices].copy()
+            y_train = y[train_indices].copy()
+            X_test = X.loc[test_indices].copy()
+            y_test = y[test_indices].copy()
+            del X, y
+        else:
+            X, y = self.X, self.y
+            X_train = X.loc[train_indices]
+            y_train = y[train_indices]
+            X_test = X.loc[test_indices]
+            y_test = y[test_indices]
 
         if train_size is not None:
             X_train, y_train = self.subsample(X=X_train, y=y_train, size=train_size, random_state=random_state)
