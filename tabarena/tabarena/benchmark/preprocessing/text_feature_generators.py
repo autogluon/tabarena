@@ -65,10 +65,9 @@ class TabArenaDefaultTextEncoder:
     _LENGTH_BUCKETS: ClassVar[list[tuple[int, int]]] = [
         (20_000, 8),
         (15_000, 16),
-        (10_000, 32),
-        (5_000, 64),
-        (500, 128),
-        (0, 256),
+        (5_000, 32),
+        (500, 64),
+        (0, 128),
     ]
 
     @staticmethod
