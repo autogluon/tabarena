@@ -330,6 +330,7 @@ class RealMLPModel(AbstractModel):
         X: pd.DataFrame,
         hyperparameters: dict | None = None,
         num_classes: int = 1,
+        overhead_for_large_data: float = 1.5,
         **kwargs,
     ) -> int:
         """RealMLP memory estimation logic."""
@@ -373,7 +374,13 @@ class RealMLPModel(AbstractModel):
         res = alg_interface.get_required_resources(
             ds, n_cv=1, n_refit=0, n_splits=1, split_seeds=[0], n_train=n_samples
         )
-        return int(res.gpu_ram_gb * 1e9)
+
+        est = int(res.gpu_ram_gb * 1e9)
+
+        if n_samples > 250_000:
+            est = int(est * overhead_for_large_data)
+
+        return est
 
     def _validate_fit_memory_usage(self, mem_error_threshold: float = 1, **kwargs):
         return super()._validate_fit_memory_usage(
