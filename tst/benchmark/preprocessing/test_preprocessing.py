@@ -871,7 +871,7 @@ class TestStatisticalTextFeatureGenerator:
         assert list(X_out_train.columns) == list(X_out_test.columns)
 
     def test_max_n_output_features_constant(self):
-        assert StatisticalTextFeatureGenerator.MAX_N_OUTPUT_FEATURES == 384
+        assert StatisticalTextFeatureGenerator.MAX_N_OUTPUT_FEATURES == 32
 
     def test_output_columns_prefixed_with_source_column(self):
         gen = StatisticalTextFeatureGenerator()
