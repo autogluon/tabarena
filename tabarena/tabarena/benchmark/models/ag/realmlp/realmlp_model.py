@@ -56,6 +56,7 @@ class RealMLPModel(AbstractModel):
         self._indicator_columns = None
         self._features_bool = None
         self._bool_to_cat = None
+        self._cat_col_names = None
 
     def get_model_cls(self, default_hyperparameters: Literal["td", "td_s"] = "td"):
         from pytabkit import (
@@ -190,8 +191,7 @@ class RealMLPModel(AbstractModel):
         # FIXME: In rare cases can cause exceptions if name_categories=False, unknown why
         extra_fit_kwargs = {}
         if name_categories:
-            cat_col_names = X.select_dtypes(include="category").columns.tolist()
-            extra_fit_kwargs["cat_col_names"] = cat_col_names
+            extra_fit_kwargs["cat_col_names"] = self._cat_col_names
 
         if X_val is not None:
             X_val = self.preprocess(X_val)
@@ -274,6 +274,14 @@ class RealMLPModel(AbstractModel):
         if self._bool_to_cat and self._features_bool:
             # FIXME: Use CategoryFeatureGenerator? Or tell the model which is category
             X[self._features_bool] = X[self._features_bool].astype("category")
+
+        if is_train:
+            self._cat_col_names = X.select_dtypes(include="category").columns.tolist()
+
+        # avoid bad dtype for cat categories in later ordinal encoding.
+        if self._cat_col_names is not None:
+            for category in self._cat_col_names:
+                X[category] = X[category].cat.rename_categories(str)
         return X
 
     def _set_default_params(self):
