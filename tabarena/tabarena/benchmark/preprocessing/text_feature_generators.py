@@ -181,7 +181,10 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
         """See parameters of the parent class AbstractFeatureGenerator for more details
         on the parameters.
         """
-        self._encoder_model = TabArenaDefaultTextEncoder.get_default_encoder()
+        if self.only_load_from_cache:
+            self._encoder_model = None
+        else:
+            self._encoder_model = TabArenaDefaultTextEncoder.get_default_encoder()
         X_out = self._transform(X, is_train=True)
         return X_out, {S_TEXT_EMBEDDING: list(X_out.columns)}
 
