@@ -140,6 +140,8 @@ class TabArenaValidationProtocolExecMixin:
         stratify_on_data = None
         if self.stratify_on is not None:
             stratify_on_data = X[self.stratify_on] if self.stratify_on in X.columns else y
+            # Enforce categorical dtype for stratification column, as some splitting logic relies on it.
+            stratify_on_data = stratify_on_data.astype("category")
 
         groups_data = None
         group_labels = None
