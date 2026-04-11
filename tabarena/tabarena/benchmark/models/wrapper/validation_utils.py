@@ -164,6 +164,16 @@ class TabArenaValidationProtocolExecMixin:
             if num_repeats is None:
                 num_repeats = 1
 
+            n_groups = groups_data.nunique()
+            if n_groups < num_folds:
+                logger.info(
+                    f"Number of unique groups in the data ({n_groups}) is less than the "
+                    f"number of folds ({num_folds})! Adjusting the number of folds to be equal to the number of "
+                    f"unique groups, and setting num_repeats to 1."
+                )
+                num_folds = n_groups
+                num_repeats = 1
+
             custom_splits = self._resolve_group_splits(
                 X=X,
                 num_folds=num_folds,
@@ -176,6 +186,10 @@ class TabArenaValidationProtocolExecMixin:
         # Sanity checks for custom splits
         if custom_splits is not None:
             for train_idx, test_idx in custom_splits:
+
+                assert len(train_idx) > 0, "Train split is empty!"
+                assert len(test_idx) > 0, "Test split is empty!"
+
                 if stratify_on_data is not None:
                     stratify_values = set(stratify_on_data.unique())
                     train_stratify_values = set(stratify_on_data.iloc[train_idx].unique())
@@ -232,18 +246,23 @@ class TabArenaValidationProtocolExecMixin:
             The number of group instances in the data.
         """
         new_num_folds, new_num_repeats = None, None
+        new_num_folds_reason, new_num_repeats = "", ""
         if num_group_instances <= self.max_samples_for_tiny_data:
             new_num_folds = self.tiny_data_num_folds
             new_num_repeats = self.tiny_data_num_repeats
+            new_num_folds_reason += "Tiny data"
+            new_num_repeats += "Tiny data"
         else:
             # We want these by default for all other data in our benchmark.
             assert num_folds == 8
             assert (num_repeats == 1) or (num_repeats is None)
 
+
+
         if new_num_folds is not None:
             logger.info(
-                f"\nUpdating num_bag_folds from {new_num_folds} to {new_num_folds}"
-                f" since number of group instances is less than num_bag_folds."
+                f"\nUpdating num_bag_folds from {num_folds} to {new_num_folds}"
+                f"because: {um_folds_reason}"
             )
             num_folds = new_num_folds
 
@@ -360,7 +379,7 @@ class TabArenaValidationProtocolExecMixin:
             cols += self.group_on if isinstance(self.group_on, list) else [self.group_on]
         return cols
 
-    def get_num_group_instances(self, X: pd.DataFrame):
+    def get_num_group_instances(self, X: pd.DataFrame, *, group_labels: None = None) -> int:
         """Compute the number of rows that represent how much (multi-instance) samples
         the data has. This is used to determine which splits to use.
         """
