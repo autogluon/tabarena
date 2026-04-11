@@ -65,18 +65,22 @@ def setup_slurm_job(
             # Likely slower but runs at least.
             _plasma_directory = ray_dir
 
-        ray.init(
-            address="local",
-            _memory=ray_mem_in_b,
-            object_store_memory=int(ray_mem_in_b * 0.3),
-            _temp_dir=ray_dir,
-            include_dashboard=False,
-            logging_level=logging.INFO,
-            log_to_driver=True,
-            num_gpus=num_gpus,
-            num_cpus=num_cpus,
-            _plasma_directory=_plasma_directory,
-        )
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            ray.init(
+                address="local",
+                _memory=ray_mem_in_b,
+                object_store_memory=int(ray_mem_in_b * 0.3),
+                _temp_dir=ray_dir,
+                include_dashboard=False,
+                logging_level=logging.INFO,
+                log_to_driver=True,
+                num_gpus=num_gpus,
+                num_cpus=num_cpus,
+                _plasma_directory=_plasma_directory,
+            )
     return ray_dir
 
 

@@ -16,9 +16,6 @@ from tabarena.benchmark.task.user_task import SplitMetadata, TabArenaTaskMetadat
 from tabarena.utils.cache import CacheFunctionPickle
 from tabarena.utils.ray_utils import ray_map_list, to_batch_list
 
-# Silence the future warning from ray
-warnings.filterwarnings("ignore", category=FutureWarning)
-
 
 @dataclass
 class PathSetup:
@@ -664,7 +661,9 @@ class BenchmarkSetup2026:
         # Check cache and filter invalid jobs in parallel using Ray
         if ray.is_initialized:
             ray.shutdown()
-        ray.init(num_cpus=self.num_ray_cpus)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            ray.init(num_cpus=self.num_ray_cpus)
         output = ray_map_list(
             list_to_map=list(to_batch_list(jobs_to_check, 10_000)),
             func=should_run_job_batch,
