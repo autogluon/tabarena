@@ -86,3 +86,18 @@ class KNNNewModel(KNNModel):
             self.model = self._get_model_type()(**params).fit(X, y)
         else:
             self.model = self._fit_with_samples(X=X, y=y, model_params=params, time_limit=time_limit - (time.time() - time_start))
+
+    # Higher mem_error_threshold of 0.4 for TabArena.
+    def _validate_fit_memory_usage(
+        self,
+        mem_error_threshold: float = 0.4,
+        mem_warning_threshold: float = 0.35,
+        mem_size_threshold: int = 1e7,
+        **kwargs,
+    ):
+        return super()._validate_fit_memory_usage(
+            mem_error_threshold=mem_error_threshold,
+            mem_warning_threshold=mem_warning_threshold,
+            mem_size_threshold=mem_size_threshold,
+            **kwargs,
+        )

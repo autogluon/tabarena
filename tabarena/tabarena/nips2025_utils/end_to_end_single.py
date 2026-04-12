@@ -251,9 +251,8 @@ class EndToEndSingle:
             method_metadata.cache_raw(results_lst=results_lst)
 
         if task_metadata is None:
-            log(f"\tFetching task_metadata from OpenML...")
             tids = list({r.task_metadata["tid"] for r in results_lst})
-            task_metadata = generate_task_metadata(tids=tids)
+            task_metadata = cls.fetch_task_metadata(tids=tids, verbose=verbose)
 
         log(f"\tConverting raw results into an EvaluationRepository...")
         # processed
@@ -315,6 +314,7 @@ class EndToEndSingle:
         model_key: str | None = None,
         method: str | None = None,
         artifact_name: str | None = None,
+        name_prefix_raw: str | None = None,
         backend: Literal["ray", "native"] = "ray",
         verbose: bool = True,
     ) -> Self:
@@ -343,7 +343,7 @@ class EndToEndSingle:
 
         """
         engine = "ray" if backend == "ray" else "sequential"
-        results_lst: list[BaselineResult] = load_raw(path_raw=path_raw, engine=engine)
+        results_lst: list[BaselineResult] = load_raw(path_raw=path_raw, engine=engine, name_pattern=name_prefix_raw)
         return cls.from_raw(
             results_lst=results_lst,
             method_metadata=method_metadata,
@@ -410,6 +410,19 @@ class EndToEndSingle:
         )
 
     @staticmethod
+    def fetch_task_metadata(tids: list[int], verbose: bool = True):
+        log = print if verbose else (lambda *a, **k: None)
+        task_metadata = load_task_metadata()
+        tids_cached = set(task_metadata["tid"].unique())
+
+        tids_missing = [tid for tid in tids if tid not in tids_cached]
+        if tids_missing:
+            log(f"Note: Missing {len(tids_missing)} tasks in the cached task_metadata...")
+            log(f"\tFetching task_metadata from OpenML... (this may take ~1 minute)")
+            task_metadata = generate_task_metadata(tids=tids)
+        return task_metadata
+
+    @staticmethod
     def from_path_raw_to_results(
         path_raw: str | Path | list[str | Path],
         method_metadata: MethodMetadata | None = None,
@@ -423,6 +436,7 @@ class EndToEndSingle:
         artifact_name: str | None = None,
         num_cpus: int | None = None,
         name_prefix_raw: str | None = None,
+        verbose: bool = True,
     ) -> EndToEndResultsSingle:
         """
         Create and cache end-to-end results for the method in the given directory.
@@ -486,10 +500,8 @@ class EndToEndSingle:
             all_file_paths_method[did_sid].append(file_path)
 
         if task_metadata is None:
-            print("Get task metadata...")
-            task_metadata = load_task_metadata()
-            # Below is too slow to use by default, TODO: get logic for any task that is fast
-            # task_metadata = generate_task_metadata(tids=list({r.split("/")[0] for r in all_file_paths_method}))
+            tids = list({int(r.split("/")[0]) for r in all_file_paths_method})
+            task_metadata = EndToEndSingle.fetch_task_metadata(tids=tids, verbose=verbose)
 
         import ray
         if not ray.is_initialized():

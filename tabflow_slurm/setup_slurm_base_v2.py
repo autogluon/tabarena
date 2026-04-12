@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import warnings
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,10 +71,7 @@ class PathSetup:
         """Python script to run the benchmark.
         This should point to the script that runs the benchmark for TabArena.
         """
-        return self.base_path + (
-            f"code/{self.tabarena_repo_name}/tabarena"
-            f"/tabflow_slurm/run_tabarena_experiment.py"
-        )
+        return self.base_path + (f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/run_tabarena_experiment.py")
 
     @property
     def configs_base_path(self) -> str:
@@ -82,9 +80,7 @@ class PathSetup:
         File path is f"{self.base_path}{self.configs_path_from_base_path}
         {self._safe_benchmark_name}.yaml".
         """
-        return (
-            f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/benchmark_configs_"
-        )
+        return f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/benchmark_configs_"
 
     def get_slurm_job_json_path(self, safe_benchmark_name: str) -> str:
         """JSON file with the job data to run used by SLURM.
@@ -92,10 +88,7 @@ class PathSetup:
         """
         # TODO: change UX for config and slurm paths.
         path_to_config_file = str(Path(self.configs_base_path).parent) + "/"
-        return (
-            f"{self.base_path}{path_to_config_file}"
-            f"slurm_run_data_{safe_benchmark_name}.json"
-        )
+        return f"{self.base_path}{path_to_config_file}slurm_run_data_{safe_benchmark_name}.json"
 
     def get_configs_path(self, safe_benchmark_name: str) -> str:
         """YAML file with the configs to run."""
@@ -111,10 +104,7 @@ class PathSetup:
 
     def get_slurm_script_path(self, script_name: str) -> str:
         """Path to the SLURM script to run."""
-        return (
-            self.base_path
-            + f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/{script_name}"
-        )
+        return self.base_path + f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/{script_name}"
 
 
 @dataclass
@@ -187,6 +177,23 @@ class BenchmarkSetup2026:
     split_indices_to_run: list[str] | Literal["lite"] | None = None
     """Split indices to run in the benchmark. Adjust as needed to run only specific
     splits. If None, we run all splits. If "lite", we run only the first split."""
+    required_dtypes_to_run: list[str] | None = None
+    """Adjust as needed to run only datasets with at least one column of data types.
+    Options: "numeric", "categorical", "text", "datetime".
+    If None, we do not require any data types.
+    """
+    forbidden_dtypes_to_run: list[str] | None = None
+    """Adjust as needed to run only datasets without any columns of data types.
+    Options: "numeric", "categorical", "text", "datetime".
+    If None, we do not forbid any data types.
+    """
+    n_train_samples_to_run: tuple[int | None, int | None] | None = None
+    """Tuple of lower and upper limit for the number of training samples of datasets run in the benchmark.
+    Adjust as needed to run only datasets with a certain number of training samples.
+    If None, we run all datasets.
+    Lower limit is inclusive, upper limit is exclusive. For example, (0, 1000) runs only datasets with less
+    than 1000 training samples. If a tuple value is None, there is no limit in that direction.
+    """
 
     path_setup: PathSetup = field(default_factory=PathSetup)
     """Contains all path related to the benchmark."""
@@ -209,7 +216,12 @@ class BenchmarkSetup2026:
     """Number of CPUs to use for the job.
     If None, use all available CPUs."""
     num_gpus: int = 0
-    """Number of GPUs to use for the jobs."""
+    """Number of GPUs to use for the jobs (SLURM allocation and Ray)."""
+    num_gpus_model: int | None = None
+    """Number of GPUs passed to a model for fitting.
+    If None (default), uses the same value as ``num_gpus``.
+    Set to 0 to reserve the GPU for preprocessing (e.g. sentence-transformer
+    encoding) while fitting models on CPU only."""
     memory_limit: int | None = 32
     """Memory/RAM limit for the jobs in GB.
     If None, use all available memory."""
@@ -248,9 +260,7 @@ class BenchmarkSetup2026:
     This can be disabled by setting this to False. Warning: the model then needs
     to be able to handle this!
     """
-    preprocessing_pipelines: list[str] = field(
-        default_factory=lambda: ["tabarena_default"]
-    )
+    preprocessing_pipelines: list[str] = field(default_factory=lambda: ["tabarena_default"])
     """EXPERIMENTAL!
     Preprocessing pipelines to add to the configurations we want to run.
 
@@ -296,6 +306,11 @@ class BenchmarkSetup2026:
                     "regression_support": False,
             }
         }
+    """
+    max_predict_batch_size: int | None = 50_000
+    """Maximal batch size for the predict function of the models.
+    This is used at validation and test predict time. Thus, it trades off speed for memory usage. 
+    If None, no limit is applied.
     """
 
     # Misc Settings
@@ -416,9 +431,7 @@ class BenchmarkSetup2026:
         partition = "--partition=" + partition
         slurm_logs = f"--output={slurm_log_output}/%A/slurm-%A_%a.out"
 
-        time_in_h = (
-            time_limit_per_config // 3600 * configs_per_job + time_limit_overhead
-        )
+        time_in_h = time_limit_per_config // 3600 * configs_per_job + time_limit_overhead
         time_in_h = f"--time={time_in_h}:00:00"
 
         # Handle GPU (same for exclusive and non-exclusive)
@@ -453,10 +466,7 @@ class BenchmarkSetup2026:
     @property
     def slurm_base_command(self):
         """SLURM command to run the benchmark."""
-        p_bm = self._parallel_safe_benchmark_name
-        slurm_script_path = self.path_setup.get_slurm_script_path(
-            self.slurm_setup.script_name
-        )
+        slurm_script_path = self.path_setup.get_slurm_script_path(self.slurm_setup.script_name)
 
         return self._get_slurm_base_command(
             num_cpus=self.num_cpus,
@@ -465,7 +475,7 @@ class BenchmarkSetup2026:
             time_limit_per_config=self.time_limit_per_config,
             configs_per_job=self._max_configs_per_job,
             time_limit_overhead=self.slurm_setup.time_limit_overhead,
-            slurm_log_output=self.path_setup.get_slurm_log_output_path(p_bm),
+            slurm_log_output=self.path_setup.get_slurm_log_output_path(self.benchmark_name),
             slurm_script_path=slurm_script_path,
             slurm_extra_gres=self.slurm_setup.extra_gres,
             slurm_exclusive_node=self.slurm_setup.exclusive_node,
@@ -504,17 +514,15 @@ class BenchmarkSetup2026:
 
                 for repeat_i in range(n_repeats):
                     for fold_i in range(n_folds):
-
                         split_index = SplitMetadata.get_split_index(repeat_i=repeat_i, fold_i=fold_i)
                         splits_metadata = {
-                            split_index:
-                            SplitMetadata(
+                            split_index: SplitMetadata(
                                 repeat=repeat_i,
                                 fold=fold_i,
-                                num_instances_train=num_instances * 2/3,
-                                num_instances_test=num_instances * 1/3,
-                                num_instance_groups_train=num_instances * 2/3,
-                                num_instance_groups_test=num_instances * 1/3,
+                                num_instances_train=num_instances * 2 / 3,
+                                num_instances_test=num_instances * 1 / 3,
+                                num_instance_groups_train=num_instances * 2 / 3,
+                                num_instance_groups_test=num_instances * 1 / 3,
                                 num_classes_train=num_classes,
                                 num_classes_test=num_classes,
                                 num_features_train=num_features,
@@ -553,53 +561,65 @@ class BenchmarkSetup2026:
             task_metadata = pd.read_csv(task_metadata, index_col=False)
         if isinstance(task_metadata, pd.DataFrame):
             # Parse task_metadat
-            task_metadata = [
-                TabArenaTaskMetadata.from_row(row)
-                for _, row in task_metadata.iterrows()
-            ]
+            task_metadata = [TabArenaTaskMetadata.from_row(row) for _, row in task_metadata.iterrows()]
         assert all(isinstance(x, TabArenaTaskMetadata) for x in task_metadata)
         n_rolled_up_tasks = len(task_metadata)
 
         # Unify format to be unrolled
-        task_metadata = [
-            single_ttm for ttm in task_metadata for single_ttm in ttm.unroll_splits()
-        ]
+        task_metadata = [single_ttm for ttm in task_metadata for single_ttm in ttm.unroll_splits()]
         n_unrolled_tasks = len(task_metadata)
 
         # -- Perform general filters/slices
-        task_metadata = [
-            ttm
-            for ttm in task_metadata
-            if ttm.problem_type in self.problem_types_to_run
-        ]
+        task_metadata = [ttm for ttm in task_metadata if ttm.problem_type in self.problem_types_to_run]
         n_problem_types_filtered_tasks = len(task_metadata)
 
         if self.split_indices_to_run is not None:
             if self.split_indices_to_run == "lite":
-                split_indices_to_run = [
-                    SplitMetadata.get_split_index(repeat_i=0, fold_i=0)
-                ]
+                split_indices_to_run = [SplitMetadata.get_split_index(repeat_i=0, fold_i=0)]
             else:
                 split_indices_to_run = self.split_indices_to_run
 
             # Assert split indices are valid
             split_index_pattern = re.compile(r"^r\d+f\d+$")
             for split_index in split_indices_to_run:
-                assert (
-                    split_index_pattern.match(split_index)
-                ), f"Invalid SplitIndex format: {split_index!r}, expected 'r{{int}}f{{int}}'"
+                assert split_index_pattern.match(split_index), (
+                    f"Invalid SplitIndex format: {split_index!r}, expected 'r{{int}}f{{int}}'"
+                )
 
-            task_metadata = [
-                ttm for ttm in task_metadata if ttm.split_index in split_indices_to_run
-            ]
+            task_metadata = [ttm for ttm in task_metadata if ttm.split_index in split_indices_to_run]
         n_splits_filtered_tasks = len(task_metadata)
+
+        # Filter based on dtypes if specified
+        if (self.forbidden_dtypes_to_run is not None) or (self.required_dtypes_to_run is not None):
+            task_metadata = [
+                ttm
+                for ttm in task_metadata
+                if ttm.has_supported_dtypes(
+                    required_dtypes=self.required_dtypes_to_run,
+                    forbidden_dtypes=self.forbidden_dtypes_to_run,
+                )
+            ]
+        n_dtypes_filtered_tasks = len(task_metadata)
+
+        # Filter based on training samples if specified
+        if self.n_train_samples_to_run is not None:
+            lb, ub = self.n_train_samples_to_run
+            lb = lb if lb is not None else 0
+            ub = ub if ub is not None else float("inf")
+            task_metadata = [
+                ttm
+                for ttm in task_metadata
+                if (
+                    (ttm.splits_metadata[ttm.split_index].num_instances_train < ub)
+                    and (ttm.splits_metadata[ttm.split_index].num_instances_train >= lb)
+                )
+            ]
+        n_sizes_filtered_tasks = len(task_metadata)
 
         # -- Sanity checks
         for ttm in task_metadata:
             if ttm.task_id_str is None:
-                raise ValueError(
-                    f"Task metadata for task {ttm.tabarena_task_name} does not have a task_id_str!"
-                )
+                raise ValueError(f"Task metadata for task {ttm.tabarena_task_name} does not have a task_id_str!")
 
         print(
             f"Found {len(task_metadata)} tasks from metadata."
@@ -607,6 +627,8 @@ class BenchmarkSetup2026:
             f"\n\t(1) {n_rolled_up_tasks} datasets -> {n_unrolled_tasks} Tasks."
             f"\n\t(2) Filter to problem types: {n_problem_types_filtered_tasks}"
             f"\n\t(3) Filter to splits: {n_splits_filtered_tasks}."
+            f"\n\t(4) Filter to dtypes: {n_dtypes_filtered_tasks}."
+            f"\n\t(5) Filter to dataset size: {n_sizes_filtered_tasks}."
         )
         return task_metadata
 
@@ -616,12 +638,8 @@ class BenchmarkSetup2026:
         """
         if self.path_setup.openml_cache_path != "auto":
             Path(self.path_setup.openml_cache_path).mkdir(parents=True, exist_ok=True)
-        Path(self.path_setup.get_output_path(self.benchmark_name)).mkdir(
-            parents=True, exist_ok=True
-        )
-        Path(self.path_setup.get_slurm_log_output_path(self.benchmark_name)).mkdir(
-            parents=True, exist_ok=True
-        )
+        Path(self.path_setup.get_output_path(self.benchmark_name)).mkdir(parents=True, exist_ok=True)
+        Path(self.path_setup.get_slurm_log_output_path(self.benchmark_name)).mkdir(parents=True, exist_ok=True)
 
         task_metadata_list = self._load_task_metadata()
         configs = self.generate_configs_yaml()
@@ -629,9 +647,7 @@ class BenchmarkSetup2026:
         def yield_all_jobs():
             for ta_task_metadata in task_metadata_list:
                 task_id = ta_task_metadata.task_id_str
-                split_md = ta_task_metadata.splits_metadata[
-                    ta_task_metadata.split_index
-                ]
+                split_md = ta_task_metadata.splits_metadata[ta_task_metadata.split_index]
 
                 for config_index, config in list(enumerate(configs)):
                     yield {
@@ -650,7 +666,9 @@ class BenchmarkSetup2026:
         # Check cache and filter invalid jobs in parallel using Ray
         if ray.is_initialized:
             ray.shutdown()
-        ray.init(num_cpus=self.num_ray_cpus)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning)
+            ray.init(num_cpus=self.num_ray_cpus)
         output = ray_map_list(
             list_to_map=list(to_batch_list(jobs_to_check, 10_000)),
             func=should_run_job_batch,
@@ -665,9 +683,7 @@ class BenchmarkSetup2026:
             track_progress=True,
             tqdm_kwargs={"desc": "Checking Cache and Filter Invalid Jobs"},
         )
-        output = [
-            item for sublist in output for item in sublist
-        ]  # Flatten the batched list
+        output = [item for sublist in output for item in sublist]  # Flatten the batched list
         to_run_job_map = {}
         for run_job, job_data in zip(output, jobs_to_check, strict=True):
             if run_job:
@@ -686,9 +702,7 @@ class BenchmarkSetup2026:
         max_config_batch = 1
         for job_key, config_indices in to_run_job_map.items():
             to_run_jobs += len(config_indices)
-            for config_batch in to_batch_list(
-                config_indices, self.slurm_setup.configs_per_job
-            ):
+            for config_batch in to_batch_list(config_indices, self.slurm_setup.configs_per_job):
                 max_config_batch = max(max_config_batch, len(config_batch))
                 jobs.append(
                     {
@@ -703,9 +717,7 @@ class BenchmarkSetup2026:
         print(f"Jobs with batching: {len(jobs)}")
         return jobs
 
-    def _generate_autogluon_config(
-        self, *, model_name: str, agexp_kwargs: dict, pipeline_method_kwargs: dict
-    ) -> list:
+    def _generate_autogluon_config(self, *, model_name: str, agexp_kwargs: dict, pipeline_method_kwargs: dict) -> list:
         """Parse the AutoGluon config from the models."""
         from tabarena.benchmark.experiment.experiment_constructor import (
             AGExperiment,
@@ -741,8 +753,7 @@ class BenchmarkSetup2026:
             n_configs = self.n_random_configs
         elif not isinstance(n_configs, int):
             raise ValueError(
-                f"Invalid number of configurations for model {model_name}: {n_configs}. "
-                "Must be an integer or 'all'."
+                f"Invalid number of configurations for model {model_name}: {n_configs}. Must be an integer or 'all'."
             )
         config_generator = get_configs_generator_from_name(model_name)
         # TODO: add model agnostic time limit here
@@ -768,22 +779,22 @@ class BenchmarkSetup2026:
             "init_kwargs": {"verbosity": self.verbosity},
             "shuffle_features": self.shuffle_features,
             "fit_kwargs": dict(),
+            "model_hyperparameters": dict(),
         }
         if self.model_artifacts_base_path is not None:
-            method_kwargs["init_kwargs"]["default_base_path"] = (
-                self.model_artifacts_base_path
-            )
+            method_kwargs["init_kwargs"]["default_base_path"] = self.model_artifacts_base_path
         if not self.model_agnostic_preprocessing:
             method_kwargs["fit_kwargs"]["feature_generator"] = None
         if self.adapt_num_folds_to_n_classes:
             method_kwargs["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"] = True
+        if self.max_predict_batch_size is not None:
+            method_kwargs["model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
 
         print(
             "Generating experiments for models...",
             f"\n\t`all` := number of configs: {self.n_random_configs}",
             f"\n\t{len(self.models)} models: {self.models}",
-            f"\n\t{len(self.preprocessing_pipelines)} preprocessing pipelines: "
-            f"{self.preprocessing_pipelines}",
+            f"\n\t{len(self.preprocessing_pipelines)} preprocessing pipelines: {self.preprocessing_pipelines}",
             f"\n\tMethod kwargs: {method_kwargs}",
         )
         for preprocessing_name in self.preprocessing_pipelines:
@@ -819,9 +830,7 @@ class BenchmarkSetup2026:
                 )
 
         # Verify no duplicate names
-        experiments_all = [
-            exp for exp_family_lst in experiments_lst for exp in exp_family_lst
-        ]
+        experiments_all = [exp for exp_family_lst in experiments_lst for exp in exp_family_lst]
         experiment_names = set()
         for experiment in experiments_all:
             if experiment.name not in experiment_names:
@@ -832,9 +841,7 @@ class BenchmarkSetup2026:
                     f"All experiment names must be unique!",
                 )
 
-        configs_path = self.path_setup.get_configs_path(
-            self._parallel_safe_benchmark_name
-        )
+        configs_path = self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)
         YamlExperimentSerializer.to_yaml(
             experiments=experiments_all,
             path=configs_path,
@@ -857,12 +864,11 @@ class BenchmarkSetup2026:
             "python": self.path_setup.python_path,
             "run_script": self.path_setup.run_script_path,
             "openml_cache_dir": self.path_setup.openml_cache_path,
-            "configs_yaml_file": self.path_setup.get_configs_path(
-                self._parallel_safe_benchmark_name
-            ),
+            "configs_yaml_file": self.path_setup.get_configs_path(self._parallel_safe_benchmark_name),
             "output_dir": self.path_setup.get_output_path(self.benchmark_name),
             "num_cpus": self.num_cpus,
             "num_gpus": self.num_gpus,
+            "num_gpus_model": self.num_gpus_model,
             "memory_limit": memory_limit,
             "setup_ray_for_slurm_shared_resources_environment": self.slurm_setup.setup_ray_for_slurm_shared_resources_environment,
             "ignore_cache": self.ignore_cache,
@@ -871,7 +877,7 @@ class BenchmarkSetup2026:
         }
         return {"defaults": default_args, "jobs": jobs}
 
-    def setup_jobs(self, array_job_limit: int = 100) -> str | list[str]:
+    def setup_jobs(self, array_job_limit: int = 100) -> list[str]:
         """Setup the jobs to run by generating the SLURM job JSON file(s).
 
         If the number of jobs exceeds `slurm_setup.max_array_size`, the jobs
@@ -881,17 +887,13 @@ class BenchmarkSetup2026:
         strings if multiple batches are needed.
         """
         jobs_dict = self.get_jobs_dict()
-        base_json_path = self.path_setup.get_slurm_job_json_path(
-            self._parallel_safe_benchmark_name
-        )
+        base_json_path = self.path_setup.get_slurm_job_json_path(self._parallel_safe_benchmark_name)
         all_jobs = jobs_dict["jobs"]
         n_jobs = len(all_jobs)
         if n_jobs == 0:
             print("No jobs to run.")
             Path(base_json_path).unlink(missing_ok=True)
-            Path(
-                self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)
-            ).unlink(missing_ok=True)
+            Path(self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)).unlink(missing_ok=True)
             return "N/A"
 
         max_array_size = self.slurm_setup.max_array_size
@@ -904,27 +906,19 @@ class BenchmarkSetup2026:
             if len(job_batches) == 1:
                 json_path = base_json_path
             else:
-                json_path = base_json_path.replace(
-                    ".json", f"_batch{batch_idx}.json"
-                )
+                json_path = base_json_path.replace(".json", f"_batch{batch_idx}.json")
 
             batch_dict = {"defaults": jobs_dict["defaults"], "jobs": batch_jobs}
             with open(json_path, "w") as f:
                 json.dump(batch_dict, f)
 
             batch_size = len(batch_jobs)
-            run_command = (
-                f"sbatch --array=0-{batch_size - 1}%{array_job_limit}"
-                f" {self.slurm_base_command} {json_path}"
-            )
+            run_command = f"sbatch --array=0-{batch_size - 1}%{array_job_limit} {self.slurm_base_command} {json_path}"
             run_commands.append(run_command)
 
         batch_info = ""
         if len(job_batches) > 1:
-            batch_info = (
-                f"\nSplit into {len(job_batches)} array job batches"
-                f" (max {max_array_size} per batch)."
-            )
+            batch_info = f"\nSplit into {len(job_batches)} array job batches (max {max_array_size} per batch)."
         print(
             f"##### Setup Jobs for {self._parallel_safe_benchmark_name}"
             f"{batch_info}"
@@ -932,8 +926,6 @@ class BenchmarkSetup2026:
             f"\n" + "\n".join(run_commands) + "\n"
         )
 
-        if len(run_commands) == 1:
-            return run_commands[0]
         return run_commands
 
     @property
@@ -1023,20 +1015,12 @@ class BenchmarkSetup2026:
         if (max_n_features is not None) and (n_features > max_n_features):
             return False
 
-        max_n_samples_train_per_fold = model_constraints.get(
-            "max_n_samples_train_per_fold", None
-        )
-        if (max_n_samples_train_per_fold is not None) and (
-            n_samples_train_per_fold > max_n_samples_train_per_fold
-        ):
+        max_n_samples_train_per_fold = model_constraints.get("max_n_samples_train_per_fold", None)
+        if (max_n_samples_train_per_fold is not None) and (n_samples_train_per_fold > max_n_samples_train_per_fold):
             return False
 
-        min_n_samples_train_per_fold = model_constraints.get(
-            "min_n_samples_train_per_fold", None
-        )
-        if (min_n_samples_train_per_fold is not None) and (
-            n_samples_train_per_fold < min_n_samples_train_per_fold
-        ):
+        min_n_samples_train_per_fold = model_constraints.get("min_n_samples_train_per_fold", None)
+        if (min_n_samples_train_per_fold is not None) and (n_samples_train_per_fold < min_n_samples_train_per_fold):
             return False
 
         max_n_classes = model_constraints.get("max_n_classes", None)

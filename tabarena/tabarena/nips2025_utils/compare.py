@@ -16,6 +16,7 @@ def compare_on_tabarena(
     *,
     only_valid_tasks: bool | str | list[str] = False,
     subset: str | list[str] | None = None,
+    datasets: list[str] | None = None,
     folds: list[int] | None = None,
     tabarena_context: TabArenaContext | None = None,
     tabarena_context_kwargs: dict | None = None,
@@ -62,12 +63,12 @@ def compare_on_tabarena(
             df_filter=new_results,
         )
 
-    if subset is not None or folds is not None:
+    if subset is not None or folds is not None or datasets is not None:
         if subset is None:
             subset = []
         if isinstance(subset, str):
             subset = [subset]
-        df_results = subset_tasks(df_results=df_results, subset=subset, folds=folds)
+        df_results = subset_tasks(df_results=df_results, subset=subset, folds=folds, datasets=datasets)
 
     return compare(
         df_results=df_results,
@@ -203,7 +204,12 @@ def prepare_data(
     return df_results
 
 
-def subset_tasks(df_results: pd.DataFrame, subset: list[str], folds: list[int] = None) -> pd.DataFrame:
+def subset_tasks(
+    df_results: pd.DataFrame,
+    subset: list[str],
+    folds: list[int] = None,
+    datasets: list[str] = None,
+) -> pd.DataFrame:
     from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
 
     df_results = df_results.copy(deep=True)
@@ -270,6 +276,8 @@ def subset_tasks(df_results: pd.DataFrame, subset: list[str], folds: list[int] =
         else:
             raise ValueError(f"Invalid subset {subset} name!")
 
+    if datasets is not None:
+        df_results = df_results[df_results["dataset"].isin(datasets)]
     if folds is not None:
         df_results = df_results[df_results["fold"].isin(folds)]
     df_results = df_results.reset_index(drop=True)

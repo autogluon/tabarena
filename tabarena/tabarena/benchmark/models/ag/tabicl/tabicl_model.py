@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.core.models import AbstractModel
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 from autogluon.tabular import __version__
 
 if TYPE_CHECKING:
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class TabICLModelBase(AbstractModel):
+class TabICLModelBase(AbstractTorchModel):
     """TabICL is a foundation model for tabular data using in-context learning
     that is scalable to larger datasets than TabPFNv2. It is pretrained purely on synthetic data.
     TabICL currently only supports classification tasks.
@@ -237,6 +237,19 @@ class TabICLModel(TabICLModelBase):
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
+
+    def get_device(self) -> str:
+        return self.model.device_.type
+
+    # TODO: Better to have an official TabICL method for this
+    def _set_device(self, device: str):
+        device = self.to_torch_device(device)
+        self.model.device_ = device
+        self.model.device = self.model.device_.type
+        self.model.model_ = self.model.model_.to(self.model.device_)
+        self.model.inference_config_.COL_CONFIG.device = self.model.device_
+        self.model.inference_config_.ROW_CONFIG.device = self.model.device_
+        self.model.inference_config_.ICL_CONFIG.device = self.model.device_
 
 class TabICLv2Model(TabICLModelBase):
     """TabICLv2 model as used on TabArena."""

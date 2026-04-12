@@ -40,6 +40,7 @@ class TabArenaModelSpecificPreprocessing:
     """
 
     hp_key_kwargs: str = "ag.model_specific_feature_generator_kwargs"
+    use_pca: bool = False
 
     @staticmethod
     def add_to_hyperparameters(hyperparameters: dict) -> dict:
@@ -85,24 +86,28 @@ class TabArenaModelSpecificPreprocessing:
           ``S_TEXT_EMBEDDING`` / ``S_TEXT_SPECIAL`` features, grouped by source column.
         """
         # TODO: figure out how to more easily pass IdentityFeatureGenerator / dont drop other columns.
-        bulk_kwargs = dict(
-            generators=[
-                # Cat/Ordinal Encoding
-                [
-                    # The other features are consumed, and thus can be dropped.
-                    IdentityFeatureGenerator(
-                        infer_features_in_args=NoCatAsStringCategoryFeatureGenerator.get_infer_features_in_args_to_drop()
-                    ),
-                    NoCatAsStringCategoryFeatureGenerator(),
-                ],
-                # PCA
+
+        generators = [
+            [
+                # The other features are consumed, and thus can be dropped.
+                IdentityFeatureGenerator(
+                    infer_features_in_args=NoCatAsStringCategoryFeatureGenerator.get_infer_features_in_args_to_drop()
+                ),
+                NoCatAsStringCategoryFeatureGenerator(),
+            ],
+        ]
+        if TabArenaModelSpecificPreprocessing.use_pca:
+            generators.append(
                 [
                     IdentityFeatureGenerator(
                         infer_features_in_args=TextEmbeddingDimensionalityReductionFeatureGenerator.get_infer_features_in_args_to_drop()
                     ),
                     TextEmbeddingDimensionalityReductionFeatureGenerator(),
-                ],
-            ],
+                ]
+            )
+
+        bulk_kwargs = dict(
+            generators=generators,
             verbosity=2,
         )
 
@@ -113,19 +118,8 @@ class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):
     """CategoryFeatureGenerator that does not treat each string column as a category.
 
 
-    CategoryFeatureGenerator that preserves unseen categories instead of NaN.
-
-    At transform time, category values not seen during fit are mapped to the integer code
-    n (max_seen_code + 1) rather than being silently converted to NaN.  This is achieved
-    by two cooperating changes:
-
-    1. ``_generate_features_category`` replaces each unseen non-NaN value with the
-       sentinel ``_UNSEEN_CAT`` and adds that sentinel to the category list, so the
-       Categorical dtype keeps the value rather than encoding it as NaN.
-
-    2. ``TabArenaCategoryMemoryMinimizeFeatureGenerator`` (used as the post-generator
-       instead of the plain ``CategoryMemoryMinimizeFeatureGenerator``) detects codes
-       >= n at transform time and maps them to the integer n.
+    CategoryFeatureGenerator that preserves unseen categories to be handled by
+    the downstream model instead of setting them to NaN.
     """
 
     def __init__(self, **kwargs) -> None:

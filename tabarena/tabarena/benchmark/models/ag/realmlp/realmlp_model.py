@@ -4,17 +4,16 @@ import copy
 import logging
 import time
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import pandas as pd
+import numpy as np
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.core.models import AbstractModel
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 from sklearn.impute import SimpleImputer
 
 from autogluon.tabular import __version__
 
-if TYPE_CHECKING:
-    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ def set_logger_level(logger_name: str, level: int):
 
 
 # pip install pytabkit
-class RealMLPModel(AbstractModel):
+class RealMLPModel(AbstractTorchModel):
     """RealMLP is an improved multilayer perception (MLP) model
     through a bag of tricks and better default hyperparameters.
 
@@ -56,6 +55,8 @@ class RealMLPModel(AbstractModel):
         self._indicator_columns = None
         self._features_bool = None
         self._bool_to_cat = None
+        self._cat_col_names = None
+        self._category_mapping = None
 
     def get_model_cls(self, default_hyperparameters: Literal["td", "td_s"] = "td"):
         from pytabkit import (
@@ -76,6 +77,12 @@ class RealMLPModel(AbstractModel):
         else:
             model_cls = RealMLP_TD_S_Regressor
         return model_cls
+
+    def get_device(self) -> str:
+        return self.model.device
+
+    def _set_device(self, device: str):
+        self.model.to(device)
 
     def _fit(
         self,
@@ -190,8 +197,7 @@ class RealMLPModel(AbstractModel):
         # FIXME: In rare cases can cause exceptions if name_categories=False, unknown why
         extra_fit_kwargs = {}
         if name_categories:
-            cat_col_names = X.select_dtypes(include="category").columns.tolist()
-            extra_fit_kwargs["cat_col_names"] = cat_col_names
+            extra_fit_kwargs["cat_col_names"] = self._cat_col_names
 
         if X_val is not None:
             X_val = self.preprocess(X_val)
@@ -274,6 +280,28 @@ class RealMLPModel(AbstractModel):
         if self._bool_to_cat and self._features_bool:
             # FIXME: Use CategoryFeatureGenerator? Or tell the model which is category
             X[self._features_bool] = X[self._features_bool].astype("category")
+
+        if is_train:
+            self._cat_col_names = X.select_dtypes(include="category").columns.tolist()
+
+        # Avoid bad dtype for cat categories in later ordinal encoding.
+        # Maps unseen categories to a new high integer.
+        if self._cat_col_names is not None:
+            if self._category_mapping is None:
+                self._category_mapping = {}
+                for col in self._cat_col_names:
+                    cats = X[col].cat.categories
+                    self._category_mapping[col] = {cat: code for code, cat in enumerate(cats)}
+
+            if self._category_mapping is not None:
+                for col in self._cat_col_names:
+                    mapping = self._category_mapping[col]
+                    unseen_code = len(mapping)
+                    nan_mask = X[col].isna()
+                    X[col] = X[col].astype(object)
+                    X[col] = X[col].map(mapping).fillna(unseen_code).astype(int).astype("category")
+                    X.loc[nan_mask, col] = np.nan
+
         return X
 
     def _set_default_params(self):
@@ -330,6 +358,7 @@ class RealMLPModel(AbstractModel):
         X: pd.DataFrame,
         hyperparameters: dict | None = None,
         num_classes: int = 1,
+        overhead_for_large_data: float = 1.5,
         **kwargs,
     ) -> int:
         """RealMLP memory estimation logic."""
@@ -373,7 +402,13 @@ class RealMLPModel(AbstractModel):
         res = alg_interface.get_required_resources(
             ds, n_cv=1, n_refit=0, n_splits=1, split_seeds=[0], n_train=n_samples
         )
-        return int(res.gpu_ram_gb * 1e9)
+
+        est = int(res.gpu_ram_gb * 1e9)
+
+        if n_samples > 250_000:
+            est = int(est * overhead_for_large_data)
+
+        return est
 
     def _validate_fit_memory_usage(self, mem_error_threshold: float = 1, **kwargs):
         return super()._validate_fit_memory_usage(

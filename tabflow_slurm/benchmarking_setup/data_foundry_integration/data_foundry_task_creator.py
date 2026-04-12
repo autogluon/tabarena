@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pandas as pd
 from data_foundry.curation_container import CuratedContainer
-from data_foundry.schema import ProblemTypeClassification
 from loguru import logger
 from tabarena.benchmark.task import UserTask
 from tqdm import tqdm
@@ -127,10 +126,41 @@ def convert_data_foundry_task_to_user_task(
     task_container = CuratedContainer.load(path_to_local_task)
 
     # Resolve task type
+    y: pd.Series = task_container.dataset[task_container.task_metadata.target_column_name]
     if task_container.task_metadata.problem_type == "regression":
         problem_type = "regression"
-    elif task_container.task_metadata.problem_type in ProblemTypeClassification:
+        # Assert y is pd.numeric
+        if not pd.api.types.is_numeric_dtype(y):
+            raise ValueError(
+                f"Target column {task_container.task_metadata.target_column_name} is not numeric for "
+                f"regression problem. ({task_container.dataset_metadata.unique_name})"
+            )
+    elif task_container.task_metadata.problem_type == "binary_classification":
         problem_type = "classification"
+        # Assert y is pd.categorical with 2 classes
+        if not isinstance(y.dtype, pd.CategoricalDtype):
+            raise ValueError(
+                f"Target column {task_container.task_metadata.target_column_name} is not categorical "
+                f"for classification problem. ({task_container.dataset_metadata.unique_name})"
+            )
+        if y.nunique() != 2:
+            raise ValueError(
+                f"Target column {task_container.task_metadata.target_column_name} has {y.nunique()} classes, "
+                f"but expected 2 for binary classification problem. ({task_container.dataset_metadata.unique_name})"
+            )
+    elif task_container.task_metadata.problem_type == "multiclass_classification":
+        problem_type = "classification"
+        if not isinstance(y.dtype, pd.CategoricalDtype):
+            raise ValueError(
+                f"Target column {task_container.task_metadata.target_column_name} is not categorical for "
+                f"classification problem. ({task_container.dataset_metadata.unique_name})"
+            )
+        if y.nunique() < 3:
+            raise ValueError(
+                f"Target column {task_container.task_metadata.target_column_name} has {y.nunique()} classes, "
+                f"but expected at least 3 for multiclass classification "
+                f"problem. ({task_container.dataset_metadata.unique_name})"
+            )
     else:
         raise ValueError(f"Unknown problem type {task_container.task_metadata.problem_type}")
 
@@ -141,7 +171,7 @@ def convert_data_foundry_task_to_user_task(
         fallback_metric = allowed_eval_metrics[0]
         if eval_metric not in allowed_eval_metrics:
             logger.info(
-                f"Objective metric {eval_metric} not in allowed for problem type {problem_type}. "
+                f"\nObjective metric {eval_metric} not allowed for problem type {problem_type}. "
                 f"Falling back to {fallback_metric}."
             )
             eval_metric = fallback_metric
@@ -237,7 +267,7 @@ def get_metadata_for_benchmark_suite(benchmark_suite_name: str, data_foundry_cac
     path_to_metadata = data_foundry_cache / f"{benchmark_suite_name}_tasks_metadata.csv"
     if not path_to_metadata.exists():
         raise FileNotFoundError(
-            f"Metadata file {path_to_metadata} does not exist. " "Please run download_data_foundry_datasets first."
+            f"Metadata file {path_to_metadata} does not exist. Please run download_data_foundry_datasets first."
         )
     return path_to_metadata
 
