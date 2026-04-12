@@ -72,6 +72,9 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
     _rng: np.random.Generator
     """Random number generator for fallback feature selection."""
 
+    problem_type: str | None
+    """The problem type of the current dataset"""
+
     def __init__(
         self,
         max_features: int | float | Callable[[int], int],
@@ -124,6 +127,7 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         # Init random generator
         self._rng = np.random.default_rng(self.random_state)
+        self.problem_type = problem_type
 
         self._resolve_proxy_config(eval_metric=eval_metric, problem_type=problem_type)
         self._resolve_max_features()

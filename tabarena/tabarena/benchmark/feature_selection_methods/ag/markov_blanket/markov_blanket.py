@@ -53,7 +53,7 @@ class MarkovBlanketFeatureSelector(AbstractFeatureSelector):
         clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=5000))
 
         for _ in range(min(self.max_features, len(G) - 1)):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(f"Warning: FeatureSelection Method has no time left to train... "
                                f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)")
@@ -61,7 +61,7 @@ class MarkovBlanketFeatureSelector(AbstractFeatureSelector):
             best_feat = None
             best_delta = np.inf
             for fi in G:
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(f"Warning: FeatureSelection Method has no time left to train... "
                                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)")

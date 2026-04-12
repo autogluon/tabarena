@@ -5,7 +5,7 @@ import logging
 
 import pandas as pd
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import ElasticNet, LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import LabelEncoder, OrdinalEncoder, StandardScaler
 
@@ -33,26 +33,31 @@ class ElasticNetFeatureSelector(AbstractFeatureSelector):
     ) -> dict[str, float]:
         data_encoder = OrdinalEncoder()
         X = pd.DataFrame(data_encoder.fit_transform(X), columns=X.columns, index=X.index)
-        label_encoder = LabelEncoder()
-        y = label_encoder.fit_transform(y)
         numeric_imputer = SimpleImputer(strategy="mean")
-        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
-
-        C = 1.0
-        l1_ratio = 0.5
-        max_iter = 5000
-        clf = make_pipeline(
-            StandardScaler(with_mean=True, with_std=True),
-            LogisticRegression(
-                penalty="elasticnet",
-                solver="saga",
-                l1_ratio=l1_ratio,
-                C=C,
-                max_iter=max_iter,
-                random_state=self.random_state,
-                n_jobs=-1,
-            ),
-        )
-        clf.fit(X_imputed, y)
-        scores = clf.named_steps["logisticregression"].coef_[0]
+        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=numeric_imputer.get_feature_names_out(), index=X.index)
+        if self.problem_type == "regression":
+            y_processed = y
+            C = 1.0
+            l1_ratio = 0.5
+            max_iter = 5000
+            elastic_net = make_pipeline(
+                StandardScaler(with_mean=True, with_std=True),
+                LogisticRegression(
+                    penalty="elasticnet",
+                    solver="saga",
+                    l1_ratio=l1_ratio,
+                    C=C,
+                    max_iter=max_iter,
+                    random_state=self.random_state,
+                    n_jobs=-1,
+                ),
+            )
+            elastic_net.fit(X_imputed, y_processed)
+            scores = elastic_net.named_steps["logisticregression"].coef_[0]
+        else:
+            label_encoder = LabelEncoder()
+            y_processed = label_encoder.fit_transform(y)
+            elastic_net = ElasticNet(random_state=0)
+            elastic_net.fit(X_imputed, y_processed)
+            scores = elastic_net.coef_
         return dict(zip(X.columns, scores))

@@ -45,7 +45,7 @@ class DISRFeatureSelector(AbstractFeatureSelector):
         mutual_information = np.zeros(n_features)
         entropy = np.zeros(n_features)
         for i in range(n_features):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "

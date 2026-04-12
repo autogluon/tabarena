@@ -41,7 +41,7 @@ class ImpurityFeatureSelector(AbstractFeatureSelector):
         n_features = len(X.columns)
         alpha = np.zeros(n_features)
         for w in range(n_features):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -59,7 +59,7 @@ class ImpurityFeatureSelector(AbstractFeatureSelector):
         unique_elements = np.unique(arr)
         w_values = []
         for current_element in unique_elements:
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "

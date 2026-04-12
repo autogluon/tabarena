@@ -30,11 +30,18 @@ class UniPathSetup(PathSetup):
     tabarena_repo_name: str = "fsbench"
     venv_name: str = "fs_bench_env"
 
+@dataclass
+class UniPathSetupDominika(PathSetup):
+    """Path setup for Dominika's environment."""
+
+    base_path: str = "/work/dlclarge1/purucker-fs_benchmark/"
+    tabarena_repo_name: str = "fsbench_matusd"
+    venv_name: str = "fsbenchvenv2"
 
 @dataclass
 class UniSlurmSetup(SlurmSetup):
     """We can use mostly the defaults."""
-
+    
 
 @dataclass
 class TabArenaBenchmarkSetup(BenchmarkSetup2026):

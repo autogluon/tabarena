@@ -49,7 +49,7 @@ class JMIFeatureSelector(AbstractFeatureSelector):
         remaining = list(range(n_features))
         scores = np.zeros(n_features)
         for i in remaining:
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -59,14 +59,17 @@ class JMIFeatureSelector(AbstractFeatureSelector):
             scores[i] = self._joint_mi_kl(X.iloc[:, [i]], y, time_limit, start_time)
 
         best_first = int(np.argmax(scores))
-        selected.append(best_first)
-        remaining.remove(best_first)
+        if best_first is not None:
+            selected.append(best_first)
+            remaining.remove(best_first)
+        else:
+            logger.warning("No valid feature found to remove. Stopping early.")
 
-        while len(selected) < self.max_features and remaining:
+        while len(selected) < self.max_features and remaining and best_first is not None:
             best_score = -np.inf
             best_idx = None
             for i in remaining:
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -91,7 +94,7 @@ class JMIFeatureSelector(AbstractFeatureSelector):
         numerical_cols = X.select_dtypes(include=["number"]).columns.tolist()
         for col_name in numerical_cols:
             i = X.columns.get_loc(col_name)
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -109,7 +112,7 @@ class JMIFeatureSelector(AbstractFeatureSelector):
         n = len(data.columns)
         counts = {}
         for row in data:
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -133,7 +136,7 @@ class JMIFeatureSelector(AbstractFeatureSelector):
 
         jmi = 0.0
         for xy_key, p_xy_val in p_xy.items():
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "

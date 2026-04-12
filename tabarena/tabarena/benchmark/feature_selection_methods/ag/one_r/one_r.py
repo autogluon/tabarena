@@ -41,7 +41,7 @@ class OneRFeatureSelector(AbstractFeatureSelector):
         value_to_idx = {}
         count_cva = np.zeros((n_class_labels, max_n_values, len(X.columns)), dtype=int)
         for feature_index, feature_col in enumerate(X.columns):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -51,7 +51,7 @@ class OneRFeatureSelector(AbstractFeatureSelector):
             unique_values = sorted(X[feature_col].astype(str).unique())
             value_to_idx[feature_index] = {val: idx for idx, val in enumerate(unique_values)}
             for value_index, feature_val in enumerate(unique_values):
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -61,7 +61,7 @@ class OneRFeatureSelector(AbstractFeatureSelector):
                 mask = X[feature_col] == feature_val
                 class_counts = y[mask].value_counts().reindex(class_labels, fill_value=0)
                 for count_index, class_label in enumerate(class_labels):
-                    elapsed_time = time.time() - start_time
+                    elapsed_time = time.monotonic() - start_time
                     if (time_limit is not None) and (elapsed_time >= time_limit):
                         logger.warning(
                             f"Warning: FeatureSelection Method has no time left to train... "
@@ -77,7 +77,7 @@ class OneRFeatureSelector(AbstractFeatureSelector):
         # 3. Transform numerical features into categorical features by binning them
         numerical_cols = X.select_dtypes(include=["number"]).columns.tolist()
         for col in numerical_cols:
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -92,7 +92,7 @@ class OneRFeatureSelector(AbstractFeatureSelector):
         # 4. Create hypotheses for each feature and select the best one
         class_to_label = dict(enumerate(class_labels))
         for feature_col in X.columns:
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -103,7 +103,7 @@ class OneRFeatureSelector(AbstractFeatureSelector):
             values = [str(v) for v in values]
             hypothesis = {}
             for value in values:
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -121,6 +121,9 @@ class OneRFeatureSelector(AbstractFeatureSelector):
 
         # 5. Choose the rule with the highest accuracy on the training set (1R)
         accuracies = self.hypotheses_accuracy(X, y, hypotheses)
+        if not accuracies:
+            logger.warning("No valid hypotheses generated. Returning an empty selection.")
+            return []
         best_feature = max(accuracies, key=accuracies.get)
         best_feature_idx = X.columns.get_loc(best_feature)
 

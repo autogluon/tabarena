@@ -56,7 +56,7 @@ class INTERACTFeatureSelector(AbstractFeatureSelector):
         # Check for elapsed time in case the SU calculation took
         # too long, in that case return current ranking and
         # terminate FS method
-        elapsed_time = time.time() - start_time
+        elapsed_time = time.monotonic() - start_time
         if (time_limit is not None) and (elapsed_time >= time_limit):
             logger.warning(
                 f"Warning: FeatureSelection Method has no time left to train... "
@@ -67,7 +67,7 @@ class INTERACTFeatureSelector(AbstractFeatureSelector):
         # 3) Backward elimination using c-contribution (inconsistency rate)
         counter = len(slist) - 1
         while counter >= 0 and len(slist) > 1:
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -106,7 +106,7 @@ class INTERACTFeatureSelector(AbstractFeatureSelector):
         H_y = self.entropyd(y.value_counts(dropna=False).to_numpy())
 
         for i in range(n_features):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -120,7 +120,7 @@ class INTERACTFeatureSelector(AbstractFeatureSelector):
             p_v = f.value_counts(normalize=True, dropna=False)
             H_y_given_x = 0.0
             for v, p in p_v.items():
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -163,7 +163,7 @@ class INTERACTFeatureSelector(AbstractFeatureSelector):
         # Group by feature pattern; within each pattern, count label frequencies
         incons = 0
         for _, grp in df.groupby(list(X_sub.columns), dropna=False, observed=False):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "

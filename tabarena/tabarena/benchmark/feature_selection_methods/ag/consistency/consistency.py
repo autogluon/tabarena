@@ -42,9 +42,10 @@ class ConsistencyFeatureSelector(AbstractFeatureSelector):
 
         c_best = n_features
         s_best = np.ones(n_features, dtype=bool)
+        S = rng.random(n_features) < 0.5
 
         for _ in tqdm(range(r)):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -52,7 +53,6 @@ class ConsistencyFeatureSelector(AbstractFeatureSelector):
                 )
                 break
 
-            S = rng.random(n_features) < 0.5
             if not S.any():
                 S[rng.integers(0, n_features)] = True
 
@@ -88,7 +88,7 @@ class ConsistencyFeatureSelector(AbstractFeatureSelector):
 
         incons = 0
         for _, grp in df.groupby(list(X_sub.columns), dropna=False, observed=False):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "

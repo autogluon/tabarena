@@ -60,7 +60,7 @@ class SymmetricalUncertaintyFeatureSelector(AbstractFeatureSelector):
         H_y = self.entropyd(y.value_counts(dropna=False).values)
 
         for i in range(n_features):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -74,7 +74,7 @@ class SymmetricalUncertaintyFeatureSelector(AbstractFeatureSelector):
             p_v = f.value_counts(normalize=True, dropna=False)
             H_y_given_x = 0.0
             for v, p in p_v.items():
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "

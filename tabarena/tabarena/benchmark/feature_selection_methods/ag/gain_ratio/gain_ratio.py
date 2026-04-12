@@ -46,7 +46,7 @@ class GainRatioFeatureSelector(AbstractFeatureSelector):
         e_parent = self.entropyd(y.value_counts(dropna=False).values)
 
         for i in range(n_features):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -62,7 +62,7 @@ class GainRatioFeatureSelector(AbstractFeatureSelector):
             # Conditional entropy H(Y | X_i) = sum_v p(v) H(Y | X_i=v)
             e_child = 0.0
             for v, p in p_v.items():
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "

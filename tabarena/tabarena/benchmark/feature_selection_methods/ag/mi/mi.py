@@ -42,7 +42,7 @@ class MIFeatureSelector(AbstractFeatureSelector):
         start_time = time.monotonic()
         MI_scores = {}
         for col in X.columns:
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "

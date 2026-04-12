@@ -47,7 +47,7 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
 
         # Init CMIM with Mutual Information
         for i in range(n_features):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -58,7 +58,7 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
             CMIM[i] = self.midd(f, y)
 
         for k in range(n_features):
-            elapsed_time = time.time() - start_time
+            elapsed_time = time.monotonic() - start_time
             if (time_limit is not None) and (elapsed_time >= time_limit):
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
@@ -75,7 +75,7 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
 
             sstar = -1000000  # start with really low value for best partial score sstar
             for i in range(n_features):
-                elapsed_time = time.time() - start_time
+                elapsed_time = time.monotonic() - start_time
                 if (time_limit is not None) and (elapsed_time >= time_limit):
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
@@ -84,7 +84,7 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
                     break
                 if i not in F:
                     while (CMIM[i] > sstar) and (m[i] < k - 1):
-                        elapsed_time = time.time() - start_time
+                        elapsed_time = time.monotonic() - start_time
                         if (time_limit is not None) and (elapsed_time >= time_limit):
                             logger.warning(
                                 f"Warning: FeatureSelection Method has no time left to train... "
