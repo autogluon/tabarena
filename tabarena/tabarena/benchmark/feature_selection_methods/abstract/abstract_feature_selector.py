@@ -72,7 +72,7 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
     _rng: np.random.Generator
     """Random number generator for fallback feature selection."""
 
-    _problem_type: str | None
+    problem_type: str | None
     """The problem type of the current dataset"""
 
     def __init__(
