@@ -36,7 +36,7 @@ class UniPathSetupDominika(PathSetup):
 
     base_path: str = "/work/dlclarge1/purucker-fs_benchmark/"
     tabarena_repo_name: str = "fsbench_matusd"
-    venv_name: str = "fsbenchvenv2"\
+    venv_name: str = "fsbenchvenv2"
 
 @dataclass
 class UniSlurmSetup(SlurmSetup):
