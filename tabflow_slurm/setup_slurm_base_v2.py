@@ -307,6 +307,11 @@ class BenchmarkSetup2026:
             }
         }
     """
+    max_predict_batch_size: int | None = 50_000
+    """Maximal batch size for the predict function of the models.
+    This is used at validation and test predict time. Thus, it trades off speed for memory usage. 
+    If None, no limit is applied.
+    """
 
     # Misc Settings
     # -------------
@@ -774,6 +779,7 @@ class BenchmarkSetup2026:
             "init_kwargs": {"verbosity": self.verbosity},
             "shuffle_features": self.shuffle_features,
             "fit_kwargs": dict(),
+            "model_hyperparameters": dict(),
         }
         if self.model_artifacts_base_path is not None:
             method_kwargs["init_kwargs"]["default_base_path"] = self.model_artifacts_base_path
@@ -781,6 +787,8 @@ class BenchmarkSetup2026:
             method_kwargs["fit_kwargs"]["feature_generator"] = None
         if self.adapt_num_folds_to_n_classes:
             method_kwargs["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"] = True
+        if self.max_predict_batch_size is not None:
+            method_kwargs["model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
 
         print(
             "Generating experiments for models...",
