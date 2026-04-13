@@ -147,6 +147,13 @@ def run_benchmark(  # noqa: D417
         mode_kwargs=kwargs,
     )
 
+def get_cache_path(args) -> Path:
+    """Generate the cache path based on arguments."""
+    cache_dir = Path(__file__).parent / "results"
+    cache_dir.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
+    cache_path = cache_dir / f"{args.mode}_{args.method_name}_{args.data_foundry_task_id.split('|')[3].split('/')[0]}_{args.repeat}.csv"
+    return cache_path
+
 
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments for the FS benchmark runner."""
@@ -187,22 +194,32 @@ def parse_args() -> argparse.Namespace:
         default="gaussian",
         help="Type of noise features to add (validity mode only) [default: random]",
     )
+    parser.add_argument(
+        "--ignore_cache",
+        type=bool,
+        default=False,
+        help="Whether to ignore existing cache and rerun the benchmark (useful for debugging) [default: False]",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
 
-    result = run_benchmark(
-        data_foundry_task_id=args.data_foundry_task_id,
-        mode=args.mode,
-        method_name=args.method_name,
-        repeat=args.repeat,
-        noise=args.noise,
-        noise_type=args.noise_type,
-    )
+    cache_path = get_cache_path(args)
 
-    print(result)
-    result = pd.DataFrame([result.__dict__])
-    path = f"results/{args.mode}_{args.method_name}_{args.data_foundry_task_id.split('|')[3].split('/')[0]}_{args.repeat}.csv"
-    result.to_csv(Path(__file__).parent / path, index=False)
+    if cache_path.exists() and not args.ignore_cache:
+        print(f"Cache exists at {cache_path}. Skipping operation.")
+    else:
+        result = run_benchmark(
+            data_foundry_task_id=args.data_foundry_task_id,
+            mode=args.mode,
+            method_name=args.method_name,
+            repeat=args.repeat,
+            noise=args.noise,
+            noise_type=args.noise_type,
+        )
+
+        print(result)
+        result = pd.DataFrame([result.__dict__])
+        result.to_csv(cache_path, index=False)
