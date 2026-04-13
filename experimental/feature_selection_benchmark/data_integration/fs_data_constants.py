@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-DATA_FOUNDRY_CACHE = Path("/work/dlclarge1/purucker-fs_benchmark/.data_foundry_cache")
+DATA_FOUNDRY_CACHE = Path("../.data_foundry_cache")
 OPENML_CACHE = Path("/work/dlclarge1/purucker-fs_benchmark/.openml-cache")
 
 BENCHMARK_TASK_COLLECTION_NAME = "feature_selection_benchmark"
@@ -55,7 +55,7 @@ BENCHMARK_DATA_FOUNDRY_TASKS = [
     "marketing_campaign/019d47e1-1c2d-798b-ac11-f72a9d7f5f2f",
     "mechanisms_of_action/019d47e2-1aff-7ffb-9b99-61c8a74fc1a2",
     "miami_housing/019d47e2-cfb1-7f2c-ac5c-edb3c90067ac",
-    "mic/019d47e3-6739-7346-9627-18b9b81cebca",
+    "mic/019d871d-9c8f-7ce7-8036-be988e13c20a",
     "naticusdroid_android_permissions_dataset/019d47e5-2e69-7914-812d-ee84eeab35c9",
     "nci_ovarian_cancer/019d47ea-3ee8-71e4-850a-ace45ee7456f",
     "nci_pancreatic_cancer/019d47ed-572e-7228-84b6-b3d9a0cc35b7",
