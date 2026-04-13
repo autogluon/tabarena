@@ -48,6 +48,9 @@ class FeatureSelectionResult:
         repeat: Repeat number for the FS metric.
 
         selected_features: Names of selected features from the original_features.
+        num_classes: Number of classes in the target variable (for classification tasks).
+        num_samples: Number of samples in the dataset.
+
         elapsed_time_fs: Runtime measurement (seconds).
 
         mode: Evaluation mode ("validity" or "stability").
@@ -62,6 +65,9 @@ class FeatureSelectionResult:
     repeat: int
 
     selected_features: list[int]
+    num_classes: int
+    num_samples: int
+
     elapsed_time_fs: float
 
     mode: str
