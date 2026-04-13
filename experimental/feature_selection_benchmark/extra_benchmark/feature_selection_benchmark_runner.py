@@ -57,6 +57,7 @@ class FeatureSelectionResult:
     selected_features: list[Any]
     num_classes: int
     num_samples: int
+    min_samples_per_class: int
     elapsed_time_fs: float
 
 
@@ -130,6 +131,7 @@ def run_benchmark(job: ExtraBenchmarkJob) -> FeatureSelectionResult:
         selected_features=feature_selector._selected_features,
         num_classes=int(y.nunique()),
         num_samples=int(X.shape[0]),
+        min_samples_per_class=y.value_counts().min(),
         elapsed_time_fs=elapsed_time,
     )
 
