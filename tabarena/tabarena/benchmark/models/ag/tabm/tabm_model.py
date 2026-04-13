@@ -10,14 +10,14 @@ import time
 
 import pandas as pd
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.core.models import AbstractModel
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 from autogluon.tabular import __version__
 
 logger = logging.getLogger(__name__)
 
 
-class TabMModel(AbstractModel):
+class TabMModel(AbstractTorchModel):
     """TabM is an efficient ensemble of MLPs that is trained simultaneously with mostly shared parameters.
 
     TabM is one of the top performing methods overall on TabArena-v0.1: https://tabarena.ai
@@ -143,6 +143,14 @@ class TabMModel(AbstractModel):
 
         return X
 
+    def get_device(self) -> str:
+        return self.model.device_.type
+
+    def _set_device(self, device: str):
+        device = self.to_torch_device(device)
+        self.model.device_ = device
+        self.model.model_ = self.model.model_.to(device)
+
     def _set_default_params(self):
         default_params = dict(
             random_state=0,
@@ -260,9 +268,16 @@ class TabMModel(AbstractModel):
         mem_ds = n_samples * (4 * n_numerical + 8 * len(cat_sizes))
 
         # some safety constants and offsets (the 5 is probably excessive)
-        return (
+        res = (
             5 * mem_ds + 1.2 * mem_forward_backward + 1.2 * mem_params + 0.3 * (1024**3)
         )
+        # Safety overhead
+        res = res * 1.5
+        logger.log(
+            40,
+            f"\tEstimated memory usage {res/1e9:4}.",
+        )
+        return res
 
     @classmethod
     def get_tabm_auto_batch_size(cls, n_samples: int) -> int:
@@ -277,7 +292,7 @@ class TabMModel(AbstractModel):
             return 256
         if n_samples < 108_000:
             return 512
-        return 1024
+        return 768 # Adjust to be lower to fit on 80 GB for very large datasets.
 
     @classmethod
     def _class_tags(cls):

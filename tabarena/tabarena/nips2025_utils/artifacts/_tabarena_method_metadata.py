@@ -48,6 +48,13 @@ from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_03_18 impo
     tabstar_metadata,
 )
 
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_01_23_tabprep import (
+    tabprep_gbm_metadata,
+    tabprep_lr_metadata,
+    tabprep_realtabpfnv250_metadata,
+    tabprep_tabm_metadata,
+)
+
 
 methods_2025_09_03: list[MethodMetadata] = [
     ag_140_metadata,
@@ -88,6 +95,13 @@ methods_2025_12_18: list[MethodMetadata] = [
 methods_misc: list[MethodMetadata] = [
     gbm_aio_0808_metadata,
     # prep_gbm_v6_metadata,
+]
+
+methods_tabprep = [
+    tabprep_gbm_metadata,
+    tabprep_lr_metadata,
+    tabprep_realtabpfnv250_metadata,  # only first 3 splits
+    tabprep_tabm_metadata,  # only first 3 splits
 ]
 
 replaced_methods = [

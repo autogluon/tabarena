@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pandas as pd
 from autogluon.common.features.types import (
     R_BOOL,
@@ -31,6 +33,9 @@ from tabarena.benchmark.preprocessing.text_feature_generators import (
 )
 from tabarena.benchmark.task.user_task import GroupLabelTypes
 
+if TYPE_CHECKING:
+    from autogluon.common.features.feature_metadata import FeatureMetadata
+
 
 # TODO: we likely need some kind of off-loading logic for text features
 class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
@@ -39,12 +44,12 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
     def __init__(
         self,
         *,
-        enable_datetime_features: bool = False,
-        enable_text_ngram_features: bool = False,
-        enable_text_special_features: bool = True,
         enable_sematic_text_features: bool = True,
-        enable_statistical_text_features: bool = True,
         enable_new_datetime_features: bool = True,
+        enable_text_special_features: bool = False,
+        enable_statistical_text_features: bool = False,
+        enable_text_ngram_features: bool = False,
+        enable_datetime_features: bool = False,
         group_cols: str | list[str] | None = None,
         group_labels: GroupLabelTypes | None = None,
         group_time_on: str | None = None,
@@ -107,6 +112,35 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
             **kwargs,
         )
 
+    def fit_transform(
+        self, X: pd.DataFrame, y: pd.Series | None = None, feature_metadata_in: FeatureMetadata = None, **kwargs
+    ) -> pd.DataFrame:
+        """Rename columns with '.' before AutoGluon stores feature metadata.
+
+        AutoGluon's ``AbstractFeatureGenerator.fit_transform`` records ``features_in``
+        from the *original* X before calling ``_fit_transform``.  We must therefore
+        rename at the public API level so that the stored metadata matches what the
+        downstream generators will see.
+
+        The ``"."`` character is reserved as the source-column separator in text
+        feature names produced downstream (e.g. ``TextSpecialFeatureGenerator``
+        produces ``{col}.char_count``).  Sanitizing raw column names here prevents
+        parsing ambiguity in
+        ``TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column``.
+        """
+        self._dot_rename_map_: dict[str, str] = {c: str(c).replace(".", "_") for c in X.columns if "." in str(c)}
+        if self._dot_rename_map_:
+            X = X.rename(columns=self._dot_rename_map_)
+            if feature_metadata_in is not None:
+                feature_metadata_in = feature_metadata_in.rename_features(rename_map=self._dot_rename_map_)
+        return super().fit_transform(X, y=y, feature_metadata_in=feature_metadata_in, **kwargs)
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Apply the same dot-renaming as fit before passing to parent transform."""
+        if self._dot_rename_map_:
+            X = X.rename(columns=self._dot_rename_map_)
+        return super().transform(X)
+
     def _get_category_feature_generator(self):
         # Pass categorical columns through *without* encoding.
         # Cat handling is deferred to TabArenaModelSpecificPreprocessing.
@@ -129,42 +163,24 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
 # TODO: maybe better cardinality threshold but we assume we only
 #  run on well-curated data for now
 class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
-    """Custom AsTypeFeatureGenerator to fix string dtype handling and column name sanitization.
+    """Custom AsTypeFeatureGenerator to fix string dtype handling.
 
     The default string detection from AutoGluon is hardcoded in a weird way. Thus, we
     overwrite it here before passing feature metadata to the rest of the pipeline.
     We overwrite it such that we believe the dtype of the input dataframe.
 
-    Additionally, any input column whose name contains ``"."`` is renamed so that
-    ``"."`` is replaced by ``"_"``.  The ``"."`` character is reserved as the
-    source-column separator in text feature names produced downstream (e.g.
-    ``TextSpecialFeatureGenerator`` produces ``{col}.char_count``).  Sanitizing
-    raw column names here prevents parsing ambiguity in
-    ``TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column``.
-
     We further adjust the original logic to better handle unseen categories or suddenly appearing
-    nan values at test time.
+    nan values at test time:
 
+    * **Categorical columns** — unknown category values at test time are preserved
+      (not silently mapped to NaN) by converting through ``object`` dtype.
+    * **Bool columns** — columns with exactly 2 unique values at fit time are
+      bool-encoded to int8 (``true_val`` → 1, else → 0).  If a bool column gains
+      additional unique values at test time, the normal bool encoding still applies
+      and the unseen values are mapped to 0 (False).  A warning is logged.
+    * **Int columns** — NaN values that appear at test time but were absent during
+      fit are imputed to 0.
     """
-
-    def fit_transform(self, X: pd.DataFrame, y: pd.Series | None = None, **kwargs) -> pd.DataFrame:
-        """Rename columns with '.' before AutoGluon stores feature metadata.
-
-        AutoGluon's ``AbstractFeatureGenerator.fit_transform`` records ``features_in``
-        from the *original* X before calling ``_fit_transform``.  We must therefore
-        rename at the public API level so that the stored metadata matches what the
-        parent's ``_fit_transform`` will see.
-        """
-        self._dot_rename_map_: dict[str, str] = {c: str(c).replace(".", "_") for c in X.columns if "." in str(c)}
-        if self._dot_rename_map_:
-            X = X.rename(columns=self._dot_rename_map_)
-        return super().fit_transform(X, y=y, **kwargs)
-
-    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Apply the same dot-renaming as fit before passing to parent transform."""
-        if self._dot_rename_map_:
-            X = X.rename(columns=self._dot_rename_map_)
-        return super().transform(X)
 
     def _handle_nan_in_int_only_at_test_time(self, X: pd.DataFrame) -> pd.DataFrame:
         """Handle int features that contain null values at inference time but not at fit time.
@@ -188,16 +204,13 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
 
         return X
 
-    def _handle_dtype_mismatch_at_test_time(self, X: pd.DataFrame, bool_cols_with_extra_cats: set) -> pd.DataFrame:
+    def _handle_dtype_mismatch_at_test_time(self, X: pd.DataFrame) -> pd.DataFrame:
         """Handle situation where dtypes of test data do not match those of training data.
 
         The logic is split between cat and non-cat features to avoid the issue where
         astype(CategoricalDtype(categories=[...])) silently maps unknown categories to NaN.
         By converting through object dtype first, we ensure that all values are preserved as valid categories,
         even if they were not seen during training.
-        bool_cols_with_extra_cats are excluded from non_cat_type_map because they
-        are still typed as int8 in _type_map_real_opt but have not been bool-encoded;
-        trying to astype them to int8 would silently discard the extra category values.
         """
         # TODO: Confirm this works with sparse and other feature types!
         # FIXME: Address situation where test-time invalid type values cause crash:
@@ -210,9 +223,7 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
             col: dtype for col, dtype in self._type_map_real_opt.items() if isinstance(dtype, pd.CategoricalDtype)
         }
         non_cat_type_map = {
-            col: dtype
-            for col, dtype in self._type_map_real_opt.items()
-            if not isinstance(dtype, pd.CategoricalDtype) and col not in bool_cols_with_extra_cats
+            col: dtype for col, dtype in self._type_map_real_opt.items() if not isinstance(dtype, pd.CategoricalDtype)
         }
         if non_cat_type_map:
             try:
@@ -225,38 +236,35 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
                 X[col] = X[col].astype(object).astype(pd.CategoricalDtype(ordered=dtype.ordered))
         return X
 
-    def _handle_bool_cols_with_extra_cats_at_test_time(self, X: pd.DataFrame) -> tuple[pd.DataFrame, set]:
-        """Handle situation where bool columns gain extra categories at test time.
+    def _handle_bool_cols_with_unseen_values_at_test_time(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Handle bool columns that gain unseen values at test time.
 
-        If a bool column gains more than the expected 2 unique non-null values at test time,
-        we skip bool-encoding for that column and convert it to categorical at the end of the transform method.
-        This is because encoding a 3rd value through the bool path (== true_val → 1, else → 0) silently maps unknown categories to 0 (false).
-        By skipping bool-encoding and converting to categorical, we ensure that all values are preserved as valid categories,
-        even if they were not seen during training.
+        Bool columns are always bool-encoded (``true_val`` → 1, else → 0)
+        regardless of whether unseen values appear.  This means unseen values
+        are silently mapped to 0 (False), which keeps the output dtype
+        identical to training (int8) and avoids downstream dtype mismatches.
+        A warning is logged for each affected column.
         """
-        bool_cols_with_extra_cats = {
+        bool_cols_with_unseen = {
             col for col in self._bool_features if col in X.columns and X[col].dropna().nunique() > 2
         }
-        if bool_cols_with_extra_cats:
-            saved_extra = {col: self._bool_features.pop(col) for col in bool_cols_with_extra_cats}
-            self._set_bool_features_val()
+        for col in bool_cols_with_unseen:
+            self._log(
+                level=20,
+                msg=f"WARNING: Bool column '{col}' has more than 2 unique non-null values at test time. "
+                "Unseen values will be mapped to 0 (False). "
+                "Consider passing this column with >2 values at train time to avoid bool encoding, or"
+                "force to treat this as a numerical column!",
+            )
         if self._bool_features:
             X = self._convert_to_bool(X)
-        if bool_cols_with_extra_cats:
-            self._bool_features.update(saved_extra)
-            self._set_bool_features_val()
 
-        return X, bool_cols_with_extra_cats
+        return X
 
     def _transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Override the default handling for unseen values!"""
-        # Identify bool columns that gained more than the expected 2 unique non-null values
-        # at test time.  Encoding a 3rd value through the bool path (== true_val → 1, else → 0)
-        # silently maps unknown categories to 0 (false).  We instead skip bool-encoding for
-        # those columns and convert them to categorical at the end of this method.
-        bool_cols_with_extra_cats: set[str] = set()
         if self._bool_features:
-            X, bool_cols_with_extra_cats = self._handle_bool_cols_with_extra_cats_at_test_time(X)
+            X = self._handle_bool_cols_with_unseen_values_at_test_time(X)
 
         # This means we have unobserved nans/categories
         if self._type_map_real_opt != X.dtypes.to_dict():
@@ -264,18 +272,12 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
                 X = self._handle_nan_in_int_only_at_test_time(X)
 
             if self._type_map_real_opt:
-                X = self._handle_dtype_mismatch_at_test_time(X, bool_cols_with_extra_cats=bool_cols_with_extra_cats)
-
-        # Convert bool columns that gained extra categories to categorical so that
-        # all values (including novel ones) are preserved rather than silently mapped to 0.
-        for col in bool_cols_with_extra_cats:
-            if col in X.columns:
-                X[col] = X[col].astype(object).astype(pd.CategoricalDtype(ordered=False))
+                X = self._handle_dtype_mismatch_at_test_time(X)
 
         return X
 
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
-        # X arrives here with '.' already replaced by '_' (done in fit_transform above).
+        # X arrives here with '.' already replaced by '_' (done in TabArenaModelAgnosticPreprocessing.fit_transform).
         X, type_group_map_special = super()._fit_transform(X=X, **kwargs)
 
         found_text_cols = type_group_map_special.get("text", [])

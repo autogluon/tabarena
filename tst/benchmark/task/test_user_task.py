@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 import operator
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -27,9 +28,7 @@ def _isolate_openml_cache(tmp_path_factory):
     Path(openml.config._root_cache_directory).mkdir(parents=True, exist_ok=True)
 
 
-def _make_dataset(
-    problem_type: str, *, n: int = 10
-) -> tuple[pd.DataFrame, str, list[str] | None, list[bool]]:
+def _make_dataset(problem_type: str, *, n: int = 10) -> tuple[pd.DataFrame, str, list[str] | None, list[bool]]:
     dataset = pd.DataFrame(
         {
             "num": np.arange(n, dtype="int64"),
@@ -59,9 +58,7 @@ def test_user_task_as_openml_task(problem_type, expected_cls, tmp_path):
     """Test that UserTask can be converted to an OpenML task for local use.
     This does not test the splits, which are tested in another test.
     """
-    df_original, target_feature, _class_labels, cat_indicator = _make_dataset(
-        problem_type, n=10
-    )
+    df_original, target_feature, _class_labels, cat_indicator = _make_dataset(problem_type, n=10)
     splits = {0: {0: (list(range(8)), [8, 9])}}
 
     ut = UserTask(
@@ -76,9 +73,7 @@ def test_user_task_as_openml_task(problem_type, expected_cls, tmp_path):
     )
 
     # Check Task Metadata
-    assert isinstance(oml_task, expected_cls), (
-        f"Expected {expected_cls}, got {type(oml_task)}"
-    )
+    assert isinstance(oml_task, expected_cls), f"Expected {expected_cls}, got {type(oml_task)}"
     if problem_type == "classification":
         assert oml_task.task_type_id == TaskType.SUPERVISED_CLASSIFICATION
         assert oml_task.class_labels == ["neg", "pos"]
@@ -94,14 +89,13 @@ def test_user_task_as_openml_task(problem_type, expected_cls, tmp_path):
     assert isinstance(oml_dataset, openml.datasets.OpenMLDataset)
     assert oml_dataset.name == ut.get_dataset_name()
     assert oml_dataset.default_target_attribute == target_feature
-    assert oml_dataset.parquet_file == (ut._local_cache_path / "data.pq")
-    assert (ut._local_cache_path / "data.pq").exists()
+    assert oml_dataset.data_pickle_file == (ut._local_cache_path / "data.pkl.py3")
+    assert oml_dataset.cache_format == "pickle"
+    assert (ut._local_cache_path / "data.pkl.py3").exists()
     assert oml_dataset.data_file == "ignored"
 
     # Check Dataset State
-    X, y, categorical_indicator, attribute_names = oml_dataset.get_data(
-        target=oml_task.target_name
-    )
+    X, y, categorical_indicator, attribute_names = oml_dataset.get_data(target=oml_task.target_name)
     assert categorical_indicator == cat_indicator
     expected_a_names = list(df_original.columns)
     expected_a_names.remove(target_feature)
@@ -118,13 +112,7 @@ def test_user_task_as_openml_task(problem_type, expected_cls, tmp_path):
     expected_split = OpenMLSplit(
         name="User-Splits",
         description="User-defined splits for a custom task.",
-        split={
-            r: {
-                f: {0: (np.array(tr), np.array(te))}
-                for f, (tr, te) in splits[r].items()
-            }
-            for r in splits
-        },
+        split={r: {f: {0: (np.array(tr), np.array(te))} for f, (tr, te) in splits[r].items()} for r in splits},
     )
     assert oml_task.split == expected_split
 
@@ -352,9 +340,7 @@ def test_save_load_round_trip_classification(tmp_path):
     df, target, _, _ = _make_dataset("classification", n=10)
     splits = {0: {0: (list(range(8)), [8, 9])}}
     ut = UserTask(task_name="save-load-clf", task_cache_path=tmp_path)
-    task = ut.create_local_openml_task(
-        dataset=df, target_feature=target, problem_type="classification", splits=splits
-    )
+    task = ut.create_local_openml_task(dataset=df, target_feature=target, problem_type="classification", splits=splits)
     ut.save_local_openml_task(task)
     assert ut.openml_task_path.exists()
 
@@ -370,9 +356,7 @@ def test_save_load_round_trip_regression(tmp_path):
     df, target, _, _ = _make_dataset("regression", n=10)
     splits = {0: {0: (list(range(8)), [8, 9])}}
     ut = UserTask(task_name="save-load-reg", task_cache_path=tmp_path)
-    task = ut.create_local_openml_task(
-        dataset=df, target_feature=target, problem_type="regression", splits=splits
-    )
+    task = ut.create_local_openml_task(dataset=df, target_feature=target, problem_type="regression", splits=splits)
     ut.save_local_openml_task(task)
     loaded = ut.load_local_openml_task()
     assert loaded.task_id == ut.task_id
@@ -403,9 +387,7 @@ def test_create_local_openml_task_multi_repeat_multi_fold(tmp_path):
         },
     }
     ut = UserTask(task_name="multi-fold", task_cache_path=tmp_path)
-    task = ut.create_local_openml_task(
-        dataset=df, target_feature=target, problem_type="classification", splits=splits
-    )
+    task = ut.create_local_openml_task(dataset=df, target_feature=target, problem_type="classification", splits=splits)
     # Two repeats, two folds each
     assert set(task.split.split.keys()) == {0, 1}
     assert set(task.split.split[0].keys()) == {0, 1}
@@ -511,9 +493,7 @@ def test_task_metadata_from_row_missing_field_raises():
     meta = _make_task_metadata()
     df = meta.to_dataframe()
     row = df.iloc[0].drop("dataset_name")
-    with pytest.raises(
-        ValueError, match="missing required TabArenaTaskMetadata fields"
-    ):
+    with pytest.raises(ValueError, match="missing required TabArenaTaskMetadata fields"):
         TabArenaTaskMetadata.from_row(row)
 
 
@@ -529,6 +509,70 @@ def test_task_metadata_unroll_splits():
     assert unrolled[1].split_index == "r1f0"
     # Static fields are preserved
     assert unrolled[0].dataset_name == meta.dataset_name
+
+
+def test_task_metadata_from_row_backward_compat_missing_optional_fields():
+    """Old CSVs without the new dtype flag columns should load without error."""
+    meta = _make_task_metadata()
+    df = meta.to_dataframe()
+    row = df.iloc[0]
+    # Simulate an old CSV that doesn't have the new columns
+    row = row.drop(["has_datetime", "has_text", "has_categorical", "has_numeric"])
+    reconstructed = TabArenaTaskMetadata.from_row(row)
+    assert reconstructed.dataset_name == meta.dataset_name
+    # New fields default to None when absent
+    assert reconstructed.has_datetime is None
+    assert reconstructed.has_text is None
+    assert reconstructed.has_categorical is None
+    assert reconstructed.has_numeric is None
+
+
+def test_task_metadata_dtype_flags_default_to_none():
+    """New dtype flag fields default to None when not passed explicitly."""
+    meta = _make_task_metadata()
+    assert meta.has_datetime is None
+    assert meta.has_text is None
+    assert meta.has_categorical is None
+    assert meta.has_numeric is None
+
+
+def test_task_metadata_dtype_flags_round_trip():
+    """Dtype flags survive a to_dataframe / from_row round trip."""
+    s = _make_split_metadata()
+    meta = TabArenaTaskMetadata(
+        dataset_name="test",
+        problem_type="binary",
+        is_classification=True,
+        target_name="target",
+        eval_metric="roc_auc",
+        splits_metadata={s.split_index: s},
+        split_time_horizon=None,
+        split_time_horizon_unit=None,
+        stratify_on=None,
+        time_on=None,
+        group_on=None,
+        group_time_on=None,
+        group_labels=None,
+        multiclass_min_n_classes_over_splits=2,
+        multiclass_max_n_classes_over_splits=2,
+        class_consistency_over_splits=True,
+        num_instances=10,
+        num_features=2,
+        num_classes=2,
+        num_instance_groups=10,
+        tabarena_task_name="test",
+        task_id_str=None,
+        has_datetime=False,
+        has_text=True,
+        has_categorical=True,
+        has_numeric=False,
+    )
+    df = meta.to_dataframe()
+    reconstructed = TabArenaTaskMetadata.from_row(df.iloc[0])
+    assert reconstructed.has_datetime is False
+    assert reconstructed.has_text is True
+    assert reconstructed.has_categorical is True
+    assert reconstructed.has_numeric is False
 
 
 # ---------------------------------------------------------------------------
@@ -569,9 +613,7 @@ def test_from_sklearn_splits_multiple_repeats():
 
 def test_get_num_instance_groups_no_group():
     X = pd.DataFrame({"a": [1, 2, 3]})
-    n = TabArenaTaskMetadataMixin.get_num_instance_groups(
-        X=X, group_on=None, group_labels=None
-    )
+    n = TabArenaTaskMetadataMixin.get_num_instance_groups(X=X, group_on=None, group_labels=None)
     assert n == 3
 
 
@@ -586,9 +628,7 @@ def test_get_num_instance_groups_per_sample_label():
 
 def test_get_num_instance_groups_per_group_label():
     X = pd.DataFrame({"a": [1, 2, 3, 4], "group": ["x", "x", "y", "y"]})
-    n = TabArenaTaskMetadataMixin.get_num_instance_groups(
-        X=X, group_on="group", group_labels=GroupLabelTypes.PER_GROUP
-    )
+    n = TabArenaTaskMetadataMixin.get_num_instance_groups(X=X, group_on="group", group_labels=GroupLabelTypes.PER_GROUP)
     assert n == 2
 
 
@@ -609,9 +649,7 @@ def test_get_num_instance_groups_multi_column_group():
 def _make_multiclass_dataset(n_per_class: int = 4) -> tuple[pd.DataFrame, str]:
     """Create a 3-class classification dataset with n_per_class samples per class."""
     n = n_per_class * 3
-    labels = (
-        (["cls0"] * n_per_class) + (["cls1"] * n_per_class) + (["cls2"] * n_per_class)
-    )
+    labels = (["cls0"] * n_per_class) + (["cls1"] * n_per_class) + (["cls2"] * n_per_class)
     df = pd.DataFrame(
         {
             "num": np.arange(n, dtype="int64"),
@@ -625,9 +663,7 @@ def _make_multiclass_dataset(n_per_class: int = 4) -> tuple[pd.DataFrame, str]:
 def _make_4class_dataset(n_per_class: int = 3) -> tuple[pd.DataFrame, str]:
     """Create a 4-class dataset where fold splits can yield different class counts."""
     n = n_per_class * 4
-    labels = functools.reduce(
-        operator.iadd, ([f"cls{c}"] * n_per_class for c in range(4)), []
-    )
+    labels = functools.reduce(operator.iadd, ([f"cls{c}"] * n_per_class for c in range(4)), [])
     df = pd.DataFrame(
         {
             "num": np.arange(n, dtype="int64"),
@@ -666,9 +702,7 @@ def _task_from_user_task(
 def test_get_dataset_stats_regression_basic(tmp_path):
     """Regression: num_classes=-1, num_features excludes target, num_instance_groups==len."""
     df, target, _, _ = _make_dataset("regression", n=10)
-    task, _ = _task_from_user_task(
-        df, target, "regression", {0: {0: (list(range(8)), [8, 9])}}, tmp_path, "ds-reg"
-    )
+    task, _ = _task_from_user_task(df, target, "regression", {0: {0: (list(range(8)), [8, 9])}}, tmp_path, "ds-reg")
     n_inst, n_feat, n_cls, n_groups = task._get_dataset_stats(
         oml_dataset=df, is_classification=False, target_name=target
     )
@@ -689,9 +723,7 @@ def test_get_dataset_stats_classification_class_count(tmp_path):
         tmp_path,
         "ds-clf",
     )
-    _, _, n_cls, _ = task._get_dataset_stats(
-        oml_dataset=df, is_classification=True, target_name=target
-    )
+    _, _, n_cls, _ = task._get_dataset_stats(oml_dataset=df, is_classification=True, target_name=target)
     assert n_cls == 2
 
 
@@ -715,9 +747,7 @@ def test_get_dataset_stats_num_features_excludes_target(tmp_path):
         tmp_path,
         "ds-5col",
     )
-    _, n_feat, _, _ = task._get_dataset_stats(
-        oml_dataset=df, is_classification=True, target_name="target"
-    )
+    _, n_feat, _, _ = task._get_dataset_stats(oml_dataset=df, is_classification=True, target_name="target")
     assert n_feat == 4
 
 
@@ -735,11 +765,8 @@ def test_get_dataset_stats_slice_reports_subset_class_count(tmp_path):
         tmp_path,
         "ds-slice",
     )
-    _, _, n_cls, _ = task._get_dataset_stats(
-        oml_dataset=subset_one_class, is_classification=True, target_name=target
-    )
+    _, _, n_cls, _ = task._get_dataset_stats(oml_dataset=subset_one_class, is_classification=True, target_name=target)
     assert n_cls == 1
-
 
 
 # ---------------------------------------------------------------------------
@@ -749,12 +776,8 @@ def test_get_dataset_stats_slice_reports_subset_class_count(tmp_path):
 
 def test_compute_metadata_regression(tmp_path):
     df, target, _, _ = _make_dataset("regression", n=10)
-    task, ut = _task_from_user_task(
-        df, target, "regression", {0: {0: (list(range(8)), [8, 9])}}, tmp_path, "cm-reg"
-    )
-    meta = task.compute_metadata(
-        tabarena_task_name="my-task", task_id_str=ut.task_id_str
-    )
+    task, ut = _task_from_user_task(df, target, "regression", {0: {0: (list(range(8)), [8, 9])}}, tmp_path, "cm-reg")
+    meta = task.compute_metadata(tabarena_task_name="my-task", task_id_str=ut.task_id_str)
 
     assert meta.problem_type == "regression"
     assert meta.is_classification is False
@@ -832,6 +855,50 @@ def test_compute_metadata_binary_dataset_level_stats(tmp_path):
     assert meta.num_instance_groups == 10  # no group_on
 
 
+def test_compute_metadata_dtype_flags(tmp_path):
+    """_make_dataset produces int64 'num' and category 'cat' feature columns."""
+    df, target, _, _ = _make_dataset("classification", n=10)
+    task, _ = _task_from_user_task(
+        df,
+        target,
+        "classification",
+        {0: {0: (list(range(8)), [8, 9])}},
+        tmp_path,
+        "cm-dtype-flags",
+    )
+    meta = task.compute_metadata()
+
+    assert meta.has_numeric is True
+    assert meta.has_categorical is True
+    assert meta.has_datetime is False
+    assert meta.has_text is False
+
+
+def test_compute_metadata_dtype_flags_with_text_and_datetime(tmp_path):
+    df = pd.DataFrame(
+        {
+            "num": np.arange(10, dtype="float64"),
+            "txt": pd.array(["hello"] * 10, dtype="string"),
+            "dt": pd.date_range("2020-01-01", periods=10, freq="D"),
+            "target": [0, 1] * 5,
+        }
+    )
+    task, _ = _task_from_user_task(
+        df,
+        "target",
+        "classification",
+        {0: {0: (list(range(8)), [8, 9])}},
+        tmp_path,
+        "cm-dtype-all",
+    )
+    meta = task.compute_metadata()
+
+    assert meta.has_numeric is True
+    assert meta.has_text is True
+    assert meta.has_datetime is True
+    assert meta.has_categorical is False
+
+
 # ---------------------------------------------------------------------------
 # compute_metadata — multiclass classification
 # ---------------------------------------------------------------------------
@@ -876,22 +943,13 @@ def test_compute_metadata_class_consistency_false(tmp_path):
     """
     df, target = _make_4class_dataset(n_per_class=8)  # 32 samples
     # Repeat 1 train/test: alternate halves of each 8-sample class block.
-    r1_train = (
-        list(range(4)) + list(range(8, 12)) + list(range(16, 20)) + list(range(24, 28))
-    )
-    r1_test = (
-        list(range(4, 8))
-        + list(range(12, 16))
-        + list(range(20, 24))
-        + list(range(28, 32))
-    )
+    r1_train = list(range(4)) + list(range(8, 12)) + list(range(16, 20)) + list(range(24, 28))
+    r1_test = list(range(4, 8)) + list(range(12, 16)) + list(range(20, 24)) + list(range(28, 32))
     splits = {
         0: {0: (list(range(24)), list(range(24, 32)))},
         1: {0: (r1_train, r1_test)},
     }
-    task, _ = _task_from_user_task(
-        df, target, "classification", splits, tmp_path, "cm-inconsistent"
-    )
+    task, _ = _task_from_user_task(df, target, "classification", splits, tmp_path, "cm-inconsistent")
     meta = task.compute_metadata()
 
     assert meta.problem_type == "multiclass"
@@ -913,9 +971,7 @@ def test_compute_metadata_multi_fold_split_indices(tmp_path):
             1: (list(range(5, 20)), list(range(5))),
         }
     }
-    task, _ = _task_from_user_task(
-        df, target, "classification", splits, tmp_path, "cm-mf"
-    )
+    task, _ = _task_from_user_task(df, target, "classification", splits, tmp_path, "cm-mf")
     meta = task.compute_metadata()
 
     assert meta.n_splits == 2
@@ -930,9 +986,7 @@ def test_compute_metadata_multi_fold_per_split_counts(tmp_path):
             1: (list(range(5, 20)), list(range(5))),
         }
     }
-    task, _ = _task_from_user_task(
-        df, target, "classification", splits, tmp_path, "cm-mf-cnt"
-    )
+    task, _ = _task_from_user_task(df, target, "classification", splits, tmp_path, "cm-mf-cnt")
     meta = task.compute_metadata()
 
     s0 = meta.splits_metadata["r0f0"]
@@ -949,9 +1003,7 @@ def test_compute_metadata_multi_repeat_split_indices(tmp_path):
         0: {0: (list(range(15)), list(range(15, 20)))},
         1: {0: (list(range(5, 20)), list(range(5)))},
     }
-    task, _ = _task_from_user_task(
-        df, target, "classification", splits, tmp_path, "cm-mr"
-    )
+    task, _ = _task_from_user_task(df, target, "classification", splits, tmp_path, "cm-mr")
     meta = task.compute_metadata()
 
     assert meta.n_splits == 2
@@ -966,9 +1018,7 @@ def test_compute_metadata_multi_repeat_split_indices(tmp_path):
 
 def test_compute_metadata_optional_fields_default_none(tmp_path):
     df, target, _, _ = _make_dataset("regression", n=10)
-    task, _ = _task_from_user_task(
-        df, target, "regression", {0: {0: (list(range(8)), [8, 9])}}, tmp_path, "cm-opt"
-    )
+    task, _ = _task_from_user_task(df, target, "regression", {0: {0: (list(range(8)), [8, 9])}}, tmp_path, "cm-opt")
     meta = task.compute_metadata()
 
     assert meta.tabarena_task_name is None
@@ -1046,17 +1096,14 @@ def test_compute_metadata_split_time_horizon_passthrough(tmp_path):
             pd.arrays.IntervalArray.from_breaks(range(11)),
             pd.IntervalDtype(subtype="int64", closed="right"),
         ),
-        # Note: complex128 is also unsupported by liac-arff, but pyarrow (parquet)
-        # cannot serialize it either, so it fails at a later stage and is excluded here.
+        # Note: complex128 is also unsupported by liac-arff and excluded here.
     ],
     ids=["datetime64", "timedelta64", "period", "interval"],
 )
-def test_create_local_openml_task_unsupported_arff_dtype_does_not_raise(
-    col_name, col_values, dtype, tmp_path
-):
+def test_create_local_openml_task_unsupported_arff_dtype_does_not_raise(col_name, col_values, dtype, tmp_path):
     """Columns with dtypes unsupported by liac-arff (datetime64, timedelta64, complex)
     must not prevent task creation — they are cast to string only for ARFF attribute
-    inference and do not affect the data persisted to parquet.
+    inference and do not affect the data persisted to pickle.
     """
     n = 10
     df = pd.DataFrame(
@@ -1071,11 +1118,53 @@ def test_create_local_openml_task_unsupported_arff_dtype_does_not_raise(
     splits = {0: {0: (list(range(8)), [8, 9])}}
     ut = UserTask(task_name=f"unsupported-dtype-{col_name}", task_cache_path=tmp_path)
     # Must not raise
-    ut.create_local_openml_task(
-        dataset=df, target_feature="target", problem_type="regression", splits=splits
-    )
+    ut.create_local_openml_task(dataset=df, target_feature="target", problem_type="regression", splits=splits)
 
-    # The parquet file must store the original dtype — the workaround must not
+    # The pickle file must store the original dtype — the workaround must not
     # modify the persisted data.
-    stored = pd.read_parquet(ut._local_cache_path / "data.pq")
+    with (ut._local_cache_path / "data.pkl.py3").open("rb") as fh:
+        stored, _, _ = pickle.load(fh)
     assert stored[col_name].dtype == df[col_name].dtype
+
+
+@pytest.mark.parametrize(
+    ("cat_values", "cat_dtype", "test_id"),
+    [
+        (
+            pd.Categorical([0, 1, 2, 1, 0, 2, 1, 0, 2, 1]),
+            "int64",
+            "int_categories",
+        ),
+        (
+            pd.Categorical([1.5, 2.5, 1.5, 2.5, 1.5, 2.5, 1.5, 2.5, 1.5, 2.5]),
+            "float64",
+            "float_categories",
+        ),
+    ],
+    ids=lambda x: x if isinstance(x, str) and "_categories" in x else "",
+)
+def test_create_local_openml_task_non_string_categorical_does_not_raise(cat_values, cat_dtype, test_id, tmp_path):
+    """Categorical columns whose categories have a non-string dtype (e.g. int, float)
+    must not break ARFF attribute inference — categories are cast to string only for
+    metadata and do not affect the data persisted to pickle.
+    """
+    n = 10
+    df = pd.DataFrame(
+        {
+            "num": np.arange(n, dtype="int64"),
+            "cat_col": cat_values,
+            "target": np.linspace(0.0, 1.0, num=n),
+        }
+    )
+    assert df["cat_col"].dtype.name == "category"
+    assert df["cat_col"].cat.categories.dtype == cat_dtype
+
+    splits = {0: {0: (list(range(8)), [8, 9])}}
+    ut = UserTask(task_name=f"non-str-cat-{test_id}", task_cache_path=tmp_path)
+    # Must not raise
+    ut.create_local_openml_task(dataset=df, target_feature="target", problem_type="regression", splits=splits)
+
+    # The pickle file must store the original data values unchanged.
+    with (ut._local_cache_path / "data.pkl.py3").open("rb") as fh:
+        stored, _, _ = pickle.load(fh)
+    pd.testing.assert_series_equal(stored["cat_col"].astype(str), df["cat_col"].astype(str), check_names=True)

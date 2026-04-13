@@ -5,7 +5,8 @@ import pickle
 from collections import OrderedDict
 from collections.abc import Iterable
 from copy import deepcopy
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import MISSING, asdict, dataclass, fields, replace
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -26,16 +27,17 @@ from openml.tasks import (
     OpenMLSupervisedTask,
     TaskType,
 )
-from enum import StrEnum
 
 SplitIndex = Annotated[str, "format: r{int}f{int}"]
 
 SplitTimeHorizonTypes = str | int | float
 SplitTimeHorizonUnitTypes = Literal["steps", "days", "weeks", "months", "years"] | str
 
+
 class GroupLabelTypes(StrEnum):
     PER_SAMPLE = "per_sample"
     PER_GROUP = "per_group"
+
 
 @dataclass
 class TabArenaTaskMetadata:
@@ -108,6 +110,16 @@ class TabArenaTaskMetadata:
      identifier of a local task (see `UserTask.task_id_str`).
     """
 
+    # -- Feature dtype flags (added later; default to None for backward compat) --
+    has_datetime: bool | None = None
+    """Whether the dataset contains datetime feature columns."""
+    has_text: bool | None = None
+    """Whether the dataset contains text (string/object) feature columns."""
+    has_categorical: bool | None = None
+    """Whether the dataset contains categorical feature columns."""
+    has_numeric: bool | None = None
+    """Whether the dataset contains numeric feature columns."""
+
     @property
     def n_splits(self):
         """Get the number of splits in the task."""
@@ -129,6 +141,30 @@ class TabArenaTaskMetadata:
                 "This is only supported for tasks with exactly one split."
             )
         return self.split_indices[0]
+
+    def has_supported_dtypes(self, *, required_dtypes: list[str] | None, forbidden_dtypes: list[str] | None) -> bool:
+        """Check if the dataset contains only allowed dtypes based on the feature dtype flags."""
+        if required_dtypes is not None:
+            if "datetime" in required_dtypes and not self.has_datetime:
+                return False
+            if "text" in required_dtypes and not self.has_text:
+                return False
+            if "categorical" in required_dtypes and not self.has_categorical:
+                return False
+            if "numeric" in required_dtypes and not self.has_numeric:
+                return False
+
+        if forbidden_dtypes is not None:
+            if self.has_datetime and "datetime" in forbidden_dtypes:
+                return False
+            if self.has_text and "text" in forbidden_dtypes:
+                return False
+            if self.has_categorical and "categorical" in forbidden_dtypes:
+                return False
+            if self.has_numeric and "numeric" in forbidden_dtypes:
+                return False
+
+        return True
 
     def to_dict(self, *, exclude_splits_metadata: bool = False) -> dict:
         """Convert the task metadata to a dictionary for better visualization."""
@@ -155,29 +191,29 @@ class TabArenaTaskMetadata:
         """Reconstruct TabArenaTaskMetadata from a single dataframe row."""
         row_dict = row.to_dict()
 
-        # Identify TabArenaTaskMetadata fields (excluding splits_metadata)
-        task_field_names = {
-            f.name for f in fields(TabArenaTaskMetadata) if f.name != "splits_metadata"
+        # Identify TabArenaTaskMetadata fields (excluding splits_metadata).
+        # Fields with defaults are optional for backward compatibility with
+        # older serialized metadata that may not contain newer columns.
+        all_task_fields = {f.name for f in fields(TabArenaTaskMetadata) if f.name != "splits_metadata"}
+        required_task_fields = {
+            f.name
+            for f in fields(TabArenaTaskMetadata)
+            if f.name != "splits_metadata" and f.default is MISSING and f.default_factory is MISSING
         }
-        if not all(name in row_dict for name in task_field_names):
+        if not all(name in row_dict for name in required_task_fields):
             raise ValueError(
                 "Metadata row is missing required TabArenaTaskMetadata fields: "
-                f"{task_field_names - row_dict.keys()}"
+                f"{required_task_fields - row_dict.keys()}"
             )
-        task_kwargs = {
-            key: row_dict[key] for key in task_field_names if key in row_dict
-        }
+        task_kwargs = {key: row_dict[key] for key in all_task_fields if key in row_dict}
 
         # Identify SplitMetadata fields
         split_field_names = {f.name for f in fields(SplitMetadata)}
         if not all(name in row_dict for name in split_field_names):
             raise ValueError(
-                "Metadata row is missing required SplitMetadata fields: "
-                f"{split_field_names - row_dict.keys()}"
+                f"Metadata row is missing required SplitMetadata fields: {split_field_names - row_dict.keys()}"
             )
-        split_kwargs = {
-            key: row_dict[key] for key in split_field_names if key in row_dict
-        }
+        split_kwargs = {key: row_dict[key] for key in split_field_names if key in row_dict}
         # Reconstruct SplitMetadata
         split_metadata = SplitMetadata(**split_kwargs)
 
@@ -310,7 +346,9 @@ class TabArenaTaskMetadataMixin:
         # Resolve instance groups
         if self.group_on is not None:
             num_instance_groups = self.get_num_instance_groups(
-                X=oml_dataset, group_on=self.group_on, group_labels=self.group_labels,
+                X=oml_dataset,
+                group_on=self.group_on,
+                group_labels=self.group_labels,
             )
 
         return (
@@ -351,9 +389,7 @@ class TabArenaTaskMetadataMixin:
         splits_metadata = {}
         for repeat_i, splits in self.split.split.items():
             for fold_i, samples_for_split in splits.items():
-                assert len(samples_for_split) == 1, (
-                    "Only one sample per split is supported so far!."
-                )
+                assert len(samples_for_split) == 1, "Only one sample per split is supported so far!."
                 train_idx, test_idx = samples_for_split[0]
 
                 (
@@ -390,12 +426,8 @@ class TabArenaTaskMetadataMixin:
                 if task_problem_type is None:
                     task_problem_type = split_problem_type
                 else:
-                    assert task_problem_type == split_problem_type, (
-                        "All splits must have the same problem type."
-                    )
-                s_index = SplitMetadata.get_split_index(
-                    repeat_i=repeat_i, fold_i=fold_i
-                )
+                    assert task_problem_type == split_problem_type, "All splits must have the same problem type."
+                s_index = SplitMetadata.get_split_index(repeat_i=repeat_i, fold_i=fold_i)
                 splits_metadata[s_index] = SplitMetadata(
                     repeat=repeat_i,
                     fold=fold_i,
@@ -417,6 +449,20 @@ class TabArenaTaskMetadataMixin:
             min_n_classes = min(num_classes_list)
             max_n_classes = max(num_classes_list)
             class_consistency_over_splits = min_n_classes == max_n_classes
+
+        # Detect feature dtype flags (exclude target column)
+        feature_df = oml_dataset.drop(columns=[target_name])
+
+        # FIXME: make this less strict?
+        if len(feature_df.select_dtypes(include=["object"]).columns) > 0:
+            raise ValueError(
+                "Object dtype columns are not supported. Please convert them to string dtype or categorical dtype!"
+            )
+
+        has_datetime = len(feature_df.select_dtypes(include=["datetime64"]).columns) > 0
+        has_text = len(feature_df.select_dtypes(include=["string"]).columns) > 0
+        has_categorical = len(feature_df.select_dtypes(include=["category"]).columns) > 0
+        has_numeric = len(feature_df.select_dtypes(include=["number"]).columns) > 0
 
         self._task_metadata = TabArenaTaskMetadata(
             dataset_name=dataset_name,
@@ -441,14 +487,16 @@ class TabArenaTaskMetadataMixin:
             num_instance_groups=full_num_instance_groups,
             split_time_horizon=self.split_time_horizon,
             split_time_horizon_unit=self.split_time_horizon_unit,
+            has_datetime=has_datetime,
+            has_text=has_text,
+            has_categorical=has_categorical,
+            has_numeric=has_numeric,
         )
 
         return self._task_metadata
 
 
-class TabArenaOpenMLClassificationTask(
-    TabArenaTaskMetadataMixin, OpenMLClassificationTask
-):
+class TabArenaOpenMLClassificationTask(TabArenaTaskMetadataMixin, OpenMLClassificationTask):
     """A local OpenMLClassificationTask with additional metadata for TabArena."""
 
 
@@ -457,9 +505,7 @@ class TabArenaOpenMLRegressionTask(TabArenaTaskMetadataMixin, OpenMLRegressionTa
 
 
 # For typing
-TabArenaOpenMLSupervisedTask = (
-    TabArenaOpenMLClassificationTask | TabArenaOpenMLRegressionTask
-)
+TabArenaOpenMLSupervisedTask = TabArenaOpenMLClassificationTask | TabArenaOpenMLRegressionTask
 
 
 # Patch Functions for OpenML Dataset
@@ -487,9 +533,7 @@ class UserTask:
             If None, the default OpenML cache directory is used.
         """
         self.task_name = task_name
-        self._task_name_hash = hashlib.sha256(
-            self.task_name.encode("utf-8")
-        ).hexdigest()
+        self._task_name_hash = hashlib.sha256(self.task_name.encode("utf-8")).hexdigest()
         self._task_cache_path = task_cache_path
 
     @property
@@ -497,11 +541,7 @@ class UserTask:
         """Path to use for caching the local OpenML tasks."""
         if self._task_cache_path is not None:
             return self._task_cache_path
-        return (
-            (openml.config._root_cache_directory / "tabarena_tasks")
-            .expanduser()
-            .resolve()
-        )
+        return (openml.config._root_cache_directory / "tabarena_tasks").expanduser().resolve()
 
     @staticmethod
     def from_task_id_str(task_id_str: str) -> UserTask:
@@ -536,12 +576,7 @@ class UserTask:
 
     @property
     def _local_cache_path(self) -> Path:
-        return (
-            Path(openml.config._root_cache_directory)
-            / "local"
-            / "datasets"
-            / self._local_dataset_id
-        )
+        return Path(openml.config._root_cache_directory) / "local" / "datasets" / self._local_dataset_id
 
     def get_dataset_name(self, dataset_name: str | None = None) -> str:
         """Get the dataset name to use for the local OpenML dataset."""
@@ -636,9 +671,7 @@ class UserTask:
         self._validate_splits(splits=splits, n_samples=len(dataset))
 
         task_type = (
-            TaskType.SUPERVISED_CLASSIFICATION
-            if problem_type == "classification"
-            else TaskType.SUPERVISED_REGRESSION
+            TaskType.SUPERVISED_CLASSIFICATION if problem_type == "classification" else TaskType.SUPERVISED_REGRESSION
         )
         extra_kwargs = {}
         if task_type == TaskType.SUPERVISED_CLASSIFICATION:
@@ -650,23 +683,29 @@ class UserTask:
             raise NotImplementedError(f"Task type {task_type:d} not supported.")
 
         dataset_name = self.get_dataset_name(dataset_name=dataset_name)
-        print(
-            f"Creating local OpenML task {self.task_id} with dataset '{dataset_name}'..."
-        )
+        print(f"Creating local OpenML task {self.task_id} with dataset '{dataset_name}'...")
         local_dataset = openml_create_datasets_without_arff_dump(
             name=dataset_name,
             data=dataset,
             default_target_attribute=target_feature,
         )
         # Cache data to disk
-        parquet_file = self._local_cache_path / "data.pq"
-        parquet_file.parent.mkdir(parents=True, exist_ok=True)
-        dataset.to_parquet(parquet_file)
+        #   This ensures to keep the dtypes of the original dataframe (and not lose it via parquet or similar)
+        #   Moreover, this skips that OpenML itself has do pickle dump the dataset again.
+        pickle_file = self._local_cache_path / "data.pkl.py3"
+        pickle_file.parent.mkdir(parents=True, exist_ok=True)
+        with pickle_file.open("wb") as fh:
+            pickle.dump(
+                (dataset, [dataset[c].dtype.name == "category" for c in dataset.columns], list(dataset.columns)),
+                fh,
+                pickle.HIGHEST_PROTOCOL,
+            )
         del dataset  # Free memory
 
         # We only need local_dataset.get_data() from the OpenMLDataset, thus, we make
         # sure with the code below that get_data() returns the data.
-        local_dataset.parquet_file = parquet_file
+        local_dataset.data_pickle_file = pickle_file
+        local_dataset.cache_format = "pickle"
         local_dataset.data_file = "ignored"  # not used for local datasets
 
         # Create the task
@@ -710,9 +749,7 @@ class UserTask:
         return task
 
     @staticmethod
-    def _validate_splits(
-        *, splits: dict[int, dict[int, tuple[list, list]]], n_samples: int
-    ) -> None:
+    def _validate_splits(*, splits: dict[int, dict[int, tuple[list, list]]], n_samples: int) -> None:
         """Validate the splits passed by the user."""
         if not isinstance(splits, dict):
             raise ValueError("Splits must be a dictionary.")
@@ -723,28 +760,16 @@ class UserTask:
                 raise ValueError(f"Splits for repeat {repeat_id} must be a dictionary.")
             test_indices_per_repeat = set()
             for split_id, (train_indices, test_indices) in split_dict.items():
-                if not isinstance(train_indices, list) or not isinstance(
-                    test_indices, list
-                ):
+                if not isinstance(train_indices, list) or not isinstance(test_indices, list):
                     raise ValueError(f"Indices for split {split_id} must be lists.")
-                if not all(
-                    isinstance(idx, int) for idx in train_indices + test_indices
-                ):
-                    raise ValueError(
-                        f"All indices in split {split_id} must be integers."
-                    )
+                if not all(isinstance(idx, int) for idx in train_indices + test_indices):
+                    raise ValueError(f"All indices in split {split_id} must be integers.")
                 if len(train_indices) == 0 or len(test_indices) == 0:
-                    raise ValueError(
-                        f"Train and test indices in split {split_id} must not be empty."
-                    )
+                    raise ValueError(f"Train and test indices in split {split_id} must not be empty.")
                 if set(train_indices) & set(test_indices):
-                    raise ValueError(
-                        f"Train and test indices in split {split_id} must not overlap."
-                    )
+                    raise ValueError(f"Train and test indices in split {split_id} must not overlap.")
                 if any(np.array(train_indices + test_indices) < 0):
-                    raise ValueError(
-                        f"Indices in split {split_id} must be non-negative."
-                    )
+                    raise ValueError(f"Indices in split {split_id} must be non-negative.")
                 if any(np.array(train_indices + test_indices) >= n_samples):
                     raise ValueError(
                         f"Indices in split {split_id} must not exceed the dataset size (0 to {n_samples - 1})."
@@ -777,9 +802,7 @@ class UserTask:
     def load_local_openml_task(self) -> TabArenaOpenMLSupervisedTask:
         """Load a local OpenML task from disk."""
         if not self.openml_task_path.exists():
-            raise FileNotFoundError(
-                f"Cached task file {self.openml_task_path} does not exist!"
-            )
+            raise FileNotFoundError(f"Cached task file {self.openml_task_path} does not exist!")
 
         with self.openml_task_path.open("rb") as f:
             task: OpenMLSupervisedTask = pickle.load(f)
@@ -830,14 +853,22 @@ def openml_create_datasets_without_arff_dump(
     unsupported_cols = data.select_dtypes(include=["datetime64", "timedelta64"]).columns
     # select_dtypes doesn't support "period" or "interval" as strings, so detect manually
     unsupported_cols = unsupported_cols.append(
-        pd.Index(
-            col for col in data.columns
-            if isinstance(data[col].dtype, (pd.PeriodDtype, pd.IntervalDtype))
-        )
+        pd.Index(col for col in data.columns if isinstance(data[col].dtype, (pd.PeriodDtype, pd.IntervalDtype)))
     )
-    if len(unsupported_cols) > 0:
+    # Cast categories of categorical columns to string so that
+    # attributes_arff_from_df can handle them (e.g. integer categories).
+    cat_cols_to_fix = [
+        col
+        for col in data.select_dtypes(include=["category"]).columns
+        if not pd.api.types.is_string_dtype(data[col].cat.categories)
+    ]
+
+    if len(unsupported_cols) > 0 or len(cat_cols_to_fix) > 0:
         data = data.copy()
+    if len(unsupported_cols) > 0:
         data[unsupported_cols] = data[unsupported_cols].astype(str)
+    for col in cat_cols_to_fix:
+        data[col] = data[col].cat.rename_categories(str)
 
     # infer the type of data for each column of the DataFrame
     attributes_ = attributes_arff_from_df(data)
@@ -846,9 +877,7 @@ def openml_create_datasets_without_arff_dump(
     _validated_data_attributes(ignore_attributes, attributes_, "ignore_attribute")
 
     default_target_attributes = _expand_parameter(default_target_attribute)
-    _validated_data_attributes(
-        default_target_attributes, attributes_, "default_target_attribute"
-    )
+    _validated_data_attributes(default_target_attributes, attributes_, "default_target_attribute")
 
     return OpenMLDataset(
         name=name,

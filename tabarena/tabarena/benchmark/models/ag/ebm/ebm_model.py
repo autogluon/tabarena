@@ -113,7 +113,6 @@ class ExplainableBoostingMachineModel(AbstractModel):
             problem_type=self.problem_type,
             num_classes=self.num_classes,
             hyperparameters=self._get_model_params(),
-            features=self._features,
             **kwargs,
         )
 

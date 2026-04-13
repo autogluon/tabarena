@@ -270,6 +270,29 @@ def test_get_num_group_instances_no_group():
     assert v.get_num_group_instances(X) == 7
 
 
+@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
+def test_resolve_validation_splits_group_on_with_num_repeats_none():
+    """When group_on is set and num_repeats is None, num_repeats should default to 1.
+
+    Regression test: previously num_repeats=None was passed through to
+    _resolve_group_splits which expects an integer, causing a crash.
+    """
+    n = 600  # > 500 so tiny-data path does not override num_repeats
+    groups = [f"g{i % 10}" for i in range(n)]
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": groups})
+    y = pd.Series(np.zeros(n))
+    v = _Validation(
+        use_task_specific_validation=True,
+        group_on="grp",
+        group_labels=GroupLabelTypes.PER_SAMPLE,
+    )
+    custom_splits, folds, repeats = v.resolve_validation_splits(
+        X=X, y=y, num_folds=8, num_repeats=None,
+    )
+    assert custom_splits is not None
+    assert repeats == 1
+
+
 # ===========================================================================
 # Additional split_time_index_into_intervals tests
 # ===========================================================================

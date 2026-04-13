@@ -14,7 +14,6 @@ from tabarena.nips2025_utils.end_to_end_single import (
     EndToEndResultsSingle,
     EndToEndSingle,
 )
-from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
 from tabarena.nips2025_utils.method_processor import (
     generate_task_metadata,
     load_all_artifacts,
@@ -136,7 +135,7 @@ class EndToEnd:
         unique_types = list(unique_types_dict.keys())
 
         if task_metadata is None:
-            task_metadata = generate_task_metadata(tids=list(unique_tids))
+            task_metadata = EndToEndSingle.fetch_task_metadata(tids=list(unique_tids), verbose=verbose)
 
         log(
             f"Constructing EndToEnd from raw results... Found {len(unique_types)} unique methods: {unique_types}"
@@ -185,6 +184,7 @@ class EndToEnd:
         model_key: str | None = None,
         artifact_name: str | None = None,
         num_cpus: int | None = None,
+        verbose: bool = True,
     ) -> EndToEndResults:
         """
         Create and cache end-to-end results for all methods in the given directory.
@@ -245,10 +245,8 @@ class EndToEnd:
             all_file_paths_method[did_sid].append(file_path)
 
         if task_metadata is None:
-            print("Get task metadata...")
-            task_metadata = load_task_metadata()
-            # Below is too slow to use by default, TODO: get logic for any task that is fast
-            # task_metadata = generate_task_metadata(tids=list({r.split("/")[0] for r in all_file_paths_method}))
+            tids = list({r.split("/")[0] for r in all_file_paths_method})
+            task_metadata = EndToEndSingle.fetch_task_metadata(tids=tids, verbose=verbose)
 
         results: list[EndToEndResults] = ray_map_list(
             list_to_map=list(all_file_paths_method.values()),
