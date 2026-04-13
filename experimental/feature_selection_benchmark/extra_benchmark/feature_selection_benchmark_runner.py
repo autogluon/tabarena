@@ -17,7 +17,6 @@ Usage:
         --noise 1.0 \
         --noise_type gaussian
 """
-
 from __future__ import annotations
 
 import argparse
@@ -39,96 +38,37 @@ from tabflow_slurm.run_tabarena_experiment import _parse_task_id
 class ExtraBenchmarkJob:
     mode: str
     method_name: str
-    task_id: str
+    data_foundry_task_id: str
+    repeat: int = 0
     noise: float | None = None
     noise_type: str | None = None
     ignore_cache: bool = False
 
 
-def run_extra_benchmark_job(job: ExtraBenchmarkJob):
-    cache_path = get_cache_path(job)
-
-    if cache_path.exists() and not job.ignore_cache:
-        print(f"Cache exists at {cache_path}. Skipping.")
-        return
-
-    repeat = int(job.method_name.split("__")[-3])
-    rng = np.random.default_rng(42 + repeat)
-
-    parsed_task_id = _parse_task_id(job.task_id)
-    task = OpenMLTaskWrapper(task=parsed_task_id.load_local_openml_task())
-    X, y = task.X, task.y
-
-    feature_selector, config = selector_and_config_from_string(
-        preprocessing_name=job.method_name
-    )
-    kwargs = {"noise": job.noise, "noise_type": job.noise_type}
-    X, y, original_features = _augment_dataset(
-        mode=job.mode,
-        X=X,
-        y=y,
-        rng=rng,
-        **kwargs,
-    )
-
-    start_time = time.monotonic()
-    feature_selector.fit_transform(
-        X=X,
-        y=y,
-        time_limit=config.fs_time,
-        eval_metric=task.eval_metric,
-        problem_type=task.problem_type,
-    )
-    elapsed_time = time.monotonic() - start_time
-
-    result = FeatureSelectionResult(
-        method=job.method_name,
-        data_foundry_task_id=parsed_task_id,
-        original_features=original_features,
-        max_features=feature_selector.max_features,
-        repeat=repeat,
-        selected_features=feature_selector._selected_features,
-        elapsed_time_fs=elapsed_time,
-        mode=job.mode,
-        mode_kwargs=kwargs,
-    )
-
-    pd.DataFrame([result.__dict__]).to_csv(cache_path, index=False)
-
-
 @dataclass
 class FeatureSelectionResult:
-    """Result object containing feature selection stability metrics from a single repeat.
-
-    Attributes:
-        method: Name of the feature selection method evaluated.
-        data_foundry_task_id: Task ID that was used
-        mode: Evaluation mode ("validity" or "stability").
-        mode_kwargs: Additional kwargs specific to the evaluation mode (e.g. noise level for validity mode).
-        repeat: Repeat number for the FS metric.
-
-        original_features: Number of features in the original dataset.
-        max_features: Maximum number of features requested by the selector.
-        selected_features: Names of selected features from the original_features.
-        num_classes: Number of classes in the target variable (for classification tasks).
-        num_samples: Number of samples in the dataset.
-
-        elapsed_time_fs: Runtime measurement (seconds).
-    """
-
     method: str
     data_foundry_task_id: str
     mode: str
     mode_kwargs: dict[str, Any]
     repeat: int
-
     original_features: list[str]
     max_features: int
-    selected_features: list[int]
+    selected_features: list[Any]
     num_classes: int
     num_samples: int
-
     elapsed_time_fs: float
+
+
+def get_cache_path(job: ExtraBenchmarkJob) -> Path:
+    cache_dir = Path(__file__).parent / "results"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    task_name = job.data_foundry_task_id.split("|")[3].split("/")[0]
+    safe_method = job.method_name.replace("/", "_").replace(" ", "_")
+    safe_mode = job.mode.replace("/", "_").replace(" ", "_")
+
+    return cache_dir / f"{safe_mode}_{safe_method}_{task_name}_{job.repeat}.csv"
 
 
 def _augment_dataset(
@@ -147,142 +87,99 @@ def _augment_dataset(
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
-    # Shuffle feature order to avoid selector bias.°
     shuffled_cols = rng.permutation(X.columns)
     X = X[shuffled_cols]
-
     return X, y, original_features
 
 
-def run_benchmark(  # noqa: D417
-    *,
-    data_foundry_task_id: str,
-    mode: str,
-    method_name: str,
-    repeat: int,
-    **kwargs,
-) -> FeatureSelectionResult:
-    """Run the FS benchmark loop for a given evaluation mode.
+def run_benchmark(job: ExtraBenchmarkJob) -> FeatureSelectionResult:
+    rng = np.random.default_rng(42 + job.repeat)
 
-    Args:
-        data_foundry_task_id: Task to run on
-        mode: "validity" or "stability".
-        method_name: Name of the feature selection method to evaluate.
-        repeat: Repeat number (sets the seed for repeated experiments).
-    """
-    # Setup random state
-    rng = np.random.default_rng(42 + repeat)
-
-    # Parse task and load data
-    task_id = _parse_task_id(data_foundry_task_id)
-    task = OpenMLTaskWrapper(
-        task=task_id.load_local_openml_task(),
-    )
+    task_id = _parse_task_id(job.data_foundry_task_id)
+    task = OpenMLTaskWrapper(task=task_id.load_local_openml_task())
     X, y = task.X, task.y
 
-    # Parse method
-    feature_selector, config = selector_and_config_from_string(preprocessing_name=method_name)
+    feature_selector, config = selector_and_config_from_string(
+        preprocessing_name=job.method_name
+    )
 
-    # Augment dataset with new feature based on mode.
-    X, y, original_features = _augment_dataset(mode=mode, X=X, y=y, rng=rng, **kwargs)
+    kwargs: dict[str, Any] = {}
+    if job.mode == "validity":
+        kwargs = {"noise": job.noise, "noise_type": job.noise_type}
 
-    # Run Feature Selection
+    X, y, original_features = _augment_dataset(mode=job.mode, X=X, y=y, rng=rng, **kwargs)
+
     start_time = time.monotonic()
     feature_selector.fit_transform(
-        X=X, y=y, time_limit=config.fs_time, eval_metric=task.eval_metric, problem_type=task.problem_type
+        X=X,
+        y=y,
+        time_limit=config.fs_time,
+        eval_metric=task.eval_metric,
+        problem_type=task.problem_type,
     )
     elapsed_time = time.monotonic() - start_time
 
-    # Get Results from feature selector object
-    selected_features = feature_selector._selected_features
-    max_features = feature_selector.max_features
-
-    # Create result object
     return FeatureSelectionResult(
-        method=method_name,
-        data_foundry_task_id=data_foundry_task_id,
-        original_features=original_features,
-        max_features=max_features,
-        repeat=repeat,
-        selected_features=selected_features,
-        elapsed_time_fs=elapsed_time,
-        mode=mode,
+        method=job.method_name,
+        data_foundry_task_id=job.data_foundry_task_id,
+        mode=job.mode,
         mode_kwargs=kwargs,
+        repeat=job.repeat,
+        original_features=original_features,
+        max_features=feature_selector.max_features,
+        selected_features=feature_selector._selected_features,
+        num_classes=int(y.nunique()),
+        num_samples=int(X.shape[0]),
+        elapsed_time_fs=elapsed_time,
     )
 
-def get_cache_path(args) -> Path:
-    """Generate the cache path based on arguments."""
-    cache_dir = Path(__file__).parent / "results"
-    cache_dir.mkdir(parents=True, exist_ok=True)  # Ensure the directory exists
-    cache_path = cache_dir / f"{args.mode}_{args.method_name}_{args.data_foundry_task_id.split('|')[3].split('/')[0]}_{args.repeat}.csv"
+
+def save_result(job: ExtraBenchmarkJob, result: FeatureSelectionResult) -> Path:
+    cache_path = get_cache_path(job)
+    pd.DataFrame([result.__dict__]).to_csv(cache_path, index=False)
+    return cache_path
+
+
+def run_extra_benchmark_job(job: ExtraBenchmarkJob) -> Path | None:
+    cache_path = get_cache_path(job)
+
+    if cache_path.exists() and not job.ignore_cache:
+        print(f"Cache exists at {cache_path}. Skipping.")
+        return None
+
+    result = run_benchmark(job)
+    save_result(job, result)
+    print(result)
     return cache_path
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse CLI arguments for the FS benchmark runner."""
     parser = argparse.ArgumentParser(description="FS Benchmark Runner")
-    parser.add_argument(
-        "--mode",
-        type=str,
-        choices=["validity", "stability"],
-        required=True,
-        help="Benchmark mode: 'validity' or 'stability'",
-    )
-    parser.add_argument(
-        "--method_name",
-        type=str,
-        default="FSBench__RandomFeatureSelector__5__0__lgbm__3600",
-        help="Feature Selection Method name [default: FSBench__AccuracyFeatureSelector__5__0__lgbm__3600]",
-    )
+    parser.add_argument("--mode", type=str, choices=["validity", "stability"], required=True)
+    parser.add_argument("--method_name", type=str, default="FSBench__RandomFeatureSelector__5__0__lgbm__3600")
     parser.add_argument(
         "--data_foundry_task_id",
         type=str,
         default="UserTask|1386903908|anneal/019d3f7b-494a-71fa-8eb2-25d01dfb7792|/Users/schaefer.bastian/.openml/tabarena_tasks",
-        help="TabArena/OpenML task metadata identifier [default: UserTask|1386903908|anneal/019d3f7b-494a-71fa-8eb2-25d"
-             "01dfb7792|/Users/schaefer.bastian/.openml/tabarena_tasks]",
     )
-    parser.add_argument("--repeat", type=int, default=0, help="Repeat [default: 0]")
-
-    # Mode specific extra kwargs
-    parser.add_argument(
-        "--noise",
-        type=float,
-        default=1.0,
-        help="Noise features relative to original count (validity mode only) [default: 1.0]",
-    )
-    parser.add_argument(
-        "--noise_type",
-        type=str,
-        choices=["gaussian", "uniform"],
-        default="gaussian",
-        help="Type of noise features to add (validity mode only) [default: random]",
-    )
-    parser.add_argument(
-        "--ignore_cache",
-        type=bool,
-        default=False,
-        help="Whether to ignore existing cache and rerun the benchmark (useful for debugging) [default: False]",
-    )
+    parser.add_argument("--repeat", type=int, default=0)
+    parser.add_argument("--noise", type=float, default=1.0)
+    parser.add_argument("--noise_type", type=str, choices=["gaussian", "uniform"], default="gaussian")
+    parser.add_argument("--ignore_cache", action="store_true")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
 
-    cache_path = get_cache_path(args)
+    job = ExtraBenchmarkJob(
+        mode=args.mode,
+        method_name=args.method_name,
+        data_foundry_task_id=args.data_foundry_task_id,
+        repeat=args.repeat,
+        noise=args.noise,
+        noise_type=args.noise_type,
+        ignore_cache=args.ignore_cache,
+    )
 
-    if cache_path.exists() and not args.ignore_cache:
-        print(f"Cache exists at {cache_path}. Skipping operation.")
-    else:
-        result = run_benchmark(
-            data_foundry_task_id=args.data_foundry_task_id,
-            mode=args.mode,
-            method_name=args.method_name,
-            repeat=args.repeat,
-            noise=args.noise,
-            noise_type=args.noise_type,
-        )
-
-        print(result)
-        result = pd.DataFrame([result.__dict__])
-        result.to_csv(cache_path, index=False)
+    run_extra_benchmark_job(job)
