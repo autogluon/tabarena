@@ -42,36 +42,32 @@ class FeatureSelectionResult:
     Attributes:
         method: Name of the feature selection method evaluated.
         data_foundry_task_id: Task ID that was used
+        mode: Evaluation mode ("validity" or "stability").
+        mode_kwargs: Additional kwargs specific to the evaluation mode (e.g. noise level for validity mode).
+        repeat: Repeat number for the FS metric.
 
         original_features: Number of features in the original dataset.
         max_features: Maximum number of features requested by the selector.
-        repeat: Repeat number for the FS metric.
-
         selected_features: Names of selected features from the original_features.
         num_classes: Number of classes in the target variable (for classification tasks).
         num_samples: Number of samples in the dataset.
 
         elapsed_time_fs: Runtime measurement (seconds).
-
-        mode: Evaluation mode ("validity" or "stability").
-        mode_kwargs: Additional kwargs specific to the evaluation mode (e.g. noise level for validity mode).
     """
 
     method: str
     data_foundry_task_id: str
+    mode: str
+    mode_kwargs: dict[str, Any]
+    repeat: int
 
     original_features: list[str]
     max_features: int
-    repeat: int
-
     selected_features: list[int]
     num_classes: int
     num_samples: int
 
     elapsed_time_fs: float
-
-    mode: str
-    mode_kwargs: dict[str, Any]
 
 
 def _augment_dataset(
