@@ -35,6 +35,67 @@ from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 from tabflow_slurm.run_tabarena_experiment import _parse_task_id
 
 
+@dataclass(frozen=True, kw_only=True)
+class ExtraBenchmarkJob:
+    mode: str
+    method_name: str
+    task_id: str
+    noise: float | None = None
+    noise_type: str | None = None
+    ignore_cache: bool = False
+
+
+def run_extra_benchmark_job(job: ExtraBenchmarkJob):
+    cache_path = get_cache_path(job)
+
+    if cache_path.exists() and not job.ignore_cache:
+        print(f"Cache exists at {cache_path}. Skipping.")
+        return
+
+    repeat = int(job.method_name.split("__")[-3])
+    rng = np.random.default_rng(42 + repeat)
+
+    parsed_task_id = _parse_task_id(job.task_id)
+    task = OpenMLTaskWrapper(task=parsed_task_id.load_local_openml_task())
+    X, y = task.X, task.y
+
+    feature_selector, config = selector_and_config_from_string(
+        preprocessing_name=job.method_name
+    )
+    kwargs = {"noise": job.noise, "noise_type": job.noise_type}
+    X, y, original_features = _augment_dataset(
+        mode=job.mode,
+        X=X,
+        y=y,
+        rng=rng,
+        **kwargs,
+    )
+
+    start_time = time.monotonic()
+    feature_selector.fit_transform(
+        X=X,
+        y=y,
+        time_limit=config.fs_time,
+        eval_metric=task.eval_metric,
+        problem_type=task.problem_type,
+    )
+    elapsed_time = time.monotonic() - start_time
+
+    result = FeatureSelectionResult(
+        method=job.method_name,
+        data_foundry_task_id=parsed_task_id,
+        original_features=original_features,
+        max_features=feature_selector.max_features,
+        repeat=repeat,
+        selected_features=feature_selector._selected_features,
+        elapsed_time_fs=elapsed_time,
+        mode=job.mode,
+        mode_kwargs=kwargs,
+    )
+
+    pd.DataFrame([result.__dict__]).to_csv(cache_path, index=False)
+
+
 @dataclass
 class FeatureSelectionResult:
     """Result object containing feature selection stability metrics from a single repeat.
