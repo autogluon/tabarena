@@ -622,9 +622,9 @@ class BenchmarkSetup2026:
                 raise ValueError(f"Task metadata for task {ttm.tabarena_task_name} does not have a task_id_str!")
 
         print(
-            f"Found {len(task_metadata)} tasks from metadata."
+            f"Found {len(task_metadata)} tasks to run."
             f"\n\tTask Filter History:"
-            f"\n\t(1) {n_rolled_up_tasks} datasets -> {n_unrolled_tasks} Tasks."
+            f"\n\t(1) Starting with {n_unrolled_tasks} Tasks."
             f"\n\t(2) Filter to problem types: {n_problem_types_filtered_tasks}"
             f"\n\t(3) Filter to splits: {n_splits_filtered_tasks}."
             f"\n\t(4) Filter to dtypes: {n_dtypes_filtered_tasks}."
@@ -894,7 +894,7 @@ class BenchmarkSetup2026:
             print("No jobs to run.")
             Path(base_json_path).unlink(missing_ok=True)
             Path(self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)).unlink(missing_ok=True)
-            return "N/A"
+            return ["N/A"]
 
         max_array_size = self.slurm_setup.max_array_size
         job_batches = list(to_batch_list(all_jobs, max_array_size))
