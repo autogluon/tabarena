@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-DATA_FOUNDRY_CACHE = Path("../.data_foundry_cache")
+DATA_FOUNDRY_CACHE = Path("/work/dlclarge1/purucker-fs_benchmark/.data_foundry_cache")
 OPENML_CACHE = Path("/work/dlclarge1/purucker-fs_benchmark/.openml-cache")
 
 BENCHMARK_TASK_COLLECTION_NAME = "feature_selection_benchmark"
