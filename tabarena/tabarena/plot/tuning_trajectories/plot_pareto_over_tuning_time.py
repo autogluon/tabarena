@@ -397,6 +397,7 @@ def plot_tuning_trajectories_all(
     folds: list[int] | None = None,
     methods_to_display: list[str] | None = None,
     plot_kwargs: dict | None = None,
+    include_baselines: bool = False,
 ):
     if isinstance(fig_save_dir, str):
         fig_save_dir = Path(fig_save_dir)
@@ -450,6 +451,7 @@ def plot_tuning_trajectories_all(
             folds=folds,
             methods_to_display=methods_to_display,
             plot_kwargs=plot_kwargs,
+            include_baselines=include_baselines,
         )
 
 
@@ -463,12 +465,13 @@ def plot_tuning_trajectories_per_dataset(
     folds: list[int] | None = None,
     methods_to_display: list[str] | None = None,
     plot_kwargs: dict | None = None,
+    include_baselines: bool = False,
 ):
     if isinstance(fig_save_dir, str):
         fig_save_dir = Path(fig_save_dir)
     fig_save_dir.mkdir(parents=True, exist_ok=True)
 
-    datasets = list(tabarena_context.task_metadata["dataset"].unique())
+    datasets = sorted(list(tabarena_context.task_metadata["dataset"].unique()))
     n_combinations = len(datasets)
 
     ts = time.time()
@@ -517,6 +520,7 @@ def plot_tuning_trajectories_per_dataset(
             folds=folds,
             methods_to_display=methods_to_display,
             plot_kwargs=plot_kwargs_cur,
+            include_baselines=include_baselines,
         )
 
 
@@ -530,7 +534,7 @@ def plot_tuning_trajectories(
     include_baselines: bool = False,
     include_portfolio: bool = False,  # TODO: True not yet supported
     file_ext: str = ".pdf",
-    extra_results = None,
+    extra_results: pd.DataFrame | None = None,
     datasets: list[str] | None = None,
     calibration_framework = "RF (default)",
     folds: list[int] | None = None,
@@ -565,7 +569,18 @@ def plot_tuning_trajectories(
         results_hpo_trajectory["display_name"] = m.display_name
         results_hpo_lst.append(results_hpo_trajectory)
     if extra_results is not None:
-        results_hpo_lst += extra_results
+        extra_results = extra_results.copy(deep=True)
+        if "n_configs" not in extra_results.columns:
+            extra_results["n_configs"] = np.nan
+        if "n_iterations" not in extra_results.columns:
+            extra_results["n_iterations"] = np.nan
+        extra_results["n_configs"] = extra_results["n_configs"].fillna(1)
+        extra_results["n_iterations"] = extra_results["n_iterations"].fillna(1)
+
+        extra_results["config_type"] = extra_results["method"]
+        extra_results["method"] = extra_results["method"] + "-" + extra_results["n_configs"].astype(str)
+        results_hpo_lst.append(extra_results)
+
     results_hpo = pd.concat(results_hpo_lst, ignore_index=True)
     results_hpo["display_name"] = results_hpo["display_name"].fillna(results_hpo["config_type"])
 
@@ -654,7 +669,7 @@ def plot_tuning_trajectories(
         leaderboard["name"] = leaderboard["name"].map(method_rename_map).fillna(leaderboard["name"])
 
         if ban_bad_methods:
-            bad_methods = ["KNN", "Linear", "PerpetualBooster", "TabSTAR"]
+            bad_methods = ["KNN", "Linear", "PerpetualBooster", "TabSTAR", "TabFlex"]
             leaderboard = leaderboard[~leaderboard["config_type"].isin(bad_methods)]
 
         fig_save_dir_subset = fig_save_dir / subset_name
