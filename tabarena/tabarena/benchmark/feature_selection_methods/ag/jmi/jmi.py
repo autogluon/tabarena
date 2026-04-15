@@ -127,7 +127,7 @@ class JMIFeatureSelector(AbstractFeatureSelector):
             if JMIFeatureSelector._timed_out(time_limit, start_time): 
                 break
             
-            p_x_val = p_x.get(xy_key[:-1], 0)   # CHANGED: inlined x_key
+            p_x_val = p_x.get(xy_key[:-1], 0)
             p_y_val = p_y.get((xy_key[-1],), 0)  
             if p_x_val > 0 and p_y_val > 0:
                 jmi += p_xy_val * np.log(p_xy_val / (p_x_val * p_y_val))
