@@ -272,6 +272,7 @@ class Evaluator:
         n_eval_folds: int | None = None,
         ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
         ensemble_kwargs: dict = None,
+        patience_callback: list | None = None,
     ) -> pd.DataFrame:
         repo = self.repo
 
@@ -294,6 +295,7 @@ class Evaluator:
             engine=engine,
             ensemble_cls=ensemble_cls,
             ensemble_kwargs=ensemble_kwargs,
+            patience_callback=patience_callback,
         )
 
         df_zeroshot_portfolio = pd.DataFrame(a)

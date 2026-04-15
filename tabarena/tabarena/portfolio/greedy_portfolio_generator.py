@@ -40,6 +40,7 @@ def evaluate_configs(
         ensemble_size: int = default_ensemble_size,
         ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
         ensemble_kwargs=None,
+        patience_callback: list | None = None,
         time_limit: float | None = None,
         fit_order="original",
         seed: int = 0,
@@ -71,6 +72,7 @@ def evaluate_configs(
             ensemble_cls=ensemble_cls,
             ensemble_kwargs=ensemble_kwargs,
             time_limit=time_limit,
+            patience_callback=patience_callback,
             rank=False,
         )
         assert len(df_metrics) == 1
@@ -184,6 +186,7 @@ def zeroshot_results(
         n_ensemble_in_name: bool = False,
         ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
         ensemble_kwargs: dict = None,
+        patience_callback: list | None = None,
 ) -> list[ResultRow]:
     """
     :param dataset_names: list of dataset to use when fitting zeroshot
@@ -312,6 +315,7 @@ def zeroshot_results(
             ensemble_size=n_ensemble,
             ensemble_cls=ensemble_cls,
             ensemble_kwargs=_ensemble_kwargs,
+            patience_callback=patience_callback,
             tid=test_tid,
             time_limit=max_runtime,
             method=method_name,

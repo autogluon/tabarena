@@ -722,6 +722,7 @@ class BenchmarkSetup2026:
         from tabarena.benchmark.experiment.experiment_constructor import (
             AGExperiment,
         )
+        agexp_kwargs = agexp_kwargs.copy()
 
         for key in ["fit_kwargs", "init_kwargs"]:
             if key not in agexp_kwargs:
