@@ -35,29 +35,34 @@ class ElasticNetFeatureSelector(AbstractFeatureSelector):
         X = pd.DataFrame(data_encoder.fit_transform(X), columns=X.columns, index=X.index)
         numeric_imputer = SimpleImputer(strategy="mean")
         X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=numeric_imputer.get_feature_names_out(), index=X.index)
+        
         if self.problem_type == "regression":
-            y_processed = y
-            C = 1.0
-            l1_ratio = 0.5
-            max_iter = 5000
+            elastic_net = make_pipeline(
+            StandardScaler(with_mean=True, with_std=True),
+            ElasticNet(
+                alpha=1.0,
+                l1_ratio=0.5,
+                max_iter=5000,
+                random_state=self.random_state,
+            ),
+        )
+            elastic_net.fit(X_imputed, y)
+            scores = elastic_net.named_steps["elasticnet"].coef_
+        else:
+            label_encoder = LabelEncoder()
+            y_processed = label_encoder.fit_transform(y)
             elastic_net = make_pipeline(
                 StandardScaler(with_mean=True, with_std=True),
                 LogisticRegression(
                     penalty="elasticnet",
                     solver="saga",
-                    l1_ratio=l1_ratio,
-                    C=C,
-                    max_iter=max_iter,
+                    l1_ratio = 0.5,
+                    C = 1.0,
+                    max_iter = 5000,
                     random_state=self.random_state,
                     n_jobs=-1,
                 ),
             )
             elastic_net.fit(X_imputed, y_processed)
             scores = elastic_net.named_steps["logisticregression"].coef_[0]
-        else:
-            label_encoder = LabelEncoder()
-            y_processed = label_encoder.fit_transform(y)
-            elastic_net = ElasticNet(random_state=0)
-            elastic_net.fit(X_imputed, y_processed)
-            scores = elastic_net.coef_
         return dict(zip(X.columns, scores))
