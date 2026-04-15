@@ -44,58 +44,59 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
         F = np.nan * np.zeros(n_features)
         CMIM = np.zeros(n_features)
         m = np.zeros(n_features) - 1
+        F_set = set() 
+        
+        cols = [X.iloc[:, i] for i in range(n_features)]
+        
+        def timed_out() -> bool:  # helper for time-limit checks
+            return time_limit is not None and (time.monotonic() - start_time) >= time_limit
 
         # Init CMIM with Mutual Information
         for i in range(n_features):
-            elapsed_time = time.monotonic() - start_time
-            if (time_limit is not None) and (elapsed_time >= time_limit):
+            if timed_out():
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
-                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
+                    f"\t(Time Elapsed = {time.monotonic() - start_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
-            f = X.iloc[:, i]
-            CMIM[i] = self.midd(f, y)
+            CMIM[i] = self.midd(cols[i], y)
 
         for k in range(n_features):
-            elapsed_time = time.monotonic() - start_time
-            if (time_limit is not None) and (elapsed_time >= time_limit):
+            if timed_out():
                 logger.warning(
                     f"Warning: FeatureSelection Method has no time left to train... "
-                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
+                    f"\t(Time Elapsed = {time.monotonic() - start_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                 )
                 break
             # Choose the feature with the highest MI as the next feature
             idx = np.argmax(CMIM)
             F[k] = idx
+            F_set.add(int(idx))
             CMIM[idx] = -np.inf
             # Early stopping
-            if np.sum(~np.isnan(F)) == self.max_features:
+            if k + 1 == self.max_features:
                 break
 
-            sstar = -1000000  # start with really low value for best partial score sstar
+            sstar = -np.inf # start with really low value for best partial score sstar
             for i in range(n_features):
-                elapsed_time = time.monotonic() - start_time
-                if (time_limit is not None) and (elapsed_time >= time_limit):
+                if timed_out():
                     logger.warning(
                         f"Warning: FeatureSelection Method has no time left to train... "
-                        f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
+                        f"\t(Time Elapsed = {time.monotonic() - start_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                     )
                     break
-                if i not in F:
+                if i not in F_set:
                     while (CMIM[i] > sstar) and (m[i] < k - 1):
-                        elapsed_time = time.monotonic() - start_time
-                        if (time_limit is not None) and (elapsed_time >= time_limit):
+                        if timed_out():
                             logger.warning(
                                 f"Warning: FeatureSelection Method has no time left to train... "
-                                f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
+                                f"\t(Time Elapsed = {time.monotonic() - start_time:.1f}s, Time Limit = {time_limit:.1f}s)"
                             )
                             break
                         m[i] = m[i] + 1
-                        CMIM[i] = min(CMIM[i], self.cmidd(X.iloc[:, i], y, X.iloc[:, int(F[int(m[i])])]))
+                        CMIM[i] = min(CMIM[i], self.cmidd(cols[i], y, cols[int(F[int(m[i])])]))
                     if CMIM[i] > sstar:
                         sstar = CMIM[i]
-                        F[k + 1] = i
         selected_indices = [int(idx) for idx in F if not np.isnan(idx)]
         selected_features = [self._original_features[i] for i in selected_indices]
         return [str(feat) for feat in selected_features]
