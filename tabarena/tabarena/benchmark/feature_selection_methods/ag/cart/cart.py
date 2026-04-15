@@ -26,8 +26,11 @@ class CARTFeatureSelector(AbstractFeatureSelector):
     def _fit_feature_scoring(
         self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None,  # noqa: ARG002
     ) -> dict[str, float]:
+        numeric_imputer = SimpleImputer(strategy="most_frequent") # handles categorical feats too
+        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=X.columns, index=X.index)
         data_encoder = OrdinalEncoder()
-        X = pd.DataFrame(data_encoder.fit_transform(X), columns=X.columns, index=X.index)
+        X = pd.DataFrame(data_encoder.fit_transform(X_imputed), columns=X_imputed.columns, index=X_imputed.index)
+        
         if self.problem_type == "regression":
             y_processed = y
             CART = DecisionTreeRegressor(random_state=0)
@@ -35,8 +38,7 @@ class CARTFeatureSelector(AbstractFeatureSelector):
             label_encoder = LabelEncoder()
             y_processed = label_encoder.fit_transform(y)
             CART = DecisionTreeClassifier(random_state=0)
-        numeric_imputer = SimpleImputer(strategy="mean")
-        X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=numeric_imputer.get_feature_names_out(), index=X.index)
-        CART.fit(X_imputed, y_processed)
+
+        CART.fit(X, y_processed)
         importances = CART.feature_importances_
         return dict(zip(X.columns, importances))
