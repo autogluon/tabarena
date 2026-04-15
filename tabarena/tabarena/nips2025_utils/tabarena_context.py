@@ -268,6 +268,7 @@ class TabArenaContext:
         n_iterations: int = 40,
         default_method: str = None,
         always_include_default: bool = True,
+        fixed_configs: list[str] | None = None,
         fit_order: Literal["original", "random"] = "random",
         time_limit: float | None = None,
         backend: Literal["ray", "native"] = "ray",
@@ -277,7 +278,9 @@ class TabArenaContext:
         ta_suite: str = None,
         display_name: str = None,
     ) -> pd.DataFrame:
-        methods: list[MethodMetadata] = [self.method_metadata(m) if isinstance(m, str) else m for m in methods]
+        methods: list[MethodMetadata] = [
+            m if isinstance(m, MethodMetadata) else self.method_metadata(m) for m in methods
+        ]
         if repo is None:
             repo = self.load_repo(methods=methods)
             if folds is not None:
@@ -295,6 +298,7 @@ class TabArenaContext:
             seeds=seeds,
             n_iterations=n_iterations,
             always_include_default=always_include_default,
+            fixed_configs=fixed_configs,
             fit_order=fit_order,
             time_limit=time_limit,
             backend=backend,
@@ -305,6 +309,95 @@ class TabArenaContext:
         hpo_trajectory["ta_name"] = ta_name
         hpo_trajectory["ta_suite"] = ta_suite
         hpo_trajectory["display_name"] = display_name
+        return hpo_trajectory
+
+    # TODO: Refine this
+    def generate_portfolio_trajectories(
+        self,
+        configs: list[str],
+        config_fallback: str | None = None,
+        n_configs: list[int | None] | str = "auto",
+        seeds: int | list[int] = 1,
+        n_iterations: int = 40,
+        fit_order: Literal["original", "random"] = "original",
+        time_limit: float | None = None,
+        methods: str | None = None,
+        repo: EvaluationRepository | None = None,
+        folds: list[int] | None = None,
+        holdout: bool = False,
+        name: str = None,
+        ta_name: str = None,
+        ta_suite: str = None,
+        display_name: str = None,
+        **kwargs,
+    ) -> pd.DataFrame:
+        """
+        Given a list of configs, compute the tuning trajectories
+        for the first N configs for each N in n_configs.
+        """
+        if n_configs == "auto":
+            n_configs = [
+                1,
+                2,
+                5,
+                10,
+                25,
+                50,
+                100,
+                150,
+                None,  # all configs
+            ]
+        if isinstance(seeds, int):
+            seeds = [i for i in range(seeds)]
+
+        if repo is None:
+            if methods is not None:
+                methods: list[MethodMetadata] = [
+                    m if isinstance(m, MethodMetadata) else self.method_metadata(m) for m in methods
+                ]
+            repo = self.load_repo(methods=methods, config_fallback=config_fallback)
+
+        # TODO: also include config_fallback
+        configs_w_fallback = copy.deepcopy(configs)
+        if config_fallback is not None:
+            if config_fallback not in configs_w_fallback:
+                configs_w_fallback.append(config_fallback)
+            repo.set_config_fallback(config_fallback=config_fallback)
+        repo = repo.subset(configs=configs_w_fallback, folds=folds)
+
+        df_results_hpo_lst = []
+
+        n_config_total = len(configs)
+
+        n_configs = [n_config if n_config is not None else n_config_total for n_config in n_configs]
+        n_configs = [n_config for n_config in n_configs if n_config <= n_config_total]
+        n_configs = sorted(list(set(n_configs)))
+
+        for n_config in n_configs:
+            print(f"Running n_config={n_config}")
+            for seed in seeds:
+                df_results_hpo = self.simulate_portfolio_from_configs(
+                    n_iterations=n_iterations,
+                    configs=configs[:n_config],
+                    repo=repo,
+                    folds=folds,
+                    seed=seed,
+                    fit_order=fit_order,
+                    time_limit=time_limit,
+                    **kwargs,
+                )
+
+                if name is not None:
+                    df_results_hpo["method"] = f"HPO-N{n_config}-{name}"
+                df_results_hpo["n_configs"] = n_config
+                df_results_hpo["n_iterations"] = n_iterations
+                df_results_hpo_lst.append(df_results_hpo)
+        hpo_trajectory = pd.concat(df_results_hpo_lst, ignore_index=True)
+
+        hpo_trajectory["ta_name"] = ta_name
+        hpo_trajectory["ta_suite"] = ta_suite
+        hpo_trajectory["display_name"] = display_name
+
         return hpo_trajectory
 
     def combine_hpo(
