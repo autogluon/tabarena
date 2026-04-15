@@ -198,6 +198,11 @@ class TabMImplementation:
         # this is the search space default but not the example default (which is 'none')
         gradient_clipping_norm = self.config.get("gradient_clipping_norm", 1.0)
 
+        # VRAM eval safety for large feature count
+        if X_train.shape[1] > 5_000:
+            eval_batch_size = batch_size
+
+
         # -- Verify HPs
         num_emb_n_bins = min(num_emb_n_bins, n_train - 1)
         if n_train <= 2:

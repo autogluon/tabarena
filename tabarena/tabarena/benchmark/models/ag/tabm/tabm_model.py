@@ -219,6 +219,11 @@ class TabMModel(AbstractTorchModel):
             n_samples=len(X),
         )
 
+    def _validate_fit_memory_usage(self, mem_error_threshold: float = 0.98, **kwargs):
+        # Given the good mem estimates with overhead, we set the threshold to 1.
+        return super()._validate_fit_memory_usage(mem_error_threshold=mem_error_threshold, **kwargs)
+
+
     @classmethod
     def _estimate_tabm_ram(
         cls,
@@ -240,6 +245,9 @@ class TabMModel(AbstractTorchModel):
             batch_size = cls.get_tabm_auto_batch_size(n_samples=n_samples)
         tabm_k = hyperparameters.get("tabm_k", 32)
         predict_batch_size = hyperparameters.get("eval_batch_size", 1024)
+
+        if (n_numerical + len(cat_sizes)) >  5_000:
+            predict_batch_size = batch_size
 
         # not completely sure
         n_params_num_emb = n_numerical * (num_emb_n_bins + 1) * d_embedding
