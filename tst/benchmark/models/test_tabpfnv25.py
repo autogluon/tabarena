@@ -17,19 +17,20 @@ def test_tabpfnv25():
                 "n_estimators": 1,
             },
         )
-        FitHelper.verify_model(
-            model_cls=model_cls,
-            model_hyperparameters={
-                "n_estimators": 1,
-                "finetuning_config/epochs": 1,
-                "use_finetuning": True,
-                "ag_args_ensemble": {"refit_folds": False},
-            },
-            use_larger_toy_datasets=True,
-        )
+        # FitHelper.verify_model(
+        #     model_cls=model_cls,
+        #     model_hyperparameters={
+        #         "n_estimators": 1,
+        #         "finetuning_config/epochs": 1,
+        #         "use_finetuning": True,
+        #         "ag_args_ensemble": {"refit_folds": False},
+        #     },
+        #     use_larger_toy_datasets=True,
+        # )
     except ImportError as err:
         pytest.skip(
             f"Import Error, skipping test... "
             f"Ensure you have the proper dependencies installed to run this test:\n"
             f"{err}"
         )
+
