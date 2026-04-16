@@ -192,7 +192,7 @@ class TabMImplementation:
         allow_amp = self.config.get("allow_amp", False)
         n_blocks = self.config.get("n_blocks", "auto")
         num_emb_n_bins = self.config.get("num_emb_n_bins", 48)
-        eval_batch_size = self.config.get("eval_batch_size", 1024)
+        eval_batch_size = self.config.get("eval_batch_size", "auto")
         share_training_batches = self.config.get("share_training_batches", False)
         weight_decay = self.config.get("weight_decay", 3e-4)
         # this is the search space default but not the example default (which is 'none')
@@ -205,7 +205,7 @@ class TabMImplementation:
         if batch_size == "auto":
             batch_size = get_tabm_auto_batch_size(n_train=n_train)
         # VRAM eval safety for large feature count
-        if X_train.shape[1] > 5_000:
+        if eval_batch_size == "auto":
             eval_batch_size = batch_size
 
         # -- Preprocessing

@@ -244,9 +244,8 @@ class TabMModel(AbstractTorchModel):
         if isinstance(batch_size, str) and batch_size == "auto":
             batch_size = cls.get_tabm_auto_batch_size(n_samples=n_samples)
         tabm_k = hyperparameters.get("tabm_k", 32)
-        predict_batch_size = hyperparameters.get("eval_batch_size", 1024)
-
-        if (n_numerical + len(cat_sizes)) >  5_000:
+        predict_batch_size = hyperparameters.get("eval_batch_size", "auto")
+        if predict_batch_size == "auto":
             predict_batch_size = batch_size
 
         # not completely sure
