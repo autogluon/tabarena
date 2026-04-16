@@ -40,6 +40,7 @@ dependencies = [
 [project.optional-dependencies]
 tabpfn = [
   "tabpfn>=7.0.0",
+  "tabpfn-extensions[many_class] @ git+https://github.com/PriorLabs/tabpfn-extensions.git",
 ]
 tabicl = ["tabicl>=2.0.0"]
 ebm = ["interpret-core>=0.7.3"]
@@ -59,6 +60,7 @@ perpetualboosting = ["perpetual"] # We used version 2.1.0
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [
   "tabpfn>=7.0.0",
+  "tabpfn-extensions[many_class] @ git+https://github.com/PriorLabs/tabpfn-extensions.git",
   "tabicl>=2.0.0",
   "interpret-core>=0.7.3",
   "configspace>=1.2,<2.0",
