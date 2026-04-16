@@ -307,7 +307,7 @@ class BenchmarkSetup2026:
             }
         }
     """
-    max_predict_batch_size: int | None = 50_000
+    max_predict_batch_size: int | None = None
     """Maximal batch size for the predict function of the models.
     This is used at validation and test predict time. Thus, it trades off speed for memory usage. 
     If None, no limit is applied.
