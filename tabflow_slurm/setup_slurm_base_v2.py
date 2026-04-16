@@ -363,6 +363,10 @@ class BenchmarkSetup2026:
     """
     verbosity: int = 2
     """Verbosity level for logging and printing."""
+    model_verbosity: int | None = None
+    """Verbosity level passed to the model via model_hyperparameters['verbose'].
+    Controls model-level logging (e.g. CatBoost iteration logs, LightGBM verbosity)
+    independently of AutoGluon's overall verbosity. If None, no model-level verbosity is set."""
 
     def __post_init__(self):
         # Max number of configs per job. Might be overridden.
@@ -780,7 +784,7 @@ class BenchmarkSetup2026:
             "init_kwargs": {"verbosity": self.verbosity},
             "shuffle_features": self.shuffle_features,
             "fit_kwargs": dict(),
-            "model_hyperparameters": dict(),
+            "extra_model_hyperparameters": dict(),
         }
         if self.model_artifacts_base_path is not None:
             method_kwargs["init_kwargs"]["default_base_path"] = self.model_artifacts_base_path
@@ -789,7 +793,9 @@ class BenchmarkSetup2026:
         if self.adapt_num_folds_to_n_classes:
             method_kwargs["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"] = True
         if self.max_predict_batch_size is not None:
-            method_kwargs["model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
+            method_kwargs["extra_model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
+        if self.model_verbosity is not None:
+            method_kwargs["extra_model_hyperparameters"]["ag.verbosity"] = self.model_verbosity
 
         print(
             "Generating experiments for models...",

@@ -87,6 +87,12 @@ def setup_slurm_job(
                 num_gpus=num_gpus,
                 num_cpus=num_cpus,
                 _plasma_directory=_plasma_directory,
+                # Ensure Loky uses forkserver and avoids bugs from running parallel across ray workers
+                runtime_env={
+                    "env_vars": {
+                        "LOKY_START_METHOD": "forkserver",
+                    }
+                },
             )
     return ray_dir
 
