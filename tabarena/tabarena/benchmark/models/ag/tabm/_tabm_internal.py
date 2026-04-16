@@ -198,17 +198,15 @@ class TabMImplementation:
         # this is the search space default but not the example default (which is 'none')
         gradient_clipping_norm = self.config.get("gradient_clipping_norm", 1.0)
 
-        # VRAM eval safety for large feature count
-        if X_train.shape[1] > 5_000:
-            eval_batch_size = batch_size
-
-
         # -- Verify HPs
         num_emb_n_bins = min(num_emb_n_bins, n_train - 1)
         if n_train <= 2:
             num_emb_type = "none"  # there is no valid number of bins for piecewise linear embeddings
         if batch_size == "auto":
             batch_size = get_tabm_auto_batch_size(n_train=n_train)
+        # VRAM eval safety for large feature count
+        if X_train.shape[1] > 5_000:
+            eval_batch_size = batch_size
 
         # -- Preprocessing
         ds_parts = dict()
