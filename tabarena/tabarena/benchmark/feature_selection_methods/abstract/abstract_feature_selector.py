@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import tempfile
+import time
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -284,7 +285,6 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         time_limit: int | None = None,
         n_train_subsample: int | None = 10_000,
         n_val_fraction: float = 0.33,
-        random_state: int = 0,
     ) -> float:
         """Evaluate the proxy model on the given data."""
         from autogluon.core.models import BaggedEnsembleModel
@@ -318,7 +318,7 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
         # Validation splits + Subsampling
         X, y = X.copy(), y.copy()  # avoid modifying the input data
         X_train, X_val, y_train, y_val = generate_train_test_split(
-            X=X, y=y, test_size=n_val_fraction, random_state=random_state, problem_type=problem_type
+            X=X, y=y, test_size=n_val_fraction, random_state=self.random_state, problem_type=problem_type
         )
         del X, y  # free up memory
         if (n_train_subsample is not None) and (len(X_train) > n_train_subsample):
@@ -329,7 +329,7 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
             )
             drop_ratio = 1.0 - n_train_subsample / len(X_train)
             X_train, _, y_train, _ = generate_train_test_split(
-                X=X_train, y=y_train, problem_type=problem_type, random_state=random_state, test_size=drop_ratio
+                X=X_train, y=y_train, problem_type=problem_type, random_state=self.random_state, test_size=drop_ratio
             )
 
         # Preprocessing
@@ -365,3 +365,15 @@ class AbstractFeatureSelector(AbstractFeatureGenerator):
 
         # Ensure Python dtype
         return float(score)
+    
+    def _timed_out(self, time_limit, start_time) -> bool:
+        if time_limit is None:
+            return False
+        elapsed = time.monotonic() - start_time
+        if elapsed >= time_limit:
+            self._log(30, 
+                f"Warning: FeatureSelection Method has no time left to train... "
+                f"\t(Time Elapsed = {elapsed:.1f}s, Time Limit = {time_limit:.1f}s)"
+            )
+            return True
+        return False

@@ -1,7 +1,6 @@
 """Accuracy-based feature selection."""
 from __future__ import annotations
 
-import logging
 import time
 from typing import TYPE_CHECKING
 
@@ -10,26 +9,12 @@ from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_sele
 if TYPE_CHECKING:
     import pandas as pd
 
-logger = logging.getLogger(__name__)
 
 class AccuracyFeatureSelector(AbstractFeatureSelector):
     """Accuracy-based Feature Selection."""
 
     name = "AccuracyFeatureSelector"
     feature_scoring_method: bool = True
-    
-    @staticmethod
-    def _timed_out(time_limit, start_time) -> bool:
-        if time_limit is None:
-            return False
-        elapsed = time.monotonic() - start_time
-        if elapsed >= time_limit:
-            logger.warning(
-                f"Warning: FeatureSelection Method has no time left to train... "
-                f"\t(Time Elapsed = {elapsed:.1f}s, Time Limit = {time_limit:.1f}s)"
-            )
-            return True
-        return False
     
     def _fit_feature_scoring(self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None) -> dict[str, float]:
         start_time = time.monotonic()
