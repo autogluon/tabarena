@@ -45,6 +45,7 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
         self.failure_artifact = None
         self.shuffle_features = shuffle_features
         self._can_use_data_in_place = False
+        self._split_seed = "NOTSET"
 
     def transform_y(self, y: pd.Series) -> pd.Series:
         return self.label_cleaner.transform(y)
@@ -105,6 +106,7 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
             Returns predictions, probabilities, fit time and inference time
         """
         from tabarena.utils.memory_utils import CpuMemoryTracker, GpuMemoryTracker
+        self._split_seed = split_seed
 
         if lazy_load_function is not None:
             assert X is None and y is None and X_test is None, "If lazy_load_function is provided, X and y must be None"
