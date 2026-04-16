@@ -26,6 +26,9 @@ class ANOVAFeatureSelector(AbstractFeatureSelector):
     name = "ANOVAFeatureSelector"
     feature_scoring_method: bool = True
 
+    # TODO: ordinal encoding only for categorical
+    # TODO: impute based on attr type
+    # TODO: split for regression/classification
     def _fit_feature_scoring(
         self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None,  # noqa: ARG002
     ) -> dict[str, float]:
@@ -33,7 +36,7 @@ class ANOVAFeatureSelector(AbstractFeatureSelector):
         X = pd.DataFrame(data_encoder.fit_transform(X), columns=X.columns, index=X.index)
         label_encoder = LabelEncoder()
         y = label_encoder.fit_transform(y)
-        numeric_imputer = SimpleImputer(strategy="mean")
+        numeric_imputer = SimpleImputer(strategy="")
         X_imputed = pd.DataFrame(numeric_imputer.fit_transform(X), columns=numeric_imputer.get_feature_names_out(), index=X.index)
 
         anova_kwargs = {"score_func": f_classif, "k": "all"}

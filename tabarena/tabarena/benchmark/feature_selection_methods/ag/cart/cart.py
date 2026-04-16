@@ -23,6 +23,9 @@ class CARTFeatureSelector(AbstractFeatureSelector):
     name = "CARTFeatureSelector"
     feature_scoring_method: bool = True
 
+    # TODO: encode only categorical
+    # TODO: split imputation based on attr type
+    # TODO: use random state attribute from AbstractFeatureSelector
     def _fit_feature_scoring(
         self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None,  # noqa: ARG002
     ) -> dict[str, float]:
