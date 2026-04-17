@@ -64,6 +64,7 @@ class Chi2FeatureSelector(AbstractFeatureSelector):
             if n_bins < 2:
                 continue  # constant feature, skip
             X_disc[col] = KBinsDiscretizer(
-                n_bins=n_bins, encode="ordinal", strategy="quantile"
+                n_bins=n_bins, encode="ordinal", strategy="quantile",
+                quantile_method="averaged_inverted_cdf"
             ).fit_transform(X[[col]])
         return X_disc
