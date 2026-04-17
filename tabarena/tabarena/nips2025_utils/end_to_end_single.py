@@ -480,14 +480,15 @@ class EndToEndSingle:
             If None, it will use all available CPUs.
         name_prefix_raw: str | None = None
             If specified, we only search for results in subdirectories starting with this prefix.
-            Useful when `path_raw` contains results for multiple methods.
+            Useful when `path_raw` contains results for multiple methods. This should be the
+            `ag_name` of the method's AbstractModel class.
         """
         if num_cpus is None:
             num_cpus = len(os.sched_getaffinity(0))
 
         print("Get results paths...")
         file_paths = fetch_all_pickles(
-            dir_path=path_raw, suffix="results.pkl", name_pattern=name_prefix_raw,
+            dir_path=path_raw, suffix="results.pkl", name_pattern=name_prefix_raw, num_workers=num_cpus,
         )
         if len(file_paths) == 0:
             raise ValueError(f"No results.pkl files found in {path_raw} with name prefix {name_prefix_raw}!")
@@ -502,6 +503,14 @@ class EndToEndSingle:
         if task_metadata is None:
             tids = list({int(r.split("/")[0]) for r in all_file_paths_method})
             task_metadata = EndToEndSingle.fetch_task_metadata(tids=tids, verbose=verbose)
+
+        valid_tids = set(task_metadata["tid"].unique())
+        removed = [k for k in all_file_paths_method if int(k.split("/")[0]) not in valid_tids]
+        removed_tids = sorted({int(k.split("/")[0]) for k in removed})
+        for tid in removed_tids:
+            print(f"Removing file paths for task not in task_metadata: tid={tid}")
+        for k in removed:
+            del all_file_paths_method[k]
 
         import ray
         if not ray.is_initialized():

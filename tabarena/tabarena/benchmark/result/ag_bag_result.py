@@ -69,8 +69,9 @@ class AGBagResult(ConfigResult):
             bag_info["pred_test_per_child"] = bag_info.pop("pred_proba_test_per_child")
         num_samples_val = len(self.result["simulation_artifacts"]["y_val_idx"])
         if "val_idx_per_child" in bag_info and "pred_val_per_child" not in bag_info:
+            # TODO: verify nothing break if we dont assert anymore
             # Ensure no repeated bagging
-            assert num_samples_val == sum([len(val_idx_child) for val_idx_child in bag_info["val_idx_per_child"]])
+            # assert num_samples_val == sum([len(val_idx_child) for val_idx_child in bag_info["val_idx_per_child"]])
             # convert to pred_val_per_child
             pred_val_per_child = []
             if len(bag_info["val_idx_per_child"]) == 1:

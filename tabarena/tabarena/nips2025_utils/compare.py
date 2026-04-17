@@ -282,3 +282,59 @@ def subset_tasks(
         df_results = df_results[df_results["fold"].isin(folds)]
     df_results = df_results.reset_index(drop=True)
     return df_results
+
+def subset_tasks_new(
+    *,
+    df_results: pd.DataFrame,
+    subset: list[str],
+    task_metadata: pd.DataFrame,
+) -> pd.DataFrame:
+
+    df_results = df_results.copy(deep=True)
+    for filter_subset in subset:
+        if filter_subset == "classification":
+            df_results = df_results[
+                df_results["problem_type"].isin(["binary", "multiclass"])
+            ]
+        elif filter_subset == "binary":
+            df_results = df_results[df_results["problem_type"] == "binary"]
+        elif filter_subset == "multiclass":
+            df_results = df_results[df_results["problem_type"] == "multiclass"]
+        elif filter_subset == "regression":
+            df_results = df_results[df_results["problem_type"] == "regression"]
+        elif filter_subset == "large":
+            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 100_000]
+            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 1_000_000]
+            valid_datasets = task_metadata["dataset"].unique()
+            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+        elif filter_subset == "medium":
+            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 10_000]
+            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 100_000]
+            valid_datasets = task_metadata["dataset"].unique()
+            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+        elif filter_subset == "small":
+            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 10_000]
+            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 1_000]
+            valid_datasets = task_metadata["dataset"].unique()
+            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+        elif filter_subset == "tiny":
+            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 100]
+            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 1_000]
+            valid_datasets = task_metadata["dataset"].unique()
+            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+        elif filter_subset == "random":
+            task_metadata = task_metadata[task_metadata["time_on"].isna() & task_metadata["group_on"].isna()]
+            valid_datasets = task_metadata["dataset"].unique()
+            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+        elif filter_subset == "temporal":
+            task_metadata = task_metadata[~task_metadata["time_on"].isna()]
+            valid_datasets = task_metadata["dataset"].unique()
+            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+        elif filter_subset == "grouped":
+            task_metadata = task_metadata[~task_metadata["group_on"].isna()]
+            valid_datasets = task_metadata["dataset"].unique()
+            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+        else:
+            raise ValueError(f"Invalid subset {subset} name!")
+
+    return df_results.reset_index(drop=True)

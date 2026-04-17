@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import fnmatch
 import os
 import pickle
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from itertools import chain
 from pathlib import Path
@@ -82,6 +84,7 @@ def fetch_all_pickles(
     suffix: str = ".pkl",
     max_files: int | None = None,
     name_pattern: str | None = None,
+    num_workers: int | None = None,
     **kwargs,
 ) -> list[Path]:
     """Recursively find every file ending in “.pkl” under *dir_path*
@@ -94,6 +97,9 @@ def fetch_all_pickles(
         If a list of directories, will search over all directories.
     name_pattern: str | None
         If provided, only files in subdirectories matching this pattern will be considered.
+    num_workers: int | None
+        If set to an int > 1, use ray to parallelize the directory walk across
+        top-level and next-level subdirectories. Default (None or 1) is sequential.
 
     Returns:
     -------
@@ -105,12 +111,24 @@ def fetch_all_pickles(
     Never un‑pickle data you do not trust.
     Malicious pickle data can execute arbitrary code.
     """
+    if num_workers is not None and num_workers > 1:
+        if max_files is not None:
+            raise NotImplementedError(
+                "Limiting max_files is not currently implemented for num_workers > 1."
+            )
+        return _fetch_all_pickles_parallel(
+            dir_path=dir_path,
+            suffix=suffix,
+            name_pattern=name_pattern,
+            num_workers=num_workers,
+        )
+
     if not isinstance(dir_path, list):
         dir_path = [dir_path]
 
     file_paths: list[Path] = []
     for cur_dir_path in dir_path:
-        root = Path(cur_dir_path).expanduser().resolve()
+        root = Path(cur_dir_path).expanduser()
         if not root.is_dir():
             if root.is_file():
                 assert str(root).endswith(suffix), (
@@ -120,19 +138,126 @@ def fetch_all_pickles(
             else:
                 raise NotADirectoryError(f"{root} is not a directory")
         else:
-            # Look for *.pkl
-            pattern = f"*{suffix}"
-
             if name_pattern is not None:
-                pattern = f"{name_pattern}*/**/{pattern}"
+                prefix_glob = f"{name_pattern}*"
+                top_dirs = [
+                    Path(e.path)
+                    for e in os.scandir(root)
+                    if e.is_dir(follow_symlinks=False)
+                    and fnmatch.fnmatch(e.name, prefix_glob)
+                ]
+            else:
+                top_dirs = [root]
 
-            for file_path in tqdm.tqdm(
-                root.rglob(pattern), desc=f"Searching for pickles in {cur_dir_path}"
-            ):
-                file_paths.append(file_path)
+            pbar = tqdm.tqdm(
+                desc=f"Searching for pickles in {cur_dir_path} (suffix={suffix}, name_pattern={name_pattern})",
+                unit=" files",
+            )
+            try:
+                for top in top_dirs:
+                    for dirpath, _dirnames, filenames in os.walk(top):
+                        dp = Path(dirpath)
+                        for fn in filenames:
+                            if fn.endswith(suffix):
+                                file_paths.append(dp / fn)
+                                pbar.update(1)
+                                if (
+                                    max_files is not None
+                                    and len(file_paths) == max_files
+                                ):
+                                    return file_paths
+            finally:
+                pbar.close()
 
-                if (max_files is not None) and (len(file_paths) == max_files):
-                    return file_paths
+    return file_paths
+
+
+def _scan_dirs_for_pickles(dir_paths: list[Path], suffix: str) -> list[Path]:
+    """Scan a batch of directories for files ending in `suffix` (ray worker)."""
+    out: list[Path] = []
+    for d in dir_paths:
+        for dirpath, _dirnames, filenames in os.walk(d):
+            dp = Path(dirpath)
+            out.extend(dp / fn for fn in filenames if fn.endswith(suffix))
+    return out
+
+
+def _fetch_all_pickles_parallel(
+    dir_path: str | Path | list[str | Path],
+    *,
+    suffix: str,
+    name_pattern: str | None,
+    num_workers: int,
+) -> list[Path]:
+    """Parallel variant of `fetch_all_pickles` using ray.
+
+    Expands search roots to their immediate subdirectories (and, when
+    `name_pattern` is set, filters top-level children first), batches the
+    resulting work units, and maps `_scan_dirs_for_pickles` over them.
+    """
+    from tabarena.utils.ray_utils import ray_map_list, to_batch_list
+
+    if not isinstance(dir_path, list):
+        dir_path = [dir_path]
+
+    file_paths: list[Path] = []
+    work_units: list[Path] = []
+
+    for cur_dir_path in dir_path:
+        root = Path(cur_dir_path).expanduser()
+        if not root.is_dir():
+            raise NotADirectoryError(f"{root} is not a directory")
+
+        if name_pattern is not None:
+            prefix_glob = f"{name_pattern}*"
+            top_dirs = [
+                Path(e.path)
+                for e in os.scandir(root)
+                if e.is_dir(follow_symlinks=False)
+                and fnmatch.fnmatch(e.name, prefix_glob)
+            ]
+        else:
+            top_dirs = [root]
+
+        # Expand one level deeper for better parallelism across ray workers.
+        for top in top_dirs:
+            subs = [
+                Path(e.path)
+                for e in os.scandir(top)
+                if e.is_dir(follow_symlinks=False)
+            ]
+            if not subs:
+                warnings.warn(f"{top} does not contain results!")
+                continue
+            work_units.extend(subs)
+
+    if work_units:
+        batch_size = max(len(work_units) // (num_workers * 4), 1)
+        batch_size = min(batch_size, 500)
+        batches = list(to_batch_list(work_units, batch_size))
+
+        import ray
+
+        if not ray.is_initialized():
+            ray.init(num_cpus=num_workers)
+
+        results = ray_map_list(
+            list_to_map=batches,
+            func=_scan_dirs_for_pickles,
+            func_element_key_string="dir_paths",
+            num_workers=num_workers,
+            num_cpus_per_worker=1,
+            func_kwargs={"suffix": suffix},
+            track_progress=True,
+            tqdm_kwargs={
+                "desc": (
+                    f"Searching for pickles (suffix={suffix}, "
+                    f"name_pattern={name_pattern}, workers={num_workers})"
+                ),
+            },
+            ray_remote_kwargs={"max_calls": 0},
+        )
+        file_paths.extend(chain.from_iterable(results))
 
     return file_paths
 

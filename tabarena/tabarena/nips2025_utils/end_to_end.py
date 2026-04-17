@@ -476,13 +476,13 @@ class EndToEndResults:
         return df_results
 
     @classmethod
-    def from_cache(cls, methods: list[str | MethodMetadata | tuple[str, str]]) -> Self:
+    def from_cache(cls, methods: list[str | MethodMetadata | tuple[str, str]], *, default_artifact_name: None | str = None) -> Self:
         end_to_end_results_lst = []
         for method in methods:
             if isinstance(method, tuple):
                 method, artifact_name = method
             else:
-                artifact_name = None
+                artifact_name = default_artifact_name
             end_to_end_results = EndToEndResultsSingle.from_cache(
                 method=method, artifact_name=artifact_name
             )

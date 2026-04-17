@@ -41,6 +41,7 @@ def generate_repo_from_results_lst(
 ) -> EvaluationRepository:
     results_lst = [r for r in results_lst if r is not None]
     tids = set(list(task_metadata["tid"].unique()))
+    assert all(not isinstance(tid, str) for tid in tids), f"Expected all tids to be numbers, but got str: {tids}"
     results_lst = [r for r in results_lst if r.result["task_metadata"]["tid"] in tids]
 
     if name_suffix is not None:
@@ -50,8 +51,11 @@ def generate_repo_from_results_lst(
                 r.update_model_type(name_suffix=name_suffix)
 
     if len(results_lst) == 0:
-        print(f"EMPTY")
-        return None
+        raise ValueError(
+            "No results found after filtering by task metadata tids. "
+            "Please check that the tids in the results match those in the task metadata. "
+            "Moreover, check that the path you are parsing only contain results for the allowed tids!"
+        )
 
     exp_results = ExperimentResults(task_metadata=task_metadata)
 

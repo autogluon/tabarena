@@ -173,8 +173,13 @@ class TabArenaTaskMetadata:
             res.pop("splits_metadata")
         return res
 
-    def to_dataframe(self) -> pd.DataFrame:
-        """Transform metadata to a DataFrame."""
+    def to_dataframe(self, *, add_old_minimal_metadata: bool = False) -> pd.DataFrame:
+        """Transform metadata to a DataFrame.
+
+        If add_old_minimal_metadata is True, also add old minimal metadata for backward
+        compatibility with old eval code. That is, we add the columns: "tid", "name", "task_type", "dataset",
+        "n_samples_train_per_fold", "n_samples_test_per_fold".
+        """
         rows = []
         static_metadata = self.to_dict(exclude_splits_metadata=True)
         for split_metadata in self.splits_metadata.values():
@@ -184,7 +189,21 @@ class TabArenaTaskMetadata:
                     **split_metadata.to_dict(),
                 }
             )
-        return pd.DataFrame(rows)
+
+        df = pd.DataFrame(rows)
+
+        # TODO: move somewhere else / get rid of this?
+        if add_old_minimal_metadata:
+            # Add old minimal metadata for backward compatibility with old eval code
+            df["tid"] = int(self.task_id_str.split("|")[1])  # FIXME: avoid hacky way
+            df["name"] = df["tabarena_task_name"]
+            df["task_type"] = "classification"
+            df.loc[~df["is_classification"], "task_type"] = "regression"
+            df["dataset"] = df["tabarena_task_name"]
+            df["n_samples_train_per_fold"] = df["num_instances_train"]
+            df["n_samples_test_per_fold"] = df["num_instances_test"]
+
+        return df
 
     @staticmethod
     def from_row(row: pd.Series) -> TabArenaTaskMetadata:
