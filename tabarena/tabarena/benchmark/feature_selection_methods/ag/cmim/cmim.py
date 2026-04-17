@@ -1,32 +1,27 @@
 """Conditional Mutual Information Maximization (CMIM) feature selection."""
 from __future__ import annotations
 
-import logging
 import time
+import numpy as np
+
 from math import log
 from typing import TYPE_CHECKING
-
-import numpy as np
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import KBinsDiscretizer
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
 
 if TYPE_CHECKING:
     import pandas as pd
 
-logger = logging.getLogger(__name__)
-
 
 class CMIMFeatureSelector(AbstractFeatureSelector):
     """CMIM Feature Selection.
 
-    Reference: Fleuret, François. "Fast binary feature selection with
-    conditional mutual information." Journal of Machine learning
-    research 5.Nov (2004): 1531-1555.
-    Implementation Source:
-    https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/information_theoretical_based/CMIM.py#L4.
-    The author of the code is Li, Jundong, Associate Professor at the
-    University of Virginia and main-author of
-    'Feature selection: A data perspective' (2017).
+    Reference: Fleuret, François. "Fast binary feature selection with conditional mutual information." 
+    Journal of Machine learning research 5.Nov (2004): 1531-1555.
+    Implementation Source: https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/information_theoretical_based/CMIM.py#L4.
+    The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
                            - Add max_features (number of features to be maximally selected by the method) constraint
@@ -38,7 +33,7 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
 
     def _fit_feature_selection(  # noqa: C901
         self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None
-    ) -> dict[str, float]:
+    ) -> list[str]:
         start_time = time.monotonic()
         n_features = len(X.columns)
         F = np.nan * np.zeros(n_features)
@@ -46,27 +41,25 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
         m = np.zeros(n_features) - 1
         F_set = set() 
         
+        num_cols = X.select_dtypes(include="number").columns
+        cat_cols = X.select_dtypes(include=["object", "category"]).columns
+        X = X.copy()
+        if len(num_cols):
+            X[num_cols] = SimpleImputer(strategy="mean").fit_transform(X[num_cols])
+        if len(cat_cols):
+            X[cat_cols] = SimpleImputer(strategy="most_frequent").fit_transform(X[cat_cols])
+        X = self._discretize(X)
+
         cols = [X.iloc[:, i] for i in range(n_features)]
-        
-        def timed_out() -> bool:  # helper for time-limit checks
-            return time_limit is not None and (time.monotonic() - start_time) >= time_limit
 
         # Init CMIM with Mutual Information
         for i in range(n_features):
-            if timed_out():
-                logger.warning(
-                    f"Warning: FeatureSelection Method has no time left to train... "
-                    f"\t(Time Elapsed = {time.monotonic() - start_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                )
+            if self._timed_out(time_limit, start_time):
                 break
             CMIM[i] = self.midd(cols[i], y)
 
         for k in range(n_features):
-            if timed_out():
-                logger.warning(
-                    f"Warning: FeatureSelection Method has no time left to train... "
-                    f"\t(Time Elapsed = {time.monotonic() - start_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                )
+            if self._timed_out(time_limit, start_time):
                 break
             # Choose the feature with the highest MI as the next feature
             idx = np.argmax(CMIM)
@@ -79,19 +72,11 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
 
             sstar = -np.inf # start with really low value for best partial score sstar
             for i in range(n_features):
-                if timed_out():
-                    logger.warning(
-                        f"Warning: FeatureSelection Method has no time left to train... "
-                        f"\t(Time Elapsed = {time.monotonic() - start_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                    )
+                if self._timed_out(time_limit, start_time):
                     break
                 if i not in F_set:
-                    while (CMIM[i] > sstar) and (m[i] < k - 1):
-                        if timed_out():
-                            logger.warning(
-                                f"Warning: FeatureSelection Method has no time left to train... "
-                                f"\t(Time Elapsed = {time.monotonic() - start_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                            )
+                    while (CMIM[i] > sstar) and (m[i] < k):
+                        if self._timed_out(time_limit, start_time):
                             break
                         m[i] = m[i] + 1
                         CMIM[i] = min(CMIM[i], self.cmidd(cols[i], y, cols[int(F[int(m[i])])]))
@@ -100,21 +85,6 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
         selected_indices = [int(idx) for idx in F if not np.isnan(idx)]
         selected_features = [self._original_features[i] for i in selected_indices]
         return [str(feat) for feat in selected_features]
-
-    def conditional_entropy(self, f1, f2):
-        """This function calculates the conditional entropy, where ce = H(f1) - I(f1;f2).
-
-        Input
-        -----
-        f1: {numpy array}, shape (n_samples,)
-        f2: {numpy array}, shape (n_samples,)
-
-        Output
-        ------
-        ce: {float}
-            ce is conditional entropy of f1 and f2
-        """
-        return self.entropyd(f1) - self.midd(f1, f2)
 
     def midd(self, x, y):
         """Discrete mutual information estimator given a list of samples which can be any hashable object."""
@@ -132,6 +102,22 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
             - self.entropyd(list(zip(x, y, z)))
             - self.entropyd(z)
         )
+    
+    def _discretize(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Discretize continuous attributes with unsupervised method (original paper refers to Fayyad & Irani MDL)"""
+        X_disc = X.copy()
+        num_cols = X.select_dtypes(include="number").columns
+        max_bins = int(np.log2(len(X))) + 1  # sturges' rule to scale with size
+        
+        for col in num_cols:
+            n_bins = min(X[col].nunique(), max_bins)
+            if n_bins < 2:
+                continue  # constant feature, skip
+            X_disc[col] = KBinsDiscretizer(
+                n_bins=n_bins, encode="ordinal", strategy="quantile",
+                quantile_method="averaged_inverted_cdf"
+            ).fit_transform(X[[col]])
+        return X_disc
 
     @staticmethod
     def hist(sx):
@@ -139,7 +125,7 @@ class CMIMFeatureSelector(AbstractFeatureSelector):
         d = dict()
         for s in sx:
             d[s] = d.get(s, 0) + 1
-        return (float(z) / len(sx) for z in d.values())
+        return [float(z) / len(sx) for z in d.values()]
 
     def entropyfromprobs(self, probs, base=2):
         """Compute entropy from a probability distribution."""
