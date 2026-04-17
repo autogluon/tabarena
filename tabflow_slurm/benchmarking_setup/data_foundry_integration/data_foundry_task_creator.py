@@ -205,6 +205,12 @@ def _get_path_to_metadata_cache() -> Path:
 
     return base_path / "tabarena_metadata_cache"
 
+def _init_openml_cache(openml_cache: str | Path) -> None:
+    import openml
+
+    print(f"Setting OpenML cache directory to: {openml_cache}")
+    openml.config.set_root_cache_directory(root_cache_directory=str(openml_cache))
+
 def download_data_foundry_datasets(
     *,
     benchmark_suite_name: str,
@@ -239,10 +245,7 @@ def download_data_foundry_datasets(
         A DataFrame containing metadata about the created TabArena UserTasks.
     """
     if openml_cache is not None:
-        import openml
-
-        print(f"Setting OpenML cache directory to: {openml_cache}")
-        openml.config.set_root_cache_directory(root_cache_directory=openml_cache)
+        _init_openml_cache(openml_cache=openml_cache)
 
     print("Preprocessing data foundry datasets for TabArena...")
     task_metadata = DataFoundryAdapter(
@@ -257,21 +260,25 @@ def download_data_foundry_datasets(
     task_metadata.to_csv(path_to_metadata, index=False)
 
 
-def get_metadata_for_benchmark_suite(benchmark_suite_name: str, data_foundry_cache: Path) -> Path:
+def get_metadata_for_benchmark_suite(benchmark_suite_name: str, *, openml_cache: Path | None = None) -> Path:
     """Get the path to the metadata CSV file for a given benchmark suite.
 
     Parameters
     ----------
     benchmark_suite_name : str
         The name of the benchmark suite for which to retrieve the metadata.
-    data_foundry_cache : Path
-        The path to the cache directory from where to load data foundry data.
+    openml_cache: str | None
+        If not None, sets the OpenML cache directory to the specified path for
+        downloading and caching TabArenaOpenML tasks.
 
     Returns:
     -------
     Path
         The path to the metadata CSV file for the specified benchmark suite.
     """
+    if openml_cache is not None:
+        _init_openml_cache(openml_cache=openml_cache)
+
     path_to_metadata = _get_path_to_metadata_cache() / f"{benchmark_suite_name}_tasks_metadata.csv"
     if not path_to_metadata.exists():
         raise FileNotFoundError(

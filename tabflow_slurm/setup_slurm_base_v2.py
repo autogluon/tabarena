@@ -567,7 +567,6 @@ class BenchmarkSetup2026:
             # Parse task_metadat
             task_metadata = [TabArenaTaskMetadata.from_row(row) for _, row in task_metadata.iterrows()]
         assert all(isinstance(x, TabArenaTaskMetadata) for x in task_metadata)
-        n_rolled_up_tasks = len(task_metadata)
 
         # Unify format to be unrolled
         task_metadata = [single_ttm for ttm in task_metadata for single_ttm in ttm.unroll_splits()]
