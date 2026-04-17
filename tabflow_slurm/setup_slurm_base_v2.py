@@ -307,7 +307,7 @@ class BenchmarkSetup2026:
             }
         }
     """
-    max_predict_batch_size: int | None = 50_000
+    max_predict_batch_size: int | None = None
     """Maximal batch size for the predict function of the models.
     This is used at validation and test predict time. Thus, it trades off speed for memory usage. 
     If None, no limit is applied.
@@ -363,6 +363,10 @@ class BenchmarkSetup2026:
     """
     verbosity: int = 2
     """Verbosity level for logging and printing."""
+    model_verbosity: int | None = None
+    """Verbosity level passed to the model via model_hyperparameters['verbose'].
+    Controls model-level logging (e.g. CatBoost iteration logs, LightGBM verbosity)
+    independently of AutoGluon's overall verbosity. If None, no model-level verbosity is set."""
 
     def __post_init__(self):
         # Max number of configs per job. Might be overridden.
@@ -622,9 +626,9 @@ class BenchmarkSetup2026:
                 raise ValueError(f"Task metadata for task {ttm.tabarena_task_name} does not have a task_id_str!")
 
         print(
-            f"Found {len(task_metadata)} tasks from metadata."
+            f"Found {len(task_metadata)} tasks to run."
             f"\n\tTask Filter History:"
-            f"\n\t(1) {n_rolled_up_tasks} datasets -> {n_unrolled_tasks} Tasks."
+            f"\n\t(1) Starting with {n_unrolled_tasks} Tasks."
             f"\n\t(2) Filter to problem types: {n_problem_types_filtered_tasks}"
             f"\n\t(3) Filter to splits: {n_splits_filtered_tasks}."
             f"\n\t(4) Filter to dtypes: {n_dtypes_filtered_tasks}."
@@ -722,6 +726,7 @@ class BenchmarkSetup2026:
         from tabarena.benchmark.experiment.experiment_constructor import (
             AGExperiment,
         )
+        agexp_kwargs = agexp_kwargs.copy()
 
         for key in ["fit_kwargs", "init_kwargs"]:
             if key not in agexp_kwargs:
@@ -779,7 +784,7 @@ class BenchmarkSetup2026:
             "init_kwargs": {"verbosity": self.verbosity},
             "shuffle_features": self.shuffle_features,
             "fit_kwargs": dict(),
-            "model_hyperparameters": dict(),
+            "extra_model_hyperparameters": dict(),
         }
         if self.model_artifacts_base_path is not None:
             method_kwargs["init_kwargs"]["default_base_path"] = self.model_artifacts_base_path
@@ -788,7 +793,9 @@ class BenchmarkSetup2026:
         if self.adapt_num_folds_to_n_classes:
             method_kwargs["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"] = True
         if self.max_predict_batch_size is not None:
-            method_kwargs["model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
+            method_kwargs["extra_model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
+        if self.model_verbosity is not None:
+            method_kwargs["extra_model_hyperparameters"]["ag.verbosity"] = self.model_verbosity
 
         print(
             "Generating experiments for models...",
@@ -894,7 +901,7 @@ class BenchmarkSetup2026:
             print("No jobs to run.")
             Path(base_json_path).unlink(missing_ok=True)
             Path(self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)).unlink(missing_ok=True)
-            return "N/A"
+            return ["N/A"]
 
         max_array_size = self.slurm_setup.max_array_size
         job_batches = list(to_batch_list(all_jobs, max_array_size))

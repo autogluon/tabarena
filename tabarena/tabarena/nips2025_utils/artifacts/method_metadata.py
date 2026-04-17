@@ -709,6 +709,7 @@ class MethodMetadata:
         n_configs: list[int | None] | str = "auto",
         seeds: int | list[int] = 20,
         n_iterations: int = 40,
+        fixed_configs: list[str] | None = None,
         always_include_default: bool = True,
         fit_order: Literal["original", "random"] = "random",
         time_limit: float | None = None,
@@ -747,8 +748,7 @@ class MethodMetadata:
         n_configs = [n_config for n_config in n_configs if n_config <= n_config_total]
         n_configs = sorted(list(set(n_configs)))
 
-        fixed_configs = None
-        if always_include_default:
+        if always_include_default and fixed_configs is None:
             config_default = self.config_default
             assert config_default is not None
             fixed_configs = [config_default]

@@ -211,6 +211,18 @@ class TabICLModelBase(AbstractTorchModel):
     def checkpoint_search_space() -> list[str | tuple[str, str]]:
         raise NotImplementedError("This method must be implemented in the subclass.")
 
+    def get_device(self) -> str:
+        return self.model.device_.type
+
+    # TODO: Better to have an official TabICL method for this
+    def _set_device(self, device: str):
+        device = self.to_torch_device(device)
+        self.model.device_ = device
+        self.model.device = self.model.device_.type
+        self.model.model_ = self.model.model_.to(self.model.device_)
+        self.model.inference_config_.COL_CONFIG.device = self.model.device_
+        self.model.inference_config_.ROW_CONFIG.device = self.model.device_
+        self.model.inference_config_.ICL_CONFIG.device = self.model.device_
 
 class TabICLModel(TabICLModelBase):
     """TabICLv1.1 model as used on TabArena."""
@@ -238,18 +250,6 @@ class TabICLModel(TabICLModelBase):
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
-    def get_device(self) -> str:
-        return self.model.device_.type
-
-    # TODO: Better to have an official TabICL method for this
-    def _set_device(self, device: str):
-        device = self.to_torch_device(device)
-        self.model.device_ = device
-        self.model.device = self.model.device_.type
-        self.model.model_ = self.model.model_.to(self.model.device_)
-        self.model.inference_config_.COL_CONFIG.device = self.model.device_
-        self.model.inference_config_.ROW_CONFIG.device = self.model.device_
-        self.model.inference_config_.ICL_CONFIG.device = self.model.device_
 
 class TabICLv2Model(TabICLModelBase):
     """TabICLv2 model as used on TabArena."""
@@ -273,3 +273,9 @@ class TabICLv2Model(TabICLModelBase):
                 "tabicl-regressor-v2-20260212.ckpt",
             )
         ]
+
+    # Estimate from above is not well-implemented for TabICLv2,
+    # thus, we disable it here for now.
+    @classmethod
+    def _class_tags(cls) -> dict:
+        return {"can_estimate_memory_usage_static": False}

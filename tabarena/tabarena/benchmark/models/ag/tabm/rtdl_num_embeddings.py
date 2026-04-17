@@ -458,11 +458,13 @@ def compute_bins(
         # https://github.com/yandex-research/tabular-dl-num-embeddings/blob/c1d9eb63c0685b51d7e1bc081cdce6ffdb8886a8/bin/train4.py#L612C30-L612C30
         # (explanation: limiting the number of quantiles by the number of distinct
         #  values is NOT the same as removing identical quantiles after computing them).
+        # Compute quantiles on CPU to avoid GPU OOM for large datasets.
+        # This is a one-time preprocessing step so CPU speed is acceptable.
+        X_cpu = X.cpu()
+        quantiles = torch.linspace(0.0, 1.0, n_bins + 1)
         bins = [
-            q.unique()
-            for q in torch.quantile(
-                X, torch.linspace(0.0, 1.0, n_bins + 1).to(X), dim=0
-            ).T
+            q.unique().to(X)
+            for q in torch.quantile(X_cpu, quantiles, dim=0).T
         ]
         _check_bins(bins)
         return bins

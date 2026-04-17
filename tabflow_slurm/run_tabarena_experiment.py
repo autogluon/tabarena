@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import shutil
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import openml
+
+# Silence loky resource tracker clean up logs
+logging.getLogger("loky.backend.resource_tracker").setLevel(logging.CRITICAL)
 
 
 def setup_slurm_job(
@@ -45,10 +49,10 @@ def setup_slurm_job(
     if setup_ray_for_slurm_shared_resources_environment:
         print("Setting up Ray for SLURM job in a shared resources environment.")
         import logging
+        import os
         import tempfile
 
         import ray
-        import os
 
         os.environ["RAY_DISABLE_RETRIES"] = "1"
 
@@ -83,6 +87,12 @@ def setup_slurm_job(
                 num_gpus=num_gpus,
                 num_cpus=num_cpus,
                 _plasma_directory=_plasma_directory,
+                # Ensure Loky uses forkserver and avoids bugs from running parallel across ray workers
+                runtime_env={
+                    "env_vars": {
+                        "LOKY_START_METHOD": "forkserver",
+                    }
+                },
             )
     return ray_dir
 
@@ -441,9 +451,7 @@ if __name__ == "__main__":
         from autogluon.common.utils.resource_utils import ResourceManager
 
         memory_limit = int(ResourceManager.get_memory_size(format="GB"))
-        print(
-            f"Memory limit not provided, using detected memory size: {memory_limit} GB"
-        )
+        print(f"Memory limit not provided, using detected memory size: {memory_limit} GB")
 
     num_gpus_model = args.num_gpus_model if args.num_gpus_model is not None else args.num_gpus
     print(f"GPUs for node/Ray: {args.num_gpus}, GPUs for model fitting: {num_gpus_model}")

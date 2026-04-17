@@ -199,6 +199,12 @@ def convert_data_foundry_task_to_user_task(
     return user_task
 
 
+def _get_path_to_metadata_cache() -> Path:
+    import openml
+    base_path = openml.config._root_cache_directory
+
+    return base_path / "tabarena_metadata_cache"
+
 def download_data_foundry_datasets(
     *,
     benchmark_suite_name: str,
@@ -244,7 +250,9 @@ def download_data_foundry_datasets(
         path_to_data_foundry_cache=data_foundry_cache,
     ).to_tabarena_user_tasks(show_sample=True)
 
-    path_to_metadata = data_foundry_cache / f"{benchmark_suite_name}_tasks_metadata.csv"
+
+    path_to_metadata = _get_path_to_metadata_cache() / f"{benchmark_suite_name}_tasks_metadata.csv"
+    path_to_metadata.parent.mkdir(parents=True, exist_ok=True)
     print(f"Saving metadata to {path_to_metadata}")
     task_metadata.to_csv(path_to_metadata, index=False)
 
@@ -264,7 +272,7 @@ def get_metadata_for_benchmark_suite(benchmark_suite_name: str, data_foundry_cac
     Path
         The path to the metadata CSV file for the specified benchmark suite.
     """
-    path_to_metadata = data_foundry_cache / f"{benchmark_suite_name}_tasks_metadata.csv"
+    path_to_metadata = _get_path_to_metadata_cache() / f"{benchmark_suite_name}_tasks_metadata.csv"
     if not path_to_metadata.exists():
         raise FileNotFoundError(
             f"Metadata file {path_to_metadata} does not exist. Please run download_data_foundry_datasets first."

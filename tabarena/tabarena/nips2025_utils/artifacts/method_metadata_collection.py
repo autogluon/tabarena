@@ -58,8 +58,10 @@ class MethodMetadataCollection:
         by_method = [m for m in self.method_metadata_lst if m.method == method]
 
         if not by_method:
+            valid_methods = [m.method for m in self.method_metadata_lst]
             raise LookupError(
                 f"No MethodMetadata entries exist with method='{method}'."
+                f"\nValid methods: {valid_methods}"
             )
 
         # 2) Apply only the provided (non-None) fields.

@@ -176,6 +176,17 @@ class TabArenaValidationProtocolExecMixin:
                 num_folds = n_groups
                 num_repeats = 1
 
+            if stratify_on_data is not None:
+                n_samples_minority_class = int(stratify_on_data.value_counts().min())
+                if n_samples_minority_class < num_folds:
+                    logger.warning(
+                        f"Number of samples in minority class for stratification ({n_samples_minority_class}) is less "
+                        f"than the number of folds ({num_folds})! We set num_folds to be equal to the number of samples"
+                        " in the minority class, and num_repeats to 1."
+                    )
+                    num_folds = n_samples_minority_class
+                    num_repeats = 1
+
             custom_splits = self._resolve_group_splits(
                 X=X,
                 num_folds=num_folds,

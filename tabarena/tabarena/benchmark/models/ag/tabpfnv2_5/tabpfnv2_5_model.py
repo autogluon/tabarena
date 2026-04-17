@@ -175,6 +175,16 @@ class TabPFNModel(AbstractTorchModel):
             if k.startswith("finetuning_config/"):
                 del hps[k]
 
+        # Resolve many_class config
+        many_class_config = {
+            _k: v
+            for k, v in hps.items()
+            if k.startswith("many_class/") and (_k := k.split("/", 1)[1])
+        }
+        for k in list(hps.keys()):
+            if k.startswith("many_class/"):
+                del hps[k]
+
         use_finetuning = hps.pop("use_finetuning", False)
         if not use_finetuning:
             from tabpfn import TabPFNClassifier, TabPFNRegressor
@@ -186,11 +196,26 @@ class TabPFNModel(AbstractTorchModel):
             # Use ICL, fit preprocessing only
             model_base = TabPFNClassifier if is_classification else TabPFNRegressor
             self.model = model_base(**hps)
+
+            # Wrap with ManyClassClassifier for datasets with >10 classes
+            if is_classification and self.num_classes is not None and self.num_classes > 10:
+                from tabpfn_extensions.many_class import ManyClassClassifier
+
+                self.model = ManyClassClassifier(
+                    estimator=self.model,
+                    alphabet_size=10,
+                    random_state=hps.get(self.seed_name, 0),
+                    **many_class_config,
+                )
+
             self.model = self.model.fit(
                 X=X,
                 y=y,
             )
         else:
+            raise NotImplementedError(
+                "Finetuning is not supported anymore for now due to other changes!."
+            )
             # TODO:
             #   Future Work for better performance:
             #   - set n_finetune_ctx_plus_query_samples and finetune_ctx_query_split_ratio
@@ -267,26 +292,30 @@ class TabPFNModel(AbstractTorchModel):
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
+    def _get_base_tabpfn_model(self):
+        """Unwrap ManyClassClassifier to get the underlying TabPFN estimator."""
+        try:
+            from tabpfn_extensions.many_class import ManyClassClassifier
+        except ImportError:
+            return self.model
+        if isinstance(self.model, ManyClassClassifier):
+            return self.model.estimator
+        return self.model
+
     def get_device(self) -> str:
-        return self.model.devices_[0].type
+        base = self._get_base_tabpfn_model()
+        if hasattr(base, "devices_"):
+            return base.devices_[0].type
+        # When wrapped in ManyClassClassifier, the base estimator is not fitted
+        # and devices_ is not available. Fall back to the constructor device param.
+        return base.device
 
     def _set_device(self, device: str):
-        self.model.to(device)
+        self._get_base_tabpfn_model().to(device)
 
     @classmethod
     def supported_problem_types(cls) -> list[str] | None:
         return ["binary", "multiclass", "regression"]
-
-    def _get_default_auxiliary_params(self) -> dict:
-        default_auxiliary_params = super()._get_default_auxiliary_params()
-        default_auxiliary_params.update(
-            {
-                "max_rows": 100_000,
-                "max_features": 2000,
-                "max_classes": 10,
-            }
-        )
-        return default_auxiliary_params
 
     @classmethod
     def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
@@ -402,6 +431,17 @@ class RealTabPFNv25Model(TabPFNModel):
             "tabpfn-v2.5-regressor-v2.5_variant.ckpt",
         ]
 
+    def _get_default_auxiliary_params(self) -> dict:
+        default_auxiliary_params = super()._get_default_auxiliary_params()
+        default_auxiliary_params.update(
+            {
+                "max_rows": 100_000,
+                "max_features": 2000,
+                "max_classes": 10,
+            }
+        )
+        return default_auxiliary_params
+
 class TabPFNv26Model(TabPFNModel):
     """TabPFN-2.6 version."""
 
@@ -423,3 +463,14 @@ class TabPFNv26Model(TabPFNModel):
         raise NotImplementedError(
             "We did not benchmark more checkpoints or tuning."
         )
+
+    # We do not put a limit on number of classes or features anymore for
+    # the sake of the benchmark.
+    def _get_default_auxiliary_params(self) -> dict:
+        default_auxiliary_params = super()._get_default_auxiliary_params()
+        default_auxiliary_params.update(
+            {
+                "max_rows": 100_000,
+            }
+        )
+        return default_auxiliary_params

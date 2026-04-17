@@ -11,7 +11,7 @@ import time
 import pandas as pd
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
-
+from .tabm_utils import get_tabm_auto_batch_size
 from autogluon.tabular import __version__
 
 logger = logging.getLogger(__name__)
@@ -219,6 +219,11 @@ class TabMModel(AbstractTorchModel):
             n_samples=len(X),
         )
 
+    def _validate_fit_memory_usage(self, mem_error_threshold: float = 0.98, **kwargs):
+        # Given the good mem estimates with overhead, we set the threshold to 1.
+        return super()._validate_fit_memory_usage(mem_error_threshold=mem_error_threshold, **kwargs)
+
+
     @classmethod
     def _estimate_tabm_ram(
         cls,
@@ -237,9 +242,11 @@ class TabMModel(AbstractTorchModel):
             n_blocks = 3
         batch_size = hyperparameters.get("batch_size", "auto")
         if isinstance(batch_size, str) and batch_size == "auto":
-            batch_size = cls.get_tabm_auto_batch_size(n_samples=n_samples)
+            batch_size = get_tabm_auto_batch_size(n_samples=n_samples, n_features=n_numerical + len(cat_sizes))
         tabm_k = hyperparameters.get("tabm_k", 32)
-        predict_batch_size = hyperparameters.get("eval_batch_size", 1024)
+        predict_batch_size = hyperparameters.get("eval_batch_size", "auto")
+        if predict_batch_size == "auto":
+            predict_batch_size = batch_size
 
         # not completely sure
         n_params_num_emb = n_numerical * (num_emb_n_bins + 1) * d_embedding
@@ -272,27 +279,12 @@ class TabMModel(AbstractTorchModel):
             5 * mem_ds + 1.2 * mem_forward_backward + 1.2 * mem_params + 0.3 * (1024**3)
         )
         # Safety overhead
-        res = res * 1.5
+        res = res * 1.25
         logger.log(
             40,
             f"\tEstimated memory usage {res/1e9:4}.",
         )
         return res
-
-    @classmethod
-    def get_tabm_auto_batch_size(cls, n_samples: int) -> int:
-        # by Yury Gorishniy, inferred from the choices in the TabM paper.
-        if n_samples < 2_800:
-            return 32
-        if n_samples < 4_500:
-            return 64
-        if n_samples < 6_400:
-            return 128
-        if n_samples < 32_000:
-            return 256
-        if n_samples < 108_000:
-            return 512
-        return 768 # Adjust to be lower to fit on 80 GB for very large datasets.
 
     @classmethod
     def _class_tags(cls):

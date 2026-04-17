@@ -531,10 +531,19 @@ class AGModelBagExperiment(AGModelExperiment):
         method_kwargs: dict = None,
         experiment_kwargs: dict = None,
         time_limit_with_preprocessing: bool = False,
+        extra_model_hyperparameters: dict = None,
     ):
         if method_kwargs is None:
             method_kwargs = {}
         method_kwargs = copy.deepcopy(method_kwargs)
+        if extra_model_hyperparameters is None:
+            if "extra_model_hyperparameters" in method_kwargs:
+                extra_model_hyperparameters = method_kwargs["extra_model_hyperparameters"]
+                del method_kwargs["extra_model_hyperparameters"]
+            else:
+                extra_model_hyperparameters = {}
+        else:
+            assert "extra_model_hyperparameters" not in method_kwargs, "Set only one of `extra_model_hyperparameters` and `method_kwargs['extra_model_hyperparameters']`"
         assert isinstance(num_bag_folds, int)
         assert isinstance(num_bag_sets, int)
         assert isinstance(method_kwargs, dict)
@@ -548,6 +557,21 @@ class AGModelBagExperiment(AGModelExperiment):
             method_kwargs["fit_kwargs"] = {}
         method_kwargs["fit_kwargs"]["num_bag_folds"] = num_bag_folds
         method_kwargs["fit_kwargs"]["num_bag_sets"] = num_bag_sets
+        if "model_hyperparameters" in method_kwargs:
+            assert "model_hyperparameters" in method_kwargs["model_hyperparameters"], f"model_hyperparameters should be passed directly to AGModelBagExperiment rather than in method_kwargs"
+            model_hyperparameters = copy.deepcopy(model_hyperparameters)
+            del method_kwargs["model_hyperparameters"]
+        if extra_model_hyperparameters is not None:
+            assert isinstance(extra_model_hyperparameters, dict)
+            # check no key overlap!
+            overlapping_keys = set(extra_model_hyperparameters.keys()).intersection(set(model_hyperparameters.keys()))
+            assert not overlapping_keys, (
+                f"extra_model_hyperparameters cannot have overlapping keys with model_hyperparameters. "
+                f"Overlapping keys: {overlapping_keys}"
+            )
+            model_hyperparameters = copy.deepcopy(model_hyperparameters)
+            model_hyperparameters.update(extra_model_hyperparameters)
+
         super().__init__(
             name=name,
             model_cls=model_cls,

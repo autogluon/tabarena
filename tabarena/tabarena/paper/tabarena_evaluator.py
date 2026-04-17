@@ -115,9 +115,9 @@ class TabArenaEvaluator:
             matplotlib.rcParams.update(bundles.neurips2024())
             matplotlib.rcParams.update(fonts.neurips2024_tex())
             self.rc_context_params = {
-                                    'font.family': 'serif',
-                                    "text.usetex": True,
-                                } | fontsizes.neurips2024(default_smaller=0)
+                                         'font.family': 'serif',
+                                         "text.usetex": True,
+                                     } | fontsizes.neurips2024(default_smaller=0)
         else:
             self.rc_context_params = {}
 
@@ -1376,7 +1376,7 @@ class TabArenaEvaluator:
 
                 ticks = boxplot.get_yticks() if use_y else boxplot.get_xticks()
                 ticklabels = [tick.get_text() for tick in
-                               (boxplot.get_yticklabels() if use_y else boxplot.get_xticklabels())]
+                              (boxplot.get_yticklabels() if use_y else boxplot.get_xticklabels())]
 
                 if use_elo:
                     # ----- add elo error bars -----
