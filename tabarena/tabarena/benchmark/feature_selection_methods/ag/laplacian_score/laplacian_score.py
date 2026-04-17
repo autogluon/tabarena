@@ -5,9 +5,10 @@ import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
-from scipy.sparse import csc_matrix, diags
+from scipy.sparse import diags
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OrdinalEncoder, normalize
+from sklearn.neighbors import NearestNeighbors
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
 
@@ -74,16 +75,16 @@ class LaplacianScoreFeatureSelector(AbstractFeatureSelector):
         # set k = 5 for knn neighbor
         k = 5
         X = normalize(X, norm="l2", axis=1, copy=False)
-        # compute pairwise cosine distances
-        D_cosine = np.dot(X, np.transpose(X))
-        # sort the distance matrix D in descending order
-        idx = np.argsort(-D_cosine, axis=1)
-        idx_new = idx[:, 0 : k + 1]
-        G = np.zeros((n_samples * (k + 1), 3))
-        G[:, 0] = np.tile(np.arange(n_samples), (k + 1, 1)).reshape(-1)
-        G[:, 1] = np.ravel(idx_new, order="F")
-        G[:, 2] = 1
-        # build the sparse affinity matrix W
-        W = csc_matrix((G[:, 2], (G[:, 0], G[:, 1])), shape=(n_samples, n_samples))
+        
+        # avoid O(nˆ2) in memory when calc dot prod
+        nbrs = NearestNeighbors(
+                n_neighbors=k + 1,  # +1 because each sample includes itself
+                metric="cosine",
+                algorithm="brute",
+                n_jobs=-1,
+            )
+        nbrs.fit(X)
+        W = nbrs.kneighbors_graph(X, mode="connectivity").tocsc()
+
         bigger = np.transpose(W) > W
         return W - W.multiply(bigger) + np.transpose(W).multiply(bigger)

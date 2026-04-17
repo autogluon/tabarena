@@ -101,6 +101,16 @@ class AGWrapper(AbstractExecModel):
             tuning_data[self.label] = y_val
             fit_kwargs["tuning_data"] = tuning_data
 
+        if self._split_seed not in ("NOTSET", None):
+            try:
+                from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
+            except ImportError:
+                logger.warning("Could not import AbstractFeatureSelector — random_state not updated for feature selectors.")
+            else:
+                fg_kwargs = fit_kwargs.get("_feature_generator_kwargs", {})
+                for generator in fg_kwargs.get("post_generators", []):
+                    if isinstance(generator, AbstractFeatureSelector):
+                        generator.random_state = self._split_seed
         return train_data, init_kwargs, fit_kwargs
 
 

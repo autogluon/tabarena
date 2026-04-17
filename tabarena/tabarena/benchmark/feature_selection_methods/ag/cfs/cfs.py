@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import logging
 import time
+import numpy as np
+
 from math import log
 from typing import TYPE_CHECKING
-
-import numpy as np
+from sklearn.preprocessing import KBinsDiscretizer
 
 from tabarena.benchmark.feature_selection_methods.abstract.abstract_feature_selector import AbstractFeatureSelector
 
@@ -17,29 +18,18 @@ logger = logging.getLogger(__name__)
 
 
 class CFSFeatureSelector(AbstractFeatureSelector):
-    """CFS Feature Selection.
+    """Correlation-based Forward Selection (CFS).
 
-    Reference: Hall, Mark A. Correlation-based feature selection for
-    machine learning. Diss. The University of Waikato, 1999.
-    Implementation Source:
-    https://github.com/jundongl/scikit-feature/blob/
-    48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/
-    function/statistical_based/CFS.py#L40.
-    The author of the code is Li, Jundong, Associate Professor at the
-    University of Virginia and main-author of
-    'Feature selection: A data perspective' (2017).
-    This particular implementation of the repo is based on
-    http://featureselection.asu.edu, which for the CFS algorithm cites
-    Hall, Mark A., and Lloyd A. Smith. "Feature selection for machine
-    learning: comparing a correlation-based filter approach to the
-    wrapper." Proceedings of the twelfth international Florida
-    artificial intelligence research society conference. 1999.
-    The variation implemented here is a forward selection method using
-    Symmetrical Uncertainty.
+    Reference: Hall, Mark A. Correlation-based feature selection for machine learning. Diss. The University of Waikato, 1999.
+    Implementation Source:  https://github.com/jundongl/scikit-feature/blob/48cffad4e88ff4b9d2f1c7baffb314d1b3303792/skfeature/function/statistical_based/CFS.py#L40.
+    The author of the code is Li, Jundong, Associate Professor at the University of Virginia and main-author of 'Feature selection: A data perspective' (2017).
+    This particular implementation of the repo is based on http://featureselection.asu.edu, which for the CFS algorithm cites
+    Hall, Mark A., and Lloyd A. Smith. "Feature selection for machine learning: comparing a correlation-based filter approach to the wrapper." 
+    Proceedings of the twelfth international Florida artificial intelligence research society conference. 1999.
+    The variation implemented here is a forward selection method using Symmetrical Uncertainty.
     Changes to the implementation by Bastian Schäfer:
                            - Add time constraint
                            - Add max_features (number of features to be maximally selected by the method) constraint
-                           - Remove early stopping
                            - Break loop when max_features is reached
                            - Use pandas instead of numpy and avoid conversion
     """
@@ -47,29 +37,21 @@ class CFSFeatureSelector(AbstractFeatureSelector):
     name = "CFSFeatureSelector"
     feature_scoring_method: bool = False
 
+
     def _fit_feature_selection(
         self, *, X: pd.DataFrame, y: pd.Series, time_limit: int | None = None
-    ) -> dict[str, float]:
+    ) -> list[str]:
         start_time = time.monotonic()
         F = []  # cfs score
         M = []  # merit values
+
+        X = self._discretize(X)
+
         while True:
-            elapsed_time = time.monotonic() - start_time
-            if (time_limit is not None) and (elapsed_time >= time_limit):
-                logger.warning(
-                    f"Warning: FeatureSelection Method has no time left to train... "
-                    f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                )
-                break
-            merit = -100000000000
+            merit = -np.inf
             idx = -1
             for i, _col in enumerate(X.columns):
-                elapsed_time = time.monotonic() - start_time
-                if (time_limit is not None) and (elapsed_time >= time_limit):
-                    logger.warning(
-                        f"Warning: FeatureSelection Method has no time left to train... "
-                        f"\t(Time Elapsed = {elapsed_time:.1f}s, Time Limit = {time_limit:.1f}s)"
-                    )
+                if self._timed_out(time_limit, start_time):
                     break
                 if i not in F:
                     F.append(i)
@@ -143,7 +125,8 @@ class CFSFeatureSelector(AbstractFeatureSelector):
         t2 = self.entropyd(f1)
         # calculate entropy of f2
         t3 = self.entropyd(f2)
-
+        if (t2 + t3) == 0:
+            return 0.0
         return 2.0 * t1 / (t2 + t3)
 
 
@@ -173,3 +156,19 @@ class CFSFeatureSelector(AbstractFeatureSelector):
     def midd(self, x, y):
         """Discrete mutual information estimator given a list of samples which can be any hashable object."""
         return -self.entropyd(list(zip(x, y))) + self.entropyd(x) + self.entropyd(y)
+
+    def _discretize(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Discretize continuous attributes with unsupervised method (original paper refers to Fayyad & Irani MDL)"""
+        X_disc = X.copy()
+        num_cols = X.select_dtypes(include="number").columns
+        max_bins = int(np.log2(len(X))) + 1  # sturges' rule to scale with size
+        
+        for col in num_cols:
+            n_bins = min(X[col].nunique(), max_bins)
+            if n_bins < 2:
+                continue  # constant feature, skip
+            X_disc[col] = KBinsDiscretizer(
+                n_bins=n_bins, encode="ordinal", strategy="quantile",
+                quantile_method="averaged_inverted_cdf"
+            ).fit_transform(X[[col]])
+        return X_disc
