@@ -84,6 +84,7 @@ class AGWrapper(AbstractExecModel):
             for param, value in group_params.items():
                 if param in sig.parameters:
                     feature_generator_kwargs[param] = value
+            feature_generator_kwargs.setdefault("random_state", self._split_seed)
             fit_kwargs["feature_generator"] = feature_generator_cls(**feature_generator_kwargs)
 
         # TODO: think about if we can reset the index here without breaking simulation artifacts
