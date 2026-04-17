@@ -22,6 +22,7 @@ from autogluon.core.metrics import compute_metric
 
 from . import rtdl_num_embeddings, tabm_reference
 from .tabm_reference import make_parameter_groups
+from .tabm_utils import get_tabm_auto_batch_size
 
 if TYPE_CHECKING:
     from autogluon.core.metrics import Scorer
@@ -29,21 +30,6 @@ if TYPE_CHECKING:
 TaskType = Literal["regression", "binclass", "multiclass"]
 
 logger = logging.getLogger(__name__)
-
-
-def get_tabm_auto_batch_size(n_train: int) -> int:
-    # by Yury Gorishniy, inferred from the choices in the TabM paper.
-    if n_train < 2_800:
-        return 32
-    if n_train < 4_500:
-        return 64
-    if n_train < 6_400:
-        return 128
-    if n_train < 32_000:
-        return 256
-    if n_train < 108_000:
-        return 512
-    return 768 # Adjust to be lower to fit on 80 GB for very large datasets.
 
 
 class RTDLQuantileTransformer(BaseEstimator, TransformerMixin):
@@ -203,7 +189,7 @@ class TabMImplementation:
         if n_train <= 2:
             num_emb_type = "none"  # there is no valid number of bins for piecewise linear embeddings
         if batch_size == "auto":
-            batch_size = get_tabm_auto_batch_size(n_train=n_train)
+            batch_size = get_tabm_auto_batch_size(n_samples=n_train, n_features=X_train.shape[1])
         # VRAM eval safety for large feature count
         if eval_batch_size == "auto":
             eval_batch_size = batch_size
