@@ -25,7 +25,7 @@ dependencies = [
   "huggingface-hub",
   "numpy",
   "pandas",
-  "sentence_transformers",
+  "sentence_transformers>=5.4",
   "skrub",
 
   # TODO: For 2025 paper, consider making optional
