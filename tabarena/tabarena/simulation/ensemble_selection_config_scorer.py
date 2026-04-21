@@ -82,7 +82,15 @@ class TaskEvaluator:
         y, pred = self._maybe_preprocess_bulk(eval_metric, y, pred)
 
         if eval_metric.needs_pred:
+            reset_problem_type = False
+            original_problem_type = ensemble.problem_type
+            new_problem_type = self.problem_type
+            if original_problem_type != new_problem_type:
+                reset_problem_type = True
+                ensemble.problem_type = new_problem_type
             y_pred = ensemble.predict(pred)
+            if reset_problem_type:
+                ensemble.problem_type = original_problem_type
         else:
             y_pred = ensemble.predict_proba(pred)
         return y_pred, y
