@@ -9,6 +9,7 @@ import pandas as pd
 
 from .time_utils import filter_configs_by_runtime, get_runtime
 from ..simulation.ensemble_selection_config_scorer import EnsembleScorer, EnsembleScorerMaxModels, EnsembleSelectionConfigScorer
+from ..utils.aux_metric import get_aux_metric_map
 from ..utils.parallel_for import parallel_for
 
 
@@ -171,10 +172,14 @@ class EnsembleMixin:
         metric_error = results[task]["metric_error"]
         ensemble_weights = results[task]["ensemble_weights"]
         metric_error_val = results[task]["metric_error_val"]
+        aux_metric_error = results[task].get("aux_metric_error")
+        aux_metric_error_val = results[task].get("aux_metric_error_val")
 
         dataset_info = self.dataset_info(dataset=dataset)
         metric = dataset_info["metric"]
         problem_type = dataset_info["problem_type"]
+        aux_map = get_aux_metric_map()
+        aux_metric = aux_map.get(problem_type) if aux_map is not None else None
 
         # select configurations used in the ensemble as infer time only depends on the models with non-zero weight.
         fail_if_missing = self._config_fallback is None
@@ -219,6 +224,10 @@ class EnsembleMixin:
             "imputed": [imputed],
             "impute_method": [impute_method],
         }
+        if aux_metric is not None:
+            output_dict["aux_metric"] = [aux_metric]
+            output_dict["aux_metric_error"] = [aux_metric_error]
+            output_dict["aux_metric_error_val"] = [aux_metric_error_val]
 
         if rank:
             dict_ranks = scorer.compute_ranks(errors={task: metric_error})

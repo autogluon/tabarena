@@ -9,6 +9,7 @@ from autogluon.core.metrics import get_metric, Scorer
 from autogluon.core.models.greedy_ensemble.ensemble_selection import EnsembleSelection
 from .configuration_list_scorer import ConfigurationListScorer
 
+from ..utils.aux_metric import get_aux_metric_map
 from ..utils.parallel_for import parallel_for
 from ..utils.rank_utils import RankScorer
 from ..utils import task_to_tid_fold
@@ -40,11 +41,13 @@ class TaskEvaluator:
         eval_metric: Scorer,
         fit_eval_metric: Scorer,
         problem_type: str,
+        aux_eval_metric: Scorer | None = None,
     ):
         self._ensemble_method = ensemble_method
         self._ensemble_kwargs = ensemble_kwargs
         self._eval_metric = eval_metric
         self._fit_eval_metric = fit_eval_metric
+        self._aux_eval_metric = aux_eval_metric
         self._predict_problem_type = getattr(eval_metric, "post_problem_type", problem_type)
         self._fit_problem_type = getattr(fit_eval_metric, "post_problem_type", problem_type)
         self.problem_type = problem_type
@@ -72,17 +75,22 @@ class TaskEvaluator:
         ensemble.problem_type = self._predict_problem_type
         return ensemble
 
-    def predict(self, *, ensemble, pred: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        y, pred = self._maybe_preprocess_bulk(self._eval_metric, y, pred)
+    def predict(self, *, ensemble, pred: np.ndarray, y: np.ndarray, eval_metric: Scorer | None = None) -> tuple[np.ndarray, np.ndarray]:
+        if eval_metric is None:
+            eval_metric = self._eval_metric
 
-        if self._eval_metric.needs_pred:
+        y, pred = self._maybe_preprocess_bulk(eval_metric, y, pred)
+
+        if eval_metric.needs_pred:
             y_pred = ensemble.predict(pred)
         else:
             y_pred = ensemble.predict_proba(pred)
         return y_pred, y
 
-    def error(self, *, y: np.ndarray, y_pred: np.ndarray) -> float:
-        return self._eval_metric.error(y, y_pred)
+    def error(self, *, y: np.ndarray, y_pred: np.ndarray, eval_metric: Scorer | None = None) -> float:
+        if eval_metric is None:
+            eval_metric = self._eval_metric
+        return eval_metric.error(y, y_pred)
 
     def error_fit(self, *, y: np.ndarray, y_pred: np.ndarray) -> float:
         return self._fit_eval_metric.error(y, y_pred)
@@ -103,11 +111,18 @@ class TaskEvaluator:
         y_test_pred, y_test_proc = self.predict(ensemble=ensemble, pred=pred_test, y=y_test)
         results: dict[str, object] = {"metric_error": self.error(y=y_test_proc, y_pred=y_test_pred)}
 
+        if self._aux_eval_metric is not None:
+            y_test_pred_aux, y_test_proc_aux = self.predict(ensemble=ensemble, pred=pred_test, y=y_test, eval_metric=self._aux_eval_metric)
+            results["aux_metric_error"] = self.error(y=y_test_proc_aux, y_pred=y_test_pred_aux, eval_metric=self._aux_eval_metric)
+
         if return_metric_error_val:
             if pred_val is None or y_val is None:
                 raise ValueError("pred_val and y_val must be provided when return_metric_error_val=True")
             y_val_pred, y_val_proc = self.predict(ensemble=ensemble, pred=pred_val, y=y_val)
             results["metric_error_val"] = self.error(y=y_val_proc, y_pred=y_val_pred)
+            if self._aux_eval_metric is not None:
+                y_val_pred_aux, y_val_proc_aux = self.predict(ensemble=ensemble, pred=pred_val, y=y_val, eval_metric=self._aux_eval_metric)
+                results["aux_metric_error_val"] = self.error(y=y_val_proc_aux, y_pred=y_val_pred_aux, eval_metric=self._aux_eval_metric)
 
         if hasattr(ensemble, "weights_"):
             results["ensemble_weights"] = ensemble.weights_
@@ -206,6 +221,15 @@ class EnsembleScorer:
 
         return eval_metric, fit_eval_metric
 
+    def _get_aux_metric(self, problem_type: str) -> Scorer | None:
+        aux_map = get_aux_metric_map()
+        if aux_map is None:
+            return None
+        aux_metric_name = aux_map.get(problem_type)
+        if aux_metric_name is None:
+            return None
+        return get_metric(metric=aux_metric_name, problem_type=problem_type)
+
     def get_preds_from_models(self, dataset: str, fold: int, models: list[str]) -> tuple[np.ndarray, np.ndarray]:
         pred_val = self.repo.predict_val_multi(dataset=dataset, fold=fold, configs=models, enforce_binary_1d=True)
         pred_test = self.repo.predict_test_multi(dataset=dataset, fold=fold, configs=models, enforce_binary_1d=True)
@@ -239,6 +263,7 @@ class EnsembleScorer:
             metric_name=metric_name,
             problem_type=problem_type,
         )
+        aux_eval_metric = self._get_aux_metric(problem_type=problem_type)
 
         y_val = self.repo.labels_val(dataset=dataset, fold=fold)
         y_test = self.repo.labels_test(dataset=dataset, fold=fold)
@@ -259,6 +284,7 @@ class EnsembleScorer:
             eval_metric=eval_metric,
             fit_eval_metric=fit_eval_metric,
             problem_type=problem_type,
+            aux_eval_metric=aux_eval_metric,
         )
 
         results, fitted_ensemble = evaluator.run(

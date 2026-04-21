@@ -8,6 +8,7 @@ from typing import Any
 from typing_extensions import Self
 
 from tabarena.benchmark.result.baseline_result import BaselineResult
+from tabarena.utils.aux_metric import get_aux_metric_map
 
 
 class ConfigResult(BaselineResult):
@@ -271,6 +272,20 @@ class ConfigResult(BaselineResult):
         # FIXME: Fix bag children? Should they be calibrated?
 
         return result_calibrated
+
+    def compute_df_result(self) -> pd.DataFrame:
+        df_result = super().compute_df_result()
+        aux_map = get_aux_metric_map()
+        if aux_map is None:
+            return df_result
+        aux_metric_name = aux_map.get(self.problem_type)
+        if aux_metric_name is None:
+            return df_result
+        aux_metric_error_test, aux_metric_error_val = self.compute_metric_test(metric=aux_metric_name)
+        df_result["aux_metric"] = aux_metric_name
+        df_result["aux_metric_error"] = aux_metric_error_test
+        df_result["aux_metric_error_val"] = aux_metric_error_val
+        return df_result
 
     def compute_metric_test(self, metric, decision_threshold: float | str = 0.5, as_sklearn: bool = False, calibrate: bool = False):
         from autogluon.core.metrics import get_metric

@@ -38,6 +38,7 @@ class Evaluator:
         if datasets is None:
             datasets = self.repo.datasets()
         columns = ["metric_error", "time_train_s", "time_infer_s", "metric", "problem_type"]
+        aux_columns = ["aux_metric", "aux_metric_error", "aux_metric_error_val"]
 
         if results_df is not None:
             df_exp = results_df
@@ -55,8 +56,10 @@ class Evaluator:
         config_columns = columns
         if include_metric_error_val:
             config_columns = config_columns + ["metric_error_val"]
+        df_configs = self.repo._zeroshot_context.df_configs
+        config_aux_columns = [c for c in aux_columns if c in df_configs.columns]
         # Dropping task column in df_tr
-        df_tr = self.repo._zeroshot_context.df_configs.set_index(["dataset", "fold", "framework"])[config_columns]
+        df_tr = df_configs.set_index(["dataset", "fold", "framework"])[config_columns + config_aux_columns]
 
         mask = df_tr.index.get_level_values("dataset").isin(datasets)
         if folds is not None:
