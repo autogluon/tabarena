@@ -274,8 +274,21 @@ class TabICLv2Model(TabICLModelBase):
             )
         ]
 
-    # Estimate from above is not well-implemented for TabICLv2,
-    # thus, we disable it here for now.
     @classmethod
-    def _class_tags(cls) -> dict:
-        return {"can_estimate_memory_usage_static": False}
+    def _estimate_memory_usage_static(
+        cls,
+        *,
+        X: pd.DataFrame,
+        hyperparameters: dict | None = None,
+        **kwargs,
+    ) -> int:
+        """Memory estimate for v2 and large data is not supported yet.
+        We ignore it for now, moreover as we refit_folds=True, there is no benefit yet.
+
+        Problems are: GPU memory est, how to handle off-loading logic, ...
+        """
+        dataset_size_mem_est = (
+            3 * get_approximate_df_mem_usage(X).sum()
+        )
+        baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
+        return dataset_size_mem_est + baseline_overhead_mem_est

@@ -341,7 +341,7 @@ class BenchmarkSetup2026:
     and force this behavior if True. If False the default strategy of running the
     local fold fitting is used, as determined by AutoGluon and the model's
     default_ag_args_ensemble parameters."""
-    model_artifacts_base_path: str | Path | None = "/tmp/ag"  # noqa: S108
+    model_artifacts_base_path: str | Path | None = "/tmp"  # noqa: S108
     """Adapt the default temporary directory used for model artifacts in TabArena.
         - If None, the default temporary directory is used: "./AutoGluonModels".
         - If a string or Path, the directory is used as the base path for the temporary
