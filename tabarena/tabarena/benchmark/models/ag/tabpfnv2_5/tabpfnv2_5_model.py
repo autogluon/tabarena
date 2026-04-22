@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from autogluon.common.utils.resource_utils import ResourceManager
+from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 
@@ -474,3 +475,21 @@ class TabPFNv26Model(TabPFNModel):
             }
         )
         return default_auxiliary_params
+
+    @classmethod
+    def _estimate_memory_usage_static(
+        cls,
+        *,
+        X: pd.DataFrame,
+        hyperparameters: dict | None = None,
+        **kwargs,
+    ) -> int:
+        """Memory estimate for 2.6 and large data is not supported yet.
+        We ignore it for now, moreover as we refit_folds=True, there is no benefit yet.
+
+        """
+        dataset_size_mem_est = (
+            3 * get_approximate_df_mem_usage(X).sum()
+        )
+        baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
+        return dataset_size_mem_est + baseline_overhead_mem_est
