@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import os
+from contextlib import redirect_stdout
 
 import numpy as np
 import pandas as pd
@@ -527,19 +529,20 @@ def plot_pareto(
 
     # Use adjustText for collision avoidance (only for non-top-region labels)
     if HAS_ADJUST_TEXT and texts:
-        adjust_text(
-            texts,
-            x=[p[0] for p in text_positions],
-            y=[p[1] for p in text_positions],
-            ax=ax,
-            force_text=(0.3, 0.3),
-            force_points=(0.8, 0.8),  # Strong repulsion from points
-            expand_text=(1.1, 1.1),
-            expand_points=(1.8, 1.8),  # Large buffer around points
-            arrowprops=dict(arrowstyle="-", color="gray", lw=0.5, alpha=0.5),
-            only_move={"points": "y", "text": "xy"},
-            lim=50,
-        )
+        with redirect_stdout(io.StringIO()):
+            adjust_text(
+                texts,
+                x=[p[0] for p in text_positions],
+                y=[p[1] for p in text_positions],
+                ax=ax,
+                force_text=(0.3, 0.3),
+                force_points=(0.8, 0.8),  # Strong repulsion from points
+                expand_text=(1.1, 1.1),
+                expand_points=(1.8, 1.8),  # Large buffer around points
+                arrowprops=dict(arrowstyle="-", color="gray", lw=0.5, alpha=0.5),
+                only_move={"points": "y", "text": "xy"},
+                lim=50,
+            )
 
     # Restore original limits (prevents Matplotlib from auto-expanding them)
     ax.set_xlim(x_min, x_max)
