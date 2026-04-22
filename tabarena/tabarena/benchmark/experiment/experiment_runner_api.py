@@ -457,7 +457,7 @@ def run_experiments_new(
                                 SemanticTextFeatureGenerator.load_embedding_cache(path=cache_path)
                             )
                             SemanticTextFeatureGenerator.only_load_from_cache = True
-                        else:
+                        elif task._has_text:
                             raise FileNotFoundError(
                                 f"Text cache not found for task {task.task_id} at expected location {cache_path}. "
                                 f"This is required when `dynamic_tabarena_validation_protocol` is set to 'force'."

@@ -25,6 +25,13 @@ class OpenMLTaskWrapper:
         self.lazy_load_data = lazy_load_data
         self.X, self.y = get_task_data(task=self.task)
         self._n_rows, self._n_cols = self.X.shape
+
+        # Light metadata for task handling.
+        self._has_datetime = len(self.X.select_dtypes(include=["datetime64"]).columns) > 0
+        self._has_text = len(self.X.select_dtypes(include=["string"]).columns) > 0
+        self._has_categorical = len(self.X.select_dtypes(include=["category"]).columns) > 0
+        self._has_numeric = len(self.X.select_dtypes(include=["number"]).columns) > 0
+
         if self.lazy_load_data:
             del self.X, self.y
 
