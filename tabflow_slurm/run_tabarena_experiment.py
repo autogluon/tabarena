@@ -235,6 +235,7 @@ def _parse_task_id(task_id_str: str) -> int | object:
         from tabarena.benchmark.task.user_task import UserTask
 
         task_id_or_object = UserTask.from_task_id_str(task_id_str)
+        print(f"Loaded: User task with task hash: {task_id_or_object.task_id} from {task_id_str}")
 
     return task_id_or_object
 

@@ -444,7 +444,7 @@ def run_experiments_new(
                             **task.get_validation_split_kwargs(),
                         )
 
-                        # FIXME: move this somewhere else and allow to enable/disable this.
+                        # FIXME: move this somewhere else and allow to enable/disable this to not use cache.
                         # Load text cache into memory for the current task
                         from tabarena.benchmark.preprocessing.text_feature_generators import (
                             SemanticTextFeatureGenerator,
@@ -457,6 +457,11 @@ def run_experiments_new(
                                 SemanticTextFeatureGenerator.load_embedding_cache(path=cache_path)
                             )
                             SemanticTextFeatureGenerator.only_load_from_cache = True
+                        else:
+                            raise FileNotFoundError(
+                                f"Text cache not found for task {task.task_id} at expected location {cache_path}. "
+                                f"This is required when `dynamic_tabarena_validation_protocol` is set to 'force'."
+                            )
 
                     try:
                         out = model_experiment.run(
