@@ -117,6 +117,9 @@ class TabICLModelBase(AbstractTorchModel):
             **hyp,
             device=device,
             n_jobs=num_cpus,
+            disk_offload_dir="/tmp",
+            verbose=True,
+            inference_config=dict(COL_CONFIG=dict(cpu_safety_factor=0.75))
         )
         X = self.preprocess(X, y=y)
         self.model = self.model.fit(
