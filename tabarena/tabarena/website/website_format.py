@@ -235,6 +235,7 @@ def format_leaderboard(
     method_metadata_info: pd.DataFrame | None = None,
     include_type: bool = False,
     include_url: bool = False,
+    compact: bool = False,
 ) -> pd.DataFrame:
     df_leaderboard = df_leaderboard.copy(deep=True)
 
@@ -323,6 +324,25 @@ def format_leaderboard(
 
     if not include_type:
         df_leaderboard = df_leaderboard.drop(columns=["Type", "TypeName"])
+
+    if compact:
+        df_leaderboard = df_leaderboard[[
+            "method",
+            "elo",
+            "improvability",
+            "median_time_train_s_per_1K",
+            "median_time_infer_s_per_1K",
+        ]]
+
+        return df_leaderboard.rename(
+            columns={
+                "median_time_train_s_per_1K": "TrainTime (s/1K)",
+                "median_time_infer_s_per_1K": "PredTime (s/1K)",
+                "method": "Model",
+                "elo": "Elo",
+                "improvability": "Impro%",
+            }
+        )
 
     # rename some columns
     return df_leaderboard.rename(
