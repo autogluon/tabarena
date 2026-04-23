@@ -187,6 +187,15 @@ class TabPFNModel(AbstractTorchModel):
                 del hps[k]
 
         use_finetuning = hps.pop("use_finetuning", False)
+
+        if (X.shape[0] > 80_000) and (X.shape[1] > 250):
+            self.params_aux["max_batch_size"] = 8192
+            if "inference_config" not in hps:
+                hps["inference_config"] = {}
+
+            # More extreme heuristic to avoid OOM / too long runtimes.
+            hps["inference_config"]["MAX_NUMBER_OF_FEATURES"] = 250
+
         if not use_finetuning:
             from tabpfn import TabPFNClassifier, TabPFNRegressor
 
