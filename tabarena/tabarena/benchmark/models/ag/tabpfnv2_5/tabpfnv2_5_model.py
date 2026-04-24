@@ -508,11 +508,15 @@ class TabPFNv26Model(TabPFNModel):
                 hps["inference_config"] = {}
 
             # More extreme heuristic to avoid OOM
+            import dataclasses
+
             from tabpfn.inference_config import _get_v2_6_config, v2_6_classifier_preprocessor_configs, v2_6_regressor_preprocessor_configs
             task_type = "multiclass" if is_classification else "regression"
             preprocessor_configs = v2_6_classifier_preprocessor_configs()  if is_classification else v2_6_regressor_preprocessor_configs()
-            for i in range(len(preprocessor_configs)):
-                preprocessor_configs[i].max_features_per_estimator = 300
+            preprocessor_configs = [
+                dataclasses.replace(cfg, max_features_per_estimator=300)
+                for cfg in preprocessor_configs
+            ]
             hps["inference_config"] = _get_v2_6_config(
                     preprocessor_configs=preprocessor_configs,
                     task_type=task_type,

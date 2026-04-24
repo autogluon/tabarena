@@ -477,11 +477,12 @@ class TabArenaTaskMetadataMixin:
             raise ValueError(
                 "Object dtype columns are not supported. Please convert them to string dtype or categorical dtype!"
             )
-
-        has_datetime = len(feature_df.select_dtypes(include=["datetime64"]).columns) > 0
+        has_datetime = len(feature_df.select_dtypes(include=["datetime", "datetimetz"]).columns) > 0
         has_text = len(feature_df.select_dtypes(include=["string"]).columns) > 0
-        has_categorical = len(feature_df.select_dtypes(include=["category"]).columns) > 0
+        has_categorical = len(feature_df.select_dtypes(include=["category", "bool"]).columns) > 0
         has_numeric = len(feature_df.select_dtypes(include=["number"]).columns) > 0
+        num_period = sum(isinstance(feature_df[c].dtype, pd.PeriodDtype) for c in feature_df.columns)
+        has_datetime = has_datetime or num_period > 0
 
         self._task_metadata = TabArenaTaskMetadata(
             dataset_name=dataset_name,

@@ -80,6 +80,13 @@ class TabICLModelBase(AbstractTorchModel):
             return 2
         return 1
 
+    @staticmethod
+    def _get_n_estimators_override(n_rows: int) -> int | None:
+        # Avoid OOM and time issues
+        if n_rows >=  700_000:
+            return 1
+        return None
+
     def _fit(
         self,
         X: pd.DataFrame,
@@ -114,6 +121,10 @@ class TabICLModelBase(AbstractTorchModel):
             "batch_size", self._get_batch_size(X.shape[0] * X.shape[1])
         )
         hyp["checkpoint_version"] = self.get_checkpoint_version(hyperparameter=hyp)
+
+        n_estimators_override = self._get_n_estimators_override(n_rows=X.shape[0])
+        if n_estimators_override is not None:
+            hyp["n_estimators"] = n_estimators_override
 
         self.model = model_cls(
             **hyp,
