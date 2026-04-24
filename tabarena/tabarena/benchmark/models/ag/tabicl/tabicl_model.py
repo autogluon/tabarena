@@ -74,9 +74,11 @@ class TabICLModelBase(AbstractTorchModel):
     def _get_batch_size(n_cells: int):
         if n_cells <= 4_000_000:
             return 8
-        if n_cells <= 6_000_000:
+        elif n_cells <= 6_000_000:
             return 4
-        return 2
+        elif n_cells <= 500_000_000:
+            return 2
+        return 1
 
     def _fit(
         self,

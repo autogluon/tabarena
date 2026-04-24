@@ -188,13 +188,7 @@ class TabPFNModel(AbstractTorchModel):
 
         use_finetuning = hps.pop("use_finetuning", False)
 
-        if (X.shape[0] > 80_000) and (X.shape[1] > 250):
-            self.params_aux["max_batch_size"] = 8192
-            if "inference_config" not in hps:
-                hps["inference_config"] = {}
-
-            # More extreme heuristic to avoid OOM / too long runtimes.
-            hps["inference_config"]["MAX_NUMBER_OF_FEATURES"] = 250
+        hps = self._adjust_hyperparameters_for_large_data(X=X, hps=hps, is_classification=is_classification)
 
         if not use_finetuning:
             from tabpfn import TabPFNClassifier, TabPFNRegressor
@@ -400,6 +394,9 @@ class TabPFNModel(AbstractTorchModel):
     def extra_checkpoints_for_tuning(problem_type: str) -> list[str]:
         raise NotImplementedError("This method must be implemented in the subclass.")
 
+    def _adjust_hyperparameters_for_large_data(self, *, X: pd.DataFrame, hps: dict, is_classification: bool) -> dict:
+        """By default no adjustments, but can be overridden by subclasses."""
+        return hps
 
 class RealTabPFNv25Model(TabPFNModel):
     """RealTabPFN-v2.5 version: https://priorlabs.ai/technical-reports/tabpfn-2-5-model-report.
@@ -502,3 +499,23 @@ class TabPFNv26Model(TabPFNModel):
         )
         baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
         return dataset_size_mem_est + baseline_overhead_mem_est
+
+    def _adjust_hyperparameters_for_large_data(self, *, X: pd.DataFrame, hps: dict, is_classification: bool) -> dict:
+        if (X.shape[0] > 70_000) and (X.shape[1] > 300):
+            print("Adjust max_batch_size and MAX_NUMBER_OF_FEATURES for large data.")
+            self.params_aux["max_batch_size"] = 8192
+            if "inference_config" not in hps:
+                hps["inference_config"] = {}
+
+            # More extreme heuristic to avoid OOM
+            from tabpfn.inference_config import _get_v2_6_config, v2_6_classifier_preprocessor_configs, v2_6_regressor_preprocessor_configs
+            task_type = "multiclass" if is_classification else "regression"
+            preprocessor_configs = v2_6_classifier_preprocessor_configs()  if is_classification else v2_6_regressor_preprocessor_configs()
+            for i in range(len(preprocessor_configs)):
+                preprocessor_configs[i].max_features_per_estimator = 300
+            hps["inference_config"] = _get_v2_6_config(
+                    preprocessor_configs=preprocessor_configs,
+                    task_type=task_type,
+                )
+
+        return hps
