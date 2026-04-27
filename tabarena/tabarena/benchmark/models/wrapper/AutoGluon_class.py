@@ -24,6 +24,7 @@ class AGWrapper(AbstractExecModel):
         preprocess_data: bool = False,
         preprocess_label: bool = False,
         target_name: str | None = None,
+        persist: bool = False,
         **kwargs,
     ):
         super().__init__(preprocess_data=preprocess_data, preprocess_label=preprocess_label, target_name=target_name, **kwargs)
@@ -36,6 +37,7 @@ class AGWrapper(AbstractExecModel):
         if target_name is None:
             target_name = "__label__"
         self.label = target_name
+        self.persist = persist
 
     def _resolve_validation_protocol(
         self,
@@ -142,6 +144,14 @@ class AGWrapper(AbstractExecModel):
     def _predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
         y_pred_proba = self.predictor.predict_proba(X)
         return y_pred_proba
+
+    def pre_predict(self):
+        if self.persist:
+            self.predictor.persist(models="best", max_memory=None)
+
+    def post_predict(self):
+        if self.persist:
+            self.predictor.unpersist()
 
     def get_oof(self):
         # TODO: Rename method
