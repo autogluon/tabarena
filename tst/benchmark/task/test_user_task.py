@@ -517,14 +517,23 @@ def test_task_metadata_from_row_backward_compat_missing_optional_fields():
     df = meta.to_dataframe()
     row = df.iloc[0]
     # Simulate an old CSV that doesn't have the new columns
-    row = row.drop(["has_datetime", "has_text", "has_categorical", "has_numeric"])
+    row = row.drop([
+        "has_datetime",
+        "has_text",
+        "has_categorical",
+        "has_numerical",
+        "has_binary",
+        "has_high_cardinality_categorical",
+    ])
     reconstructed = TabArenaTaskMetadata.from_row(row)
     assert reconstructed.dataset_name == meta.dataset_name
     # New fields default to None when absent
     assert reconstructed.has_datetime is None
     assert reconstructed.has_text is None
     assert reconstructed.has_categorical is None
-    assert reconstructed.has_numeric is None
+    assert reconstructed.has_numerical is None
+    assert reconstructed.has_binary is None
+    assert reconstructed.has_high_cardinality_categorical is None
 
 
 def test_task_metadata_dtype_flags_default_to_none():
@@ -533,7 +542,9 @@ def test_task_metadata_dtype_flags_default_to_none():
     assert meta.has_datetime is None
     assert meta.has_text is None
     assert meta.has_categorical is None
-    assert meta.has_numeric is None
+    assert meta.has_numerical is None
+    assert meta.has_binary is None
+    assert meta.has_high_cardinality_categorical is None
 
 
 def test_task_metadata_dtype_flags_round_trip():
@@ -565,14 +576,18 @@ def test_task_metadata_dtype_flags_round_trip():
         has_datetime=False,
         has_text=True,
         has_categorical=True,
-        has_numeric=False,
+        has_numerical=False,
+        has_binary=True,
+        has_high_cardinality_categorical=False,
     )
     df = meta.to_dataframe()
     reconstructed = TabArenaTaskMetadata.from_row(df.iloc[0])
     assert reconstructed.has_datetime is False
     assert reconstructed.has_text is True
     assert reconstructed.has_categorical is True
-    assert reconstructed.has_numeric is False
+    assert reconstructed.has_numerical is False
+    assert reconstructed.has_binary is True
+    assert reconstructed.has_high_cardinality_categorical is False
 
 
 # ---------------------------------------------------------------------------
@@ -856,7 +871,10 @@ def test_compute_metadata_binary_dataset_level_stats(tmp_path):
 
 
 def test_compute_metadata_dtype_flags(tmp_path):
-    """_make_dataset produces int64 'num' and category 'cat' feature columns."""
+    """_make_dataset produces int64 'num' (10 unique values) and category 'cat'
+    (2 unique values) feature columns. The 'cat' column is binary under the
+    independent-columns semantics, so has_categorical is False / has_binary is True.
+    """
     df, target, _, _ = _make_dataset("classification", n=10)
     task, _ = _task_from_user_task(
         df,
@@ -868,10 +886,12 @@ def test_compute_metadata_dtype_flags(tmp_path):
     )
     meta = task.compute_metadata()
 
-    assert meta.has_numeric is True
-    assert meta.has_categorical is True
+    assert meta.has_numerical is True
+    assert meta.has_categorical is False
     assert meta.has_datetime is False
     assert meta.has_text is False
+    assert meta.has_binary is True
+    assert meta.has_high_cardinality_categorical is False
 
 
 def test_compute_metadata_dtype_flags_with_text_and_datetime(tmp_path):
@@ -893,10 +913,50 @@ def test_compute_metadata_dtype_flags_with_text_and_datetime(tmp_path):
     )
     meta = task.compute_metadata()
 
-    assert meta.has_numeric is True
+    assert meta.has_numerical is True
     assert meta.has_text is True
     assert meta.has_datetime is True
     assert meta.has_categorical is False
+    assert meta.has_binary is False
+    assert meta.has_high_cardinality_categorical is False
+
+
+def test_compute_metadata_dtype_flags_independent_columns(tmp_path):
+    """Verify the new independent-columns semantics: a column with exactly 2
+    distinct non-null values is classified as binary regardless of dtype, and
+    is excluded from the dtype-specific flags. Only non-binary categorical
+    columns count toward has_categorical and has_high_cardinality_categorical.
+    """
+    n = 60
+    df = pd.DataFrame(
+        {
+            # Non-binary numerical (60 unique values)
+            "num_nb": np.arange(n, dtype="int64"),
+            # Binary numerical (only 0 and 1)
+            "num_b": np.array([0, 1] * (n // 2), dtype="int64"),
+            # High-cardinality non-binary categorical (>50 unique values)
+            "cat_hc": pd.Series([f"v{i}" for i in range(n)], dtype="category"),
+            # Binary categorical
+            "cat_b": pd.Series(["A", "B"] * (n // 2), dtype="category"),
+            "target": pd.Series(["neg", "pos"] * (n // 2), dtype="category"),
+        }
+    )
+    task, _ = _task_from_user_task(
+        df,
+        "target",
+        "classification",
+        {0: {0: (list(range(n - 2)), [n - 2, n - 1])}},
+        tmp_path,
+        "cm-dtype-independent",
+    )
+    meta = task.compute_metadata()
+
+    assert meta.has_numerical is True  # num_nb is non-binary numerical
+    assert meta.has_categorical is True  # cat_hc is non-binary categorical
+    assert meta.has_binary is True  # num_b and cat_b are binary
+    assert meta.has_high_cardinality_categorical is True  # cat_hc has >50 uniques
+    assert meta.has_datetime is False
+    assert meta.has_text is False
 
 
 # ---------------------------------------------------------------------------
