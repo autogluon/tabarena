@@ -310,6 +310,24 @@ class SplitMetadata:
         return res
 
 
+def _detect_binary_columns(feature_df: pd.DataFrame, *, sample_size: int = 10_000) -> set[str]:
+    """Return columns of `feature_df` with exactly 2 distinct non-null values.
+
+    Two-stage scan to avoid a full nunique() pass on every column for wide/large
+    frames. We first check an evenly-spaced sample: nunique on a subset is a
+    lower bound on the full nunique, so any column with >2 uniques in the sample
+    cannot be binary and is skipped. Surviving candidates are verified on the
+    full column.
+    """
+    n = len(feature_df)
+    if n <= sample_size:
+        return {c for c in feature_df.columns if feature_df[c].nunique(dropna=True) == 2}
+
+    sample = feature_df.iloc[:: max(1, n // sample_size)]
+    candidates = [c for c in feature_df.columns if sample[c].nunique(dropna=True) <= 2]
+    return {c for c in candidates if feature_df[c].nunique(dropna=True) == 2}
+
+
 class TabArenaTaskMetadataMixin:
     """A mixin class to add TabArena-specific metadata to OpenML tasks."""
 
@@ -490,7 +508,7 @@ class TabArenaTaskMetadataMixin:
             )
 
         # Independent dtype flags
-        binary_cols = {c for c in feature_df.columns if feature_df[c].nunique(dropna=True) == 2}
+        binary_cols = _detect_binary_columns(feature_df)
         numerical_cols = feature_df.select_dtypes(include=["number"], exclude=["bool"]).columns
         categorical_cols = feature_df.select_dtypes(include=["category", "bool"]).columns
         datetime_cols = list(feature_df.select_dtypes(include=["datetime", "datetimetz"]).columns)

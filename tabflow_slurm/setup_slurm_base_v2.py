@@ -192,7 +192,7 @@ class BenchmarkSetup2026:
     """Tuple of lower and upper limit for the number of training samples of datasets run in the benchmark.
     Adjust as needed to run only datasets with a certain number of training samples.
     If None, we run all datasets.
-    Lower limit is inclusive, upper limit is exclusive. For example, (0, 1000) runs only datasets with less
+    Lower limit is exclusive, upper limit is inclusive. For example, (0, 1000) runs only datasets with less
     than 1000 training samples. If a tuple value is None, there is no limit in that direction.
     """
 
@@ -615,8 +615,8 @@ class BenchmarkSetup2026:
                 ttm
                 for ttm in task_metadata
                 if (
-                    (ttm.splits_metadata[ttm.split_index].num_instances_train < ub)
-                    and (ttm.splits_metadata[ttm.split_index].num_instances_train >= lb)
+                    (ttm.splits_metadata[ttm.split_index].num_instances_train <= ub)
+                    and (ttm.splits_metadata[ttm.split_index].num_instances_train > lb)
                 )
             ]
         n_sizes_filtered_tasks = len(task_metadata)

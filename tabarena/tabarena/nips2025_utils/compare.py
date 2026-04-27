@@ -101,6 +101,7 @@ def compare(
     remove_imputed: bool = False,
     method_rename_map: dict | None = None,
     figure_file_type: str = "pdf",
+    add_dataset_count: bool = False,
     **kwargs,
 ):
     df_results = prepare_data(
@@ -127,7 +128,7 @@ def compare(
         figure_file_type=figure_file_type,
     )
 
-    return plotter.eval(
+    lb_df = plotter.eval(
         df_results=df_results,
         plot_extra_barplots=False,
         plot_times=True,
@@ -137,6 +138,11 @@ def compare(
         leaderboard_kwargs=leaderboard_kwargs,
         **kwargs,
     )
+
+    if add_dataset_count:
+        lb_df["n_datasets_total"] = df_results["dataset"].nunique()
+
+    return lb_df
 
 
 def filter_to_valid_tasks(df_to_filter: pd.DataFrame, df_filter: pd.DataFrame) -> pd.DataFrame:
@@ -283,14 +289,59 @@ def subset_tasks(
     df_results = df_results.reset_index(drop=True)
     return df_results
 
+
+# TODO:
+#  - import from TabArena once we are able to pull/rebase
+#  - make this something stored in the metadata...
+def get_split_idx(
+    fold: int = 0,
+    repeat: int = 0,
+    sample: int = 0,
+    n_folds: int = 1,
+    n_repeats: int = 1,
+    n_samples: int = 1,
+) -> int:
+    assert fold < n_folds
+    assert repeat < n_repeats
+    assert sample < n_samples
+    split_idx = n_folds * n_samples * repeat + n_samples * fold + sample
+    return split_idx
+
+def _add_split_idx_to_task_metadata(task_metadata: pd.DataFrame) -> pd.DataFrame:
+    n_folds_per_row = task_metadata.groupby("dataset")["fold"].transform("max") + 1
+    n_repeats_per_row = task_metadata.groupby("dataset")["repeat"].transform("max") + 1
+
+    task_metadata["legacy_split_idx"] = [
+        get_split_idx(fold=fold, repeat=repeat, n_folds=n_folds, n_repeats=n_repeats)
+        for fold, repeat, n_folds, n_repeats in zip(
+            task_metadata["fold"],
+            task_metadata["repeat"],
+            n_folds_per_row,
+            n_repeats_per_row,
+        )
+    ]
+    return task_metadata
+
+def df_results_from_task_metadata_slice(*, df_results: pd.DataFrame, task_metadata_slice: pd.DataFrame) -> pd.DataFrame:
+    valid_pairs = set(
+        zip(task_metadata_slice["dataset"], task_metadata_slice["legacy_split_idx"])
+    )
+    mask = [
+        (dataset, fold) in valid_pairs
+        for dataset, fold in zip(df_results["dataset"], df_results["fold"])
+    ]
+    return df_results[mask].reset_index(drop=True)
+
 def subset_tasks_new(
     *,
     df_results: pd.DataFrame,
     subset: list[str],
     task_metadata: pd.DataFrame,
 ) -> pd.DataFrame:
-
     df_results = df_results.copy(deep=True)
+    task_metadata = task_metadata.copy(deep=True)
+    task_metadata = _add_split_idx_to_task_metadata(task_metadata)
+
     for filter_subset in subset:
         if filter_subset == "classification":
             df_results = df_results[
@@ -305,35 +356,43 @@ def subset_tasks_new(
         elif filter_subset == "large":
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 100_000]
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 1_000_000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
         elif filter_subset == "medium":
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 10_000]
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 100_000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
         elif filter_subset == "small":
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 10_000]
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 1_000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
         elif filter_subset == "tiny":
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 100]
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 1_000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
         elif filter_subset == "random":
             task_metadata = task_metadata[task_metadata["time_on"].isna() & task_metadata["group_on"].isna()]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
         elif filter_subset == "temporal":
             task_metadata = task_metadata[~task_metadata["time_on"].isna()]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
         elif filter_subset == "grouped":
             task_metadata = task_metadata[~task_metadata["group_on"].isna()]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
+        elif filter_subset == "low-dim":
+            task_metadata = task_metadata[task_metadata["num_features_train"] <= 100]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
+        elif filter_subset == "high-dim":
+            task_metadata = task_metadata[task_metadata["num_features_train"] > 100]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
+        elif filter_subset == "text":
+            task_metadata = task_metadata[task_metadata["has_text"]]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
+        elif filter_subset == "high-cardinality":
+            task_metadata = task_metadata[task_metadata["has_high_cardinality_categorical"]]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
+        elif filter_subset == "binary-features":
+            task_metadata = task_metadata[task_metadata["has_binary"]]
+            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
         else:
             raise ValueError(f"Invalid subset {subset} name!")
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import warnings
 from pathlib import Path
 from typing import Literal, TYPE_CHECKING
 from typing_extensions import Self
@@ -257,8 +258,12 @@ class MethodMetadata:
         assert len(unique_model_types) == 1, f"MethodMetadata requires exactly 1 model type, found: {unique_model_types}"
 
         unique_num_gpus = result_df["num_gpus"].unique()
-        assert len(unique_num_gpus) == 1
-        num_gpus = unique_num_gpus[0]
+        if len(unique_num_gpus) != 1:
+            warnings.warn(
+                f"MethodMetadata found more than one unique num_gpus value, found: {unique_num_gpus}. "
+                "Using max number of groups as official compute value."
+            )
+        num_gpus = unique_num_gpus.max()
 
         if compute is None:
             compute: Literal["cpu", "gpu"] = "cpu" if num_gpus == 0 else "gpu"
