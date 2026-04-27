@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import warnings
 from copy import deepcopy
@@ -309,7 +310,7 @@ class BenchmarkSetup2026:
     """
     max_predict_batch_size: int | None = None
     """Maximal batch size for the predict function of the models.
-    This is used at validation and test predict time. Thus, it trades off speed for memory usage. 
+    This is used at validation and test predict time. Thus, it trades off speed for memory usage.
     If None, no limit is applied.
     """
 
@@ -333,9 +334,10 @@ class BenchmarkSetup2026:
     """
     ignore_cache: bool = False
     """If True, will overwrite the cache and run all jobs again."""
-    num_ray_cpus = 8
+    num_ray_cpus: int | Literal["auto"] = "auto"
     """Number of CPUs to use for checking the cache and generating the jobs.
-    This should be set to the number of CPUs available to the python script."""
+    This should be set to the number of CPUs available to the python script.
+    If "auto", we use all available CPUs."""
     sequential_local_fold_fitting: bool = False
     """Use Ray for local fold fitting. This is used to speed up the local fold fitting
     and force this behavior if True. If False the default strategy of running the
@@ -667,16 +669,19 @@ class BenchmarkSetup2026:
         jobs_to_check = list(yield_all_jobs())
 
         # Check cache and filter invalid jobs in parallel using Ray
+        num_ray_cpus = self.num_ray_cpus
+        if num_ray_cpus == "auto":
+            num_ray_cpus = len(os.sched_getaffinity(0))
         if ray.is_initialized:
             ray.shutdown()
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning)
-            ray.init(num_cpus=self.num_ray_cpus)
+            ray.init(num_cpus=num_ray_cpus)
         output = ray_map_list(
             list_to_map=list(to_batch_list(jobs_to_check, 10_000)),
             func=should_run_job_batch,
             func_element_key_string="input_data_list",
-            num_workers=self.num_ray_cpus,
+            num_workers=num_ray_cpus,
             num_cpus_per_worker=1,
             func_kwargs={
                 "output_dir": self.path_setup.get_output_path(self.benchmark_name),

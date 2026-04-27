@@ -246,8 +246,7 @@ class TabMModel(AbstractTorchModel):
         tabm_k = hyperparameters.get("tabm_k", 32)
         predict_batch_size = hyperparameters.get("eval_batch_size", "auto")
         if predict_batch_size == "auto":
-            predict_batch_size = batch_size
-
+            predict_batch_size = batch_size // 2
         # not completely sure
         n_params_num_emb = n_numerical * (num_emb_n_bins + 1) * d_embedding
         n_params_mlp = (
@@ -268,7 +267,7 @@ class TabMModel(AbstractTorchModel):
         n_floats_forward += n_blocks * 2 * d_block + 2 * max(1, n_classes)
         # 2 for forward and backward, 4 bytes per float
         mem_forward_backward = (
-            4 * max(batch_size * 2, predict_batch_size) * n_floats_forward * tabm_k
+            4 * predict_batch_size * n_floats_forward * tabm_k
         )
         # * 8 is pessimistic for the long tensors in the forward pass, 4 would probably suffice
 
@@ -276,10 +275,14 @@ class TabMModel(AbstractTorchModel):
 
         # some safety constants and offsets (the 5 is probably excessive)
         res = (
-            5 * mem_ds + 1.2 * mem_forward_backward + 1.2 * mem_params + 0.3 * (1024**3)
+            4 * mem_ds + 1.2 * mem_forward_backward + 1.2 * mem_params + 0.3 * (1024**3)
         )
         # Safety overhead
-        res = res * 1.25 + (4 * 1e9)
+        res = res + (4 * 1e9)
+
+        if (n_numerical + len(cat_sizes)) > 8_000:
+            res = res * 1.5
+
         logger.log(
             40,
             f"\tEstimated memory usage {res/1e9:4}.",
