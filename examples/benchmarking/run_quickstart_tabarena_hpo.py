@@ -25,16 +25,16 @@ if __name__ == '__main__':
 
     # import your model search spaces
     from tabarena.models.lightgbm.generate import gen_lightgbm
-    from tabarena.models.xgboost.generate import gen_xgboost
+    from tabarena.models.random_forest.generate import gen_randomforest
 
     # run the default config + 5 random configurations
     experiments_lightgbm = gen_lightgbm.generate_all_bag_experiments(num_random_configs=5)
-    experiments_xgboost = gen_xgboost.generate_all_bag_experiments(num_random_configs=5)
+    experiments_rf = gen_randomforest.generate_all_bag_experiments(num_random_configs=5)
 
     # This list of methods will be fit sequentially on each task (dataset x fold)
     methods = [
         *experiments_lightgbm,
-        *experiments_xgboost,
+        *experiments_rf,
     ]
 
     exp_batch_runner = ExperimentBatchRunner(expname=expname, task_metadata=task_metadata)
