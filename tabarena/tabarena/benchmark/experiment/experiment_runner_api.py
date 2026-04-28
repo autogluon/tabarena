@@ -328,7 +328,7 @@ def run_experiments_new(
         "Duplicate experiment name found in `model_experiments`. All names must be unique."
     )
     assert all(isinstance(task, (int, UserTask)) for task in tasks), (
-        "Not all tasks are int or UserTask instances! Got: {tasks}"
+        f"Not all tasks are int or UserTask instances! Got: {tasks}"
     )
 
     fold_repeat_pairs_per_task = _parse_repetitions_mode_and_args(
