@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import shutil
 from copy import deepcopy
 from pathlib import Path
@@ -11,6 +12,32 @@ import openml
 
 # Silence loky resource tracker clean up logs
 logging.getLogger("loky.backend.resource_tracker").setLevel(logging.CRITICAL)
+
+
+def _apply_runner_modifications() -> None:
+    """Dispatch runner modifications passed in as a comma-separated string via the
+    ``TABARENA_RUNNER_MODIFICATIONS`` env var.
+
+    Each token is mapped to a behavior-specific env var that downstream code can
+    check. This is the single, extensible dispatch point for runner-level
+    behavior ablations: add a new ``elif`` per modification.
+
+    Backward-compatible: if the env var is unset/empty, this is a no-op.
+    """
+    mods_str = os.environ.get("TABARENA_RUNNER_MODIFICATIONS", "")
+    if not mods_str:
+        return
+    modifications = [m.strip() for m in mods_str.split(",") if m.strip()]
+    for mod in modifications:
+        if mod == "validation_protocol_ablation":
+            os.environ["TABARENA_VALIDATION_PROTOCOL_ABLATION"] = "1"
+        if mod == "disable_grouped_data_preprocessing_ablation":
+            os.environ["TABARENA_DISABLE_GROUPED_PREPROCESSING"] = "1"
+        if mod == "disable_non_iid_splits_ablation":
+            os.environ["TABARENA_DISABLE_NON_IID_SPLITS"] = "1"
+        else:
+            raise ValueError(f"Unknown runner modification: {mod!r}")
+    print(f"Applied runner modifications: {modifications}")
 
 
 def setup_slurm_job(
@@ -339,6 +366,8 @@ def _parse_int_or_none(s):
 
 
 if __name__ == "__main__":
+    _apply_runner_modifications()
+
     parser = argparse.ArgumentParser()
     # Require tasks settings
     parser.add_argument(

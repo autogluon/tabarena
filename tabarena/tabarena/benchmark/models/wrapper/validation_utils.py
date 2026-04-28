@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -36,7 +37,7 @@ class TabArenaValidationProtocolExecMixin:
         group_labels: GroupLabelTypes | None = None,
         split_time_horizon: SplitTimeHorizonTypes | None = None,
         split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
-        drop_group_columns: bool = True,
+        drop_group_columns: bool = True, # FIXME: legacy support; not used -> remove from code.
     ):
         """Mixin to handle validation protocol logic for benchmarking.
 
@@ -117,6 +118,19 @@ class TabArenaValidationProtocolExecMixin:
                 "\n\t The model is configured to do not validation at all!"
             )
             return custom_splits, num_folds, num_repeats
+
+        # FIXME: remove later, after ablations or once we can pass this via experiment config.
+        if os.environ["TABARENA_DISABLE_NON_IID_SPLITS"]:
+            logger.info(
+                "\nEnvironment variable TABARENA_DISABLE_NON_IID_SPLITS is set to True, "
+                "skipping non-iid validation splitting logic."
+            )
+            self.time_on = None
+            self.group_on = None
+            self.group_time_on = None
+            self.group_labels = None
+            self.split_time_horizon = None
+            self.split_time_horizon_unit = None
 
         num_group_instances = self.get_num_group_instances(X=X)
         logger.info(
@@ -260,7 +274,13 @@ class TabArenaValidationProtocolExecMixin:
         """
         new_num_folds, new_num_repeats = None, None
         new_num_folds_reason, new_num_repeats_reason = "", ""
-        if num_group_instances <= self.max_samples_for_tiny_data:
+        if os.environ.get("TABARENA_VALIDATION_PROTOCOL_ABLATION"):
+            # FIXME: remove this later, custom case for paper
+            new_num_folds = 8
+            new_num_repeats = 1
+            new_num_folds_reason += "Validation protocol ablation"
+            new_num_repeats_reason += "Validation protocol ablation"
+        elif num_group_instances <= self.max_samples_for_tiny_data:
             new_num_folds = self.tiny_data_num_folds
             new_num_repeats = self.tiny_data_num_repeats
             new_num_folds_reason += "Tiny data"

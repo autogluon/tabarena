@@ -195,6 +195,10 @@ class BenchmarkSetup2026:
     Lower limit is exclusive, upper limit is inclusive. For example, (0, 1000) runs only datasets with less
     than 1000 training samples. If a tuple value is None, there is no limit in that direction.
     """
+    dataset_names_to_run: list[str] | None = None
+    """List of dataset names to run in the benchmark. Adjust as needed to run only specific datasets.
+    If None, we run all datasets. Matches against `dataset_name` of the task metadata.
+    """
 
     path_setup: PathSetup = field(default_factory=PathSetup)
     """Contains all path related to the benchmark."""
@@ -334,6 +338,19 @@ class BenchmarkSetup2026:
     """
     ignore_cache: bool = False
     """If True, will overwrite the cache and run all jobs again."""
+    runner_modifications: list[str] | None = None
+    """Optional list of runner modification tokens forwarded to the runner via the
+    ``TABARENA_RUNNER_MODIFICATIONS`` env var (propagated to SLURM jobs via
+    ``#SBATCH --export=ALL`` in submit_template.sh).
+
+    The runner script reads this env var and dispatches each token to a
+    behavior-specific change (typically by setting a downstream env var that the
+    actual logic checks). Designed to be extensible for further ablations.
+
+    Currently supported tokens:
+        - "validation_protocol_ablation": override the default num_folds/num_repeats
+            in TabArenaValidationProtocolExecMixin._resolve_number_of_splits.
+    """
     num_ray_cpus: int | Literal["auto"] = "auto"
     """Number of CPUs to use for checking the cache and generating the jobs.
     This should be set to the number of CPUs available to the python script.
@@ -594,6 +611,19 @@ class BenchmarkSetup2026:
             task_metadata = [ttm for ttm in task_metadata if ttm.split_index in split_indices_to_run]
         n_splits_filtered_tasks = len(task_metadata)
 
+        # Filter based on dataset names if specified
+        if self.dataset_names_to_run is not None:
+            dataset_names_to_run = set(self.dataset_names_to_run)
+            available_dataset_names = {ttm.dataset_name for ttm in task_metadata}
+            missing = dataset_names_to_run - available_dataset_names
+            if missing:
+                raise ValueError(
+                    f"Requested dataset names not found in task metadata: {sorted(missing)}. "
+                    f"Available dataset names: {sorted(available_dataset_names)}"
+                )
+            task_metadata = [ttm for ttm in task_metadata if ttm.dataset_name in dataset_names_to_run]
+        n_dataset_names_filtered_tasks = len(task_metadata)
+
         # Filter based on dtypes if specified
         if (self.forbidden_dtypes_to_run is not None) or (self.required_dtypes_to_run is not None):
             task_metadata = [
@@ -632,8 +662,9 @@ class BenchmarkSetup2026:
             f"\n\t(1) Starting with {n_unrolled_tasks} Tasks."
             f"\n\t(2) Filter to problem types: {n_problem_types_filtered_tasks}"
             f"\n\t(3) Filter to splits: {n_splits_filtered_tasks}."
-            f"\n\t(4) Filter to dtypes: {n_dtypes_filtered_tasks}."
-            f"\n\t(5) Filter to dataset size: {n_sizes_filtered_tasks}."
+            f"\n\t(4) Filter to dataset names: {n_dataset_names_filtered_tasks}."
+            f"\n\t(5) Filter to dtypes: {n_dtypes_filtered_tasks}."
+            f"\n\t(6) Filter to dataset size: {n_sizes_filtered_tasks}."
         )
         return task_metadata
 
@@ -910,6 +941,13 @@ class BenchmarkSetup2026:
         max_array_size = self.slurm_setup.max_array_size
         job_batches = list(to_batch_list(all_jobs, max_array_size))
 
+        # Env prefix forwarded to the SLURM job via `#SBATCH --export=ALL` in
+        # submit_template.sh. The runner script reads TABARENA_RUNNER_MODIFICATIONS
+        # and dispatches tokens to behavior-specific env vars.
+        env_prefix = ""
+        if self.runner_modifications:
+            env_prefix = f"TABARENA_RUNNER_MODIFICATIONS={','.join(self.runner_modifications)} "
+
         run_commands = []
         for batch_idx, batch_jobs in enumerate(job_batches):
             batch_jobs = list(batch_jobs)
@@ -924,7 +962,7 @@ class BenchmarkSetup2026:
                 json.dump(batch_dict, f)
 
             batch_size = len(batch_jobs)
-            run_command = f"sbatch --array=0-{batch_size - 1}%{array_job_limit} {self.slurm_base_command} {json_path}"
+            run_command = f"{env_prefix}sbatch --array=0-{batch_size - 1}%{array_job_limit} {self.slurm_base_command} {json_path}"
             run_commands.append(run_command)
 
         batch_info = ""

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import os
 import pandas as pd
 from autogluon.common.features.types import (
     R_BOOL,
@@ -70,18 +71,22 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
         #       In theory, we could filter it differently via some dtype setting.
         post_generators = []
         if group_cols is not None:
-            assert group_labels is not None, "If group_cols is specified, group_labels must also be specified."
-            assert group_labels in [
-                GroupLabelTypes.PER_GROUP,
-                GroupLabelTypes.PER_SAMPLE,
-            ], "group_labels must be either PER_GROUP or PER_SAMPLE if group_cols is specified."
-            post_generators.append(
-                GroupAggregationFeatureGenerator(
-                    group_col=group_cols,
-                    generate_index_features=group_labels == GroupLabelTypes.PER_GROUP,
-                    group_time_on=group_time_on,
+            if os.environ.get("TABARENA_DISABLE_GROUPED_PREPROCESSING"):
+                # FIXME: remove this later.
+                print("ABLATION ACTIVE: Skipping grouped data preprocessing!")
+            else:
+                assert group_labels is not None, "If group_cols is specified, group_labels must also be specified."
+                assert group_labels in [
+                    GroupLabelTypes.PER_GROUP,
+                    GroupLabelTypes.PER_SAMPLE,
+                ], "group_labels must be either PER_GROUP or PER_SAMPLE if group_cols is specified."
+                post_generators.append(
+                    GroupAggregationFeatureGenerator(
+                        group_col=group_cols,
+                        generate_index_features=group_labels == GroupLabelTypes.PER_GROUP,
+                        group_time_on=group_time_on,
+                    )
                 )
-            )
 
         if len(custom_feature_generators) == 0:
             custom_feature_generators = None
