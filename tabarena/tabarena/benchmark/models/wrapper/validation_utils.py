@@ -120,7 +120,7 @@ class TabArenaValidationProtocolExecMixin:
             return custom_splits, num_folds, num_repeats
 
         # FIXME: remove later, after ablations or once we can pass this via experiment config.
-        if os.environ["TABARENA_DISABLE_NON_IID_SPLITS"]:
+        if os.environ.get("TABARENA_DISABLE_NON_IID_SPLITS", False):
             logger.info(
                 "\nEnvironment variable TABARENA_DISABLE_NON_IID_SPLITS is set to True, "
                 "skipping non-iid validation splitting logic."
@@ -274,7 +274,7 @@ class TabArenaValidationProtocolExecMixin:
         """
         new_num_folds, new_num_repeats = None, None
         new_num_folds_reason, new_num_repeats_reason = "", ""
-        if os.environ.get("TABARENA_VALIDATION_PROTOCOL_ABLATION"):
+        if os.environ.get("TABARENA_VALIDATION_PROTOCOL_ABLATION", False):
             # FIXME: remove this later, custom case for paper
             new_num_folds = 8
             new_num_repeats = 1

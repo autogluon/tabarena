@@ -71,7 +71,7 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
         #       In theory, we could filter it differently via some dtype setting.
         post_generators = []
         if group_cols is not None:
-            if os.environ.get("TABARENA_DISABLE_GROUPED_PREPROCESSING"):
+            if os.environ.get("TABARENA_DISABLE_GROUPED_PREPROCESSING", False):
                 # FIXME: remove this later.
                 print("ABLATION ACTIVE: Skipping grouped data preprocessing!")
             else:
