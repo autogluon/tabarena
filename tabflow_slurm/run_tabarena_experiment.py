@@ -35,6 +35,8 @@ def _apply_runner_modifications() -> None:
             os.environ["TABARENA_DISABLE_GROUPED_PREPROCESSING"] = "1"
         if mod == "disable_non_iid_splits_ablation":
             os.environ["TABARENA_DISABLE_NON_IID_SPLITS"] = "1"
+        if mod == "text_preprocessing_ablation":
+            os.environ["TABARENA_ALT_TEXT_REPROCESSING"] = "1"
         else:
             raise ValueError(f"Unknown runner modification: {mod!r}")
     print(f"Applied runner modifications: {modifications}")

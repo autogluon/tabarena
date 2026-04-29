@@ -57,6 +57,12 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
         **kwargs,
     ):
         """Custom init of the AutoMLPipelineFeatureGenerator with our new changes."""
+
+        if os.environ.get("TABARENA_ALT_TEXT_REPROCESSING", False):
+            print("ALTERNATIVE TEXT REPROCESSING ACTIVE: Using alternative text feature generators!")
+            enable_sematic_text_features = False
+            enable_statistical_text_features = True
+
         custom_feature_generators = []
         if enable_sematic_text_features:
             custom_feature_generators.append(SemanticTextFeatureGenerator())
