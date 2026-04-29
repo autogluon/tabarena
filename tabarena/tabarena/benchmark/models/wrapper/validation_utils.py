@@ -301,7 +301,7 @@ class TabArenaValidationProtocolExecMixin:
 
         if new_num_repeats is not None:
             logger.info(
-                f"\nUpdating new_num_repeats from {num_repeats} to {new_num_repeats}"
+                f"\nUpdating new_num_repeats from {num_repeats} to {new_num_repeats} "
                 f"because: {new_num_repeats_reason}"
             )
             num_repeats = new_num_repeats
