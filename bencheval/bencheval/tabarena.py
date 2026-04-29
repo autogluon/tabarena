@@ -292,9 +292,7 @@ class TabArena:
         datasets = list(data[self.task_col].unique())
         num_datasets = len(datasets)
 
-        task_cols = [self.task_col]
-        if self.seed_column is not None:
-            task_cols.append(self.seed_column)
+        task_cols = self.get_task_groupby_cols(include_seed_col=True)
         unique_tasks = data[task_cols].drop_duplicates().reset_index(drop=True)
 
         unique_seeds_per_dataset = unique_tasks[self.task_col].value_counts()
