@@ -290,110 +290,55 @@ def subset_tasks(
     return df_results
 
 
-# TODO:
-#  - import from TabArena once we are able to pull/rebase
-#  - make this something stored in the metadata...
-def get_split_idx(
-    fold: int = 0,
-    repeat: int = 0,
-    sample: int = 0,
-    n_folds: int = 1,
-    n_repeats: int = 1,
-    n_samples: int = 1,
-) -> int:
-    assert fold < n_folds
-    assert repeat < n_repeats
-    assert sample < n_samples
-    split_idx = n_folds * n_samples * repeat + n_samples * fold + sample
-    return split_idx
+_SUBSET_PREDICATES: dict[str, callable] = {
+    "binary": lambda df: df["problem_type"] == "binary",
+    "multiclass": lambda df: df["problem_type"] == "multiclass",
+    "regression": lambda df: df["problem_type"] == "regression",
+    "large": lambda df: df["max_train_rows"].between(100_001, 1_000_350), # +350 due to AMEX grouped dataset weird split
+    "medium": lambda df: df["max_train_rows"].between(10_001, 100_000),
+    "small": lambda df: df["max_train_rows"].between(1_001, 10_000),
+    "tiny": lambda df: df["max_train_rows"].between(101, 1_000),
+    "random": lambda df: df["task_type"] == "random",
+    "temporal": lambda df: df["task_type"] == "temporal",
+    "grouped": lambda df: df["task_type"] == "grouped",
+    "low-dim": lambda df: df["num_cols_after_preprocessing"] <= 100,
+    "high-dim": lambda df: df["num_cols_after_preprocessing"] > 100,
+    "text": lambda df: df["num_text_cols"] > 0,
+    "high-cardinality": lambda df: df["num_high_cardinality_cats"] > 0,
+}
 
-def _add_split_idx_to_task_metadata(task_metadata: pd.DataFrame) -> pd.DataFrame:
-    n_folds_per_row = task_metadata.groupby("dataset")["fold"].transform("max") + 1
-    n_repeats_per_row = task_metadata.groupby("dataset")["repeat"].transform("max") + 1
 
-    task_metadata["legacy_split_idx"] = [
-        get_split_idx(fold=fold, repeat=repeat, n_folds=n_folds, n_repeats=n_repeats)
-        for fold, repeat, n_folds, n_repeats in zip(
-            task_metadata["fold"],
-            task_metadata["repeat"],
-            n_folds_per_row,
-            n_repeats_per_row,
-        )
-    ]
-    return task_metadata
+def get_subsets_per_dataset(data_foundry_metadata: pd.DataFrame) -> dict[str, list[str]]:
+    """For each dataset in ``data_foundry_metadata``, list the subset names from
+    :data:`_SUBSET_PREDICATES` whose predicate the dataset satisfies."""
+    result: dict[str, list[str]] = {ds: [] for ds in data_foundry_metadata["dataset"].dropna().unique()}
+    for subset_name, predicate in _SUBSET_PREDICATES.items():
+        qualifying = data_foundry_metadata.loc[predicate(data_foundry_metadata), "dataset"].dropna()
+        for ds in qualifying:
+            result[ds].append(subset_name)
+    return result
 
-def df_results_from_task_metadata_slice(*, df_results: pd.DataFrame, task_metadata_slice: pd.DataFrame) -> pd.DataFrame:
-    valid_pairs = set(
-        zip(task_metadata_slice["dataset"], task_metadata_slice["legacy_split_idx"])
-    )
-    mask = [
-        (dataset, fold) in valid_pairs
-        for dataset, fold in zip(df_results["dataset"], df_results["fold"])
-    ]
-    return df_results[mask].reset_index(drop=True)
 
-def subset_tasks_new(
+def subset_tasks_data_foundry(
     *,
     df_results: pd.DataFrame,
     subset: list[str],
-    task_metadata: pd.DataFrame,
+    data_foundry_metadata: pd.DataFrame,
 ) -> pd.DataFrame:
-    df_results = df_results.copy(deep=True)
-    task_metadata = task_metadata.copy(deep=True)
-    task_metadata = _add_split_idx_to_task_metadata(task_metadata)
+    """Subset ``df_results`` by filtering datasets according to the data_foundry_metadata metadata CSV."""
+    metadata = data_foundry_metadata
+    for name in subset:
+        if name not in _SUBSET_PREDICATES:
+            raise ValueError(f"Invalid subset {name} name!")
+        metadata = metadata[_SUBSET_PREDICATES[name](metadata)]
 
-    for filter_subset in subset:
-        if filter_subset == "classification":
-            df_results = df_results[
-                df_results["problem_type"].isin(["binary", "multiclass"])
-            ]
-        elif filter_subset == "binary":
-            df_results = df_results[df_results["problem_type"] == "binary"]
-        elif filter_subset == "multiclass":
-            df_results = df_results[df_results["problem_type"] == "multiclass"]
-        elif filter_subset == "regression":
-            df_results = df_results[df_results["problem_type"] == "regression"]
-        elif filter_subset == "large":
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 100_000]
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 1_000_000]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        elif filter_subset == "medium":
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 10_000]
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 100_000]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        elif filter_subset == "small":
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 10_000]
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 1_000]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        elif filter_subset == "tiny":
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 100]
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 1_000]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        elif filter_subset == "random":
-            task_metadata = task_metadata[task_metadata["time_on"].isna() & task_metadata["group_on"].isna()]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        elif filter_subset == "temporal":
-            task_metadata = task_metadata[~task_metadata["time_on"].isna()]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        elif filter_subset == "grouped":
-            task_metadata = task_metadata[~task_metadata["group_on"].isna()]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        elif filter_subset == "low-dim":
-            task_metadata = task_metadata[task_metadata["num_features_train"] <= 100]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        elif filter_subset == "high-dim":
-            task_metadata = task_metadata[task_metadata["num_features_train"] > 100]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        elif filter_subset == "text":
-            task_metadata = task_metadata[task_metadata["has_text"]]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        elif filter_subset == "high-cardinality":
-            task_metadata = task_metadata[task_metadata["has_high_cardinality_categorical"]]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        elif filter_subset == "binary-features":
-            task_metadata = task_metadata[task_metadata["has_binary"]]
-            df_results = df_results_from_task_metadata_slice(df_results=df_results, task_metadata_slice=task_metadata)
-        else:
-            raise ValueError(f"Invalid subset {subset} name!")
+    valid_datasets = set(metadata["dataset"])
+    df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+
+    # For each (method, dataset), drop the rows if the method did not run on every fold
+    # that exists for that dataset (across all methods).
+    n_folds_dataset = df_results.groupby("dataset")["fold"].transform("nunique")
+    n_folds_method_dataset = df_results.groupby(["method", "dataset"])["fold"].transform("nunique")
+    df_results = df_results[n_folds_method_dataset == n_folds_dataset]
 
     return df_results.reset_index(drop=True)
