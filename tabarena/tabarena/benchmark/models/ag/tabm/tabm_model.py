@@ -278,7 +278,7 @@ class TabMModel(AbstractTorchModel):
             4 * mem_ds + 1.2 * mem_forward_backward + 1.2 * mem_params + 0.3 * (1024**3)
         )
         # Safety overhead
-        res = res + (4 * 1e9)
+        res = res + (5 * 1e9)
 
         if (n_numerical + len(cat_sizes)) > 8_000:
             res = res * 1.5
