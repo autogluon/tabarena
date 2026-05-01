@@ -12,6 +12,7 @@ from typing import Literal
 import pandas as pd
 import ray
 import yaml
+from tabarena.benchmark.experiment.experiment_constructor import Experiment
 from tabarena.benchmark.experiment.experiment_utils import check_cache_hit
 from tabarena.benchmark.task.user_task import SplitMetadata, TabArenaTaskMetadata
 from tabarena.utils.cache import CacheFunctionPickle
@@ -814,7 +815,7 @@ class BenchmarkSetup2026:
             YamlExperimentSerializer,
         )
 
-        experiments_lst = []
+        experiments_all = []
         method_kwargs = {
             "init_kwargs": {"verbosity": self.verbosity},
             "shuffle_features": self.shuffle_features,
@@ -849,10 +850,14 @@ class BenchmarkSetup2026:
                 if preprocessing_name != "tabarena_default":
                     name_id_suffix = f"_{preprocessing_name}"
 
-            for model_name, n_configs_or_kwargs in self.models:
+            for model in self.models:
+                if isinstance(model, Experiment):
+                    experiments_all.append(model)
+                    continue
+                model_name, n_configs_or_kwargs = model[0], model[1]
                 # Resolve AutoGluon Config
                 if model_name.startswith("AutoGluon"):
-                    experiments_lst.append(
+                    experiments_all.extend(
                         self._generate_autogluon_config(
                             model_name=model_name,
                             agexp_kwargs=n_configs_or_kwargs,
@@ -862,7 +867,7 @@ class BenchmarkSetup2026:
                     continue
 
                 # Resolve model configs
-                experiments_lst.append(
+                experiments_all.extend(
                     self._generate_model_configs(
                         model_name=model_name,
                         n_configs=n_configs_or_kwargs,
@@ -872,7 +877,6 @@ class BenchmarkSetup2026:
                 )
 
         # Verify no duplicate names
-        experiments_all = [exp for exp_family_lst in experiments_lst for exp in exp_family_lst]
         experiment_names = set()
         for experiment in experiments_all:
             if experiment.name not in experiment_names:
