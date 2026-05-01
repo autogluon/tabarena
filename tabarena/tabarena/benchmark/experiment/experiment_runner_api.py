@@ -435,7 +435,7 @@ def run_experiments_new(
                             # TODO: add support
                             raise NotImplementedError(
                                 "Validation split kwargs only implemented for "
-                                f"AGModelBagExperiment for now, got task {type(task)}"
+                                f"AGModelBagExperiment for now, got {type(model_experiment)}"
                             )
 
                         # Add info about group and time for the pipeline to handle
