@@ -341,4 +341,6 @@ def subset_tasks_data_foundry(
     n_folds_method_dataset = df_results.groupby(["method", "dataset"])["fold"].transform("nunique")
     df_results = df_results[n_folds_method_dataset == n_folds_dataset]
 
+    assert len(df_results) > 0, "No results remain after subsetting! Please check the subset criteria and the data_foundry_metadata."
+
     return df_results.reset_index(drop=True)
