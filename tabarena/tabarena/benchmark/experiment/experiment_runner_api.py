@@ -484,20 +484,26 @@ def run_experiments_new(
                         out = None
 
                 # Safety check for results with non-finite metric errors
-                if (out is not None) and (
-                    not (np.isfinite(out["metric_error"]) and np.isfinite(out["metric_error_val"]))
-                ):
-                    print(
-                        "Non-finite final metric error detected: "
-                        f"\ttest={out['metric_error']}, val={out['metric_error_val']}. "
-                    )
-                    if failure_on_non_finite_metric_error:
-                        print("\tDeleting cache file and counting as failure.")
-                        # TODO: fix for s3
-                        cacher.delete_cache()
-                        out = None
-                        if raise_on_failure:
-                            raise RuntimeError("Non-finite metric error detected.")
+                if out is not None:
+                    for metric_error_key in ["metric_error", "metric_error_val"]:
+                        if metric_error_key not in out:
+                            continue
+
+                        if not np.isfinite(out[metric_error_key]):
+                            print(
+                                "Non-finite final metric error detected: "
+                                f"\t{metric_error_key}={out[metric_error_key]}. "
+                            )
+                            if failure_on_non_finite_metric_error:
+                                print("\tDeleting cache file and counting as failure.")
+                                # TODO: fix for s3
+                                cacher.delete_cache()
+                                out = None
+                                if raise_on_failure:
+                                    raise RuntimeError(
+                                        f"Non-finite metric error detected for key {metric_error_key!r}."
+                                    )
+                            break
 
                 if out is not None:
                     experiment_success_count += 1
