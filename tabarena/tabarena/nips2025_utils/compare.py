@@ -196,6 +196,12 @@ def prepare_data(
 
     if isinstance(fillna, str):
         fillna = df_results[df_results["method"] == fillna]
+        if len(fillna) == 0:
+            raise ValueError(
+                "Missing fillna method in df_results!"
+                f"\n\tfillna={fillna!r}"
+                f"\n\tvalid_methods={sorted(list(df_results['method'].unique()))}"
+            )
     if fillna is not None:
         df_results = TabArenaContext.fillna_metrics(
             df_to_fill=df_results,
