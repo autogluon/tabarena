@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -796,7 +797,10 @@ class BenchmarkSetup2026:
             raise ValueError(
                 f"Invalid number of configurations for model {model_name}: {n_configs}. Must be an integer or 'all'."
             )
-        config_generator = get_configs_generator_from_name(model_name)
+        if isinstance(model_name, str):
+            config_generator = get_configs_generator_from_name(model_name)
+        else:
+            config_generator = copy.deepcopy(model_name)
         # TODO: add model agnostic time limit here
         return config_generator.generate_all_bag_experiments(
             num_random_configs=n_configs,
@@ -855,8 +859,9 @@ class BenchmarkSetup2026:
                     experiments_all.append(model)
                     continue
                 model_name, n_configs_or_kwargs = model[0], model[1]
+
                 # Resolve AutoGluon Config
-                if model_name.startswith("AutoGluon"):
+                if isinstance(model_name, str) and model_name.startswith("AutoGluon"):
                     experiments_all.extend(
                         self._generate_autogluon_config(
                             model_name=model_name,
