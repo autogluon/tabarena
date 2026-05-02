@@ -645,6 +645,43 @@ class TabArena:
         elo_helper = EloHelper(method_col=self.method_col, task_col=self.task_col, error_col=self.error_col, split_col=split_col)
         battles = elo_helper.convert_results_to_battles(results_df=results_per_task)
 
+        can_compute_elo = len(battles) > 0
+        if not can_compute_elo:
+            task_groupby_cols = [self.task_col]
+            if split_col is not None:
+                task_groupby_cols.append(split_col)
+
+            methods_per_task = (
+                results_per_task
+                .groupby(task_groupby_cols)[self.method_col]
+                .nunique()
+                .sort_values()
+            )
+
+            task_method_pairs = (
+                results_per_task[task_groupby_cols + [self.method_col]]
+                .drop_duplicates()
+                .sort_values(task_groupby_cols + [self.method_col])
+            )
+
+            observed_methods = sorted(results_per_task[self.method_col].dropna().unique())
+
+            raise ValueError(
+                "Cannot compute Elo because no valid pairwise method comparisons exist. "
+                "At least one task/split must contain results for at least two methods.\n"
+                f"\nTask grouping columns: {task_groupby_cols}"
+                f"\nNum rows: {len(results_per_task)}"
+                f"\nNum task/split groups: {len(methods_per_task)}"
+                f"\nNum methods: {len(observed_methods)}"
+                f"\nObserved methods: {observed_methods}"
+                f"\n\nMethods per task/split:\n"
+                f"{methods_per_task.to_string()}"
+                f"\n\nObserved task/method pairs:\n"
+                f"{task_method_pairs.head(100).to_string(index=False)}"
+                f"\n\nShowing first {min(len(task_method_pairs), 100)} "
+                f"of {len(task_method_pairs)} observed task/method pairs."
+            )
+
         bootstrap_median = None
         bootstrap_elo_lu = None
         bars_quantiles = None
