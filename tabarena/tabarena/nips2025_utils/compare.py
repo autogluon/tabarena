@@ -228,8 +228,11 @@ def subset_tasks(
     subset: list[str],
     folds: list[int] = None,
     datasets: list[str] = None,
+    task_metadata_og: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
+    from tabarena.nips2025_utils.fetch_metadata import load_task_metadata, subset_task_metadata
+    if task_metadata_og is None:
+        task_metadata_og = load_task_metadata()
 
     df_results = df_results.copy(deep=True)
     for filter_subset in subset:
@@ -244,33 +247,33 @@ def subset_tasks(
         elif filter_subset == "regression":
             df_results = df_results[df_results["problem_type"] == "regression"]
         elif filter_subset == "medium+":
-            task_metadata = load_task_metadata()
+            task_metadata = task_metadata_og.copy()
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] >= 10000]
             valid_datasets = task_metadata["dataset"].unique()
             df_results = df_results[df_results["dataset"].isin(valid_datasets)]
         elif filter_subset == "medium":
-            task_metadata = load_task_metadata()
+            task_metadata = task_metadata_og.copy()
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] >= 10000]
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] < 250000]
             valid_datasets = task_metadata["dataset"].unique()
             df_results = df_results[df_results["dataset"].isin(valid_datasets)]
         elif filter_subset == "small+":
-            task_metadata = load_task_metadata()
+            task_metadata = task_metadata_og.copy()
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] >= 2000]
             valid_datasets = task_metadata["dataset"].unique()
             df_results = df_results[df_results["dataset"].isin(valid_datasets)]
         elif filter_subset == "small":
-            task_metadata = load_task_metadata()
+            task_metadata = task_metadata_og.copy()
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] < 10000]
             valid_datasets = task_metadata["dataset"].unique()
             df_results = df_results[df_results["dataset"].isin(valid_datasets)]
         elif filter_subset == "tiny":
-            task_metadata = load_task_metadata()
+            task_metadata = task_metadata_og.copy()
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] < 2000]
             valid_datasets = task_metadata["dataset"].unique()
             df_results = df_results[df_results["dataset"].isin(valid_datasets)]
         elif filter_subset == "tiny-small":
-            task_metadata = load_task_metadata()
+            task_metadata = task_metadata_og.copy()
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] < 10000]
             task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] >= 2000]
             valid_datasets = task_metadata["dataset"].unique()
@@ -278,18 +281,18 @@ def subset_tasks(
         elif filter_subset == "lite":
             df_results = df_results[df_results["fold"] == 0]
         elif filter_subset == "tabicl":
-            allowed_dataset = load_task_metadata(subset="TabICL")[
+            allowed_dataset = subset_task_metadata(task_metadata=task_metadata_og, subset="TabICL")[
                 "dataset"
             ].tolist()
             df_results = df_results[df_results["dataset"].isin(allowed_dataset)]
         elif filter_subset == "tabpfn":
-            allowed_dataset = load_task_metadata(subset="TabPFNv2")[
+            allowed_dataset = subset_task_metadata(task_metadata=task_metadata_og, subset="TabPFNv2")[
                 "dataset"
             ].tolist()
             df_results = df_results[df_results["dataset"].isin(allowed_dataset)]
         elif filter_subset == "tabpfn/tabicl":
-            ad_tabicl = load_task_metadata(subset="TabICL")["dataset"].tolist()
-            ad_tabpfn = load_task_metadata(subset="TabPFNv2")["dataset"].tolist()
+            ad_tabicl = subset_task_metadata(task_metadata=task_metadata_og, subset="TabICL")["dataset"].tolist()
+            ad_tabpfn = subset_task_metadata(task_metadata=task_metadata_og, subset="TabPFNv2")["dataset"].tolist()
             allowed_dataset = list(set(ad_tabicl).intersection(set(ad_tabpfn)))
             df_results = df_results[df_results["dataset"].isin(allowed_dataset)]
         else:
