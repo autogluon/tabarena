@@ -21,6 +21,7 @@ def compare_on_tabarena(
     tabarena_context: TabArenaContext | None = None,
     tabarena_context_kwargs: dict | None = None,
     fillna: str | pd.DataFrame | None = "RF (default)",
+    calibration_framework: str | None = "auto",
     score_on_val: bool = False,
     average_seeds: bool = False,
     remove_imputed: bool = False,
@@ -75,7 +76,7 @@ def compare_on_tabarena(
         output_dir=output_dir,
         task_metadata=task_metadata,
         fillna=fillna,
-        calibration_framework=fillna,
+        calibration_framework=calibration_framework,
         score_on_val=score_on_val,
         average_seeds=average_seeds,
         remove_imputed=remove_imputed,
@@ -119,6 +120,12 @@ def compare(
         df_results = df_results[~df_results["metric_error_val"].isna()]
     else:
         error_col = "metric_error"
+
+    if calibration_framework == "auto":
+        if isinstance(fillna, pd.DataFrame):
+            calibration_framework = None
+        else:
+            calibration_framework = fillna
 
     plotter = TabArenaEvaluator(
         output_dir=output_dir,

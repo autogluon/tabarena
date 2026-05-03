@@ -70,11 +70,21 @@ class TabArenaContext:
     def __init__(
         self,
         methods: list[MethodMetadata] | str = "tabarena",
+        task_metadata: str | pd.DataFrame = "tabarena",
+        *,
         extra_methods: list[MethodMetadata] = None,
         include_unverified: bool = False,
         backend: Literal["ray", "native"] = "ray",
+        fillna_method: str | None = "RF (default)",
+        calibration_method: str | None = "auto",
     ):
-        self.task_metadata = load_task_metadata(paper=True)  # FIXME: Instead download?
+        if isinstance(task_metadata, str):
+            assert task_metadata == "tabarena"
+            task_metadata = load_task_metadata(paper=True)
+        assert isinstance(task_metadata, pd.DataFrame)
+        self.task_metadata = task_metadata
+        self.fillna_method = fillna_method
+        self.calibration_method = calibration_method
         assert backend in ["ray", "native"]
         self.backend = backend
         self.engine = "ray" if self.backend == "ray" else "sequential"
@@ -119,7 +129,8 @@ class TabArenaContext:
         folds: list[int] | None = None,
         score_on_val: bool = False,
         average_seeds: bool = False,
-        fillna: str | pd.DataFrame | None = "RF (default)",
+        fillna: str | pd.DataFrame | None = "auto",
+        calibration_method: str | None = "auto",
         remove_imputed: bool = False,
         tmp_treat_tasks_independently: bool = False,
         leaderboard_kwargs: dict | None = None,
@@ -127,6 +138,12 @@ class TabArenaContext:
         **kwargs,
     ) -> pd.DataFrame:
         from tabarena.nips2025_utils.compare import compare_on_tabarena
+
+        if fillna == "auto":
+            fillna = self.fillna_method
+        if calibration_method == "auto":
+            calibration_method = self.calibration_method
+
         return compare_on_tabarena(
             output_dir=output_dir,
             new_results=new_results,
@@ -137,6 +154,7 @@ class TabArenaContext:
             score_on_val=score_on_val,
             average_seeds=average_seeds,
             fillna=fillna,
+            calibration_framework=calibration_method,
             remove_imputed=remove_imputed,
             tmp_treat_tasks_independently=tmp_treat_tasks_independently,
             leaderboard_kwargs=leaderboard_kwargs,
@@ -780,13 +798,15 @@ class TabArenaContext:
         include_portfolio: bool = False,
         elo_bootstrap_rounds: int = 200,
         use_latex: bool = False,
-        fillna_method: str | None = "RF (default)",  # FIXME: Don't hardcode
+        fillna_method: str | None = "auto",
         use_website_folder_names: bool = False,
         evaluator_kwargs: dict = None,
     ):
         if df_results is None:
             df_results = self.load_results_paper(download_results="auto")
 
+        if fillna_method == "auto":
+            fillna_method = self.fillna_method
         if fillna_method is not None:
             df_results = TabArenaContext.fillna_metrics(
                 df_to_fill=df_results,
@@ -834,8 +854,10 @@ class TabArenaContext:
         self,
         save_path: str | Path,
         df_results: pd.DataFrame = None,
-        fillna_method: str | None = "RF (default)",  # FIXME: Don't hardcode
+        fillna_method: str | None = "auto",  # FIXME: Don't hardcode
     ):
+        if fillna_method == "auto":
+            fillna_method = self.fillna_method
         if df_results is None:
             df_results = self.load_results_paper(download_results="auto")
 
