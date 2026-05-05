@@ -237,8 +237,11 @@ class TabArenaEvaluator:
         leaderboard_kwargs: dict | None = None,
         plot_with_baselines: bool = False,
         plot_tuning_kwargs: dict | None = None,
+        banned_methods: list[str] | None = None,
         verbose: bool = True,
     ) -> pd.DataFrame:
+        if banned_methods is not None:
+            df_results = df_results[~df_results["method"].isin(banned_methods)]
         if leaderboard_kwargs is None:
             leaderboard_kwargs = {}
         leaderboard_kwargs = leaderboard_kwargs.copy()
@@ -1857,7 +1860,13 @@ class TabArenaEvaluator:
         p.savefig(fig_path / f"ens-weights-per-dataset.{self.figure_file_type}")
 
     # FIXME: clean this up
-    def generate_runtime_plot(self, df_results: pd.DataFrame):
+    def generate_runtime_plot(
+        self,
+        df_results: pd.DataFrame,
+        deep_dive_kwargs: dict | None = None
+    ):
+        if deep_dive_kwargs is None:
+            deep_dive_kwargs = {}
         df_results_configs = df_results[df_results["method_type"] == "config"]
         df_results_configs = df_results_configs.copy(deep=True)
 
@@ -1872,7 +1881,8 @@ class TabArenaEvaluator:
             expname_outdir=self.output_dir,
             method_col=self.method_col,
             family_col="config_type",
-            show=False
+            show=False,
+            **deep_dive_kwargs,
         )
 
 
