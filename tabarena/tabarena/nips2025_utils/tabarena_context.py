@@ -754,6 +754,27 @@ class TabArenaContext:
         df_results = pd.concat(df_results_lst, ignore_index=True)
         return df_results
 
+    def subset_results(
+        self,
+        df_results: pd.DataFrame,
+        *,
+        subset: list[str] | None = None,
+        tasks: list[tuple[str, int]] | None = None,
+        datasets: list[str] | None = None,
+        folds: list[int] | None = None,
+    ) -> pd.DataFrame:
+        from tabarena.nips2025_utils.compare import subset_tasks
+        if subset is not None or datasets is not None or folds is not None or tasks is not None:
+            df_results = subset_tasks(
+                df_results=df_results,
+                subset=subset,
+                tasks=tasks,
+                datasets=datasets,
+                folds=folds,
+                task_metadata_og=self.task_metadata,
+            )
+        return df_results
+
     def load_configs_hyperparameters(
         self,
         methods: list[str] | None = None,
@@ -825,6 +846,20 @@ class TabArenaContext:
             evaluator_kwargs=evaluator_kwargs,
         )
 
+    def plot_tuning_trajectories(
+        self,
+        save_path: str | Path,
+        subset: list[str] | None = None,
+        **kwargs,
+    ):
+        from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories
+        plot_tuning_trajectories(
+            tabarena_context=self,
+            fig_save_dir=save_path,
+            subset_map=subset,
+            **kwargs,
+        )
+
     def plot_tuning_trajectories_per_dataset(
         self,
         save_path: str | Path,
@@ -837,7 +872,13 @@ class TabArenaContext:
             **kwargs,
         )
 
-    def plot_runtime_per_method(self, save_path: str | Path, df_results_configs: pd.DataFrame = None):
+    def plot_runtime_per_method(
+        self,
+        save_path: str | Path,
+        df_results_configs: pd.DataFrame = None,
+        subset: list[str] | None = None,
+        **kwargs,
+    ):
         if df_results_configs is None:
             df_results_configs = self.load_config_results_multi()
         else:
@@ -847,8 +888,11 @@ class TabArenaContext:
             df_results_configs["imputed"] = df_results_configs["imputed"].fillna(0)
             df_results_configs = df_results_configs[df_results_configs["imputed"] == 0]
 
+        if subset:
+            df_results_configs = self.subset_results(df_results=df_results_configs, subset=subset)
+
         evaluator = TabArenaEvaluator(output_dir=save_path)
-        evaluator.generate_runtime_plot(df_results=df_results_configs)
+        evaluator.generate_runtime_plot(df_results=df_results_configs, **kwargs)
 
     def generate_per_dataset_tables(
         self,
