@@ -261,8 +261,10 @@ def plot_hpo(
 
 def compute_tuning_trajectories_leaderboard(
     combined_data: pd.DataFrame,
+    tabarena_context: TabArenaContext,
     methods_map: pd.DataFrame,
     calibration_framework: str,
+    fillna_method: str,
     exclude_imputed: bool,
     elo_bootstrap_rounds: int = 1,
     average_seeds: bool = False,
@@ -274,7 +276,12 @@ def compute_tuning_trajectories_leaderboard(
     if subset is not None or folds is not None:
         if isinstance(subset, str):
             subset = [subset]
-        combined_data = subset_tasks(df_results=combined_data, subset=subset, folds=folds)
+        combined_data = subset_tasks(
+            df_results=combined_data,
+            subset=subset,
+            folds=folds,
+            task_metadata_og=tabarena_context.task_metadata,
+        )
 
     tabarena_init_kwargs = dict(
         task_col="dataset",
@@ -304,10 +311,10 @@ def compute_tuning_trajectories_leaderboard(
     #     fillna_method=calibration_framework,
     # )
     # FIXME: Using this since it does it correctly
-    if calibration_framework is not None:
-        combined_data = TabArenaContext.fillna_metrics(
+    if fillna_method is not None:
+        combined_data = tabarena_context.fillna_metrics(
             df_to_fill=combined_data,
-            df_fillna=combined_data[combined_data["method"] == calibration_framework],
+            df_fillna=combined_data[combined_data["method"] == fillna_method],
         )
 
     if exclude_imputed:
@@ -393,7 +400,7 @@ def plot_tuning_trajectories_all(
     ban_bad_methods: bool = True,
     file_ext: str = ".pdf",
     extra_results = None,
-    calibration_framework = "RF (default)",
+    calibration_framework = "auto",
     folds: list[int] | None = None,
     methods_to_display: list[str] | None = None,
     plot_kwargs: dict | None = None,
@@ -461,7 +468,8 @@ def plot_tuning_trajectories_per_dataset(
     ban_bad_methods: bool = True,
     file_ext: str = ".pdf",
     extra_results = None,
-    calibration_framework = "RF (default)",
+    calibration_framework: str | None = "auto",
+    fillna_method: str | None = "auto",
     folds: list[int] | None = None,
     methods_to_display: list[str] | None = None,
     plot_kwargs: dict | None = None,
@@ -504,9 +512,7 @@ def plot_tuning_trajectories_per_dataset(
         plot_kwargs_cur["title"] = f"Dataset: {dataset}"
 
         plot_tuning_trajectories(
-            subset_map={
-                "placeholder_name": subset_list
-            },
+            subset_map=subset_list,
             average_seeds=average_seeds,
             exclude_imputed=not use_imputation,
             # Meta
@@ -517,6 +523,7 @@ def plot_tuning_trajectories_per_dataset(
             extra_results=extra_results,
             datasets=[dataset],
             calibration_framework=calibration_framework,
+            fillna_method=fillna_method,
             folds=folds,
             methods_to_display=methods_to_display,
             plot_kwargs=plot_kwargs_cur,
@@ -526,7 +533,7 @@ def plot_tuning_trajectories_per_dataset(
 
 def plot_tuning_trajectories(
     tabarena_context: TabArenaContext = None,
-    subset_map: dict[str, list[str]] | None = None,
+    subset_map: dict[str, list[str]] | list[str] | None = None,
     fig_save_dir: str | Path = Path("plots") / "n_configs",
     average_seeds: bool = False,
     exclude_imputed: bool = True,
@@ -536,21 +543,24 @@ def plot_tuning_trajectories(
     file_ext: str = ".pdf",
     extra_results: pd.DataFrame | None = None,
     datasets: list[str] | None = None,
-    calibration_framework = "RF (default)",
+    calibration_framework = "auto",
+    fillna_method = "auto",
     folds: list[int] | None = None,
     methods_to_display: list[str] | None = None,
     plot_kwargs: dict | None = None,
 ):
     name_col = "config_type"
     if subset_map is None:
-        subset_map = {
-            "all": [],
-        }
+        subset_map = []
 
     if tabarena_context is None:
         tabarena_context = TabArenaContext(
             include_unverified=True,
         )
+    if isinstance(calibration_framework, str) and calibration_framework == "auto":
+        calibration_framework = tabarena_context.calibration_method
+    if isinstance(fillna_method, str) and fillna_method == "auto":
+        fillna_method = tabarena_context.fillna_method
     include_hpo_seeds = False
 
     fig_save_dir = Path(fig_save_dir)
@@ -654,11 +664,15 @@ def plot_tuning_trajectories(
 
     methods_map = results_hpo[["method", "n_configs", "n_iterations", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
 
+    if isinstance(subset_map, list):
+        subset_map = {None: subset_map}
     for subset_name, subset in subset_map.items():
         leaderboard = compute_tuning_trajectories_leaderboard(
             combined_data=combined_data,
+            tabarena_context=tabarena_context,
             methods_map=methods_map,
             calibration_framework=calibration_framework,
+            fillna_method=fillna_method,
             exclude_imputed=exclude_imputed,
             elo_bootstrap_rounds=elo_bootstrap_rounds,
             average_seeds=average_seeds,
@@ -672,7 +686,10 @@ def plot_tuning_trajectories(
             bad_methods = ["KNN", "Linear", "PerpetualBooster", "TabSTAR", "TabFlex"]
             leaderboard = leaderboard[~leaderboard["config_type"].isin(bad_methods)]
 
-        fig_save_dir_subset = fig_save_dir / subset_name
+        if subset_name is not None:
+            fig_save_dir_subset = fig_save_dir / subset_name
+        else:
+            fig_save_dir_subset = fig_save_dir
         plot_tuning_trajectories_from_leaderboard(
             leaderboard=leaderboard,
             fig_save_dir=fig_save_dir_subset,
