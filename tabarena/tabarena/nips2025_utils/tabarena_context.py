@@ -863,13 +863,54 @@ class TabArenaContext:
     def plot_tuning_trajectories_per_dataset(
         self,
         save_path: str | Path,
+        file_ext: str = ".pdf",
+        to_grid: bool = False,
         **kwargs,
     ):
+        if to_grid:
+            assert file_ext == ".png", f"to_grid=True only works with file_ext={'.png'!r}"
         from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories_per_dataset
         plot_tuning_trajectories_per_dataset(
             tabarena_context=self,
             fig_save_dir=save_path,
+            file_ext=file_ext,
             **kwargs,
+        )
+
+        if to_grid:
+            self._make_png_grid(
+                save_path=save_path,
+            )
+
+    def _make_png_grid(
+        self,
+        save_path: str | Path,
+        suffix: str | Path = "tuning_trajectories/pareto_n_configs_err_tot_train.png",
+        output_suffix: str | Path = "per_dataset_train_vs_error.png",
+        n_cols: int = 5,
+        datasets: list[str] | None = None,
+    ):
+        from tabarena.plot.png_to_grid import make_png_grid
+        if not datasets:
+            task_metadata = self.task_metadata
+            datasets = sorted(list(task_metadata["dataset"].unique()))
+
+        n_datasets = len(datasets)
+        n_rows = (n_datasets + n_cols - 1) // n_cols
+
+        prefix = save_path
+        output_path = save_path.parent / output_suffix
+
+        png_files = [prefix / dataset / suffix for dataset in datasets]
+        make_png_grid(
+            image_paths=png_files,
+            output_path=output_path,
+            n_rows=n_rows,
+            n_cols=n_cols,
+            padding=12,
+            bg_color=(255, 255, 255, 255),
+            resize_mode="fit",
+            scale=0.33,
         )
 
     def plot_runtime_per_method(
