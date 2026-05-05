@@ -251,7 +251,7 @@ _SUBSET_PREDICATES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
     "small": lambda df: df["max_train_rows"].between(1_001, 10_000),
     "tiny": lambda df: df["max_train_rows"].between(101, 1_000),
     # split / task type
-    "random": lambda df: df["task_type"] == "random",
+    "iid": lambda df: df["task_type"] == "random",
     "temporal": lambda df: df["task_type"] == "temporal",
     "grouped": lambda df: df["task_type"] == "grouped",
     # feature dimensionality / type
