@@ -21,6 +21,7 @@ from tabarena.nips2025_utils.eval_all import (
     get_all_subset_combinations,
 )
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+from tabarena.utils.parallel_for import parallel_for
 
 
 def plot_hpo(
@@ -257,6 +258,7 @@ def plot_hpo(
     fig.tight_layout()
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     fig.savefig(str(save_path), dpi=300)
+    plt.close(fig)
 
 
 def compute_tuning_trajectories_leaderboard(
@@ -474,15 +476,32 @@ def plot_tuning_trajectories_per_dataset(
     methods_to_display: list[str] | None = None,
     plot_kwargs: dict | None = None,
     include_baselines: bool = False,
+    engine: str = "auto",
+    progress_bar: bool = True,
 ):
     if isinstance(fig_save_dir, str):
         fig_save_dir = Path(fig_save_dir)
     fig_save_dir.mkdir(parents=True, exist_ok=True)
 
-    datasets = sorted(list(tabarena_context.task_metadata["dataset"].unique()))
-    n_combinations = len(datasets)
+    if engine == "auto":
+        engine = tabarena_context.engine
+    if isinstance(calibration_framework, str) and calibration_framework == "auto":
+        calibration_framework = tabarena_context.calibration_method
+    if isinstance(fillna_method, str) and fillna_method == "auto":
+        fillna_method = tabarena_context.fillna_method
 
-    ts = time.time()
+    method_rename_map = get_method_rename_map()  # TODO: avoid hard-coding
+
+    # Heavy I/O — load HPO trajectories, baselines, and assemble combined_data once and share
+    # across all per-dataset jobs (passed to ray's object store via parallel_for's `context`).
+    combined_data, methods_map = _prepare_tuning_trajectories_data(
+        tabarena_context=tabarena_context,
+        extra_results=extra_results,
+        methods_to_display=methods_to_display,
+        include_baselines=include_baselines,
+    )
+
+    datasets = sorted(list(tabarena_context.task_metadata["dataset"].unique()))
 
     use_imputation = False
     problem_type = "all"
@@ -490,84 +509,67 @@ def plot_tuning_trajectories_per_dataset(
     lite = False
     average_seeds = False
 
-    # plots for sub-benchmarks, with and without imputation
-    for i, dataset in enumerate(datasets):
-        print(
-            f"Running tuning trajectories generation {i + 1}/{n_combinations}... {(time.time() - ts):.1f}s elapsed..."
-        )
+    subset_list = []
+    if problem_type != "all":
+        subset_list.append(problem_type)
+    if dataset_subset is not None:
+        subset_list.append(dataset_subset)
+    if lite:
+        subset_list.append("lite")
 
-        subset_list = []
-        if problem_type != "all":
-            subset_list.append(problem_type)
-        if dataset_subset is not None:
-            subset_list.append(dataset_subset)
-        if lite:
-            subset_list.append("lite")
+    inputs = []
+    for dataset in datasets:
         (fig_save_dir / dataset).mkdir(parents=True, exist_ok=True)
 
         plot_kwargs_cur = copy.deepcopy(plot_kwargs)
         if plot_kwargs_cur is None:
             plot_kwargs_cur = {}
-
         plot_kwargs_cur["title"] = f"Dataset: {dataset}"
 
-        plot_tuning_trajectories(
-            subset_map=subset_list,
-            average_seeds=average_seeds,
-            exclude_imputed=not use_imputation,
-            # Meta
-            tabarena_context=tabarena_context,
-            fig_save_dir=fig_save_dir / dataset / "tuning_trajectories",
-            ban_bad_methods=ban_bad_methods,
-            file_ext=file_ext,
-            extra_results=extra_results,
-            datasets=[dataset],
-            calibration_framework=calibration_framework,
-            fillna_method=fillna_method,
-            folds=folds,
-            methods_to_display=methods_to_display,
-            plot_kwargs=plot_kwargs_cur,
-            include_baselines=include_baselines,
-        )
+        inputs.append({
+            "datasets": [dataset],
+            "fig_save_dir": fig_save_dir / dataset / "tuning_trajectories",
+            "subset_map": list(subset_list),
+            "plot_kwargs": plot_kwargs_cur,
+        })
+
+    parallel_for(
+        f=_plot_tuning_trajectories_from_prepared,
+        inputs=inputs,
+        context={
+            "combined_data": combined_data,
+            "methods_map": methods_map,
+            "tabarena_context": tabarena_context,
+            "calibration_framework": calibration_framework,
+            "fillna_method": fillna_method,
+            "average_seeds": average_seeds,
+            "exclude_imputed": not use_imputation,
+            "elo_bootstrap_rounds": 1,
+            "name_col": "config_type",
+            "method_rename_map": method_rename_map,
+            "ban_bad_methods": ban_bad_methods,
+            "file_ext": file_ext,
+            "folds": folds,
+        },
+        engine=engine,
+        progress_bar=progress_bar,
+        desc="Plotting tuning trajectories per dataset",
+    )
 
 
-def plot_tuning_trajectories(
-    tabarena_context: TabArenaContext = None,
-    subset_map: dict[str, list[str]] | list[str] | None = None,
-    fig_save_dir: str | Path = Path("plots") / "n_configs",
-    average_seeds: bool = False,
-    exclude_imputed: bool = True,
-    ban_bad_methods: bool = True,
-    include_baselines: bool = False,
-    include_portfolio: bool = False,  # TODO: True not yet supported
-    file_ext: str = ".pdf",
-    extra_results: pd.DataFrame | None = None,
-    datasets: list[str] | None = None,
-    calibration_framework = "auto",
-    fillna_method = "auto",
-    folds: list[int] | None = None,
-    methods_to_display: list[str] | None = None,
-    plot_kwargs: dict | None = None,
-):
-    name_col = "config_type"
-    if subset_map is None:
-        subset_map = []
+def _prepare_tuning_trajectories_data(
+    tabarena_context: TabArenaContext,
+    extra_results: pd.DataFrame | None,
+    methods_to_display: list[str] | None,
+    include_baselines: bool,
+    include_portfolio: bool = False,
+    include_hpo_seeds: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build the dataset-independent inputs (combined_data, methods_map) for tuning-trajectory plotting.
 
-    if tabarena_context is None:
-        tabarena_context = TabArenaContext(
-            include_unverified=True,
-        )
-    if isinstance(calibration_framework, str) and calibration_framework == "auto":
-        calibration_framework = tabarena_context.calibration_method
-    if isinstance(fillna_method, str) and fillna_method == "auto":
-        fillna_method = tabarena_context.fillna_method
-    include_hpo_seeds = False
-
-    fig_save_dir = Path(fig_save_dir)
-
-    elo_bootstrap_rounds = 1
-    method_rename_map = get_method_rename_map()  # TODO: avoid hard-coding
-
+    Heavy I/O (loading per-method HPO trajectories, baselines, the paper results) lives here so the
+    caller can run it once and share the results across many per-dataset plotting calls.
+    """
     method_metadata_lst_og = tabarena_context.method_metadata_collection.method_metadata_lst
     method_metadata_lst = [m for m in method_metadata_lst_og if m.method_type == "config"]
     results_hpo_lst = []
@@ -595,7 +597,6 @@ def plot_tuning_trajectories(
     results_hpo["display_name"] = results_hpo["display_name"].fillna(results_hpo["config_type"])
 
     result_baselines = tabarena_context.load_results_paper()
-    task_metadata = tabarena_context.task_metadata
 
     results_hpo_mean = results_hpo.copy().groupby(["method", "dataset", "fold", "problem_type", "metric", "config_type", "display_name"]).mean(
         numeric_only=True
@@ -650,9 +651,6 @@ def plot_tuning_trajectories(
 
     combined_data = pd.concat([result_baselines, results_hpo], ignore_index=True)
 
-    if datasets is not None:
-        combined_data = combined_data[combined_data["dataset"].isin(datasets)]
-
     # ----- add times per 1K samples -----
     dataset_to_n_samples_train = tabarena_context.task_metadata.set_index("name")["n_samples_train_per_fold"].to_dict()
     dataset_to_n_samples_test = tabarena_context.task_metadata.set_index("name")["n_samples_test_per_fold"].to_dict()
@@ -663,6 +661,34 @@ def plot_tuning_trajectories(
         dataset_to_n_samples_test)
 
     methods_map = results_hpo[["method", "n_configs", "n_iterations", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
+
+    return combined_data, methods_map
+
+
+def _plot_tuning_trajectories_from_prepared(
+    combined_data: pd.DataFrame,
+    methods_map: pd.DataFrame,
+    subset_map: dict[str, list[str]] | list[str],
+    fig_save_dir: str | Path,
+    tabarena_context: TabArenaContext,
+    calibration_framework,
+    fillna_method,
+    average_seeds: bool,
+    exclude_imputed: bool,
+    elo_bootstrap_rounds: int,
+    name_col: str,
+    method_rename_map: dict,
+    ban_bad_methods: bool,
+    file_ext: str,
+    folds: list[int] | None,
+    plot_kwargs: dict | None,
+    datasets: list[str] | None = None,
+):
+    """Run the per-(dataset-subset, subset_map) leaderboard + plotting steps from already-prepared data."""
+    fig_save_dir = Path(fig_save_dir)
+
+    if datasets is not None:
+        combined_data = combined_data[combined_data["dataset"].isin(datasets)]
 
     if isinstance(subset_map, list):
         subset_map = {None: subset_map}
@@ -696,6 +722,72 @@ def plot_tuning_trajectories(
             file_ext=file_ext,
             plot_kwargs=plot_kwargs,
         )
+
+
+def plot_tuning_trajectories(
+    tabarena_context: TabArenaContext = None,
+    subset_map: dict[str, list[str]] | list[str] | None = None,
+    fig_save_dir: str | Path = Path("plots") / "n_configs",
+    average_seeds: bool = False,
+    exclude_imputed: bool = True,
+    ban_bad_methods: bool = True,
+    include_baselines: bool = False,
+    include_portfolio: bool = False,  # TODO: True not yet supported
+    file_ext: str = ".pdf",
+    extra_results: pd.DataFrame | None = None,
+    datasets: list[str] | None = None,
+    calibration_framework = "auto",
+    fillna_method = "auto",
+    folds: list[int] | None = None,
+    methods_to_display: list[str] | None = None,
+    plot_kwargs: dict | None = None,
+):
+    name_col = "config_type"
+    if subset_map is None:
+        subset_map = []
+
+    if tabarena_context is None:
+        tabarena_context = TabArenaContext(
+            include_unverified=True,
+        )
+    if isinstance(calibration_framework, str) and calibration_framework == "auto":
+        calibration_framework = tabarena_context.calibration_method
+    if isinstance(fillna_method, str) and fillna_method == "auto":
+        fillna_method = tabarena_context.fillna_method
+
+    fig_save_dir = Path(fig_save_dir)
+
+    elo_bootstrap_rounds = 1
+    method_rename_map = get_method_rename_map()  # TODO: avoid hard-coding
+
+    combined_data, methods_map = _prepare_tuning_trajectories_data(
+        tabarena_context=tabarena_context,
+        extra_results=extra_results,
+        methods_to_display=methods_to_display,
+        include_baselines=include_baselines,
+        include_portfolio=include_portfolio,
+        include_hpo_seeds=False,
+    )
+
+    _plot_tuning_trajectories_from_prepared(
+        combined_data=combined_data,
+        methods_map=methods_map,
+        subset_map=subset_map,
+        fig_save_dir=fig_save_dir,
+        tabarena_context=tabarena_context,
+        calibration_framework=calibration_framework,
+        fillna_method=fillna_method,
+        average_seeds=average_seeds,
+        exclude_imputed=exclude_imputed,
+        elo_bootstrap_rounds=elo_bootstrap_rounds,
+        name_col=name_col,
+        method_rename_map=method_rename_map,
+        ban_bad_methods=ban_bad_methods,
+        file_ext=file_ext,
+        folds=folds,
+        plot_kwargs=plot_kwargs,
+        datasets=datasets,
+    )
 
 
 def plot_tuning_trajectories_from_leaderboard(
