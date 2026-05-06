@@ -273,7 +273,10 @@ def plot_train_time_deep_dive(
     df_sorted_by_time["group_time_train_s_cumsum"] = df_sorted_by_time.groupby(family_col)["time_train_s"].cumsum()
     df_sorted_by_time["group_index"] = df_sorted_by_time.groupby(family_col)["time_train_s"].cumcount()
     df_sorted_by_time["group_index_max"] = df_sorted_by_time[family_col].map(df_sorted_by_time.value_counts(family_col))
-    df_sorted_by_time["group_index"] = df_sorted_by_time["group_index"] / df_sorted_by_time["group_index_max"]
+    # Span each family across [0, 1]: divide cumcount (0..n-1) by (n-1) so the
+    # final config lands at 1.0 instead of (n-1)/n. Clip avoids div-by-zero for
+    # single-config families (their lone point sits at 0).
+    df_sorted_by_time["group_index"] = df_sorted_by_time["group_index"] / (df_sorted_by_time["group_index_max"] - 1).clip(lower=1)
 
     cur_idx = 0
     if not only_per_method:
