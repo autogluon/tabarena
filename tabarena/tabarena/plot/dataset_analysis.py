@@ -204,7 +204,16 @@ def generate_dataset_analysis(repo, expname_outdir: str):
     plot_train_time_deep_dive(df, expname_outdir=expname_outdir)
 
 
-def plot_train_time_deep_dive(df: pd.DataFrame, expname_outdir: str, only_per_method: bool = True, method_col: str = "framework", family_col: str = "method", show: bool = True):
+def plot_train_time_deep_dive(
+    df: pd.DataFrame,
+    expname_outdir: str,
+    only_per_method: bool = True,
+    method_col: str = "framework",
+    family_col: str = "method",
+    show: bool = True,
+    time_limit_soft: float = 2800,
+    time_limit_hard: float = 3600,
+):
     df = df.copy(deep=True)
     title_size = 20
     if only_per_method:
@@ -215,7 +224,7 @@ def plot_train_time_deep_dive(df: pd.DataFrame, expname_outdir: str, only_per_me
         fig, axes = plt.subplots(1, 4, figsize=figsize, dpi=300)
 
     # runtime max stats
-    index_above_time_limit = df["time_train_s"] >= 2800
+    index_above_time_limit = df["time_train_s"] >= time_limit_soft
     proportion_of_models_reaching_time_limit = index_above_time_limit.mean()
     num_models_reaching_time_limit = index_above_time_limit.sum()
     models_by_family_reaching_time_limit = df.loc[index_above_time_limit].value_counts(family_col)
@@ -279,7 +288,7 @@ def plot_train_time_deep_dive(df: pd.DataFrame, expname_outdir: str, only_per_me
         )
         ax.set_yscale('log')
         ax.grid()
-        ax.hlines(3600, xmin=0, xmax=df_sorted_by_time["index"].max(), color="black", label="3600 Seconds", ls="--")
+        ax.hlines(time_limit_hard, xmin=0, xmax=df_sorted_by_time["index"].max(), color="black", label=f"{int(time_limit_hard)} Seconds", ls="--")
         ax.legend()
         ax.set_xlabel("Configs (Proportion)", fontdict={'size': title_size})
         ax.set_ylabel("Training runtime (s)", fontdict={'size': title_size})
@@ -311,7 +320,7 @@ def plot_train_time_deep_dive(df: pd.DataFrame, expname_outdir: str, only_per_me
     )
     ax.set_yscale('log')
     ax.grid()
-    ax.hlines(3600, xmin=0, xmax=df_sorted_by_time["group_index"].max(), color="black", label="3600 Seconds", ls="--")
+    ax.hlines(time_limit_hard, xmin=0, xmax=df_sorted_by_time["group_index"].max(), color="black", label=f"{int(time_limit_hard)} Seconds", ls="--")
     ax.legend(loc="upper left")
     ax.set_xlabel("Proportion of Model Configurations", fontdict={'size': title_size})
     ax.set_ylabel("Training runtime (s)", fontdict={'size': title_size})

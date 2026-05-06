@@ -225,7 +225,7 @@ if __name__ == "__main__":
     new_results_lst = []
     for i, metadata in enumerate(metadata_lst):
         print(f"({i+1}/{num_methods}) Running calibration for {metadata.method}")
-        cache_dir = Path(out_dir) / f"{metadata.artifact_name}" / f"{metadata.method}.pkl"
+        cache_dir = Path(out_dir) / f"{metadata.artifact_name}" / f"{metadata.method}.csv"
         if not cache_overwrite and cache_dir.exists():
             cur_new_results = TabularDataset.load(path=cache_dir)
         else:

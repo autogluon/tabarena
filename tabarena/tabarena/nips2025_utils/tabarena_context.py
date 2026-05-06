@@ -754,6 +754,27 @@ class TabArenaContext:
         df_results = pd.concat(df_results_lst, ignore_index=True)
         return df_results
 
+    def subset_results(
+        self,
+        df_results: pd.DataFrame,
+        *,
+        subset: list[str] | None = None,
+        tasks: list[tuple[str, int]] | None = None,
+        datasets: list[str] | None = None,
+        folds: list[int] | None = None,
+    ) -> pd.DataFrame:
+        from tabarena.nips2025_utils.compare import subset_tasks
+        if subset is not None or datasets is not None or folds is not None or tasks is not None:
+            df_results = subset_tasks(
+                df_results=df_results,
+                subset=subset,
+                tasks=tasks,
+                datasets=datasets,
+                folds=folds,
+                task_metadata_og=self.task_metadata,
+            )
+        return df_results
+
     def load_configs_hyperparameters(
         self,
         methods: list[str] | None = None,
@@ -825,19 +846,80 @@ class TabArenaContext:
             evaluator_kwargs=evaluator_kwargs,
         )
 
+    def plot_tuning_trajectories(
+        self,
+        save_path: str | Path,
+        subset: list[str] | None = None,
+        **kwargs,
+    ):
+        from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories
+        plot_tuning_trajectories(
+            tabarena_context=self,
+            fig_save_dir=save_path,
+            subset_map=subset,
+            **kwargs,
+        )
+
     def plot_tuning_trajectories_per_dataset(
         self,
         save_path: str | Path,
+        file_ext: str = ".pdf",
+        to_grid: bool = False,
         **kwargs,
     ):
+        if to_grid:
+            assert file_ext == ".png", f"to_grid=True only works with file_ext={'.png'!r}"
         from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories_per_dataset
         plot_tuning_trajectories_per_dataset(
             tabarena_context=self,
             fig_save_dir=save_path,
+            file_ext=file_ext,
             **kwargs,
         )
 
-    def plot_runtime_per_method(self, save_path: str | Path, df_results_configs: pd.DataFrame = None):
+        if to_grid:
+            self._make_png_grid(
+                save_path=save_path,
+            )
+
+    def _make_png_grid(
+        self,
+        save_path: str | Path,
+        suffix: str | Path = "tuning_trajectories/pareto_n_configs_err_tot_train.png",
+        output_suffix: str | Path = "per_dataset_train_vs_error.png",
+        n_cols: int = 5,
+        datasets: list[str] | None = None,
+    ):
+        from tabarena.plot.png_to_grid import make_png_grid
+        if not datasets:
+            task_metadata = self.task_metadata
+            datasets = sorted(list(task_metadata["dataset"].unique()))
+
+        n_datasets = len(datasets)
+        n_rows = (n_datasets + n_cols - 1) // n_cols
+
+        prefix = save_path
+        output_path = save_path.parent / output_suffix
+
+        png_files = [prefix / dataset / suffix for dataset in datasets]
+        make_png_grid(
+            image_paths=png_files,
+            output_path=output_path,
+            n_rows=n_rows,
+            n_cols=n_cols,
+            padding=12,
+            bg_color=(255, 255, 255, 255),
+            resize_mode="fit",
+            scale=0.33,
+        )
+
+    def plot_runtime_per_method(
+        self,
+        save_path: str | Path,
+        df_results_configs: pd.DataFrame = None,
+        subset: list[str] | None = None,
+        **kwargs,
+    ):
         if df_results_configs is None:
             df_results_configs = self.load_config_results_multi()
         else:
@@ -847,8 +929,11 @@ class TabArenaContext:
             df_results_configs["imputed"] = df_results_configs["imputed"].fillna(0)
             df_results_configs = df_results_configs[df_results_configs["imputed"] == 0]
 
+        if subset:
+            df_results_configs = self.subset_results(df_results=df_results_configs, subset=subset)
+
         evaluator = TabArenaEvaluator(output_dir=save_path)
-        evaluator.generate_runtime_plot(df_results=df_results_configs)
+        evaluator.generate_runtime_plot(df_results=df_results_configs, **kwargs)
 
     def generate_per_dataset_tables(
         self,
