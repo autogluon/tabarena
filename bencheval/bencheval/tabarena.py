@@ -2136,32 +2136,37 @@ class TabArena:
             },
         }
 
-    def rank_jitter_all_datasets(
+    def jitter_all_datasets(
         self,
         results_per_task: pd.DataFrame,
         *,
         rank_col: str = RANK,
+        metric: str = "winrate",
         datasets: list[str] | None = None,
         return_per_method: bool = False,
-        sort_by: str = "expected_rank_jitter",
+        sort_by: str = "jitter_mean",
         ascending: bool = True,
     ) -> tuple[pd.DataFrame, dict[str, dict] | None]:
         """
-        Compute rank jitter metrics for each dataset.
+        Compute fold jitter metrics for each dataset.
 
-        This is a wrapper around `self.dataset_rank_jitter(...)`.
+        This is a wrapper around `self.dataset_jitter(...)`.
 
         Parameters
         ----------
         results_per_task : pd.DataFrame
             Output of `self.compute_results_per_task(..., include_seed_col=True)`.
         rank_col : str, default RANK
-            Column used for ranks.
+            Column read for per-fold ranks (rescaled to winrate when metric="winrate").
+        metric : {"winrate", "rank"}, default "winrate"
+            Per-method per-fold score used to compute jitter. ``"winrate"`` rescales the
+            rank to ``1 - (rank - 1)/(M - 1)`` so jitter values are in [0, 1] and
+            comparable across benchmarks with different method counts.
         datasets : list[str] | None
             If specified, only compute for these datasets. Otherwise uses all unique datasets.
         return_per_method : bool, default False
             If True, also return a dict keyed by dataset with per-method jitter outputs.
-        sort_by : str, default "expected_rank_jitter"
+        sort_by : str, default "jitter_mean"
             Column name to sort the returned DataFrame by.
         ascending : bool, default True
             Sort direction.
@@ -2170,7 +2175,7 @@ class TabArena:
         -------
         df : pd.DataFrame
             One row per dataset with:
-            ["dataset", "num_folds", "num_methods", "expected_rank_jitter", "observed_avg_abs_rank_change"]
+            ["dataset", "metric", "num_folds", "num_methods", "jitter_mean", "pairwise_jitter_mean"]
             plus "error" if a dataset fails.
         per_method : dict[str, dict] | None
             If return_per_method=True, a dict of per-dataset detailed outputs; else None.
@@ -2179,7 +2184,7 @@ class TabArena:
         import pandas as pd
 
         if self.seed_column is None:
-            raise ValueError("seed_column must be set to compute fold rank jitter.")
+            raise ValueError("seed_column must be set to compute fold jitter.")
         if self.seed_column not in results_per_task.columns:
             raise ValueError(
                 f"results_per_task must include seed column {self.seed_column!r}. "
@@ -2194,36 +2199,39 @@ class TabArena:
 
         for ds in datasets:
             try:
-                out = self.dataset_rank_jitter(
+                out = self.dataset_jitter(
                     results_per_task=results_per_task,
                     dataset=ds,
                     rank_col=rank_col,
+                    metric=metric,
                     return_per_method=return_per_method,
                 )
                 # ensure consistent row schema
                 rows.append({
                     "dataset": out["dataset"],
+                    "metric": out["metric"],
                     "num_folds": out["num_folds"],
                     "num_methods": out["num_methods"],
-                    "expected_rank_jitter": out["expected_rank_jitter"],
-                    "observed_avg_abs_rank_change": out["observed_avg_abs_rank_change"],
+                    "jitter_mean": out["jitter_mean"],
+                    "pairwise_jitter_mean": out["pairwise_jitter_mean"],
                 })
 
                 if return_per_method:
                     assert per_method is not None
                     # Keep only the per-method parts to avoid duplication
                     per_method[ds] = {
-                        "per_method_expected_jitter": out.get("per_method_expected_jitter", None),
-                        "per_method_pairwise_jitter": out.get("per_method_pairwise_jitter", None),
+                        "per_method_jitter_mean": out.get("per_method_jitter_mean", None),
+                        "per_method_pairwise_jitter_mean": out.get("per_method_pairwise_jitter_mean", None),
                     }
 
             except Exception as e:
                 rows.append({
                     "dataset": ds,
+                    "metric": metric,
                     "num_folds": np.nan,
                     "num_methods": np.nan,
-                    "expected_rank_jitter": np.nan,
-                    "observed_avg_abs_rank_change": np.nan,
+                    "jitter_mean": np.nan,
+                    "pairwise_jitter_mean": np.nan,
                     "error": repr(e),
                 })
                 if return_per_method:
@@ -2237,22 +2245,29 @@ class TabArena:
 
         return df, per_method
 
-    def dataset_rank_jitter(
+    def dataset_jitter(
         self,
         results_per_task: pd.DataFrame,
         dataset: str,
         *,
         rank_col: str = RANK,
+        metric: str = "winrate",
         return_per_method: bool = False,
     ) -> dict:
         """
-        Compute ranking instability metrics for a dataset.
+        Compute fold-instability metrics for a dataset.
+
+        ``metric`` selects the per-fold per-method score:
+          - ``"winrate"`` (default): per-fold winrate ``1 - (rank - 1) / (M - 1)``,
+            in [0, 1] regardless of M. Comparable across benchmarks with different
+            method counts.
+          - ``"rank"``: raw per-fold rank from ``rank_col``, scale depends on M.
 
         Metrics returned:
-          - expected_rank_jitter:
-                E_{fold, method}[ |rank_fold - rank_global| ]
-          - observed_avg_abs_rank_change:
-                E_{fold1<fold2, method}[ |rank_f1 - rank_f2| ]
+          - jitter_mean:
+                E_{fold, method}[ |score_fold - score_global| ]
+          - pairwise_jitter_mean:
+                E_{fold1<fold2, method}[ |score_f1 - score_f2| ]
 
         Assumes results_per_task was computed with include_seed_col=True.
 
@@ -2261,7 +2276,8 @@ class TabArena:
         results_per_task : pd.DataFrame
         dataset : str
         rank_col : str
-            Rank column (default: RANK)
+            Source rank column (default: RANK).
+        metric : {"winrate", "rank"}, default "winrate"
         return_per_method : bool
             If True, also return per-method jitter statistics.
 
@@ -2272,6 +2288,8 @@ class TabArena:
         import numpy as np
         import pandas as pd
 
+        if metric not in ("winrate", "rank"):
+            raise ValueError(f"metric must be 'winrate' or 'rank', got {metric!r}")
         if self.seed_column is None:
             raise ValueError("seed_column must be set to compute fold jitter.")
         if self.seed_column not in results_per_task.columns:
@@ -2287,7 +2305,7 @@ class TabArena:
         if df.empty:
             raise ValueError(f"No rows found for dataset {dataset!r}")
 
-        # Pivot: folds x methods
+        # Pivot: folds x methods (values are ranks; rescaled to winrate below if requested)
         M = df.pivot(
             index=self.seed_column,
             columns=self.method_col,
@@ -2305,19 +2323,25 @@ class TabArena:
 
         if num_folds < 2:
             raise ValueError("Need at least 2 folds to compute jitter.")
+        if num_methods < 2:
+            raise ValueError("Need at least 2 methods to compute jitter.")
+
+        if metric == "winrate":
+            # winrate = 1 - (rank - 1) / (M - 1); in [0, 1] regardless of M.
+            M = 1.0 - (M - 1.0) / (num_methods - 1)
 
         # ---------------------------------------------------------
-        # 1) Expected rank jitter relative to global ranking
+        # 1) Expected jitter: deviation of per-fold score from the global mean
         # ---------------------------------------------------------
 
-        global_rank = M.mean(axis=0)
+        global_score = M.mean(axis=0)
 
-        abs_dev = (M - global_rank).abs()
+        abs_dev = (M - global_score).abs()
 
-        expected_rank_jitter = abs_dev.values.mean()
+        jitter_mean = abs_dev.values.mean()
 
         # ---------------------------------------------------------
-        # 2) Observed average absolute rank change between folds
+        # 2) Pairwise jitter: average absolute change between folds
         # ---------------------------------------------------------
 
         pairwise_changes = []
@@ -2327,19 +2351,20 @@ class TabArena:
                 diff = (M.iloc[i] - M.iloc[j]).abs()
                 pairwise_changes.append(diff.values.mean())
 
-        observed_avg_abs_rank_change = float(np.mean(pairwise_changes))
+        pairwise_jitter_mean = float(np.mean(pairwise_changes))
 
         result = {
             "dataset": dataset,
+            "metric": metric,
             "num_folds": num_folds,
             "num_methods": num_methods,
-            "expected_rank_jitter": float(expected_rank_jitter),
-            "observed_avg_abs_rank_change": observed_avg_abs_rank_change,
+            "jitter_mean": float(jitter_mean),
+            "pairwise_jitter_mean": pairwise_jitter_mean,
         }
 
         if return_per_method:
-            result["per_method_expected_jitter"] = abs_dev.mean(axis=0)
-            result["per_method_pairwise_jitter"] = (
+            result["per_method_jitter_mean"] = abs_dev.mean(axis=0)
+            result["per_method_pairwise_jitter_mean"] = (
                 pd.concat(
                     [
                         (M.iloc[i] - M.iloc[j]).abs()
@@ -2352,34 +2377,41 @@ class TabArena:
 
         return result
 
-    def dataset_meanrank_jitter_bootstrap_curve(
+    def dataset_jitter_bootstrap_curve(
         self,
         results_per_task: pd.DataFrame,
         dataset: str,
         *,
         rank_col: str = RANK,
+        metric: str = "winrate",
         k_values: list[int] | None = None,
         n_bootstrap: int = 500,
         seed: int = 0,
         drop_methods_with_any_missing: bool = True,
     ) -> pd.DataFrame:
         """
-        Bootstrap how the k-fold *mean rank estimate* converges to the global mean rank.
+        Bootstrap how the k-fold *mean per-method score* converges to the global mean.
 
         For each bootstrap replicate:
           - sample k folds WITH replacement
-          - compute per-method mean rank across those k folds  (mu_hat_k)
-          - compare to per-method global mean rank across ALL folds (mu_global)
+          - compute per-method mean score across those k folds  (mu_hat_k)
+          - compare to per-method global mean score across ALL folds (mu_global)
           - jitter_k = mean_m |mu_hat_k[m] - mu_global[m]|
 
-        This is the metric you described: "sampled k folds have their ranks averaged
-        and then compared to the global mean".
+        ``metric`` selects the per-fold per-method score:
+          - ``"winrate"`` (default): per-fold winrate ``1 - (rank - 1) / (M - 1)``,
+            in [0, 1] regardless of M. Comparable across datasets/benchmarks with
+            different method counts.
+          - ``"rank"``: raw per-fold rank from ``rank_col``, scale depends on M.
 
-        Returns a DataFrame with mean/median/95% CI of jitter_k vs k.
+        Returns a DataFrame with mean/median/95% CI of jitter_k vs k, plus a
+        ``metric`` column identifying which score was used.
         """
         import numpy as np
         import pandas as pd
 
+        if metric not in ("winrate", "rank"):
+            raise ValueError(f"metric must be 'winrate' or 'rank', got {metric!r}")
         if self.seed_column is None:
             raise ValueError("seed_column must be set to compute fold jitter.")
         if self.seed_column not in results_per_task.columns:
@@ -2392,7 +2424,8 @@ class TabArena:
         if df.empty:
             raise ValueError(f"No rows found for dataset {dataset!r}")
 
-        # folds x methods matrix of ranks
+        # folds x methods matrix of ranks (the canonical per-fold score; winrate is a
+        # per-fold linear rescale of rank, see below)
         M_df = df.pivot(index=self.seed_column, columns=self.method_col, values=rank_col)
 
         if drop_methods_with_any_missing:
@@ -2404,14 +2437,19 @@ class TabArena:
                     "or impute missing values before bootstrapping."
                 )
 
-        M_full = M_df.to_numpy(dtype=float)  # shape (F, M)
+        M_full = M_df.to_numpy(dtype=float)  # shape (F, M), values are ranks
         F, M = M_full.shape
         if F < 1:
             raise ValueError("No folds available after filtering.")
         if M < 2:
             raise ValueError("Need at least 2 methods after filtering.")
 
-        # Global per-method mean rank across ALL folds (fixed reference)
+        if metric == "winrate":
+            # winrate = 1 - (rank - 1) / (M - 1); in [0, 1] regardless of M.
+            # Equivalent to the pairwise winrate convention with average-rank tie handling.
+            M_full = 1.0 - (M_full - 1.0) / (M - 1.0)
+
+        # Global per-method mean score across ALL folds (fixed reference)
         mu_global = M_full.mean(axis=0)  # shape (M,)
 
         if k_values is None:
@@ -2439,32 +2477,38 @@ class TabArena:
             jit = np.empty(n_bootstrap, dtype=float)
 
             for b in range(n_bootstrap):
-                idx = rng.integers(0, F, size=k)  # sample folds with replacement
+                # Sample folds WITH replacement: classical bootstrap of the k-fold
+                # mean against the all-folds reference. At k=F this still produces
+                # non-zero jitter (Monte-Carlo resampling noise of the all-folds
+                # mean estimate) — without that, Φ=1 collapses to 0 in the strip.
+                idx = rng.choice(F, size=k, replace=True)
                 M_sel = M_full[idx, :]  # (k, M)
 
-                mu_hat = M_sel.mean(axis=0)  # per-method mean rank across sampled folds
+                mu_hat = M_sel.mean(axis=0)  # per-method mean score across sampled folds
                 jit[b] = float(np.abs(mu_hat - mu_global).mean())
 
             s = _summ(jit)
             rows.append({
                 "dataset": dataset,
+                "metric": metric,
                 "k": k,
                 "n_bootstrap": n_bootstrap,
                 "n_folds_available": F,
                 "n_methods": M,
-                "meanrank_jitter_mean": s["mean"],
-                "meanrank_jitter_p50": s["p50"],
-                "meanrank_jitter_p025": s["p025"],
-                "meanrank_jitter_p975": s["p975"],
+                "jitter_mean": s["mean"],
+                "jitter_p50": s["p50"],
+                "jitter_p025": s["p025"],
+                "jitter_p975": s["p975"],
             })
 
         return pd.DataFrame(rows).sort_values("k").reset_index(drop=True)
 
-    def meanrank_jitter_bootstrap_curve_all_datasets(
+    def jitter_bootstrap_curve_all_datasets(
         self,
         results_per_task: pd.DataFrame,
         *,
         rank_col: str = RANK,
+        metric: str = "winrate",
         k_values: list[int] | None = None,
         n_bootstrap: int = 300,
         seed: int = 0,
@@ -2478,10 +2522,11 @@ class TabArena:
 
         for ds in datasets:
             try:
-                d = self.dataset_meanrank_jitter_bootstrap_curve(
+                d = self.dataset_jitter_bootstrap_curve(
                     results_per_task=results_per_task,
                     dataset=ds,
                     rank_col=rank_col,
+                    metric=metric,
                     k_values=k_values,
                     n_bootstrap=n_bootstrap,
                     seed=seed,
@@ -2491,6 +2536,7 @@ class TabArena:
             except Exception as e:
                 dfs.append(pd.DataFrame([{
                     "dataset": ds,
+                    "metric": metric,
                     "k": np.nan,
                     "n_bootstrap": n_bootstrap,
                     "error": repr(e),

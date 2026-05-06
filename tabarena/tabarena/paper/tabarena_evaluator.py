@@ -560,6 +560,8 @@ class TabArenaEvaluator:
         plot_cdd: bool = True,
         plot_runtimes: bool = False,
         plot_pareto: bool = True,
+        compute_fold_stability_curves: bool = False,
+        compute_fold_similarity: bool = False,
         calibration_framework: str | None = "auto",
         average_seeds: bool = False,
         tmp_treat_tasks_independently: bool = False,  # FIXME: Need to make a weighted elo logic
@@ -795,6 +797,23 @@ class TabArenaEvaluator:
 
         results_per_task = results_per_task.join(method_info, on="method")
         results_per_split = results_per_split.join(method_info, on="method")
+
+
+        if compute_fold_stability_curves:
+            fold_stability_curves = tabarena.jitter_bootstrap_curve_all_datasets(
+                results_per_split,
+                n_bootstrap=200,
+            )
+            save_pd.save(path=f"{self.output_dir}/fold_stability_curves.csv", df=fold_stability_curves)
+
+        if compute_fold_similarity:
+            fold_similarity = tabarena.rank_datasets_by_fold_similarity(results_per_task=results_per_split)
+            df_jitter, _ = tabarena.jitter_all_datasets(results_per_split)
+            df_jitter = df_jitter.set_index("dataset")
+            fold_similarity_df = fold_similarity["dataset_ranking"]
+            fold_similarity_df["jitter_mean"] = df_jitter["jitter_mean"]
+            fold_similarity_df["pairwise_jitter_mean"] = df_jitter["pairwise_jitter_mean"]
+            save_pd.save(path=f"{self.output_dir}/fold_similarity.csv", df=fold_similarity_df.reset_index(drop=False))
 
         # TODO: Consider adding the metadata to the saved `results_per_split.csv` file?
         # assert len(results_per_split) == len(df_results_rank_compare)
