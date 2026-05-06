@@ -41,6 +41,7 @@ def plot_hpo(
     ylim: tuple[float | None, float | None] | None = None,
     display_names: dict[str] | None = None,
     legend_in_plot: bool = False,
+    figsize: tuple[float, float] = (8, 4.5),
     title: str | None = None,
     title_fontsize: float = 20,
 ):
@@ -111,7 +112,7 @@ def plot_hpo(
         base_methods_for_colors = method_order + [m for m in base_methods_for_colors if m not in method_order]
     color_map = {m: colors60[i % len(colors60)] for i, m in enumerate(base_methods_for_colors)}
 
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    fig, ax = plt.subplots(figsize=figsize)
     if xlog:
         ax.set_xscale("log")
 
@@ -800,8 +801,9 @@ def plot_tuning_trajectories_from_leaderboard(
         plot_kwargs = {}
     plot_kwargs = plot_kwargs.copy()
     plot_kwargs.setdefault("sort_col", "n_configs")
+    plot_kwargs.setdefault("ylim_imp", (0, None))
 
-    ylim_imp = (0, None)
+    ylim_imp = plot_kwargs.pop("ylim_imp")
 
     plot_hpo(
         df=leaderboard,
