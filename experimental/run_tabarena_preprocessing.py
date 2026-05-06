@@ -1,6 +1,6 @@
-"""Demonstrate TabArena preprocessing integrated into AutoGluon on a synthetic dataset.
+"""Demonstrate new preprocessing integrated into Tabarena and AutoGluon on a synthetic dataset.
 
-The dataset contains all four feature types that TabArena preprocessing handles:
+The dataset contains all four feature types that the new preprocessing handles:
 
     * **Numerical**  — float/int columns passed through unchanged.
     * **Categorical** — ``pd.Categorical`` columns kept as raw categories by the
@@ -108,16 +108,13 @@ print(f"Train size: {len(train_df)}  Test size: {len(test_df)}")
 print(f"Dtypes:\n{train_df.dtypes}\n")
 
 # ---------------------------------------------------------------------------
-# 2. Run AutoGluon with TabArena's preprocessing:
+# 2. Run AutoGluon with TabArena's new preprocessing:
 # ---------------------------------------------------------------------------
 # Init model agnostic preprocessing
 feature_generator = TabArenaModelAgnosticPreprocessing(
     group_cols="entity_id",
     group_labels=GroupLabelTypes.PER_GROUP,
     group_time_on="time_step",
-    # Set False to run the example faster without a GPU.
-    # Also note that this downloads a model from HuggingFace the first time you run it, which can take some time.
-    enable_sematic_text_features=True,
 )
 
 # Init model specific preprocessing
