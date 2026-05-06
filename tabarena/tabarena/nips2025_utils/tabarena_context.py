@@ -932,8 +932,28 @@ class TabArenaContext:
         if subset:
             df_results_configs = self.subset_results(df_results=df_results_configs, subset=subset)
 
+        # Group/legend by per-method display_name (falling back to the method name)
+        # rather than config_type, so methods sharing a config_type (e.g. CPU/GPU
+        # variants like RealMLP and RealMLP_GPU) get distinct lines.
+        method_to_display_name = {
+            m.method: m.display_name
+            for m in self.method_metadata_collection.method_metadata_lst
+            if m.method_type == "config"
+        }
+        df_results_configs["config_type"] = (
+            df_results_configs["ta_name"]
+            .map(method_to_display_name)
+            .fillna(df_results_configs["ta_name"])
+        )
+
+        deep_dive_kwargs = dict(kwargs.pop("deep_dive_kwargs", None) or {})
+
         evaluator = TabArenaEvaluator(output_dir=save_path)
-        evaluator.generate_runtime_plot(df_results=df_results_configs, **kwargs)
+        evaluator.generate_runtime_plot(
+            df_results=df_results_configs,
+            deep_dive_kwargs=deep_dive_kwargs,
+            **kwargs,
+        )
 
     def generate_per_dataset_tables(
         self,
