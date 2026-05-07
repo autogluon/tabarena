@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.ebm.ebm_model import ExplainableBoostingMachineModel
 from tabarena.benchmark.models.ag.iltm.iltm_model import ILTMModel
 from tabarena.benchmark.models.ag.knn_new.knn_model import KNNNewModel
 from tabarena.benchmark.models.ag.limix.limix_model import LimiXModel
@@ -24,7 +23,6 @@ from tabarena.benchmark.models.ag.tabstar.tabstar_model import TabSTARModel
 from tabarena.benchmark.models.ag.xrfm.xrfm_model import XRFMModel
 
 __all__ = [
-    "ExplainableBoostingMachineModel",
     "ILTMModel",
     "KNNNewModel",
     "LimiXModel",
