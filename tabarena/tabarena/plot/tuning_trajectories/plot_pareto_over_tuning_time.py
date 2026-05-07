@@ -44,6 +44,10 @@ def plot_hpo(
     figsize: tuple[float, float] = (8, 4.5),
     title: str | None = None,
     title_fontsize: float = 20,
+    ylabel_display: str | None = None,
+    xlabel_display: str | None = None,
+    dataset_metadata: dict[str, str] | None = None,
+    reverse_colors: bool = False,
 ):
     """
     Plot HPO trajectories for multiple methods.
@@ -110,6 +114,13 @@ def plot_hpo(
     if method_order:
         sorted_methods = method_order + [m for m in sorted_methods if m not in method_order]
         base_methods_for_colors = method_order + [m for m in base_methods_for_colors if m not in method_order]
+    # ``reverse_colors`` flips palette assignment without touching
+    # ``sorted_methods`` — i.e. the legend still reads top-to-bottom in the
+    # caller's order, but the last method takes ``colors60[0]`` (the dark
+    # blue), the second-to-last takes ``colors60[1]``, etc. Use this when
+    # the legend's bottom entry should visually anchor the plot.
+    if reverse_colors:
+        base_methods_for_colors = list(reversed(base_methods_for_colors))
     color_map = {m: colors60[i % len(colors60)] for i, m in enumerate(base_methods_for_colors)}
 
     fig, ax = plt.subplots(figsize=figsize)
@@ -191,9 +202,14 @@ def plot_hpo(
         handles.append(points_legend)
         labels.append(method_name)
 
-    # Flip legend order only if max_Y is False
+    # By default, flip legend order when ``max_Y`` is False so the legend
+    # reads top-to-bottom in the same direction as the lines on the plot.
+    # When the caller pins the ordering explicitly via ``method_order`` (as
+    # the per-dataset trajectory pipeline does to keep colors and legend
+    # positions identical across the multiple Pareto plots for one dataset),
+    # we respect that order verbatim — flipping would defeat the purpose.
     legend_fontsize = 9
-    if max_Y:
+    if max_Y or method_order:
         handles_legend = handles
         labels_legend = labels
     else:
@@ -201,7 +217,7 @@ def plot_hpo(
         labels_legend = labels[::-1]
 
     if legend_in_plot:
-        ax.legend(
+        legend1 = ax.legend(
             handles_legend,
             labels_legend,
             fontsize=legend_fontsize,
@@ -212,6 +228,7 @@ def plot_hpo(
             borderaxespad=0.3,
             columnspacing=0.6,
         )
+        bbox1_axes = None
     else:
         # Outside plot: position legends using axes transform
         # Add small gap (0.01) between plot and legend
@@ -236,6 +253,47 @@ def plot_hpo(
         bbox1 = legend1.get_window_extent()
         bbox1_axes = bbox1.transformed(ax.transAxes.inverted())
 
+    # Second legend: dataset metadata block (only when both the metadata is
+    # provided and we're rendering the legend outside the axes — the in-plot
+    # path is too cramped for an extra legend without overlapping the data).
+    if dataset_metadata and not legend_in_plot:
+        from matplotlib.lines import Line2D
+
+        # Render keys in column 1, values in column 2, row-aligned.
+        # matplotlib lays ``ncol=2`` legends out column-major: the first
+        # ``ceil(2N / 2) = N`` labels fill column 1 top-to-bottom, the next
+        # N fill column 2 — exactly the layout we want when we pass keys
+        # first then values in matching order.
+        keys_list = list(dataset_metadata.keys())
+        values_list = [str(v) for v in dataset_metadata.values()]
+        meta_handles = [
+            Line2D([], [], linestyle="none", marker="", color="none")
+            for _ in range(2 * len(keys_list))
+        ]
+        meta_labels = keys_list + values_list
+
+        # Preserve the model legend so adding the metadata one doesn't drop it.
+        ax.add_artist(legend1)
+        ax.legend(
+            meta_handles,
+            meta_labels,
+            loc="upper left",
+            # Sit just below the model legend, sharing its left edge so the
+            # two stack cleanly to the right of the plot.
+            bbox_to_anchor=(1.01, bbox1_axes.y0 - 0.02),
+            frameon=True,
+            fontsize=legend_fontsize,
+            title="Metadata",
+            title_fontsize=legend_fontsize,
+            ncol=2,
+            labelspacing=0.2,
+            handlelength=0,
+            handletextpad=0,
+            borderpad=0.3,
+            borderaxespad=0.0,
+            columnspacing=0.8,
+        )
+
     if ylim is not None:
         ax.set_ylim(ylim)
 
@@ -253,8 +311,11 @@ def plot_hpo(
     if title is not None:
         ax.set_title(title, fontsize=title_fontsize)
 
-    ax.set_ylabel(ylabel, fontsize=17)
-    ax.set_xlabel(xlabel, fontsize=17)
+    # ``xlabel`` / ``ylabel`` double as DataFrame column names (used for the
+    # peak-per-method bookkeeping above); ``*_display`` decouples the axis
+    # caption from the column key when the caller wants a richer label.
+    ax.set_ylabel(ylabel_display if ylabel_display is not None else ylabel, fontsize=17)
+    ax.set_xlabel(xlabel_display if xlabel_display is not None else xlabel, fontsize=17)
     ax.tick_params(axis='both', labelsize=9)
     fig.tight_layout()
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -465,6 +526,101 @@ def plot_tuning_trajectories_all(
         )
 
 
+def _build_dataset_metadata_map(
+    task_metadata: pd.DataFrame,
+) -> dict[str, dict[str, str]]:
+    """Build a ``dataset_id -> {label: value}`` mapping suitable for the
+    second 'Dataset' legend on each per-dataset Pareto plot.
+
+    Picks the first row per ``dataset`` in ``task_metadata`` (the frame is
+    expected to already be one-row-per-dataset). Pulls warehouse-sourced
+    fields (``num_cols_after_preprocessing``, ``domain``, ``dataset_year``,
+    ``source``, ``missing_value_fraction``) when present; falls back
+    silently when a column is unavailable. Returns an empty dict if
+    ``task_metadata`` is missing or has no ``dataset`` column.
+    """
+    if task_metadata is None or "dataset" not in task_metadata.columns:
+        return {}
+
+    def _split_type(row: pd.Series) -> str:
+        if pd.notna(row.get("time_on")):
+            return "temporal"
+        if pd.notna(row.get("group_on")):
+            return "grouped"
+        return "IID"
+
+    def _fmt_int(value) -> str:
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return "?"
+        try:
+            return f"{int(value):,}"
+        except (TypeError, ValueError):
+            return str(value)
+
+    def _fmt_str(value) -> str | None:
+        """Return ``None`` (signaling 'omit row') when value is missing,
+        else a stringified value. Distinct from ``_fmt_int`` because text
+        fields shouldn't print ``?`` — better to drop the line entirely
+        than show ``Domain: ?`` when the warehouse simply doesn't have it."""
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return None
+        s = str(value).strip()
+        return s if s else None
+
+    def _fmt_pct(value) -> str | None:
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return None
+        try:
+            return f"{float(value) * 100:.1f}%"
+        except (TypeError, ValueError):
+            return None
+
+    out: dict[str, dict[str, str]] = {}
+    for _, row in task_metadata.drop_duplicates(subset="dataset").iterrows():
+        problem_type = str(row.get("problem_type", "?"))
+
+        # ``num_cols_after_preprocessing`` is the warehouse-side column count
+        # (post one-hot etc.). When that's not present the plot falls back
+        # to the raw ``num_features`` so older task_metadata frames still
+        # get *some* number rather than ``?``.
+        cols_value = row.get("num_cols_after_preprocessing")
+        if cols_value is None or (isinstance(cols_value, float) and pd.isna(cols_value)):
+            cols_value = row.get("num_features")
+
+        meta: dict[str, str] = {
+            "Samples": _fmt_int(row.get("num_instances")),
+            "Features": _fmt_int(cols_value),
+            "Problem": problem_type,
+        }
+        # Only multiclass tasks have a meaningful class count; binary/regression
+        # would just clutter the legend.
+        if problem_type == "multiclass":
+            meta["Classes"] = _fmt_int(row.get("num_classes"))
+        meta["Splits"] = _fmt_int(row.get("n_splits"))
+        meta["Type"] = _split_type(row)
+
+        # The remaining warehouse fields are optional — drop the line when
+        # missing so each plot only shows rows for columns we actually have.
+        missing_pct = _fmt_pct(row.get("missing_value_fraction"))
+        if missing_pct is not None:
+            meta["Missingness"] = missing_pct
+        domain = _fmt_str(row.get("domain"))
+        if domain is not None:
+            meta["Domain"] = domain
+        source = _fmt_str(row.get("source"))
+        if source is not None:
+            meta["Source"] = source
+        year = row.get("dataset_year")
+        if year is not None and not (isinstance(year, float) and pd.isna(year)):
+            try:
+                meta["Year"] = str(int(year))
+            except (TypeError, ValueError):
+                meta["Year"] = str(year)
+
+        out[row["dataset"]] = meta
+    return out
+
+
 def plot_tuning_trajectories_per_dataset(
     tabarena_context: TabArenaContext,
     fig_save_dir: str | Path = Path("plots") / "n_configs_per_dataset",
@@ -518,6 +674,37 @@ def plot_tuning_trajectories_per_dataset(
     if lite:
         subset_list.append("lite")
 
+    # Build a one-shot dataset_id -> human-readable label map so the figure
+    # title reads e.g. "airfoil_self_noise" rather than "Task-7163328506".
+    # Prefers ``dataset_name`` (BeyondArena), falls back to ``name``
+    # (default TabArena), finally to identity.
+    _tm = tabarena_context.task_metadata
+    if "dataset_name" in _tm.columns:
+        _name_map = _tm.set_index("dataset")["dataset_name"].astype(str).to_dict()
+    elif "name" in _tm.columns:
+        _name_map = _tm.set_index("dataset")["name"].astype(str).to_dict()
+    else:
+        _name_map = {}
+
+    # Per-dataset eval metric, used to fill in the y-axis label of the
+    # ``pareto_n_configs_err_*`` plots as ``Test Error (<metric>)``. Each
+    # dataset has exactly one ``eval_metric`` (verified via groupby), but
+    # ``drop_duplicates`` keeps us robust to duplicated rows.
+    if "eval_metric" in _tm.columns:
+        _metric_map = (
+            _tm[["dataset", "eval_metric"]]
+            .drop_duplicates(subset="dataset")
+            .set_index("dataset")["eval_metric"]
+            .astype(str)
+            .to_dict()
+        )
+    else:
+        _metric_map = {}
+
+    # Per-dataset metadata block rendered as a second legend on each Pareto
+    # plot (rows / cols / problem type / splits / IID-vs-grouped-vs-temporal).
+    _metadata_map = _build_dataset_metadata_map(_tm)
+
     inputs = []
     for dataset in datasets:
         (fig_save_dir / dataset).mkdir(parents=True, exist_ok=True)
@@ -525,13 +712,15 @@ def plot_tuning_trajectories_per_dataset(
         plot_kwargs_cur = copy.deepcopy(plot_kwargs)
         if plot_kwargs_cur is None:
             plot_kwargs_cur = {}
-        plot_kwargs_cur["title"] = f"Dataset: {dataset}"
+        plot_kwargs_cur["title"] = f"Dataset: {_name_map.get(dataset, dataset)}"
 
         inputs.append({
             "datasets": [dataset],
             "fig_save_dir": fig_save_dir / dataset / "tuning_trajectories",
             "subset_map": list(subset_list),
             "plot_kwargs": plot_kwargs_cur,
+            "error_ylabel_metric": _metric_map.get(dataset),
+            "dataset_metadata": _metadata_map.get(dataset),
         })
 
     parallel_for(
@@ -684,6 +873,8 @@ def _plot_tuning_trajectories_from_prepared(
     folds: list[int] | None,
     plot_kwargs: dict | None,
     datasets: list[str] | None = None,
+    error_ylabel_metric: str | None = None,
+    dataset_metadata: dict[str, str] | None = None,
 ):
     """Run the per-(dataset-subset, subset_map) leaderboard + plotting steps from already-prepared data."""
     fig_save_dir = Path(fig_save_dir)
@@ -722,6 +913,8 @@ def _plot_tuning_trajectories_from_prepared(
             fig_save_dir=fig_save_dir_subset,
             file_ext=file_ext,
             plot_kwargs=plot_kwargs,
+            error_ylabel_metric=error_ylabel_metric,
+            dataset_metadata=dataset_metadata,
         )
 
 
@@ -791,19 +984,62 @@ def plot_tuning_trajectories(
     )
 
 
+_TEST_ERROR_METRIC_DISPLAY = {
+    "log_loss": "logloss",
+    # ``metric_error`` for ROC AUC is ``1 - AUC``; spell that out on the
+    # y-axis so the plot reads as the actual quantity being plotted.
+    "roc_auc": "1-AUC",
+    "rmse": "RMSE",
+    "root_mean_squared_error": "RMSE",
+}
+
+
+def _test_error_ylabel(metric: str | None) -> str:
+    """Format the y-axis label for the metric-error Pareto plots. When
+    ``metric`` is provided, returns ``"Test Error (<friendly>)"`` using a
+    short friendly name (matching the per-dataset table captions); otherwise
+    falls back to ``"Test Error"`` so the rename still applies even when no
+    single metric describes the data."""
+    if not metric:
+        return "Test Error"
+    friendly = _TEST_ERROR_METRIC_DISPLAY.get(metric, metric)
+    return f"Test Error ({friendly})"
+
+
 def plot_tuning_trajectories_from_leaderboard(
     leaderboard: pd.DataFrame,
     fig_save_dir: Path,
     file_ext: str = ".pdf",
     plot_kwargs: dict | None = None,
+    error_ylabel_metric: str | None = None,
+    dataset_metadata: dict[str, str] | None = None,
 ):
     if plot_kwargs is None:
         plot_kwargs = {}
     plot_kwargs = plot_kwargs.copy()
     plot_kwargs.setdefault("sort_col", "n_configs")
     plot_kwargs.setdefault("ylim_imp", (0, None))
+    # Threaded into every ``plot_hpo`` call below; harmless when ``None``.
+    plot_kwargs["dataset_metadata"] = dataset_metadata
+
+    # Pin a single canonical method ordering for every plot in this set so
+    # colors and legend positions stay identical across the err / improvability
+    # / Elo Pareto plots. Without this each plot ranks methods by its own
+    # y-axis, causing the same method to flip color and legend slot between
+    # plots. Rank by best Elo per method (descending) since Elo is the
+    # canonical "higher is better" summary; fall back gracefully when the
+    # column or method column isn't present.
+    if "method_order" not in plot_kwargs:
+        method_col = plot_kwargs.get("method_col", "name")
+        if "Elo" in leaderboard.columns and method_col in leaderboard.columns:
+            plot_kwargs["method_order"] = (
+                leaderboard.groupby(method_col)["Elo"].max()
+                .sort_values(ascending=False)
+                .index.tolist()
+            )
 
     ylim_imp = plot_kwargs.pop("ylim_imp")
+    err_ylabel = _test_error_ylabel(error_ylabel_metric)
 
     plot_hpo(
         df=leaderboard,
@@ -827,6 +1063,7 @@ def plot_tuning_trajectories_from_leaderboard(
         df=leaderboard,
         xlabel="Train time (s)",
         ylabel="Metric Error",
+        ylabel_display=err_ylabel,
         save_path=fig_save_dir / f"pareto_n_configs_err_tot_train{file_ext}",
         max_Y=False,
         # ylim=ylim_imp,
@@ -836,6 +1073,7 @@ def plot_tuning_trajectories_from_leaderboard(
         df=leaderboard,
         xlabel="Infer time (s)",
         ylabel="Metric Error",
+        ylabel_display=err_ylabel,
         save_path=fig_save_dir / f"pareto_n_configs_err_tot_infer{file_ext}",
         max_Y=False,
         # ylim=ylim_imp,
