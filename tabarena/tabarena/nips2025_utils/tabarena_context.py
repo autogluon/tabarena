@@ -960,11 +960,22 @@ class TabArenaContext:
         save_path: str | Path,
         df_results: pd.DataFrame = None,
         fillna_method: str | None = "auto",  # FIXME: Don't hardcode
+        per_dataset_dir: str | Path | None = None,
+        method_order: list[str] | None = None,
+        use_display_names: bool = False,
     ):
         if fillna_method == "auto":
             fillna_method = self.fillna_method
         if df_results is None:
             df_results = self.load_results_paper(download_results="auto")
+
+        if use_display_names:
+            rename_map = self._method_rename_map_to_display_names()
+            if rename_map:
+                df_results = df_results.copy()
+                df_results["method"] = df_results["method"].replace(rename_map)
+                if fillna_method in rename_map:
+                    fillna_method = rename_map[fillna_method]
 
         if fillna_method is not None:
             df_results = TabArenaContext.fillna_metrics(
@@ -975,7 +986,28 @@ class TabArenaContext:
         get_per_dataset_tables(
             df_results=df_results,
             save_path=Path(save_path),
+            task_metadata=self.task_metadata,
+            per_dataset_dir=Path(per_dataset_dir) if per_dataset_dir is not None else None,
+            method_order=method_order,
         )
+
+    def _method_rename_map_to_display_names(self) -> dict[str, str]:
+        """Build a mapping ``"<config_type> (<subtype>)" -> "<display_name>
+        (<subtype>)"`` covering every config method in this collection plus
+        the bare ``method -> display_name`` mapping for baseline/portfolio
+        methods. Used to switch the rendered ``method`` column from
+        ``config_type``/``ag_key``-based codes to friendlier display names."""
+        rename_map: dict[str, str] = {}
+        suffixes = [" (default)", " (tuned)", " (tuned + ensemble)"]
+        for m in self.method_metadata_collection.method_metadata_lst:
+            if not m.display_name:
+                continue
+            if m.method_type == "config" and m.config_type and m.config_type != m.display_name:
+                for suffix in suffixes:
+                    rename_map[f"{m.config_type}{suffix}"] = f"{m.display_name}{suffix}"
+            elif m.method_type in ("baseline", "portfolio") and m.method != m.display_name:
+                rename_map[m.method] = m.display_name
+        return rename_map
 
     def leaderboard_to_website_format(
         self,
