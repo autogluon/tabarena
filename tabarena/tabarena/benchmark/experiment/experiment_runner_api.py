@@ -82,10 +82,11 @@ def _parse_repetitions_mode_and_args(
                     f"`tasks_metadata` must contain the column '{col}' when `repetitions_mode` is 'TabArena'"
                 )
         fold_repeat_pairs_per_task = []
-        metadata_task_ids = tasks_metadata["task_id"].astype(str).tolist()
+        metadata_task_ids = tasks_metadata["task_id"].astype(str)
+        metadata_task_id_set = set(metadata_task_ids.tolist())
         for task in tasks:
             t_id = task.task_id_str if isinstance(task, UserTask) else str(task)
-            assert t_id in metadata_task_ids, f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`"
+            assert t_id in metadata_task_id_set, f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`"
 
             task_meta = tasks_metadata[metadata_task_ids == t_id].iloc[0]
             n_folds = int(task_meta["num_folds"])
