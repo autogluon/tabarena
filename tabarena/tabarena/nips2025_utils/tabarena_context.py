@@ -120,6 +120,69 @@ class TabArenaContext:
 
         self.method_metadata_collection: MethodMetadataCollection = MethodMetadataCollection(method_metadata_lst)
 
+    @property
+    def _default_subsets(self):
+        return [
+            [],
+            ["tiny"],
+            ["small"],
+            ["medium"],
+            ["binary"],
+            ["multiclass"],
+            ["classification"],
+            ["regression"],
+        ]
+
+    # FIXME: Finish this, it is WIP
+    def generate_all_figs(
+        self,
+        output_dir,
+        subsets: list[list[str] | tuple[str, list[str]]] | str = "auto",
+        new_results = None,
+        compare_kwargs = None,
+        tuning_trajectory_kwargs = None,
+    ) -> None:
+        if compare_kwargs is None:
+            compare_kwargs = {}
+        if tuning_trajectory_kwargs is None:
+            tuning_trajectory_kwargs = {}
+        if subsets == "auto":
+            subsets = self._default_subsets
+        for subset in subsets:
+            output_suffix = None
+            if subset is None:
+                subset = []
+            if isinstance(subset, tuple):
+                assert len(subset) == 2
+                output_suffix, subset = subset
+            if isinstance(subset, str):
+                subset = [subset]
+            if isinstance(subset, list):
+                if output_suffix is None:
+                    if not subset:
+                        output_suffix = "all"
+                    else:
+                        output_suffix = "&".join(subset)
+            else:
+                raise ValueError(f"Unknown subset: {subset!r}")
+            output_dir_subset = output_dir / output_suffix
+
+            # FIXME: new_results
+            self.compare(
+                output_dir=output_dir_subset,
+                subset=subset,
+                **compare_kwargs,
+            )
+            self.plot_tuning_trajectories(
+                save_path=output_dir_subset / "tuning_trajectories",
+                subset=subset,
+                **tuning_trajectory_kwargs,
+            )
+            self.plot_runtime_per_method(
+                save_path=output_dir_subset / "ablation" / "all-runtimes",
+                subset=subset,
+            )
+
     def compare(
         self,
         output_dir: str | Path,
