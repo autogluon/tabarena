@@ -1116,12 +1116,20 @@ def should_run_job(
         # Extract the local task ID if it is a UserTask.task_id_str
         task_id = task_id.split("|", 2)[1]
 
-    # Filter out-of-constraints datasets
+    # Filter out-of-constraints datasets.
+    # `model_cls` (AGModelExperiment) and `method_cls` (plain Experiment) both
+    # carry the class identifier; either is fine to use as the constraints key,
+    # since `are_model_constraints_valid` returns True when the key is absent
+    # from `models_to_constraints`. Fall back to "AutoGluon" only for the
+    # full-pipeline AutoGluon experiments (which expose neither field).
     if "model_cls" in config:
         model_cls = config["model_cls"]
-    else:
-        assert config["name"].startswith("AutoGluon")
+    elif "method_cls" in config:
+        model_cls = config["method_cls"]
+    elif config.get("name", "").startswith("AutoGluon"):
         model_cls = "AutoGluon"
+    else:
+        model_cls = config.get("name", "")
     if not BenchmarkSetup2026.are_model_constraints_valid(
         model_cls=model_cls,
         n_features=input_data["n_features"],

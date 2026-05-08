@@ -185,9 +185,12 @@ def _parse_yaml_config(
         method["method_kwargs"]["fit_kwargs"]["num_gpus"] = num_gpus
         method["method_kwargs"]["fit_kwargs"]["memory_limit"] = memory_limit
 
-        if "model_hyperparameters" not in method:
-            method["model_hyperparameters"] = {}
+        # `model_hyperparameters` is an AGModelExperiment field; injecting it on
+        # plain `Experiment` (e.g. method_cls=TabPFNPlus) trips a TypeError in
+        # `Experiment.__init__`. Only set it when actually needed.
         if sequential_local_fold_fitting:
+            if "model_hyperparameters" not in method:
+                method["model_hyperparameters"] = {}
             if "ag_args_ensemble" not in method["model_hyperparameters"]:
                 method["model_hyperparameters"]["ag_args_ensemble"] = {}
             method["model_hyperparameters"]["ag_args_ensemble"][
