@@ -198,6 +198,17 @@ class LimiXModel(AbstractTorchModel):
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
 
+    @classmethod
+    def download_model(cls) -> str:
+        """Pre-download the default LimiX checkpoint from Hugging Face.
+
+        Returns the local cache path. Used by the foundation-model pre-download
+        scripts to warm the cache before parallel fit runs.
+        """
+        from huggingface_hub import hf_hub_download
+
+        return hf_hub_download(repo_id=_DEFAULT_HF_REPO, filename=_DEFAULT_HF_FILENAME)
+
 
 def _load_bundled_config(filename: str) -> list:
     cfg_path = _CONFIG_DIR / filename
@@ -206,6 +217,4 @@ def _load_bundled_config(filename: str) -> list:
 
 
 def _download_default_checkpoint() -> str:
-    from huggingface_hub import hf_hub_download
-
-    return hf_hub_download(repo_id=_DEFAULT_HF_REPO, filename=_DEFAULT_HF_FILENAME)
+    return LimiXModel.download_model()

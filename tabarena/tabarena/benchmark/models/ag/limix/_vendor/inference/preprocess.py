@@ -28,6 +28,25 @@ from kditransform import KDITransformer
 
 MAXINT_RANDOM_SEED = int(np.iinfo(np.int32).max)
 
+
+# Picklable replacements for lambdas in FunctionTransformer steps.
+# Lambdas defined in local scopes cannot be pickled, which breaks AutoGluon's
+# save-after-fit flow when the fitted preprocessing pipeline references them.
+def _identity(x):
+    return x
+
+
+def _nan_inf_to_nan(x):
+    return np.nan_to_num(x, nan=np.nan, neginf=np.nan, posinf=np.nan)
+
+
+def _shift_by_nanmin(x):
+    return x + np.abs(np.nanmin(x))
+
+
+def _add_epsilon(x):
+    return x + 1e-10
+
 class SelectiveInversePipeline(Pipeline):
     def __init__(self, steps, skip_inverse=None):
         super().__init__(steps)
@@ -511,21 +530,19 @@ class RebalanceFeatureDistribution(BasePreprocess):
                                         ("save_standard", Pipeline(steps=[
                                             ("i2n_pre",
                                              FunctionTransformer(
-                                                 func=lambda x: np.nan_to_num(x, nan=np.nan, neginf=np.nan,
-                                                                              posinf=np.nan),
-                                                 inverse_func=lambda x: x, check_inverse=False)),
+                                                 func=_nan_inf_to_nan,
+                                                 inverse_func=_identity, check_inverse=False)),
                                             ("fill_missing_pre",
                                              SimpleImputer(missing_values=np.nan, strategy="mean",
                                                            keep_empty_features=True)),
                                             ("feature_shift",
-                                             FunctionTransformer(func=lambda x: x + np.abs(np.nanmin(x)))),
-                                            ("add_epsilon", FunctionTransformer(func=lambda x: x + 1e-10)),
+                                             FunctionTransformer(func=_shift_by_nanmin)),
+                                            ("add_epsilon", FunctionTransformer(func=_add_epsilon)),
                                             ("logNormal", FunctionTransformer(np.log, validate=False)),
                                             ("i2n_post",
                                              FunctionTransformer(
-                                                 func=lambda x: np.nan_to_num(x, nan=np.nan, neginf=np.nan,
-                                                                              posinf=np.nan),
-                                                 inverse_func=lambda x: x, check_inverse=False)),
+                                                 func=_nan_inf_to_nan,
+                                                 inverse_func=_identity, check_inverse=False)),
                                             ("fill_missing_post",
                                              SimpleImputer(missing_values=np.nan, strategy="mean",
                                                            keep_empty_features=True))])),
@@ -563,15 +580,15 @@ class RebalanceFeatureDistribution(BasePreprocess):
                                 steps=[
                                     ("power_transformer", RobustPowerTransformer(standardize=False)),
                                     ("inf_to_nan_1", FunctionTransformer(
-                                                        func=lambda x: np.nan_to_num(x, nan=np.nan, neginf=np.nan, posinf=np.nan),
-                                                        inverse_func=lambda x: x,
+                                                        func=_nan_inf_to_nan,
+                                                        inverse_func=_identity,
                                                         check_inverse=False,
                                                     )),
                                     ("nan_to_mean_1", nan_to_mean_transformer),
                                     ("scaler", StandardScaler()),
                                     ("inf_to_nan_2", FunctionTransformer(
-                                                        func=lambda x: np.nan_to_num(x, nan=np.nan, neginf=np.nan, posinf=np.nan),
-                                                        inverse_func=lambda x: x,
+                                                        func=_nan_inf_to_nan,
+                                                        inverse_func=_identity,
                                                         check_inverse=False,
                                                     )),
                                     ("nan_to_mean_2", nan_to_mean_transformer),
@@ -621,7 +638,7 @@ class RebalanceFeatureDistribution(BasePreprocess):
             elif worker_tag=="kdi_uni":
                 sworker = KDIX(alpha=1.0, output_distribution="uniform")
             elif worker_tag is None:
-                sworker = FunctionTransformer(lambda x: x)
+                sworker = FunctionTransformer(_identity)
             elif worker_tag.startswith("kdi_uni_alpha_"):
                 alpha = float(worker_tag.split("_")[-1])
                 sworker = KDIX(alpha=alpha, output_distribution="uniform")
@@ -631,7 +648,7 @@ class RebalanceFeatureDistribution(BasePreprocess):
             elif worker_tag=="kdi_norm":
                 sworker = KDIX(alpha=1.0, output_distribution="normal")
             else:
-                sworker = FunctionTransformer(lambda x: x)
+                sworker = FunctionTransformer(_identity)
             if worker_tag in ["quantile_uniform_10", "quantile_uniform_5", "quantile_uniform_all_data"]:
                 self.n_quantile_features = len(trans_ixs)
             workers.append((f"feat_transform_{worker_tag}", sworker, trans_ixs))
@@ -639,13 +656,13 @@ class RebalanceFeatureDistribution(BasePreprocess):
         CT_worker = ColumnTransformer(workers,remainder="drop",sparse_threshold=0.0)
         if self.svd_tag == "svd" and n_features >= 2:
             svd_worker = FeatureUnion([
-                    ("default", FunctionTransformer(func=lambda x: x)),
+                    ("default", FunctionTransformer(func=_identity)),
                     ("svd",Pipeline(steps=[
                                     ("save_standard",Pipeline(steps=[
-                                    ("i2n_pre", FunctionTransformer(func=lambda x: np.nan_to_num(x, nan=np.nan, neginf=np.nan, posinf=np.nan),inverse_func=lambda x: x, check_inverse=False)),
+                                    ("i2n_pre", FunctionTransformer(func=_nan_inf_to_nan,inverse_func=_identity, check_inverse=False)),
                                     ("fill_missing_pre", SimpleImputer(missing_values=np.nan, strategy="mean", keep_empty_features=True)),
                                     ("standard", StandardScaler(with_mean=False)) ,
-                                    ("i2n_post", FunctionTransformer(func=lambda x: np.nan_to_num(x, nan=np.nan, neginf=np.nan, posinf=np.nan),inverse_func=lambda x: x, check_inverse=False)),
+                                    ("i2n_post", FunctionTransformer(func=_nan_inf_to_nan,inverse_func=_identity, check_inverse=False)),
                                     ("fill_missing_post", SimpleImputer(missing_values=np.nan, strategy="mean", keep_empty_features=True))])),
                                     ("svd",TruncatedSVD(algorithm="arpack",n_components=max(1,min(n_samples // 10 + 1,n_features // 2)),random_state=static_seed))]))
                     ])
@@ -686,7 +703,9 @@ class SubSampleData():
             self.subsample_num = subsample_ratio
         if self.subsample_type == "sample":
             if self.use_type == "mixed":
-                y_feature_attention_score = feature_attention_score[:, -1, :].squeeze().permute(1, 0).unsqueeze(
+                # NOTE (tabarena vendor): dropped a trailing .squeeze() before .permute() —
+                # for single-feature data it collapses the feature dim and breaks the permute.
+                y_feature_attention_score = feature_attention_score[:, -1, :].permute(1, 0).unsqueeze(
                     -1) # shape [features,test_sample_lens,1] broadcast to [features,test_sample_lens,train_sample_lens]
                 #TODO jianshengli may cause OOM
                 try:
@@ -704,7 +723,8 @@ class SubSampleData():
             self.X_train = x
             self.y_train = y
         else:
-            y_feature_attention_score = torch.mean(feature_attention_score[:, -1, :].squeeze(),dim=0)  # shape [test_sample_lens,features]
+            # NOTE (tabarena vendor): dropped a trailing .squeeze() — same single-feature concern as above.
+            y_feature_attention_score = torch.mean(feature_attention_score[:, -1, :],dim=0)  # shape [test_sample_lens,features]
             if subsample_idx is None:
                 self.subsample_idx = torch.argsort(y_feature_attention_score)[-min(self.subsample_num, x.shape[0]):]
             else:
