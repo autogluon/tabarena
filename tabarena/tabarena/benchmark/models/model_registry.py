@@ -7,6 +7,7 @@ from autogluon.tabular.registry import ModelRegistry, ag_model_registry
 from tabarena.benchmark.models.ag import (
     ExplainableBoostingMachineModel,
     KNNNewModel,
+    LimiXModel,
     ModernNCAModel,
     PerpetualBoosterModel,
     RealMLPModel,
@@ -38,6 +39,7 @@ _models_to_add = [
     TabICLv2Model,
     TabSTARModel,
     TabPFNv26Model,
+    LimiXModel,
 ]
 
 for _model_cls in _models_to_add:
