@@ -18,9 +18,8 @@ class TabPFN3Model(AbstractTorchModel):
     ag_priority = 105
     seed_name = "random_state"
 
-    # TODO: support these paths again?
-    default_classification_model: str | None = "XXX"
-    default_regression_model: str | None = "XXX"
+    default_classification_model: str | None = "tabpfn-v3-classifier-v3_default.ckpt"
+    default_regression_model: str | None = "tabpfn-v3-regressor-v3_default.ckpt"
 
     _categorical_indices: list[int] | None
     """The indices of the categorical features, detected during preprocessing."""
@@ -47,6 +46,13 @@ class TabPFN3Model(AbstractTorchModel):
 
         return TabPFNClassifier if is_classification else TabPFNRegressor
 
+    def _get_model_checkpoint(self):
+        from tabpfn.model_loading import prepend_cache_path
+
+        is_classification = self.problem_type in ["binary", "multiclass"]
+        default_model = self.default_classification_model if is_classification else self.default_regression_model
+        return prepend_cache_path(default_model)
+
     def _fit(
         self,
         X: pd.DataFrame,
@@ -59,13 +65,14 @@ class TabPFN3Model(AbstractTorchModel):
 
         # Set hyperparameters
         hps = self._get_model_params()
-        extra_hps = dict(
+        default_hps = dict(
+            model_path=self._get_model_checkpoint(),
             device=self._resolve_tabpfn_device(num_gpus=num_gpus),
             n_jobs=num_cpus,
             categorical_features_indices=self._categorical_indices,
         )
-        extra_hps[self.seed_name] = self.fixed_random_state
-        hps = {**hps, **extra_hps}
+        default_hps[self.seed_name] = self.fixed_random_state
+        hps = {**default_hps, **hps}  # hps later to override any conflicting keys default keys.
 
         # Initialize and fit the model
         model_class = self._get_model_class()
