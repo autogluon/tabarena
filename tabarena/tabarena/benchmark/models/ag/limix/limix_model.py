@@ -47,6 +47,13 @@ class LimiXModel(AbstractTorchModel):
     ag_priority = 100
     seed_name = "random_state"
 
+    subsample_train_n_rows: int = 75_000
+    """Empirically, even with 140 GB of VRAM available we still hit OOM on LimiX's retrieval + clustering inference
+    path on TabArena-scale datasets, so subsampling is the only reliable lever to keep it running.
+    We-sub-sample datasets above 75k rows to 50k rows following the LimiX documentation examples."""
+    batch_test_n_rows: int = 10_000
+    """We batch forward passes with more than 10k test rows."""
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._feature_generator: LabelEncoderFeatureGenerator | None = None
@@ -122,7 +129,7 @@ class LimiXModel(AbstractTorchModel):
         # datasets at the TabArena scale, so subsampling is the only reliable lever.
         # LimiX's own documentation / examples flag >50k rows as out-of-distribution
         # for this model (see https://github.com/limix-ldm-ai/LimiX/blob/main/inference_classifier.py#L108-L110).
-        if X_np.shape[0] >= 80_000:
+        if X_np.shape[0] >= self.subsample_train_n_rows:
             n_full = X_np.shape[0]
             target = 50_000
             if self.problem_type in [BINARY, MULTICLASS]:
@@ -175,7 +182,7 @@ class LimiXModel(AbstractTorchModel):
 
         # Chunk the test set: a single forward pass over (n_train + n_test) rows can blow
         # past available VRAM on large datasets and surface as cudaErrorInvalidConfiguration.
-        chunk_size = 10_000
+        chunk_size = self.batch_test_n_rows
         n_test = X.shape[0]
         chunks = []
         for start in range(0, n_test, chunk_size):
