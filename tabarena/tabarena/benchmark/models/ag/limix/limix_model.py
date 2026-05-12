@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+import torch
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.constants import (
     BINARY,
@@ -13,9 +14,11 @@ from autogluon.core.constants import (
 )
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+from torch import nn
 
 if TYPE_CHECKING:
     import pandas as pd
+
 
 logger = logging.getLogger(__name__)
 
@@ -106,11 +109,46 @@ class LimiXModel(AbstractTorchModel):
 
         if self.problem_type == "regression":
             # Following all documentation and examples, we scale at this level and inverse scale later.
+            # Stats are computed on the full y before any subsampling so inverse scaling matches the
+            # original target distribution.
             self._y_mean = float(y_np.mean())
             self._y_std = float(y_np.std()) or 1.0
             y_fit = (y_np - self._y_mean) / self._y_std
         else:
             y_fit = y_np
+
+        # Cap n_train to keep the LimiX inference pipeline within VRAM.
+        # Empirically, even with 140 GB of VRAM available we still hit this on
+        # datasets at the TabArena scale, so subsampling is the only reliable lever.
+        # LimiX's own documentation / examples flag >50k rows as out-of-distribution
+        # for this model (see https://github.com/limix-ldm-ai/LimiX/blob/main/inference_classifier.py#L108-L110).
+        if X_np.shape[0] >= 80_000:
+            n_full = X_np.shape[0]
+            target = 50_000
+            if self.problem_type in [BINARY, MULTICLASS]:
+                from sklearn.model_selection import train_test_split
+
+                try:
+                    X_np, _, y_fit, _ = train_test_split(
+                        X_np,
+                        y_fit,
+                        train_size=target,
+                        stratify=y_fit,
+                        random_state=int(random_state),
+                    )
+                except ValueError:
+                    # Stratification fails on classes with too few samples; fall back to random.
+                    rng = np.random.default_rng(int(random_state))
+                    idx = rng.choice(n_full, size=target, replace=False)
+                    X_np, y_fit = X_np[idx], y_fit[idx]
+            else:
+                rng = np.random.default_rng(int(random_state))
+                idx = rng.choice(n_full, size=target, replace=False)
+                X_np, y_fit = X_np[idx], y_fit[idx]
+            logger.log(
+                20,
+                f"LimiX: subsampling train from {n_full} to {target} rows to bound VRAM at predict time",
+            )
 
         self.model = LimiXPredictor(
             device=torch.device(device_str),
@@ -120,6 +158,8 @@ class LimiXModel(AbstractTorchModel):
             seed=int(random_state),
             **hps,
         )
+        # See `_NaNCleanEncoder` docstring for why this wrap is needed.
+        self.model.model.encoder_x = _NaNCleanEncoder(self.model.model.encoder_x)
         # Save into model so pickling works better
         self.model._X_train = X_np
         self.model._y_train = y_fit
@@ -132,10 +172,28 @@ class LimiXModel(AbstractTorchModel):
 
         # Forward pass call via LimiX code
         task_type = "Classification" if self.problem_type in [BINARY, MULTICLASS] else "Regression"
-        out = self.model.predict(self.model._X_train, self.model._y_train, X, task_type=task_type)
-        if isinstance(out, torch.Tensor):
-            out = out.detach().cpu().numpy()
-        out = np.asarray(out)
+
+        # Chunk the test set: a single forward pass over (n_train + n_test) rows can blow
+        # past available VRAM on large datasets and surface as cudaErrorInvalidConfiguration.
+        chunk_size = 10_000
+        n_test = X.shape[0]
+        chunks = []
+        for start in range(0, n_test, chunk_size):
+            chunk_out = self.model.predict(
+                self.model._X_train,
+                self.model._y_train,
+                X[start : start + chunk_size],
+                task_type=task_type,
+            )
+            # LimiX runs under autocast, so outputs can come back in fp16. Promote to
+            # fp32 here so downstream math (e.g. regression `out * self._y_std`) cannot
+            # overflow fp16's ~65504 max on large-target regression problems.
+            if isinstance(chunk_out, torch.Tensor):
+                chunk_out = chunk_out.detach().to(torch.float32).cpu().numpy()
+            else:
+                chunk_out = np.asarray(chunk_out, dtype=np.float32)
+            chunks.append(chunk_out)
+        out = np.concatenate(chunks, axis=0) if len(chunks) > 1 else chunks[0]
 
         if task_type == "Regression":
             out = out * self._y_std + self._y_mean
@@ -203,11 +261,22 @@ class LimiXModel(AbstractTorchModel):
         """Pre-download the default LimiX checkpoint from Hugging Face.
 
         Returns the local cache path. Used by the foundation-model pre-download
-        scripts to warm the cache before parallel fit runs.
+        scripts to warm the cache before parallel fit runs. We try the local
+        cache first so offline compute nodes (no internet / proxy timeouts)
+        skip the HEAD-request-for-etag that ``hf_hub_download`` performs by
+        default.
         """
         from huggingface_hub import hf_hub_download
+        from huggingface_hub.errors import LocalEntryNotFoundError
 
-        return hf_hub_download(repo_id=_DEFAULT_HF_REPO, filename=_DEFAULT_HF_FILENAME)
+        try:
+            return hf_hub_download(
+                repo_id=_DEFAULT_HF_REPO,
+                filename=_DEFAULT_HF_FILENAME,
+                local_files_only=True,
+            )
+        except LocalEntryNotFoundError:
+            return hf_hub_download(repo_id=_DEFAULT_HF_REPO, filename=_DEFAULT_HF_FILENAME)
 
 
 def _load_bundled_config(filename: str) -> list:
@@ -218,3 +287,37 @@ def _load_bundled_config(filename: str) -> list:
 
 def _download_default_checkpoint() -> str:
     return LimiXModel.download_model()
+
+
+class _NaNCleanEncoder(nn.Module):
+    """Wrap LimiX's ``encoder_x`` so any NaN/inf it emits is sanitized to 0.
+
+    Why: the bundled LimiX 16M checkpoint's preprocess pipeline starts with a
+    ``NanEncoder`` (`_vendor/model/encoders.py:361`) that replaces NaN cells in
+    ``x`` with the per-column mean computed over the *train portion only*
+    (``calc_mean(x[:, :eval_pos, :], dim=1)``). LimiX's retrieval + clustering
+    path (`_vendor/inference/inference_method.py`) shards inference into small
+    train clusters per test group, and on datasets with heavy missingness the
+    selected train rows for a given cluster can end up entirely NaN on some
+    column. The per-column "mean" is then itself NaN, the imputation step
+    substitutes NaN for NaN, and the NaN propagates through ``process_4_x`` and
+    ``encoder_x`` until ``transformer.py:194`` raises:
+
+        ValueError: embedded_all contains NaN values; please add a NanEncoder
+        in the encoder
+
+    Sanitizing here is the most surgical place — it catches NaN regardless of
+    which upstream stage produced it, without modifying vendor code and without
+    blanket-imputing the raw input (the model handles NaN correctly on most
+    datasets and we don't want to overwrite that behavior).
+    """
+
+    def __init__(self, inner: nn.Module):
+        super().__init__()
+        self.inner = inner
+
+    def forward(self, x):
+        out = self.inner(x)
+        if isinstance(out, dict) and isinstance(out.get("data"), torch.Tensor):
+            out["data"] = torch.nan_to_num(out["data"], nan=0.0, posinf=0.0, neginf=0.0)
+        return out
