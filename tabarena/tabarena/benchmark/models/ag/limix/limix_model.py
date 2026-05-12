@@ -165,8 +165,20 @@ class LimiXModel(AbstractTorchModel):
             seed=int(random_state),
             **hps,
         )
-        # See `_NaNCleanEncoder` docstring for why this wrap is needed.
+        # See `_NaNCleanEncoder` docstring for why this wrap is needed. We have to wrap
+        # every loaded copy of the FeaturesTransformer, not just `LimiXPredictor.model`:
+        # each `InferenceAttentionMap` step in `preprocess_pipelines` calls
+        # `load_model(self.model_path)` in its own `__init__` and holds its own model
+        # instance, used to compute sample-attention scores for retrieval. Without
+        # wrapping those too, the very first attention-map pass at
+        # `_vendor/inference/inference_method.py:309` still hits the NaN guard.
+        from tabarena.benchmark.models.ag.limix._vendor.inference.inference_method import InferenceAttentionMap
+
         self.model.model.encoder_x = _NaNCleanEncoder(self.model.model.encoder_x)
+        for pipeline in self.model.preprocess_pipelines:
+            for step in pipeline:
+                if isinstance(step, InferenceAttentionMap):
+                    step.model.encoder_x = _NaNCleanEncoder(step.model.encoder_x)
         # Save into model so pickling works better
         self.model._X_train = X_np
         self.model._y_train = y_fit
@@ -321,6 +333,9 @@ class _NaNCleanEncoder(nn.Module):
 
     def __init__(self, inner: nn.Module):
         super().__init__()
+        # Idempotent: collapse nested wraps so re-applying is safe.
+        if isinstance(inner, _NaNCleanEncoder):
+            inner = inner.inner
         self.inner = inner
 
     def forward(self, x):
