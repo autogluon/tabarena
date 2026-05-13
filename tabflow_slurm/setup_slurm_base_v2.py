@@ -136,7 +136,24 @@ class SlurmSetup:
     job scheduling and other non-model fitting overhead."""
 
     configs_per_job: int = 5
-    """Batching of several experiments per job to reduce the number of  SLURM jobs."""
+    """Legacy batching: maximum number of configs to bundle within a single
+    `(task_id, fold, repeat)` group inside one SLURM array task.
+    Only takes effect when `bundle_size` is None."""
+
+    bundle_size: int | None = None
+    """If set, switches to flat-bundle batching: each SLURM array task runs a list
+    of `(task_id, fold, repeat, config_index)` items of length up to `bundle_size`,
+    possibly spanning across different `(task_id, fold, repeat)` groups.
+
+    Mirrors the design used by `tabflow` (the SageMaker side) — see
+    `tabflow/cli/launch_jobs.py::get_tasks_batched`.
+
+    When None (default), legacy `configs_per_job` behavior is preserved."""
+
+    bundle_size_per_dataset: dict[str, int] | None = None
+    """Optional per-dataset override of `bundle_size`, keyed by `dataset_name`.
+    Items from datasets not listed here use `bundle_size`. Items belonging to
+    different effective bundle sizes are not mixed in the same bundle."""
 
     max_array_size: int = 29_999
     """Maximum number of array tasks per SLURM array job.
@@ -692,6 +709,7 @@ class BenchmarkSetup2026:
                         "config_index": config_index,
                         "config": config,
                         "task_id": task_id,
+                        "dataset_name": ta_task_metadata.dataset_name,
                         "fold_i": split_md.fold,
                         "repeat_i": split_md.repeat,
                         "n_samples_train_per_fold": split_md.num_instances_train,
@@ -725,35 +743,77 @@ class BenchmarkSetup2026:
             tqdm_kwargs={"desc": "Checking Cache and Filter Invalid Jobs"},
         )
         output = [item for sublist in output for item in sublist]  # Flatten the batched list
-        to_run_job_map = {}
-        for run_job, job_data in zip(output, jobs_to_check, strict=True):
-            if run_job:
-                job_key = (
-                    job_data["task_id"],
-                    job_data["fold_i"],
-                    job_data["repeat_i"],
-                )
-                if job_key not in to_run_job_map:
-                    to_run_job_map[job_key] = []
-                to_run_job_map[job_key].append(job_data["config_index"])
 
-        # Convert the map to a list of jobs
-        jobs = []
-        to_run_jobs = 0
-        max_config_batch = 1
-        for job_key, config_indices in to_run_job_map.items():
-            to_run_jobs += len(config_indices)
-            for config_batch in to_batch_list(config_indices, self.slurm_setup.configs_per_job):
-                max_config_batch = max(max_config_batch, len(config_batch))
-                jobs.append(
-                    {
-                        "task_id": job_key[0],
-                        "fold": job_key[1],
-                        "repeat": job_key[2],
-                        "config_index": config_batch,
-                    },
-                )
-        self._max_configs_per_job = max_config_batch
+        approved_items = [
+            {
+                "task_id": job_data["task_id"],
+                "dataset_name": job_data["dataset_name"],
+                "fold": job_data["fold_i"],
+                "repeat": job_data["repeat_i"],
+                "config_index": job_data["config_index"],
+            }
+            for run_job, job_data in zip(output, jobs_to_check, strict=True)
+            if run_job
+        ]
+        to_run_jobs = len(approved_items)
+
+        bundle_size = self.slurm_setup.bundle_size
+        if bundle_size is None:
+            # Legacy path: bundle config_indices within each (task, fold, repeat)
+            # group, capped at `configs_per_job`.
+            to_run_job_map: dict[tuple, list[int]] = {}
+            for item in approved_items:
+                key = (item["task_id"], item["fold"], item["repeat"])
+                to_run_job_map.setdefault(key, []).append(item["config_index"])
+
+            jobs = []
+            max_config_batch = 1
+            for job_key, config_indices in to_run_job_map.items():
+                for config_batch in to_batch_list(config_indices, self.slurm_setup.configs_per_job):
+                    max_config_batch = max(max_config_batch, len(config_batch))
+                    jobs.append(
+                        {
+                            "task_id": job_key[0],
+                            "fold": job_key[1],
+                            "repeat": job_key[2],
+                            "config_index": config_batch,
+                        },
+                    )
+            self._max_configs_per_job = max_config_batch
+        else:
+            # Flat-bundle path: bin (task, fold, repeat, config_index) tuples into
+            # bundles of length up to `bundle_size`, with per-dataset overrides.
+            # Items are grouped by their effective bundle size so we don't mix
+            # different sizes within the same SLURM array task (this matches
+            # tabflow/cli/launch_jobs.py::get_tasks_batched).
+            bundle_size_per_dataset = self.slurm_setup.bundle_size_per_dataset or {}
+            items_by_size: dict[int, list[dict]] = {}
+            for item in approved_items:
+                effective_size = bundle_size_per_dataset.get(item["dataset_name"], bundle_size)
+                items_by_size.setdefault(effective_size, []).append(item)
+
+            jobs = []
+            max_bundle_size = 1
+            # Sort sizes for deterministic job ordering across runs.
+            for size in sorted(items_by_size):
+                items = items_by_size[size]
+                for bundle in to_batch_list(items, size):
+                    max_bundle_size = max(max_bundle_size, len(bundle))
+                    jobs.append(
+                        {
+                            "items": [
+                                {
+                                    "task_id": it["task_id"],
+                                    "fold": it["fold"],
+                                    "repeat": it["repeat"],
+                                    "config_index": it["config_index"],
+                                }
+                                for it in bundle
+                            ],
+                        },
+                    )
+            self._max_configs_per_job = max_bundle_size
+
         print(f"Generated {to_run_jobs} jobs to run without batching.")
         print(f"Jobs with batching: {len(jobs)}")
         return jobs
