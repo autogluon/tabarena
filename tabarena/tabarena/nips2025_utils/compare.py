@@ -105,6 +105,7 @@ def compare(
     add_dataset_count: bool = False,
     subset: list[str] | None = None,
     folds: list[int] | None = None,
+    elo_ymin: float | None = None,
     **kwargs,
 ):
     if subset is not None or folds is not None or datasets is not None or tasks is not None:
@@ -143,12 +144,16 @@ def compare(
         else:
             calibration_framework = fillna
 
+    evaluator_kwargs = {}
+    if elo_ymin is not None:
+        evaluator_kwargs["elo_ymin"] = elo_ymin
     plotter = TabArenaEvaluator(
         output_dir=output_dir,
         task_metadata=task_metadata,
         error_col=error_col,
         method_rename_map=method_rename_map,
         figure_file_type=figure_file_type,
+        **evaluator_kwargs,
     )
 
     lb_df = plotter.eval(
@@ -240,6 +245,7 @@ def prepare_data(
 
 
 _SUBSET_PREDICATES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
+    "all": lambda df: pd.Series(True, index=df.index),
     # problem_type
     "binary": lambda df: df["problem_type"] == "binary",
     "multiclass": lambda df: df["problem_type"] == "multiclass",
