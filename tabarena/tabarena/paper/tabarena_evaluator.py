@@ -570,6 +570,10 @@ class TabArenaEvaluator:
         plot_tuning_kwargs: dict | None = None,
         banned_methods: list[str] | None = None,
         verbose: bool = True,
+        show_winrate_title: bool = False,
+        show_tuning_impact_title: bool = False,
+        subset_label: str | None = None,
+        winrate_method_rename: dict[str, str] | None = None,
     ) -> pd.DataFrame:
         if banned_methods is not None:
             df_results = df_results[~df_results["method"].isin(banned_methods)]
@@ -579,6 +583,23 @@ class TabArenaEvaluator:
         if plot_tuning_kwargs is None:
             plot_tuning_kwargs = {}
         plot_tuning_kwargs = plot_tuning_kwargs.copy()
+
+        # Auto-build the tuning-impact suptitle in the same
+        # "TabArena-<subset> …" style as the winrate and tuning-trajectory
+        # titles. Threaded via ``plot_tuning_kwargs["title"]`` (which every
+        # ``self.plot_tuning_impact(...)`` call below picks up); an
+        # explicitly caller-supplied title still wins. ``Leaderboard``
+        # rather than ``Tuning Impact`` because in practice only the elo
+        # variants are emitted (``include_norm_score`` defaults to False)
+        # and the elo bar plot reads as a per-method leaderboard.
+        # ``None`` and ``"all"`` collapse to the unsuffixed ``TabArena``
+        # prefix (aggregate / no-meaningful-subset case).
+        if show_tuning_impact_title and "title" not in plot_tuning_kwargs:
+            if subset_label and subset_label != "all":
+                plot_tuning_kwargs["title"] = f"TabArena-{subset_label} Leaderboard"
+            else:
+                plot_tuning_kwargs["title"] = "TabArena Leaderboard"
+
         if calibration_framework is not None and calibration_framework == "auto":
             calibration_framework = "RF (default)"
         df_results = df_results.copy(deep=True)
@@ -749,7 +770,12 @@ class TabArenaEvaluator:
         leaderboard = leaderboard.reset_index(drop=False)
         save_pd.save(path=f"{self.output_dir}/tabarena_leaderboard.csv", df=leaderboard)
 
-        self.create_leaderboard_latex(leaderboard, framework_types=framework_types, save_dir=self.output_dir)
+        self.create_leaderboard_latex(
+            leaderboard,
+            framework_types=framework_types,
+            save_dir=self.output_dir,
+            hidden_methods=plot_tuning_kwargs.get("hidden_methods"),
+        )
 
         n_tasks = len(df_results_rank_compare[[tabarena.task_col, tabarena.seed_column]].drop_duplicates())
 
@@ -858,12 +884,52 @@ class TabArenaEvaluator:
             else:
                 _results_to_use_winrate_matrix = results_te_per_split.copy()
 
+            # Drop hidden_methods from the winrate matrix. ``config_type`` on
+            # the raw per-task/split dataframes is the *short* framework name
+            # ("RF", "XT", "GBM"); callers supply ``hidden_methods`` in the
+            # *long* display-name form ("RandomForest", "ExtraTrees",
+            # "LightGBM"). ``f_map_type_name`` (computed above at line ~618)
+            # is exactly that short → long rename map, so route the column
+            # through it before filtering and fall back to the raw value
+            # whenever the map has no entry for that short name.
+            hidden_methods_winrate = plot_tuning_kwargs.get("hidden_methods") or []
+            if hidden_methods_winrate and "config_type" in _results_to_use_winrate_matrix.columns:
+                mapped_names = (
+                    _results_to_use_winrate_matrix["config_type"]
+                    .map(f_map_type_name)
+                    .fillna(_results_to_use_winrate_matrix["config_type"])
+                )
+                _results_to_use_winrate_matrix = _results_to_use_winrate_matrix.loc[
+                    ~mapped_names.isin(hidden_methods_winrate)
+                ]
+
             if len(_results_to_use_winrate_matrix) != 0:
                 winrate_matrix = tabarena.compute_winrate_matrix(results_per_task=_results_to_use_winrate_matrix)
+                # Display-only rename of winrate-matrix row/column labels.
+                # Applied after `compute_winrate_matrix` so the rename only
+                # touches the axis tick labels — pairwise comparisons are
+                # unaffected. Unknown keys are ignored.
+                if winrate_method_rename:
+                    winrate_matrix = winrate_matrix.rename(
+                        index=winrate_method_rename,
+                        columns=winrate_method_rename,
+                    )
+                # Build the suptitle in the same "TabArena-<subset> …"
+                # style used by the tuning-trajectory and tuning-impact bar
+                # plots so the three surfaces read as one report. ``None``
+                # and ``"all"`` collapse to the unsuffixed ``TabArena``
+                # prefix (aggregate / no-meaningful-subset case).
+                winrate_title: str | None = None
+                if show_winrate_title:
+                    if subset_label and subset_label != "all":
+                        winrate_title = f"TabArena-{subset_label} Win-rate Matrix"
+                    else:
+                        winrate_title = "TabArena Win-rate Matrix"
                 try:
                     tabarena.plot_winrate_matrix(
                         winrate_matrix=winrate_matrix,
                         save_path=str(Path(self.output_dir / f"winrate_matrix.{self.figure_file_type}")),
+                        title=winrate_title,
                     )
                 except (RuntimeError, ValueError) as e:
                     print(
@@ -1280,11 +1346,27 @@ class TabArenaEvaluator:
         fig_save_path = fig_prefix / fig_name
         plt.savefig(fig_save_path)
 
-    def create_leaderboard_latex(self, df: pd.DataFrame, framework_types, save_dir):
+    def create_leaderboard_latex(
+        self,
+        df: pd.DataFrame,
+        framework_types,
+        save_dir,
+        hidden_methods: list[str] | None = None,
+    ):
         df = df.copy(deep=True)
         f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
         )
+
+        # Drop hidden methods. ``df["config_type"]`` is the *short* framework
+        # name ("RF", "XT", "GBM"); ``hidden_methods`` is supplied in the
+        # *long* display form ("RandomForest", "ExtraTrees", "LightGBM").
+        # ``f_map_type_name`` is exactly that short → long rename map, so
+        # route the column through it before filtering — same pattern used
+        # by the winrate-matrix filter elsewhere in this file.
+        if hidden_methods and "config_type" in df.columns:
+            mapped_names = df["config_type"].map(f_map_type_name).fillna(df["config_type"])
+            df = df.loc[~mapped_names.isin(hidden_methods)]
 
         def rename_model(name: str):
             parts = name.split(" ")
@@ -1304,10 +1386,7 @@ class TabArenaEvaluator:
         # do the more annoying way {}_{...} so that \textbf{} affects the main number
         df_new[r"Elo ($\uparrow$)"] = [f'{round(elo)}' + r'${}_{' + f'-{math.ceil(elom)},+{math.ceil(elop)}' + r'}$'
                                        for elo, elom, elop in zip(df["elo"], df["elo-"], df["elo+"])]
-        df_new[r"Norm." + "\n" + r"score ($\uparrow$)"] = [f'{1-err:5.3f}' for err in df["normalized-error"]]
-        df_new[r"Avg." + "\n" + r"rank ($\downarrow$)"] = [f'{rank:.1f}' for rank in df["rank"]]
-        df_new["Harm.\nmean\n" + r"rank ($\downarrow$)"] = [f'{1/val:.1f}' for val in df["mrr"]]
-        df_new[r"\#wins ($\uparrow$)"] = [str(cnt) for cnt in df["rank=1_count"]]
+        df_new[r"\#wins ($\uparrow$)"] = [f'{cnt:.1f}' for cnt in df["rank=1_count"]]
         df_new[f"Improva-\n" + r"bility ($\downarrow$)"] = [f'{100*val:.1f}\\%' for val in df["improvability"]]
         df_new[r"Train time" + "\n" + r"per 1K [s]"] = [f'{t:.2f}' for t in df["median_time_train_s_per_1K"]]
         df_new[r"Predict time" + "\n" + r"per 1K [s]"] = [f'{t:.2f}' for t in df["median_time_infer_s_per_1K"]]
@@ -1364,7 +1443,7 @@ class TabArenaEvaluator:
         # ----- create latex table -----
 
         rows = []
-        rows.append(r'\begin{tabular}{' + 'llcccccrr' + r'}')
+        rows.append(r'\begin{tabular}{' + 'llccrr' + r'}')
         rows.append(r'\toprule')
         # rows.append(' & '.join(df_new.columns) + r' \\')
 
@@ -1408,6 +1487,10 @@ class TabArenaEvaluator:
         hidden_methods: list[str] | None = None,
         baseline_text_y_gap: float = 1.0,
         figsize: tuple[int, int] | None = None,
+        figheight: float | None = None,
+        figheight_horizontal: float | None = None,
+        bar_width: float | None = None,
+        title: str | None = None,
         **kwargs,  # FIXME: Hack
     ):
         if method_style_map is None:
@@ -1535,7 +1618,7 @@ class TabArenaEvaluator:
                     pos = metric
                     y = framework_col
                     if figsize is None:
-                        figsize = (4, 5)
+                        figsize = (4, figheight_horizontal if figheight_horizontal is not None else 5)
                     xlim = lim
 
                     framework_type_order.reverse()
@@ -1546,7 +1629,7 @@ class TabArenaEvaluator:
                     y = metric
                     ylim = lim
                     if figsize is None:
-                        figsize = (0.5*len(framework_types), 2.7)
+                        figsize = (0.5*len(framework_types), figheight if figheight is not None else 2.7)
                     # figsize = None
 
                 fig, ax = plt.subplots(1, 1, figsize=figsize, constrained_layout=True)
@@ -1640,9 +1723,10 @@ class TabArenaEvaluator:
                     err_kws_lst = [plot_line["err_kws"] for plot_line in to_plot]
 
                     # to_plot.reverse()
+                    same_width_value = bar_width if bar_width is not None else 0.6 * 1.3
                     for plot_line, width, color, err_kws in zip(to_plot, widths, colors, err_kws_lst):
                         if same_width:
-                            plot_line["width"] = 0.6 * 1.3
+                            plot_line["width"] = same_width_value
                         else:
                             plot_line["width"] = width * 1.3
 
@@ -1653,7 +1737,13 @@ class TabArenaEvaluator:
                     boxplot.set(xlabel='Elo' if metric=='elo' else 'Normalized score', ylabel=None)
                 else:
                     boxplot.set(xlabel=None, ylabel='Elo' if metric=='elo' else 'Normalized score')  # remove method in the x-axis
-                # boxplot.set_title("Effect of tuning and ensembling")
+                if title is not None:
+                    # ``set_title`` places text just above the axes spine,
+                    # which is where the legend sits (`bbox_to_anchor=[..., 1.01]`,
+                    # `loc="lower center"` below). Use ``suptitle`` so the
+                    # title floats above the figure as a whole and
+                    # ``constrained_layout`` reserves room for it.
+                    fig.suptitle(title)
 
                 # do this before setting x/y limits
                 for baseline_idx, (baseline, color) in enumerate(zip(baselines, baseline_colors)):
@@ -1698,6 +1788,16 @@ class TabArenaEvaluator:
                     # drop None values to avoid overriding matplotlib defaults
                     text_kwargs = {k: v for k, v in text_kwargs.items() if v is not None}
 
+                    # Match the method-label (tick label) size by default so the
+                    # baseline annotation doesn't render larger than the axis
+                    # ticks.  Without this, baseline text picks up
+                    # rcParams["font.size"] (body text), which is typically
+                    # larger than rcParams["{x,y}tick.labelsize"].
+                    text_kwargs.setdefault(
+                        "fontsize",
+                        plt.rcParams["ytick.labelsize" if use_y else "xtick.labelsize"],
+                    )
+
                     if use_y:
                         txt = ax.text(
                             y=(1 - 0.035 * (1 + 2 * baseline_text_y_gap * (len(baselines) - 1 - baseline_idx))) * ax.get_ylim()[0],
@@ -1707,11 +1807,22 @@ class TabArenaEvaluator:
                             **text_kwargs,
                         )
                     else:
+                        # va="top" anchors the top of the text at y, so y=baseline_mean
+                        # places the label directly below the dashed line.  The previous
+                        # `* 0.97` produced an offset that scaled with the elo magnitude
+                        # (~36 units at elo=1200, ~45 at elo=1500), pushing the text far
+                        # below the line.  Add a small fixed 3-point offset (≈ 3 px at
+                        # 72 DPI, visually consistent regardless of elo / output DPI).
+                        from matplotlib.transforms import offset_copy
+                        text_transform = offset_copy(
+                            ax.transData, fig=fig, x=-8, y=-3, units="points"
+                        )
                         txt = ax.text(
                             x=0.5,
-                            y=baseline_mean * 0.97,
+                            y=baseline_mean,
                             s=baseline_label,
                             va="top",
+                            transform=text_transform,
                             **text_kwargs,
                         )
                     txt.set_path_effects([PathEffects.withStroke(
