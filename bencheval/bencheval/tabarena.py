@@ -855,6 +855,7 @@ class TabArena:
     def plot_winrate_matrix(
         winrate_matrix: pd.DataFrame,
         save_path: str | None,
+        title: str | None = None,
     ):
         import matplotlib.pyplot as plt
         z = winrate_matrix.copy()
@@ -936,6 +937,23 @@ class TabArena:
 
         # Match imshow orientation expectations
         ax.set_ylim(n_rows - 0.5, -0.5)
+
+        if title is not None:
+            # Center horizontally on the *grid* (i.e. the imshow axes), the
+            # same way ``ax.set_xlabel("Model B: Loser", ...)`` is centered.
+            # ``ax.get_position()`` returns the axes bounding box in figure
+            # coordinates, so the midpoint of its x-range is the matrix
+            # grid's horizontal center — independent of the colorbar that
+            # sits to the right.
+            fig.canvas.draw()
+            ax_bbox = ax.get_position()
+            x_axes_center = (ax_bbox.x0 + ax_bbox.x1) / 2
+            fig.suptitle(
+                title,
+                fontsize=20,
+                fontweight="bold",
+                x=x_axes_center,
+            )
 
         if save_path is not None:
             if os.path.dirname(save_path):
