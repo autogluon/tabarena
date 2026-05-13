@@ -76,7 +76,7 @@ class TabArenaContext:
         include_unverified: bool = False,
         backend: Literal["ray", "native"] = "ray",
         fillna_method: str | None = "RF (default)",
-        calibration_method: str | None = "auto",
+        calibration_method: str | None = "RF (default)",
     ):
         if isinstance(task_metadata, str):
             assert task_metadata == "tabarena"
@@ -141,6 +141,9 @@ class TabArenaContext:
         new_results = None,
         compare_kwargs = None,
         tuning_trajectory_kwargs = None,
+        plot_compare: bool = True,
+        plot_runtime_per_method: bool = False,
+        plot_tuning_trajectories: bool = False,
     ) -> None:
         if compare_kwargs is None:
             compare_kwargs = {}
@@ -168,20 +171,27 @@ class TabArenaContext:
             output_dir_subset = output_dir / output_suffix
 
             # FIXME: new_results
-            self.compare(
-                output_dir=output_dir_subset,
-                subset=subset,
-                **compare_kwargs,
-            )
-            self.plot_tuning_trajectories(
-                save_path=output_dir_subset / "tuning_trajectories",
-                subset=subset,
-                **tuning_trajectory_kwargs,
-            )
-            self.plot_runtime_per_method(
-                save_path=output_dir_subset / "ablation" / "all-runtimes",
-                subset=subset,
-            )
+            if plot_compare:
+                self.compare(
+                    output_dir=output_dir_subset,
+                    subset=subset,
+                    new_results=new_results,
+                    subset_label=output_suffix,
+                    **compare_kwargs,
+                )
+            if plot_tuning_trajectories:
+                self.plot_tuning_trajectories(
+                    save_path=output_dir_subset / "tuning_trajectories",
+                    subset=subset,
+                    extra_results=new_results,
+                    **tuning_trajectory_kwargs,
+                )
+            if plot_runtime_per_method:
+                self.plot_runtime_per_method(
+                    save_path=output_dir_subset / "ablation" / "all-runtimes",
+                    # new_results=new_results,
+                    subset=subset,
+                )
 
     def compare(
         self,
