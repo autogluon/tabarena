@@ -66,25 +66,17 @@ echo "Ignore Cache: $IGNORE_CACHE"
 echo "Sequential Local Fold Fitting: $SEQUENTIAL_LOCAL_FOLD_FITTING"
 echo "Dynamic TabArena Validation Protocol: $DYNAMIC_TABARENA_VALIDATION_PROTOCOL"
 
-# Extract specific job fields
-CONFIG_INDEX=$(jq -r --argjson J "$J" '.jobs[$J].config_index | join(",")' "$JSON_FILE")
-TASK_ID=$(jq -r --argjson J "$J" '.jobs[$J].task_id' "$JSON_FILE")
-FOLD=$(jq -r --argjson J "$J" '.jobs[$J].fold' "$JSON_FILE")
-REPEAT=$(jq -r --argjson J "$J" '.jobs[$J].repeat' "$JSON_FILE")
+# Detect job format. Bundle format has `items: [...]` with one entry per
+# (task_id, fold, repeat, config_index) tuple; legacy format has those fields
+# directly on the job with `config_index` as a list.
+HAS_ITEMS=$(jq -r --argjson J "$J" '(.jobs[$J].items // null) != null' "$JSON_FILE")
 
-# Output extracted values
-echo "CONFIG_INDEX: $CONFIG_INDEX"
-echo "Task ID: TASK_ID"
-echo "Fold: $FOLD"
-echo "Repeat: $REPEAT"
-
-
-
-# Split CONFIG_INDEX into individual elements and loop
-IFS=',' read -ra CONFIG_ARRAY <<< "$CONFIG_INDEX"
-
-for CI in "${CONFIG_ARRAY[@]}"; do
-    echo "Running config_index=$CI"
+run_one() {
+    local TASK_ID="$1"
+    local FOLD="$2"
+    local REPEAT="$3"
+    local CI="$4"
+    echo "Running task_id=$TASK_ID fold=$FOLD repeat=$REPEAT config_index=$CI"
 
     $PYTHON_PATH $RUNSCRIPT \
         --task_id $TASK_ID \
@@ -102,4 +94,33 @@ for CI in "${CONFIG_ARRAY[@]}"; do
         --ignore_cache $IGNORE_CACHE \
         --sequential_local_fold_fitting $SEQUENTIAL_LOCAL_FOLD_FITTING \
         --dynamic_tabarena_validation_protocol $DYNAMIC_TABARENA_VALIDATION_PROTOCOL
-done
+}
+
+if [ "$HAS_ITEMS" = "true" ]; then
+    # Bundle format: stream items as TSV (`task_id<TAB>fold<TAB>repeat<TAB>config_index`)
+    # so we don't depend on tuple indexing or argument quoting per item.
+    NUM_ITEMS=$(jq -r --argjson J "$J" '.jobs[$J].items | length' "$JSON_FILE")
+    echo "Bundle items: $NUM_ITEMS"
+
+    while IFS=$'\t' read -r TASK_ID FOLD REPEAT CI; do
+        run_one "$TASK_ID" "$FOLD" "$REPEAT" "$CI"
+    done < <(jq -r --argjson J "$J" \
+        '.jobs[$J].items[] | [.task_id, .fold, .repeat, .config_index] | @tsv' \
+        "$JSON_FILE")
+else
+    # Legacy single-(task,fold,repeat) format with a list of config_indices.
+    CONFIG_INDEX=$(jq -r --argjson J "$J" '.jobs[$J].config_index | join(",")' "$JSON_FILE")
+    TASK_ID=$(jq -r --argjson J "$J" '.jobs[$J].task_id' "$JSON_FILE")
+    FOLD=$(jq -r --argjson J "$J" '.jobs[$J].fold' "$JSON_FILE")
+    REPEAT=$(jq -r --argjson J "$J" '.jobs[$J].repeat' "$JSON_FILE")
+
+    echo "Task ID: $TASK_ID"
+    echo "Fold: $FOLD"
+    echo "Repeat: $REPEAT"
+    echo "CONFIG_INDEX: $CONFIG_INDEX"
+
+    IFS=',' read -ra CONFIG_ARRAY <<< "$CONFIG_INDEX"
+    for CI in "${CONFIG_ARRAY[@]}"; do
+        run_one "$TASK_ID" "$FOLD" "$REPEAT" "$CI"
+    done
+fi
