@@ -26,7 +26,6 @@ BenchmarkSetup(
     configs_per_job=1,
     slurm_gpu_partition="alldlc2_gpu-h200",
     fake_memory_for_estimates=140,
-    tabarena_lite=True,
     # LimiX predict for large data is very slow, so we give it more time
     time_limit=60*60*4,
 ).setup_jobs()

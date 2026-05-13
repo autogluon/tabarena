@@ -51,7 +51,7 @@ class LimiXModel(AbstractTorchModel):
     """Empirically, even with 140 GB of VRAM available we still hit OOM on LimiX's retrieval + clustering inference
     path on TabArena-scale datasets, so subsampling is the only reliable lever to keep it running.
     We-sub-sample datasets above 75k rows to 50k rows following the LimiX documentation examples."""
-    batch_test_n_rows: int = 10_000
+    batch_test_n_rows: int = 5_000
     """We batch forward passes with more than 10k test rows."""
 
     def __init__(self, **kwargs):
