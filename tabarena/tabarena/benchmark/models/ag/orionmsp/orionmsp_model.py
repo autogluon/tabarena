@@ -85,6 +85,11 @@ class OrionMSPModel(AbstractTorchModel):
                 allow_auto_download=allow_download,
             )
 
+        # Needs up to 400GB VRAM for datasets with 1k features.
+        # Adjust batch size as needed.
+        if X.shape[1] > 500:
+            hps["batch_size"] = 1  # avoid OOM for wide datasets; can be slow but is a fallback
+
         self.model = model_cls(
             **hps,
             device=device,
@@ -102,7 +107,7 @@ class OrionMSPModel(AbstractTorchModel):
             "allow_auto_download": True,
             # AMP introduces ~1e-4 fp16 jitter between single-row and batch
             # predict_proba calls, which breaks AutoGluon's determinism check.
-            "use_amp": False,
+            # "use_amp": False, # disabled for now due to VRAM issues
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
