@@ -15,12 +15,14 @@ BenchmarkSetup(
     slurm_gpu_partition="alldlc2_gpu-h200",
     fake_memory_for_estimates=140,
     time_limit=60*60*2,
+    # OrionMSP (just like TabICLv1) only supports classification
+    problem_types_to_run=["binary", "multiclass"],
 ).setup_jobs()
 
-# -- Benchmark XXX XX/XX/2026
-BenchmarkSetup(
-    benchmark_name="experiment_name_date",
-    models=[
-        ("ag_name", "all"),
-    ],
-).setup_jobs()
+# # -- Benchmark XXX XX/XX/2026
+# BenchmarkSetup(
+#     benchmark_name="experiment_name_date",
+#     models=[
+#         ("ag_name", "all"),
+#     ],
+# ).setup_jobs()
