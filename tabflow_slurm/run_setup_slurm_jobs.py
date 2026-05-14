@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from tabflow_slurm.setup_slurm_base import BenchmarkSetup
 
-# -- Benchmark TabPFN-v2.6 25/03/2026
+# -- Benchmark OrionMSP-1.5 14/05/2026
 BenchmarkSetup(
-    benchmark_name="250326_tabpfnv26",
+    benchmark_name="benchmark_orionmsp_14052026",
     models=[
-        ("TabPFN-2.6", 0),
+        ("OrionMSP", 0),
     ],
     num_gpus=1,
     configs_per_job=1,
