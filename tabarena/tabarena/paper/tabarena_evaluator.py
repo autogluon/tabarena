@@ -4,6 +4,7 @@ import copy
 import itertools
 import json
 import math
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from typing import Mapping
@@ -30,6 +31,30 @@ from tabarena.plot.plot_ens_weights import create_heatmap
 from tabarena.plot.plot_pareto_frontier import plot_pareto as _plot_pareto, plot_pareto_aggregated
 
 MethodLabelStyle = str | Mapping[str, object]
+
+
+@dataclass
+class TuneMethodOverride:
+    """Extra bar style for `TabArenaEvaluator.plot_tuning_impact`.
+
+    Rows whose method name is in `methods` get retagged with `tune_method`
+    (replacing whatever value `f_map_inverse` would have produced) and are
+    rendered as a separate bar in the plot. Use this for fixed-API methods
+    (e.g. TabPFN-3, TabPFN-3-Thinking) — or any future variant — that need to
+    appear alongside the standard default/tuned/tuned_ensembled bars.
+
+    Multiple overrides can coexist in the same plot; each contributes one bar
+    dict and one entry to the elo err-color loop.
+    """
+    tune_method: str                          # value written to df["tune_method"]; must be unique per plot
+    methods: list[str]                        # method names (in `method_col`) to retag
+    bar_label: str                            # legend label for this bar
+    bar_color: str                            # bar fill color
+    bar_width: float = 0.4
+    err_color: str | None = None              # whisker color; defaults to errcolors[0] (default-blue)
+    err_linewidth_key: str = "tuned_ensembled"  # which entry of err_linewidths to use
+    rename_map: dict[str, str] = field(default_factory=dict)  # applied to method_col before f_map_inverse
+    promote_from_baselines: bool = False      # move `methods` out of `baselines` into `framework_types`
 
 matplotlib.rcParams.update(fontsizes.neurips2024())
 matplotlib.rcParams.update({
@@ -1491,7 +1516,7 @@ class TabArenaEvaluator:
         figheight_horizontal: float | None = None,
         bar_width: float | None = None,
         title: str | None = None,
-        **kwargs,  # FIXME: Hack
+        tune_method_overrides: list[TuneMethodOverride] | None = None,
     ):
         if method_style_map is None:
             method_style_map = {}
@@ -1529,6 +1554,37 @@ class TabArenaEvaluator:
         else:
             metric = metric
 
+        if tune_method_overrides is None:
+            tune_method_overrides = []
+
+        # Phase 1: apply rename_map and promote-from-baselines BEFORE building f_map_*,
+        # so f_map_inverse sees the post-rename method names.
+        for ov in tune_method_overrides:
+            if ov.rename_map:
+                df[self.method_col] = (
+                    df[self.method_col].map(ov.rename_map).fillna(df[self.method_col])
+                )
+                framework_types = [ov.rename_map.get(f, f) for f in framework_types]
+
+        if baselines is None:
+            baselines = []
+        if baseline_colors is not None:
+            assert len(baselines) == len(baseline_colors), (
+                "A color must be specified for each baseline via the `baseline_colors` argument."
+            )
+
+        for ov in tune_method_overrides:
+            if not ov.promote_from_baselines:
+                continue
+            for m in ov.methods:
+                if m in baselines:
+                    idx = baselines.index(m)
+                    baselines = baselines[:idx] + baselines[idx + 1:]
+                    if baseline_colors is not None:
+                        baseline_colors = baseline_colors[:idx] + baseline_colors[idx + 1:]
+                    if m not in framework_types:
+                        framework_types.append(m)
+
         f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
         )
@@ -1537,11 +1593,13 @@ class TabArenaEvaluator:
         df.loc[:, "framework_type"] = df[self.method_col].map(f_map_type).fillna(df[self.method_col])
         df.loc[:, "tune_method"] = df[self.method_col].map(f_map_inverse).fillna("default")
 
-        if baselines is None:
-            baselines = []
-        if baseline_colors is not None:
-            assert len(baselines) == len(
-                baseline_colors), f"A color must be specified for each baseline via the `baseline_colors` argument."
+        # Phase 2: retag tune_method for override-matched rows, and pin framework_type for
+        # promoted rows whose f_map_type lookup wouldn't naturally produce the right value.
+        for ov in tune_method_overrides:
+            mask = df[self.method_col].isin(ov.methods)
+            df.loc[mask, "tune_method"] = ov.tune_method
+            if ov.promote_from_baselines:
+                df.loc[mask, "framework_type"] = df.loc[mask, self.method_col]
 
         tick_methods = framework_types
         has_non_baselines = len(tick_methods) != 0
@@ -1647,9 +1705,40 @@ class TabArenaEvaluator:
                     'default': err_linewidth * 0.6,
                     'holdout_tuned_ensembled': err_linewidth * 0.6,
                 }
+                # Ensure every override has an entry in err_linewidths so the
+                # elo err-bar loop below can look it up.
+                for ov in tune_method_overrides:
+                    err_linewidths.setdefault(
+                        ov.tune_method,
+                        err_linewidths.get(ov.err_linewidth_key, err_linewidth),
+                    )
                 err_alpha = 0.6
 
+                # Generated bar dicts, one per *unique* `tune_method` value across
+                # all overrides. Two overrides sharing a tune_method (e.g. several
+                # methods grouped under "api") share a single bar dict and inherit
+                # styling from the first override that declares that tune_method.
+                override_bars = []
+                seen_tune_methods: set[str] = set()
+                for ov in tune_method_overrides:
+                    if ov.tune_method in seen_tune_methods:
+                        continue
+                    seen_tune_methods.add(ov.tune_method)
+                    override_bars.append(dict(
+                        x=pos, y=y,
+                        label=ov.bar_label,
+                        data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == ov.tune_method],
+                        ax=ax,
+                        order=framework_type_order, color=ov.bar_color,
+                        width=ov.bar_width, linewidth=linewidth,
+                        err_kws={
+                            "color": ov.err_color if ov.err_color is not None else errcolors[0],
+                            "linewidth": err_linewidths[ov.tune_method],
+                            "alpha": err_alpha,
+                        },
+                    ))
                 to_plot = [
+                    *override_bars,
                     dict(
                         x=pos, y=y,
                         label="Tuned + Ensembled",
@@ -1846,8 +1935,27 @@ class TabArenaEvaluator:
 
 
                     # Add asymmetric error bars manually
+                    # Pair each tune_method with the same errcolor used by its
+                    # `to_plot` entry so the manual whiskers visually match the
+                    # bar fill. Overrides extend the list with their own
+                    # (tune_method, err_color) pair.
+                    tune_method_errcolors = [
+                        ("default", errcolors[0]),
+                        ("tuned", errcolors[1]),
+                        ("tuned_ensembled", errcolors[2]),
+                        ("holdout_tuned_ensembled", errcolors[3]),
+                    ]
+                    _seen_tune_methods: set[str] = set()
+                    for ov in tune_method_overrides:
+                        if ov.tune_method in _seen_tune_methods:
+                            continue
+                        _seen_tune_methods.add(ov.tune_method)
+                        tune_method_errcolors.append((
+                            ov.tune_method,
+                            ov.err_color if ov.err_color is not None else errcolors[0],
+                        ))
                     for pos, framework_type in zip(ticks, ticklabels):
-                        for tune_method, errcolor in zip(["default", "tuned", "tuned_ensembled", "holdout_tuned_ensembled"], errcolors):
+                        for tune_method, errcolor in tune_method_errcolors:
                             row = df_plot.loc[(df_plot["framework_type"] == framework_type) & (df_plot["tune_method"] == tune_method)]
                             if len(row) == 1:
                                 # not all methods have tuned or tuned_ensembled
