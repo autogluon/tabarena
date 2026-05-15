@@ -17,7 +17,7 @@ from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_03_18 impo
     tabpfn26_metadata,
     tabstar_metadata,
 )
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_05_13 import limix_metadata as limix_metadata_new, tabpfnv3_method_metadata
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_05_13 import limix_metadata as limix_metadata_new, tabpfnv3_method_metadata, orionmsp_metadata
 from tabarena.nips2025_utils.artifacts.method_artifact_manager import MethodArtifactManager
 from tabarena.nips2025_utils.method_processor import get_info_from_result, load_raw
 
@@ -360,8 +360,15 @@ if __name__ == "__main__":
         **path_args,
     )
 
+    orionmsp_info = MethodArtifactManager.from_method_metadata(
+        method_metadata=orionmsp_metadata,
+        path_suffix=Path("leaderboard_submissions") / "data_OrionMSP_14052026.zip",
+        **path_args,
+    )
+
     # Uncomment whichever artifacts you want to process
     method_infos = [
+        # orionmsp_info,
         # tabpfnv3_info,
         # limix_new_info,
         # tabiclv2_info,

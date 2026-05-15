@@ -19,6 +19,7 @@ from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_09_03 impo
 )
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_05_13 import (
     limix_metadata,
+    orionmsp_metadata,
     tabpfnv3_method_metadata,
 )
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_10_20 import (
@@ -144,6 +145,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(method_metadata_l
     [perpetualbooster_metadata] +
     [tabpfn26_metadata] +
     [tabpfnv3_method_metadata] +
+    [orionmsp_metadata] +
     methods_misc,
 )
 
@@ -162,6 +164,7 @@ tabarena_method_metadata_complete_collection = MethodMetadataCollection(method_m
     [perpetualbooster_metadata] +
     [tabpfn26_metadata] +
     [tabpfnv3_method_metadata] +
+    [orionmsp_metadata] +
     methods_misc,
 )
 

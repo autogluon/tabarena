@@ -63,6 +63,7 @@ _methods_paper = [
 
     "TabPFN-v2.6",
     "LimiX",
+    "OrionMSP",
     "TabPFN-3",
 ]
 
