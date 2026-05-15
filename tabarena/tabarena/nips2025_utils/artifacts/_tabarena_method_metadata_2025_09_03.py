@@ -1,16 +1,6 @@
 from __future__ import annotations
 
-from tabarena.models.ebm.info import ebm_method_metadata
-from tabarena.models.mitra.info import mitra_method_metadata
-from tabarena.models.realmlp.info import realmlp_method_metadata
-from tabarena.models.xrfm.info import xrfm_method_metadata
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
-
-# Legacy aliases — preserved for any external code still importing the older names.
-ebm_metadata = ebm_method_metadata
-mitra_metadata = mitra_method_metadata
-realmlp_gpu_metadata = realmlp_method_metadata
-xrfm_metadata = xrfm_method_metadata
 
 _common_kwargs = dict(
     artifact_name="tabarena-2025-09-03",

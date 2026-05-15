@@ -1,14 +1,6 @@
 from __future__ import annotations
 
-from tabarena.models.knn.info import knn_method_metadata
-from tabarena.models.lr.info import lr_method_metadata
-from tabarena.models.tabdpt.info import tabdpt_method_metadata
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
-
-# Legacy aliases — preserved for any external code still importing the older names.
-knn_metadata = knn_method_metadata
-lr_metadata = lr_method_metadata
-tabdpt_metadata = tabdpt_method_metadata
 
 _common_kwargs = dict(
     artifact_name="tabarena-2025-10-20",

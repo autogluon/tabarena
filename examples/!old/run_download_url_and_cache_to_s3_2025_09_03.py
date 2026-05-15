@@ -6,18 +6,24 @@ import time
 from pathlib import Path
 
 import pandas as pd
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_10_20 import tabdpt_metadata
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_12 import (
-    contexttab_metadata,
-    realtabpfn25_metadata,
+from tabarena.models.limix.info import limix_method_metadata as limix_metadata_new
+from tabarena.models.orionmsp.info import orionmsp_method_metadata as orionmsp_metadata
+from tabarena.models.perpetual_booster.info import (
+    perpetual_booster_method_metadata as perpetualbooster_metadata,
 )
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_02_16 import tabiclv2_metadata
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_03_18 import (
-    perpetualbooster_metadata,
-    tabpfn26_metadata,
-    tabstar_metadata,
+from tabarena.models.sap_rpt_oss.info import (
+    sap_rpt_oss_method_metadata as contexttab_metadata,
 )
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_05_13 import limix_metadata as limix_metadata_new, tabpfnv3_method_metadata, orionmsp_metadata
+from tabarena.models.tabdpt.info import tabdpt_method_metadata as tabdpt_metadata
+from tabarena.models.tabicl.info import tabiclv2_method_metadata as tabiclv2_metadata
+from tabarena.models.tabpfn_3.info import (
+    tabpfn_3_method_metadata as tabpfnv3_method_metadata,
+)
+from tabarena.models.tabpfnv2_5.info import (
+    realtabpfnv25_method_metadata as realtabpfn25_metadata,
+    tabpfnv26_method_metadata as tabpfn26_metadata,
+)
+from tabarena.models.tabstar.info import tabstar_method_metadata as tabstar_metadata
 from tabarena.nips2025_utils.artifacts.method_artifact_manager import MethodArtifactManager
 from tabarena.nips2025_utils.method_processor import get_info_from_result, load_raw
 

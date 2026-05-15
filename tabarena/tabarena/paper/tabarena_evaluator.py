@@ -785,6 +785,53 @@ class TabArenaEvaluator:
             ],
         )
 
+        # results_per_split = tabarena.compute_results_per_task(data=df_results_rank_compare, include_seed_col=True)
+        # fold_similarity = tabarena.rank_datasets_by_fold_similarity(results_per_task=results_per_split)
+        # splits_per_dataset_min = fold_similarity["dataset_ranking"]["folds_needed_for_stability@0.9"]
+        #
+        # def subset_to_required_folds(
+        #     tabarena,
+        #     df_results_rank_compare: pd.DataFrame,
+        #     splits_per_dataset_min: pd.Series,
+        # ) -> pd.DataFrame:
+        #     """
+        #     For each dataset, keep min(current_folds, folds_needed_for_stability@0.9) folds.
+        #     """
+        #
+        #     task_col = tabarena.task_col
+        #     seed_col = tabarena.seed_column
+        #
+        #     if seed_col is None:
+        #         raise ValueError("tabarena.seed_column must be set.")
+        #
+        #     df = df_results_rank_compare.copy()
+        #
+        #     dfs = []
+        #
+        #     for dataset, df_dataset in df.groupby(task_col):
+        #         if dataset not in splits_per_dataset_min.index:
+        #             continue
+        #
+        #         k_needed = splits_per_dataset_min.loc[dataset]
+        #         if pd.isna(k_needed):
+        #             continue
+        #
+        #         k_needed = int(k_needed)
+        #
+        #         unique_folds = sorted(df_dataset[seed_col].unique())
+        #         current_folds = len(unique_folds)
+        #
+        #         k_keep = min(current_folds, k_needed)
+        #
+        #         folds_to_keep = unique_folds[:k_keep]
+        #
+        #         df_subset = df_dataset[df_dataset[seed_col].isin(folds_to_keep)]
+        #         dfs.append(df_subset)
+        #
+        #     return pd.concat(dfs, axis=0).reset_index(drop=True)
+        #
+        # # df_results_rank_compare2 = subset_to_required_folds(tabarena=tabarena, df_results_rank_compare=df_results_rank_compare, splits_per_dataset_min=splits_per_dataset_min)
+
         leaderboard_kwargs.setdefault("include_elo", True)
         leaderboard_kwargs.setdefault("include_winrate", True)
         leaderboard_kwargs.setdefault("include_mrr", True)
@@ -879,6 +926,102 @@ class TabArenaEvaluator:
         # extra_cols = [c for c in df_results_rank_compare.columns if c not in results_per_split.columns]
         # results_per_split_w_metadata = results_per_split.merge(df_results_rank_compare[[*groupby_columns, *extra_cols]], on=groupby_columns)
         # assert len(results_per_split) == len(results_per_split_w_metadata)
+
+        # tabarena_val = TabArena(
+        #     method_col=self.method_col,
+        #     task_col="dataset",
+        #     seed_column="fold",
+        #     error_col="metric_error_val",
+        #     columns_to_agg_extra=[
+        #         "time_train_s",
+        #         "time_infer_s",
+        #         "time_train_s_per_1K",
+        #         "time_infer_s_per_1K",
+        #         "normalized-error",
+        #         "normalized-error-task",
+        #         "imputed",
+        #     ],
+        #     groupby_columns=[
+        #         "metric",
+        #         "problem_type",
+        #     ],
+        # )
+        #
+        # self.plot_imp(results_per_task=results_per_task)
+        #
+        # representativeness = tabarena.dataset_representativeness(results_per_task=results_per_split)
+        # fold_similarity = tabarena.rank_datasets_by_fold_similarity(results_per_task=results_per_split)
+        # df_jitter, per_method = tabarena.rank_jitter_all_datasets(results_per_split, return_per_method=True)
+        #
+        # a = fold_similarity["dataset_ranking"]
+        # a["expected_rank_jitter"] = df_jitter.set_index("dataset")["expected_rank_jitter"]
+        # a["observed_avg_abs_rank_change"] = df_jitter.set_index("dataset")["observed_avg_abs_rank_change"]
+        #
+        # save_pd.save(path=f"{self.output_dir}/fold_similarity.csv", df=a.reset_index(drop=False))
+        #
+
+        # One dataset curve
+        # curve = tabarena.dataset_meanrank_jitter_bootstrap_curve(
+        #     results_per_split,
+        #     dataset="credit-g",
+        #     n_bootstrap=1000,
+        #     k_values=[1, 2, 3, 5, 9, 15, 30],
+        # )
+        # print(curve)
+
+        # All datasets (smaller bootstrap for speed)
+        # curves_all = tabarena.meanrank_jitter_bootstrap_curve_all_datasets(
+        #     results_per_split,
+        #     n_bootstrap=200,
+        # )
+        #
+        # out_dataset_info = self.add_dataset_agreement_metric(df=df_results_rank_compare, split_col="fold")
+        # with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
+        #     print(out_dataset_info)
+        #
+        # # your_method = "AutoGluon 1.5 (extreme, 4h)"
+        # your_method = "TA-TABICLv2 (default)"
+        #
+        # for m in df_results_rank_compare["method"].unique():
+        #     if m == your_method:
+        #         continue
+        #
+        #     out = self.compare_methods_per_dataset(
+        #         method_a=your_method,
+        #         method_b=m,
+        #         df=df_results_rank_compare,
+        #         split_col="fold",
+        #     )
+        #
+        #     print(f"A={your_method} vs B={m}:")
+        #     with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
+        #         print(out)
+        #     print()
+        #
+        #
+        #
+        #
+        #
+        #
+        # metric = tabarena.metric_spec_improvability()  # or metric_spec_rank(), metric_spec_error(), metric_spec_elo(...)
+        # s2 = tabarena.score_series_if_remove_each_method(metric, results_per_task, method_1=your_method)
+        # print(s2)
+        #
+        # # metric = tabarena.metric_spec_elo(INIT_RATING=1000, BOOTSTRAP_ROUNDS=1)  # example kwargs
+        # # s3 = tabarena.score_series_if_remove_each_method(metric, results_per_task, method_1=your_method)
+        #
+        # metric = tabarena.metric_spec_improvability()
+        # greedy_path_3 = tabarena.greedy_remove_methods_optimize_score(metric, results_per_task, method_1=your_method)
+        # print(greedy_path_3)
+        #
+        # metric = tabarena.metric_spec_rank()
+        # greedy_path = tabarena.greedy_remove_methods_optimize_score(metric, results_per_task, method_1=your_method)
+        # print(greedy_path)
+        #
+        # metric = tabarena.metric_spec_elo(**leaderboard_kwargs["elo_kwargs"])
+        # greedy_path_2 = tabarena.greedy_remove_methods_optimize_score(metric, results_per_task, method_1=your_method)
+        # print(greedy_path_2)
+
 
         # FIXME: Is critical diagram incorrect?
         if plot_cdd:

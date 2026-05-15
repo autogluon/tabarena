@@ -44,13 +44,13 @@ if __name__ == '__main__':
 
     Once this is executed once, it does not need to be ran again.
     """
-    from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_10_20 import lr_metadata
+    from tabarena.models.lr.info import lr_method_metadata
 
     if cache:
         task_metadata = TabArenaContext().task_metadata
         end_to_end = EndToEndSingle.from_path_raw(
             path_raw=path_raw,
-            method_metadata=lr_metadata,
+            method_metadata=lr_method_metadata,
             task_metadata=task_metadata,
         )
 
@@ -60,7 +60,7 @@ if __name__ == '__main__':
     2. Compares on all datasets if `filter_dataset_fold=False`, else only tasks from the user's method if `filter_dataset_fold=True`.
     3. Missing values are imputed to default RandomForest.
     """
-    end_to_end_results = EndToEndResultsSingle.from_cache(method=lr_metadata)
+    end_to_end_results = EndToEndResultsSingle.from_cache(method=lr_method_metadata)
 
     leaderboard: pd.DataFrame = end_to_end_results.compare_on_tabarena(
         output_dir=fig_output_dir,
