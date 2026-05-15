@@ -163,8 +163,11 @@ class TestTabArenaModelSpecificPreprocessing:
         result1 = TabArenaModelSpecificPreprocessing.add_to_hyperparameters(hp)
         result2 = TabArenaModelSpecificPreprocessing.add_to_hyperparameters(result1)
         hp_key = TabArenaModelSpecificPreprocessing.hp_key_kwargs
-        # Calling twice adds a second set of generators.
-        assert len(result2[hp_key]["feature_generators"]) == 2
+        # Calling twice stacks preprocessing as a list of two entries,
+        # each with its own feature_generators.
+        assert isinstance(result2[hp_key], list)
+        assert len(result2[hp_key]) == 2
+        assert all("feature_generators" in entry for entry in result2[hp_key])
 
     def test_get_model_specific_generator_returns_list(self):
         gen = TabArenaModelSpecificPreprocessing.get_model_specific_generator()
