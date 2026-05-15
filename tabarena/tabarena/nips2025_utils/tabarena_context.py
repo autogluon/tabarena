@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -69,6 +70,31 @@ _methods_paper = [
 
 
 class TabArenaContext:
+    SUBSET_PREDICATES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
+        "all": lambda df: pd.Series(True, index=df.index),
+        # problem_type
+        "binary": lambda df: df["problem_type"] == "binary",
+        "multiclass": lambda df: df["problem_type"] == "multiclass",
+        "classification": lambda df: df["problem_type"].isin(["binary", "multiclass"]),
+        "regression": lambda df: df["problem_type"] == "regression",
+        # size buckets keyed on training rows
+        "medium": lambda df: df["max_train_rows"].between(10_001, 100_000),
+        "small": lambda df: df["max_train_rows"] <= 10_000,
+        "tiny": lambda df: df["max_train_rows"] <= 2_000,
+        # foundation-model compatibility (operates on tabarena task_metadata columns)
+        "tabpfn": lambda df: (df["max_train_rows"] <= 10_000) & (df["n_features"] <= 500) & (df["n_classes"] <= 10),
+        "tabicl": lambda df: (df["max_train_rows"] <= 100_000) & (df["n_features"] <= 500) & (df["n_classes"] > 0),
+        # row-level filter (requires a "fold" column; only meaningful when applied to df_results)
+        "lite": lambda df: df["fold"] == 0,
+    }
+
+    @property
+    def subset_predicates(self) -> dict[str, Callable[[pd.DataFrame], pd.Series]]:
+        """Predicates available for subset filtering. Reads from
+        ``type(self).SUBSET_PREDICATES`` so subclass overrides take effect.
+        """
+        return type(self).SUBSET_PREDICATES
+
     def __init__(
         self,
         methods: list[MethodMetadata] | str = "tabarena",
@@ -847,6 +873,7 @@ class TabArenaContext:
                 datasets=datasets,
                 folds=folds,
                 task_metadata_og=self.task_metadata,
+                predicates=self.subset_predicates,
             )
         return df_results
 

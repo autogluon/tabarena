@@ -576,6 +576,7 @@ def compute_tuning_trajectories_leaderboard(
             subset=subset,
             folds=folds,
             task_metadata_og=tabarena_context.task_metadata,
+            predicates=tabarena_context.subset_predicates,
         )
 
     tabarena_init_kwargs = dict(
@@ -1175,6 +1176,7 @@ def _plot_tuning_trajectories_from_prepared(
                 subset=subset,
                 folds=folds,
                 task_metadata_og=tabarena_context.task_metadata,
+                predicates=tabarena_context.subset_predicates,
             )
 
         if show_coverage_legend:

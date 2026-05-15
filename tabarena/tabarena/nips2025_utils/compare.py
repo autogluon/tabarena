@@ -244,51 +244,43 @@ def prepare_data(
     return df_results
 
 
-_SUBSET_PREDICATES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
-    "all": lambda df: pd.Series(True, index=df.index),
-    # problem_type
-    "binary": lambda df: df["problem_type"] == "binary",
-    "multiclass": lambda df: df["problem_type"] == "multiclass",
-    "classification": lambda df: df["problem_type"].isin(["binary", "multiclass"]),
-    "regression": lambda df: df["problem_type"] == "regression",
-    # size buckets keyed on training rows
-    "large": lambda df: df["max_train_rows"].between(100_001, 1_000_350),  # +350 due to AMEX grouped dataset weird split
-    "medium": lambda df: df["max_train_rows"].between(10_001, 100_000),
-    "small": lambda df: df["max_train_rows"].between(1_001, 10_000),
-    "tiny": lambda df: df["max_train_rows"].between(101, 1_000),
-    # split / task type
-    "iid": lambda df: df["task_type"] == "random",
-    "temporal": lambda df: df["task_type"] == "temporal",
-    "grouped": lambda df: df["task_type"] == "grouped",
-    # feature dimensionality / type
-    "low-dim": lambda df: df["num_cols_after_preprocessing"] <= 100,
-    "high-dim": lambda df: df["num_cols_after_preprocessing"] > 100,
-    "text": lambda df: df["num_text_cols"] > 0,
-    "high-cardinality": lambda df: df["num_high_cardinality_cats"] > 0,
-    # foundation-model compatibility (operates on tabarena task_metadata columns)
-    "tabpfn": lambda df: (df["max_train_rows"] <= 10_000) & (df["n_features"] <= 500) & (df["n_classes"] <= 10),
-    "tabicl": lambda df: (df["max_train_rows"] <= 100_000) & (df["n_features"] <= 500) & (df["n_classes"] > 0),
-    # row-level filter (requires a "fold" column; only meaningful when applied to df_results)
-    "lite": lambda df: df["fold"] == 0,
-}
+def _resolve_predicates(
+    predicates: dict[str, Callable[[pd.DataFrame], pd.Series]] | None,
+) -> dict[str, Callable[[pd.DataFrame], pd.Series]]:
+    """Return the predicates dict to use, falling back to TabArenaContext's default."""
+    if predicates is not None:
+        return predicates
+    return TabArenaContext.SUBSET_PREDICATES
 
 
-def _evaluate_subset_expression(expression: str, df: pd.DataFrame) -> pd.Series:
+def _evaluate_subset_expression(
+    expression: str,
+    df: pd.DataFrame,
+    predicates: dict[str, Callable[[pd.DataFrame], pd.Series]] | None = None,
+) -> pd.Series:
     """Evaluate a single subset expression against ``df`` and return a boolean mask.
 
     Supported syntax for one expression token:
 
-    * ``"name"`` — atom; looks up ``name`` in :data:`_SUBSET_PREDICATES`.
+    * ``"name"`` — atom; looks up ``name`` in ``predicates``.
     * ``"a|b"`` — union (OR) of atoms.
     * ``"!a"`` — negation; can be combined with union: ``"!a|b"`` is ``(NOT a) OR b``.
 
     Whitespace around tokens and operators is ignored.
+
+    Parameters
+    ----------
+    predicates : dict[str, Callable] or None = None
+        Mapping of subset name to predicate. If None, falls back to
+        :attr:`TabArenaContext.SUBSET_PREDICATES`.
     """
     if not isinstance(expression, str):
         raise TypeError(f"Subset expression must be a string, got {type(expression).__name__}: {expression!r}")
     parts = [part.strip() for part in expression.split("|")]
     if any(not part for part in parts):
         raise ValueError(f"Empty atom in subset expression: {expression!r}")
+
+    predicates = _resolve_predicates(predicates)
 
     mask: pd.Series | None = None
     for part in parts:
@@ -298,10 +290,10 @@ def _evaluate_subset_expression(expression: str, df: pd.DataFrame) -> pd.Series:
             part = part[1:].strip()
             if not part:
                 raise ValueError(f"Dangling negation in subset expression: {expression!r}")
-        if part not in _SUBSET_PREDICATES:
-            valid = sorted(_SUBSET_PREDICATES)
+        if part not in predicates:
+            valid = sorted(predicates)
             raise ValueError(f"Invalid subset name {part!r}. Valid names: {valid}")
-        sub = _SUBSET_PREDICATES[part](df).astype(bool)
+        sub = predicates[part](df).astype(bool)
         if negate:
             sub = ~sub
         mask = sub if mask is None else (mask | sub)
@@ -315,8 +307,8 @@ def _join_results_with_metadata(
     """Build a per-row view of ``df_results`` enriched with ``task_metadata`` columns.
 
     Aliases tabarena-style ``n_samples_train_per_fold`` to ``max_train_rows`` so the
-    shared :data:`_SUBSET_PREDICATES` size predicates work uniformly across tabarena
-    task_metadata and data-foundry metadata.
+    shared size predicates (see :attr:`TabArenaContext.SUBSET_PREDICATES`) work
+    uniformly across tabarena task_metadata and data-foundry metadata.
     """
     md = task_metadata.copy()
     if "max_train_rows" not in md.columns and "n_samples_train_per_fold" in md.columns:
@@ -336,8 +328,9 @@ def subset_tasks(
     folds: list[int] | None = None,
     datasets: list[str] | None = None,
     task_metadata_og: pd.DataFrame | None = None,
+    predicates: dict[str, Callable[[pd.DataFrame], pd.Series]] | None = None,
 ) -> pd.DataFrame:
-    """Subset ``df_results`` by named predicates from :data:`_SUBSET_PREDICATES`.
+    """Subset ``df_results`` by named predicates.
 
     Each entry in ``subset`` is an expression. Items in the list are AND-ed together;
     within an item, ``|`` is a union (OR) and a leading ``!`` negates an atom. Examples:
@@ -346,6 +339,14 @@ def subset_tasks(
     * ``["medium|small"]`` — datasets that are medium OR small ("both medium and small").
     * ``["!medium"]`` — all except medium.
     * ``["classification", "!tiny"]`` — classification AND not tiny.
+
+    Parameters
+    ----------
+    predicates : dict[str, Callable] or None = None
+        Mapping of subset name to predicate. If None, falls back to
+        :attr:`TabArenaContext.SUBSET_PREDICATES`. Callers with a
+        ``TabArenaContext`` (or subclass) should pass ``context.subset_predicates``
+        so context-specific subset definitions take effect.
     """
     from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
     if task_metadata_og is None:
@@ -355,7 +356,7 @@ def subset_tasks(
     if subset:
         joined = _join_results_with_metadata(df_results, task_metadata_og)
         for expression in subset:
-            mask = _evaluate_subset_expression(expression, joined)
+            mask = _evaluate_subset_expression(expression, joined, predicates=predicates)
             df_results = df_results[mask.values]
             joined = joined[mask.values]
 
@@ -371,16 +372,26 @@ def subset_tasks(
     return df_results.reset_index(drop=True)
 
 
-def get_subsets_per_dataset(data_foundry_metadata: pd.DataFrame) -> dict[str, list[str]]:
-    """For each dataset in ``data_foundry_metadata``, list the subset names from
-    :data:`_SUBSET_PREDICATES` whose predicate the dataset satisfies.
+def get_subsets_per_dataset(
+    data_foundry_metadata: pd.DataFrame,
+    predicates: dict[str, Callable[[pd.DataFrame], pd.Series]] | None = None,
+) -> dict[str, list[str]]:
+    """For each dataset in ``data_foundry_metadata``, list the subset names
+    (from ``predicates``) whose predicate the dataset satisfies.
 
     Predicates that reference columns not present in ``data_foundry_metadata``
     (e.g. ``"lite"`` needs a ``"fold"`` column, ``"tabpfn"``/``"tabicl"`` need
     ``"n_features"``/``"n_classes"``) are skipped silently.
+
+    Parameters
+    ----------
+    predicates : dict[str, Callable] or None = None
+        Mapping of subset name to predicate. If None, falls back to
+        :attr:`TabArenaContext.SUBSET_PREDICATES`.
     """
+    predicates = _resolve_predicates(predicates)
     result: dict[str, list[str]] = {ds: [] for ds in data_foundry_metadata["dataset"].dropna().unique()}
-    for subset_name, predicate in _SUBSET_PREDICATES.items():
+    for subset_name, predicate in predicates.items():
         try:
             mask = predicate(data_foundry_metadata)
         except KeyError:
@@ -396,15 +407,22 @@ def subset_tasks_data_foundry(
     df_results: pd.DataFrame,
     subset: list[str],
     data_foundry_metadata: pd.DataFrame,
+    predicates: dict[str, Callable[[pd.DataFrame], pd.Series]] | None = None,
 ) -> pd.DataFrame:
     """Subset ``df_results`` by filtering datasets according to ``data_foundry_metadata``.
 
     Supports the same expression syntax as :func:`subset_tasks` (``|`` for union,
     leading ``!`` for negation; list items are AND-ed).
+
+    Parameters
+    ----------
+    predicates : dict[str, Callable] or None = None
+        Mapping of subset name to predicate. If None, falls back to
+        :attr:`TabArenaContext.SUBSET_PREDICATES`.
     """
     metadata = data_foundry_metadata
     for expression in subset:
-        mask = _evaluate_subset_expression(expression, metadata)
+        mask = _evaluate_subset_expression(expression, metadata, predicates=predicates)
         metadata = metadata[mask.values]
 
     valid_datasets = set(metadata["dataset"])

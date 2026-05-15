@@ -157,7 +157,11 @@ def evaluate_single(
         subset.append("lite")
 
     if subset:
-        df_results = subset_tasks(df_results=df_results, subset=subset)
+        df_results = subset_tasks(
+            df_results=df_results,
+            subset=subset,
+            predicates=tabarena_context.subset_predicates,
+        )
 
     if len(df_results) == 0:
         print(f"\tNo results after filtering, skipping...")
