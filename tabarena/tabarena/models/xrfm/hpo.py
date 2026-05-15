@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from ConfigSpace import Categorical, ConfigurationSpace, Float
-
 from tabarena.benchmark.models.ag.xrfm.xrfm_model import XRFMModel
 from tabarena.models.utils import convert_numpy_dtypes
 from tabarena.utils.config_utils import CustomAGConfigGenerator
 
 
 def generate_configs_xrfm(num_random_configs=200) -> list:
+    # ConfigSpace is an optional extra; import lazily so simply importing
+    # this module (e.g. via the auto-discovery registry) doesn't require it.
+    from ConfigSpace import Categorical, ConfigurationSpace, Float
+
     search_space = ConfigurationSpace(
         space=[
             Float("bandwidth", (0.5, 200), log=True),

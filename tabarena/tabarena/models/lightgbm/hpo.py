@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from autogluon.tabular.models import LGBModel
-from ConfigSpace import Categorical, ConfigurationSpace, Float, Integer
 
 from tabarena.models.utils import convert_numpy_dtypes
 from tabarena.utils.config_utils import CustomAGConfigGenerator
 
 
 def generate_configs_lightgbm(num_random_configs=200) -> list:
+    # ConfigSpace is an optional extra; import lazily so simply importing
+    # this module (e.g. via the auto-discovery registry) doesn't require it.
+    from ConfigSpace import Categorical, ConfigurationSpace, Float, Integer
+
     search_space = ConfigurationSpace(
         space=[
             Float("learning_rate", (5e-3, 1e-1), log=True),
