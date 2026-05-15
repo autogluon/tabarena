@@ -15,6 +15,7 @@ from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import (
     RealTabPFNv25Model,
     TabPFNv26Model,
 )
+from tabarena.benchmark.models.ag.tabpfnv3.tabpfn_3_model import TabPFN3Model
 from tabarena.benchmark.models.ag.tabstar.tabstar_model import TabSTARModel
 from tabarena.benchmark.models.ag.xrfm.xrfm_model import XRFMModel
 
@@ -30,6 +31,7 @@ __all__ = [
     "TabICLModel",
     "TabICLv2Model",
     "TabMModel",
+    "TabPFN3Model",
     "TabPFNv26Model",
     "TabSTARModel",
     "XRFMModel",

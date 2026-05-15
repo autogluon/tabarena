@@ -16,6 +16,7 @@ from tabarena.benchmark.models.ag import (
     TabICLModel,
     TabICLv2Model,
     TabMModel,
+    TabPFN3Model,
     TabPFNv26Model,
     TabSTARModel,
     XRFMModel,
@@ -38,6 +39,7 @@ _models_to_add = [
     TabICLv2Model,
     TabSTARModel,
     TabPFNv26Model,
+    TabPFN3Model,
 ]
 
 for _model_cls in _models_to_add:
