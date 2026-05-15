@@ -403,7 +403,7 @@ if __name__ == "__main__":
         if log_raw_details:
             log_raw_data_info(method_info)
         if cache:
-            method_info.cache()
+            method_info.cache(cache_hpo_trajectories=True)
         if upload:
             method_info.upload_to_s3()
         te = time.time()

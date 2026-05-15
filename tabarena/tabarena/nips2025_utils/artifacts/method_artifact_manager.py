@@ -73,7 +73,7 @@ class MethodArtifactManager:
         """
         download_and_extract_zip(url=self.url, path_local=self.path_raw)
 
-    def cache(self) -> EndToEndSingle:
+    def cache(self, cache_hpo_trajectories: bool = False) -> EndToEndSingle:
         """
         Requires first having the raw files locally by calling `self.download_raw()`
 
@@ -90,8 +90,15 @@ class MethodArtifactManager:
         6. cache processed
         7. generate results
         8. cache results
+        9. (optional, when ``cache_hpo_trajectories=True``) generate and cache HPO trajectories
 
         Once this is executed once, it does not need to be run again.
+
+        Parameters
+        ----------
+        cache_hpo_trajectories : bool = False
+            If True, also generates and caches HPO trajectories. Only takes effect for
+            ``method_type == "config"`` methods.
         """
         e2e = EndToEndSingle.from_path_raw(
             path_raw=self.path_raw,
@@ -101,6 +108,7 @@ class MethodArtifactManager:
             artifact_name=self.artifact_name,
             cache=True,
             cache_raw=True,
+            cache_hpo_trajectories=cache_hpo_trajectories,
         )
         return e2e
 

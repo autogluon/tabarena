@@ -144,6 +144,7 @@ class EndToEndSingle:
         cache: bool = True,
         cache_raw: bool = True,
         cache_holdout: bool = False,
+        cache_hpo_trajectories: bool = False,
         name: str | None = None,
         name_prefix: str | None = None,
         name_suffix: str | None = None,
@@ -179,6 +180,10 @@ class EndToEndSingle:
             If True, will cache method metadata, processed data, and results to disk.
         cache_raw : bool = True
             If True, will cache raw data to disk.
+        cache_hpo_trajectories : bool = False
+            If True, will also generate and cache HPO trajectories to disk via
+            :meth:`MethodMetadata.generate_hpo_trajectories`. Only applies when
+            ``method_metadata.method_type == "config"``; silently skipped otherwise.
         name : str or None = None
             If specified, will overwrite the name of the method.
             Will raise an exception if more than one config is present.
@@ -291,6 +296,20 @@ class EndToEndSingle:
                 backend=backend,
             )
 
+        if cache_hpo_trajectories:
+            if method_metadata.method_type == "config":
+                log(f"\tGenerating and caching HPO trajectories...")
+                method_metadata.generate_hpo_trajectories(
+                    repo=repo,
+                    backend=backend,
+                    cache=True,
+                )
+            else:
+                log(
+                    f"\tSkipping HPO trajectories (method_type="
+                    f"{method_metadata.method_type!r}, requires 'config')"
+                )
+
         log(f"\tComplete!")
         return cls(
             method_metadata=method_metadata,
@@ -308,6 +327,7 @@ class EndToEndSingle:
         cache: bool = True,
         cache_raw: bool = True,
         cache_holdout: bool = False,
+        cache_hpo_trajectories: bool = False,
         name: str | None = None,
         name_prefix: str | None = None,
         name_suffix: str | None = None,
@@ -360,6 +380,7 @@ class EndToEndSingle:
             cache=cache,
             cache_raw=cache_raw,
             cache_holdout=cache_holdout,
+            cache_hpo_trajectories=cache_hpo_trajectories,
             name=name,
             name_prefix=name_prefix,
             name_suffix=name_suffix,
