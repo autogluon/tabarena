@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from tabarena.models.mitra.info import mitra_method_metadata
+from tabarena.models.realmlp.info import realmlp_method_metadata
+from tabarena.models.xrfm.info import xrfm_method_metadata
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
 
-# Legacy alias — preserved for any external code still importing the older name.
+# Legacy aliases — preserved for any external code still importing the older names.
 mitra_metadata = mitra_method_metadata
+realmlp_gpu_metadata = realmlp_method_metadata
+xrfm_metadata = xrfm_method_metadata
 
 _common_kwargs = dict(
     artifact_name="tabarena-2025-09-03",
@@ -43,21 +47,6 @@ limix_metadata = MethodMetadata(
     reference_url="https://arxiv.org/abs/2509.03505",
     **_common_kwargs,
 )
-realmlp_gpu_metadata = MethodMetadata(
-    method="RealMLP_GPU",
-    method_type="config",
-    display_name="RealMLP",
-    compute="gpu",
-    date="2025-09-03",
-    ag_key="TA-REALMLP",
-    model_key="REALMLP_GPU",
-    config_default="RealMLP_GPU_c1_BAG_L1",
-    can_hpo=True,
-    is_bag=True,
-    verified=True,
-    reference_url="https://arxiv.org/abs/2407.04491",
-    **_common_kwargs,
-)
 ebm_metadata = MethodMetadata(
     method="ExplainableBM",
     method_type="config",
@@ -70,21 +59,6 @@ ebm_metadata = MethodMetadata(
     is_bag=True,
     verified=True,
     reference_url="https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
-    **_common_kwargs,
-)
-xrfm_metadata = MethodMetadata(
-    method="xRFM_GPU",
-    method_type="config",
-    display_name="xRFM",
-    compute="gpu",
-    date="2025-09-03",
-    ag_key="XRFM",
-    model_key="XRFM_GPU",
-    config_default="xRFM_GPU_c1_BAG_L1",
-    can_hpo=True,
-    is_bag=True,
-    verified=True,
-    reference_url="https://arxiv.org/abs/2508.10053",
     **_common_kwargs,
 )
 tabflex_metadata = MethodMetadata(
