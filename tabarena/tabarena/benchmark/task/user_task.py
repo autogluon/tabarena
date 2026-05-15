@@ -112,13 +112,19 @@ class TabArenaTaskMetadata:
 
     # -- Feature dtype flags (added later; default to None for backward compat) --
     has_datetime: bool | None = None
-    """Whether the dataset contains datetime feature columns."""
+    """Whether the dataset contains datetime feature columns (incl. period dtypes)."""
     has_text: bool | None = None
-    """Whether the dataset contains text (string/object) feature columns."""
+    """Whether the dataset contains text (string) feature columns."""
     has_categorical: bool | None = None
     """Whether the dataset contains categorical feature columns."""
-    has_numeric: bool | None = None
-    """Whether the dataset contains numeric feature columns."""
+    has_numerical: bool | None = None
+    """Whether the dataset contains numerical feature columns."""
+    has_binary: bool | None = None
+    """Whether the dataset contains any feature column with exactly two distinct
+    non-null values."""
+    has_high_cardinality_categorical: bool | None = None
+    """Whether the dataset contains a categorical (category dtype) feature column
+    with more than 50 unique values."""
 
     @property
     def n_splits(self):
@@ -144,25 +150,24 @@ class TabArenaTaskMetadata:
 
     def has_supported_dtypes(self, *, required_dtypes: list[str] | None, forbidden_dtypes: list[str] | None) -> bool:
         """Check if the dataset contains only allowed dtypes based on the feature dtype flags."""
+        flag_by_dtype = {
+            "datetime": self.has_datetime,
+            "text": self.has_text,
+            "categorical": self.has_categorical,
+            "numerical": self.has_numerical,
+            "binary": self.has_binary,
+            "high_cardinality_categorical": self.has_high_cardinality_categorical,
+        }
+
         if required_dtypes is not None:
-            if "datetime" in required_dtypes and not self.has_datetime:
-                return False
-            if "text" in required_dtypes and not self.has_text:
-                return False
-            if "categorical" in required_dtypes and not self.has_categorical:
-                return False
-            if "numeric" in required_dtypes and not self.has_numeric:
-                return False
+            for dtype in required_dtypes:
+                if not flag_by_dtype.get(dtype):
+                    return False
 
         if forbidden_dtypes is not None:
-            if self.has_datetime and "datetime" in forbidden_dtypes:
-                return False
-            if self.has_text and "text" in forbidden_dtypes:
-                return False
-            if self.has_categorical and "categorical" in forbidden_dtypes:
-                return False
-            if self.has_numeric and "numeric" in forbidden_dtypes:
-                return False
+            for dtype in forbidden_dtypes:
+                if flag_by_dtype.get(dtype):
+                    return False
 
         return True
 
@@ -303,6 +308,24 @@ class SplitMetadata:
         res = asdict(self)
         res["split_index"] = self.split_index
         return res
+
+
+def _detect_binary_columns(feature_df: pd.DataFrame, *, sample_size: int = 10_000) -> set[str]:
+    """Return columns of `feature_df` with exactly 2 distinct non-null values.
+
+    Two-stage scan to avoid a full nunique() pass on every column for wide/large
+    frames. We first check an evenly-spaced sample: nunique on a subset is a
+    lower bound on the full nunique, so any column with >2 uniques in the sample
+    cannot be binary and is skipped. Surviving candidates are verified on the
+    full column.
+    """
+    n = len(feature_df)
+    if n <= sample_size:
+        return {c for c in feature_df.columns if feature_df[c].nunique(dropna=True) == 2}
+
+    sample = feature_df.iloc[:: max(1, n // sample_size)]
+    candidates = [c for c in feature_df.columns if sample[c].nunique(dropna=True) <= 2]
+    return {c for c in candidates if feature_df[c].nunique(dropna=True) == 2}
 
 
 class TabArenaTaskMetadataMixin:
@@ -470,7 +493,13 @@ class TabArenaTaskMetadataMixin:
             class_consistency_over_splits = min_n_classes == max_n_classes
 
         # Detect feature dtype flags (exclude target column)
-        feature_df = oml_dataset.drop(columns=[target_name])
+        excluded_columns = {target_name}
+        if self.group_on is not None:
+            if isinstance(self.group_on, list):
+                excluded_columns.update(self.group_on)
+            else:
+                excluded_columns.add(self.group_on)
+        feature_df = oml_dataset.drop(columns=excluded_columns)
 
         # FIXME: make this less strict?
         if len(feature_df.select_dtypes(include=["object"]).columns) > 0:
@@ -478,10 +507,25 @@ class TabArenaTaskMetadataMixin:
                 "Object dtype columns are not supported. Please convert them to string dtype or categorical dtype!"
             )
 
-        has_datetime = len(feature_df.select_dtypes(include=["datetime64"]).columns) > 0
-        has_text = len(feature_df.select_dtypes(include=["string"]).columns) > 0
-        has_categorical = len(feature_df.select_dtypes(include=["category"]).columns) > 0
-        has_numeric = len(feature_df.select_dtypes(include=["number"]).columns) > 0
+        # Independent dtype flags
+        binary_cols = _detect_binary_columns(feature_df)
+        numerical_cols = feature_df.select_dtypes(include=["number"], exclude=["bool"]).columns
+        categorical_cols = feature_df.select_dtypes(include=["category", "bool"]).columns
+        datetime_cols = list(feature_df.select_dtypes(include=["datetime", "datetimetz"]).columns)
+        datetime_cols += [c for c in feature_df.columns if isinstance(feature_df[c].dtype, pd.PeriodDtype)]
+        text_cols = feature_df.select_dtypes(include=["string"]).columns
+
+        has_numerical = sum(c not in binary_cols for c in numerical_cols) > 0
+        has_datetime = sum(c not in binary_cols for c in datetime_cols) > 0
+        has_text = sum(c not in binary_cols for c in text_cols) > 0
+        has_binary = len(binary_cols) > 0
+
+        non_binary_categorical_cols = [c for c in categorical_cols if c not in binary_cols]
+        has_categorical = len(non_binary_categorical_cols) > 0
+        has_high_cardinality_categorical = any(
+            feature_df[c].nunique(dropna=True) > 50
+            for c in non_binary_categorical_cols
+        )
 
         self._task_metadata = TabArenaTaskMetadata(
             dataset_name=dataset_name,
@@ -509,7 +553,9 @@ class TabArenaTaskMetadataMixin:
             has_datetime=has_datetime,
             has_text=has_text,
             has_categorical=has_categorical,
-            has_numeric=has_numeric,
+            has_numerical=has_numerical,
+            has_binary=has_binary,
+            has_high_cardinality_categorical=has_high_cardinality_categorical,
         )
 
         return self._task_metadata

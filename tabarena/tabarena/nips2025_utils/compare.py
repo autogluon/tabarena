@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -16,11 +17,13 @@ def compare_on_tabarena(
     *,
     only_valid_tasks: bool | str | list[str] = False,
     subset: str | list[str] | None = None,
+    tasks: list[tuple[str, int]] | None = None,
     datasets: list[str] | None = None,
     folds: list[int] | None = None,
     tabarena_context: TabArenaContext | None = None,
     tabarena_context_kwargs: dict | None = None,
     fillna: str | pd.DataFrame | None = "RF (default)",
+    calibration_framework: str | None = "auto",
     score_on_val: bool = False,
     average_seeds: bool = False,
     remove_imputed: bool = False,
@@ -63,19 +66,16 @@ def compare_on_tabarena(
             df_filter=new_results,
         )
 
-    if subset is not None or folds is not None or datasets is not None:
-        if subset is None:
-            subset = []
-        if isinstance(subset, str):
-            subset = [subset]
-        df_results = subset_tasks(df_results=df_results, subset=subset, folds=folds, datasets=datasets)
-
     return compare(
         df_results=df_results,
         output_dir=output_dir,
         task_metadata=task_metadata,
+        subset=subset,
+        tasks=tasks,
+        datasets=datasets,
+        folds=folds,
         fillna=fillna,
-        calibration_framework=fillna,
+        calibration_framework=calibration_framework,
         score_on_val=score_on_val,
         average_seeds=average_seeds,
         remove_imputed=remove_imputed,
@@ -91,6 +91,7 @@ def compare(
     output_dir: str | Path,
     task_metadata: pd.DataFrame = None,
     only_valid_tasks: str | list[str] | None = None,
+    tasks: list[tuple[str, int]] | None = None,
     datasets: list[str] | None = None,
     calibration_framework: str | None = None,
     fillna: str | pd.DataFrame | None = None,
@@ -101,8 +102,26 @@ def compare(
     remove_imputed: bool = False,
     method_rename_map: dict | None = None,
     figure_file_type: str = "pdf",
+    add_dataset_count: bool = False,
+    subset: list[str] | None = None,
+    folds: list[int] | None = None,
+    elo_ymin: float | None = None,
     **kwargs,
 ):
+    if subset is not None or folds is not None or datasets is not None or tasks is not None:
+        if subset is None:
+            subset = []
+        if isinstance(subset, str):
+            subset = [subset]
+        df_results = subset_tasks(
+            df_results=df_results,
+            subset=subset,
+            tasks=tasks,
+            datasets=datasets,
+            folds=folds,
+            task_metadata_og=task_metadata,
+        )
+
     df_results = prepare_data(
         df_results=df_results,
         only_valid_tasks=only_valid_tasks,
@@ -119,15 +138,25 @@ def compare(
     else:
         error_col = "metric_error"
 
+    if calibration_framework == "auto":
+        if isinstance(fillna, pd.DataFrame):
+            calibration_framework = None
+        else:
+            calibration_framework = fillna
+
+    evaluator_kwargs = {}
+    if elo_ymin is not None:
+        evaluator_kwargs["elo_ymin"] = elo_ymin
     plotter = TabArenaEvaluator(
         output_dir=output_dir,
         task_metadata=task_metadata,
         error_col=error_col,
         method_rename_map=method_rename_map,
         figure_file_type=figure_file_type,
+        **evaluator_kwargs,
     )
 
-    return plotter.eval(
+    lb_df = plotter.eval(
         df_results=df_results,
         plot_extra_barplots=False,
         plot_times=True,
@@ -137,6 +166,11 @@ def compare(
         leaderboard_kwargs=leaderboard_kwargs,
         **kwargs,
     )
+
+    if add_dataset_count:
+        lb_df["n_datasets_total"] = df_results["dataset"].nunique()
+
+    return lb_df
 
 
 def filter_to_valid_tasks(df_to_filter: pd.DataFrame, df_filter: pd.DataFrame) -> pd.DataFrame:
@@ -190,6 +224,12 @@ def prepare_data(
 
     if isinstance(fillna, str):
         fillna = df_results[df_results["method"] == fillna]
+        if len(fillna) == 0:
+            raise ValueError(
+                "Missing fillna method in df_results!"
+                f"\n\tfillna={fillna!r}"
+                f"\n\tvalid_methods={sorted(list(df_results['method'].unique()))}"
+            )
     if fillna is not None:
         df_results = TabArenaContext.fillna_metrics(
             df_to_fill=df_results,
@@ -204,137 +244,178 @@ def prepare_data(
     return df_results
 
 
+_SUBSET_PREDICATES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
+    "all": lambda df: pd.Series(True, index=df.index),
+    # problem_type
+    "binary": lambda df: df["problem_type"] == "binary",
+    "multiclass": lambda df: df["problem_type"] == "multiclass",
+    "classification": lambda df: df["problem_type"].isin(["binary", "multiclass"]),
+    "regression": lambda df: df["problem_type"] == "regression",
+    # size buckets keyed on training rows
+    "large": lambda df: df["max_train_rows"].between(100_001, 1_000_350),  # +350 due to AMEX grouped dataset weird split
+    "medium": lambda df: df["max_train_rows"].between(10_001, 100_000),
+    "small": lambda df: df["max_train_rows"].between(1_001, 10_000),
+    "tiny": lambda df: df["max_train_rows"].between(101, 1_000),
+    # split / task type
+    "iid": lambda df: df["task_type"] == "random",
+    "temporal": lambda df: df["task_type"] == "temporal",
+    "grouped": lambda df: df["task_type"] == "grouped",
+    # feature dimensionality / type
+    "low-dim": lambda df: df["num_cols_after_preprocessing"] <= 100,
+    "high-dim": lambda df: df["num_cols_after_preprocessing"] > 100,
+    "text": lambda df: df["num_text_cols"] > 0,
+    "high-cardinality": lambda df: df["num_high_cardinality_cats"] > 0,
+    # foundation-model compatibility (operates on tabarena task_metadata columns)
+    "tabpfn": lambda df: (df["max_train_rows"] <= 10_000) & (df["n_features"] <= 500) & (df["n_classes"] <= 10),
+    "tabicl": lambda df: (df["max_train_rows"] <= 100_000) & (df["n_features"] <= 500) & (df["n_classes"] > 0),
+    # row-level filter (requires a "fold" column; only meaningful when applied to df_results)
+    "lite": lambda df: df["fold"] == 0,
+}
+
+
+def _evaluate_subset_expression(expression: str, df: pd.DataFrame) -> pd.Series:
+    """Evaluate a single subset expression against ``df`` and return a boolean mask.
+
+    Supported syntax for one expression token:
+
+    * ``"name"`` — atom; looks up ``name`` in :data:`_SUBSET_PREDICATES`.
+    * ``"a|b"`` — union (OR) of atoms.
+    * ``"!a"`` — negation; can be combined with union: ``"!a|b"`` is ``(NOT a) OR b``.
+
+    Whitespace around tokens and operators is ignored.
+    """
+    if not isinstance(expression, str):
+        raise TypeError(f"Subset expression must be a string, got {type(expression).__name__}: {expression!r}")
+    parts = [part.strip() for part in expression.split("|")]
+    if any(not part for part in parts):
+        raise ValueError(f"Empty atom in subset expression: {expression!r}")
+
+    mask: pd.Series | None = None
+    for part in parts:
+        negate = False
+        if part.startswith("!"):
+            negate = True
+            part = part[1:].strip()
+            if not part:
+                raise ValueError(f"Dangling negation in subset expression: {expression!r}")
+        if part not in _SUBSET_PREDICATES:
+            valid = sorted(_SUBSET_PREDICATES)
+            raise ValueError(f"Invalid subset name {part!r}. Valid names: {valid}")
+        sub = _SUBSET_PREDICATES[part](df).astype(bool)
+        if negate:
+            sub = ~sub
+        mask = sub if mask is None else (mask | sub)
+    return mask
+
+
+def _join_results_with_metadata(
+    df_results: pd.DataFrame,
+    task_metadata: pd.DataFrame,
+) -> pd.DataFrame:
+    """Build a per-row view of ``df_results`` enriched with ``task_metadata`` columns.
+
+    Aliases tabarena-style ``n_samples_train_per_fold`` to ``max_train_rows`` so the
+    shared :data:`_SUBSET_PREDICATES` size predicates work uniformly across tabarena
+    task_metadata and data-foundry metadata.
+    """
+    md = task_metadata.copy()
+    if "max_train_rows" not in md.columns and "n_samples_train_per_fold" in md.columns:
+        md["max_train_rows"] = md["n_samples_train_per_fold"]
+    # Avoid clobbering columns already on df_results (e.g. problem_type from the run row).
+    keep_cols = ["dataset"] + [c for c in md.columns if c != "dataset" and c not in df_results.columns]
+    md = md[keep_cols]
+    joined = df_results.merge(md, on="dataset", how="left")
+    joined.index = df_results.index
+    return joined
+
+
 def subset_tasks(
     df_results: pd.DataFrame,
     subset: list[str],
-    folds: list[int] = None,
-    datasets: list[str] = None,
+    tasks: list[tuple[str, int]] | None = None,
+    folds: list[int] | None = None,
+    datasets: list[str] | None = None,
+    task_metadata_og: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
+    """Subset ``df_results`` by named predicates from :data:`_SUBSET_PREDICATES`.
+
+    Each entry in ``subset`` is an expression. Items in the list are AND-ed together;
+    within an item, ``|`` is a union (OR) and a leading ``!`` negates an atom. Examples:
+
+    * ``["medium"]`` — datasets in the medium size bucket.
+    * ``["medium|small"]`` — datasets that are medium OR small ("both medium and small").
+    * ``["!medium"]`` — all except medium.
+    * ``["classification", "!tiny"]`` — classification AND not tiny.
+    """
     from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
+    if task_metadata_og is None:
+        task_metadata_og = load_task_metadata()
 
     df_results = df_results.copy(deep=True)
-    for filter_subset in subset:
-        if filter_subset == "classification":
-            df_results = df_results[
-                df_results["problem_type"].isin(["binary", "multiclass"])
-            ]
-        elif filter_subset == "binary":
-            df_results = df_results[df_results["problem_type"] == "binary"]
-        elif filter_subset == "multiclass":
-            df_results = df_results[df_results["problem_type"] == "multiclass"]
-        elif filter_subset == "regression":
-            df_results = df_results[df_results["problem_type"] == "regression"]
-        elif filter_subset == "medium+":
-            task_metadata = load_task_metadata()
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] >= 10000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "medium":
-            task_metadata = load_task_metadata()
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] >= 10000]
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] < 250000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "small+":
-            task_metadata = load_task_metadata()
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] >= 2000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "small":
-            task_metadata = load_task_metadata()
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] < 10000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "tiny":
-            task_metadata = load_task_metadata()
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] < 2000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "tiny-small":
-            task_metadata = load_task_metadata()
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] < 10000]
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] >= 2000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "lite":
-            df_results = df_results[df_results["fold"] == 0]
-        elif filter_subset == "tabicl":
-            allowed_dataset = load_task_metadata(subset="TabICL")[
-                "dataset"
-            ].tolist()
-            df_results = df_results[df_results["dataset"].isin(allowed_dataset)]
-        elif filter_subset == "tabpfn":
-            allowed_dataset = load_task_metadata(subset="TabPFNv2")[
-                "dataset"
-            ].tolist()
-            df_results = df_results[df_results["dataset"].isin(allowed_dataset)]
-        elif filter_subset == "tabpfn/tabicl":
-            ad_tabicl = load_task_metadata(subset="TabICL")["dataset"].tolist()
-            ad_tabpfn = load_task_metadata(subset="TabPFNv2")["dataset"].tolist()
-            allowed_dataset = list(set(ad_tabicl).intersection(set(ad_tabpfn)))
-            df_results = df_results[df_results["dataset"].isin(allowed_dataset)]
-        else:
-            raise ValueError(f"Invalid subset {subset} name!")
+    if subset:
+        joined = _join_results_with_metadata(df_results, task_metadata_og)
+        for expression in subset:
+            mask = _evaluate_subset_expression(expression, joined)
+            df_results = df_results[mask.values]
+            joined = joined[mask.values]
 
+    if tasks is not None:
+        task_index = pd.MultiIndex.from_tuples(tasks, names=["dataset", "fold"])
+        df_results = df_results[
+            pd.MultiIndex.from_frame(df_results[["dataset", "fold"]]).isin(task_index)
+        ]
     if datasets is not None:
         df_results = df_results[df_results["dataset"].isin(datasets)]
     if folds is not None:
         df_results = df_results[df_results["fold"].isin(folds)]
-    df_results = df_results.reset_index(drop=True)
-    return df_results
+    return df_results.reset_index(drop=True)
 
-def subset_tasks_new(
+
+def get_subsets_per_dataset(data_foundry_metadata: pd.DataFrame) -> dict[str, list[str]]:
+    """For each dataset in ``data_foundry_metadata``, list the subset names from
+    :data:`_SUBSET_PREDICATES` whose predicate the dataset satisfies.
+
+    Predicates that reference columns not present in ``data_foundry_metadata``
+    (e.g. ``"lite"`` needs a ``"fold"`` column, ``"tabpfn"``/``"tabicl"`` need
+    ``"n_features"``/``"n_classes"``) are skipped silently.
+    """
+    result: dict[str, list[str]] = {ds: [] for ds in data_foundry_metadata["dataset"].dropna().unique()}
+    for subset_name, predicate in _SUBSET_PREDICATES.items():
+        try:
+            mask = predicate(data_foundry_metadata)
+        except KeyError:
+            continue
+        qualifying = data_foundry_metadata.loc[mask, "dataset"].dropna()
+        for ds in qualifying:
+            result[ds].append(subset_name)
+    return result
+
+
+def subset_tasks_data_foundry(
     *,
     df_results: pd.DataFrame,
     subset: list[str],
-    task_metadata: pd.DataFrame,
+    data_foundry_metadata: pd.DataFrame,
 ) -> pd.DataFrame:
+    """Subset ``df_results`` by filtering datasets according to ``data_foundry_metadata``.
 
-    df_results = df_results.copy(deep=True)
-    for filter_subset in subset:
-        if filter_subset == "classification":
-            df_results = df_results[
-                df_results["problem_type"].isin(["binary", "multiclass"])
-            ]
-        elif filter_subset == "binary":
-            df_results = df_results[df_results["problem_type"] == "binary"]
-        elif filter_subset == "multiclass":
-            df_results = df_results[df_results["problem_type"] == "multiclass"]
-        elif filter_subset == "regression":
-            df_results = df_results[df_results["problem_type"] == "regression"]
-        elif filter_subset == "large":
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 100_000]
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 1_000_000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "medium":
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 10_000]
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 100_000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "small":
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 10_000]
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 1_000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "tiny":
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] > 100]
-            task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 1_000]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "random":
-            task_metadata = task_metadata[task_metadata["time_on"].isna() & task_metadata["group_on"].isna()]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "temporal":
-            task_metadata = task_metadata[~task_metadata["time_on"].isna()]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        elif filter_subset == "grouped":
-            task_metadata = task_metadata[~task_metadata["group_on"].isna()]
-            valid_datasets = task_metadata["dataset"].unique()
-            df_results = df_results[df_results["dataset"].isin(valid_datasets)]
-        else:
-            raise ValueError(f"Invalid subset {subset} name!")
+    Supports the same expression syntax as :func:`subset_tasks` (``|`` for union,
+    leading ``!`` for negation; list items are AND-ed).
+    """
+    metadata = data_foundry_metadata
+    for expression in subset:
+        mask = _evaluate_subset_expression(expression, metadata)
+        metadata = metadata[mask.values]
+
+    valid_datasets = set(metadata["dataset"])
+    df_results = df_results[df_results["dataset"].isin(valid_datasets)]
+
+    # For each (method, dataset), drop the rows if the method did not run on every fold
+    # that exists for that dataset (across all methods).
+    n_folds_dataset = df_results.groupby("dataset")["fold"].transform("nunique")
+    n_folds_method_dataset = df_results.groupby(["method", "dataset"])["fold"].transform("nunique")
+    df_results = df_results[n_folds_method_dataset == n_folds_dataset]
+
+    assert len(df_results) > 0, "No results remain after subsetting! Please check the subset criteria and the data_foundry_metadata."
 
     return df_results.reset_index(drop=True)

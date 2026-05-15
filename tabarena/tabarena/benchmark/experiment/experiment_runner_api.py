@@ -82,10 +82,11 @@ def _parse_repetitions_mode_and_args(
                     f"`tasks_metadata` must contain the column '{col}' when `repetitions_mode` is 'TabArena'"
                 )
         fold_repeat_pairs_per_task = []
-        metadata_task_ids = tasks_metadata["task_id"].astype(str).tolist()
+        metadata_task_ids = tasks_metadata["task_id"].astype(str)
+        metadata_task_id_set = set(metadata_task_ids.tolist())
         for task in tasks:
             t_id = task.task_id_str if isinstance(task, UserTask) else str(task)
-            assert t_id in metadata_task_ids, f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`"
+            assert t_id in metadata_task_id_set, f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`"
 
             task_meta = tasks_metadata[metadata_task_ids == t_id].iloc[0]
             n_folds = int(task_meta["num_folds"])
@@ -328,7 +329,7 @@ def run_experiments_new(
         "Duplicate experiment name found in `model_experiments`. All names must be unique."
     )
     assert all(isinstance(task, (int, UserTask)) for task in tasks), (
-        "Not all tasks are int or UserTask instances! Got: {tasks}"
+        f"Not all tasks are int or UserTask instances! Got: {tasks}"
     )
 
     fold_repeat_pairs_per_task = _parse_repetitions_mode_and_args(
@@ -435,7 +436,7 @@ def run_experiments_new(
                             # TODO: add support
                             raise NotImplementedError(
                                 "Validation split kwargs only implemented for "
-                                f"AGModelBagExperiment for now, got task {type(task)}"
+                                f"AGModelBagExperiment for now, got {type(model_experiment)}"
                             )
 
                         # Add info about group and time for the pipeline to handle
@@ -484,20 +485,26 @@ def run_experiments_new(
                         out = None
 
                 # Safety check for results with non-finite metric errors
-                if (out is not None) and (
-                    not (np.isfinite(out["metric_error"]) and np.isfinite(out["metric_error_val"]))
-                ):
-                    print(
-                        "Non-finite final metric error detected: "
-                        f"\ttest={out['metric_error']}, val={out['metric_error_val']}. "
-                    )
-                    if failure_on_non_finite_metric_error:
-                        print("\tDeleting cache file and counting as failure.")
-                        # TODO: fix for s3
-                        cacher.delete_cache()
-                        out = None
-                        if raise_on_failure:
-                            raise RuntimeError("Non-finite metric error detected.")
+                if out is not None:
+                    for metric_error_key in ["metric_error", "metric_error_val"]:
+                        if metric_error_key not in out:
+                            continue
+
+                        if not np.isfinite(out[metric_error_key]):
+                            print(
+                                "Non-finite final metric error detected: "
+                                f"\t{metric_error_key}={out[metric_error_key]}. "
+                            )
+                            if failure_on_non_finite_metric_error:
+                                print("\tDeleting cache file and counting as failure.")
+                                # TODO: fix for s3
+                                cacher.delete_cache()
+                                out = None
+                                if raise_on_failure:
+                                    raise RuntimeError(
+                                        f"Non-finite metric error detected for key {metric_error_key!r}."
+                                    )
+                            break
 
                 if out is not None:
                     experiment_success_count += 1

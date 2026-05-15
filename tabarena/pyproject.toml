@@ -56,6 +56,10 @@ sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.g
 tabprep = []
 tabstar = ["tabstar==1.1.15"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
+probmetrics = [
+    "probmetrics",
+    "pytorch-minimize",
+]
 
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [

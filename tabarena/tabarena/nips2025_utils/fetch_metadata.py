@@ -86,6 +86,11 @@ def load_task_metadata(paper: bool = True, subset: str = None, path: str = None)
 
     task_metadata = add_extra_task_metadata_info(task_metadata=task_metadata)
 
+    task_metadata = subset_task_metadata(task_metadata=task_metadata, subset=subset)
+    return task_metadata
+
+
+def subset_task_metadata(task_metadata, subset: str = None) -> pd.DataFrame:
     if subset is None:
         pass
     elif subset == "TabPFNv2":
@@ -98,7 +103,6 @@ def load_task_metadata(paper: bool = True, subset: str = None, path: str = None)
         task_metadata = task_metadata[task_metadata["NumberOfClasses"] > 0]
     else:
         raise AssertionError(f"Unknown subset: {subset}")
-
     return task_metadata
 
 

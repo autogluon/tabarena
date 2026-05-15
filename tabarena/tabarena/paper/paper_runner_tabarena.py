@@ -140,6 +140,7 @@ class PaperRunTabArena(PaperRun):
         config_default = self._config_default(config_type=model_type, use_first_if_missing=True)
         if config_default is not None:
             df_results_config_default = self.run_config_default(model_type=model_type)
+            df_results_config_default["imputed"] = False
         else:
             df_results_config_default = None
 

@@ -235,6 +235,7 @@ def format_leaderboard(
     method_metadata_info: pd.DataFrame | None = None,
     include_type: bool = False,
     include_url: bool = False,
+    include_imputed_in_name: bool = True,
     compact: bool = False,
 ) -> pd.DataFrame:
     df_leaderboard = df_leaderboard.copy(deep=True)
@@ -272,9 +273,10 @@ def format_leaderboard(
         # Add imputed column and add name postfix
         imputed_mask = df_leaderboard["imputed"] != 0
         df_leaderboard.loc[imputed_mask, "imputed_bool"] = True
-        df_leaderboard.loc[imputed_mask, "method"] = df_leaderboard.loc[
-            imputed_mask, ["method", "imputed"]
-        ].apply(lambda row: row["method"] + f" [{row['imputed']:.2f}% IMPUTED]", axis=1)
+        if include_imputed_in_name:
+            df_leaderboard.loc[imputed_mask, "method"] = df_leaderboard.loc[
+                imputed_mask, ["method", "imputed"]
+            ].apply(lambda row: row["method"] + f" [{row['imputed']:.2f}% IMPUTED]", axis=1)
     else:
         df_leaderboard["imputed_bool"] = None
         df_leaderboard["imputed"] = None

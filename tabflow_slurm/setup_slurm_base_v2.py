@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import copy
 import json
+import os
 import re
 import warnings
 from copy import deepcopy
@@ -11,6 +13,7 @@ from typing import Literal
 import pandas as pd
 import ray
 import yaml
+from tabarena.benchmark.experiment.experiment_constructor import Experiment
 from tabarena.benchmark.experiment.experiment_utils import check_cache_hit
 from tabarena.benchmark.task.user_task import SplitMetadata, TabArenaTaskMetadata
 from tabarena.utils.cache import CacheFunctionPickle
@@ -133,7 +136,24 @@ class SlurmSetup:
     job scheduling and other non-model fitting overhead."""
 
     configs_per_job: int = 5
-    """Batching of several experiments per job to reduce the number of  SLURM jobs."""
+    """Legacy batching: maximum number of configs to bundle within a single
+    `(task_id, fold, repeat)` group inside one SLURM array task.
+    Only takes effect when `bundle_size` is None."""
+
+    bundle_size: int | None = None
+    """If set, switches to flat-bundle batching: each SLURM array task runs a list
+    of `(task_id, fold, repeat, config_index)` items of length up to `bundle_size`,
+    possibly spanning across different `(task_id, fold, repeat)` groups.
+
+    Mirrors the design used by `tabflow` (the SageMaker side) — see
+    `tabflow/cli/launch_jobs.py::get_tasks_batched`.
+
+    When None (default), legacy `configs_per_job` behavior is preserved."""
+
+    bundle_size_per_dataset: dict[str, int] | None = None
+    """Optional per-dataset override of `bundle_size`, keyed by `dataset_name`.
+    Items from datasets not listed here use `bundle_size`. Items belonging to
+    different effective bundle sizes are not mixed in the same bundle."""
 
     max_array_size: int = 29_999
     """Maximum number of array tasks per SLURM array job.
@@ -191,8 +211,12 @@ class BenchmarkSetup2026:
     """Tuple of lower and upper limit for the number of training samples of datasets run in the benchmark.
     Adjust as needed to run only datasets with a certain number of training samples.
     If None, we run all datasets.
-    Lower limit is inclusive, upper limit is exclusive. For example, (0, 1000) runs only datasets with less
+    Lower limit is exclusive, upper limit is inclusive. For example, (0, 1000) runs only datasets with less
     than 1000 training samples. If a tuple value is None, there is no limit in that direction.
+    """
+    dataset_names_to_run: list[str] | None = None
+    """List of dataset names to run in the benchmark. Adjust as needed to run only specific datasets.
+    If None, we run all datasets. Matches against `dataset_name` of the task metadata.
     """
 
     path_setup: PathSetup = field(default_factory=PathSetup)
@@ -309,7 +333,7 @@ class BenchmarkSetup2026:
     """
     max_predict_batch_size: int | None = None
     """Maximal batch size for the predict function of the models.
-    This is used at validation and test predict time. Thus, it trades off speed for memory usage. 
+    This is used at validation and test predict time. Thus, it trades off speed for memory usage.
     If None, no limit is applied.
     """
 
@@ -333,9 +357,10 @@ class BenchmarkSetup2026:
     """
     ignore_cache: bool = False
     """If True, will overwrite the cache and run all jobs again."""
-    num_ray_cpus = 8
+    num_ray_cpus: int | Literal["auto"] = "auto"
     """Number of CPUs to use for checking the cache and generating the jobs.
-    This should be set to the number of CPUs available to the python script."""
+    This should be set to the number of CPUs available to the python script.
+    If "auto", we use all available CPUs."""
     sequential_local_fold_fitting: bool = False
     """Use Ray for local fold fitting. This is used to speed up the local fold fitting
     and force this behavior if True. If False the default strategy of running the
@@ -592,6 +617,19 @@ class BenchmarkSetup2026:
             task_metadata = [ttm for ttm in task_metadata if ttm.split_index in split_indices_to_run]
         n_splits_filtered_tasks = len(task_metadata)
 
+        # Filter based on dataset names if specified
+        if self.dataset_names_to_run is not None:
+            dataset_names_to_run = set(self.dataset_names_to_run)
+            available_dataset_names = {ttm.dataset_name for ttm in task_metadata}
+            missing = dataset_names_to_run - available_dataset_names
+            if missing:
+                raise ValueError(
+                    f"Requested dataset names not found in task metadata: {sorted(missing)}. "
+                    f"Available dataset names: {sorted(available_dataset_names)}"
+                )
+            task_metadata = [ttm for ttm in task_metadata if ttm.dataset_name in dataset_names_to_run]
+        n_dataset_names_filtered_tasks = len(task_metadata)
+
         # Filter based on dtypes if specified
         if (self.forbidden_dtypes_to_run is not None) or (self.required_dtypes_to_run is not None):
             task_metadata = [
@@ -613,8 +651,8 @@ class BenchmarkSetup2026:
                 ttm
                 for ttm in task_metadata
                 if (
-                    (ttm.splits_metadata[ttm.split_index].num_instances_train < ub)
-                    and (ttm.splits_metadata[ttm.split_index].num_instances_train >= lb)
+                    (ttm.splits_metadata[ttm.split_index].num_instances_train <= ub)
+                    and (ttm.splits_metadata[ttm.split_index].num_instances_train > lb)
                 )
             ]
         n_sizes_filtered_tasks = len(task_metadata)
@@ -630,8 +668,9 @@ class BenchmarkSetup2026:
             f"\n\t(1) Starting with {n_unrolled_tasks} Tasks."
             f"\n\t(2) Filter to problem types: {n_problem_types_filtered_tasks}"
             f"\n\t(3) Filter to splits: {n_splits_filtered_tasks}."
-            f"\n\t(4) Filter to dtypes: {n_dtypes_filtered_tasks}."
-            f"\n\t(5) Filter to dataset size: {n_sizes_filtered_tasks}."
+            f"\n\t(4) Filter to dataset names: {n_dataset_names_filtered_tasks}."
+            f"\n\t(5) Filter to dtypes: {n_dtypes_filtered_tasks}."
+            f"\n\t(6) Filter to dataset size: {n_sizes_filtered_tasks}."
         )
         return task_metadata
 
@@ -657,6 +696,7 @@ class BenchmarkSetup2026:
                         "config_index": config_index,
                         "config": config,
                         "task_id": task_id,
+                        "dataset_name": ta_task_metadata.dataset_name,
                         "fold_i": split_md.fold,
                         "repeat_i": split_md.repeat,
                         "n_samples_train_per_fold": split_md.num_instances_train,
@@ -667,16 +707,19 @@ class BenchmarkSetup2026:
         jobs_to_check = list(yield_all_jobs())
 
         # Check cache and filter invalid jobs in parallel using Ray
+        num_ray_cpus = self.num_ray_cpus
+        if num_ray_cpus == "auto":
+            num_ray_cpus = len(os.sched_getaffinity(0))
         if ray.is_initialized:
             ray.shutdown()
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning)
-            ray.init(num_cpus=self.num_ray_cpus)
+            ray.init(num_cpus=num_ray_cpus)
         output = ray_map_list(
             list_to_map=list(to_batch_list(jobs_to_check, 10_000)),
             func=should_run_job_batch,
             func_element_key_string="input_data_list",
-            num_workers=self.num_ray_cpus,
+            num_workers=num_ray_cpus,
             num_cpus_per_worker=1,
             func_kwargs={
                 "output_dir": self.path_setup.get_output_path(self.benchmark_name),
@@ -687,35 +730,77 @@ class BenchmarkSetup2026:
             tqdm_kwargs={"desc": "Checking Cache and Filter Invalid Jobs"},
         )
         output = [item for sublist in output for item in sublist]  # Flatten the batched list
-        to_run_job_map = {}
-        for run_job, job_data in zip(output, jobs_to_check, strict=True):
-            if run_job:
-                job_key = (
-                    job_data["task_id"],
-                    job_data["fold_i"],
-                    job_data["repeat_i"],
-                )
-                if job_key not in to_run_job_map:
-                    to_run_job_map[job_key] = []
-                to_run_job_map[job_key].append(job_data["config_index"])
 
-        # Convert the map to a list of jobs
-        jobs = []
-        to_run_jobs = 0
-        max_config_batch = 1
-        for job_key, config_indices in to_run_job_map.items():
-            to_run_jobs += len(config_indices)
-            for config_batch in to_batch_list(config_indices, self.slurm_setup.configs_per_job):
-                max_config_batch = max(max_config_batch, len(config_batch))
-                jobs.append(
-                    {
-                        "task_id": job_key[0],
-                        "fold": job_key[1],
-                        "repeat": job_key[2],
-                        "config_index": config_batch,
-                    },
-                )
-        self._max_configs_per_job = max_config_batch
+        approved_items = [
+            {
+                "task_id": job_data["task_id"],
+                "dataset_name": job_data["dataset_name"],
+                "fold": job_data["fold_i"],
+                "repeat": job_data["repeat_i"],
+                "config_index": job_data["config_index"],
+            }
+            for run_job, job_data in zip(output, jobs_to_check, strict=True)
+            if run_job
+        ]
+        to_run_jobs = len(approved_items)
+
+        bundle_size = self.slurm_setup.bundle_size
+        if bundle_size is None:
+            # Legacy path: bundle config_indices within each (task, fold, repeat)
+            # group, capped at `configs_per_job`.
+            to_run_job_map: dict[tuple, list[int]] = {}
+            for item in approved_items:
+                key = (item["task_id"], item["fold"], item["repeat"])
+                to_run_job_map.setdefault(key, []).append(item["config_index"])
+
+            jobs = []
+            max_config_batch = 1
+            for job_key, config_indices in to_run_job_map.items():
+                for config_batch in to_batch_list(config_indices, self.slurm_setup.configs_per_job):
+                    max_config_batch = max(max_config_batch, len(config_batch))
+                    jobs.append(
+                        {
+                            "task_id": job_key[0],
+                            "fold": job_key[1],
+                            "repeat": job_key[2],
+                            "config_index": config_batch,
+                        },
+                    )
+            self._max_configs_per_job = max_config_batch
+        else:
+            # Flat-bundle path: bin (task, fold, repeat, config_index) tuples into
+            # bundles of length up to `bundle_size`, with per-dataset overrides.
+            # Items are grouped by their effective bundle size so we don't mix
+            # different sizes within the same SLURM array task (this matches
+            # tabflow/cli/launch_jobs.py::get_tasks_batched).
+            bundle_size_per_dataset = self.slurm_setup.bundle_size_per_dataset or {}
+            items_by_size: dict[int, list[dict]] = {}
+            for item in approved_items:
+                effective_size = bundle_size_per_dataset.get(item["dataset_name"], bundle_size)
+                items_by_size.setdefault(effective_size, []).append(item)
+
+            jobs = []
+            max_bundle_size = 1
+            # Sort sizes for deterministic job ordering across runs.
+            for size in sorted(items_by_size):
+                items = items_by_size[size]
+                for bundle in to_batch_list(items, size):
+                    max_bundle_size = max(max_bundle_size, len(bundle))
+                    jobs.append(
+                        {
+                            "items": [
+                                {
+                                    "task_id": it["task_id"],
+                                    "fold": it["fold"],
+                                    "repeat": it["repeat"],
+                                    "config_index": it["config_index"],
+                                }
+                                for it in bundle
+                            ],
+                        },
+                    )
+            self._max_configs_per_job = max_bundle_size
+
         print(f"Generated {to_run_jobs} jobs to run without batching.")
         print(f"Jobs with batching: {len(jobs)}")
         return jobs
@@ -759,7 +844,10 @@ class BenchmarkSetup2026:
             raise ValueError(
                 f"Invalid number of configurations for model {model_name}: {n_configs}. Must be an integer or 'all'."
             )
-        config_generator = get_configs_generator_from_name(model_name)
+        if isinstance(model_name, str):
+            config_generator = get_configs_generator_from_name(model_name)
+        else:
+            config_generator = copy.deepcopy(model_name)
         # TODO: add model agnostic time limit here
         return config_generator.generate_all_bag_experiments(
             num_random_configs=n_configs,
@@ -778,7 +866,7 @@ class BenchmarkSetup2026:
             YamlExperimentSerializer,
         )
 
-        experiments_lst = []
+        experiments_all = []
         method_kwargs = {
             "init_kwargs": {"verbosity": self.verbosity},
             "shuffle_features": self.shuffle_features,
@@ -813,10 +901,15 @@ class BenchmarkSetup2026:
                 if preprocessing_name != "tabarena_default":
                     name_id_suffix = f"_{preprocessing_name}"
 
-            for model_name, n_configs_or_kwargs in self.models:
+            for model in self.models:
+                if isinstance(model, Experiment):
+                    experiments_all.append(model)
+                    continue
+                model_name, n_configs_or_kwargs = model[0], model[1]
+
                 # Resolve AutoGluon Config
-                if model_name.startswith("AutoGluon"):
-                    experiments_lst.append(
+                if isinstance(model_name, str) and model_name.startswith("AutoGluon"):
+                    experiments_all.extend(
                         self._generate_autogluon_config(
                             model_name=model_name,
                             agexp_kwargs=n_configs_or_kwargs,
@@ -826,7 +919,7 @@ class BenchmarkSetup2026:
                     continue
 
                 # Resolve model configs
-                experiments_lst.append(
+                experiments_all.extend(
                     self._generate_model_configs(
                         model_name=model_name,
                         n_configs=n_configs_or_kwargs,
@@ -836,7 +929,6 @@ class BenchmarkSetup2026:
                 )
 
         # Verify no duplicate names
-        experiments_all = [exp for exp_family_lst in experiments_lst for exp in exp_family_lst]
         experiment_names = set()
         for experiment in experiments_all:
             if experiment.name not in experiment_names:
@@ -1064,12 +1156,20 @@ def should_run_job(
         # Extract the local task ID if it is a UserTask.task_id_str
         task_id = task_id.split("|", 2)[1]
 
-    # Filter out-of-constraints datasets
+    # Filter out-of-constraints datasets.
+    # `model_cls` (AGModelExperiment) and `method_cls` (plain Experiment) both
+    # carry the class identifier; either is fine to use as the constraints key,
+    # since `are_model_constraints_valid` returns True when the key is absent
+    # from `models_to_constraints`. Fall back to "AutoGluon" only for the
+    # full-pipeline AutoGluon experiments (which expose neither field).
     if "model_cls" in config:
         model_cls = config["model_cls"]
-    else:
-        assert config["name"].startswith("AutoGluon")
+    elif "method_cls" in config:
+        model_cls = config["method_cls"]
+    elif config.get("name", "").startswith("AutoGluon"):
         model_cls = "AutoGluon"
+    else:
+        model_cls = config.get("name", "")
     if not BenchmarkSetup2026.are_model_constraints_valid(
         model_cls=model_cls,
         n_features=input_data["n_features"],
