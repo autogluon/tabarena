@@ -33,4 +33,5 @@ ebm_info = ModelInfo(
     model_cls=ExplainableBoostingMachineModel,
     search_space=gen_ebm,
     method_metadata=ebm_method_metadata,
+    pip_extra=("interpret-core>=0.7.3",),
 )

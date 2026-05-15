@@ -61,6 +61,7 @@ tabicl_info = ModelInfo(
     model_cls=TabICLModel,
     search_space=gen_tabicl,
     method_metadata=tabicl_method_metadata,
+    pip_extra=("tabicl>=2.0.0",),
 )
 
 
@@ -68,4 +69,5 @@ tabiclv2_info = ModelInfo(
     model_cls=TabICLv2Model,
     search_space=gen_tabiclv2,
     method_metadata=tabiclv2_method_metadata,
+    pip_extra=("tabicl>=2.0.0",),
 )

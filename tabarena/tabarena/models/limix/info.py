@@ -33,4 +33,5 @@ limix_info = ModelInfo(
     model_cls=LimiXModel,
     search_space=gen_limix,
     method_metadata=limix_method_metadata,
+    pip_extra=("einops", "kditransform"),
 )

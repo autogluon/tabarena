@@ -34,4 +34,7 @@ sap_rpt_oss_info = ModelInfo(
     model_cls=SAPRPTOSSModel,
     search_space=gen_sap_rpt_oss,
     method_metadata=sap_rpt_oss_method_metadata,
+    pip_extra=(
+        "sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa",
+    ),
 )

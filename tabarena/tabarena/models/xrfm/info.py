@@ -34,4 +34,5 @@ xrfm_info = ModelInfo(
     model_cls=XRFMModel,
     search_space=gen_xrfm,
     method_metadata=xrfm_method_metadata,
+    pip_extra=("xrfm[cu12]",),
 )

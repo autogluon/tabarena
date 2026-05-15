@@ -62,6 +62,7 @@ realtabpfnv25_info = ModelInfo(
     model_cls=RealTabPFNv25Model,
     search_space=gen_realtabpfnv25,
     method_metadata=realtabpfnv25_method_metadata,
+    pip_extra=("tabpfn>=8.0.0",),
 )
 
 
@@ -69,4 +70,5 @@ tabpfnv26_info = ModelInfo(
     model_cls=TabPFNv26Model,
     search_space=gen_tabpfnv26,
     method_metadata=tabpfnv26_method_metadata,
+    pip_extra=("tabpfn>=8.0.0",),
 )

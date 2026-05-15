@@ -34,4 +34,5 @@ tabdpt_info = ModelInfo(
     model_cls=TabDPTModel,
     search_space=gen_tabdpt,
     method_metadata=tabdpt_method_metadata,
+    pip_extra=("tabdpt>=1.1.10",),
 )

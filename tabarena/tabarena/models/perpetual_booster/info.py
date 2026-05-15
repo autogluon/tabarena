@@ -37,4 +37,5 @@ perpetual_booster_info = ModelInfo(
     model_cls=PerpetualBoosterModel,
     search_space=gen_perpetual_booster,
     method_metadata=perpetual_booster_method_metadata,
+    pip_extra=("perpetual",),
 )

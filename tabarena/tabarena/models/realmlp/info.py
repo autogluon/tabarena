@@ -58,6 +58,7 @@ realmlp_info = ModelInfo(
     model_cls=RealMLPModel,
     search_space=gen_realmlp,
     method_metadata=realmlp_method_metadata,
+    pip_extra=("pytabkit>=1.5.0,<2.0",),
 )
 
 
@@ -65,4 +66,5 @@ realmlp_cpu_info = ModelInfo(
     model_cls=RealMLPModel,
     search_space=gen_realmlp,
     method_metadata=realmlp_cpu_method_metadata,
+    pip_extra=("pytabkit>=1.5.0,<2.0",),
 )

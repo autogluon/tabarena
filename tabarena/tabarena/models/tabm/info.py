@@ -57,6 +57,7 @@ tabm_info = ModelInfo(
     model_cls=TabMModel,
     search_space=gen_tabm,
     method_metadata=tabm_method_metadata,
+    pip_extra=("torch",),
 )
 
 
@@ -64,4 +65,5 @@ tabm_gpu_info = ModelInfo(
     model_cls=TabMModel,
     search_space=gen_tabm,
     method_metadata=tabm_gpu_method_metadata,
+    pip_extra=("torch",),
 )

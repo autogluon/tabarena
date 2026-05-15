@@ -33,4 +33,5 @@ orionmsp_info = ModelInfo(
     model_cls=OrionMSPModel,
     search_space=gen_orionmsp,
     method_metadata=orionmsp_method_metadata,
+    pip_extra=("tabtune @ git+https://github.com/Lexsi-Labs/TabTune.git",),
 )

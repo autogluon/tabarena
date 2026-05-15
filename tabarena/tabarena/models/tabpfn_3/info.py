@@ -33,4 +33,5 @@ tabpfn_3_info = ModelInfo(
     model_cls=TabPFN3Model,
     search_space=gen_tabpfn_3,
     method_metadata=tabpfn_3_method_metadata,
+    pip_extra=("tabpfn>=8.0.0",),
 )

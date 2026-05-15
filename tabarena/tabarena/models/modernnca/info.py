@@ -57,6 +57,7 @@ modernnca_info = ModelInfo(
     model_cls=ModernNCAModel,
     search_space=gen_modernnca,
     method_metadata=modernnca_method_metadata,
+    pip_extra=("category_encoders",),
 )
 
 
@@ -64,4 +65,5 @@ modernnca_gpu_info = ModelInfo(
     model_cls=ModernNCAModel,
     search_space=gen_modernnca,
     method_metadata=modernnca_gpu_method_metadata,
+    pip_extra=("category_encoders",),
 )
