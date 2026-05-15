@@ -142,6 +142,7 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
 
         self.post_fit(X=X, y=y, X_test=X_test)
 
+        self.pre_predict()
         if self.problem_type in ["binary", "multiclass"]:
             with Timer() as timer_predict:
                 y_pred_proba = self.predict_proba(X_test)
@@ -150,6 +151,7 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
             with Timer() as timer_predict:
                 y_pred = self.predict(X_test)
             y_pred_proba = None
+        self.post_predict()
 
         out = {
             "predictions": y_pred,
@@ -214,6 +216,12 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
 
     def _predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
         raise NotImplementedError
+
+    def pre_predict(self):
+        pass
+
+    def post_predict(self):
+        pass
 
     def cleanup(self):
         pass

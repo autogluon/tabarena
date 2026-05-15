@@ -13,6 +13,7 @@ from autogluon.common.savers import save_pd, save_json
 from autogluon.core.utils import generate_train_test_split
 
 from .task_utils import get_task_data, get_ag_problem_type, get_task_with_retry
+from ..utils import get_split_idx, get_split_vals_from_split_idx
 from ....utils.s3_utils import download_task_from_s3, upload_task_to_s3
 
 logger = logging.getLogger(__name__)
@@ -117,24 +118,23 @@ class OpenMLTaskWrapper:
 
     def get_split_idx(self, fold: int = 0, repeat: int = 0, sample: int = 0) -> int:
         n_repeats, n_folds, n_samples = self.get_split_dimensions()
-        assert fold < n_folds
-        assert repeat < n_repeats
-        assert sample < n_samples
-        split_idx = n_folds * n_samples * repeat + n_samples * fold + sample
-        return split_idx
+        return get_split_idx(
+            fold=fold,
+            repeat=repeat,
+            sample=sample,
+            n_folds=n_folds,
+            n_repeats=n_repeats,
+            n_samples=n_samples,
+        )
 
-    def split_vals_from_split_idx(self, split_idx: int) -> tuple[int, int, int]:
+    def get_split_vals_from_split_idx(self, split_idx: int) -> tuple[int, int, int]:
         n_repeats, n_folds, n_samples = self.get_split_dimensions()
-
-        repeat = math.floor(split_idx / (n_folds * n_samples))
-        remainder = split_idx % (n_folds * n_samples)
-        fold = math.floor(remainder / n_samples)
-        sample = remainder % n_samples
-
-        assert fold < n_folds
-        assert repeat < n_repeats
-        assert sample < n_samples
-        return repeat, fold, sample
+        return get_split_vals_from_split_idx(
+            split_idx=split_idx,
+            n_folds=n_folds,
+            n_repeats=n_repeats,
+            n_samples=n_samples,
+        )
 
     def get_train_test_split(
         self,
