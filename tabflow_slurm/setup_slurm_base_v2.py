@@ -357,19 +357,6 @@ class BenchmarkSetup2026:
     """
     ignore_cache: bool = False
     """If True, will overwrite the cache and run all jobs again."""
-    runner_modifications: list[str] | None = None
-    """Optional list of runner modification tokens forwarded to the runner via the
-    ``TABARENA_RUNNER_MODIFICATIONS`` env var (propagated to SLURM jobs via
-    ``#SBATCH --export=ALL`` in submit_template.sh).
-
-    The runner script reads this env var and dispatches each token to a
-    behavior-specific change (typically by setting a downstream env var that the
-    actual logic checks). Designed to be extensible for further ablations.
-
-    Currently supported tokens:
-        - "validation_protocol_ablation": override the default num_folds/num_repeats
-            in TabArenaValidationProtocolExecMixin._resolve_number_of_splits.
-    """
     num_ray_cpus: int | Literal["auto"] = "auto"
     """Number of CPUs to use for checking the cache and generating the jobs.
     This should be set to the number of CPUs available to the python script.
@@ -1010,13 +997,6 @@ class BenchmarkSetup2026:
         max_array_size = self.slurm_setup.max_array_size
         job_batches = list(to_batch_list(all_jobs, max_array_size))
 
-        # Env prefix forwarded to the SLURM job via `#SBATCH --export=ALL` in
-        # submit_template.sh. The runner script reads TABARENA_RUNNER_MODIFICATIONS
-        # and dispatches tokens to behavior-specific env vars.
-        env_prefix = ""
-        if self.runner_modifications:
-            env_prefix = f"TABARENA_RUNNER_MODIFICATIONS={','.join(self.runner_modifications)} "
-
         run_commands = []
         for batch_idx, batch_jobs in enumerate(job_batches):
             batch_jobs = list(batch_jobs)
@@ -1031,7 +1011,7 @@ class BenchmarkSetup2026:
                 json.dump(batch_dict, f)
 
             batch_size = len(batch_jobs)
-            run_command = f"{env_prefix}sbatch --array=0-{batch_size - 1}%{array_job_limit} {self.slurm_base_command} {json_path}"
+            run_command = f"sbatch --array=0-{batch_size - 1}%{array_job_limit} {self.slurm_base_command} {json_path}"
             run_commands.append(run_command)
 
         batch_info = ""

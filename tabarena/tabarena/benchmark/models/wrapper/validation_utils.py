@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -37,7 +36,6 @@ class TabArenaValidationProtocolExecMixin:
         group_labels: GroupLabelTypes | None = None,
         split_time_horizon: SplitTimeHorizonTypes | None = None,
         split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
-        drop_group_columns: bool = True, # FIXME: legacy support; not used -> remove from code.
     ):
         """Mixin to handle validation protocol logic for benchmarking.
 
@@ -66,10 +64,6 @@ class TabArenaValidationProtocolExecMixin:
             Time horizon for deployment/test data
         split_time_horizon_unit:
             Unit for time horizon for deployment/test data (e.g. days, months, years)
-        drop_group_columns:
-            If True (default), drop group_on from the training (and tuning) data after
-            using them to compute the splits. These columns are used solely for defining
-            the validation protocol and should not be fed to the model as features.
         """
         self.use_task_specific_validation = use_task_specific_validation
         self.target_name = target_name
@@ -80,7 +74,6 @@ class TabArenaValidationProtocolExecMixin:
         self.group_labels = group_labels
         self.split_time_horizon = split_time_horizon
         self.split_time_horizon_unit = split_time_horizon_unit
-        self.drop_group_columns = drop_group_columns
 
     def resolve_validation_splits(
         self,
@@ -118,19 +111,6 @@ class TabArenaValidationProtocolExecMixin:
                 "\n\t The model is configured to do not validation at all!"
             )
             return custom_splits, num_folds, num_repeats
-
-        # FIXME: remove later, after ablations or once we can pass this via experiment config.
-        if os.environ.get("TABARENA_DISABLE_NON_IID_SPLITS", False):
-            logger.info(
-                "\nEnvironment variable TABARENA_DISABLE_NON_IID_SPLITS is set to True, "
-                "skipping non-iid validation splitting logic."
-            )
-            self.time_on = None
-            self.group_on = None
-            self.group_time_on = None
-            self.group_labels = None
-            self.split_time_horizon = None
-            self.split_time_horizon_unit = None
 
         num_group_instances = self.get_num_group_instances(X=X)
         logger.info(
@@ -274,13 +254,7 @@ class TabArenaValidationProtocolExecMixin:
         """
         new_num_folds, new_num_repeats = None, None
         new_num_folds_reason, new_num_repeats_reason = "", ""
-        if os.environ.get("TABARENA_VALIDATION_PROTOCOL_ABLATION", False):
-            # FIXME: remove this later, custom case for paper
-            new_num_folds = 8
-            new_num_repeats = 1
-            new_num_folds_reason += "Validation protocol ablation"
-            new_num_repeats_reason += "Validation protocol ablation"
-        elif num_group_instances <= self.max_samples_for_tiny_data:
+        if num_group_instances <= self.max_samples_for_tiny_data:
             new_num_folds = self.tiny_data_num_folds
             new_num_repeats = self.tiny_data_num_repeats
             new_num_folds_reason += "Tiny data"
@@ -289,8 +263,6 @@ class TabArenaValidationProtocolExecMixin:
             # We want these by default for all other data in our benchmark.
             assert num_folds == 8
             assert (num_repeats == 1) or (num_repeats is None)
-
-
 
         if new_num_folds is not None:
             logger.info(
@@ -398,21 +370,7 @@ class TabArenaValidationProtocolExecMixin:
             goal_n_intervals=num_folds,
         )
 
-    def _get_group_columns_to_drop(self) -> list[str]:
-        """Return the group/time columns that should be dropped from the model input.
-
-        Only populated when ``drop_group_columns=True``.  The caller is responsible
-        for dropping these columns *after* the splits have been computed (the columns
-        are still needed by ``resolve_validation_splits``).
-        """
-        if not self.drop_group_columns:
-            return []
-        cols: list[str] = []
-        if self.group_on is not None:
-            cols += self.group_on if isinstance(self.group_on, list) else [self.group_on]
-        return cols
-
-    def get_num_group_instances(self, X: pd.DataFrame, *, group_labels: None = None) -> int:
+    def get_num_group_instances(self, X: pd.DataFrame) -> int:
         """Compute the number of rows that represent how much (multi-instance) samples
         the data has. This is used to determine which splits to use.
         """
