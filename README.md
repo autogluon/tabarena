@@ -162,7 +162,6 @@ Nick Erickson, Lennart Purucker, Andrej Tschalzev, David Holzmüller, Prateek Mu
 <details>
 <summary><b>BibTeX</b></summary>
 
-> [!NOTE]
 > The entry uses `year=2026` because NeurIPS'25 proceedings are published in 2026.
 
 ```bibtex
