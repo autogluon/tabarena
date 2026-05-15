@@ -53,7 +53,6 @@ _methods_paper = [
     "TabPFNv2_GPU",
 
     "xRFM_GPU",
-    "LimiX_GPU",
     "BetaTabPFN_GPU",
     "TabFlex_GPU",
     "RealTabPFN-v2.5",
@@ -63,6 +62,8 @@ _methods_paper = [
     "PerpetualBooster",
 
     "TabPFN-v2.6",
+    "LimiX",
+    "TabPFN-3",
 ]
 
 
@@ -70,11 +71,21 @@ class TabArenaContext:
     def __init__(
         self,
         methods: list[MethodMetadata] | str = "tabarena",
+        task_metadata: str | pd.DataFrame = "tabarena",
+        *,
         extra_methods: list[MethodMetadata] = None,
         include_unverified: bool = False,
         backend: Literal["ray", "native"] = "ray",
+        fillna_method: str | None = "RF (default)",
+        calibration_method: str | None = "RF (default)",
     ):
-        self.task_metadata = load_task_metadata(paper=True)  # FIXME: Instead download?
+        if isinstance(task_metadata, str):
+            assert task_metadata == "tabarena"
+            task_metadata = load_task_metadata(paper=True)
+        assert isinstance(task_metadata, pd.DataFrame)
+        self.task_metadata = task_metadata
+        self.fillna_method = fillna_method
+        self.calibration_method = calibration_method
         assert backend in ["ray", "native"]
         self.backend = backend
         self.engine = "ray" if self.backend == "ray" else "sequential"
@@ -110,6 +121,79 @@ class TabArenaContext:
 
         self.method_metadata_collection: MethodMetadataCollection = MethodMetadataCollection(method_metadata_lst)
 
+    @property
+    def _default_subsets(self):
+        return [
+            [],
+            ["tiny"],
+            ["small"],
+            ["medium"],
+            ["binary"],
+            ["multiclass"],
+            ["classification"],
+            ["regression"],
+        ]
+
+    # FIXME: Finish this, it is WIP
+    def generate_all_figs(
+        self,
+        output_dir,
+        subsets: list[list[str] | tuple[str, list[str]]] | str = "auto",
+        new_results = None,
+        compare_kwargs = None,
+        tuning_trajectory_kwargs = None,
+        plot_compare: bool = True,
+        plot_runtime_per_method: bool = False,
+        plot_tuning_trajectories: bool = False,
+    ) -> None:
+        if compare_kwargs is None:
+            compare_kwargs = {}
+        if tuning_trajectory_kwargs is None:
+            tuning_trajectory_kwargs = {}
+        if subsets == "auto":
+            subsets = self._default_subsets
+        for subset in subsets:
+            output_suffix = None
+            if subset is None:
+                subset = []
+            if isinstance(subset, tuple):
+                assert len(subset) == 2
+                output_suffix, subset = subset
+            if isinstance(subset, str):
+                subset = [subset]
+            if isinstance(subset, list):
+                if output_suffix is None:
+                    if not subset:
+                        output_suffix = "all"
+                    else:
+                        output_suffix = "&".join(subset)
+            else:
+                raise ValueError(f"Unknown subset: {subset!r}")
+            output_dir_subset = output_dir / output_suffix
+
+            # FIXME: new_results
+            if plot_compare:
+                self.compare(
+                    output_dir=output_dir_subset,
+                    subset=subset,
+                    new_results=new_results,
+                    subset_label=output_suffix,
+                    **compare_kwargs,
+                )
+            if plot_tuning_trajectories:
+                self.plot_tuning_trajectories(
+                    save_path=output_dir_subset / "tuning_trajectories",
+                    subset=subset,
+                    extra_results=new_results,
+                    **tuning_trajectory_kwargs,
+                )
+            if plot_runtime_per_method:
+                self.plot_runtime_per_method(
+                    save_path=output_dir_subset / "ablation" / "all-runtimes",
+                    # new_results=new_results,
+                    subset=subset,
+                )
+
     def compare(
         self,
         output_dir: str | Path,
@@ -119,7 +203,8 @@ class TabArenaContext:
         folds: list[int] | None = None,
         score_on_val: bool = False,
         average_seeds: bool = False,
-        fillna: str | pd.DataFrame | None = "RF (default)",
+        fillna: str | pd.DataFrame | None = "auto",
+        calibration_method: str | None = "auto",
         remove_imputed: bool = False,
         tmp_treat_tasks_independently: bool = False,
         leaderboard_kwargs: dict | None = None,
@@ -127,6 +212,12 @@ class TabArenaContext:
         **kwargs,
     ) -> pd.DataFrame:
         from tabarena.nips2025_utils.compare import compare_on_tabarena
+
+        if fillna == "auto":
+            fillna = self.fillna_method
+        if calibration_method == "auto":
+            calibration_method = self.calibration_method
+
         return compare_on_tabarena(
             output_dir=output_dir,
             new_results=new_results,
@@ -137,6 +228,7 @@ class TabArenaContext:
             score_on_val=score_on_val,
             average_seeds=average_seeds,
             fillna=fillna,
+            calibration_framework=calibration_method,
             remove_imputed=remove_imputed,
             tmp_treat_tasks_independently=tmp_treat_tasks_independently,
             leaderboard_kwargs=leaderboard_kwargs,
@@ -736,6 +828,27 @@ class TabArenaContext:
         df_results = pd.concat(df_results_lst, ignore_index=True)
         return df_results
 
+    def subset_results(
+        self,
+        df_results: pd.DataFrame,
+        *,
+        subset: list[str] | None = None,
+        tasks: list[tuple[str, int]] | None = None,
+        datasets: list[str] | None = None,
+        folds: list[int] | None = None,
+    ) -> pd.DataFrame:
+        from tabarena.nips2025_utils.compare import subset_tasks
+        if subset is not None or datasets is not None or folds is not None or tasks is not None:
+            df_results = subset_tasks(
+                df_results=df_results,
+                subset=subset,
+                tasks=tasks,
+                datasets=datasets,
+                folds=folds,
+                task_metadata_og=self.task_metadata,
+            )
+        return df_results
+
     def load_configs_hyperparameters(
         self,
         methods: list[str] | None = None,
@@ -780,13 +893,15 @@ class TabArenaContext:
         include_portfolio: bool = False,
         elo_bootstrap_rounds: int = 200,
         use_latex: bool = False,
-        fillna_method: str | None = "RF (default)",  # FIXME: Don't hardcode
+        fillna_method: str | None = "auto",
         use_website_folder_names: bool = False,
         evaluator_kwargs: dict = None,
     ):
         if df_results is None:
             df_results = self.load_results_paper(download_results="auto")
 
+        if fillna_method == "auto":
+            fillna_method = self.fillna_method
         if fillna_method is not None:
             df_results = TabArenaContext.fillna_metrics(
                 df_to_fill=df_results,
@@ -805,19 +920,80 @@ class TabArenaContext:
             evaluator_kwargs=evaluator_kwargs,
         )
 
+    def plot_tuning_trajectories(
+        self,
+        save_path: str | Path,
+        subset: list[str] | None = None,
+        **kwargs,
+    ):
+        from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories
+        plot_tuning_trajectories(
+            tabarena_context=self,
+            fig_save_dir=save_path,
+            subset_map=subset,
+            **kwargs,
+        )
+
     def plot_tuning_trajectories_per_dataset(
         self,
         save_path: str | Path,
+        file_ext: str = ".pdf",
+        to_grid: bool = False,
         **kwargs,
     ):
+        if to_grid:
+            assert file_ext == ".png", f"to_grid=True only works with file_ext={'.png'!r}"
         from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories_per_dataset
         plot_tuning_trajectories_per_dataset(
             tabarena_context=self,
             fig_save_dir=save_path,
+            file_ext=file_ext,
             **kwargs,
         )
 
-    def plot_runtime_per_method(self, save_path: str | Path, df_results_configs: pd.DataFrame = None):
+        if to_grid:
+            self._make_png_grid(
+                save_path=save_path,
+            )
+
+    def _make_png_grid(
+        self,
+        save_path: str | Path,
+        suffix: str | Path = "tuning_trajectories/pareto_n_configs_err_tot_train.png",
+        output_suffix: str | Path = "per_dataset_train_vs_error.png",
+        n_cols: int = 5,
+        datasets: list[str] | None = None,
+    ):
+        from tabarena.plot.png_to_grid import make_png_grid
+        if not datasets:
+            task_metadata = self.task_metadata
+            datasets = sorted(list(task_metadata["dataset"].unique()))
+
+        n_datasets = len(datasets)
+        n_rows = (n_datasets + n_cols - 1) // n_cols
+
+        prefix = save_path
+        output_path = save_path.parent / output_suffix
+
+        png_files = [prefix / dataset / suffix for dataset in datasets]
+        make_png_grid(
+            image_paths=png_files,
+            output_path=output_path,
+            n_rows=n_rows,
+            n_cols=n_cols,
+            padding=12,
+            bg_color=(255, 255, 255, 255),
+            resize_mode="fit",
+            scale=0.33,
+        )
+
+    def plot_runtime_per_method(
+        self,
+        save_path: str | Path,
+        df_results_configs: pd.DataFrame = None,
+        subset: list[str] | None = None,
+        **kwargs,
+    ):
         if df_results_configs is None:
             df_results_configs = self.load_config_results_multi()
         else:
@@ -827,17 +1003,53 @@ class TabArenaContext:
             df_results_configs["imputed"] = df_results_configs["imputed"].fillna(0)
             df_results_configs = df_results_configs[df_results_configs["imputed"] == 0]
 
+        if subset:
+            df_results_configs = self.subset_results(df_results=df_results_configs, subset=subset)
+
+        # Group/legend by per-method display_name (falling back to the method name)
+        # rather than config_type, so methods sharing a config_type (e.g. CPU/GPU
+        # variants like RealMLP and RealMLP_GPU) get distinct lines.
+        method_to_display_name = {
+            m.method: m.display_name
+            for m in self.method_metadata_collection.method_metadata_lst
+            if m.method_type == "config"
+        }
+        df_results_configs["config_type"] = (
+            df_results_configs["ta_name"]
+            .map(method_to_display_name)
+            .fillna(df_results_configs["ta_name"])
+        )
+
+        deep_dive_kwargs = dict(kwargs.pop("deep_dive_kwargs", None) or {})
+
         evaluator = TabArenaEvaluator(output_dir=save_path)
-        evaluator.generate_runtime_plot(df_results=df_results_configs)
+        evaluator.generate_runtime_plot(
+            df_results=df_results_configs,
+            deep_dive_kwargs=deep_dive_kwargs,
+            **kwargs,
+        )
 
     def generate_per_dataset_tables(
         self,
         save_path: str | Path,
         df_results: pd.DataFrame = None,
-        fillna_method: str | None = "RF (default)",  # FIXME: Don't hardcode
+        fillna_method: str | None = "auto",  # FIXME: Don't hardcode
+        per_dataset_dir: str | Path | None = None,
+        method_order: list[str] | None = None,
+        use_display_names: bool = False,
     ):
+        if fillna_method == "auto":
+            fillna_method = self.fillna_method
         if df_results is None:
             df_results = self.load_results_paper(download_results="auto")
+
+        if use_display_names:
+            rename_map = self._method_rename_map_to_display_names()
+            if rename_map:
+                df_results = df_results.copy()
+                df_results["method"] = df_results["method"].replace(rename_map)
+                if fillna_method in rename_map:
+                    fillna_method = rename_map[fillna_method]
 
         if fillna_method is not None:
             df_results = TabArenaContext.fillna_metrics(
@@ -848,7 +1060,28 @@ class TabArenaContext:
         get_per_dataset_tables(
             df_results=df_results,
             save_path=Path(save_path),
+            task_metadata=self.task_metadata,
+            per_dataset_dir=Path(per_dataset_dir) if per_dataset_dir is not None else None,
+            method_order=method_order,
         )
+
+    def _method_rename_map_to_display_names(self) -> dict[str, str]:
+        """Build a mapping ``"<config_type> (<subtype>)" -> "<display_name>
+        (<subtype>)"`` covering every config method in this collection plus
+        the bare ``method -> display_name`` mapping for baseline/portfolio
+        methods. Used to switch the rendered ``method`` column from
+        ``config_type``/``ag_key``-based codes to friendlier display names."""
+        rename_map: dict[str, str] = {}
+        suffixes = [" (default)", " (tuned)", " (tuned + ensemble)"]
+        for m in self.method_metadata_collection.method_metadata_lst:
+            if not m.display_name:
+                continue
+            if m.method_type == "config" and m.config_type and m.config_type != m.display_name:
+                for suffix in suffixes:
+                    rename_map[f"{m.config_type}{suffix}"] = f"{m.display_name}{suffix}"
+            elif m.method_type in ("baseline", "portfolio") and m.method != m.display_name:
+                rename_map[m.method] = m.display_name
+        return rename_map
 
     def leaderboard_to_website_format(
         self,

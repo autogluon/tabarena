@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from typing import TYPE_CHECKING
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 from autogluon.tabular import __version__
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -76,7 +77,16 @@ class TabICLModelBase(AbstractTorchModel):
             return 8
         if n_cells <= 6_000_000:
             return 4
-        return 2
+        if n_cells <= 500_000_000:
+            return 2
+        return 1
+
+    @staticmethod
+    def _get_n_estimators_override(n_rows: int) -> int | None:
+        # Avoid OOM and time issues
+        if n_rows >=  700_000:
+            return 1
+        return None
 
     def _fit(
         self,
@@ -113,10 +123,22 @@ class TabICLModelBase(AbstractTorchModel):
         )
         hyp["checkpoint_version"] = self.get_checkpoint_version(hyperparameter=hyp)
 
+        n_estimators_override = self._get_n_estimators_override(n_rows=X.shape[0])
+        if n_estimators_override is not None:
+            hyp["n_estimators"] = n_estimators_override
+
+        # Unique per-instance offload dir inside the OS tempdir (node-local on
+        # clusters). tabicl removes the offloaded files itself;
+        # the empty dir is left to the OS tempdir reaper.
+        disk_offload_dir = tempfile.mkdtemp(prefix="tabicl_")
+
         self.model = model_cls(
             **hyp,
             device=device,
             n_jobs=num_cpus,
+            disk_offload_dir=disk_offload_dir,
+            verbose=X.shape[0] > 250_000,
+            inference_config=dict(COL_CONFIG=dict(cpu_safety_factor=0.75))
         )
         X = self.preprocess(X, y=y)
         self.model = self.model.fit(

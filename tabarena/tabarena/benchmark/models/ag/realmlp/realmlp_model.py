@@ -171,18 +171,8 @@ class RealMLPModel(AbstractTorchModel):
         impute_bool = hyp.pop("impute_bool", True)
         name_categories = hyp.pop("name_categories", True)
 
-        n_features = len(X.columns)
-        if (
-            "predict_batch_size" in hyp
-            and isinstance(hyp["predict_batch_size"], str)
-            and hyp["predict_batch_size"] == "auto"
-        ):
-            # simple heuristic to avoid OOM during inference time
-            # note: this isn't fool-proof, and ignores the actual memory availability of the machine.
-            # note: this is based on an assumption of 32 GB of memory available on the instance
-            # default is 1024
-            hyp["predict_batch_size"] = max(min(int(8192 * 200 / n_features), 8192), 64)
-
+        hyp = self._set_predict_batch_size(hyp=hyp, n_features=len(X.columns))
+        hpy = self._hp_override_large_features(hyp=hyp, n_features=len(X.columns))
         self.model = model_cls(
             n_threads=num_cpus,
             device=device,
@@ -213,6 +203,28 @@ class RealMLPModel(AbstractTorchModel):
                 else None,
                 **extra_fit_kwargs,
             )
+
+    @staticmethod
+    def _set_predict_batch_size(*, hyp: dict, n_features: int):
+        if (
+            "predict_batch_size" in hyp
+            and isinstance(hyp["predict_batch_size"], str)
+            and hyp["predict_batch_size"] == "auto"
+        ):
+            # simple heuristic to avoid OOM during inference time
+            # note: this isn't fool-proof, and ignores the actual memory availability of the machine.
+            # note: this is based on an assumption of 32 GB of memory available on the instance
+            # default is 1024
+            hyp["predict_batch_size"] = max(min(int(8192 * 200 / n_features), 8192), 64)
+        return hyp
+
+    @staticmethod
+    def _hp_override_large_features(*, hyp: dict, n_features: int):
+        # Avoid OOM for large feature sizes by overriding to smaller model size, as recommended by the author.
+        # note: this is based on an assumption of 32 GB of memory available on the instance
+        if n_features > 8192:
+            hyp["plr_hidden_2"] = min(hyp.get("plr_hidden_2", 16), 16)
+        return hyp
 
     def _predict_proba(self, X, **kwargs) -> np.ndarray:
         with set_logger_level("lightning.pytorch", logging.WARNING):
@@ -376,6 +388,8 @@ class RealMLPModel(AbstractTorchModel):
             else DefaultParams.RealMLP_TD_REG
         )
         params.update(hyperparameters)
+        params = RealMLPModel._set_predict_batch_size(hyp=params, n_features=X.shape[1])
+        params = RealMLPModel._hp_override_large_features(hyp=params, n_features=X.shape[1])
 
         n_samples = X.shape[0]
         n_numerical = X.select_dtypes(include=["int", "float"]).shape[1]
@@ -405,9 +419,16 @@ class RealMLPModel(AbstractTorchModel):
 
         est = int(res.gpu_ram_gb * 1e9)
 
-        if n_samples > 250_000:
-            est = int(est * overhead_for_large_data)
+        if n_samples > 50_000:
+            # Default overhead that somehow exists for large data as it seems
+            est += (12 * 1e9)
+        if X.shape[1] > 5_000:
+            est /= 2.5 # Avoid features are not counted correctly.
 
+        logger.log(
+            40,
+            f"Estimated memory usage for RealMLP: {est / 1e9:.2f} GB",
+        )
         return est
 
     def _validate_fit_memory_usage(self, mem_error_threshold: float = 1, **kwargs):
