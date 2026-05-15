@@ -60,3 +60,37 @@ def discover_models() -> dict[str, ModelInfo]:
 def get_model_registry() -> dict[str, ModelInfo]:
     """Return the cached `MODEL_REGISTRY`, building it on first call."""
     return discover_models()
+
+
+def register_model_info(info: ModelInfo) -> None:
+    """Register an additional `ModelInfo` with the core `MODEL_REGISTRY`.
+
+    Intended for use by extension packages (e.g. `tabarena_extensions`) whose
+    `tabarena_extensions/<key>/info.py` modules aren't reachable by
+    `discover_models()`'s walk over `tabarena.models`. The extension's
+    `__init__.py` calls `register_model_info(...)` for each of its
+    `ModelInfo` instances to make them discoverable via `MODEL_REGISTRY`.
+
+    Extensions sometimes redeclare a method that's already in the core
+    registry (e.g. a re-benchmarked LinearModel with a different
+    `artifact_name`). When `info.method_metadata.method` is already
+    registered with a different `ModelInfo`, this function keys the new
+    entry as ``f"{method}@{artifact_name}"`` instead, preserving the core
+    entry under the bare method name.
+    """
+    registry = discover_models()
+    key = info.method_metadata.method
+    existing = registry.get(key)
+    if existing is None or existing is info:
+        registry[key] = info
+        return
+    # Disambiguate by appending artifact_name to the key.
+    artifact = info.method_metadata.artifact_name or "ext"
+    composite_key = f"{key}@{artifact}"
+    if composite_key in registry and registry[composite_key] is not info:
+        raise RuntimeError(
+            f"Duplicate ModelInfo composite key {composite_key!r}: "
+            f"already registered as {registry[composite_key]}; "
+            f"attempted to re-register with {info}."
+        )
+    registry[composite_key] = info
