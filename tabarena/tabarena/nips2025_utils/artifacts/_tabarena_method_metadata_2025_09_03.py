@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from tabarena.models.mitra.info import mitra_method_metadata
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+
+# Legacy alias — preserved for any external code still importing the older name.
+mitra_metadata = mitra_method_metadata
 
 _common_kwargs = dict(
     artifact_name="tabarena-2025-09-03",
@@ -22,21 +26,6 @@ ag_140_metadata = MethodMetadata(
     date="2025-09-03",
     verified=True,
     reference_url="https://arxiv.org/abs/2003.06505",
-    **_common_kwargs,
-)
-mitra_metadata = MethodMetadata(
-    method="Mitra_GPU",
-    method_type="config",
-    display_name="Mitra",
-    compute="gpu",
-    date="2025-09-03",
-    ag_key="MITRA",
-    model_key="MITRA_GPU",
-    config_default="Mitra_GPU_c1_BAG_L1",
-    can_hpo=False,
-    is_bag=True,
-    verified=True,
-    reference_url="https://arxiv.org/abs/2510.21204",
     **_common_kwargs,
 )
 limix_metadata = MethodMetadata(

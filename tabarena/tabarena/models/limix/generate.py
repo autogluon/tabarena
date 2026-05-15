@@ -1,20 +1,7 @@
+"""Back-compat shim: `gen_limix` now lives in `tabarena.models.limix.hpo`."""
+
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.limix.limix_model import LimiXModel
-from tabarena.utils.config_utils import ConfigGenerator
+from tabarena.models.limix.hpo import gen_limix
 
-gen_limix = ConfigGenerator(
-    model_cls=LimiXModel,
-    search_space={},
-    manual_configs=[{}],
-)
-
-
-if __name__ == "__main__":
-    from tabarena.benchmark.experiment import YamlExperimentSerializer
-
-    print(
-        YamlExperimentSerializer.to_yaml_str(
-            experiments=gen_limix.generate_all_bag_experiments(num_random_configs=0),
-        ),
-    )
+__all__ = ["gen_limix"]

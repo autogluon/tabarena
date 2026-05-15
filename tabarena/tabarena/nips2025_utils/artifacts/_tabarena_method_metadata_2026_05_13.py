@@ -1,68 +1,8 @@
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models.limix.info import limix_method_metadata
+from tabarena.models.orionmsp.info import orionmsp_method_metadata
+from tabarena.models.tabpfn_3.info import tabpfn_3_method_metadata
 
-
-tabpfnv3_method_metadata = MethodMetadata(
-    method="TabPFN-3",
-    method_type="config",
-    display_name="TabPFN-3",
-    compute="gpu",
-    ag_key="TA-TABPFN-3",
-    config_default="TabPFN-3_c1_BAG_L1",
-    can_hpo=False,
-    is_bag=False,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    date="2026-05-13",
-    reference_url="https://arxiv.org/abs/2605.13986",
-    cache_type="r2",
-    artifact_name="tabarena-2026-05-13",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    verified=True,
-)
-
-limix_metadata = MethodMetadata(
-    method="LimiX",
-    method_type="config",
-    display_name="LimiX",
-    compute="gpu",
-    date="2026-05-13",
-    ag_key="TA-LIMIX",
-    config_default="LimiX_c1_BAG_L1",
-    can_hpo=False,
-    is_bag=False,
-    verified=False,
-    reference_url="https://arxiv.org/abs/2509.03505",
-    cache_type="r2",
-    artifact_name="tabarena-2026-05-13",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-)
-
-orionmsp_metadata = MethodMetadata(
-    method="OrionMSP",
-    artifact_name="tabarena-2026-05-13",
-    display_name="OrionMSP",
-    method_type="config",
-    compute="gpu",
-    date="2026-05-13",
-    ag_key="TA-ORION-MSP",
-    config_default="OrionMSP_c1_BAG_L1",
-    can_hpo=False,
-    is_bag=False,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    verified=False,
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    cache_type="r2",
-    reference_url="https://arxiv.org/abs/2511.02818",
-)
+# Legacy aliases — preserved for any external code still importing these names.
+tabpfnv3_method_metadata = tabpfn_3_method_metadata
+limix_metadata = limix_method_metadata
+orionmsp_metadata = orionmsp_method_metadata

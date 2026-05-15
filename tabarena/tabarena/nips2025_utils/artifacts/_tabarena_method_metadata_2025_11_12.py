@@ -1,4 +1,8 @@
+from tabarena.models.sap_rpt_oss.info import sap_rpt_oss_method_metadata
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+
+# Legacy alias — preserved for any external code still importing the older name.
+contexttab_metadata = sap_rpt_oss_method_metadata
 
 realtabpfn25_metadata = MethodMetadata(
     method="RealTabPFN-v2.5",
@@ -23,25 +27,3 @@ realtabpfn25_metadata = MethodMetadata(
     reference_url="https://arxiv.org/abs/2511.08667",
 )
 
-contexttab_metadata = MethodMetadata(
-    method="SAP-RPT-OSS",
-    method_type="config",
-    display_name="SAP-RPT-OSS",
-    compute="gpu",
-    date="2025-11-25",
-    ag_key="SAP-RPT-OSS",
-    model_key="SAP-RPT-OSS",
-    config_default="SAP-RPT-OSS_c1_BAG_L1",
-    can_hpo=False,
-    is_bag=False,
-    has_raw=True,
-    has_processed=True,
-    artifact_name="tabarena-2025-11-25",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    has_results=True,
-    name_suffix=None,
-    verified=False,
-    reference_url="https://arxiv.org/abs/2506.10707",
-)

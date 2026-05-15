@@ -1,0 +1,36 @@
+from __future__ import annotations
+
+from tabarena.benchmark.models.ag.orionmsp.orionmsp_model import OrionMSPModel
+from tabarena.models._model_info import ModelInfo
+from tabarena.models.orionmsp.hpo import gen_orionmsp
+from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+
+
+orionmsp_method_metadata = MethodMetadata(
+    method="OrionMSP",
+    artifact_name="tabarena-2026-05-13",
+    display_name="OrionMSP",
+    method_type="config",
+    compute="gpu",
+    date="2026-05-13",
+    ag_key="TA-ORION-MSP",
+    config_default="OrionMSP_c1_BAG_L1",
+    can_hpo=False,
+    is_bag=False,
+    has_raw=True,
+    has_processed=True,
+    has_results=True,
+    verified=False,
+    s3_bucket="tabarena",
+    s3_prefix="cache",
+    upload_as_public=True,
+    cache_type="r2",
+    reference_url="https://arxiv.org/abs/2511.02818",
+)
+
+
+orionmsp_info = ModelInfo(
+    model_cls=OrionMSPModel,
+    search_space=gen_orionmsp,
+    method_metadata=orionmsp_method_metadata,
+)

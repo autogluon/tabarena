@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from tabarena.models.tabdpt.info import tabdpt_method_metadata
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+
+# Legacy alias — preserved for any external code still importing the older name.
+tabdpt_metadata = tabdpt_method_metadata
 
 _common_kwargs = dict(
     artifact_name="tabarena-2025-10-20",
@@ -41,22 +45,6 @@ knn_metadata = MethodMetadata(
     has_raw=True,
     has_processed=True,
     reference_url="https://scikit-learn.org/stable/modules/neighbors.html",
-    **_common_kwargs,
-)
-tabdpt_metadata = MethodMetadata(
-    method="TabDPT_GPU",
-    method_type="config",
-    display_name="TabDPT",
-    compute="gpu",
-    date="2025-10-20",
-    ag_key="TABDPT",
-    model_key="TABDPT_GPU",
-    config_default="TabDPT_GPU_c1_BAG_L1",
-    can_hpo=True,
-    is_bag=False,
-    has_raw=True,
-    has_processed=True,
-    reference_url="https://arxiv.org/abs/2410.18164",
     **_common_kwargs,
 )
 portfolio_metadata_paper_cr = MethodMetadata(
