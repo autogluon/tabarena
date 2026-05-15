@@ -8,9 +8,10 @@ from autogluon.tabular.registry import ModelRegistry, ag_model_registry
 # `tabarena_model_registry` and `_models_to_add` are built lazily on first
 # access so that this module finishes loading before `get_model_registry()`
 # (which transitively triggers `experiment_constructor` → `model_registry`)
-# tries to import from us. See PEP 562.
-_tabarena_model_registry: ModelRegistry | None = None
-_models_to_add: list[type] | None = None
+# tries to import from us. See PEP 562. Note: they are NOT predefined as
+# module-level globals — that would short-circuit `__getattr__` and yield
+# `None` on first access. The cache lives in `_lazy_state` instead.
+_lazy_state: dict[str, object] = {}
 
 
 def _build_tabarena_model_registry() -> tuple[ModelRegistry, list[type]]:
@@ -48,15 +49,12 @@ def _build_tabarena_model_registry() -> tuple[ModelRegistry, list[type]]:
 
 
 def __getattr__(name: str):
-    global _tabarena_model_registry, _models_to_add
-    if name == "tabarena_model_registry":
-        if _tabarena_model_registry is None:
-            _tabarena_model_registry, _models_to_add = _build_tabarena_model_registry()
-        return _tabarena_model_registry
-    if name == "_models_to_add":
-        if _models_to_add is None:
-            _tabarena_model_registry, _models_to_add = _build_tabarena_model_registry()
-        return _models_to_add
+    if name in ("tabarena_model_registry", "_models_to_add"):
+        if "tabarena_model_registry" not in _lazy_state:
+            registry, models_to_add = _build_tabarena_model_registry()
+            _lazy_state["tabarena_model_registry"] = registry
+            _lazy_state["_models_to_add"] = models_to_add
+        return _lazy_state[name]
     raise AttributeError(name)
 
 
