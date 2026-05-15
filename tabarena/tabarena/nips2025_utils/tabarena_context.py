@@ -53,7 +53,6 @@ _methods_paper = [
     "TabPFNv2_GPU",
 
     "xRFM_GPU",
-    "LimiX_GPU",
     "BetaTabPFN_GPU",
     "TabFlex_GPU",
     "RealTabPFN-v2.5",
@@ -63,6 +62,8 @@ _methods_paper = [
     "PerpetualBooster",
 
     "TabPFN-v2.6",
+    "LimiX",
+    "TabPFN-3",
 ]
 
 
