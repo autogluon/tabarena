@@ -30,8 +30,39 @@ realmlp_method_metadata = MethodMetadata(
 )
 
 
+# CPU variant — same model class, same search space, different compute target.
+realmlp_cpu_method_metadata = MethodMetadata(
+    method="RealMLP",
+    method_type="config",
+    display_name="RealMLP (CPU)",
+    compute="cpu",
+    date="2025-06-12",
+    ag_key="REALMLP",
+    config_default="RealMLP_c1_BAG_L1",
+    can_hpo=True,
+    is_bag=True,
+    verified=True,
+    reference_url="https://arxiv.org/abs/2407.04491",
+    artifact_name="tabarena-2025-06-12",
+    s3_bucket="tabarena",
+    s3_prefix="cache",
+    upload_as_public=True,
+    has_raw=True,
+    has_processed=True,
+    has_results=True,
+    name_suffix=None,
+)
+
+
 realmlp_info = ModelInfo(
     model_cls=RealMLPModel,
     search_space=gen_realmlp,
     method_metadata=realmlp_method_metadata,
+)
+
+
+realmlp_cpu_info = ModelInfo(
+    model_cls=RealMLPModel,
+    search_space=gen_realmlp,
+    method_metadata=realmlp_cpu_method_metadata,
 )

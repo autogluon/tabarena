@@ -17,9 +17,9 @@ def discover_models() -> dict[str, ModelInfo]:
     """Walk `tabarena.models.<key>` packages, import each `info` submodule,
     and collect `ModelInfo` instances declared in them.
 
-    Returns a dict keyed by `model_cls.ag_name` (preferred) or the method
-    name from `method_metadata.method` (fallback). Cached on first call;
-    re-import the module to refresh.
+    Returns a dict keyed by `method_metadata.method` (the canonical, unique
+    method identifier — required to be unique by `MethodMetadata`). Cached
+    on first call; re-import the module to refresh.
 
     Models that don't yet have an `info.py` are silently skipped — Stage 1
     is migration-friendly and lets old and new layouts coexist.
@@ -45,7 +45,7 @@ def discover_models() -> dict[str, ModelInfo]:
             obj = getattr(info_module, attr_name)
             if not isinstance(obj, ModelInfo):
                 continue
-            key = getattr(obj.model_cls, "ag_name", None) or obj.method_metadata.method
+            key = obj.method_metadata.method
             if key in registry:
                 raise RuntimeError(
                     f"Duplicate ModelInfo key {key!r}: {registry[key]} vs {obj} "

@@ -6,8 +6,14 @@ from tabarena.models.catboost.info import catboost_method_metadata
 from tabarena.models.extra_trees.info import extra_trees_method_metadata
 from tabarena.models.fastai.info import fastai_method_metadata
 from tabarena.models.lightgbm.info import lightgbm_method_metadata
+from tabarena.models.modernnca.info import (
+    modernnca_gpu_method_metadata,
+    modernnca_method_metadata,
+)
 from tabarena.models.nn_torch.info import nn_torch_method_metadata
 from tabarena.models.random_forest.info import random_forest_method_metadata
+from tabarena.models.realmlp.info import realmlp_cpu_method_metadata
+from tabarena.models.tabm.info import tabm_gpu_method_metadata, tabm_method_metadata
 from tabarena.models.xgboost.info import xgboost_method_metadata
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
 
@@ -18,8 +24,13 @@ _per_model_metadata = [
     extra_trees_method_metadata,
     fastai_method_metadata,
     lightgbm_method_metadata,
+    modernnca_method_metadata,
+    modernnca_gpu_method_metadata,
     nn_torch_method_metadata,
     random_forest_method_metadata,
+    realmlp_cpu_method_metadata,
+    tabm_method_metadata,
+    tabm_gpu_method_metadata,
     xgboost_method_metadata,
 ]
 _migrated_method_names = {m.method for m in _per_model_metadata}
