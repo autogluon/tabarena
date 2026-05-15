@@ -131,10 +131,8 @@ TabArena caches predictions, results, and leaderboards as downloadable artifacts
 <details>
 <summary><b>Artifact tiers, sizes, and examples</b></summary>
 
-> [!NOTE]
 > Artifacts download to `~/.cache/tabarena/` by default. Override the location with the `TABARENA_CACHE` environment variable.
-
-> [!WARNING]
+> 
 > Raw data is **~100 GB per method type**. Point `TABARENA_CACHE` at a large disk before downloading it.
 
 | Tier | Contents | Size / method | Example |
