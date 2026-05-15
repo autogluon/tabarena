@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import warnings
 from pathlib import Path
 from typing import Literal, TYPE_CHECKING
 from typing_extensions import Self
@@ -257,8 +259,12 @@ class MethodMetadata:
         assert len(unique_model_types) == 1, f"MethodMetadata requires exactly 1 model type, found: {unique_model_types}"
 
         unique_num_gpus = result_df["num_gpus"].unique()
-        assert len(unique_num_gpus) == 1
-        num_gpus = unique_num_gpus[0]
+        if len(unique_num_gpus) != 1:
+            warnings.warn(
+                f"MethodMetadata found more than one unique num_gpus value, found: {unique_num_gpus}. "
+                "Using max number of groups as official compute value."
+            )
+        num_gpus = unique_num_gpus.max()
 
         if compute is None:
             compute: Literal["cpu", "gpu"] = "cpu" if num_gpus == 0 else "gpu"
@@ -439,17 +445,33 @@ class MethodMetadata:
         if cache_type == "r2":
             from tabarena.nips2025_utils.artifacts.method_uploader_r2 import MethodUploaderR2
 
-            R2_ACCOUNT_ID = "TODO"
-            R2_ACCESS_KEY_ID = "TODO"
-            R2_SECRET_ACCESS_KEY = "TODO"
+            r2_env_vars = ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
+            missing = [v for v in r2_env_vars if not os.environ.get(v)]
+            if missing:
+                raise OSError(
+                    f"Missing required environment variable(s) for R2 uploads: {missing}.\n"
+                    f"Set {', '.join(r2_env_vars)} in your shell (or a .env file) before "
+                    f"calling method_uploader() with cache_type='r2'.\n"
+                    f"\n"
+                    f"Where to find these values in the Cloudflare R2 dashboard "
+                    f"(https://dash.cloudflare.com/ -> R2 Object Storage):\n"
+                    f"  - R2_ACCOUNT_ID: shown as 'Account ID' on the R2 overview page, "
+                    f"and embedded in the dashboard URL (dash.cloudflare.com/<account_id>/r2).\n"
+                    f"  - R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY: open 'Manage R2 API Tokens' "
+                    f"-> 'Create API Token', choose the required permission (e.g. Object Read & "
+                    f"Write) and bucket scope, then submit. Cloudflare displays both the Access "
+                    f"Key ID and the Secret Access Key on the success page; the secret is shown "
+                    f"only once, so copy it immediately. If you've lost an existing secret, "
+                    f"create a new token (or roll the existing one) from the same page."
+                )
 
             return MethodUploaderR2(
                 method_metadata=self,
-                r2_account_id=R2_ACCOUNT_ID,
+                r2_account_id=os.environ["R2_ACCOUNT_ID"],
                 r2_bucket=self.s3_bucket,
                 r2_prefix=self.s3_prefix,
-                r2_access_key_id=R2_ACCESS_KEY_ID,
-                r2_secret_access_key=R2_SECRET_ACCESS_KEY,
+                r2_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+                r2_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
             )
         elif cache_type == "s3":
             from tabarena.nips2025_utils.artifacts.method_uploader import MethodUploaderS3

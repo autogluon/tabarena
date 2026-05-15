@@ -65,6 +65,8 @@ class MethodUploaderR2:
         self.upload_raw()
         self.upload_processed()
         self.upload_results()
+        if self.method_metadata.method_type == "config":
+            self.upload_results_hpo_trajectories()
 
     def upload_metadata(self):
         fileobj = self.method_metadata.to_yaml_fileobj()

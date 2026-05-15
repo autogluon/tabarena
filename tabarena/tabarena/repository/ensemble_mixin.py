@@ -121,8 +121,9 @@ class EnsembleMixin:
         configs_available = [c for c in configs if c in set(configs_all)]
 
         if patience_callback is not None:
+            # FIXME: Not correct for temporal
             dataset_metadata = self.task_metadata[self.task_metadata["dataset"] == dataset].iloc[0]
-            num_samples_train = dataset_metadata["NumberOfInstances"] * 2 / 3  # FIXME
+            num_samples_train = dataset_metadata["n_samples_train_per_fold"]
             from autogluon.core.callbacks._smooth_count import max_models_from_num_samples_val
             max_models = max_models_from_num_samples_val(
                 num_samples_val=num_samples_train,

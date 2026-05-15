@@ -39,7 +39,7 @@ dependencies = [
 
 [project.optional-dependencies]
 tabpfn = [
-  "tabpfn>=7.0.0",
+  "tabpfn>=8.0.0",
   "tabpfn-extensions[many_class] @ git+https://github.com/PriorLabs/tabpfn-extensions.git",
 ]
 tabicl = ["tabicl>=2.0.0"]
@@ -57,10 +57,19 @@ tabprep = []
 tabstar = ["tabstar==1.1.15"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
 iltm = ["iltm>=0.1.0"]
+orionmsp = ["tabtune @ git+https://github.com/Lexsi-Labs/TabTune.git"] # from main to get newest code
+probmetrics = [
+    "probmetrics",
+    "pytorch-minimize",
+]
+limix = [
+  "einops",
+  "kditransform",
+]
 
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [
-  "tabpfn>=7.0.0",
+  "tabpfn>=8.0.0",
   "tabpfn-extensions[many_class] @ git+https://github.com/PriorLabs/tabpfn-extensions.git",
   "tabicl>=2.0.0",
   "interpret-core>=0.7.3",
@@ -73,6 +82,9 @@ benchmark = [
   "sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa",
   "perpetual",
   "tabstar==1.1.15",
+  "einops",
+  "kditransform",
+  "tabtune @ git+https://github.com/Lexsi-Labs/TabTune.git",
   "iltm>=0.1.0",
 ]
 
@@ -91,4 +103,7 @@ tabarena = [
   "metrics/_roc_auc_cpp/compile.sh",
   "metrics/_roc_auc_cpp/cpp_auc.cpp",
   "nips2025_utils/metadata/task_metadata_tabarena51.csv",
+  "benchmark/models/ag/limix/_vendor/config/*.json",
+  "benchmark/models/ag/limix/_vendor/LICENSE.txt",
+  "benchmark/models/ag/limix/_vendor/README.md",
 ]

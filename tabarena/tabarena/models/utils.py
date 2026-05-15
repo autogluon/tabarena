@@ -53,6 +53,9 @@ def get_configs_generator_from_name(model_name: str):
         "TabSTAR": lambda: importlib.import_module("tabarena.models.tabstar.generate").gen_tabstar,
         "TabPFN-2.6": lambda: importlib.import_module("tabarena.models.tabpfnv2_5.generate").gen_tabpfnv26,
         "iLTM": lambda: importlib.import_module("tabarena.models.iltm.generate").gen_iltm,
+        "OrionMSP": lambda: importlib.import_module("tabarena.models.orionmsp.generate").gen_orionmsp,
+        "LimiX": lambda: importlib.import_module("tabarena.models.limix.generate").gen_limix,
+        "TabPFN-3": lambda: importlib.import_module("tabarena.models.tabpfn_3.generate").gen_tabpfn_3,
     }
 
     if model_name not in name_to_import_map:

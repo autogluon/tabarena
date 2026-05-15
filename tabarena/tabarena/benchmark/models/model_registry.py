@@ -8,7 +8,9 @@ from tabarena.benchmark.models.ag import (
     ExplainableBoostingMachineModel,
     ILTMModel,
     KNNNewModel,
+    LimiXModel,
     ModernNCAModel,
+    OrionMSPModel,
     PerpetualBoosterModel,
     RealMLPModel,
     RealTabPFNv25Model,
@@ -17,6 +19,7 @@ from tabarena.benchmark.models.ag import (
     TabICLModel,
     TabICLv2Model,
     TabMModel,
+    TabPFN3Model,
     TabPFNv26Model,
     TabSTARModel,
     XRFMModel,
@@ -39,10 +42,22 @@ _models_to_add = [
     TabICLv2Model,
     TabSTARModel,
     TabPFNv26Model,
+    LimiXModel,
+    TabPFN3Model,
+    OrionMSPModel,
     ILTMModel,
 ]
 
 for _model_cls in _models_to_add:
+    _new_key = _model_cls.ag_key
+    if _new_key in tabarena_model_registry.keys:
+        _existing_model_cls = tabarena_model_registry.key_to_cls(key=_new_key)
+        print(
+            f"WARNING: Multiple models exist with the ag_key '{_new_key}'..."
+            f"\n\tOnly keeping the TabArena version..."
+            f"\n\tThis can cause subtle bugs and should be resolved ASAP."
+        )
+        tabarena_model_registry.remove(model_cls=_existing_model_cls)
     tabarena_model_registry.add(_model_cls)
 
 

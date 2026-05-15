@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import copy
+import importlib
 import inspect
-from typing import Type
+from typing import Any, Type
 
 import yaml
 from typing_extensions import Self
@@ -63,8 +64,8 @@ class Experiment:
         locals_new = self._to_yaml_dict(locals=locals)
         assert "type" not in locals_new, f"The `type` key is reserved for the class name."
         locals_new = dict(
-            type=self.__class__.__name__,
-            **locals_new
+            type=class_to_path(self.__class__),
+            **locals_new,
         )
         return locals_new
 
@@ -83,7 +84,7 @@ class Experiment:
         locals_new = {}
         for k, v in locals.items():
             if inspect.isclass(v):
-                v = v.__name__
+                v = class_to_path(v)
             locals_new[k] = v
         return locals_new
 
@@ -91,11 +92,11 @@ class Experiment:
     def from_yaml(cls, method_cls, _context=None, **kwargs) -> Self:
         if _context is None:
             _context = globals()
-        # Convert string class names to actual class references
-        method_cls = eval(method_cls, _context)
+
+        method_cls = resolve_class(method_cls, context=_context)
 
         if "experiment_cls" in kwargs:
-            kwargs["experiment_cls"] = eval(kwargs["experiment_cls"], _context)
+            kwargs["experiment_cls"] = resolve_class(kwargs["experiment_cls"], context=_context)
 
         obj = cls(method_cls=method_cls, **kwargs)
         return obj
@@ -275,7 +276,11 @@ class AGModelOuterExperiment(Experiment):
     def from_yaml(cls, model_cls, _context=None, **kwargs) -> Self:
         if _context is None:
             _context = globals()
-        model_cls = _context.get(model_cls, infer_model_cls(model_cls))
+        model_cls = resolve_class(
+            model_cls,
+            context=_context,
+            registry_resolver=infer_model_cls,
+        )
 
         # Evaluate all values in ag_args_fit
         if "model_hyperparameters" in kwargs:
@@ -350,7 +355,7 @@ class AGExperiment(Experiment):
             kwargs["experiment_cls"] = eval(kwargs["experiment_cls"], _context)
         if "fit_kwargs" in kwargs:
             if "hyperparameters" in kwargs["fit_kwargs"]:
-                if isinstance("hyperparameters", dict):
+                if isinstance(kwargs["fit_kwargs"]["hyperparameters"], dict):
                     hyperparameters = kwargs["fit_kwargs"]["hyperparameters"]
                     keys = list(hyperparameters.keys())
                     for model in keys:
@@ -440,18 +445,22 @@ class AGModelExperiment(Experiment):
 
     def _to_yaml_dict(self, locals: dict) -> dict:
         """
-        Convert model_cls to ag_key, since ag_key is a unique identifier, whereas model_cls is not necessarily unique.
+        Serialize model_cls as an import path so custom/unregistered classes can
+        be loaded without requiring TabArena registry registration.
         """
-        ag_key = locals["model_cls"].ag_key
         locals = copy.deepcopy(locals)
-        locals["model_cls"] = ag_key
+        locals["model_cls"] = class_to_path(locals["model_cls"])
         return super()._to_yaml_dict(locals=locals)
 
     @classmethod
     def from_yaml(cls, model_cls, _context=None, **kwargs) -> Self:
         if _context is None:
             _context = globals()
-        model_cls = _context.get(model_cls, infer_model_cls(model_cls))
+        model_cls = resolve_class(
+            model_cls,
+            context=_context,
+            registry_resolver=infer_model_cls,
+        )
 
         # Evaluate all values in ag_args_fit
         if "model_hyperparameters" in kwargs:
@@ -598,7 +607,9 @@ class YamlSingleExperimentSerializer:
         if context is None:
             context = globals()
 
-        method_type = eval(method_config.pop('type'), context)
+        method_type_raw = method_config.pop("type")
+        method_type = resolve_class(method_type_raw, context=context)
+
         method_obj = method_type.from_yaml(**method_config, _context=context)
         return method_obj
 
@@ -692,3 +703,71 @@ class YamlExperimentSerializer:
         for experiment in experiments:
             yaml_lst.append(experiment.to_yaml_dict())
         return {"methods": yaml_lst}
+
+
+def class_to_path(cls: type) -> str:
+    """
+    Serialize a class to a stable import path.
+
+    Example
+    -------
+    autogluon.tabular.models.TabPFNv3preModel
+    """
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def import_class(path: str) -> type:
+    """
+    Import a class from a fully qualified import path.
+
+    Example
+    -------
+    autogluon.tabular.models.TabPFNv3preModel
+    """
+    module_path, _, class_name = path.rpartition(".")
+    if not module_path:
+        raise ValueError(f"Expected fully qualified class path, got: {path!r}")
+
+    module = importlib.import_module(module_path)
+
+    obj: Any = module
+    for part in class_name.split("."):
+        obj = getattr(obj, part)
+
+    if not inspect.isclass(obj):
+        raise TypeError(f"Imported object is not a class: {path!r}")
+
+    return obj
+
+
+def resolve_class(
+    value: str | type,
+    *,
+    context: dict | None = None,
+    registry_resolver=None,
+) -> type:
+    """
+    Resolve a class from:
+    1. an already-materialized class
+    2. context/globals
+    3. registry resolver, such as infer_model_cls
+    4. fully qualified import path
+    """
+    if inspect.isclass(value):
+        return value
+
+    if not isinstance(value, str):
+        raise TypeError(f"Expected class or string, got: {type(value)}")
+
+    if context is not None and value in context:
+        resolved = context[value]
+        if inspect.isclass(resolved):
+            return resolved
+
+    if registry_resolver is not None:
+        try:
+            return registry_resolver(value)
+        except Exception:
+            pass
+
+    return import_class(value)
