@@ -1,3 +1,14 @@
+"""Tabprep-preprocessing benchmark results.
+
+These four entries (`PrepLightGBM`, `PrepLinearModel`, `PrepTabM`,
+`PrepRealTabPFN-v2.5`) are benchmark-result metadata for a tabprep
+preprocessing variant of each underlying model. No tabarena-side
+`Prep*Model` wrapper class exists, so they don't fit the per-model
+`ModelInfo` pattern in `tabarena/models/<key>/` and are kept here as
+standalone `MethodMetadata` instances. Treat them as "metadata-only"
+config entries — the registry/dispatch surface ignores them.
+"""
+
 from __future__ import annotations
 
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata

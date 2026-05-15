@@ -1,3 +1,13 @@
+"""Residual 2025-09-03 entries that don't fit the per-model `info.py` shape.
+
+`tabflex_metadata` / `betatabpfn_metadata` are benchmark-result metadata for
+models with no tabarena-side wrapper class (results were produced by external
+code), and `TabPFNv2_GPU` similarly has no wrapper here. They're kept as
+standalone `MethodMetadata` instances rather than `ModelInfo`. `ag_140_metadata`
+is an AutoGluon baseline. `limix_metadata` is the deprecated GPU-named entry
+(the active LimiX metadata lives in `tabarena.models.limix.info`).
+"""
+
 from __future__ import annotations
 
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
