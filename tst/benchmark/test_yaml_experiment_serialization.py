@@ -8,7 +8,7 @@ from tabarena.benchmark.experiment.experiment_constructor import (
     YamlExperimentSerializer,
     YamlSingleExperimentSerializer,
 )
-from tabarena.models.realmlp.generate import gen_realmlp
+from tabarena.models.realmlp.hpo import gen_realmlp
 from tabarena.benchmark.models.ag.realmlp.realmlp_model import RealMLPModel
 
 

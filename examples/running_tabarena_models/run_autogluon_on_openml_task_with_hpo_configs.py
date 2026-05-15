@@ -1,7 +1,7 @@
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 from tabarena.export.autogluon import AutoGluonExporter
-from tabarena.models.lightgbm.generate import gen_lightgbm
-from tabarena.models.catboost.generate import gen_catboost
+from tabarena.models.lightgbm.hpo import gen_lightgbm
+from tabarena.models.catboost.hpo import gen_catboost
 
 from autogluon.tabular import TabularPredictor
 
