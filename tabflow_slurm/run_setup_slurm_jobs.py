@@ -13,7 +13,6 @@ BenchmarkSetup(
     num_gpus=1,
     configs_per_job=1,
     time_limit=60*60*1,
-    tabarena_lite=True,
 ).setup_jobs()
 
 # # -- Benchmark XXX XX/XX/2026
