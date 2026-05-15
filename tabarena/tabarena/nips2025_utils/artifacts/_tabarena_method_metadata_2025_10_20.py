@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from tabarena.models.knn.info import knn_method_metadata
+from tabarena.models.lr.info import lr_method_metadata
 from tabarena.models.tabdpt.info import tabdpt_method_metadata
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
 
-# Legacy alias — preserved for any external code still importing the older name.
+# Legacy aliases — preserved for any external code still importing the older names.
+knn_metadata = knn_method_metadata
+lr_metadata = lr_method_metadata
 tabdpt_metadata = tabdpt_method_metadata
 
 _common_kwargs = dict(
@@ -17,36 +21,6 @@ _common_kwargs = dict(
     verified=True,
 )
 
-lr_metadata = MethodMetadata(
-    method="LinearModel",
-    method_type="config",
-    display_name="Linear",
-    compute="cpu",
-    date="2025-10-20",
-    ag_key="LR",
-    config_default="LinearModel_c1_BAG_L1",
-    can_hpo=True,
-    is_bag=True,
-    has_raw=True,
-    has_processed=True,
-    reference_url="https://scikit-learn.org/stable/modules/linear_model.html",
-    **_common_kwargs,
-)
-knn_metadata = MethodMetadata(
-    method="KNeighbors",
-    method_type="config",
-    display_name="KNN",
-    compute="cpu",
-    date="2025-10-20",
-    ag_key="KNN",
-    config_default="KNeighbors_c1_BAG_L1",
-    can_hpo=True,
-    is_bag=False,
-    has_raw=True,
-    has_processed=True,
-    reference_url="https://scikit-learn.org/stable/modules/neighbors.html",
-    **_common_kwargs,
-)
 portfolio_metadata_paper_cr = MethodMetadata(
     method="Portfolio-N200-4h",
     method_type="portfolio",
