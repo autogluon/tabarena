@@ -2,9 +2,21 @@ from __future__ import annotations
 
 import copy
 
+from tabarena.models.catboost.info import catboost_method_metadata
+from tabarena.models.lightgbm.info import lightgbm_method_metadata
+from tabarena.models.xgboost.info import xgboost_method_metadata
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
 
-methods_2025_06_12 = []
+# Models that own their MethodMetadata via per-model `info.py` modules. The
+# factory loop below skips these; they are seeded into `methods_2025_06_12` here.
+_per_model_metadata = [
+    catboost_method_metadata,
+    lightgbm_method_metadata,
+    xgboost_method_metadata,
+]
+_migrated_method_names = {m.method for m in _per_model_metadata}
+
+methods_2025_06_12 = list(_per_model_metadata)
 
 common_kwargs = dict(
     artifact_name="tabarena-2025-06-12",
@@ -264,6 +276,8 @@ methods_to_url_map = {
 tabarena_method_metadata_map_2025_06_12: dict[str, MethodMetadata] = {}
 
 for method in methods:
+    if method in _migrated_method_names:
+        continue
     compute_type = methods_compute_map[method]
     ag_key = methods_ag_key_map[method]
     config_default = methods_config_default_map[method]
