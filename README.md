@@ -25,12 +25,26 @@ TabArena currently consists of:
 
 - 51 manually curated tabular datasets representing real-world tabular data tasks.
 - 9 to 30 evaluated splits per dataset.
-- 16 tabular machine learning methods, including 3 tabular foundation models.
-- 25,000,000 trained models across the benchmark, with all validation and test predictions cached to enable tuning and post-hoc ensembling analysis.
+- 27+ tabular machine learning methods, including 10+ tabular foundation models.
+- More than 50 million trained models across the benchmark, with all validation and test predictions cached to enable tuning and post-hoc ensembling analysis.
 - A [live TabArena leaderboard](https://huggingface.co/spaces/TabArena/leaderboard) showcasing the results.
 
 
-## 🕹️ Quickstart Use Cases
+## ⚡ Quickstart
+
+> [!TIP]
+> The fastest way to try TabArena end-to-end:
+
+```bash
+pip install uv
+git clone https://github.com/autogluon/tabarena.git && cd tabarena
+uv sync --extra benchmark
+uv run python examples/benchmarking/run_quickstart_tabarena.py
+```
+
+For other install paths (eval-only, editable AutoGluon, dependency), see [Installation](#-installation) below.
+
+## 🕹️ Use Cases
 
 We share more details on various use cases of TabArena in our [examples](examples):
 
@@ -40,56 +54,54 @@ We share more details on various use cases of TabArena in our [examples](example
 * 📈 **Generating Plots and Leaderboards**: please refer to [examples/plots_and_leaderboards](examples/plots_and_leaderboards).
 * 🔁 **Reproducibility**: we share instructions for reproducibility in [examples](examples).
 
-### Datasets 
-Please refer to our [dataset curation repository](https://github.com/TabArena/tabarena_dataset_curation) to learn more about or contributed data! 
+### Datasets
+
+Please refer to our [dataset curation repository](https://github.com/TabArena/tabarena_dataset_curation) to learn more about or contributed data!
 
 ### More Documentation
+
 TabArena code is currently being polished. Detailed Documentation for TabArena will be available soon.
 
 # 🪄 Installation
 
-To install TabArena, ensure you are using Python 3.11-3.13. Then, run the following:
+> [!IMPORTANT]
+> Requires Python **3.11–3.13** and [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
-## Install UV
+Pick the install path that matches what you want to do:
 
-Ensure [UV is installed](https://docs.astral.sh/uv/getting-started/installation/).
+<details>
+<summary><b>📊 Evaluation only</b> — leaderboards & metrics, no model fitting</summary>
 
-## User Install
-
-The following is installation instructions for users who intend to use but not develop TabArena.
-
-### Clone the repository
-
-```
+```bash
 git clone https://github.com/autogluon/tabarena.git
-cd tabarena  # ensure the working directory is the project root, otherwise the below commands won't work
-```
-
-### Evaluation (Leaderboard / Metrics)
-
-If you don't intend to fit models, this is the simplest installation.
-
-```
+cd tabarena
 uv sync
 ```
+</details>
 
-### Benchmark (Fitting Models)
+<details>
+<summary><b>🚀 Benchmark</b> — full install with all model dependencies</summary>
 
-If you intend to fit models, this is required.
-```
+```bash
+git clone https://github.com/autogluon/tabarena.git
+cd tabarena
 uv sync --extra benchmark
 ```
+</details>
 
-## Developer Install with editable AutoGluon
+<details>
+<summary><b>🛠️ Developer</b> — editable AutoGluon + editable TabArena</summary>
 
-Creating a custom virtual environment:
-```
+Create a virtual environment:
+
+```bash
 uv venv --seed --python 3.12 ~/.venvs/tabarena
 source ~/.venvs/tabarena/bin/activate
 ```
 
-With this installation, you will have the latest version of AutoGluon in editable form.
-```
+Install editable AutoGluon and TabArena:
+
+```bash
 git clone https://github.com/autogluon/autogluon.git
 ./autogluon/full_install.sh
 
@@ -97,72 +109,73 @@ git clone https://github.com/autogluon/tabarena.git
 uv pip install --prerelease=allow -e "./tabarena/tabarena[benchmark]"
 ```
 
-In PyCharm, make sure to set the directory of `tabarena/` and each `src/` subdirectory of `autogluon/` as 
-"Sources Root" for the IDE to find the imports.
+> [!NOTE]
+> In PyCharm, mark `tabarena/` and each `autogluon/src/` subdirectory as **Sources Root** so imports resolve.
 
-### Example Install + Run Steps
+</details>
 
-Creating a project:
+<details>
+<summary><b>📦 Use TabArena as a dependency</b></summary>
+
+Add the following to your project's dependencies:
+
+```toml
+"tabarena @ git+https://github.com/autogluon/tabarena.git#subdirectory=tabarena"
 ```
-pip install uv
-uv init -p 3.12
-uv sync
-git clone https://github.com/autogluon/autogluon.git
-./autogluon/full_install.sh
-git clone https://github.com/autogluon/tabarena.git
-cd tabarena
-uv pip install --prerelease=allow -e "./tabarena[benchmark]"
-cd examples/benchmarking
-python run_quickstart_tabarena.py 
-```
+</details>
 
-### Install from GitHub / TabArena as a dependency 
+# 📦 TabArena Artifacts
 
-You can install TabArena from GitHub or as a dependency by using:
+TabArena caches predictions, results, and leaderboards as downloadable artifacts so you can reproduce or extend any analysis without re-running the benchmark.
 
-```
- "tabarena @ git+https://github.com/autogluon/tabarena.git#subdirectory=tabarena"
-```
+<details>
+<summary><b>Artifact tiers, sizes, and examples</b></summary>
 
-# Downloading and using TabArena Artifacts
+> [!NOTE]
+> Artifacts download to `~/.cache/tabarena/` by default. Override the location with the `TABARENA_CACHE` environment variable.
 
-Artifacts will by default be downloaded into `~/.cache/tabarena/`. You can change this by specifying the environment variable `TABARENA_CACHE`.
+> [!WARNING]
+> Raw data is **~100 GB per method type**. Point `TABARENA_CACHE` at a large disk before downloading it.
 
-The types of artifacts are:
+| Tier | Contents | Size / method | Example |
+|---|---|---|---|
+| **Raw data** | Per-child test predictions, full metadata, system info | ~100 GB | [`inspect_raw_data.py`](examples/meta/inspect_raw_data.py) |
+| **Processed data** | Minimal data for HPO simulation, portfolios, leaderboards | ~10 GB | [`inspect_processed_data.py`](examples/meta/inspect_processed_data.py) |
+| **Results** | Per-config / HPO DataFrames (test error, val error, train time, inference time) | <1 MB | [`run_generate_main_leaderboard.py`](examples/plots/run_generate_main_leaderboard.py) |
+| **Leaderboards** | Aggregated ELO, win-rate, average rank, improvability | <1 MB | — |
+| **Figures & Plots** | Generated from results and leaderboards | — | — |
 
-1. Raw data -> The original results that are used to derive all other artifacts. Contains per-child test predictions from the bagged models, along with detailed metadata and system information absent from the processed results. Very large, often 100 GB per method type.
-2. Processed data -> The minimal information needed for simulating HPO, portfolios, and generating the leaderboard. Often 10 GB per method type.
-3. Results -> Pandas DataFrames of the results for each config and HPO setting on each task. Contains information such as test error, validation error, train time, and inference time. Generated from processed data. Used to generate leaderboards. Very small, often under 1 MB per method type.
-4. Leaderboards -> Aggregated metrics comparing methods. Contains information such as ELO, win-rate, average rank, and improvability. Generated from a list of results files. Under 1 MB for all methods.
-5. Figures & Plots -> Generated from results and leaderboards.
-
-Examples of artifacts include:
-* **Raw data**: [examples/meta/inspect_raw_data.py](examples/meta/inspect_raw_data.py)
-* **Processed data**: [examples/meta/inspect_processed_data.py](examples/meta/inspect_processed_data.py)
-* **Results**: [examples/plots/run_generate_main_leaderboard.py](examples/plots/run_generate_main_leaderboard.py)
+</details>
 
 
-# 📄 Publication for TabArena
+# 📄 Citation
 
-If you use TabArena in a scientific publication, we would appreciate a reference to the following paper:
+> [!TIP]
+> If you use TabArena in a scientific publication, please cite our paper.
 
-**TabArena: A Living Benchmark for Machine Learning on Tabular Data**, 
-Nick Erickson, Lennart Purucker, Andrej Tschalzev, David Holzmüller, Prateek Mutalik Desai, David Salinas, Frank Hutter, Preprint., 2025
+**TabArena: A Living Benchmark for Machine Learning on Tabular Data**
+Nick Erickson, Lennart Purucker, Andrej Tschalzev, David Holzmüller, Prateek Mutalik Desai, David Salinas, Frank Hutter
+*NeurIPS 2025, Datasets and Benchmarks Track*
 
-Link to publication: [arXiv](https://arxiv.org/abs/2506.16791)
+📄 [arXiv](https://arxiv.org/abs/2506.16791) · 🎤 [NeurIPS poster & video](https://neurips.cc/virtual/2025/loc/san-diego/poster/121499)
 
-Link to NeurIPS'2025: [Conference Poster and Video](https://neurips.cc/virtual/2025/loc/san-diego/poster/121499)
+<details>
+<summary><b>BibTeX</b></summary>
 
-Bibtex entry:
+> [!NOTE]
+> The entry uses `year=2026` because NeurIPS'25 proceedings are published in 2026.
+
 ```bibtex
-@inproceedings{erickson2025tabarena,
-  title     = {TabArena: A Living Benchmark for Machine Learning on Tabular Data},
-  author    = {Erickson, Nick and Purucker, Lennart and Tschalzev, Andrej and Holzm{\"u}ller, David and Desai, Prateek Mutalik and Salinas, David and Hutter, Frank},
-  booktitle = {Proceedings of the 39th Conference on Neural Information Processing Systems (NeurIPS)},
-  year      = {2025},
-  url       = {https://arxiv.org/abs/2506.16791}
+@article{erickson2026tabarena,
+  title   = {TabArena: A Living Benchmark for Machine Learning on Tabular Data},
+  author  = {Erickson, Nick and Purucker, Lennart and Tschalzev, Andrej and Holzm{\"u}ller, David and Desai, Prateek and Salinas, David and Hutter, Frank},
+  journal = {Advances in Neural Information Processing Systems},
+  volume  = {38},
+  year    = {2026}
 }
 ```
+
+</details>
 
 
 --- 
