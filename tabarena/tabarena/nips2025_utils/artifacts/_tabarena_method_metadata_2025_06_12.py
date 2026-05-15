@@ -334,32 +334,8 @@ for method in methods:
     methods_2025_06_12.append(method_metadata)
 
 
-ag_130_metadata = MethodMetadata(
-    method="AutoGluon_v130",
-    name="AutoGluon 1.3 (best, 4h)",
-    artifact_name="tabarena-2025-06-12",
-    date="2025-06-12",
-    method_type="baseline",
-    compute="cpu",
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    upload_as_public=True,
-    **s3_cache_kwargs,
-)
+# Non-model baselines / portfolio live in `tabarena.baselines.info`.
+from tabarena.baselines.info import ag_130_metadata, portfolio_metadata
 
 methods_2025_06_12.append(ag_130_metadata)
-
-portfolio_metadata = MethodMetadata(
-    method="Portfolio-N200-4h",
-    artifact_name="tabarena-2025-06-12",
-    date="2025-06-12",
-    method_type="portfolio",
-    has_raw=False,
-    has_processed=False,
-    has_results=True,
-    upload_as_public=True,
-    **s3_cache_kwargs,
-)
-
 methods_2025_06_12.append(portfolio_metadata)
