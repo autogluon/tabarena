@@ -11,12 +11,16 @@ from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_06_12 impo
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_09_03 import (
     ag_140_metadata,
     ebm_metadata,
-    limix_metadata,
     mitra_metadata,
     realmlp_gpu_metadata,
     xrfm_metadata,
     tabflex_metadata,
     betatabpfn_metadata,
+)
+from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_05_13 import (
+    limix_metadata,
+    orionmsp_metadata,
+    tabpfnv3_method_metadata,
 )
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_10_20 import (
     lr_metadata,
@@ -140,6 +144,8 @@ tabarena_method_metadata_collection = MethodMetadataCollection(method_metadata_l
     [tabstar_metadata] +
     [perpetualbooster_metadata] +
     [tabpfn26_metadata] +
+    [tabpfnv3_method_metadata] +
+    [orionmsp_metadata] +
     methods_misc,
 )
 
@@ -157,6 +163,8 @@ tabarena_method_metadata_complete_collection = MethodMetadataCollection(method_m
     [tabstar_metadata] +
     [perpetualbooster_metadata] +
     [tabpfn26_metadata] +
+    [tabpfnv3_method_metadata] +
+    [orionmsp_metadata] +
     methods_misc,
 )
 

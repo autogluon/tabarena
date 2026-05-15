@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from tabarena.benchmark.models.ag.ebm.ebm_model import ExplainableBoostingMachineModel
 from tabarena.benchmark.models.ag.knn_new.knn_model import KNNNewModel
+from tabarena.benchmark.models.ag.limix.limix_model import LimiXModel
 from tabarena.benchmark.models.ag.modernnca.modernnca_model import ModernNCAModel
 from tabarena.benchmark.models.ag.orionmsp.orionmsp_model import OrionMSPModel
 from tabarena.benchmark.models.ag.perpetual_booster.perpetual_booster_model import (
@@ -16,12 +17,14 @@ from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import (
     RealTabPFNv25Model,
     TabPFNv26Model,
 )
+from tabarena.benchmark.models.ag.tabpfnv3.tabpfn_3_model import TabPFN3Model
 from tabarena.benchmark.models.ag.tabstar.tabstar_model import TabSTARModel
 from tabarena.benchmark.models.ag.xrfm.xrfm_model import XRFMModel
 
 __all__ = [
     "ExplainableBoostingMachineModel",
     "KNNNewModel",
+    "LimiXModel",
     "ModernNCAModel",
     "OrionMSPModel",
     "PerpetualBoosterModel",
@@ -32,6 +35,7 @@ __all__ = [
     "TabICLModel",
     "TabICLv2Model",
     "TabMModel",
+    "TabPFN3Model",
     "TabPFNv26Model",
     "TabSTARModel",
     "XRFMModel",

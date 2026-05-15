@@ -9,6 +9,36 @@ warnings.filterwarnings("ignore", category=UserWarning, module="scipy")
 
 NA_STR = "NA"  # change to whatever you want
 
+# Section description shared between the multi-page combined LaTeX file and
+# any external aggregator that wants the same leading description (e.g. the
+# ``all_per_dataset.tex`` index in nick_scripts). Stored as the *body* of a
+# ``\caption``: callers wrap it in ``\caption{...}`` for floating tables, or
+# emit it as a plain paragraph (with a leading ``\textbf{}`` heading) for
+# inline contexts.
+PER_DATASET_TABLE_CAPTION_BODY = (
+    r"\textbf{Performance Per Dataset.} "
+    r"We show the average predictive performance per dataset with the standard deviation over folds. "
+    r"We show the performance for the default hyperparameter configuration (\texttt{Default}), for the model after tuning (\texttt{Tuned}), and for the ensemble after tuning (\texttt{Tuned + Ens.}). "
+    r"We highlight the best-performing methods with significance on three levels: "
+    r"(1) \textcolor{green!50!black}{Green}: The best performing method on average; "
+    r"(2) \textbf{Bold}: Methods that are not significantly worse than the best method on average, based on a Wilcoxon Signed-Rank test for paired samples with Holm-Bonferroni correction and $\alpha=0.05$. "
+    r"(3) \underline{Underlined}: Methods that are not significantly worse than the best method in the same pipeline regime (\texttt{Default}, \texttt{Tuned}, or \texttt{Tuned + Ens.}), based on a Wilcoxon Signed-Rank test for paired samples with Holm-Bonferroni correction and $\alpha=0.05$. "
+    r"Datasets with only a single split do not receive bold/underline annotations because the significance test degenerates without paired samples."
+)
+
+# Companion description of the per-dataset HPO Pareto trajectory plot that
+# sits beside each table in ``all_per_dataset.tex``. Kept separate from the
+# table caption so callers that emit only tables (e.g. the multi-page
+# ``per_dataset_tables.tex``) are not forced to mention a plot they don't
+# render. ``run_generate_beyond_leaderboard_minimal.py`` joins both bodies
+# in its aggregated index.
+PER_DATASET_PARETO_CAPTION_BODY = (
+    r"\textbf{HPO Pareto Trajectory.} "
+    r"Beside each per-dataset table we plot the metric error ($y$-axis) of each method's tuned configuration against cumulative training time in seconds ($x$-axis), as we increase the number of HPO trials. "
+    r"Each curve traces the Pareto frontier of validation error versus training-time budget for a single method, so points further down and to the left dominate. "
+    r"Reading the plot together with the table makes it possible to compare the cost (compute budget needed to reach a given error) and the achievable error of each method on that dataset, beyond the single endpoint summary in the table."
+)
+
 def _max_dot_pos(s: pd.Series) -> int:
     """
     Return max position of '.' in stringified values.
@@ -173,84 +203,145 @@ def get_significance(best_results, curr_model_results, method="wilcoxon", alpha=
 
     return p_value
  
-def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
+def _build_dataset_name_map(task_metadata: pd.DataFrame | None) -> dict[str, str]:
+    """Map internal ``dataset`` id (e.g. ``Task-7163328506``) to a human-readable
+    label drawn from ``task_metadata``.
+
+    Prefers ``dataset_name`` (BeyondArena), falls back to ``name`` (default
+    TabArena), and finally to identity if neither column is available.
+    """
+    if task_metadata is None or "dataset" not in task_metadata.columns:
+        return {}
+    if "dataset_name" in task_metadata.columns:
+        return task_metadata.set_index("dataset")["dataset_name"].astype(str).to_dict()
+    if "name" in task_metadata.columns:
+        return task_metadata.set_index("dataset")["name"].astype(str).to_dict()
+    return {}
+
+
+_DEFAULT_SUFFIX = " (default)"
+_TUNED_SUFFIX = " (tuned)"
+_TUNED_ENS_SUFFIX = " (tuned + ensemble)"
+
+
+def _regime_of(method: str) -> str | None:
+    """Classify a method name into one of the three pipeline regimes by its
+    suffix, or ``None`` if it doesn't match any (treated as a baseline)."""
+    if method.endswith(_TUNED_ENS_SUFFIX):
+        return "tuned_ensemble"
+    if method.endswith(_TUNED_SUFFIX):
+        return "tuned"
+    if method.endswith(_DEFAULT_SUFFIX):
+        return "default"
+    return None
+
+
+def _default_method_order(df_results: pd.DataFrame) -> list[str]:
+    """Derive a default per-dataset ordering from whatever methods are present
+    in ``df_results``: every ``(default)`` method, then every ``(tuned)``,
+    then every ``(tuned + ensemble)``, then any baselines, with stable
+    alphabetical order within each regime."""
+    methods = sorted(df_results["method"].dropna().unique().tolist())
+    regime_rank = {"default": 0, "tuned": 1, "tuned_ensemble": 2, None: 3}
+    return sorted(methods, key=lambda m: (regime_rank[_regime_of(m)], m))
+
+
+def _safe_significance_dataset(for_sig: pd.DataFrame) -> pd.DataFrame:
+    """Run ``get_significance_dataset`` only when the slice has at least two
+    methods; otherwise return an empty frame so downstream lookups fall back
+    to the ``KeyError`` -> default behavior the caller already handles."""
+    if for_sig.empty or for_sig["model_name"].nunique() < 2:
+        return pd.DataFrame()
+    return get_significance_dataset(
+        for_sig, method="wilcoxon", alpha=0.05, verbose=False, direction="min",
+    )
+
+
+def _is_significance_best(
+    significance_df: pd.DataFrame, dataset_name: str, method_name: str,
+) -> bool:
+    """Return whether ``method_name`` is "not significantly worse than best"
+    on ``dataset_name``. Returns ``False`` when significance was not computed
+    (empty frame) or the row/column is missing — which matches what the
+    caller wants: no underline/bold when we have no signal."""
+    if significance_df.empty:
+        return False
+    if dataset_name not in significance_df.index:
+        return False
+    if method_name not in significance_df.columns:
+        return False
+    return significance_df.loc[dataset_name, method_name] > 0.05
+
+
+def get_per_dataset_tables(
+    df_results: pd.DataFrame,
+    save_path: Path,
+    task_metadata: pd.DataFrame | None = None,
+    per_dataset_dir: str | Path | None = None,
+    method_order: list[str] | None = None,
+):
+    """Generate per-dataset performance tables.
+
+    Parameters
+    ----------
+    df_results :
+        Per-method per-fold results (must contain ``dataset``, ``method``,
+        ``metric``, ``metric_error``, ``imputed``, ``fold``).
+    save_path :
+        Directory to write the combined ``per_dataset_tables.tex`` into.
+    task_metadata :
+        Optional task-metadata frame providing a ``dataset_name`` (or ``name``)
+        column to render human-readable dataset labels in captions. If
+        omitted, the internal ``dataset`` id is used as the label.
+    per_dataset_dir :
+        Optional directory; when set, also writes one self-contained
+        ``<dataset_id>.tex`` per dataset (a bare ``tabular`` block + label
+        comments, no surrounding ``table`` environment) so callers can
+        compose tables alongside per-dataset figures.
+    method_order :
+        Optional ordered list of method names (matching ``df_results["method"]``
+        values) controlling which methods appear in the tables and in what row
+        order. Methods ending in ``(default)``, ``(tuned)``, or ``(tuned +
+        ensemble)`` populate the corresponding regime column; any other
+        method is treated as a baseline and rendered in the ``Tuned + Ens.``
+        column with ``-`` placeholders for the others. If omitted, every
+        method present in ``df_results`` is used, sorted by regime.
+    """
     save_path = Path(save_path)
+    name_map = _build_dataset_name_map(task_metadata)
 
-    # df_results["method"] = df_results["method"].map({
-    #         "AutoGluon_v130_bq_4h8c": "AutoGluon 1.3 (4h)",
-    #         "MNCA_GPU (default)": "MNCA (default)",
-    #         "MNCA_GPU (tuned)": "MNCA (tuned)",
-    #         "MNCA_GPU (tuned + ensemble)": "MNCA (tuned + ensemble)",
-    #         "REALMLP_GPU (default)": "REALMLP (default)",
-    #         "REALMLP_GPU (tuned)": "REALMLP (tuned)",
-    #         "REALMLP_GPU (tuned + ensemble)": "REALMLP (tuned + ensemble)",
-    #         "TABM_GPU (default)": "REALMLP (default)",
-    #         "REALMLP_GPU (tuned)": "REALMLP (tuned)",
-    #         "REALMLP_GPU (tuned + ensemble)": "REALMLP (tuned + ensemble)",
-            
-            
-    #         "TabPFN_c1_BAG_L1": "TABPFN (default)",
-    #         "RealMLP_c1_BAG_L1": "REALMLP (default)",
-    #         "ExplainableBM_c1_BAG_L1": "EBM (default)",
-    #         "FTTransformer_c1_BAG_L1": "FT_TRANSFORMER (default)",
-    #         "TabPFNv2_c1_BAG_L1": "TABPFNV2 (default)",
-    #         "TabICL_c1_BAG_L1": "TABICL (default)",
-    #         'TabDPT_c1_BAG_L1': "TABDPT (default)",
-    #         'TabM_c1_BAG_L1': "TABM (default)",
-    #         'ModernNCA_c1_BAG_L1': "MNCA (default)",
-    #     }).fillna(df_results["method"])
+    if method_order is None:
+        method_order = _default_method_order(df_results)
+    use_methods_ordered = list(method_order)
+    baseline_methods = [m for m in use_methods_ordered if _regime_of(m) is None]
 
-
-    use_methods_ordered = [   
-        # default
-        'RF (default)', 'XT (default)','XGB (default)','GBM (default)','CAT (default)','EBM (default)',
-        'FASTAI (default)','NN_TORCH (default)','REALMLP_GPU (default)','TABM_GPU (default)','MNCA_GPU (default)',
-        'TABPFNV2_GPU (default)','TABDPT_GPU (default)','TABICL_GPU (default)',
-        'LR (default)','KNN (default)',
-        
-        ######### tuned
-        'RF (tuned)','XT (tuned)','XGB (tuned)','GBM (tuned)','CAT (tuned)','EBM (tuned)',
-        'FASTAI (tuned)','NN_TORCH (tuned)','REALMLP_GPU (tuned)','TABM_GPU (tuned)','MNCA_GPU (tuned)',
-        'TABPFNV2_GPU (tuned)',# 'TABDPT (tuned)', 'TABICL (tuned)',
-        'LR (tuned)','KNN (tuned)',
-        
-        ######## tuned  ensemble
-        'RF (tuned + ensemble)','XT (tuned + ensemble)','XGB (tuned + ensemble)','GBM (tuned + ensemble)','CAT (tuned + ensemble)','EBM (tuned + ensemble)',
-        'FASTAI (tuned + ensemble)','NN_TORCH (tuned + ensemble)','REALMLP_GPU (tuned + ensemble)','TABM_GPU (tuned + ensemble)','MNCA_GPU (tuned + ensemble)',
-        'TABPFNV2_GPU (tuned + ensemble)',# 'TABDPT (tuned + ensemble)', 'TABICL (tuned + ensemble)',
-        'LR (tuned + ensemble)','KNN (tuned + ensemble)',
-
-        ######### AutoGluon baseline
-        'AutoGluon 1.4 (extreme, 4h)',
-        ######### AutoGluon baseline
-        # "Portfolio-N200 (ensemble) (4h)"
-    ]
-
-    df_use = df_results.loc[df_results["method"].apply(lambda x: x in use_methods_ordered)]
+    df_use = df_results.loc[df_results["method"].isin(use_methods_ordered)]
     df_use_fold = df_use.loc[df_use["fold"]==0]
 
     for_sig = df_use[["method", "dataset", "metric_error"]]
     for_sig.columns=["model_name", "dataset_name", 0]
 
-    significance_df = get_significance_dataset(for_sig, method="wilcoxon", alpha=0.05, verbose=False, direction="min")
-    significance_default = get_significance_dataset(for_sig.loc[for_sig["model_name"].apply(lambda x: "default" in x)], method="wilcoxon", alpha=0.05, verbose=False, direction="min")
-    significance_tuned = get_significance_dataset(for_sig.loc[for_sig["model_name"].apply(lambda x: "(tuned)" in x)], method="wilcoxon", alpha=0.05, verbose=False, direction="min")
-    significance_tuned_ensemble = get_significance_dataset(for_sig.loc[for_sig["model_name"].apply(lambda x: "tuned + ensemble" in x)], method="wilcoxon", alpha=0.05, verbose=False, direction="min")
+    significance_df = _safe_significance_dataset(for_sig)
+    significance_default = _safe_significance_dataset(
+        for_sig.loc[for_sig["model_name"].apply(lambda x: _regime_of(x) == "default")]
+    )
+    significance_tuned = _safe_significance_dataset(
+        for_sig.loc[for_sig["model_name"].apply(lambda x: _regime_of(x) == "tuned")]
+    )
+    significance_tuned_ensemble = _safe_significance_dataset(
+        for_sig.loc[for_sig["model_name"].apply(lambda x: _regime_of(x) == "tuned_ensemble")]
+    )
 
-    from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
-    df_meta = load_task_metadata()
-    df_meta["n_folds"] = 3
-    df_meta["n_features"] = (df_meta["NumberOfFeatures"] - 1).astype(int)
-    df_meta["n_samples_test_per_fold"] = (df_meta["NumberOfInstances"] / df_meta["n_folds"]).astype(int)
-    df_meta["n_samples_train_per_fold"] = (df_meta["NumberOfInstances"] - df_meta["n_samples_test_per_fold"]).astype(int)
-
-    df_meta['can_run_tabpfnv2'] = np.logical_and(np.logical_and(df_meta["n_samples_train_per_fold"] <= 10000, df_meta["n_features"] <= 500), df_meta['NumberOfClasses'] <= 10)
-    df_meta['can_run_tabicl'] = np.logical_and(np.logical_and(df_meta["n_samples_train_per_fold"] <= 100000, df_meta["n_features"] <= 500), df_meta['NumberOfClasses'] > 0)
-
-    can_run_tabpfnv2 = dict(df_meta[["dataset", "can_run_tabpfnv2"]].values)
-    can_run_tabicl = dict(df_meta[["dataset", "can_run_tabicl"]].values)
+    # NOTE: the prior implementation loaded TabArena's global task metadata here
+    # only to derive ``can_run_tabpfnv2`` / ``can_run_tabicl`` for blanking
+    # incompatible methods — but the blanking lines were already commented out,
+    # making the whole load dead code that *also* broke BeyondArena (which has
+    # different metadata columns). The dead block has been removed; the
+    # ``task_metadata`` parameter on this function takes its place when
+    # human-readable labels are needed.
 
     datasets_dict = {}
+    datasets_human_name: dict[str, str] = {}
     for dataset_name in df_use["dataset"].unique():
         df_dat = df_use.loc[df_use["dataset"]==dataset_name]
         imputed_methods = df_dat.loc[df_dat.imputed==True,'method'].unique()
@@ -261,8 +352,16 @@ def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
         else:
             metric_dir = "min"
 
-        df_mean = df_dat[["method", "metric_error"]].groupby("method").mean().sort_values("metric_error").loc[use_methods_ordered]
-        df_std = df_dat[["method", "metric_error"]].groupby("method").std().sort_values("metric_error").loc[use_methods_ordered]
+        # Reindex to ``use_methods_ordered`` so missing methods (e.g. a baseline
+        # with no result for this dataset) become NaN rows rather than raising.
+        df_mean = (
+            df_dat[["method", "metric_error"]]
+            .groupby("method").mean().reindex(use_methods_ordered)
+        )
+        df_std = (
+            df_dat[["method", "metric_error"]]
+            .groupby("method").std().reindex(use_methods_ordered)
+        )
 
         df_mean_raw = df_mean.copy()
         df_std_raw = df_std.copy()
@@ -293,72 +392,115 @@ def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
         df_mean = df_mean.to_frame()
         df_std = df_std.to_frame()
 
-        df_latex = df_mean + " $\\pm$ " + df_std
-        df_latex.columns = [dataset_name]
-        for method in imputed_methods:
+        # Combine ``mean`` and ``std`` cell-wise: when std is NA (e.g. only one
+        # fold available) drop the ``$\pm$ NA`` suffix so the cell shows just
+        # the mean instead of a half-empty pair.
+        mean_series = df_mean.iloc[:, 0]
+        std_series = df_std.iloc[:, 0]
+
+        def _combine_cell(mean_str: str, std_str: str) -> str:
+            if mean_str == NA_STR:
+                return NA_STR
+            if std_str == NA_STR:
+                return mean_str
+            return f"{mean_str} $\\pm$ {std_str}"
+
+        df_latex = pd.DataFrame(
+            {dataset_name: [
+                _combine_cell(m, s) for m, s in zip(mean_series, std_series)
+            ]},
+            index=mean_series.index,
+        )
+        # ``reindex`` above introduced NaN rows for methods absent from this
+        # dataset; render them (and any imputed methods) as the missing-data
+        # placeholder so downstream styling can detect and skip them.
+        present_methods = set(df_dat["method"].unique())
+        missing_methods = [m for m in use_methods_ordered if m not in present_methods]
+        for method in list(imputed_methods) + missing_methods:
             df_latex.loc[method] = '-'
 
-        if metric_dir == "min":
-            df_latex.loc[df_mean_raw.idxmin(),dataset_name] = r"\textcolor{green!50!black}{" + df_latex.loc[df_mean_raw.idxmin(),dataset_name] + "}"
-        elif metric_dir == "max":
-            df_latex.loc[df_mean_raw.idxmax(),dataset_name] = r"\textcolor{green!50!black}{" + df_latex.loc[df_mean_raw.idxmax(),dataset_name] + "}"
+        placeholder_methods = set(list(imputed_methods) + missing_methods)
 
-        is_best = df_latex.apply(lambda x: significance_df.loc[dataset_name,x.index]>0.05)
-        df_latex.loc[:, dataset_name] = [r"\textbf{"+score+"}" if is_best.loc[name,dataset_name] else score  for name, score in zip(df_latex.index, df_latex[dataset_name])]
+        # ``df_mean_raw`` is reindexed to use_methods_ordered, so absent methods
+        # are NaN. Drop imputed and missing rows *before* taking
+        # ``idxmin``/``idxmax`` so an imputed score that happens to win the
+        # raw ranking (e.g. when the fillna source's value is marginally
+        # better than every real result) doesn't suppress the highlight
+        # altogether. The cell at ``best_idx`` is then guaranteed to render
+        # a real number that we can color.
+        highlight_candidates = df_mean_raw["metric_error"].drop(
+            labels=list(placeholder_methods), errors="ignore"
+        )
+        if highlight_candidates.notna().any():
+            best_idx = (
+                highlight_candidates.idxmin() if metric_dir == "min"
+                else highlight_candidates.idxmax()
+            )
+            df_latex.loc[best_idx, dataset_name] = (
+                r"\textcolor{green!50!black}{"
+                + df_latex.loc[best_idx, dataset_name]
+                + "}"
+            )
 
-        df_latex_def = df_latex.loc[[True  if "default" in i else False for i in df_latex.index]]
-        df_latex_tuned = df_latex.loc[[True  if "(tuned)" in i else False for i in df_latex.index]]
-        df_latex_tuned_ensemble = df_latex.loc[[True  if "tuned + ensemble" in i else False for i in df_latex.index]]
+        # With only one split (one fold of data per method) the Wilcoxon
+        # significance test degenerates to a comparison of two scalars, which
+        # currently produces a ``not significantly worse`` p-value of 2 for
+        # every method except the best — i.e. every cell would get bolded /
+        # underlined despite there being no statistical evidence. Skip the
+        # bold/underline passes entirely for those datasets; the green
+        # ``best mean`` highlight stays since it doesn't depend on
+        # significance.
+        n_splits = df_dat["fold"].nunique()
+        single_split = n_splits < 2
 
-        is_best_def = df_latex_def.apply(lambda x: significance_default.loc[dataset_name,x.index]>0.05)
-        is_best_tuned = df_latex_tuned.apply(lambda x: significance_tuned.loc[dataset_name,x.index]>0.05)
-        is_best_tuned_ensemble = df_latex_tuned_ensemble.apply(lambda x: significance_tuned_ensemble.loc[dataset_name,x.index]>0.05)
+        # Bold/underline only cells that have real numbers. The placeholder
+        # ``-`` (and any literal ``NA`` that slipped through formatting) gets
+        # left alone so we don't end up with ``\textbf{-}`` decorations.
+        def _stylize(score: str, name: str, sig_df: pd.DataFrame, prefix: str) -> str:
+            if single_split:
+                return score
+            if name in placeholder_methods or score == "-" or NA_STR in score:
+                return score
+            if not _is_significance_best(sig_df, dataset_name, name):
+                return score
+            return prefix + score + "}"
 
-        df_latex_def.loc[:, dataset_name] = [r"\underline{"+score+"}" if is_best_def.loc[name,dataset_name] else score  for name, score in zip(df_latex_def.index, df_latex_def[dataset_name])]
-        df_latex_tuned.loc[:, dataset_name] = [r"\underline{"+score+"}" if is_best_tuned.loc[name,dataset_name] else score  for name, score in zip(df_latex_tuned.index, df_latex_tuned[dataset_name])]
-        df_latex_tuned_ensemble.loc[:, dataset_name] = [r"\underline{"+score+"}" if is_best_tuned_ensemble.loc[name,dataset_name] else score  for name, score in zip(df_latex_tuned_ensemble.index, df_latex_tuned_ensemble[dataset_name])]
+        df_latex.loc[:, dataset_name] = [
+            _stylize(score, name, significance_df, r"\textbf{")
+            for name, score in zip(df_latex.index, df_latex[dataset_name])
+        ]
 
-        # df_latex = pd.concat([df_latex_def, df_latex_tuned, df_latex_tuned_ensemble, df_latex.loc[df_latex.index=="AutoGluon 1.3 (4h)"]], axis=0)
-        # df_latex.loc[:, dataset_name] = [r"\textbf{"+score+"}" if is_best_tuned_ensemble.loc[name,dataset_name] else score  for name, score in zip(df_latex.index, df_latex[dataset_name])]
+        df_latex_def = df_latex.loc[[_regime_of(i) == "default" for i in df_latex.index]]
+        df_latex_tuned = df_latex.loc[[_regime_of(i) == "tuned" for i in df_latex.index]]
+        df_latex_tuned_ensemble = df_latex.loc[[_regime_of(i) == "tuned_ensemble" for i in df_latex.index]]
 
-        df_latex_final = pd.merge(df_latex_def.rename(index=lambda s: s.split(" (")[0]), 
+        df_latex_def.loc[:, dataset_name] = [
+            _stylize(score, name, significance_default, r"\underline{")
+            for name, score in zip(df_latex_def.index, df_latex_def[dataset_name])
+        ]
+        df_latex_tuned.loc[:, dataset_name] = [
+            _stylize(score, name, significance_tuned, r"\underline{")
+            for name, score in zip(df_latex_tuned.index, df_latex_tuned[dataset_name])
+        ]
+        df_latex_tuned_ensemble.loc[:, dataset_name] = [
+            _stylize(score, name, significance_tuned_ensemble, r"\underline{")
+            for name, score in zip(df_latex_tuned_ensemble.index, df_latex_tuned_ensemble[dataset_name])
+        ]
+
+        df_latex_final = pd.merge(df_latex_def.rename(index=lambda s: s.split(" (")[0]),
                                     df_latex_tuned.rename(index=lambda s: s.split(" (")[0]),
                                     left_index=True, right_index=True, how="left"
                                     ).merge(df_latex_tuned_ensemble.rename(index=lambda s: s.split(" (")[0])
                                     , left_index=True, right_index=True, how="left"
                                     )
-        df_latex_final.loc["AutoGluon 1.4 (extreme, 4h)"] = ["-", "-", df_latex.loc["AutoGluon 1.4 (extreme, 4h)", dataset_name]]
-        # df_latex_final.loc["Portfolio-N200 (ensemble) (4h)"] = [df_latex.loc["Portfolio-N200 (ensemble) (4h)", dataset_name], "", ""]
+        # Each baseline (a method with no regime suffix) gets its own row in
+        # the ``Tuned + Ens.`` column with placeholders for the other two —
+        # this generalizes the previous AutoGluon-specific hard-coded line.
+        for baseline in baseline_methods:
+            if baseline in df_latex.index:
+                df_latex_final.loc[baseline] = ["-", "-", df_latex.loc[baseline, dataset_name]]
         df_latex_final = df_latex_final.fillna("-")
         df_latex_final.columns = ["Default", "Tuned", "Tuned + Ens."]
-
-        # df_latex_final = df_latex_final.replace({"0.": "."}, regex=True)
-
-        replace_dict = {
-            "RF": "RF",
-            "XT": "ExtraTrees",
-            "XGB": "XGBoost",
-            "GBM": "LightGBM",
-            "CAT": "CatBoost",
-            "EBM": "EBM",
-
-            "FASTAI": "FastAIMLP",
-            "NN_TORCH": "TorchMLP",
-            "REALMLP_GPU": "RealMLP",
-            "TABM_GPU": "TabM",
-            "MNCA_GPU": "MNCA",
-
-            'TABPFNV2_GPU': 'TabPFNv2',
-            'TABDPT_GPU': 'TabDPT',
-            'TABICL_GPU': 'TabICL',
-
-            'LR': 'Linear',
-            'KNN': 'KNN',
-            "AutoGluon 1.4 (extreme, 4h)": "AutoGluon",
-            "Portfolio-N200 (ensemble) (4h)": "Portfolio"
-        }
-
-        df_latex_final.index = pd.Series(df_latex_final.index).replace(replace_dict)
 
         # if not can_run_tabpfnv2[dataset_name]:
         #     df_latex_final.loc["TabPFNv2"] = ["-", "-", "-"]    
@@ -366,7 +508,12 @@ def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
         #     df_latex_final.loc["TabICL"] = ["-", "-", "-"]    
         
         df_latex_final.index.name = None
-        datasets_dict[dataset_name.replace("_", r"\_")] = df_latex_final.copy()
+        latex_safe_id = dataset_name.replace("_", r"\_")
+        datasets_dict[latex_safe_id] = df_latex_final.copy()
+        # Human-readable label (already escaped for LaTeX). Falls back to the
+        # latex-safe id when no metadata mapping is available.
+        human_label = name_map.get(dataset_name, dataset_name)
+        datasets_human_name[latex_safe_id] = human_label.replace("_", r"\_")
 
     output_file = save_path / "per_dataset_tables.tex"
     per_col    = 2                  # 2 columns per row
@@ -388,23 +535,17 @@ def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
             f.write(r"\begin{table}[htb]" + "\n")
             f.write(r"  \centering" + "\n")
             if page_start == 0:
-                f.write(r"\caption{\textbf{Performance Per Dataset.}  \
-                    We show the average predictive performance per dataset with the standard deviation over folds. \
-                    We show the performance for the default hyperparameter configuration (\texttt{Default}), for the model after tuning (\texttt{Tuned}), and for the ensemble after tuning (\texttt{Tuned + Ens.}). \
-                    We highlight the best-performing methods with significance on three levels:  \
-                    (1) \textcolor{green!50!black}{Green}: The best performing method on average; \
-                    (2) \textbf{Bold}: Methods that are not significantly worse than the best method on average, based on a Wilcoxon Signed-Rank test for paired samples with Holm-Bonferroni correction and $\alpha=0.05$. \
-                    (3) \underline{Underlined}: Methods that are not significantly worse than the best method in the same pipeline regime (\texttt{Default}, \texttt{Tuned}, or \texttt{Tuned + Ens.}), based on a Wilcoxon Signed-Rank test for paired samples with Holm-Bonferroni correction and $\alpha=0.05$. We exclude AutoGluon for significance tests in the \texttt{Tuned + Ens.} regime.}" + "\n\n")
+                f.write("\\caption{" + PER_DATASET_TABLE_CAPTION_BODY + "}\n\n")
 
 
             # Build 3 rows of 2 columns each
             for row_start in range(0, len(page_items), per_col):
                 row = page_items[row_start:row_start + per_col]
                 for idx, (name, df) in enumerate(row):
-                    if name == 'HR\\_Analytics\\_Job\\_Change\\_of\\_Data\\_Scientists':
+                    print_name = datasets_human_name.get(name, name)
+                    # Long-name special case from the original tabarena tables.
+                    if print_name == 'HR\\_Analytics\\_Job\\_Change\\_of\\_Data\\_Scientists':
                         print_name = 'HR\\_Analytics\\_Job\\_Change'
-                    else:
-                        print_name = name
                     # compute column format: index, quad gap, then one 'r' per data column
                     n_data = df.shape[1]
                     col_fmt = "l@{\\quad}" + "l" * n_data
@@ -455,3 +596,26 @@ def get_per_dataset_tables(df_results: pd.DataFrame, save_path: Path):
             f.write(r"\end{table}" + "\n\n")
 
     print(f"Saved per-dataset tables to {output_file}")
+
+    if per_dataset_dir is not None:
+        per_dataset_dir = Path(per_dataset_dir)
+        per_dataset_dir.mkdir(parents=True, exist_ok=True)
+        for latex_safe_id, df in datasets_dict.items():
+            metric = metrics_used[latex_safe_id]
+            arrow = r"$\uparrow$" if metric == "AUC" else r"$\downarrow$"
+            human_label = datasets_human_name.get(latex_safe_id, latex_safe_id)
+            n_data = df.shape[1]
+            col_fmt = "l@{\\quad}" + "l" * n_data
+            tabular = df.to_latex(index=True, escape=False, column_format=col_fmt)
+
+            # File name uses the *raw* dataset id (no LaTeX escaping) so it
+            # matches the trajectory-plot folder layout on disk.
+            raw_id = latex_safe_id.replace(r"\_", "_")
+            tex_path = per_dataset_dir / f"{raw_id}.tex"
+            with open(tex_path, "w") as f:
+                f.write(f"% Per-dataset performance table for {human_label} ({metric} {arrow}).\n")
+                f.write(f"% Auto-generated; designed to be \\input{{}} into a minipage / subfigure.\n")
+                f.write(r"\scriptsize" + "\n")
+                f.write(tabular)
+
+        print(f"Saved {len(datasets_dict)} per-dataset table fragments to {per_dataset_dir}")

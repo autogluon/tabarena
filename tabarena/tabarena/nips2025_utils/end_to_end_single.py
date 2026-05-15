@@ -316,6 +316,7 @@ class EndToEndSingle:
         artifact_name: str | None = None,
         name_prefix_raw: str | None = None,
         backend: Literal["ray", "native"] = "ray",
+        num_cpus: int | None = None,
         verbose: bool = True,
     ) -> Self:
         """
@@ -342,8 +343,16 @@ class EndToEndSingle:
         -------
 
         """
+        if num_cpus is None:
+            num_cpus = len(os.sched_getaffinity(0))
+
         engine = "ray" if backend == "ray" else "sequential"
-        results_lst: list[BaselineResult] = load_raw(path_raw=path_raw, engine=engine, name_pattern=name_prefix_raw)
+        results_lst: list[BaselineResult] = load_raw(
+            path_raw=path_raw,
+            engine=engine,
+            name_pattern=name_prefix_raw,
+            num_workers=num_cpus,
+        )
         return cls.from_raw(
             results_lst=results_lst,
             method_metadata=method_metadata,

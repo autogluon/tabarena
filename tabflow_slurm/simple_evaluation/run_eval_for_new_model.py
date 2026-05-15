@@ -96,11 +96,11 @@ if __name__ == "__main__":
     run_eval_for_new_models(
         [
             ModelMetadata(
-                path_raw=out_dir / "250326_tabpfnv26",
-                method="TabPFN-2.6",
+                path_raw=out_dir / "benchmark_tabpfn_3_11052026",
+                method="TA-TabPFN-3",
             ),
         ],
-        extra_subsets=[["lite"]],
-        fig_output_dir=fig_dir / "250326_tabpfnv26",
+        extra_subsets=[],
+        fig_output_dir=fig_dir / "tabpfn_3_eval_1105",
         cache_path="/work/dlclarge2/purucker-tabarena/output/tabarena_cache",
     )

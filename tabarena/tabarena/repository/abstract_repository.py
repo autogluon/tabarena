@@ -26,7 +26,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
 
     def set_config_fallback(self, config_fallback: str = None):
         if config_fallback:
-            assert config_fallback in self.configs()
+            assert config_fallback in self.configs(), f"Missing config_fallback={config_fallback!r} in configs: {self.configs()}"
         self._config_fallback = config_fallback
 
     def print_info(self):

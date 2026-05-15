@@ -105,6 +105,7 @@ def load_raw(
     name_pattern: str | None = None,
     engine: str = "ray",
     as_holdout: bool = False,
+    num_workers: int | None = None,
 ) -> list[BaselineResult]:
     """
     Loads the raw results artifacts from all `results.pkl` files in the `path_raw` directory
@@ -121,7 +122,9 @@ def load_raw(
     """
 
     suffix = "results.pkl"
-    file_paths_method = fetch_all_pickles(dir_path=path_raw, suffix=suffix, name_pattern=name_pattern)
+    file_paths_method = fetch_all_pickles(
+        dir_path=path_raw, suffix=suffix, name_pattern=name_pattern, num_workers=num_workers,
+    )
     if len(file_paths_method) == 0:
         # Look at every file to provide debugging info
         all_files = [p for p in Path(path_raw).rglob("*") if p.is_file()]

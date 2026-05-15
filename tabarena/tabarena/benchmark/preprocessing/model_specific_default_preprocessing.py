@@ -64,12 +64,19 @@ class TabArenaModelSpecificPreprocessing:
 
         if hp_key_kwargs not in hyperparameters:
             hyperparameters[hp_key_kwargs] = {}
-        if "feature_generators" not in hyperparameters[hp_key_kwargs]:
-            hyperparameters[hp_key_kwargs]["feature_generators"] = []
-
-        hyperparameters[hp_key_kwargs]["feature_generators"] += (
-            TabArenaModelSpecificPreprocessing.get_model_specific_generator()
-        )
+        if isinstance(hyperparameters[hp_key_kwargs], dict) and "feature_generators" not in hyperparameters[hp_key_kwargs]:
+            hyperparameters[hp_key_kwargs]["feature_generators"] = [(
+                TabArenaModelSpecificPreprocessing.get_model_specific_generator()
+            )]
+        else:
+            if isinstance(hyperparameters[hp_key_kwargs], dict):
+                hyperparameters[hp_key_kwargs] = [hyperparameters[hp_key_kwargs]]
+            hyperparameters[hp_key_kwargs] = [
+                {
+                    "feature_generators": [TabArenaModelSpecificPreprocessing.get_model_specific_generator()],
+                },
+                *hyperparameters[hp_key_kwargs],
+            ]
         return hyperparameters
 
     @staticmethod

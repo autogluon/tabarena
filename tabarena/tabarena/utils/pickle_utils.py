@@ -205,6 +205,12 @@ def _fetch_all_pickles_parallel(
 
     for cur_dir_path in dir_path:
         root = Path(cur_dir_path).expanduser()
+        if root.is_file():
+            assert str(root).endswith(suffix), (
+                f"{root} is a file that does not end in `{suffix}`."
+            )
+            file_paths.append(root)
+            continue
         if not root.is_dir():
             raise NotADirectoryError(f"{root} is not a directory")
 
