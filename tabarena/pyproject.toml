@@ -60,6 +60,10 @@ probmetrics = [
     "probmetrics",
     "pytorch-minimize",
 ]
+limix = [
+  "einops",
+  "kditransform",
+]
 
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [
@@ -76,6 +80,8 @@ benchmark = [
   "sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa",
   "perpetual",
   "tabstar==1.1.15",
+  "einops",
+  "kditransform",
 ]
 
 [project.urls]
@@ -93,4 +99,7 @@ tabarena = [
   "metrics/_roc_auc_cpp/compile.sh",
   "metrics/_roc_auc_cpp/cpp_auc.cpp",
   "nips2025_utils/metadata/task_metadata_tabarena51.csv",
+  "benchmark/models/ag/limix/_vendor/config/*.json",
+  "benchmark/models/ag/limix/_vendor/LICENSE.txt",
+  "benchmark/models/ag/limix/_vendor/README.md",
 ]
