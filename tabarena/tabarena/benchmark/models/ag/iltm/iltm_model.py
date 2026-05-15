@@ -59,6 +59,8 @@ class ILTMModel(AbstractTorchModel):
         with _isolate_iltm_global_state():
             from iltm import iLTMClassifier, iLTMRegressor
 
+            _ensure_iltm_logger_patched()
+
             if self.problem_type in ["binary", "multiclass"]:
                 model_cls = iLTMClassifier
             elif self.problem_type == "regression":
@@ -91,6 +93,14 @@ class ILTMModel(AbstractTorchModel):
     def supported_problem_types(cls) -> list[str] | None:
         return ["binary", "multiclass", "regression"]
 
+    def _predict_proba(self, X, **kwargs):
+        # See _ensure_iltm_logger_patched docstring: bagged child models are
+        # unpickled in the parent process without running iLTM's __init__, so
+        # the module-level `logger` referenced inside predict() is undefined
+        # unless we patch it here.
+        _ensure_iltm_logger_patched()
+        return super()._predict_proba(X, **kwargs)
+
     def get_device(self) -> str:
         return str(self.model.device)
 
@@ -113,6 +123,29 @@ class ILTMModel(AbstractTorchModel):
     @classmethod
     def _class_tags(cls) -> dict:
         return {"can_estimate_memory_usage_static": False}
+
+
+def _ensure_iltm_logger_patched() -> None:
+    """Workaround for upstream bug in iltm==0.1.0.
+
+    `iltm/inference_interface.py` declares `logger` only inside the predictor's
+    `__init__` (via `global logger; logger = logging.getLogger(__name__)`).
+    Any call path that reaches `_preprocess_test_data` (and other methods that
+    log via `logger.debug(...)`) without first running `__init__` in the same
+    process crashes with `NameError: name 'logger' is not defined`.
+
+    This is exactly what happens with AutoGluon bagging: child models are fit
+    in a Ray worker and pickled back to the parent; predict in the parent
+    unpickles them but never re-runs `__init__`, so the parent's
+    `iltm.inference_interface` module has no `logger` attribute.
+
+    Setting the attribute on the module is idempotent and safe to call from
+    anywhere iLTM might be used. Remove when fixed upstream.
+    """
+    import iltm.inference_interface as _ifi
+
+    if not hasattr(_ifi, "logger"):
+        _ifi.logger = logging.getLogger(_ifi.__name__)
 
 
 @contextmanager
