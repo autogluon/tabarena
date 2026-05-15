@@ -4,6 +4,7 @@ from tabarena.benchmark.models.ag.ebm.ebm_model import ExplainableBoostingMachin
 from tabarena.benchmark.models.ag.knn_new.knn_model import KNNNewModel
 from tabarena.benchmark.models.ag.limix.limix_model import LimiXModel
 from tabarena.benchmark.models.ag.modernnca.modernnca_model import ModernNCAModel
+from tabarena.benchmark.models.ag.orionmsp.orionmsp_model import OrionMSPModel
 from tabarena.benchmark.models.ag.perpetual_booster.perpetual_booster_model import (
     PerpetualBoosterModel,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "KNNNewModel",
     "LimiXModel",
     "ModernNCAModel",
+    "OrionMSPModel",
     "PerpetualBoosterModel",
     "RealMLPModel",
     "RealTabPFNv25Model",

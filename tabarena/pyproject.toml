@@ -56,6 +56,7 @@ sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.g
 tabprep = []
 tabstar = ["tabstar==1.1.15"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
+orionmsp = ["tabtune @ git+https://github.com/Lexsi-Labs/TabTune.git"] # from main to get newest code
 probmetrics = [
     "probmetrics",
     "pytorch-minimize",
@@ -82,6 +83,7 @@ benchmark = [
   "tabstar==1.1.15",
   "einops",
   "kditransform",
+  "tabtune @ git+https://github.com/Lexsi-Labs/TabTune.git",
 ]
 
 [project.urls]

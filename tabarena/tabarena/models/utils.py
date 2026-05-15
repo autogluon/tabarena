@@ -52,6 +52,7 @@ def get_configs_generator_from_name(model_name: str):
         "PerpetualBooster": lambda: importlib.import_module("tabarena.models.perpetual_booster.generate").gen_perpetual_booster,
         "TabSTAR": lambda: importlib.import_module("tabarena.models.tabstar.generate").gen_tabstar,
         "TabPFN-2.6": lambda: importlib.import_module("tabarena.models.tabpfnv2_5.generate").gen_tabpfnv26,
+        "OrionMSP": lambda: importlib.import_module("tabarena.models.orionmsp.generate").gen_orionmsp,
         "LimiX": lambda: importlib.import_module("tabarena.models.limix.generate").gen_limix,
         "TabPFN-3": lambda: importlib.import_module("tabarena.models.tabpfn_3.generate").gen_tabpfn_3,
     }
