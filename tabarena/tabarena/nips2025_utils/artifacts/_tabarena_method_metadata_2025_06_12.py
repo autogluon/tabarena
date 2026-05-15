@@ -13,6 +13,7 @@ from tabarena.models.modernnca.info import (
 from tabarena.models.nn_torch.info import nn_torch_method_metadata
 from tabarena.models.random_forest.info import random_forest_method_metadata
 from tabarena.models.realmlp.info import realmlp_cpu_method_metadata
+from tabarena.models.tabicl.info import tabicl_method_metadata
 from tabarena.models.tabm.info import tabm_gpu_method_metadata, tabm_method_metadata
 from tabarena.models.xgboost.info import xgboost_method_metadata
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
@@ -29,6 +30,7 @@ _per_model_metadata = [
     nn_torch_method_metadata,
     random_forest_method_metadata,
     realmlp_cpu_method_metadata,
+    tabicl_method_metadata,
     tabm_method_metadata,
     tabm_gpu_method_metadata,
     xgboost_method_metadata,
