@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from typing import TYPE_CHECKING
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 from autogluon.tabular import __version__
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -74,9 +75,9 @@ class TabICLModelBase(AbstractTorchModel):
     def _get_batch_size(n_cells: int):
         if n_cells <= 4_000_000:
             return 8
-        elif n_cells <= 6_000_000:
+        if n_cells <= 6_000_000:
             return 4
-        elif n_cells <= 500_000_000:
+        if n_cells <= 500_000_000:
             return 2
         return 1
 
@@ -126,12 +127,17 @@ class TabICLModelBase(AbstractTorchModel):
         if n_estimators_override is not None:
             hyp["n_estimators"] = n_estimators_override
 
+        # Unique per-instance offload dir inside the OS tempdir (node-local on
+        # clusters). tabicl removes the offloaded files itself;
+        # the empty dir is left to the OS tempdir reaper.
+        disk_offload_dir = tempfile.mkdtemp(prefix="tabicl_")
+
         self.model = model_cls(
             **hyp,
             device=device,
             n_jobs=num_cpus,
-            disk_offload_dir="/tmp",
-            verbose=True,
+            disk_offload_dir=disk_offload_dir,
+            verbose=X.shape[0] > 250_000,
             inference_config=dict(COL_CONFIG=dict(cpu_safety_factor=0.75))
         )
         X = self.preprocess(X, y=y)
