@@ -65,7 +65,7 @@ limix = [
   "einops",
   "kditransform",
 ]
-tabpfnwide = ["tabpfnwide>=0.1.0"]
+tabpfnwide = ["tabpfnwide>=0.2.0"]
 
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [
@@ -85,6 +85,7 @@ benchmark = [
   "einops",
   "kditransform",
   "tabtune @ git+https://github.com/Lexsi-Labs/TabTune.git",
+  "tabpfnwide>=0.2.0",
 ]
 
 [project.urls]
