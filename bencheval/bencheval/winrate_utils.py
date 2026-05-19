@@ -10,6 +10,7 @@ def compute_winrate_matrix(
     method_col: str = "method",
     error_col: str = "error",
     seed_col: str | None = None,
+    tie_decimals: int | None = None,
 ) -> pd.DataFrame:
     """
     Pairwise win-rate matrix with optional seeding.
@@ -19,6 +20,11 @@ def compute_winrate_matrix(
         * Each task contributes equally, regardless of #seeds.
     - If seed_col is None:
         * Treat each task as having a single dummy seed.
+    - If tie_decimals is set:
+        * Round error to this many decimals before comparison so two methods
+          that hit the same metric via different code paths (floating-point
+          noise in the last few bits) still count as tied. Default None
+          preserves the original exact-equality behavior.
 
     Returns
     -------
@@ -31,6 +37,10 @@ def compute_winrate_matrix(
         seed_col = "__dummy_seed__"
         results_per_task = results_per_task.copy()
         results_per_task[seed_col] = 0
+
+    if tie_decimals is not None:
+        results_per_task = results_per_task.copy()
+        results_per_task[error_col] = results_per_task[error_col].round(tie_decimals)
 
     methods = pd.Index(results_per_task[method_col].unique())
     midx = {m: i for i, m in enumerate(methods)}
@@ -98,6 +108,7 @@ def compute_winrate(
     error_col: str = "error",
     seed_col: str | None = None,
     sort_desc: bool = True,
+    tie_decimals: int | None = None,
 ) -> pd.Series:
     """
     Average win-rate per method.
@@ -132,6 +143,7 @@ def compute_winrate(
         method_col=method_col,
         error_col=error_col,
         seed_col=seed_col,
+        tie_decimals=tie_decimals,
     )
 
     avg_wr = winrate_matrix.mean(axis=1, skipna=True)
