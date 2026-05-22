@@ -17,6 +17,8 @@ class TabPFNWideModel(AbstractTorchModel):
     """TabPFN-Wide: a TabPFN variant specialized for wide tabular datasets
     (many features, few samples).
 
+    The current default (v0.3.0) of TabPFN-Wide is based on TabPFNv2.
+
     Paper: TabPFN-Wide (arXiv:2510.06162)
     Authors: Christopher Kolberg, Jules Kreuer, Jonas Huurdeman, Sofiane Ouaari,
         Katharina Eggensperger, Nico Pfeifer
@@ -24,8 +26,8 @@ class TabPFNWideModel(AbstractTorchModel):
     License: Prior Labs License Version 1.1
     """
 
-    ag_key = "TabPFN-Wide"
-    ag_name = "TabPFN-Wide"
+    ag_key = "TA-TabPFN-Wide"
+    ag_name = "TA-TabPFN-Wide"
     ag_priority = 65
     seed_name = "random_state"
 
@@ -81,17 +83,21 @@ class TabPFNWideModel(AbstractTorchModel):
             )
 
         hps = self._get_model_params()
+        default_hps = dict(
+            model_name="wide-v2-8k",
+        )
+        hps = {**default_hps, **hps}
 
         X = self.preprocess(X, y=y, is_train=True)
-
         self.model = TabPFNWideClassifier(
-            device=device,
             **hps,
         )
         self.model.fit(X, y)
 
     def _set_default_params(self):
-        default_params = {}
+        default_params = {
+            "model_name": "wide-v2-8k",
+        }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
@@ -121,11 +127,13 @@ class TabPFNWideModel(AbstractTorchModel):
 
     @classmethod
     def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
-        """Set fold_fitting_strategy to sequential_local to avoid crashes
-        if model weights aren't pre-downloaded when fitting in parallel.
-        """
+        """Ensure one fold is fit at a time and refits is enabled by default."""
         default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
-        default_ag_args_ensemble.update({"fold_fitting_strategy": "sequential_local"})
+        extra_ag_args_ensemble = {
+            "fold_fitting_strategy": "sequential_local",
+            "refit_folds": default_ag_args_ensemble.pop("refit_folds", True),
+        }
+        default_ag_args_ensemble.update(extra_ag_args_ensemble)
         return default_ag_args_ensemble
 
     @classmethod
@@ -134,3 +142,13 @@ class TabPFNWideModel(AbstractTorchModel):
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
+
+    def _get_default_auxiliary_params(self) -> dict:
+        default_auxiliary_params = super()._get_default_auxiliary_params()
+        default_auxiliary_params.update(
+            {
+                "max_rows": 10_000,
+                "max_classes": 10,
+            }
+        )
+        return default_auxiliary_params

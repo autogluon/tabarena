@@ -11,7 +11,7 @@ def test_tabpfnwide():
         )
 
         model_cls = TabPFNWideModel
-        FitHelper.verify_model(model_cls=model_cls, model_hyperparameters={})
+        FitHelper.verify_model(model_cls=model_cls, model_hyperparameters={"device": "cpu"})
     except ImportError as err:
         pytest.skip(
             f"Import Error, skipping test... "
