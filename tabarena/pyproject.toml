@@ -56,7 +56,6 @@ sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.g
 tabprep = []
 tabstar = ["tabstar==1.1.15"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
-iltm = ["iltm>=0.1.0"]
 orionmsp = ["tabtune @ git+https://github.com/Lexsi-Labs/TabTune.git"] # from main to get newest code
 probmetrics = [
     "probmetrics",
@@ -66,6 +65,7 @@ limix = [
   "einops",
   "kditransform",
 ]
+iltm = ["iltm>=0.1.1"]
 
 # union of all above extras (mirrors your "benchmark" extra)
 benchmark = [
@@ -85,7 +85,7 @@ benchmark = [
   "einops",
   "kditransform",
   "tabtune @ git+https://github.com/Lexsi-Labs/TabTune.git",
-  "iltm>=0.1.0",
+  "iltm>=0.1.1",
 ]
 
 [project.urls]

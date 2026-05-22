@@ -28,6 +28,29 @@ class ILTMModel(AbstractTorchModel):
     ag_priority = 65
     seed_name = "seed"
 
+    _categorical_indices: list[int] | None
+    """The indices of the categorical features, detected during preprocessing."""
+
+    def _preprocess(self, X: pd.DataFrame, *, is_train: bool = False, **kwargs) -> pd.DataFrame:
+        """Detect indices of pandas `category`-dtype columns for iLTM's `cat_features`.
+
+        iLTM only auto-detects object-dtype string columns as categorical
+        (iltm/inference_interface.py::detect_object_string_columns). AutoGluon's
+        CategoryFeatureGenerator converts categoricals to pandas 'category' dtype,
+        which CatBoost (used in iLTM's tree embedding) then rejects unless the
+        column index is listed in cat_features.
+        """
+        X = super()._preprocess(X, **kwargs)
+
+        if is_train:
+            categorical_cols = X.select_dtypes(include=["category"]).columns.tolist()
+            if categorical_cols:
+                self._categorical_indices = [X.columns.get_loc(col) for col in categorical_cols]
+            else:
+                self._categorical_indices = None
+
+        return X
+
     def _fit(
         self,
         X: pd.DataFrame,
@@ -70,17 +93,18 @@ class ILTMModel(AbstractTorchModel):
 
             hps = self._get_model_params()
 
-            self.model = model_cls(
-                **hps,
-                device=device,
-            )
-
-            X = self.preprocess(X, y=y)
+            X = self.preprocess(X, y=y, is_train=True)
             if X_val is not None:
                 X_val = self.preprocess(X_val)
                 eval_set = (X_val, y_val)
             else:
                 eval_set = None
+
+            self.model = model_cls(
+                **hps,
+                device=device,
+                cat_features=self._categorical_indices,
+            )
 
             self.model = self.model.fit(
                 X=X,
