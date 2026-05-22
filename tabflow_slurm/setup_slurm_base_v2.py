@@ -13,8 +13,9 @@ from typing import Literal
 import pandas as pd
 import ray
 import yaml
-from tabarena.benchmark.experiment.experiment_constructor import Experiment
+from tabarena.benchmark.experiment.experiment_constructor import Experiment, resolve_class
 from tabarena.benchmark.experiment.experiment_utils import check_cache_hit
+from tabarena.benchmark.models.model_registry import infer_model_cls
 from tabarena.benchmark.task.user_task import SplitMetadata, TabArenaTaskMetadata
 from tabarena.utils.cache import CacheFunctionPickle
 from tabarena.utils.ray_utils import ray_map_list, to_batch_list
@@ -702,6 +703,7 @@ class BenchmarkSetup2026:
                         "n_samples_train_per_fold": split_md.num_instances_train,
                         "n_features": split_md.num_features_train,
                         "n_classes": split_md.num_classes_train,
+                        "problem_type": ta_task_metadata.problem_type,
                     }
 
         jobs_to_check = list(yield_all_jobs())
@@ -1079,6 +1081,7 @@ class BenchmarkSetup2026:
         n_classes: int,
         n_samples_train_per_fold: int,
         models_to_constraints: dict[str, dict[str, int]],
+        problem_type: str | None = None,
     ) -> bool:
         """Check if the model constraints are valid for the given model and dataset.
 
@@ -1090,11 +1093,15 @@ class BenchmarkSetup2026:
             The number of features in the dataset.
         n_classes: int
             The number of classes in the dataset.
-            0 for regression tasks.
+            For regression tasks this may be 0, -1, or NaN/None depending on the
+            metadata source — prefer `problem_type` for the regression check.
         n_samples_train_per_fold: int
             The number of training samples per fold in the dataset.
         models_to_constraints: dict[str, dict[str, int]]
             Mapping of model names to their potential constraints.
+        problem_type: str | None
+            "binary" | "multiclass" | "regression". Authoritative source for
+            the `regression_support` check.
 
         Returns:
         --------
@@ -1106,7 +1113,7 @@ class BenchmarkSetup2026:
             return True  # No constraints for this model
 
         regression_support = model_constraints.get("regression_support", True)
-        if (n_classes == 0) and (not regression_support):
+        if (problem_type == "regression") and (not regression_support):
             return False
 
         max_n_features = model_constraints.get("max_n_features", None)
@@ -1158,14 +1165,17 @@ def should_run_job(
 
     # Filter out-of-constraints datasets.
     # `model_cls` (AGModelExperiment) and `method_cls` (plain Experiment) both
-    # carry the class identifier; either is fine to use as the constraints key,
-    # since `are_model_constraints_valid` returns True when the key is absent
-    # from `models_to_constraints`. Fall back to "AutoGluon" only for the
-    # full-pipeline AutoGluon experiments (which expose neither field).
-    if "model_cls" in config:
-        model_cls = config["model_cls"]
-    elif "method_cls" in config:
-        model_cls = config["method_cls"]
+    # carry the class identifier — serialized to YAML as a dotted import path.
+    # Resolve back to the class and use `ag_key` so the lookup matches the
+    # AG-key-based `models_to_constraints` dict. Fall back to "AutoGluon" for
+    # the full-pipeline AutoGluon experiments (which expose neither field).
+    raw_cls = config.get("model_cls") or config.get("method_cls")
+    if raw_cls is not None:
+        try:
+            cls_obj = resolve_class(raw_cls, registry_resolver=infer_model_cls)
+            model_cls = getattr(cls_obj, "ag_key", None) or raw_cls
+        except (ImportError, AttributeError, ValueError, TypeError):
+            model_cls = raw_cls
     elif config.get("name", "").startswith("AutoGluon"):
         model_cls = "AutoGluon"
     else:
@@ -1176,6 +1186,7 @@ def should_run_job(
         n_classes=input_data["n_classes"],
         n_samples_train_per_fold=input_data["n_samples_train_per_fold"],
         models_to_constraints=models_to_constraints,
+        problem_type=input_data.get("problem_type"),
     ):
         return False
 
