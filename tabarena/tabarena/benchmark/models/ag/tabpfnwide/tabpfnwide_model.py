@@ -26,7 +26,7 @@ class TabPFNWideModel(AbstractTorchModel):
     License: Prior Labs License Version 1.1
     """
 
-    ag_key = "TA-TabPFN-Wide"
+    ag_key = "TA-TABPFN-WIDE"
     ag_name = "TA-TabPFN-Wide"
     ag_priority = 65
     seed_name = "random_state"
