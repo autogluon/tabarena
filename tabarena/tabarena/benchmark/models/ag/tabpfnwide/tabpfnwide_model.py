@@ -23,7 +23,6 @@ class TabPFNWideModel(AbstractTorchModel):
     Authors: Christopher Kolberg, Jules Kreuer, Jonas Huurdeman, Sofiane Ouaari,
         Katharina Eggensperger, Nico Pfeifer
     Codebase: https://github.com/not-a-feature/TabPFN-Wide
-    License: Prior Labs License Version 1.1
     """
 
     ag_key = "TA-TABPFN-WIDE"

@@ -1,4 +1,4 @@
-"""Code for running the benchmark on a full node in a GCP cluster."""
+"""History of benchmark setups for TabArenaV0.1 Single Node Benchmark."""
 
 from __future__ import annotations
 
@@ -37,12 +37,19 @@ class TabArenaV0pt1SingleNodeBenchmarkSetup(BenchmarkSetup2026):
 
 
 TabArenaV0pt1SingleNodeBenchmarkSetup(
-    benchmark_name="benchmark_xxx_22052026",
+    benchmark_name="benchmark_tabpfn_wide_22052026",
     task_metadata="tabarena-v0.1",
     num_gpus=1,
     models=[
-        ("XXX", 0),
+        ("TabPFN-Wide", 0),
     ],
+    custom_model_constraints={
+        "TA-TABPFN-WIDE": {
+            "max_n_samples_train_per_fold": 10_000,
+            "max_n_classes": 10,
+            "regression_support": False,
+        },
+    },
     # Can overwrite these classes as needed.
     path_setup=ExtraPathSetup(),
     slurm_setup=SlurmSetup(
