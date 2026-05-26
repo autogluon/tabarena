@@ -65,7 +65,7 @@ class AutoGluonExporter:
                     "All experiments must have identical fit_kwargs to export "
                     f"an AutoGluon preset, but experiment 0 and experiment {i} differ.\n"
                     f"experiment 0 fit_kwargs: {fit_kwargs}\n"
-                    f"experiment {i} fit_kwargs: {e.method_kwargs["fit_kwargs"]}"
+                    f"experiment {i} fit_kwargs: {e.method_kwargs['fit_kwargs']}"
                 )
 
         return fit_kwargs

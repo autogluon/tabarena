@@ -67,28 +67,19 @@ def __getattr__(name: str):
     return obj
 
 
-__all__ = [
-    "ExplainableBoostingMachineModel",
-    "KNNNewModel",
-    "LimiXModel",
-    "MethodMetadata",
+# Names imported eagerly at the top of this module. Kept as a tuple so
+# `__all__` can be derived alongside the lazy entries with one source of
+# truth per surface (eager vs lazy).
+_EAGER_EXPORTS = (
     "ModelInfo",
-    "ModernNCAModel",
-    "OrionMSPModel",
-    "PerpetualBoosterModel",
-    "RealMLPModel",
-    "RealTabPFNv25Model",
-    "SAPRPTOSSModel",
-    "TabDPTModel",
-    "TabICLModel",
-    "TabICLv2Model",
-    "TabMModel",
-    "TabPFN3Model",
-    "TabPFNWideModel",
-    "TabPFNv26Model",
-    "TabSTARModel",
-    "XRFMModel",
     "discover_models",
     "get_model_registry",
     "register_model_info",
-]
+)
+
+# `__all__` is derived: any name added to `_LAZY_CLASSES` or `_EAGER_EXPORTS`
+# is automatically part of the public surface. The `TYPE_CHECKING` block
+# above still needs static `from … import …` lines so IDEs and static
+# analysers can resolve lazy names — that's the one duplication we can't
+# fold away.
+__all__ = sorted({*_LAZY_CLASSES, *_EAGER_EXPORTS})

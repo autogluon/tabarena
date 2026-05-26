@@ -124,7 +124,7 @@ def test_discover_models_skips_modules_and_underscore_packages(patched_discovery
     assert discover_models() == {"Real": info}
 
 
-def test_discover_models_skips_packages_without_info(patched_discovery):
+def test_discover_models_skips_packages_without_info(patched_discovery, caplog):
     info = _make_info("Real")
     patched_discovery["submodules"] = [("real", True), ("legacy", True)]
     patched_discovery["info_modules"] = {
@@ -132,7 +132,15 @@ def test_discover_models_skips_packages_without_info(patched_discovery):
         "legacy": ImportError("no info module"),
     }
 
-    assert discover_models() == {"Real": info}
+    with caplog.at_level("WARNING", logger="tabarena.models._registry"):
+        assert discover_models() == {"Real": info}
+
+    # Failure is logged rather than silently swallowed (the silent-skip
+    # behaviour previously masked a real CatBoost discovery regression).
+    assert any(
+        "legacy" in record.message and "no info module" in record.message
+        for record in caplog.records
+    ), f"expected a warning mentioning 'legacy' and the import error, got: {[r.message for r in caplog.records]}"
 
 
 def test_discover_models_ignores_underscore_and_non_modelinfo_attrs(patched_discovery):

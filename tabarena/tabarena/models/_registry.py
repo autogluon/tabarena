@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import pkgutil
-from typing import TYPE_CHECKING
 
 from tabarena.models._model_info import ModelInfo
 
-if TYPE_CHECKING:
-    pass
+logger = logging.getLogger(__name__)
 
 
 _REGISTRY: dict[str, ModelInfo] | None = None
@@ -21,8 +20,11 @@ def discover_models() -> dict[str, ModelInfo]:
     method identifier — required to be unique by `MethodMetadata`). Cached
     on first call; re-import the module to refresh.
 
-    Models that don't yet have an `info.py` are silently skipped — Stage 1
-    is migration-friendly and lets old and new layouts coexist.
+    A package whose `info.py` fails to import logs a warning and is skipped;
+    the model is then absent from the registry. The skip-and-warn behaviour
+    keeps the rest of the registry usable when one model's optional deps
+    are broken, while making the failure visible (silent skipping previously
+    masked a real CatBoost discovery regression for an extended period).
     """
     global _REGISTRY
     if _REGISTRY is not None:
@@ -36,8 +38,13 @@ def discover_models() -> dict[str, ModelInfo]:
             continue
         try:
             info_module = importlib.import_module(f"tabarena.models.{name}.info")
-        except ImportError:
-            # Model hasn't migrated to the new layout yet; skip silently.
+        except ImportError as exc:
+            logger.warning(
+                "Skipping tabarena.models.%s in registry: failed to import its "
+                "info module (%s: %s). The model will not be discoverable until "
+                "the import is fixed.",
+                name, type(exc).__name__, exc,
+            )
             continue
         for attr_name in dir(info_module):
             if attr_name.startswith("_"):
