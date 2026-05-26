@@ -42,7 +42,7 @@ def generate_configs_rf(num_random_configs=200):
 gen_randomforest = CustomAGConfigGenerator(
     model_cls=RFModel,
     search_space_func=generate_configs_rf,
-    manual_configs=[{}],
+    manual_configs=[{"ag_args_ensemble": {"use_child_oof": False}}],
 )
 
 
