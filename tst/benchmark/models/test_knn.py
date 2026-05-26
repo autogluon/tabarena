@@ -1,5 +1,5 @@
 from autogluon.tabular.testing import FitHelper
-from tabarena.models.knn_new.model import KNNNewModel
+from tabarena.models.knn.model import KNNNewModel
 
 
 def test_knn():
