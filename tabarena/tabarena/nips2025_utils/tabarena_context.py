@@ -19,7 +19,7 @@ from tabarena.nips2025_utils.generate_repo import generate_repo_from_paths
 from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.nips2025_utils.artifacts.method_metadata_collection import MethodMetadataCollection
 from tabarena.nips2025_utils.eval_all import evaluate_all
 

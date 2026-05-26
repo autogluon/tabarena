@@ -3,7 +3,7 @@ from __future__ import annotations
 from tabarena.models.tabm.model import TabMModel
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabm.hpo import gen_tabm
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 tabm_method_metadata = MethodMetadata(

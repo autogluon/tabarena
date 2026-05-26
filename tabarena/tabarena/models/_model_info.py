@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+    from tabarena.models._method_metadata import MethodMetadata
 
 
 @dataclass(frozen=True)

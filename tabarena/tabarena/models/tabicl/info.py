@@ -6,7 +6,7 @@ from tabarena.models.tabicl.model import (
 )
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabicl.hpo import gen_tabicl, gen_tabiclv2
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 tabicl_method_metadata = MethodMetadata(

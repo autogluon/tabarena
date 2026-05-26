@@ -4,7 +4,7 @@ from autogluon.tabular.models import XGBoostModel
 
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.xgboost.hpo import gen_xgboost
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 xgboost_method_metadata = MethodMetadata(

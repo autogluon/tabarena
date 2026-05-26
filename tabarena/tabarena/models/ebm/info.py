@@ -3,7 +3,7 @@ from __future__ import annotations
 from tabarena.models.ebm.model import ExplainableBoostingMachineModel
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.ebm.hpo import gen_ebm
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 ebm_method_metadata = MethodMetadata(

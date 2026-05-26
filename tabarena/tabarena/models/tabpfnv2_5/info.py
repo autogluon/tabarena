@@ -6,7 +6,7 @@ from tabarena.models.tabpfnv2_5.model import (
 )
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabpfnv2_5.hpo import gen_realtabpfnv25, gen_tabpfnv26
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 realtabpfnv25_method_metadata = MethodMetadata(

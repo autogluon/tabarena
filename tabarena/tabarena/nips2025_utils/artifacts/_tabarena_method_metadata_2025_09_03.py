@@ -10,7 +10,7 @@ is an AutoGluon baseline. `limix_metadata` is the deprecated GPU-named entry
 
 from __future__ import annotations
 
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 _common_kwargs = dict(
     artifact_name="tabarena-2025-09-03",

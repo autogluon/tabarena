@@ -4,7 +4,7 @@ from autogluon.tabular.models import MitraModel
 
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.mitra.hpo import gen_mitra
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 mitra_method_metadata = MethodMetadata(

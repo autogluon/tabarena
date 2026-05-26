@@ -4,7 +4,7 @@ from autogluon.tabular.models import XTModel
 
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.extra_trees.hpo import gen_extratrees
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 extra_trees_method_metadata = MethodMetadata(

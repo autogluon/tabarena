@@ -11,7 +11,7 @@ config entries — the registry/dispatch surface ignores them.
 
 from __future__ import annotations
 
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 tabprep_gbm_metadata = MethodMetadata(

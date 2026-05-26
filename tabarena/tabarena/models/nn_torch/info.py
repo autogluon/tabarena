@@ -4,7 +4,7 @@ from autogluon.tabular.models import TabularNeuralNetTorchModel
 
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.nn_torch.hpo import gen_nn_torch
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 nn_torch_method_metadata = MethodMetadata(

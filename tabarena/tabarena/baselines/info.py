@@ -8,7 +8,7 @@ They live here as standalone `MethodMetadata` instances.
 
 from __future__ import annotations
 
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 _s3_cache_kwargs = dict(

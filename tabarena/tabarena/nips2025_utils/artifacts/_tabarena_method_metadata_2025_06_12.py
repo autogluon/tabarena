@@ -16,7 +16,7 @@ from tabarena.models.realmlp.info import realmlp_cpu_method_metadata
 from tabarena.models.tabicl.info import tabicl_method_metadata
 from tabarena.models.tabm.info import tabm_gpu_method_metadata, tabm_method_metadata
 from tabarena.models.xgboost.info import xgboost_method_metadata
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 # Models that own their MethodMetadata via per-model `info.py` modules. The
 # factory loop below skips these; they are seeded into `methods_2025_06_12` here.

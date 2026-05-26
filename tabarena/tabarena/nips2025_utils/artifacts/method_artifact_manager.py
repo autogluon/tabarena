@@ -5,7 +5,7 @@ from pathlib import Path
 from typing_extensions import Self
 
 from tabarena.nips2025_utils.artifacts.download_utils import download_and_extract_zip
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.nips2025_utils.artifacts.method_uploader import MethodUploaderS3
 from tabarena.nips2025_utils.end_to_end import EndToEndSingle
 

@@ -10,7 +10,7 @@ from tabarena.models._registry import (
     get_model_registry,
     register_model_info,
 )
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 class _DummyModel:

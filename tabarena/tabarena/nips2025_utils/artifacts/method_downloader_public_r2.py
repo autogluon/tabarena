@@ -12,7 +12,7 @@ import requests
 
 from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 class MethodDownloaderPublicR2:
