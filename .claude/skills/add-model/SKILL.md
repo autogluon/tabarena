@@ -90,7 +90,7 @@ Edit all 4 locations **in a single pass** (read each file first, then edit):
 ### 4a. `tabarena/tabarena/benchmark/models/ag/__init__.py`
 Add import line (alphabetically sorted by class name):
 ```python
-from tabarena.benchmark.models.ag.{ModelKey}.{ModelKey}_model import {ClassName}Model
+from tabarena.models.{ModelKey}.model import {ClassName}Model
 ```
 Add `"{ClassName}Model"` to `__all__` (keep list sorted).
 

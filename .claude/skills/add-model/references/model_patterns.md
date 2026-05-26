@@ -187,7 +187,7 @@ Default: empty search space (fine for foundation models with a single checkpoint
 ```python
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.{ModelKey}.{ModelKey}_model import {ClassName}Model
+from tabarena.models.{ModelKey}.model import {ClassName}Model
 from tabarena.utils.config_utils import ConfigGenerator
 
 gen_{ModelKey} = ConfigGenerator(
@@ -237,7 +237,7 @@ import pytest
 def test_{ModelKey}():
     try:
         from autogluon.tabular.testing import FitHelper
-        from tabarena.benchmark.models.ag.{ModelKey}.{ModelKey}_model import {ClassName}Model
+        from tabarena.models.{ModelKey}.model import {ClassName}Model
 
         model_cls = {ClassName}Model
         # Add a speed-up hyperparameter if the model supports one (e.g. max_epochs=1)
@@ -258,7 +258,7 @@ def test_{ModelKey}():
 
 ```python
 # Add import (keep sorted by module path):
-from tabarena.benchmark.models.ag.{ModelKey}.{ModelKey}_model import {ClassName}Model
+from tabarena.models.{ModelKey}.model import {ClassName}Model
 
 # Add to __all__ (keep sorted):
 __all__ = [
