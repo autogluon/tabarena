@@ -2,11 +2,23 @@
 
 Reference patterns for the `add-model` skill. These are annotated templates based on real implementations in the codebase.
 
+Every model lives in a single folder at `tabarena/tabarena/models/{ModelKey}/` with this layout:
+
+```
+tabarena/models/{ModelKey}/
+  __init__.py    # re-exports gen_{ModelKey}, {ModelKey}_info, {ModelKey}_method_metadata
+  model.py       # the AutoGluon wrapper class
+  hpo.py         # ConfigGenerator + search space
+  info.py        # ModelInfo + MethodMetadata
+  _internal/     # (optional) hand-written helper modules
+  _vendor/       # (optional) verbatim upstream code
+```
+
 ---
 
-## Model wrapper template
+## Model wrapper template (`model.py`)
 
-Full template for `{ModelKey}_model.py`. Adapt based on model type.
+Full template for the AutoGluon wrapper. Adapt based on model type.
 
 ```python
 from __future__ import annotations
@@ -180,7 +192,7 @@ class {ClassName}Model(AbstractModel):
 
 ---
 
-## generate.py template
+## hpo.py template
 
 Default: empty search space (fine for foundation models with a single checkpoint). Add hyperparameters only when explicitly requested.
 
@@ -226,7 +238,72 @@ gen_{ModelKey} = ConfigGenerator(
 
 ---
 
+## info.py template
+
+Defines the per-model `MethodMetadata` + `ModelInfo`. `info.py` is the file `discover_models()` walks — populating it is what makes the model visible to the registry.
+
+```python
+from __future__ import annotations
+
+from tabarena.models._model_info import ModelInfo
+from tabarena.models.{ModelKey}.hpo import gen_{ModelKey}
+from tabarena.models.{ModelKey}.model import {ClassName}Model
+from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+
+
+{ModelKey}_method_metadata = MethodMetadata(
+    method="{ModelName}",                  # e.g. "TabSTAR"
+    method_type="config",
+    display_name="{ModelName}",
+    compute="gpu",                          # or "cpu"
+    date="YYYY-MM-DD",                     # date of the benchmarking run (or planning date if unbenchmarked)
+    ag_key="{ag_key_without_TA}",          # e.g. "TABSTAR" (matches {ClassName}Model.ag_key without the TA- prefix)
+    model_key="{ag_key_without_TA}",
+    config_default="{ModelName}_c1_BAG_L1",
+    can_hpo=True,
+    is_bag=True,
+    has_raw=True,
+    has_processed=True,
+    has_results=True,
+    artifact_name="tabarena-YYYY-MM-DD",
+    s3_bucket="tabarena",
+    s3_prefix="cache",
+    upload_as_public=True,
+    name_suffix=None,
+    verified=False,                         # flip to True once benchmark run is signed off
+    reference_url="{doc_url}",
+    cache_type="r2",
+)
+
+
+{ModelKey}_info = ModelInfo(
+    model_cls={ClassName}Model,
+    search_space=gen_{ModelKey},
+    method_metadata={ModelKey}_method_metadata,
+    pip_extra=("{pip_package}",),
+)
+```
+
+`pip_extra` is the tuple of pip specs the auto-discovery uses when computing what extras to install for this model — list every dependency the wrapper imports lazily.
+
+---
+
+## __init__.py template
+
+```python
+from __future__ import annotations
+
+from tabarena.models.{ModelKey}.hpo import gen_{ModelKey}
+from tabarena.models.{ModelKey}.info import {ModelKey}_info, {ModelKey}_method_metadata
+
+__all__ = ["gen_{ModelKey}", "{ModelKey}_info", "{ModelKey}_method_metadata"]
+```
+
+---
+
 ## Test template
+
+Tests for `tabarena/tabarena/models/{ModelKey}/model.py` live at `tst/models/test_{ModelKey}.py`.
 
 ```python
 from __future__ import annotations
@@ -254,11 +331,15 @@ def test_{ModelKey}():
 
 ## Registry update snippets
 
-### `benchmark/models/ag/__init__.py` — sorted import + __all__
+### `tabarena/tabarena/models/__init__.py` — lazy class entry
 
 ```python
-# Add import (keep sorted by module path):
-from tabarena.models.{ModelKey}.model import {ClassName}Model
+# Add to _LAZY_CLASSES (keep alphabetised by class name):
+_LAZY_CLASSES = {
+    ...
+    "{ClassName}Model": "tabarena.models.{ModelKey}.model",
+    ...
+}
 
 # Add to __all__ (keep sorted):
 __all__ = [
@@ -266,53 +347,80 @@ __all__ = [
     "{ClassName}Model",
     ...
 ]
+
+# Add to the TYPE_CHECKING block (keep sorted):
+if TYPE_CHECKING:
+    ...
+    from tabarena.models.{ModelKey}.model import {ClassName}Model
 ```
 
-### `benchmark/models/model_registry.py`
+### `tabarena/tabarena/models/utils.py` — `name_to_import_map` entry
+
+Used by `get_configs_generator_from_name()`. The key is the friendly model name (typically same as `ModelName`):
 
 ```python
-# In the import block:
-from tabarena.benchmark.models.ag import (
-    ...
-    {ClassName}Model,
-)
-
-# In _models_to_add list:
-_models_to_add = [
-    ...
-    {ClassName}Model,
-]
+"{ModelName}": lambda: importlib.import_module("tabarena.models.{ModelKey}.hpo").gen_{ModelKey},
 ```
 
-### `models/utils.py` — name_to_import_map entry
-
-The key is the `ag_name` string (e.g. `"TA-TabPFN-2.6"`):
-
-```python
-"TA-{ModelName}": lambda: importlib.import_module("tabarena.models.{ModelKey}.generate").gen_{ModelKey},
-```
-
-### `pyproject.toml`
+### `tabarena/pyproject.toml`
 
 ```toml
 # In [project.optional-dependencies]:
 {ModelKey} = ["{pip_package}"]
 
-# In the benchmark extra (append to the list):
-benchmark = [
+# In the extended extra (append "tabarena[{ModelKey}]" — keep the list sorted):
+extended = [
   ...
-  "{pip_package}",
+  "tabarena[{ModelKey}]",
 ]
 ```
 
 ---
 
+## Multi-file models (optional)
+
+If the wrapper needs supporting modules, organise them under a private subfolder of `tabarena/tabarena/models/{ModelKey}/`:
+
+```
+tabarena/models/modernnca/        # example of a multi-file model
+  __init__.py
+  hpo.py
+  info.py
+  model.py
+  _internal/
+    __init__.py
+    base.py
+    data.py
+    modernnca_method.py
+    num_embeddings.py
+    ...
+
+tabarena/models/limix/             # example with vendored upstream code
+  __init__.py
+  hpo.py
+  info.py
+  model.py
+  _vendor/
+    __init__.py
+    LICENSE.txt
+    inference/
+    model/
+    utils/
+```
+
+Conventions:
+- **`_internal/`** is the default for hand-written helpers (preprocessors, adapters, glue).
+- **`_vendor/`** is reserved for code copied verbatim from an upstream project — keep the original layout and ship the license file.
+- Both subfolders are private to the model; everything imports through absolute paths like `tabarena.models.{ModelKey}._internal.<submodule>`.
+- A single model folder may legitimately contain **both** `_internal/` and `_vendor/` if it has hand-written wrapper helpers around a vendored library.
+
+---
+
 ## Metadata artifacts
 
-Models that are fully benchmarked in TabArena may also have entries in:
-- `tabarena/tabarena/nips2025_utils/artifacts/` — check what files exist there for naming/metadata conventions
+`info.py` is now the single source of truth for `MethodMetadata`. There's no separate "add a metadata entry" step when first introducing a model.
 
-You do NOT need to add metadata artifacts when first adding a model — those are generated after benchmarking runs.
+If/when the model has been benchmarked and the results are ready to be registered in TabArena's downstream artifact-aggregation files, also import the metadata you defined in `info.py` into the dated batch file under `tabarena/tabarena/nips2025_utils/artifacts/_tabarena_method_metadata_YYYY_MM_DD.py`. That step is for downstream artifact handling only — it is not required for the model to work in the registry.
 
 ---
 
