@@ -6,7 +6,7 @@ import pytest
 def test_sap_rpt_oss():
     try:
         from autogluon.tabular.testing import FitHelper
-        from tabarena.benchmark.models.ag.sap_rpt_oss.sap_rpt_oss_model import (
+        from tabarena.models.sap_rpt_oss.model import (
             SAPRPTOSSModel,
         )
 

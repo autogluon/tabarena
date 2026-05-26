@@ -6,7 +6,7 @@ def test_tabicl():
 
     try:
         from autogluon.tabular.testing import FitHelper
-        from tabarena.benchmark.models.ag.tabicl.tabicl_model import TabICLModel
+        from tabarena.models.tabicl.model import TabICLModel
         model_cls = TabICLModel
         FitHelper.verify_model(model_cls=model_cls, model_hyperparameters=model_hyperparameters)
     except ImportError as err:

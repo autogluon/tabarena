@@ -9,7 +9,7 @@ def test_perpetual():
     model_hyperparameters = {"iteration_limit": 10, "budget": 0.1}
 
     try:
-        from tabarena.benchmark.models.ag.perpetual_booster.perpetual_booster_model import (
+        from tabarena.models.perpetual_booster.model import (
             PerpetualBoosterModel,
         )
         model_cls = PerpetualBoosterModel

@@ -31,7 +31,7 @@ def _expected_extras() -> dict[str, list[str]]:
     extras: dict[str, set[str]] = defaultdict(set)
     for info in get_model_registry().values():
         # Resolve the package short name from the model class module path.
-        # Example: tabarena.benchmark.models.ag.ebm.ebm_model → "ebm"
+        # Example: tabarena.models.ebm.model → "ebm"
         # For multi-class folders (tabicl), this lumps both TabICL and
         # TabICLv2 into the "tabicl" extra.
         module = info.model_cls.__module__

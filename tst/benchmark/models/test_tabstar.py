@@ -6,7 +6,7 @@ import pytest
 def test_tabstar():
     try:
         from autogluon.tabular.testing import FitHelper
-        from tabarena.benchmark.models.ag.tabstar.tabstar_model import (
+        from tabarena.models.tabstar.model import (
             TabSTARModel,
         )
 

@@ -7,7 +7,7 @@ def test_realmlp():
 
     try:
         from autogluon.tabular.testing import FitHelper
-        from tabarena.benchmark.models.ag.realmlp.realmlp_model import RealMLPModel
+        from tabarena.models.realmlp.model import RealMLPModel
         model_cls = RealMLPModel
         FitHelper.verify_model(model_cls=model_cls, model_hyperparameters=model_hyperparameters)
     except ImportError as err:

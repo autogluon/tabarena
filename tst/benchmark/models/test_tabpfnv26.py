@@ -6,7 +6,7 @@ import pytest
 def test_tabpfn26():
     try:
         from autogluon.tabular.testing import FitHelper
-        from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import (
+        from tabarena.models.tabpfnv2_5.model import (
             TabPFNv26Model,
         )
 
@@ -32,7 +32,7 @@ def test_tabpfnv26_many_class():
         from autogluon.features.generators import AutoMLPipelineFeatureGenerator
         from sklearn.datasets import make_classification
         from sklearn.model_selection import train_test_split
-        from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import (
+        from tabarena.models.tabpfnv2_5.model import (
             TabPFNv26Model,
         )
 

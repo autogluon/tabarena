@@ -1,29 +1,29 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.iltm.iltm_model import ILTMModel
+from tabarena.models.ebm.model import ExplainableBoostingMachineModel
 from tabarena.benchmark.models.ag.knn_new.knn_model import KNNNewModel
 from tabarena.benchmark.models.ag.limix.limix_model import LimiXModel
 from tabarena.benchmark.models.ag.modernnca.modernnca_model import ModernNCAModel
-from tabarena.benchmark.models.ag.orionmsp.orionmsp_model import OrionMSPModel
-from tabarena.benchmark.models.ag.perpetual_booster.perpetual_booster_model import (
+from tabarena.models.orionmsp.model import OrionMSPModel
+from tabarena.models.perpetual_booster.model import (
     PerpetualBoosterModel,
 )
-from tabarena.benchmark.models.ag.realmlp.realmlp_model import RealMLPModel
-from tabarena.benchmark.models.ag.sap_rpt_oss.sap_rpt_oss_model import SAPRPTOSSModel
-from tabarena.benchmark.models.ag.tabdpt.tabdpt_model import TabDPTModel
-from tabarena.benchmark.models.ag.tabicl.tabicl_model import TabICLModel, TabICLv2Model
+from tabarena.models.realmlp.model import RealMLPModel
+from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
+from tabarena.models.tabdpt.model import TabDPTModel
+from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
 from tabarena.benchmark.models.ag.tabm.tabm_model import TabMModel
-from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import (
+from tabarena.models.tabpfnv2_5.model import (
     RealTabPFNv25Model,
     TabPFNv26Model,
 )
-from tabarena.benchmark.models.ag.tabpfnv3.tabpfn_3_model import TabPFN3Model
-from tabarena.benchmark.models.ag.tabpfnwide.tabpfnwide_model import TabPFNWideModel
-from tabarena.benchmark.models.ag.tabstar.tabstar_model import TabSTARModel
-from tabarena.benchmark.models.ag.xrfm.xrfm_model import XRFMModel
+from tabarena.models.tabpfn_3.model import TabPFN3Model
+from tabarena.models.tabpfnwide.model import TabPFNWideModel
+from tabarena.models.tabstar.model import TabSTARModel
+from tabarena.models.xrfm.model import XRFMModel
 
 __all__ = [
-    "ILTMModel",
+    "ExplainableBoostingMachineModel",
     "KNNNewModel",
     "LimiXModel",
     "ModernNCAModel",

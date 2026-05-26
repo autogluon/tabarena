@@ -72,7 +72,7 @@ def download_limix() -> None:
 def download_sap_rpt_oss() -> None:
     # Gated, requires accepting terms on Hugging Face!
     try:
-        from tabarena.benchmark.models.ag.sap_rpt_oss.sap_rpt_oss_model import pre_download_model
+        from tabarena.models.sap_rpt_oss.model import pre_download_model
     except ImportError:
         print("SAP RPT-1 OSS model not found. Skipping downloading its model.")
         return

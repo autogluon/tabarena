@@ -6,7 +6,7 @@ import pytest
 def test_orionmsp():
     try:
         from autogluon.tabular.testing import FitHelper
-        from tabarena.benchmark.models.ag.orionmsp.orionmsp_model import (
+        from tabarena.models.orionmsp.model import (
             OrionMSPModel,
         )
 

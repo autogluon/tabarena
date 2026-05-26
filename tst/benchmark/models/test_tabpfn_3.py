@@ -6,7 +6,7 @@ import pytest
 def test_tabpfn_3():
     try:
         from autogluon.tabular.testing import FitHelper
-        from tabarena.benchmark.models.ag.tabpfnv3.tabpfn_3_model import (
+        from tabarena.models.tabpfn_3.model import (
             TabPFN3Model,
         )
 
