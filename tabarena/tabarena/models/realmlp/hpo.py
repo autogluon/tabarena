@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from tabarena.benchmark.models.ag.realmlp.realmlp_model import RealMLPModel
+from tabarena.models.realmlp.model import RealMLPModel
 from tabarena.models.utils import convert_numpy_dtypes
 from tabarena.utils.config_utils import CustomAGConfigGenerator
 

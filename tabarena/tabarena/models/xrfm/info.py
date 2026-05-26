@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.xrfm.xrfm_model import XRFMModel
+from tabarena.models.xrfm.model import XRFMModel
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.xrfm.hpo import gen_xrfm
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata

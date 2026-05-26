@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.realmlp.realmlp_model import RealMLPModel
+from tabarena.models.realmlp.model import RealMLPModel
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.realmlp.hpo import gen_realmlp
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.tabpfnv3.tabpfn_3_model import TabPFN3Model
+from tabarena.models.tabpfn_3.model import TabPFN3Model
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabpfn_3.hpo import gen_tabpfn_3
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata

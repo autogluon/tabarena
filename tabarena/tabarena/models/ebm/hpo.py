@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from autogluon.common.space import Categorical, Int, Real
 
-from tabarena.benchmark.models.ag.ebm.ebm_model import ExplainableBoostingMachineModel
+from tabarena.models.ebm.model import ExplainableBoostingMachineModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 

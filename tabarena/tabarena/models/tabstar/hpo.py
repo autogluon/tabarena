@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from autogluon.common.space import Categorical
 
-from tabarena.benchmark.models.ag.tabstar.tabstar_model import TabSTARModel
+from tabarena.models.tabstar.model import TabSTARModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 gen_tabstar = ConfigGenerator(

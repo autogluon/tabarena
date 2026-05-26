@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.xrfm.xrfm_model import XRFMModel
+from tabarena.models.xrfm.model import XRFMModel
 from tabarena.models.utils import convert_numpy_dtypes
 from tabarena.utils.config_utils import CustomAGConfigGenerator
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.perpetual_booster.perpetual_booster_model import (
+from tabarena.models.perpetual_booster.model import (
     PerpetualBoosterModel,
 )
 from tabarena.models._model_info import ModelInfo

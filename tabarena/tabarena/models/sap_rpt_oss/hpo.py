@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.sap_rpt_oss.sap_rpt_oss_model import SAPRPTOSSModel
+from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 

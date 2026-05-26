@@ -1,14 +1,525 @@
-"""Re-export of the model class(es) for this folder.
-
-The wrapper class(es) currently live at `tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model`. This module
-makes them available as `tabarena.models.tabpfnv2_5.model`, giving per-model
-folders a uniform `model.py` entry point alongside `hpo.py` and `info.py`.
-A future cleanup can flip the direction — physically relocate the wrapper
-here and make the legacy path the shim.
-"""
-
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import RealTabPFNv25Model, TabPFNv26Model
+import logging
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING
 
-__all__ = ["RealTabPFNv25Model", "TabPFNv26Model"]
+from autogluon.common.utils.resource_utils import ResourceManager
+from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+from autogluon.features.generators import LabelEncoderFeatureGenerator
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+_HAS_LOGGED_TABPFN_LICENSE: bool = False
+
+
+class TabPFNModel(AbstractTorchModel):
+    """TabPFN-2.5 is a tabular foundation model that is developed and maintained by PriorLabs: https://priorlabs.ai/.
+
+    This class is an abstract template for various TabPFN versions as subclasses.
+
+    Paper: Accurate predictions on small data with a tabular foundation model
+    Authors: Noah Hollmann, Samuel Müller, Lennart Purucker, Arjun Krishnakumar, Max Körfer, Shi Bin Hoo, Robin Tibor Schirrmeister & Frank Hutter
+    Codebase: https://github.com/PriorLabs/TabPFN
+    License: https://github.com/PriorLabs/TabPFN/blob/main/LICENSE
+    """
+
+    ag_key = "NOTSET"
+    ag_name = "NOTSET"
+    ag_priority = 105
+    seed_name = "random_state"
+    fixed_random_state: int | None = None
+    """If not None, this fixes the random state to a static value to avoid that the
+    validation score is misleading for the refit model."""
+
+    custom_model_dir: str | None = None
+    default_classification_model: str | None = "NOTSET"
+    default_regression_model: str | None = "NOTSET"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._feature_generator = None
+        self._cat_features = None
+        self._cat_indices = None
+
+    def _preprocess(self, X: pd.DataFrame, is_train=False, **kwargs) -> pd.DataFrame:
+        X = super()._preprocess(X, **kwargs)
+
+        if is_train:
+            self._cat_indices = []
+
+            # X will be the training data.
+            self._feature_generator = LabelEncoderFeatureGenerator(verbosity=0)
+            self._feature_generator.fit(X=X)
+
+        # This converts categorical features to numeric via stateful label encoding.
+        if self._feature_generator.features_in:
+            X = X.copy()
+            X[self._feature_generator.features_in] = self._feature_generator.transform(
+                X=X
+            )
+
+            if is_train:
+                # Detect/set cat features and indices
+                if self._cat_features is None:
+                    self._cat_features = self._feature_generator.features_in[:]
+                self._cat_indices = [
+                    X.columns.get_loc(col) for col in self._cat_features
+                ]
+
+        return X
+
+    # FIXME: Crashes during model download if bagging with parallel fit.
+    #  Consider adopting same download logic as TabPFNMix which doesn't crash during model download.
+    # FIXME: Maybe support child_oof somehow with using only one model and being smart about inference time?
+    def _fit(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
+        num_cpus: int = 1,
+        num_gpus: int = 0,
+        time_limit: float | None = None,
+        **kwargs,
+    ):
+        time.time()
+
+        from tabpfn.model.loading import resolve_model_path
+        from torch.cuda import is_available
+
+        is_classification = self.problem_type in ["binary", "multiclass"]
+
+        device = "cuda" if num_gpus != 0 else "cpu"
+        if (device == "cuda") and (not is_available()):
+            # FIXME: warn instead and switch to CPU.
+            raise AssertionError(
+                "Fit specified to use GPU, but CUDA is not available on this machine. "
+                "Please switch to CPU usage instead.",
+            )
+
+        X = self.preprocess(X, y=y, is_train=True)
+
+        hps = self._get_model_params()
+        hps["device"] = device
+        hps["n_jobs"] = num_cpus
+        hps["categorical_features_indices"] = self._cat_indices
+
+        # Resolve preprocessing
+        if "preprocessing/scaling" in hps:
+            hps["inference_config/PREPROCESS_TRANSFORMS"] = [
+                {
+                    "name": scaler,
+                    "global_transformer_name": hps.pop("preprocessing/global", None),
+                    "categorical_name": hps.pop(
+                        "preprocessing/categoricals", "numeric"
+                    ),
+                    "append_original": hps.pop("preprocessing/append_original", True),
+                }
+                for scaler in hps["preprocessing/scaling"]
+            ]
+        for k in [
+            "preprocessing/scaling",
+            "preprocessing/categoricals",
+            "preprocessing/append_original",
+            "preprocessing/global",
+        ]:
+            hps.pop(k, None)
+
+        # Remove task specific HPs
+        if is_classification:
+            hps.pop("inference_config/REGRESSION_Y_PREPROCESS_TRANSFORMS", None)
+        else:
+            hps.pop("balance_probabilities", None)
+
+        # Resolve model_path
+        if self.custom_model_dir is not None:
+            model_dir = Path(self.custom_model_dir)
+        else:
+            _, model_dir, _, _ = resolve_model_path(
+                model_path=None,
+                which="classifier" if is_classification else "regressor",
+            )
+            model_dir = model_dir[0]
+        clf_path, reg_path = hps.pop(
+            "zip_model_path",
+            [self.default_classification_model, self.default_regression_model],
+        )
+        model_path = clf_path if is_classification else reg_path
+        if model_path is not None:
+            hps["model_path"] = model_dir / model_path
+
+        # Resolve inference_config
+        inference_config = {
+            _k: v
+            for k, v in hps.items()
+            if k.startswith("inference_config/") and (_k := k.split("/")[-1])
+        }
+        if inference_config:
+            hps["inference_config"] = inference_config
+        for k in list(hps.keys()):
+            if k.startswith("inference_config/"):
+                del hps[k]
+
+        # Resolve finetuning config
+        finetuning_config = {
+            _k: v
+            for k, v in hps.items()
+            if k.startswith("finetuning_config/") and (_k := k.split("/")[-1])
+        }
+        for k in list(hps.keys()):
+            if k.startswith("finetuning_config/"):
+                del hps[k]
+
+        # Resolve many_class config
+        many_class_config = {
+            _k: v
+            for k, v in hps.items()
+            if k.startswith("many_class/") and (_k := k.split("/", 1)[1])
+        }
+        for k in list(hps.keys()):
+            if k.startswith("many_class/"):
+                del hps[k]
+
+        use_finetuning = hps.pop("use_finetuning", False)
+
+        hps = self._adjust_hyperparameters_for_large_data(X=X, hps=hps, is_classification=is_classification)
+
+        if not use_finetuning:
+            from tabpfn import TabPFNClassifier, TabPFNRegressor
+
+
+            if self.fixed_random_state is not None:
+                hps[self.seed_name] = self.fixed_random_state
+
+            # Use ICL, fit preprocessing only
+            model_base = TabPFNClassifier if is_classification else TabPFNRegressor
+            self.model = model_base(**hps)
+
+            # Wrap with ManyClassClassifier for datasets with >10 classes
+            if is_classification and self.num_classes is not None and self.num_classes > 10:
+                from tabpfn_extensions.many_class import ManyClassClassifier
+
+                self.model = ManyClassClassifier(
+                    estimator=self.model,
+                    alphabet_size=10,
+                    random_state=hps.get(self.seed_name, 0),
+                    **many_class_config,
+                )
+
+            self.model = self.model.fit(
+                X=X,
+                y=y,
+            )
+        else:
+            raise NotImplementedError(
+                "Finetuning is not supported anymore for now due to other changes!."
+            )
+            # TODO:
+            #   Future Work for better performance:
+            #   - set n_finetune_ctx_plus_query_samples and finetune_ctx_query_split_ratio
+            #       and n_inference_subsample_samples automatically based on dataset size and VRAM
+            #   - add adaptive early stopping
+            #   - think more about n_estimators_*
+            #   - custom logic for creating splits if not provided
+            #   - think about refitting or using all data for finetuning during CV?
+            #   - tune over finetuning HPs?
+            #   - support custom eval metrics and callbacks?
+            from tabpfn.finetuning.finetuned_classifier import FinetunedTabPFNClassifier
+            from tabpfn.finetuning.finetuned_regressor import FinetunedTabPFNRegressor
+
+            metric_map = {
+                "roc_auc": "roc_auc",
+                "log_loss": "log_loss",
+                "rmse": "mse",
+            }
+            eval_metric = metric_map.get(self.stopping_metric.name, None)
+            model_base = (
+                FinetunedTabPFNClassifier
+                if is_classification
+                else FinetunedTabPFNRegressor
+            )
+            # Large default number to avoid stopping on it.
+            epochs = finetuning_config.pop("epochs", 10_000)
+
+            kwargs_name = (
+                "extra_classifier_kwargs"
+                if is_classification
+                else "extra_regressor_kwargs"
+            )
+            finetuning_config[kwargs_name] = hps
+
+            if X_val is not None:
+                X_val = self.preprocess(X=X_val, is_train=False)
+
+            self.model = model_base(
+                epochs=epochs,
+                time_limit=time_limit,
+                device=device,
+                random_state=hps["random_state"],
+                eval_metric=eval_metric,
+                **finetuning_config,
+            )
+            self.model = self.model.fit(
+                X=X,
+                y=y,
+                X_val=X_val,
+                y_val=y_val,
+                output_dir=Path(self.path) / "tmp_model",
+            )
+
+    def _get_default_resources(self) -> tuple[int, int]:
+        # Use only physical cores for better performance based on benchmarks
+        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
+
+        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
+
+        return num_cpus, num_gpus
+
+    def get_minimum_resources(
+        self, is_gpu_available: bool = False
+    ) -> dict[str, int | float]:
+        return {
+            "num_cpus": 1,
+            "num_gpus": 1 if is_gpu_available else 0,
+        }
+
+    def _set_default_params(self):
+        default_params = {
+            "ignore_pretraining_limits": True,  # to ignore warnings and size limits
+        }
+        for param, val in default_params.items():
+            self._set_default_param_value(param, val)
+
+    def _get_base_tabpfn_model(self):
+        """Unwrap ManyClassClassifier to get the underlying TabPFN estimator."""
+        try:
+            from tabpfn_extensions.many_class import ManyClassClassifier
+        except ImportError:
+            return self.model
+        if isinstance(self.model, ManyClassClassifier):
+            return self.model.estimator
+        return self.model
+
+    def get_device(self) -> str:
+        base = self._get_base_tabpfn_model()
+        if hasattr(base, "devices_"):
+            return base.devices_[0].type
+        # When wrapped in ManyClassClassifier, the base estimator is not fitted
+        # and devices_ is not available. Fall back to the constructor device param.
+        return base.device
+
+    def _set_device(self, device: str):
+        self._get_base_tabpfn_model().to(device)
+
+    @classmethod
+    def supported_problem_types(cls) -> list[str] | None:
+        return ["binary", "multiclass", "regression"]
+
+    @classmethod
+    def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
+        """Set fold_fitting_strategy to sequential_local,
+        as parallel folding crashes if model weights aren't pre-downloaded.
+        """
+        default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
+        extra_ag_args_ensemble = {
+            # FIXME: Find a work-around to avoid crash if parallel and weights are not downloaded
+            "fold_fitting_strategy": "sequential_local",
+            "refit_folds": default_ag_args_ensemble.pop("refit_folds", True),
+        }
+        default_ag_args_ensemble.update(extra_ag_args_ensemble)
+        return default_ag_args_ensemble
+
+    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
+        hyperparameters = self._get_model_params()
+        return self.estimate_memory_usage_static(
+            X=X,
+            problem_type=self.problem_type,
+            num_classes=self.num_classes,
+            hyperparameters=hyperparameters,
+            **kwargs,
+        )
+
+    @classmethod
+    def _estimate_memory_usage_static(
+        cls,
+        *,
+        X: pd.DataFrame,
+        hyperparameters: dict | None = None,
+        **kwargs,
+    ) -> int:
+        """Heuristic memory estimate based on TabPFN's memory estimate logic in:
+        https://github.com/PriorLabs/TabPFN/blob/57a2efd3ebdb3886245e4d097cefa73a5261a969/src/tabpfn/model/memory.py#L147.
+
+        This is based on GPU memory usage, but hopefully with overheads it also approximates CPU memory usage.
+        """
+        # TODO: update, this is not correct anymore, consider using internal TabPFN functions directly.
+        features_per_group = 3  # Based on TabPFNv2 default (unused)
+        n_layers = 12  # Based on TabPFNv2 default
+        embedding_size = 192  # Based on TabPFNv2 default
+        dtype_byte_size = 2  # Based on TabPFNv2 default
+
+        model_mem = 14489108  # Based on TabPFNv2 default
+
+        n_samples, n_features = X.shape[0], min(X.shape[1], 500)
+        n_feature_groups = (
+            n_features
+        ) / features_per_group + 1  # TODO: Unsure how to calculate this
+
+        X_mem = n_samples * n_feature_groups * dtype_byte_size
+        activation_mem = (
+            n_samples * n_feature_groups * embedding_size * n_layers * dtype_byte_size
+        )
+
+        baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
+
+        # Add some buffer to each term + 1 GB overhead to be safe
+        return int(
+            model_mem + 4 * X_mem + 2 * activation_mem + baseline_overhead_mem_est
+        )
+
+    @classmethod
+    def _class_tags(cls):
+        return {"can_estimate_memory_usage_static": True}
+
+    def _more_tags(self) -> dict:
+        return {"can_refit_full": True}
+
+    @staticmethod
+    def extra_checkpoints_for_tuning(problem_type: str) -> list[str]:
+        raise NotImplementedError("This method must be implemented in the subclass.")
+
+    def _adjust_hyperparameters_for_large_data(self, *, X: pd.DataFrame, hps: dict, is_classification: bool) -> dict:
+        """By default no adjustments, but can be overridden by subclasses."""
+        return hps
+
+class RealTabPFNv25Model(TabPFNModel):
+    """RealTabPFN-v2.5 version: https://priorlabs.ai/technical-reports/tabpfn-2-5-model-report.
+
+    We name this model RealTabPFN-v2.5 as its default checkpoints were trained on
+    real-world datasets, following the naming conventions of Prior Labs.
+    The extra checkpoints include models trained on only synthetic datasets as well.
+    """
+
+    ag_key = "TA-REALTABPFN-V2.5"
+    ag_name = "TA-RealTabPFN-v2.5"
+
+    default_classification_model: str | None = (
+        "tabpfn-v2.5-classifier-v2.5_default.ckpt"
+    )
+    default_regression_model: str | None = "tabpfn-v2.5-regressor-v2.5_default.ckpt"
+
+    @staticmethod
+    def extra_checkpoints_for_tuning(problem_type: str) -> list[str]:
+        """The list of checkpoints to use for hyperparameter tuning."""
+        if problem_type == "classification":
+            return [
+                "tabpfn-v2.5-classifier-v2.5_default-2.ckpt",
+                "tabpfn-v2.5-classifier-v2.5_large-features-L.ckpt",
+                "tabpfn-v2.5-classifier-v2.5_large-features-XL.ckpt",
+                "tabpfn-v2.5-classifier-v2.5_large-samples.ckpt",
+                "tabpfn-v2.5-classifier-v2.5_real-large-features.ckpt",
+                "tabpfn-v2.5-classifier-v2.5_real-large-samples-and-features.ckpt",
+                "tabpfn-v2.5-classifier-v2.5_real.ckpt",
+                "tabpfn-v2.5-classifier-v2.5_variant.ckpt",
+            ]
+
+        return [
+            "tabpfn-v2.5-regressor-v2.5_low-skew.ckpt",
+            "tabpfn-v2.5-regressor-v2.5_quantiles.ckpt",
+            "tabpfn-v2.5-regressor-v2.5_real-variant.ckpt",
+            "tabpfn-v2.5-regressor-v2.5_real.ckpt",
+            "tabpfn-v2.5-regressor-v2.5_small-samples.ckpt",
+            "tabpfn-v2.5-regressor-v2.5_variant.ckpt",
+        ]
+
+    def _get_default_auxiliary_params(self) -> dict:
+        default_auxiliary_params = super()._get_default_auxiliary_params()
+        default_auxiliary_params.update(
+            {
+                "max_rows": 100_000,
+                "max_features": 2000,
+                "max_classes": 10,
+            }
+        )
+        return default_auxiliary_params
+
+class TabPFNv26Model(TabPFNModel):
+    """TabPFN-2.6 version."""
+
+    ag_key = "TA-TABPFN-2.6"
+    ag_name = "TA-TabPFN-2.6"
+
+    fixed_random_state: int = 0
+    """We found that the validation score is misleading for TabPFN, when one uses a
+    different random state for the refit model than for models fit during CV.
+    This is because TabPFN's random state determines the preprocessing of TabPFN
+    """
+
+    default_classification_model: str | None = "tabpfn-v2.6-classifier-v2.6_default.ckpt"
+    default_regression_model: str | None = "tabpfn-v2.6-regressor-v2.6_default.ckpt"
+
+    @staticmethod
+    def extra_checkpoints_for_tuning(problem_type: str) -> list[str]:
+        """The list of checkpoints to use for hyperparameter tuning."""
+        raise NotImplementedError(
+            "We did not benchmark more checkpoints or tuning."
+        )
+
+    # We do not put a limit on number of classes or features anymore for
+    # the sake of the benchmark.
+    def _get_default_auxiliary_params(self) -> dict:
+        default_auxiliary_params = super()._get_default_auxiliary_params()
+        default_auxiliary_params.update(
+            {
+                "max_rows": 100_000,
+            }
+        )
+        return default_auxiliary_params
+
+    @classmethod
+    def _estimate_memory_usage_static(
+        cls,
+        *,
+        X: pd.DataFrame,
+        hyperparameters: dict | None = None,
+        **kwargs,
+    ) -> int:
+        """Memory estimate for 2.6 and large data is not supported yet.
+        We ignore it for now, moreover as we refit_folds=True, there is no benefit yet.
+
+        """
+        dataset_size_mem_est = (
+            3 * get_approximate_df_mem_usage(X).sum()
+        )
+        baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
+        return dataset_size_mem_est + baseline_overhead_mem_est
+
+    def _adjust_hyperparameters_for_large_data(self, *, X: pd.DataFrame, hps: dict, is_classification: bool) -> dict:
+        if (X.shape[0] > 70_000) and (X.shape[1] > 300):
+            print("Adjust max_batch_size and MAX_NUMBER_OF_FEATURES for large data.")
+            self.params_aux["max_batch_size"] = 8192
+            if "inference_config" not in hps:
+                hps["inference_config"] = {}
+
+            # More extreme heuristic to avoid OOM
+            import dataclasses
+
+            from tabpfn.inference_config import _get_v2_6_config, v2_6_classifier_preprocessor_configs, v2_6_regressor_preprocessor_configs
+            task_type = "multiclass" if is_classification else "regression"
+            preprocessor_configs = v2_6_classifier_preprocessor_configs()  if is_classification else v2_6_regressor_preprocessor_configs()
+            preprocessor_configs = [
+                dataclasses.replace(cfg, max_features_per_estimator=300)
+                for cfg in preprocessor_configs
+            ]
+            hps["inference_config"] = _get_v2_6_config(
+                    preprocessor_configs=preprocessor_configs,
+                    task_type=task_type,
+                )
+
+        return hps

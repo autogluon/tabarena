@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from autogluon.common.space import Categorical
 
-from tabarena.benchmark.models.ag.tabdpt.tabdpt_model import TabDPTModel
+from tabarena.models.tabdpt.model import TabDPTModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 

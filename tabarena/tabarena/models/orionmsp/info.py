@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.orionmsp.orionmsp_model import OrionMSPModel
+from tabarena.models.orionmsp.model import OrionMSPModel
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.orionmsp.hpo import gen_orionmsp
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata

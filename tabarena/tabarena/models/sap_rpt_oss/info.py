@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.sap_rpt_oss.sap_rpt_oss_model import SAPRPTOSSModel
+from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.sap_rpt_oss.hpo import gen_sap_rpt_oss
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata

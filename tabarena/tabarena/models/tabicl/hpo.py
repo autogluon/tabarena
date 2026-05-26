@@ -4,7 +4,7 @@ from copy import deepcopy
 
 from autogluon.common.space import Categorical, Real
 
-from tabarena.benchmark.models.ag.tabicl.tabicl_model import (
+from tabarena.models.tabicl.model import (
     TabICLModel,
     TabICLModelBase,
     TabICLv2Model,

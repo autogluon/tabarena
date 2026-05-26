@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.orionmsp.orionmsp_model import OrionMSPModel
+from tabarena.models.orionmsp.model import OrionMSPModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.tabpfnv2_5.tabpfnv2_5_model import (
+from tabarena.models.tabpfnv2_5.model import (
     RealTabPFNv25Model,
     TabPFNv26Model,
 )

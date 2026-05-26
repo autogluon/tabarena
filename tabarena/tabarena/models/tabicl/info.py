@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.tabicl.tabicl_model import (
+from tabarena.models.tabicl.model import (
     TabICLModel,
     TabICLv2Model,
 )

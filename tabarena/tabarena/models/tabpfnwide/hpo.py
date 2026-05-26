@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.tabpfnwide.tabpfnwide_model import TabPFNWideModel
+from tabarena.models.tabpfnwide.model import TabPFNWideModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 gen_tabpfnwide = ConfigGenerator(
