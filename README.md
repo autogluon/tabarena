@@ -80,12 +80,38 @@ uv sync
 </details>
 
 <details>
-<summary><b>🚀 Benchmark</b> — full install with all model dependencies</summary>
+<summary><b>🚀 Benchmark</b> — core set of models for benchmarking</summary>
+
+Installs the core models used for standard benchmarking: `tabpfn`, `tabicl`, `ebm`, `search_spaces`, `realmlp`, `tabdpt`, `tabm`.
 
 ```bash
 git clone https://github.com/autogluon/tabarena.git
 cd tabarena
 uv sync --extra benchmark
+```
+</details>
+
+<details>
+<summary><b>➕ Benchmark + Extended</b> — core models plus the extended model set</summary>
+
+> The `extended` extra is **experimental** and may fail to resolve or install due to incompatible version requirements 
+> across model dependencies. Use it only if you specifically need every model in a single environment; 
+> otherwise prefer `benchmark` or `benchmark` plus one specific model.
+
+Layers the extended model set (`modernnca`, `xrfm`, `sap-rpt-oss`, ...) on top of the core benchmark set.
+
+```bash
+git clone https://github.com/autogluon/tabarena.git
+cd tabarena
+uv sync --extra benchmark --extra extended
+```
+
+To install only one extended model on top of `benchmark` (recommended over `extended` when you only need a single extra model), pass its extra by name — for example, just `xrfm`:
+
+```bash
+git clone https://github.com/autogluon/tabarena.git
+cd tabarena
+uv sync --extra benchmark --extra xrfm
 ```
 </details>
 
@@ -109,7 +135,6 @@ git clone https://github.com/autogluon/tabarena.git
 uv pip install --prerelease=allow -e "./tabarena/tabarena[benchmark]"
 ```
 
-> [!NOTE]
 > In PyCharm, mark `tabarena/` and each `autogluon/src/` subdirectory as **Sources Root** so imports resolve.
 
 </details>
@@ -122,7 +147,6 @@ Add the following to your project's dependencies:
 ```toml
 "tabarena @ git+https://github.com/autogluon/tabarena.git#subdirectory=tabarena"
 ```
-</details>
 
 # 📦 TabArena Artifacts
 

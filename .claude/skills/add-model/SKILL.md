@@ -105,10 +105,29 @@ Add to `name_to_import_map` dict:
 The key must be the `ag_name` string (e.g. `"TA-TabPFN-2.6"`).
 
 ### 4d. `tabarena/pyproject.toml`
-Add a named optional extra and append the pip spec to the `benchmark` extra:
+
+The `pyproject.toml` defines a per-model extra for every supported model, plus three union extras built via **self-references** (`"tabarena[<name>]"`):
+
+- **`benchmark`** — the curated core set used for standard benchmarking (currently `tabpfn`, `tabicl`, `ebm`, `search_spaces`, `realmlp`, `tabdpt`, `tabm`). Stable and resolver-friendly. Do **not** add a new model here unless the user explicitly says it belongs in the core set.
+- **`extended`** — the layered set installed on top of `benchmark` for the broader model zoo. **This is where most new models go.**
+- **`all`** — experimental union of `benchmark` + `extended` + special-cased extras like `probmetrics` (which has conflict-prone deps and is excluded from `extended` on purpose). Updated automatically via `tabarena[extended]`, so usually no manual edit needed unless the model is conflict-prone.
+
+Always declare the pip spec exactly once in the per-model extra, then reference the model by name in the union(s). Never paste the raw `{pip_package}` into a union extra.
+
+**Step 1 — declare the per-model extra** under `[project.optional-dependencies]`:
 ```toml
 {ModelKey} = ["{pip_package}"]
 ```
+
+**Step 2 — add it to the right union via self-reference**:
+
+| Situation | Edit |
+|---|---|
+| **Default**: new extended model | Add `"tabarena[{ModelKey}]"` to the `extended` extra. |
+| Core benchmark model (only if user explicitly says so) | Add `"tabarena[{ModelKey}]"` to the `benchmark` extra. |
+| Model has known dependency conflicts (rare, like `probmetrics`) | Skip both `benchmark` and `extended`; add `"tabarena[{ModelKey}]"` to `all` only. |
+
+After this, users can install the model alone (`uv sync --extra benchmark --extra {ModelKey}`), as part of the extended set (`uv sync --extra benchmark --extra extended`), or via `--extra all`.
 
 ## Step 5: Lint
 
