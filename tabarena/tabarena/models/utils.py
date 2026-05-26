@@ -59,7 +59,7 @@ def get_configs_generator_from_name(model_name: str):
         "OrionMSP": lambda: importlib.import_module("tabarena.models.orionmsp.hpo").gen_orionmsp,
         "LimiX": lambda: importlib.import_module("tabarena.models.limix.hpo").gen_limix,
         "TabPFN-3": lambda: importlib.import_module("tabarena.models.tabpfn_3.hpo").gen_tabpfn_3,
-        "TabPFN-Wide": lambda: importlib.import_module("tabarena.models.tabpfnwide.generate").gen_tabpfnwide,
+        "TabPFN-Wide": lambda: importlib.import_module("tabarena.models.tabpfnwide.hpo").gen_tabpfnwide,
     }
 
     if model_name not in name_to_import_map:

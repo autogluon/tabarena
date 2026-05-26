@@ -9,6 +9,7 @@ gen_tabpfnwide = ConfigGenerator(
     manual_configs=[{}],
 )
 
+
 if __name__ == "__main__":
     from tabarena.benchmark.experiment import YamlExperimentSerializer
 
