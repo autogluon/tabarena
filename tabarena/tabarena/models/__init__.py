@@ -10,6 +10,7 @@ from tabarena.models._registry import (
 )
 
 if TYPE_CHECKING:
+    from tabarena.models._method_metadata import MethodMetadata
     from tabarena.models.ebm.model import ExplainableBoostingMachineModel
     from tabarena.models.knn.model import KNNNewModel
     from tabarena.models.limix.model import LimiXModel
@@ -28,11 +29,12 @@ if TYPE_CHECKING:
     from tabarena.models.xrfm.model import XRFMModel
 
 
-# Maps top-level class name -> "tabarena.models.<key>.model" submodule.
-# Resolved lazily by `__getattr__` so that `import tabarena.models` does not
-# transitively load every per-model `info.py` (which would trip a latent
-# circular import via `nips2025_utils.artifacts._tabarena_method_metadata`).
+# Maps top-level public name -> module to import it from. Resolved lazily by
+# `__getattr__` so that `import tabarena.models` stays cheap — model wrappers
+# pull in heavy ML libraries, and `_method_metadata.py` carries S3 / paper /
+# repository transitive imports we don't want to charge every consumer for.
 _LAZY_CLASSES: dict[str, str] = {
+    "MethodMetadata": "tabarena.models._method_metadata",
     "ExplainableBoostingMachineModel": "tabarena.models.ebm.model",
     "KNNNewModel": "tabarena.models.knn.model",
     "LimiXModel": "tabarena.models.limix.model",
@@ -69,6 +71,7 @@ __all__ = [
     "ExplainableBoostingMachineModel",
     "KNNNewModel",
     "LimiXModel",
+    "MethodMetadata",
     "ModelInfo",
     "ModernNCAModel",
     "OrionMSPModel",
