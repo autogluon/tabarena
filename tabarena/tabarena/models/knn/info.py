@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.models.knn_new.model import KNNNewModel
+from tabarena.models.knn.model import KNNNewModel
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.knn.hpo import gen_knn
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata

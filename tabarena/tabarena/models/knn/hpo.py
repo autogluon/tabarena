@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from autogluon.common.space import Categorical
 
-from tabarena.models.knn_new.model import KNNNewModel
+from tabarena.models.knn.model import KNNNewModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 

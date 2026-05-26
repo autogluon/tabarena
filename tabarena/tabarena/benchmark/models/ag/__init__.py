@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from tabarena.models.ebm.model import ExplainableBoostingMachineModel
-from tabarena.models.knn_new.model import KNNNewModel
+from tabarena.models.knn.model import KNNNewModel
 from tabarena.models.limix.model import LimiXModel
 from tabarena.models.modernnca.model import ModernNCAModel
 from tabarena.models.orionmsp.model import OrionMSPModel
