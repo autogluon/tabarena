@@ -1,26 +1,33 @@
+"""Back-compat re-export of the model classes under the legacy ag namespace.
+
+The classes themselves now live under `tabarena.models.<key>.model`, and are
+collected at the top-level `tabarena.models` namespace. This module re-exports
+them so existing `from tabarena.benchmark.models.ag import <Model>` imports
+continue to work.
+"""
+
 from __future__ import annotations
 
-from tabarena.models.ebm.model import ExplainableBoostingMachineModel
-from tabarena.models.knn.model import KNNNewModel
-from tabarena.models.limix.model import LimiXModel
-from tabarena.models.modernnca.model import ModernNCAModel
-from tabarena.models.orionmsp.model import OrionMSPModel
-from tabarena.models.perpetual_booster.model import (
+from tabarena.models import (
+    ExplainableBoostingMachineModel,
+    KNNNewModel,
+    LimiXModel,
+    ModernNCAModel,
+    OrionMSPModel,
     PerpetualBoosterModel,
-)
-from tabarena.models.realmlp.model import RealMLPModel
-from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
-from tabarena.models.tabdpt.model import TabDPTModel
-from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
-from tabarena.models.tabm.model import TabMModel
-from tabarena.models.tabpfnv2_5.model import (
+    RealMLPModel,
     RealTabPFNv25Model,
+    SAPRPTOSSModel,
+    TabDPTModel,
+    TabICLModel,
+    TabICLv2Model,
+    TabMModel,
+    TabPFN3Model,
     TabPFNv26Model,
+    TabPFNWideModel,
+    TabSTARModel,
+    XRFMModel,
 )
-from tabarena.models.tabpfn_3.model import TabPFN3Model
-from tabarena.models.tabpfnwide.model import TabPFNWideModel
-from tabarena.models.tabstar.model import TabSTARModel
-from tabarena.models.xrfm.model import XRFMModel
 
 __all__ = [
     "ExplainableBoostingMachineModel",
