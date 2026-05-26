@@ -1,7 +1,7 @@
 import torch
 import random
 import numpy as np
-from tabarena.benchmark.models.ag.limix._vendor.model.transformer import FeaturesTransformer
+from tabarena.models.limix._vendor.model.transformer import FeaturesTransformer
 
 def build_model(config:dict):
     model = FeaturesTransformer(

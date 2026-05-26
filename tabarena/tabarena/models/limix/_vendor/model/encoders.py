@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from tabarena.benchmark.models.ag.limix._vendor.model.layer import EncoderBaseLayer, MLP
+from tabarena.models.limix._vendor.model.layer import EncoderBaseLayer, MLP
 from typing import Any,Literal
 from torch.nn.init import orthogonal_
 import numpy as np

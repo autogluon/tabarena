@@ -1,5 +1,5 @@
-from tabarena.benchmark.models.ag.limix._vendor.inference.inference_method import InferenceAttentionMap, InferenceResultWithRetrieval
-from tabarena.benchmark.models.ag.limix._vendor.inference.preprocess import (
+from tabarena.models.limix._vendor.inference.inference_method import InferenceAttentionMap, InferenceResultWithRetrieval
+from tabarena.models.limix._vendor.inference.preprocess import (
     FeatureShuffler, 
     FilterValidFeatures, 
     CategoricalFeatureEncoder, 
@@ -7,7 +7,7 @@ from tabarena.benchmark.models.ag.limix._vendor.inference.preprocess import (
     FingerprintFeatureEncoder,
     PolynomialInteractionGenerator,
     SubSampleData)
-from tabarena.benchmark.models.ag.limix._vendor.utils.loading import load_model
+from tabarena.models.limix._vendor.utils.loading import load_model
 import torch
 from typing import List, Literal
 import random

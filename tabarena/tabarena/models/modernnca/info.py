@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.modernnca.modernnca_model import ModernNCAModel
+from tabarena.models.modernnca.model import ModernNCAModel
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.modernnca.hpo import gen_modernnca
 from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata

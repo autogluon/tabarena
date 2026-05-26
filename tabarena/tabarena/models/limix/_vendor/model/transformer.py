@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
-from tabarena.benchmark.models.ag.limix._vendor.model.layer import EncoderBaseLayer, MLP, LayerStack
+from tabarena.models.limix._vendor.model.layer import EncoderBaseLayer, MLP, LayerStack
 from typing import Any, Literal
-from tabarena.benchmark.models.ag.limix._vendor.model.encoders import get_x_encoder, get_cls_y_encoder, get_reg_y_encoder, preprocesss_4_x
+from tabarena.models.limix._vendor.model.encoders import get_x_encoder, get_cls_y_encoder, get_reg_y_encoder, preprocesss_4_x
 from torch.amp import autocast
 
 

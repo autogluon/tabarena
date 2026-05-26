@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from tabarena.models.ebm.model import ExplainableBoostingMachineModel
-from tabarena.benchmark.models.ag.knn_new.knn_model import KNNNewModel
-from tabarena.benchmark.models.ag.limix.limix_model import LimiXModel
-from tabarena.benchmark.models.ag.modernnca.modernnca_model import ModernNCAModel
+from tabarena.models.knn_new.model import KNNNewModel
+from tabarena.models.limix.model import LimiXModel
+from tabarena.models.modernnca.model import ModernNCAModel
 from tabarena.models.orionmsp.model import OrionMSPModel
 from tabarena.models.perpetual_booster.model import (
     PerpetualBoosterModel,
@@ -12,7 +12,7 @@ from tabarena.models.realmlp.model import RealMLPModel
 from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
 from tabarena.models.tabdpt.model import TabDPTModel
 from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
-from tabarena.benchmark.models.ag.tabm.tabm_model import TabMModel
+from tabarena.models.tabm.model import TabMModel
 from tabarena.models.tabpfnv2_5.model import (
     RealTabPFNv25Model,
     TabPFNv26Model,

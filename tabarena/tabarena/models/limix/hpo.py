@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.benchmark.models.ag.limix.limix_model import LimiXModel
+from tabarena.models.limix.model import LimiXModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 

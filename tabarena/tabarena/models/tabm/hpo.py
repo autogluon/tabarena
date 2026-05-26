@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from tabarena.benchmark.models.ag.tabm.tabm_model import TabMModel
+from tabarena.models.tabm.model import TabMModel
 from tabarena.models.utils import convert_numpy_dtypes
 from tabarena.utils.config_utils import CustomAGConfigGenerator
 

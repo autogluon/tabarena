@@ -9,8 +9,8 @@ import torch
 from autogluon.core.metrics import compute_metric
 from tqdm import tqdm
 
-from tabarena.benchmark.models.ag.modernnca.base import Method, check_softmax
-from tabarena.benchmark.models.ag.modernnca.data import (
+from tabarena.models.modernnca._internal.base import Method, check_softmax
+from tabarena.models.modernnca._internal.data import (
     Dataset,
     data_enc_process,
     data_label_process,
@@ -18,8 +18,8 @@ from tabarena.benchmark.models.ag.modernnca.data import (
     data_nan_process,
     data_norm_process,
 )
-from tabarena.benchmark.models.ag.modernnca.modernNCA import ModernNCA
-from tabarena.benchmark.models.ag.modernnca.utils import Averager
+from tabarena.models.modernnca._internal.modernNCA import ModernNCA
+from tabarena.models.modernnca._internal.utils import Averager
 
 # from https://github.com/LAMDA-Tabular/TALENT/blob/main/TALENT/model/methods/modernNCA.py
 

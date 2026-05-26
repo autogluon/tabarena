@@ -49,7 +49,7 @@ Upstream uses bare top-level package names (`inference.*`, `model.*`,
 `utils.*`). To avoid clashing with anything else on `sys.path`, every
 `from inference.X import …`, `from model.X import …`, and
 `from utils.X import …` was rewritten to
-`from tabarena.benchmark.models.ag.limix._vendor.{inference|model|utils}.X
+`from tabarena.models.limix._vendor.{inference|model|utils}.X
 import …`. No other code was changed by this pass.
 
 ### 2. Make fitted pipelines picklable — `inference/preprocess.py`

@@ -10,7 +10,7 @@ import sklearn.metrics as skm
 import torch
 from tqdm import tqdm
 
-from tabarena.benchmark.models.ag.modernnca.data import (
+from tabarena.models.modernnca._internal.data import (
     Dataset,
     data_enc_process,
     data_label_process,
@@ -20,7 +20,7 @@ from tabarena.benchmark.models.ag.modernnca.data import (
     get_categories,
     num_enc_process,
 )
-from tabarena.benchmark.models.ag.modernnca.utils import Averager, Timer, get_device, set_seeds
+from tabarena.models.modernnca._internal.utils import Averager, Timer, get_device, set_seeds
 
 
 def check_softmax(logits):

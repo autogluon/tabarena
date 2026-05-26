@@ -251,7 +251,7 @@ def num_enc_process(N_data, num_policy, n_bins=2, y_train=None, is_regression=Fa
     :param encoder: Optional[PiecewiseLinearEncoding]
     :return: Tuple[ArrayDict, Optional[PiecewiseLinearEncoding]]
     """
-    from tabarena.benchmark.models.ag.modernnca.num_embeddings import (
+    from tabarena.models.modernnca._internal.num_embeddings import (
         BinsEncoding,
         JohnsonEncoding,
         PiecewiseLinearEncoding,

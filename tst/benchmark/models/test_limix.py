@@ -6,7 +6,7 @@ import pytest
 def test_limix():
     try:
         from autogluon.tabular.testing import FitHelper
-        from tabarena.benchmark.models.ag.limix.limix_model import LimiXModel
+        from tabarena.models.limix.model import LimiXModel
 
         FitHelper.verify_model(model_cls=LimiXModel, model_hyperparameters={})
     except ImportError as err:

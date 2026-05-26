@@ -62,7 +62,7 @@ def download_tabflex() -> None:
 
 def download_limix() -> None:
     try:
-        from tabarena.benchmark.models.ag.limix.limix_model import LimiXModel
+        from tabarena.models.limix.model import LimiXModel
     except ImportError:
         print("LimiXModel not found. Skipping downloading its models.")
         return

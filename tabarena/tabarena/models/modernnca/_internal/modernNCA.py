@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from tabarena.benchmark.models.ag.modernnca.tabr_utils import make_module
+from tabarena.models.modernnca._internal.tabr_utils import make_module
 
 # from https://github.com/LAMDA-Tabular/TALENT/blob/cb6cb0cc9d69ac75c467e8dae8ca5ac3d3beb2f2/TALENT/model/models/modernNCA.py#L1
 

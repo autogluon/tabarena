@@ -7,7 +7,7 @@ def test_modernnca():
 
     try:
         from autogluon.tabular.testing import FitHelper
-        from tabarena.benchmark.models.ag.modernnca.modernnca_model import ModernNCAModel
+        from tabarena.models.modernnca.model import ModernNCAModel
         model_cls = ModernNCAModel
         FitHelper.verify_model(model_cls=model_cls, model_hyperparameters=model_hyperparameters)
     except ImportError as err:

@@ -20,7 +20,7 @@ from sklearn.pipeline import FeatureUnion, Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.decomposition import TruncatedSVD
 from sklearn.utils.validation import check_is_fitted
-from tabarena.benchmark.models.ag.limix._vendor.utils.data_utils import TabularInferenceDataset
+from tabarena.models.limix._vendor.utils.data_utils import TabularInferenceDataset
 from torch.cuda import OutOfMemoryError
 
 import hashlib

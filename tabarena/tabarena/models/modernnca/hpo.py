@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from tabarena.benchmark.models.ag.modernnca.modernnca_model import ModernNCAModel
+from tabarena.models.modernnca.model import ModernNCAModel
 from tabarena.models.utils import convert_numpy_dtypes
 from tabarena.utils.config_utils import CustomAGConfigGenerator
 

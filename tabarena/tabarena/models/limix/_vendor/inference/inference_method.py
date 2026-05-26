@@ -8,11 +8,11 @@ from torch.utils.data import DataLoader, DistributedSampler
 import os, socket, contextlib
 from tqdm import tqdm
 
-from tabarena.benchmark.models.ag.limix._vendor.utils.data_utils import TabularInferenceDataset, cluster_test_data, fix_data_shape
-from tabarena.benchmark.models.ag.limix._vendor.utils.inference_utils import NonPaddingDistributedSampler, swap_rows_back
-from tabarena.benchmark.models.ag.limix._vendor.utils.loading import load_model
+from tabarena.models.limix._vendor.utils.data_utils import TabularInferenceDataset, cluster_test_data, fix_data_shape
+from tabarena.models.limix._vendor.utils.inference_utils import NonPaddingDistributedSampler, swap_rows_back
+from tabarena.models.limix._vendor.utils.loading import load_model
 
-from tabarena.benchmark.models.ag.limix._vendor.utils.retrieval_utils import RelabelRetrievalY, find_top_K_indice
+from tabarena.models.limix._vendor.utils.retrieval_utils import RelabelRetrievalY, find_top_K_indice
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
