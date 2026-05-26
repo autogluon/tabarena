@@ -53,7 +53,7 @@ def download_mitra() -> None:
 
 def download_tabflex() -> None:
     try:
-        from tabarena.benchmark.models.ag.tabflex.tabflex_model import TabFlexModel
+        from tabarena.models import TabFlexModel
     except ImportError:
         print("TabFlexModel not found. Skipping downloading its models.")
         return

@@ -10,7 +10,7 @@ from tabflow.utils.logging_utils import setup_logging
 from tabarena.benchmark.experiment import ExperimentBatchRunner, AGModelBagExperiment, Experiment, YamlExperimentSerializer, YamlSingleExperimentSerializer, AGExperiment
 from tabarena.benchmark.models.simple import SimpleLightGBM
 from autogluon.tabular.models import *
-from tabarena.benchmark.models.ag import *
+from tabarena.models import *
 
 logger = setup_logging(level=logging.INFO)
 
