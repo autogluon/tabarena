@@ -3,17 +3,18 @@ from __future__ import annotations
 import io
 import shutil
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING
 
 from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
-from tabarena.models._method_metadata import MethodMetadata
+if TYPE_CHECKING:
+    from tabarena.models._method_metadata import MethodMetadata
 
 
 class MethodDownloaderR2:
-    """
-    Download a method's cached artifacts from Cloudflare R2 and restore the original
+    """Download a method's cached artifacts from Cloudflare R2 and restore the original
     local layout expected by MethodUploaderR2 / MethodMetadata.
 
     Artifacts handled:
@@ -23,7 +24,7 @@ class MethodDownloaderR2:
       - configs_hyperparameters (standalone YAML/JSON/etc. per your metadata)
       - results files (the set returned by `method_metadata.path_results_files()`)
 
-    Notes
+    Notes:
     -----
     - Object keys are reconstructed from the local target paths via
       MethodMetadata.to_s3_cache_loc so the local <-> R2 mapping stays perfectly
@@ -160,9 +161,7 @@ class MethodDownloaderR2:
         return code in ("404", "NoSuchKey", "NotFound")
 
     def _download_to_local_if_exists(self, r2_key: str | Path, path_local: Path):
-        """
-        Attempts to download a single file to `path_local`. Skips quietly if not found.
-        """
+        """Attempts to download a single file to `path_local`. Skips quietly if not found."""
         from botocore.exceptions import ClientError
 
         if isinstance(r2_key, Path):
@@ -188,8 +187,7 @@ class MethodDownloaderR2:
         )
 
     def _download_and_unzip_if_exists(self, r2_key: str | Path, dest_dir: Path, clear_dir: bool = True):
-        """
-        Downloads a zip from R2 into memory and extracts into `dest_dir`.
+        """Downloads a zip from R2 into memory and extracts into `dest_dir`.
         Skips if the object does not exist.
         """
         from botocore.exceptions import ClientError

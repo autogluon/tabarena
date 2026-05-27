@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-import io
 import shutil
 import tempfile
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING
 from urllib.parse import quote, urljoin
 
 import requests
-
 from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
-from tabarena.models._method_metadata import MethodMetadata
+if TYPE_CHECKING:
+    from tabarena.models._method_metadata import MethodMetadata
 
 
 class MethodDownloaderPublicR2:
-    """
-    Download a method's cached artifacts from a public Cloudflare R2 bucket exposed
+    """Download a method's cached artifacts from a public Cloudflare R2 bucket exposed
     via a custom domain, and restore the original local layout expected by
     MethodUploaderR2 / MethodMetadata.
 
@@ -28,7 +27,7 @@ class MethodDownloaderPublicR2:
       - configs_hyperparameters (standalone YAML/JSON/etc. per your metadata)
       - results files (the set returned by `method_metadata.path_results_files()`)
 
-    Notes
+    Notes:
     -----
     - Object keys are reconstructed from the local target paths via
       MethodMetadata.to_s3_cache_loc so the local <-> public R2 mapping stays
@@ -188,9 +187,7 @@ class MethodDownloaderPublicR2:
                 return False
 
     def _download_to_local_if_exists(self, r2_key: str | Path, path_local: Path):
-        """
-        Attempts to download a single file to `path_local`. Skips quietly if not found.
-        """
+        """Attempts to download a single file to `path_local`. Skips quietly if not found."""
         url = self.r2_key_to_url(r2_key)
 
         if not self._head_exists(url):
@@ -215,8 +212,7 @@ class MethodDownloaderPublicR2:
         dest_dir: Path,
         clear_dir: bool = True,
     ):
-        """
-        Downloads a zip from public R2 to a temporary file and extracts it into
+        """Downloads a zip from public R2 to a temporary file and extracts it into
         `dest_dir`. Skips if the object does not exist.
 
         This avoids loading the full zip into memory, which is important for large

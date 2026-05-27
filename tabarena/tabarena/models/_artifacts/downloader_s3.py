@@ -3,17 +3,18 @@ from __future__ import annotations
 import io
 import shutil
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING
 
 from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
-from tabarena.models._method_metadata import MethodMetadata
+if TYPE_CHECKING:
+    from tabarena.models._method_metadata import MethodMetadata
 
 
 class MethodDownloaderS3:
-    """
-    Download a method's cached artifacts from S3 and restore the original local layout
+    """Download a method's cached artifacts from S3 and restore the original local layout
     expected by MethodUploaderS3 / MethodMetadata.
 
     Artifacts handled:
@@ -23,7 +24,7 @@ class MethodDownloaderS3:
       - configs_hyperparameters (standalone YAML/JSON/etc. per your metadata)
       - results files (the set returned by `method_metadata.path_results_files()`)
 
-    Notes
+    Notes:
     -----
     - S3 keys are reconstructed from the local target paths via MethodMetadata.to_s3_cache_loc
       so the local <-> S3 mapping stays perfectly symmetric with MethodUploaderS3.
@@ -106,9 +107,7 @@ class MethodDownloaderS3:
     # Helper methods
     # --------------
     def _download_to_local_if_exists(self, s3_key: str | Path, path_local: Path):
-        """
-        Attempts to download a single file to `path_local`. Skips quietly if not found.
-        """
+        """Attempts to download a single file to `path_local`. Skips quietly if not found."""
         import boto3
         from botocore import UNSIGNED
         from botocore.config import Config
@@ -157,7 +156,7 @@ class MethodDownloaderS3:
 
         try:
             client_for_get.download_file(Bucket=self.s3_bucket, Key=s3_key, Filename=str(path_local))
-        except (NoCredentialsError, PartialCredentialsError, ClientError) as e:
+        except (NoCredentialsError, PartialCredentialsError, ClientError):
             # If we tried signed and it failed but the object might be public, try unsigned once.
             if client_for_get is s3_signed:
                 try:
@@ -169,8 +168,7 @@ class MethodDownloaderS3:
             raise
 
     def _download_and_unzip_if_exists(self, s3_key: str | Path, dest_dir: Path, clear_dir: bool = True):
-        """
-        Downloads a zip from S3 into memory and extracts into `dest_dir`.
+        """Downloads a zip from S3 into memory and extracts into `dest_dir`.
         Skips if the object does not exist. Supports public objects by retrying
         with an unsigned client when a signed request is denied or creds are missing.
         """

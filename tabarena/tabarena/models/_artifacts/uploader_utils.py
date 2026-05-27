@@ -7,8 +7,7 @@ from pathlib import Path
 
 
 def zip_in_memory(path: Path) -> io.BytesIO:
-    """
-    Create an in-memory ZIP archive of a directory.
+    """Create an in-memory ZIP archive of a directory.
 
     This method recursively traverses the given directory, compresses
     all contained files into a ZIP archive, and returns the archive
@@ -21,14 +20,14 @@ def zip_in_memory(path: Path) -> io.BytesIO:
         The root directory whose contents will be compressed into
         the ZIP archive.
 
-    Returns
+    Returns:
     -------
     io.BytesIO
         A binary buffer positioned at the beginning, containing the
         ZIP archive data. The caller can read from this buffer or
         upload it directly (e.g., to S3) without writing a local file.
 
-    Raises
+    Raises:
     ------
     FileNotFoundError
     If no files exist in the given directory to be zipped.

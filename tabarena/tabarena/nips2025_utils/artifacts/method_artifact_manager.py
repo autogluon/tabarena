@@ -4,17 +4,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing_extensions import Self
 
-from tabarena.nips2025_utils.artifacts.download_utils import download_and_extract_zip
+from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
 from tabarena.models._method_metadata import MethodMetadata
-from tabarena.nips2025_utils.artifacts.method_uploader import MethodUploaderS3
+from tabarena.nips2025_utils.artifacts.download_utils import download_and_extract_zip
 from tabarena.nips2025_utils.end_to_end import EndToEndSingle
 
 
 @dataclass(slots=True)
 class MethodArtifactManager:
-    """
-    Orchestrates download → local cache → upload-to-S3 for a single method.
-    """
+    """Orchestrates download → local cache → upload-to-S3 for a single method."""
     name: str               # method name, e.g., "xRFM_GPU" <- Method identifier. (name, artifact_name) must be unique.
     model_key: str          # e.g., "XRFM_GPU" <- Model key to use for differentiating model families.
     artifact_name: str      # e.g., "tabarena-2025-09-03" <- Differentiates methods with the same name by origin.
@@ -68,14 +66,11 @@ class MethodArtifactManager:
         return f"{self.download_prefix}{Path(self.path_suffix).as_posix()}"
 
     def download_raw(self) -> None:
-        """
-        Download the zip from `self.url` and extract into `self.path_raw`.
-        """
+        """Download the zip from `self.url` and extract into `self.path_raw`."""
         download_and_extract_zip(url=self.url, path_local=self.path_raw)
 
     def cache(self, cache_hpo_trajectories: bool = False) -> EndToEndSingle:
-        """
-        Requires first having the raw files locally by calling `self.download_raw()`
+        """Requires first having the raw files locally by calling `self.download_raw()`.
 
         Cached files will be saved under ~/.cache/tabarena/artifacts/{self.artifact_name}/methods/{self.name}/
 
@@ -100,7 +95,7 @@ class MethodArtifactManager:
             If True, also generates and caches HPO trajectories. Only takes effect for
             ``method_type == "config"`` methods.
         """
-        e2e = EndToEndSingle.from_path_raw(
+        return EndToEndSingle.from_path_raw(
             path_raw=self.path_raw,
             method_metadata=self.method_metadata,
             name=self.name,
@@ -110,12 +105,10 @@ class MethodArtifactManager:
             cache_raw=True,
             cache_hpo_trajectories=cache_hpo_trajectories,
         )
-        return e2e
 
     def upload_to_s3(self) -> None:
-        """
-        Upload the local cache for this method to S3 under:
-        s3://{self.s3_bucket}/{self.s3_prefix}/artifacts/{self.artifact_name}/methods/{self.name}/
+        """Upload the local cache for this method to S3 under:
+        s3://{self.s3_bucket}/{self.s3_prefix}/artifacts/{self.artifact_name}/methods/{self.name}/.
         """
         method_metadata = self.load_metadata()
         uploader = MethodUploaderS3(
@@ -127,7 +120,5 @@ class MethodArtifactManager:
         uploader.upload_all()
 
     def load_metadata(self) -> MethodMetadata:
-        """
-        Load MethodMetadata from the local cache for this method.
-        """
+        """Load MethodMetadata from the local cache for this method."""
         return MethodMetadata.from_yaml(method=self.name, artifact_name=self.artifact_name)

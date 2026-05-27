@@ -5,27 +5,27 @@ import json
 import os
 import warnings
 from pathlib import Path
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from typing_extensions import Self
 
-from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
-from autogluon.common.savers import save_pd
 import pandas as pd
 import yaml
+from autogluon.common.savers import save_pd
+from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
 from tabarena.loaders import Paths
-from tabarena.repository.evaluation_repository import EvaluationRepository
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_results_lst
 from tabarena.nips2025_utils.load_artifacts import results_to_holdout
-from tabarena.benchmark.result import BaselineResult
 from tabarena.nips2025_utils.method_processor import get_info_from_result, load_raw
+from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
+from tabarena.repository.evaluation_repository import EvaluationRepository
 from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.utils.s3_utils import s3_get_object
-from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
 
 if TYPE_CHECKING:
-    from tabarena.nips2025_utils.artifacts.method_downloader import MethodDownloaderS3
-    from tabarena.nips2025_utils.artifacts.method_uploader import MethodUploaderS3
+    from tabarena.benchmark.result import BaselineResult
+    from tabarena.models._artifacts.downloader_s3 import MethodDownloaderS3
+    from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
 
 
 # FIXME: Implement `best` and `best-N`
@@ -34,7 +34,7 @@ class MethodMetadata:
         self,
         method: str,
         *,
-        artifact_name: str = None,
+        artifact_name: str | None = None,
         date: str | None = None,
         method_type: Literal["config", "baseline", "portfolio"] = "config",
         display_name: str | None = None,
@@ -51,8 +51,8 @@ class MethodMetadata:
         has_results: bool = False,
         verified: bool = False,
         use_artifact_name_in_prefix: bool = False,
-        s3_bucket: str = None,
-        s3_prefix: str = None,
+        s3_bucket: str | None = None,
+        s3_prefix: str | None = None,
         upload_as_public: bool = False,
         reference_url: str | None = None,
         cache_type: Literal["s3", "r2", "local"] = "s3",
@@ -86,20 +86,23 @@ class MethodMetadata:
         self.reference_url = reference_url
         self.cache_type = cache_type
 
-        assert isinstance(self.method, str) and len(self.method) > 0
-        assert isinstance(self.artifact_name, str) and len(self.artifact_name) > 0
+        assert isinstance(self.method, str)
+        assert len(self.method) > 0
+        assert isinstance(self.artifact_name, str)
+        assert len(self.artifact_name) > 0
         assert self.method_type in ["config", "baseline", "portfolio"]
         assert self.compute in ["cpu", "gpu"]
         if self.name is not None and self.method_type == "config":
-            raise AssertionError(f"Cannot specify `name` for method_type: 'config'.")
+            raise AssertionError("Cannot specify `name` for method_type: 'config'.")
         if self.name is not None and self.name_suffix is not None:
-            raise AssertionError(f"Must only specify one of `name` and `name_suffix`.")
+            raise AssertionError("Must only specify one of `name` and `name_suffix`.")
 
         if display_name is None:
             display_name = self._compute_display_name()
         self.display_name = display_name
 
-        assert isinstance(self.display_name, str) and len(self.display_name) > 0
+        assert isinstance(self.display_name, str)
+        assert len(self.display_name) > 0
         assert self.cache_type in ["s3", "r2", "local"], f"Unknown `cache_type`: {self.cache_type}"
 
     def _compute_display_name(self) -> str:
@@ -115,10 +118,9 @@ class MethodMetadata:
     def config_type(self) -> str | None:
         if self.method_type != "config":
             return None
-        elif self.name_suffix is not None:
+        if self.name_suffix is not None:
             return f"{self.model_key}{self.name_suffix}"
-        else:
-            return self.model_key
+        return self.model_key
 
     # TODO: Also support baseline methods
     @classmethod
@@ -190,7 +192,7 @@ class MethodMetadata:
         if artifact_name is None:
             artifact_name = method
 
-        _method_metadata = cls(
+        return cls(
             method=method,
             artifact_name=artifact_name,
             method_type=method_type,
@@ -203,7 +205,6 @@ class MethodMetadata:
             has_results=True,
         )
 
-        return _method_metadata
 
     @classmethod
     def compute_method_name(
@@ -231,7 +232,7 @@ class MethodMetadata:
 
         name_suffix = None
         if method_type in ["config", "hpo"]:
-            assert method_subtype in subtype_to_suffix_map.keys(), (
+            assert method_subtype in subtype_to_suffix_map, (
                 f"Unknown {method_subtype=}. "
                 f"Valid values: {list(subtype_to_suffix_map.keys())}"
             )
@@ -262,7 +263,7 @@ class MethodMetadata:
         if len(unique_num_gpus) != 1:
             warnings.warn(
                 f"MethodMetadata found more than one unique num_gpus value, found: {unique_num_gpus}. "
-                "Using max number of groups as official compute value."
+                "Using max number of groups as official compute value.", stacklevel=2
             )
         num_gpus = unique_num_gpus.max()
 
@@ -295,7 +296,7 @@ class MethodMetadata:
         if artifact_name is None:
             artifact_name = method
 
-        _method_metadata = cls(
+        return cls(
             method=method,
             artifact_name=artifact_name,
             method_type=method_type,
@@ -309,7 +310,6 @@ class MethodMetadata:
             has_results=True,
         )
 
-        return _method_metadata
 
     @property
     def has_s3_cache(self) -> bool:
@@ -390,8 +390,7 @@ class MethodMetadata:
 
     def to_s3_cache_loc(self, path: Path, s3_cache_root: str) -> str:
         path_suffix: str = self.relative_to_cache_root(path=path).as_posix()
-        s3_cache_path = f"{s3_cache_root}/{path_suffix}"
-        return s3_cache_path
+        return f"{s3_cache_root}/{path_suffix}"
 
     def method_downloader(
         self,
@@ -410,7 +409,7 @@ class MethodMetadata:
             )
 
         if cache_type == "r2":
-            from tabarena.nips2025_utils.artifacts.method_downloader_public_r2 import MethodDownloaderPublicR2
+            from tabarena.models._artifacts.downloader_public_r2 import MethodDownloaderPublicR2
             return MethodDownloaderPublicR2(
                 method_metadata=self,
                 base_url="https://data.tabarena.ai/",
@@ -418,8 +417,8 @@ class MethodMetadata:
                 verbose=verbose,
                 clear_dirs=False,
             )
-        elif cache_type == "s3":
-            from tabarena.nips2025_utils.artifacts.method_downloader import MethodDownloaderS3
+        if cache_type == "s3":
+            from tabarena.models._artifacts.downloader_s3 import MethodDownloaderS3
             return MethodDownloaderS3(
                 method_metadata=self,
                 s3_bucket=self.s3_bucket,
@@ -427,8 +426,7 @@ class MethodMetadata:
                 verbose=verbose,
                 clear_dirs=False,
             )
-        else:
-            raise ValueError(f"Invalid cache_type for downloads: {cache_type}")
+        raise ValueError(f"Invalid cache_type for downloads: {cache_type}")
 
     def method_uploader(self, cache_type: str = "auto") -> MethodUploaderS3:
         if cache_type == "auto":
@@ -443,7 +441,7 @@ class MethodMetadata:
             )
 
         if cache_type == "r2":
-            from tabarena.nips2025_utils.artifacts.method_uploader_r2 import MethodUploaderR2
+            from tabarena.models._artifacts.uploader_r2 import MethodUploaderR2
 
             r2_env_vars = ("R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
             missing = [v for v in r2_env_vars if not os.environ.get(v)]
@@ -473,16 +471,15 @@ class MethodMetadata:
                 r2_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
                 r2_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
             )
-        elif cache_type == "s3":
-            from tabarena.nips2025_utils.artifacts.method_uploader import MethodUploaderS3
+        if cache_type == "s3":
+            from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
             return MethodUploaderS3(
                 method_metadata=self,
                 s3_bucket=self.s3_bucket,
                 s3_prefix=self.s3_prefix,
                 upload_as_public=self.upload_as_public,
             )
-        else:
-            raise ValueError(f"Invalid cache_type for uploads: {cache_type}")
+        raise ValueError(f"Invalid cache_type for uploads: {cache_type}")
 
     def load_model_results(self, holdout: bool = False) -> pd.DataFrame:
         return pd.read_parquet(path=self.path_results_model(holdout=holdout))
@@ -505,30 +502,25 @@ class MethodMetadata:
         return df_results
 
     def path_configs_hyperparameters(self, holdout: bool = False) -> Path:
-        if holdout:
-            path_processed = self.path_processed_holdout
-        else:
-            path_processed = self.path_processed
-        path_configs_hyperparameters = path_processed / "configs_hyperparameters.json"
-        return path_configs_hyperparameters
+        path_processed = self.path_processed_holdout if holdout else self.path_processed
+        return path_processed / "configs_hyperparameters.json"
 
     def load_configs_hyperparameters(self, holdout: bool = False, download: str | bool = "auto") -> dict[str, dict]:
         if download == "auto":
             try:
                 return self.load_configs_hyperparameters(holdout=holdout, download=False)
-            except FileNotFoundError as err:
+            except FileNotFoundError:
                 print(
                     f"Cache miss detected for configs_hyperparameters.json "
                     f"(method={self.method}), attempting download..."
                 )
                 out = self.load_configs_hyperparameters(holdout=holdout, download=True)
-                print(f"\tDownload successful")
+                print("\tDownload successful")
                 return out
         elif isinstance(download, bool) and download:
             self.download_configs_hyperparameters(holdout=holdout)
-        with open(self.path_configs_hyperparameters(holdout=holdout), "r") as f:
-            out = json.load(f)
-        return out
+        with open(self.path_configs_hyperparameters(holdout=holdout)) as f:
+            return json.load(f)
 
     def download_configs_hyperparameters(self, holdout: bool = False):
         method_downloader = self.method_downloader()
@@ -539,12 +531,11 @@ class MethodMetadata:
 
     def load_raw(
         self,
-        path_raw: str | Path = None,
+        path_raw: str | Path | None = None,
         engine: str = "ray",
         as_holdout: bool = False,
     ) -> list[BaselineResult]:
-        """
-        Loads the raw results artifacts from all `results.pkl` files in the `path_raw` directory
+        """Loads the raw results artifacts from all `results.pkl` files in the `path_raw` directory.
 
         Parameters
         ----------
@@ -552,7 +543,7 @@ class MethodMetadata:
         engine
         as_holdout
 
-        Returns
+        Returns:
         -------
 
         """
@@ -562,22 +553,18 @@ class MethodMetadata:
 
     def load_processed(
         self,
-        path_processed: str | Path = None,
+        path_processed: str | Path | None = None,
         prediction_format: Literal["memmap", "memopt", "mem"] = "memmap",
         as_holdout: bool = False,
         verbose: bool = False,
     ) -> EvaluationRepository:
         if path_processed is None:
-            if as_holdout:
-                path_processed = self.path_processed_holdout
-            else:
-                path_processed = self.path_processed
-        repo = EvaluationRepository.from_dir(
+            path_processed = self.path_processed_holdout if as_holdout else self.path_processed
+        return EvaluationRepository.from_dir(
             path=path_processed,
             prediction_format=prediction_format,
             verbose=verbose,
         )
-        return repo
 
     # FIXME: TMP, pre-calculate and cache this in MethodMetadata!
     def get_config_default(self, repo: EvaluationRepository | None = None):
@@ -590,12 +577,11 @@ class MethodMetadata:
             config_type = repo.config_types()[0]
         else:
             config_type = self.config_type
-        config_default = PaperRunTabArena(repo=repo)._config_default(config_type=config_type, use_first_if_missing=True)
-        return config_default
+        return PaperRunTabArena(repo=repo)._config_default(config_type=config_type, use_first_if_missing=True)
 
     def generate_repo(
         self,
-        results_lst: list[BaselineResult] = None,
+        results_lst: list[BaselineResult] | None = None,
         task_metadata: pd.DataFrame = None,
         cache: bool = False,
         engine: str = "ray",
@@ -620,7 +606,7 @@ class MethodMetadata:
 
     def generate_repo_holdout(
         self,
-        results_lst: list[BaselineResult] = None,
+        results_lst: list[BaselineResult] | None = None,
         task_metadata: pd.DataFrame = None,
         cache: bool = False,
         engine: str = "ray",
@@ -754,7 +740,7 @@ class MethodMetadata:
                 None,  # all configs
             ]
         if isinstance(seeds, int):
-            seeds = [i for i in range(seeds)]
+            seeds = list(range(seeds))
 
         df_results_hpo_lst = []
         if repo is None:
@@ -768,7 +754,7 @@ class MethodMetadata:
 
         n_configs = [n_config if n_config is not None else n_config_total for n_config in n_configs]
         n_configs = [n_config for n_config in n_configs if n_config <= n_config_total]
-        n_configs = sorted(list(set(n_configs)))
+        n_configs = sorted(set(n_configs))
 
         if always_include_default and fixed_configs is None:
             config_default = self.config_default
@@ -817,7 +803,7 @@ class MethodMetadata:
         n_iterations: int = 40,
         backend: Literal["ray", "native"] = "ray",
         holdout: bool = False,
-        time_limit: float = None,
+        time_limit: float | None = None,
         **kwargs,
     ):
         if repo is None:
@@ -842,20 +828,19 @@ class MethodMetadata:
     def path_metadata(self) -> Path:
         return self.path / "metadata.yaml"
 
-    def to_yaml(self, path: Path | str = None):
+    def to_yaml(self, path: Path | str | None = None):
         if path is None:
             path = self.path_metadata
         assert str(path).endswith(".yaml")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'w') as outfile:
+        with open(path, "w") as outfile:
             yaml.dump(self.__dict__, outfile, default_flow_style=False)
 
     def to_yaml_fileobj(self) -> io.BytesIO:
-        """
-        Serialize this object to YAML and return a BytesIO buffer suitable for
+        """Serialize this object to YAML and return a BytesIO buffer suitable for
         s3_client.upload_fileobj, without writing to local disk.
 
-        Returns
+        Returns:
         -------
         io.BytesIO
             Buffer positioned at start containing UTF-8 encoded YAML.
@@ -873,17 +858,17 @@ class MethodMetadata:
     @classmethod
     def from_yaml(
         cls,
-        path: Path | str = None,
-        method: str = None,
-        artifact_name: str = None,
+        path: Path | str | None = None,
+        method: str | None = None,
+        artifact_name: str | None = None,
     ) -> Self:
         if path is None:
-            assert method is not None, f"method must be specified if path is not specified"
-            assert artifact_name is not None, f"artifact_name must be specified if path is not specified"
+            assert method is not None, "method must be specified if path is not specified"
+            assert artifact_name is not None, "artifact_name must be specified if path is not specified"
             path = Paths._tabarena_root_cache / "artifacts" / artifact_name / "methods" / method / "metadata.yaml"
 
         assert str(path).endswith(".yaml")
-        with open(path, 'r') as file:
+        with open(path) as file:
             kwargs = yaml.safe_load(file)
         return cls(**kwargs)
 
@@ -893,7 +878,7 @@ class MethodMetadata:
         method: str,
         s3_bucket: str,
         s3_prefix: str = "cache",
-        artifact_name: str = None,
+        artifact_name: str | None = None,
     ) -> Self:
         metadata = MethodMetadata(
             method=method,
