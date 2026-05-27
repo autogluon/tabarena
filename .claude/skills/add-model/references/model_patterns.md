@@ -245,10 +245,10 @@ Defines the per-model `MethodMetadata` + `ModelInfo`. `info.py` is the file `dis
 ```python
 from __future__ import annotations
 
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.{ModelKey}.hpo import gen_{ModelKey}
 from tabarena.models.{ModelKey}.model import {ClassName}Model
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
 
 
 {ModelKey}_method_metadata = MethodMetadata(
