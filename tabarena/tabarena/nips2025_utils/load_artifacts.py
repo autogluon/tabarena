@@ -17,7 +17,14 @@ class _RenameUnpickler(pickle.Unpickler):
 
 
 def _rename_load(file_obj):
-    return _RenameUnpickler(file_obj).load()
+    try:
+        return _RenameUnpickler(file_obj).load()
+    except EOFError as e:
+        raise e from Exception(
+            f"Failed to load artifact {file_obj}. This may be due to a corrupted file or"
+            " an incompatible format. Please ensure the file is a valid artifact and"
+            " try again."
+        )
 
 
 def load_and_align(path, convert_to_holdout: bool = False) -> BaselineResult:
