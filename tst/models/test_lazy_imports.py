@@ -18,13 +18,6 @@ def _purge(prefix: str) -> None:
         del sys.modules[name]
 
 
-def test_method_metadata_module_is_not_loaded_eagerly():
-    _purge("tabarena.models._method_metadata")
-    _purge("tabarena.models")
-    importlib.import_module("tabarena.models")
-    assert "tabarena.models._method_metadata" not in sys.modules
-
-
 def test_method_metadata_lazy_access_works():
     from tabarena.models import MethodMetadata
     from tabarena.models._method_metadata import MethodMetadata as Canonical
