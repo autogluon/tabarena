@@ -3,26 +3,27 @@ from __future__ import annotations
 import copy
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
 
-from tabarena.website.website_format import format_leaderboard
-from tabarena.benchmark.result import BaselineResult
-from tabarena.utils.pickle_utils import fetch_all_pickles
+from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata_collection import MethodMetadataCollection
+from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
+from tabarena.nips2025_utils.eval_all import evaluate_all
 from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
-from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
-from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection
-from tabarena.repository.abstract_repository import AbstractRepository
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_paths
+from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
 from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
-from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
-from tabarena.models._method_metadata import MethodMetadata
-from tabarena.nips2025_utils.artifacts.method_metadata_collection import MethodMetadataCollection
-from tabarena.nips2025_utils.eval_all import evaluate_all
+from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection
+from tabarena.utils.pickle_utils import fetch_all_pickles
+from tabarena.website.website_format import format_leaderboard
 
+if TYPE_CHECKING:
+    from tabarena.benchmark.result import BaselineResult
+    from tabarena.repository.abstract_repository import AbstractRepository
 
 _methods_paper = [
     "AutoGluon_v140_bq_4h8c",
@@ -100,7 +101,7 @@ class TabArenaContext:
         methods: list[MethodMetadata] | str = "tabarena",
         task_metadata: str | pd.DataFrame = "tabarena",
         *,
-        extra_methods: list[MethodMetadata] = None,
+        extra_methods: list[MethodMetadata] | None = None,
         include_unverified: bool = False,
         backend: Literal["ray", "native"] = "ray",
         fillna_method: str | None = "RF (default)",
@@ -190,10 +191,7 @@ class TabArenaContext:
                 subset = [subset]
             if isinstance(subset, list):
                 if output_suffix is None:
-                    if not subset:
-                        output_suffix = "all"
-                    else:
-                        output_suffix = "&".join(subset)
+                    output_suffix = "all" if not subset else "&".join(subset)
             else:
                 raise ValueError(f"Unknown subset: {subset!r}")
             output_dir_subset = output_dir / output_suffix
@@ -275,9 +273,9 @@ class TabArenaContext:
             ta_results = self.load_results_paper(
                 download_results="auto",
             )
-        datasets = sorted(list(ta_results["dataset"].unique()))
+        datasets = sorted(ta_results["dataset"].unique())
         if new_results is not None:
-            new_datasets = sorted(list(new_results["dataset"].unique()))
+            new_datasets = sorted(new_results["dataset"].unique())
             datasets = sorted(datasets + [d for d in new_datasets if d not in datasets])
 
         outs = {}
@@ -331,22 +329,17 @@ class TabArenaContext:
 
     def load_raw(self, method: str, as_holdout: bool = False) -> list[BaselineResult]:
         metadata: MethodMetadata = self.method_metadata(method=method)
-        results_lst = metadata.load_raw(engine=self.engine, as_holdout=as_holdout)
-        return results_lst
+        return metadata.load_raw(engine=self.engine, as_holdout=as_holdout)
 
     def load_repo(self, methods: list[str | MethodMetadata] | None = None, config_fallback: str | None = None) -> EvaluationRepositoryCollection:
         if methods is None:
             methods = self.methods
         repos = []
         for method in methods:
-            if isinstance(method, MethodMetadata):
-                metadata = method
-            else:
-                metadata = self.method_metadata(method=method)
+            metadata = method if isinstance(method, MethodMetadata) else self.method_metadata(method=method)
             cur_repo = metadata.load_processed()
             repos.append(cur_repo)
-        repo = EvaluationRepositoryCollection(repos=repos, config_fallback=config_fallback)
-        return repo
+        return EvaluationRepositoryCollection(repos=repos, config_fallback=config_fallback)
 
     def generate_repo(self, method: str) -> Path:
         metadata = self.method_metadata(method=method)
@@ -385,7 +378,7 @@ class TabArenaContext:
         n_configs: list[int | None] | str = "auto",
         seeds: int | list[int] = 20,
         n_iterations: int = 40,
-        default_method: str = None,
+        default_method: str | None = None,
         always_include_default: bool = True,
         fixed_configs: list[str] | None = None,
         fit_order: Literal["original", "random"] = "random",
@@ -393,9 +386,9 @@ class TabArenaContext:
         backend: Literal["ray", "native"] = "ray",
         repo: EvaluationRepository | None = None,
         folds: list[int] | None = None,
-        ta_name: str = None,
-        ta_suite: str = None,
-        display_name: str = None,
+        ta_name: str | None = None,
+        ta_suite: str | None = None,
+        display_name: str | None = None,
     ) -> pd.DataFrame:
         methods: list[MethodMetadata] = [
             m if isinstance(m, MethodMetadata) else self.method_metadata(m) for m in methods
@@ -444,14 +437,13 @@ class TabArenaContext:
         repo: EvaluationRepository | None = None,
         folds: list[int] | None = None,
         holdout: bool = False,
-        name: str = None,
-        ta_name: str = None,
-        ta_suite: str = None,
-        display_name: str = None,
+        name: str | None = None,
+        ta_name: str | None = None,
+        ta_suite: str | None = None,
+        display_name: str | None = None,
         **kwargs,
     ) -> pd.DataFrame:
-        """
-        Given a list of configs, compute the tuning trajectories
+        """Given a list of configs, compute the tuning trajectories
         for the first N configs for each N in n_configs.
         """
         if n_configs == "auto":
@@ -467,7 +459,7 @@ class TabArenaContext:
                 None,  # all configs
             ]
         if isinstance(seeds, int):
-            seeds = [i for i in range(seeds)]
+            seeds = list(range(seeds))
 
         if repo is None:
             if methods is not None:
@@ -490,7 +482,7 @@ class TabArenaContext:
 
         n_configs = [n_config if n_config is not None else n_config_total for n_config in n_configs]
         n_configs = [n_config for n_config in n_configs if n_config <= n_config_total]
-        n_configs = sorted(list(set(n_configs)))
+        n_configs = sorted(set(n_configs))
 
         for n_config in n_configs:
             print(f"Running n_config={n_config}")
@@ -533,8 +525,7 @@ class TabArenaContext:
         default_always_first: bool = True,
         seed: int = 0,
     ) -> pd.DataFrame:
-        """
-        Perform HPO across multiple methods
+        """Perform HPO across multiple methods.
 
         Returns default, tuned, and tuned + ensembled results.
         """
@@ -556,10 +547,7 @@ class TabArenaContext:
         else:
             default = None
 
-        if default_always_first and config_default:
-            fixed_configs = [config_default]
-        else:
-            fixed_configs = None
+        fixed_configs = [config_default] if default_always_first and config_default else None
 
         tuned = self.run_hpo(
             method=methods,
@@ -592,13 +580,12 @@ class TabArenaContext:
         tuned_ens["config_type"] = new_config_type
         tuned_ens["method"] = f"{new_config_type} (tuned + ensemble)"
 
-        results_hpo_comb = pd.concat([
+        return pd.concat([
             default,
             tuned,
             tuned_ens,
         ], ignore_index=True)
 
-        return results_hpo_comb
 
     def run_hpo(
         self,
@@ -687,8 +674,7 @@ class TabArenaContext:
             **kwargs,
         )
 
-        results = results.rename(columns={"framework": "method"})
-        return results
+        return results.rename(columns={"framework": "method"})
 
     def simulate_portfolio_from_configs_per(
         self,
@@ -706,8 +692,7 @@ class TabArenaContext:
             **kwargs,
         )
 
-        results = results.rename(columns={"framework": "method"})
-        return results
+        return results.rename(columns={"framework": "method"})
 
     def simulate_portfolio_search(
         self,
@@ -715,8 +700,8 @@ class TabArenaContext:
         config_fallback: str,
         result_baselines: pd.DataFrame,
         repo: EvaluationRepositoryCollection = None,
-        config_types: list[str] = None,
-        selected_types: list[str] = None,
+        config_types: list[str] | None = None,
+        selected_types: list[str] | None = None,
         n_portfolio: int = 25,
         n_ensemble: int = 40,
         time_limit: float | None = 14400,
@@ -728,7 +713,7 @@ class TabArenaContext:
             config_types = repo.config_types()
         simulator = PaperRunTabArena(repo=repo, backend=self.backend)
 
-        df_results_n_portfolio = simulator.run_portfolio_search(
+        simulator.run_portfolio_search(
             model_types=config_types,
             selected_types=selected_types,
             result_baselines=result_baselines,
@@ -747,14 +732,13 @@ class TabArenaContext:
         time_limit: int | None = 14400,
     ) -> pd.DataFrame:
         simulator = PaperRunTabArena(repo=repo, backend=self.backend)
-        cur_result = simulator.run_zs(
+        return simulator.run_zs(
             configs=configs,
             n_portfolios=n_portfolio,
             n_ensemble=n_ensemble,
             n_ensemble_in_name=True,
             time_limit=time_limit,
         )
-        return cur_result
 
     def simulate_portfolio(self, methods: list[str], config_fallback: str, repo: EvaluationRepositoryCollection = None, **kwargs):
         if repo is None:
@@ -762,15 +746,11 @@ class TabArenaContext:
         simulator = PaperRunTabArena(repo=repo, backend=self.backend)
 
         df_results_n_portfolio = []
-        if "n_portfolios" not in kwargs:
-            n_portfolios = [200]
-        else:
-            n_portfolios = kwargs.pop("n_portfolios")
+        n_portfolios = [200] if "n_portfolios" not in kwargs else kwargs.pop("n_portfolios")
         for n_portfolio in n_portfolios:
             df_results_n_portfolio.append(
                 simulator.run_zs(n_portfolios=n_portfolio, n_ensemble=None, n_ensemble_in_name=False, **kwargs))
-        results = pd.concat(df_results_n_portfolio, ignore_index=True)
-        return results
+        return pd.concat(df_results_n_portfolio, ignore_index=True)
 
     def run_portfolio_from_config_types(
         self,
@@ -782,7 +762,7 @@ class TabArenaContext:
         **kwargs,
     ) -> pd.DataFrame:
         simulator = PaperRunTabArena(repo=repo, backend=self.backend)
-        cur_result = simulator.run_zs_from_types(
+        return simulator.run_zs_from_types(
             config_types=config_types,
             n_portfolios=n_portfolio,
             n_ensemble=n_ensemble,
@@ -790,7 +770,6 @@ class TabArenaContext:
             time_limit=time_limit,
             **kwargs,
         )
-        return cur_result
 
     def load_hpo_results(self, method: str, holdout: bool = False) -> pd.DataFrame:
         metadata = self.method_metadata(method=method)
@@ -852,8 +831,7 @@ class TabArenaContext:
                     raise err
             df_results_lst.append(df_results)
 
-        df_results = pd.concat(df_results_lst, ignore_index=True)
-        return df_results
+        return pd.concat(df_results_lst, ignore_index=True)
 
     def subset_results(
         self,
@@ -908,8 +886,7 @@ class TabArenaContext:
                 merged.update(d)
             return merged
 
-        configs_hyperparameters = merge_dicts_no_duplicates(configs_hyperparameters_lst)
-        return configs_hyperparameters
+        return merge_dicts_no_duplicates(configs_hyperparameters_lst)
 
     def evaluate_all(
         self,
@@ -917,13 +894,13 @@ class TabArenaContext:
         df_results: pd.DataFrame = None,
         df_results_holdout: pd.DataFrame = None,
         df_results_cpu: pd.DataFrame = None,
-        configs_hyperparameters: dict[str, dict] = None,
+        configs_hyperparameters: dict[str, dict] | None = None,
         include_portfolio: bool = False,
         elo_bootstrap_rounds: int = 200,
         use_latex: bool = False,
         fillna_method: str | None = "auto",
         use_website_folder_names: bool = False,
-        evaluator_kwargs: dict = None,
+        evaluator_kwargs: dict | None = None,
     ):
         if df_results is None:
             df_results = self.load_results_paper(download_results="auto")
@@ -995,7 +972,7 @@ class TabArenaContext:
         from tabarena.plot.png_to_grid import make_png_grid
         if not datasets:
             task_metadata = self.task_metadata
-            datasets = sorted(list(task_metadata["dataset"].unique()))
+            datasets = sorted(task_metadata["dataset"].unique())
 
         n_datasets = len(datasets)
         n_rows = (n_datasets + n_cols - 1) // n_cols
@@ -1098,7 +1075,8 @@ class TabArenaContext:
         (<subtype>)"`` covering every config method in this collection plus
         the bare ``method -> display_name`` mapping for baseline/portfolio
         methods. Used to switch the rendered ``method`` column from
-        ``config_type``/``ag_key``-based codes to friendlier display names."""
+        ``config_type``/``ag_key``-based codes to friendlier display names.
+        """
         rename_map: dict[str, str] = {}
         suffixes = [" (default)", " (tuned)", " (tuned + ensemble)"]
         for m in self.method_metadata_collection.method_metadata_lst:
@@ -1140,8 +1118,7 @@ class TabArenaContext:
         for method_metadata in method_metadata_lst:
             if method_metadata.method_type == "config":
                 df_results_configs_lst.append(method_metadata.load_model_results(holdout=holdout))
-        df_results_configs = pd.concat(df_results_configs_lst, ignore_index=True)
-        return df_results_configs
+        return pd.concat(df_results_configs_lst, ignore_index=True)
 
     def find_missing(self, method: str):
         metadata = self.method_metadata(method=method)
@@ -1166,13 +1143,10 @@ class TabArenaContext:
             n_tasks_config = len(metrics_config)
 
             tasks_config = list(metrics_config[["dataset", "fold"]].values)
-            tasks_config = set([tuple(t) for t in tasks_config])
+            tasks_config = {tuple(t) for t in tasks_config}
 
             n_tasks_missing = n_tasks - n_tasks_config
-            if n_tasks_missing != 0:
-                tasks_missing = [t for t in tasks if t not in tasks_config]
-            else:
-                tasks_missing = []
+            tasks_missing = [t for t in tasks if t not in tasks_config] if n_tasks_missing != 0 else []
 
             for dataset, fold in tasks_missing:
                 runs_missing_lst.append(
@@ -1195,19 +1169,17 @@ class TabArenaContext:
 
     @classmethod
     def fillna_metrics(cls, df_to_fill: pd.DataFrame, df_fillna: pd.DataFrame) -> pd.DataFrame:
-        """
-        Fills missing (dataset, fold, framework) rows in df_to_fill with the (dataset, fold) row in df_fillna.
+        """Fills missing (dataset, fold, framework) rows in df_to_fill with the (dataset, fold) row in df_fillna.
 
         Parameters
         ----------
         df_to_fill
         df_fillna
 
-        Returns
+        Returns:
         -------
 
         """
-
         method_col = "method"
         split_col = "fold"
         dataset_col = "dataset"
