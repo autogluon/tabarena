@@ -87,6 +87,16 @@ def plot_hpo(
         and highlights the point with the highest value of this column using a different marker.
     """
     df = df.copy(deep=True)
+    # Drop rows where the x or y plotting column is NaN. Methods whose
+    # validation-axis values are unavailable (e.g. dropped from the val
+    # leaderboard in `compute_tuning_trajectories_leaderboard` because
+    # they had NaN `metric_error_val`) would otherwise propagate NaN
+    # into the per-method peak ranking and the Pareto-frontier
+    # computation, producing a corrupted frontier line and bogus axis
+    # ranges. Methods that end up with zero rows after the filter are
+    # silently skipped by the existing `df_method.empty` guard below.
+    df = df.dropna(subset=[xlabel, ylabel])
+
     if display_names is not None:
         df[method_col] = df[method_col].map(display_names).fillna(df[method_col])
         if method_order is not None:
@@ -330,16 +340,28 @@ def plot_hpo(
             x_min, x_max = ax.get_xlim()
             y_min, y_max = ax.get_ylim()
 
-            # Extension logic copied from ``plot_pareto``: walk past the
-            # first / last real frontier vertex along the axis being
-            # maximized, and drop to the "worst" Y on the other side, so
-            # the dashed line spans the whole plot rather than stopping
-            # at the data points.
+            # Extension logic: extend the dashed line past the front so
+            # it spans the whole plot. Two pieces, on opposite sides:
+            #   - Horizontal extension out to ``x_min`` / ``x_max`` on the
+            #     "worse-X" side, at the front's extreme Y on that side.
+            #   - Vertical drop to ``y_min`` / ``y_max`` on the
+            #     "better-X" side, anchored at the front's extreme X.
+            # ``get_pareto_frontier`` builds the front in the direction of
+            # the better X first (descending when ``max_X``, ascending
+            # otherwise), so for ``max_X`` the better-X end is ``pf_X[0]``
+            # (and ``pf_Y[0]`` is the worst Y on the front there); for
+            # ``not max_X`` the better-X end is ``pf_X[-1]`` (and
+            # ``pf_Y[-1]`` is the worst Y on the front there).
+            #
+            # Previous mistake: for ``max_X`` the extension was anchored
+            # at ``pf_X[-1]`` (the worse-X end), drawing the vertical
+            # drop on the wrong side of the plot. See
+            # ``pareto_n_configs_adv_overfit_v2``.
             if max_X:
-                pf_X_first = x_min
-                pf_X_last = pf_X[-1]
-                pf_Y_first = pf_Y[0]
-                pf_Y_last = y_min if max_Y else y_max
+                pf_X_first = pf_X[0]
+                pf_X_last = x_min
+                pf_Y_first = y_min if max_Y else y_max
+                pf_Y_last = pf_Y[-1]
             else:
                 pf_X_first = pf_X[0]
                 pf_X_last = x_max
