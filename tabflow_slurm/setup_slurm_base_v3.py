@@ -169,6 +169,44 @@ class SchedulerSetup:
         """
         return {}
 
+    def bundle_items(self, approved: list[JobCandidate]) -> tuple[list[dict], int]:
+        """Group approved candidates into array-task bundles.
+
+        Candidates are partitioned by their effective bundle size
+        (`bundle_size_per_dataset[dataset_name]` if present, else
+        `bundle_size`) so candidates with different effective sizes never
+        share a task. Returns `(jobs, max_configs_per_job)` where each job is
+        `{"items": [...]}` (JSON-serializable, only the identifying-tuple
+        fields), and `max_configs_per_job` is the largest bundle observed
+        (used by schedulers to budget the per-task time limit).
+        """
+        overrides = self.bundle_size_per_dataset or {}
+        by_size: dict[int, list[JobCandidate]] = {}
+        for c in approved:
+            size = overrides.get(c.dataset_name, self.bundle_size)
+            by_size.setdefault(size, []).append(c)
+
+        jobs: list[dict] = []
+        max_configs_per_job = 1
+        # Sort sizes for deterministic job ordering across runs.
+        for size in sorted(by_size):
+            for bundle in to_batch_list(by_size[size], size):
+                max_configs_per_job = max(max_configs_per_job, len(bundle))
+                jobs.append(
+                    {
+                        "items": [
+                            {
+                                "task_id": c.task_id,
+                                "fold": c.fold,
+                                "repeat": c.repeat,
+                                "config_index": c.config_index,
+                            }
+                            for c in bundle
+                        ],
+                    },
+                )
+        return jobs, max_configs_per_job
+
 
 @dataclass
 class SlurmSetup(SchedulerSetup):
@@ -389,6 +427,19 @@ class ResourcesSetup:
     memory_limit: int | None = 32
     """Memory/RAM limit for the jobs in GB.
     If None, use all available memory."""
+    fake_memory_for_estimates: int | None = None
+    """Experimental parameter that is to be ignored!
+
+    If not None, this value is reported to models in place of `memory_limit`
+    so the model's internal memory estimates are compared against it instead
+    of the actually available memory on the system. Values in GB as
+    `memory_limit`.
+
+    This can be useful if:
+        - To test or overrule (bad) memory estimates.
+        - For models that use CPU memory as a proxy for GPU memory (e.g. most
+          TFMs), this can be used if the job has much more VRAM than CPU memory.
+    """
 
     @property
     def time_limit_per_config(self) -> int:
@@ -399,6 +450,11 @@ class ResourcesSetup:
         if self.time_limit_with_model_agnostic_preprocessing:
             total += 60 * 15  # constant SLURM overhead
         return total
+
+    @property
+    def effective_memory_limit(self) -> int | None:
+        """Memory limit reported to models (honors the `fake_memory_for_estimates` override)."""
+        return self.fake_memory_for_estimates if self.fake_memory_for_estimates is not None else self.memory_limit
 
 
 @dataclass
@@ -695,6 +751,30 @@ _TABPFNV2_CONSTRAINTS = ModelConstraints(
 )
 
 
+@dataclass(frozen=True)
+class JobCandidate:
+    """A single (task split x config) work unit.
+
+    Carries the identifying tuple (`task_id`, `dataset_name`, `fold`,
+    `repeat`, `config_index`), the resolved `config` dict, and the dataset
+    shape inputs needed by the cache/constraint filter on the Ray side
+    (`should_run_job`). Used end-to-end: enumeration -> Ray filtering ->
+    scheduler bundling. Only `task_id`/`fold`/`repeat`/`config_index` survive
+    into the per-array-task JSON consumed by the runner script.
+    """
+
+    task_id: str
+    dataset_name: str
+    fold: int
+    repeat: int
+    config_index: int
+    config: dict
+    n_features: int
+    n_classes: int
+    n_samples_train_per_fold: int
+    problem_type: str
+
+
 @dataclass
 class ModelPipelinesToRunSetup:
     """Defines which models to run in the benchmark, plus model-related behavior.
@@ -768,20 +848,6 @@ class ModelPipelinesToRunSetup:
         - If None, the default temporary directory is used: "./AutoGluonModels".
         - If a string or Path, the directory is used as the base path for the temporary
         and any model artifacts will be stored in time-stamped subdirectories.
-    """
-    fake_memory_for_estimates: int | None = None
-    """Experimental parameter that is to be ignored!
-
-    If not None, we use this value to fake the amount of available (CPU) memory
-    such that the memory estimates for a model are compared this value instead
-    of the actually available memory on the system.
-
-    Values in GB as `memory_limit`.
-
-    This can be useful if:
-        - To test or overrule (bad) memory estimates.
-        - For models that use CPU memory as a proxy for GPU memory (e.g. most TFMs),
-          this can be used if the job has much more VRAM than CPU memory.
     """
     model_verbosity: int | None = None
     """Verbosity level passed to the model via model_hyperparameters['verbose'].
@@ -1035,15 +1101,24 @@ class TabArenaBenchmarkSetup:
             benchmark_name += f"_{self.parallel_benchmark_name}"
         return benchmark_name
 
-    def get_jobs_to_run(self):  # noqa: C901
-        """Determine all jobs to run by checking the cache and filtering
-        invalid jobs.
-        """
-        if self.path_setup.openml_cache_path != "auto":
-            Path(self.path_setup.openml_cache_path).mkdir(parents=True, exist_ok=True)
-        Path(self.path_setup.get_output_path(self.benchmark_name)).mkdir(parents=True, exist_ok=True)
-        Path(self.path_setup.get_slurm_log_output_path(self.benchmark_name)).mkdir(parents=True, exist_ok=True)
+    def get_jobs_to_run(self) -> tuple[list[dict], int]:
+        """Resolve the work to run for this benchmark.
 
+        Pipeline:
+            1. Create the output / log / OpenML-cache directories if missing.
+            2. Load task metadata + generate the experiment configs YAML.
+            3. Enumerate the cartesian product (task split x config) as
+               candidate items.
+            4. Drop cache hits and constraint-violating items in parallel via
+               Ray (`should_run_job`).
+            5. Bundle the survivors into array tasks via
+               `scheduler_setup.bundle_items`.
+
+        Returns `(jobs, max_configs_per_job)`: `jobs` is a list of
+        `{"items": [...]}` per array task; `max_configs_per_job` is the
+        largest bundle observed and is used to budget the per-task time limit.
+        """
+        self._ensure_runtime_dirs()
         task_metadata_list = self.tasks_to_run_setup.load_task_metadata()
         configs = self.model_pipelines_to_run_setup.generate_configs_yaml(
             configs_path=self.path_setup.get_configs_path(self._parallel_safe_benchmark_name),
@@ -1052,40 +1127,67 @@ class TabArenaBenchmarkSetup:
             shuffle_features=self.shuffle_features,
         )
 
-        def yield_all_jobs():
-            for ta_task_metadata in task_metadata_list:
-                task_id = ta_task_metadata.task_id_str
-                split_md = ta_task_metadata.splits_metadata[ta_task_metadata.split_index]
+        candidates = self._enumerate_candidates(task_metadata_list, configs)
+        approved = self._filter_via_ray(candidates)
 
-                for config_index, config in list(enumerate(configs)):
-                    yield {
-                        "config_index": config_index,
-                        "config": config,
-                        "task_id": task_id,
-                        "dataset_name": ta_task_metadata.dataset_name,
-                        "fold_i": split_md.fold,
-                        "repeat_i": split_md.repeat,
-                        "n_samples_train_per_fold": split_md.num_instances_train,
-                        "n_features": split_md.num_features_train,
-                        "n_classes": split_md.num_classes_train,
-                        "problem_type": ta_task_metadata.problem_type,
-                    }
+        jobs, max_configs_per_job = self.scheduler_setup.bundle_items(approved)
 
-        jobs_to_check = list(yield_all_jobs())
+        print(
+            f"Approved {len(approved)} (task, fold, repeat, config) items"
+            f" -> {len(jobs)} array tasks (max {max_configs_per_job} items/task)."
+        )
+        return jobs, max_configs_per_job
 
-        # Check cache and filter invalid jobs in parallel using Ray
-        num_ray_cpus = self.num_ray_cpus
-        if num_ray_cpus == "auto":
-            num_ray_cpus = len(os.sched_getaffinity(0))
-        if ray.is_initialized:
+    def _ensure_runtime_dirs(self) -> None:
+        """Create the output, log, and (optional) OpenML cache directories."""
+        if self.path_setup.openml_cache_path != "auto":
+            Path(self.path_setup.openml_cache_path).mkdir(parents=True, exist_ok=True)
+        Path(self.path_setup.get_output_path(self.benchmark_name)).mkdir(parents=True, exist_ok=True)
+        Path(self.path_setup.get_slurm_log_output_path(self.benchmark_name)).mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _enumerate_candidates(
+        task_metadata_list: list[TabArenaTaskMetadata],
+        configs: list[dict],
+    ) -> list[JobCandidate]:
+        """Cartesian product of task splits x configs."""
+        candidates: list[JobCandidate] = []
+        for tm in task_metadata_list:
+            split_md = tm.splits_metadata[tm.split_index]
+            for config_index, config in enumerate(configs):
+                candidates.append(
+                    JobCandidate(
+                        task_id=tm.task_id_str,
+                        dataset_name=tm.dataset_name,
+                        fold=split_md.fold,
+                        repeat=split_md.repeat,
+                        config_index=config_index,
+                        config=config,
+                        n_features=split_md.num_features_train,
+                        n_classes=split_md.num_classes_train,
+                        n_samples_train_per_fold=split_md.num_instances_train,
+                        problem_type=tm.problem_type,
+                    )
+                )
+        return candidates
+
+    def _filter_via_ray(self, candidates: list[JobCandidate]) -> list[JobCandidate]:
+        """Fan out `should_run_job` across Ray workers; return the approved subset."""
+        num_ray_cpus = (
+            len(os.sched_getaffinity(0))
+            if self.num_ray_cpus == "auto"
+            else self.num_ray_cpus
+        )
+        if ray.is_initialized():
             ray.shutdown()
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning)
             ray.init(num_cpus=num_ray_cpus)
-        output = ray_map_list(
-            list_to_map=list(to_batch_list(jobs_to_check, 10_000)),
+
+        batched = ray_map_list(
+            list_to_map=list(to_batch_list(candidates, 10_000)),
             func=should_run_job_batch,
-            func_element_key_string="input_data_list",
+            func_element_key_string="candidates",
             num_workers=num_ray_cpus,
             num_cpus_per_worker=1,
             func_kwargs={
@@ -1096,72 +1198,29 @@ class TabArenaBenchmarkSetup:
             track_progress=True,
             tqdm_kwargs={"desc": "Checking Cache and Filter Invalid Jobs"},
         )
-        output = [item for sublist in output for item in sublist]  # Flatten the batched list
+        keep_flags = [b for batch in batched for b in batch]
 
-        approved_items = [
-            {
-                "task_id": job_data["task_id"],
-                "dataset_name": job_data["dataset_name"],
-                "fold": job_data["fold_i"],
-                "repeat": job_data["repeat_i"],
-                "config_index": job_data["config_index"],
-            }
-            for run_job, job_data in zip(output, jobs_to_check, strict=True)
-            if run_job
-        ]
-        to_run_jobs = len(approved_items)
+        return [c for keep, c in zip(keep_flags, candidates, strict=True) if keep]
 
-        # Bin (task, fold, repeat, config_index) tuples into bundles of length
-        # up to `bundle_size`, with per-dataset overrides. Items are grouped by
-        # their effective bundle size so we don't mix different sizes within
-        # the same array task (this matches
-        # tabflow/cli/launch_jobs.py::get_tasks_batched).
-        bundle_size = self.scheduler_setup.bundle_size
-        bundle_size_per_dataset = self.scheduler_setup.bundle_size_per_dataset or {}
-        items_by_size: dict[int, list[dict]] = {}
-        for item in approved_items:
-            effective_size = bundle_size_per_dataset.get(item["dataset_name"], bundle_size)
-            items_by_size.setdefault(effective_size, []).append(item)
+    def get_jobs_dict(self) -> dict:
+        """Build the dict consumed by `scheduler_setup.get_run_commands`.
 
-        jobs = []
-        max_configs_per_job = 1
-        # Sort sizes for deterministic job ordering across runs.
-        for size in sorted(items_by_size):
-            items = items_by_size[size]
-            for bundle in to_batch_list(items, size):
-                max_configs_per_job = max(max_configs_per_job, len(bundle))
-                jobs.append(
-                    {
-                        "items": [
-                            {
-                                "task_id": it["task_id"],
-                                "fold": it["fold"],
-                                "repeat": it["repeat"],
-                                "config_index": it["config_index"],
-                            }
-                            for it in bundle
-                        ],
-                    },
-                )
-
-        print(f"Generated {to_run_jobs} jobs to run without batching.")
-        print(f"Jobs with batching: {len(jobs)}")
-        return jobs, max_configs_per_job
-
-    def get_jobs_dict(self):
-        """Get the jobs to run as a dictionary with default arguments and jobs.
-
-        Also carries the scheduler-side metadata (`max_configs_per_job`) needed
-        to budget the SLURM time limit for the worst-case array task.
+        Contains three pieces of state:
+            - `defaults`: per-job runtime arguments shared across all array tasks.
+            - `jobs`: list of `{"items": [...]}` array-task bundles.
+            - `max_configs_per_job`: worst-case bundle size; used by the
+              scheduler to budget the per-task time limit.
         """
         jobs, max_configs_per_job = self.get_jobs_to_run()
+        return {
+            "defaults": self._build_default_args(),
+            "jobs": jobs,
+            "max_configs_per_job": max_configs_per_job,
+        }
 
-        # Fake memory limit for estimates if needed
-        memory_limit = self.resources_setup.memory_limit
-        if self.model_pipelines_to_run_setup.fake_memory_for_estimates is not None:
-            memory_limit = self.model_pipelines_to_run_setup.fake_memory_for_estimates
-
-        default_args = {
+    def _build_default_args(self) -> dict:
+        """Per-job runtime defaults serialized into every array-task JSON."""
+        return {
             "python": self.path_setup.python_path,
             "run_script": self.path_setup.run_script_path,
             "openml_cache_dir": self.path_setup.openml_cache_path,
@@ -1170,13 +1229,12 @@ class TabArenaBenchmarkSetup:
             "num_cpus": self.resources_setup.num_cpus,
             "num_gpus": self.resources_setup.num_gpus,
             "num_gpus_model": self.resources_setup.num_gpus_model,
-            "memory_limit": memory_limit,
+            "memory_limit": self.resources_setup.effective_memory_limit,
             "ignore_cache": self.ignore_cache,
             "sequential_local_fold_fitting": self.model_pipelines_to_run_setup.sequential_local_fold_fitting,
             "dynamic_tabarena_validation_protocol": self.model_pipelines_to_run_setup.dynamic_tabarena_validation_protocol,
             **self.scheduler_setup.get_extra_default_args(),
         }
-        return {"defaults": default_args, "jobs": jobs, "max_configs_per_job": max_configs_per_job}
 
     def setup_jobs(self) -> list[str]:
         """Generate the scheduler job file(s) and return the run commands.
@@ -1197,9 +1255,9 @@ class TabArenaBenchmarkSetup:
             Path(self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)).unlink(missing_ok=True)
         return run_commands
 
-def should_run_job_batch(*, input_data_list: list[dict], **kwargs) -> list[bool]:
+def should_run_job_batch(*, candidates: list[JobCandidate], **kwargs) -> list[bool]:
     """Batched version for Ray."""
-    return [should_run_job(input_data=data, **kwargs) for data in input_data_list]
+    return [should_run_job(candidate=c, **kwargs) for c in candidates]
 
 
 def _resolve_ag_key(config: dict) -> str:
@@ -1225,33 +1283,29 @@ def _resolve_ag_key(config: dict) -> str:
 
 def should_run_job(
     *,
-    input_data: dict,
+    candidate: JobCandidate,
     output_dir: str,
     model_constraints: dict[str, ModelConstraints],
     ignore_cache: bool,
 ) -> bool:
-    """Check if a job should be run based on the configuration and cache.
-    Must be not a class function to be used with Ray.
+    """Decide whether a candidate's job should run (skip on cache hit / constraint violation).
+
+    Module-level so Ray workers can pickle it; reads everything it needs off
+    the `JobCandidate` dataclass.
     """
-    config = input_data["config"]
-    task_id = input_data["task_id"]
-    fold_i = input_data["fold_i"]
-    repeat_i = input_data["repeat_i"]
-
-    # Check if local task or not
+    # Normalize task_id: numeric OpenML IDs are ints; UserTask IDs are
+    # "<source>|<local_id>|..." strings that we split to the local part.
     try:
-        task_id = int(task_id)
+        task_id = int(candidate.task_id)
     except ValueError:
-        # Extract the local task ID if it is a UserTask.task_id_str
-        task_id = task_id.split("|", 2)[1]
+        task_id = candidate.task_id.split("|", 2)[1]
 
-    # Filter out-of-constraints datasets.
-    constraints = model_constraints.get(_resolve_ag_key(config))
+    constraints = model_constraints.get(_resolve_ag_key(candidate.config))
     if constraints is not None and not constraints.applies(
-        n_features=input_data["n_features"],
-        n_classes=input_data["n_classes"],
-        n_samples_train_per_fold=input_data["n_samples_train_per_fold"],
-        problem_type=input_data.get("problem_type"),
+        n_features=candidate.n_features,
+        n_classes=candidate.n_classes,
+        n_samples_train_per_fold=candidate.n_samples_train_per_fold,
+        problem_type=candidate.problem_type,
     ):
         return False
 
@@ -1260,10 +1314,10 @@ def should_run_job(
 
     return not check_cache_hit(
         result_dir=output_dir,
-        method_name=config["name"],
+        method_name=candidate.config["name"],
         task_id=task_id,
-        fold=fold_i,
-        repeat=repeat_i,
+        fold=candidate.fold,
+        repeat=candidate.repeat,
         cache_path_format="name_first",
         cache_cls=CacheFunctionPickle,
         cache_cls_kwargs={"include_self_in_call": True},
