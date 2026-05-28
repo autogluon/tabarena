@@ -916,23 +916,34 @@ class TabArenaEvaluator:
             else:
                 _results_to_use_winrate_matrix = results_te_per_split.copy()
 
-            # Drop hidden_methods from the winrate matrix. ``config_type`` on
-            # the raw per-task/split dataframes is the *short* framework name
-            # ("RF", "XT", "GBM"); callers supply ``hidden_methods`` in the
-            # *long* display-name form ("RandomForest", "ExtraTrees",
-            # "LightGBM"). ``f_map_type_name`` (computed above at line ~618)
-            # is exactly that short → long rename map, so route the column
-            # through it before filtering and fall back to the raw value
-            # whenever the map has no entry for that short name.
+            # Drop hidden_methods from the winrate matrix. Two surfaces to
+            # cover:
+            #   - Configs: ``config_type`` on the raw per-task/split
+            #     dataframes is the *short* framework name ("RF", "XT",
+            #     "GBM"); callers supply ``hidden_methods`` in the *long*
+            #     display-name form ("RandomForest", "ExtraTrees",
+            #     "LightGBM"). ``f_map_type_name`` is exactly that
+            #     short → long rename map, so route the column through it
+            #     before filtering and fall back to the raw value whenever
+            #     the map has no entry for that short name.
+            #   - Baselines: ``config_type`` is typically NaN for these
+            #     rows; their long display name lives in ``self.method_col``
+            #     (already passed through ``rename_model`` above), so match
+            #     hidden_methods against that column directly.
             hidden_methods_winrate = plot_tuning_kwargs.get("hidden_methods") or []
-            if hidden_methods_winrate and "config_type" in _results_to_use_winrate_matrix.columns:
-                mapped_names = (
-                    _results_to_use_winrate_matrix["config_type"]
-                    .map(f_map_type_name)
-                    .fillna(_results_to_use_winrate_matrix["config_type"])
+            if hidden_methods_winrate:
+                hidden_mask = _results_to_use_winrate_matrix[self.method_col].isin(
+                    hidden_methods_winrate
                 )
+                if "config_type" in _results_to_use_winrate_matrix.columns:
+                    mapped_names = (
+                        _results_to_use_winrate_matrix["config_type"]
+                        .map(f_map_type_name)
+                        .fillna(_results_to_use_winrate_matrix["config_type"])
+                    )
+                    hidden_mask = hidden_mask | mapped_names.isin(hidden_methods_winrate)
                 _results_to_use_winrate_matrix = _results_to_use_winrate_matrix.loc[
-                    ~mapped_names.isin(hidden_methods_winrate)
+                    ~hidden_mask
                 ]
 
             if len(_results_to_use_winrate_matrix) != 0:

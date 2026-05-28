@@ -636,8 +636,24 @@ def compute_tuning_trajectories_leaderboard(
         include_baseline_advantage=True,
     )
 
+    # The bencheval validator rejects any null values in the error column,
+    # so a method with even one NaN `metric_error_val` row would crash the
+    # val leaderboard. Drop those methods from the val pass only — the
+    # test leaderboard (`arena`) is unaffected. After the merge below the
+    # dropped methods receive NaN for the val-derived columns
+    # (elo_val / improvability_val / baseline_advantage_val) since the
+    # column assignment aligns on the method index.
+    val_nan_mask = combined_data["metric_error_val"].isna()
+    val_nan_methods = sorted(combined_data.loc[val_nan_mask, "method"].unique().tolist())
+    if val_nan_methods:
+        print(
+            f"Dropping {len(val_nan_methods)} method(s) from validation-score "
+            f"leaderboard due to NaN metric_error_val: {val_nan_methods}"
+        )
+    combined_data_val = combined_data[~combined_data["method"].isin(val_nan_methods)]
+
     leaderboard_val = arena_val.leaderboard(
-        data=combined_data,
+        data=combined_data_val,
         include_elo=True,
         include_error=True,
         elo_kwargs=dict(
