@@ -1,12 +1,11 @@
-from __future__ import annotations
-
 from autogluon.common.space import Categorical, Int, Real
-
-from tabarena.benchmark.models.ag.ebm.ebm_model import ExplainableBoostingMachineModel
+from autogluon.tabular.models import EBMModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 name = "EBM"
-manual_configs = []
+manual_configs = [
+    {},
+]
 search_space = {
     "max_leaves": Int(2, 3, default=2),
     "smoothing_rounds": Int(0, 1000, default=200),
@@ -42,9 +41,9 @@ search_space = {
 }
 
 gen_ebm = ConfigGenerator(
-    model_cls=ExplainableBoostingMachineModel,
+    model_cls=EBMModel,
     search_space=search_space,
-    manual_configs=[{}],
+    manual_configs=manual_configs,
 )
 
 

@@ -64,7 +64,7 @@ tabpfn = [
   "tabpfn-extensions[many_class] @ git+https://github.com/PriorLabs/tabpfn-extensions.git",
 ]
 tabicl = ["tabicl>=2.0.0"]
-ebm = ["interpret-core>=0.7.3"]
+ebm = ["autogluon.tabular[interpret]>=1.5,<1.6"]
 search_spaces = ["configspace>=1.2,<2.0"]
 realmlp = ["pytabkit>=1.5.0,<2.0"]
 tabdpt = ["tabdpt>=1.1.10"]
