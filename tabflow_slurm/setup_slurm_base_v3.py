@@ -167,6 +167,47 @@ class SlurmSetup:
 
 
 @dataclass
+class ResourcesSetup:
+    """Compute and time-budget resources for the benchmark jobs."""
+
+    time_limit: int = 3600
+    """Time limit for each fit of a model in seconds -- including time for validation.
+    By default, 3600 seconds is used."""
+    time_limit_for_model_agnostic_preprocessing: int | None = None
+    """The time limit for the model agnostic preprocessing step."""
+    time_limit_with_model_agnostic_preprocessing: bool = False
+    """Whether the model agnostic preprocessing should influence the
+    fit time of the model:
+        - If False (default), we stop fitting a model after `time_limit`.
+        - If True, we stop fitting a model after `time_limit` minus the
+            time it took for model agnostic preprocessing.
+    """
+    num_cpus: int | None = 8
+    """Number of CPUs to use for the job.
+    If None, use all available CPUs."""
+    num_gpus: int = 0
+    """Number of GPUs to use for the jobs (SLURM allocation and Ray)."""
+    num_gpus_model: int | None = None
+    """Number of GPUs passed to a model for fitting.
+    If None (default), uses the same value as ``num_gpus``.
+    Set to 0 to reserve the GPU for preprocessing (e.g. sentence-transformer
+    encoding) while fitting models on CPU only."""
+    memory_limit: int | None = 32
+    """Memory/RAM limit for the jobs in GB.
+    If None, use all available memory."""
+
+    @property
+    def time_limit_per_config(self) -> int:
+        """Maximal time limit per config plus some overhead."""
+        total = self.time_limit
+        if self.time_limit_for_model_agnostic_preprocessing is not None:
+            total += self.time_limit_for_model_agnostic_preprocessing
+        if self.time_limit_with_model_agnostic_preprocessing:
+            total += 60 * 15  # constant SLURM overhead
+        return total
+
+
+@dataclass
 class TasksToRunSetup:
     """Defines which tasks (datasets x splits) to run in the benchmark.
 
@@ -423,32 +464,9 @@ class TabArenaBenchmarkSetup:
     """Contains all path related to the benchmark."""
     slurm_setup: SlurmSetup = field(default_factory=SlurmSetup)
     """SLURM config information for the benchmark."""
+    resources_setup: ResourcesSetup = field(default_factory=ResourcesSetup)
+    """Compute and time-budget resources for the benchmark jobs."""
 
-    time_limit: int = 3600
-    """Time limit for each fit of a model in seconds -- including time for validation.
-    By default, 3600 seconds is used."""
-    time_limit_for_model_agnostic_preprocessing: int | None = None
-    """The time limit for the model agnostic preprocessing step."""
-    time_limit_with_model_agnostic_preprocessing: bool = False
-    """Whether the model agnostic preprocessing should influence the
-    fit time of the model:
-        - If False (default), we stop fitting a model after `time_limit`.
-        - If True, we stop fitting a model after `time_limit` minus the
-            time it took for model agnostic preprocessing.
-    """
-    num_cpus: int | None = 8
-    """Number of CPUs to use for the job.
-    If None, use all available CPUs."""
-    num_gpus: int = 0
-    """Number of GPUs to use for the jobs (SLURM allocation and Ray)."""
-    num_gpus_model: int | None = None
-    """Number of GPUs passed to a model for fitting.
-    If None (default), uses the same value as ``num_gpus``.
-    Set to 0 to reserve the GPU for preprocessing (e.g. sentence-transformer
-    encoding) while fitting models on CPU only."""
-    memory_limit: int | None = 32
-    """Memory/RAM limit for the jobs in GB.
-    If None, use all available memory."""
     n_random_configs: int = 50
     """Number of random hyperparameter configurations to run for each model"""
     models: list[tuple[str, int | str | dict]] = field(default_factory=list)
@@ -599,17 +617,6 @@ class TabArenaBenchmarkSetup:
         self._max_configs_per_job = self.slurm_setup.configs_per_job
 
     @property
-    def time_limit_per_config(self):
-        """Compute the maximal time limit per config plus some overhead."""
-        time_limit_per_config = self.time_limit
-        if self.time_limit_for_model_agnostic_preprocessing is not None:
-            time_limit_per_config += self.time_limit_for_model_agnostic_preprocessing
-        # Add a constant SLURM overhead.
-        if self.time_limit_with_model_agnostic_preprocessing:
-            time_limit_per_config += 60 * 15
-        return time_limit_per_config
-
-    @property
     def _parallel_safe_benchmark_name(self) -> str:
         """Safe benchmark name for file paths."""
         benchmark_name = self.benchmark_name
@@ -698,10 +705,10 @@ class TabArenaBenchmarkSetup:
         slurm_script_path = self.path_setup.get_slurm_script_path(self.slurm_setup.script_name)
 
         return self._get_slurm_base_command(
-            num_cpus=self.num_cpus,
-            num_gpus=self.num_gpus,
-            memory_limit=self.memory_limit,
-            time_limit_per_config=self.time_limit_per_config,
+            num_cpus=self.resources_setup.num_cpus,
+            num_gpus=self.resources_setup.num_gpus,
+            memory_limit=self.resources_setup.memory_limit,
+            time_limit_per_config=self.resources_setup.time_limit_per_config,
             configs_per_job=self._max_configs_per_job,
             time_limit_overhead=self.slurm_setup.time_limit_overhead,
             slurm_log_output=self.path_setup.get_slurm_log_output_path(self.benchmark_name),
@@ -857,7 +864,7 @@ class TabArenaBenchmarkSetup:
                 agexp_kwargs[key] = {}
             if key in pipeline_method_kwargs:
                 agexp_kwargs[key].update(pipeline_method_kwargs[key])
-        agexp_kwargs["fit_kwargs"]["time_limit"] = self.time_limit
+        agexp_kwargs["fit_kwargs"]["time_limit"] = self.resources_setup.time_limit
 
         return [
             AGExperiment(
@@ -894,8 +901,8 @@ class TabArenaBenchmarkSetup:
             add_seed=default_seed_config,
             name_id_suffix=name_id_suffix,
             method_kwargs=pipeline_method_kwargs,
-            time_limit=self.time_limit,
-            time_limit_with_preprocessing=self.time_limit_with_model_agnostic_preprocessing,
+            time_limit=self.resources_setup.time_limit,
+            time_limit_with_preprocessing=self.resources_setup.time_limit_with_model_agnostic_preprocessing,
         )
 
     def generate_configs_yaml(self) -> list[dict]:
@@ -994,7 +1001,7 @@ class TabArenaBenchmarkSetup:
         jobs = list(self.get_jobs_to_run())
 
         # Fake memory limit for estimates if needed
-        memory_limit = self.memory_limit
+        memory_limit = self.resources_setup.memory_limit
         if self.fake_memory_for_estimates is not None:
             memory_limit = self.fake_memory_for_estimates
 
@@ -1004,9 +1011,9 @@ class TabArenaBenchmarkSetup:
             "openml_cache_dir": self.path_setup.openml_cache_path,
             "configs_yaml_file": self.path_setup.get_configs_path(self._parallel_safe_benchmark_name),
             "output_dir": self.path_setup.get_output_path(self.benchmark_name),
-            "num_cpus": self.num_cpus,
-            "num_gpus": self.num_gpus,
-            "num_gpus_model": self.num_gpus_model,
+            "num_cpus": self.resources_setup.num_cpus,
+            "num_gpus": self.resources_setup.num_gpus,
+            "num_gpus_model": self.resources_setup.num_gpus_model,
             "memory_limit": memory_limit,
             "setup_ray_for_slurm_shared_resources_environment": self.slurm_setup.setup_ray_for_slurm_shared_resources_environment,
             "ignore_cache": self.ignore_cache,
