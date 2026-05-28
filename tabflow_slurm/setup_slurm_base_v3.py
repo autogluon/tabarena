@@ -112,8 +112,67 @@ class PathSetup:
 
 
 @dataclass
-class SlurmSetup:
-    """Setup for SLURM jobs.  Adjust as needed for your cluster setup."""
+class SchedulerSetup:
+    """Base class for scheduler-specific job setup.
+
+    Owns the generic job-batching knobs (`bundle_size`,
+    `bundle_size_per_dataset`) shared by any array-style scheduler. Subclasses
+    implement how to construct the run commands a user invokes and contribute
+    any scheduler-specific entries to the per-job defaults via
+    `get_extra_default_args`.
+    """
+
+    bundle_size: int = 5
+    """Number of `(task_id, fold, repeat, config_index)` items batched into a
+    single array task. Items may span different `(task_id, fold, repeat)`
+    groups.
+
+    Mirrors the design used by `tabflow` (the SageMaker side) — see
+    `tabflow/cli/launch_jobs.py::get_tasks_batched`."""
+
+    bundle_size_per_dataset: dict[str, int] | None = None
+    """Optional per-dataset override of `bundle_size`, keyed by `dataset_name`.
+    Items from datasets not listed here use `bundle_size`. Items belonging to
+    different effective bundle sizes are not mixed in the same bundle."""
+
+    def get_run_commands(
+        self,
+        *,
+        jobs_dict: dict,
+        path_setup: PathSetup,
+        benchmark_name: str,
+        parallel_safe_benchmark_name: str,
+        resources_setup: ResourcesSetup,
+    ) -> list[str]:
+        """Persist `jobs_dict` and return the run commands a user should invoke.
+
+        Schedulers receive `path_setup` and the benchmark name(s) so they can
+        derive any scheduler-specific paths (log dirs, scripts, job-definition
+        files, etc.) themselves without leaking those concerns into the
+        interface. `parallel_safe_benchmark_name` is used to identify per-run
+        artifacts that must not collide across parallel runs; `benchmark_name`
+        is the bare name used for resources that should be shared across
+        parallel runs (e.g. log directories).
+
+        Any scheduler-specific batching metadata (e.g. the max number of
+        configs assigned to a single array task) is expected to live inside
+        `jobs_dict` alongside `jobs` and `defaults`.
+        """
+        raise NotImplementedError
+
+    def get_extra_default_args(self) -> dict:
+        """Extra key/value pairs to merge into the per-job `defaults` dict.
+
+        Subclasses override this to surface scheduler-specific runtime flags
+        (e.g. SLURM Ray-shared-resources hints) without coupling the caller
+        to a specific scheduler. Default: no extras.
+        """
+        return {}
+
+
+@dataclass
+class SlurmSetup(SchedulerSetup):
+    """Setup for SLURM jobs. Adjust as needed for your cluster setup."""
 
     script_name: str = "submit_template.sh"
     """Name of the SLURM (array) script that to run on the cluster
@@ -136,34 +195,169 @@ class SlurmSetup:
     """Overhead time in hours to add to the SLURM time limit to account for
     job scheduling and other non-model fitting overhead."""
 
-    configs_per_job: int = 5
-    """Legacy batching: maximum number of configs to bundle within a single
-    `(task_id, fold, repeat)` group inside one SLURM array task.
-    Only takes effect when `bundle_size` is None."""
-
-    bundle_size: int | None = None
-    """If set, switches to flat-bundle batching: each SLURM array task runs a list
-    of `(task_id, fold, repeat, config_index)` items of length up to `bundle_size`,
-    possibly spanning across different `(task_id, fold, repeat)` groups.
-
-    Mirrors the design used by `tabflow` (the SageMaker side) — see
-    `tabflow/cli/launch_jobs.py::get_tasks_batched`.
-
-    When None (default), legacy `configs_per_job` behavior is preserved."""
-
-    bundle_size_per_dataset: dict[str, int] | None = None
-    """Optional per-dataset override of `bundle_size`, keyed by `dataset_name`.
-    Items from datasets not listed here use `bundle_size`. Items belonging to
-    different effective bundle sizes are not mixed in the same bundle."""
-
     max_array_size: int = 29_999
     """Maximum number of array tasks per SLURM array job.
     If the total number of jobs exceeds this limit, the jobs are split
     into multiple array jobs, each with its own JSON file and sbatch command."""
 
+    array_job_limit: int = 100
+    """Maximum number of concurrent SLURM array tasks per array job.
+    Passed as the `%N` suffix to `sbatch --array=0-K%N`."""
+
     setup_ray_for_slurm_shared_resources_environment: bool = True
     """Prepare Ray for a SLURM shared resource environment.
     Recommended to set to True if sequential_local_fold_fitting is False."""
+
+    def get_extra_default_args(self) -> dict:
+        """Surface the SLURM-specific Ray-shared-resources hint to the per-job defaults."""
+        return {
+            "setup_ray_for_slurm_shared_resources_environment": self.setup_ray_for_slurm_shared_resources_environment,
+        }
+
+    def get_run_commands(
+        self,
+        *,
+        jobs_dict: dict,
+        path_setup: PathSetup,
+        benchmark_name: str,
+        parallel_safe_benchmark_name: str,
+        resources_setup: ResourcesSetup,
+    ) -> list[str]:
+        """Persist `jobs_dict` to one or more JSON files and return matching sbatch commands.
+
+        If `jobs_dict["jobs"]` exceeds `max_array_size`, the jobs are split across
+        multiple array-job batches; each batch gets its own `_batch{i}.json`
+        file and its own sbatch command (the single-batch case keeps the base
+        path). All SLURM-specific paths (job JSON, log dir, script) are
+        derived from `path_setup` + the two benchmark name flavors and
+        `self.script_name`.
+
+        The time-budget computation needs to know the worst-case number of
+        configs handled by a single array task; this is read from
+        `jobs_dict["max_configs_per_job"]` (populated by the caller).
+
+        Returns the list of sbatch commands to run, or `["N/A"]` if there are
+        no jobs (in which case the base JSON file is also removed if it exists).
+        """
+        base_json_path = path_setup.get_slurm_job_json_path(parallel_safe_benchmark_name)
+
+        all_jobs = jobs_dict["jobs"]
+        if not all_jobs:
+            print("No jobs to run.")
+            Path(base_json_path).unlink(missing_ok=True)
+            return ["N/A"]
+
+        base_command = self._build_sbatch_prefix(
+            resources_setup=resources_setup,
+            configs_per_job=jobs_dict["max_configs_per_job"],
+            slurm_log_output=path_setup.get_slurm_log_output_path(benchmark_name),
+            slurm_script_path=path_setup.get_slurm_script_path(self.script_name),
+        )
+
+        run_commands = self._write_job_batches_and_build_commands(
+            all_jobs=all_jobs,
+            defaults=jobs_dict["defaults"],
+            base_json_path=base_json_path,
+            base_command=base_command,
+        )
+
+        # --- Print summary ---
+        n_batches = len(run_commands)
+        batch_info = (
+            f"\nSplit into {n_batches} array job batches (max {self.max_array_size} per batch)."
+            if n_batches > 1
+            else ""
+        )
+        print(
+            "##### Setup Jobs"
+            f"{batch_info}"
+            "\nRun the following command(s) to start the jobs:"
+            "\n" + "\n".join(run_commands) + "\n"
+        )
+        return run_commands
+
+    def _write_job_batches_and_build_commands(
+        self,
+        *,
+        all_jobs: list,
+        defaults: dict,
+        base_json_path: str,
+        base_command: str,
+    ) -> list[str]:
+        """Split `all_jobs` into `max_array_size`-sized batches, persist each as JSON,
+        and return the matching `sbatch --array=...` commands.
+
+        With one batch the JSON is written to `base_json_path`; with multiple
+        batches the path is suffixed with `_batch{i}` so each batch has its own
+        file.
+        """
+        job_batches = [list(b) for b in to_batch_list(all_jobs, self.max_array_size)]
+        multi_batch = len(job_batches) > 1
+
+        run_commands: list[str] = []
+        for batch_idx, batch_jobs in enumerate(job_batches):
+            json_path = (
+                base_json_path.replace(".json", f"_batch{batch_idx}.json")
+                if multi_batch
+                else base_json_path
+            )
+            with open(json_path, "w") as f:
+                json.dump({"defaults": defaults, "jobs": batch_jobs}, f)
+
+            run_commands.append(
+                f"sbatch --array=0-{len(batch_jobs) - 1}%{self.array_job_limit} {base_command} {json_path}"
+            )
+        return run_commands
+
+    def _build_sbatch_prefix(
+        self,
+        *,
+        resources_setup: ResourcesSetup,
+        configs_per_job: int,
+        slurm_log_output: str,
+        slurm_script_path: str,
+    ) -> str:
+        """Build the space-separated sbatch flag string used as the prefix of every
+        per-batch `sbatch --array=... <prefix> <json>` invocation.
+
+        Resource amounts come from `resources_setup`; partitions, gres,
+        exclusivity, time overhead and memory style come from this `SlurmSetup`.
+        """
+        is_gpu_job = resources_setup.num_gpus > 0
+        partition = self.gpu_partition if is_gpu_job else self.cpu_partition
+
+        time_in_h = (
+            resources_setup.time_limit_per_config // 3600 * configs_per_job
+            + self.time_limit_overhead
+        )
+
+        gres_items: list[str] = []
+        if is_gpu_job:
+            gres_items.append(f"gpu:{resources_setup.num_gpus}")
+        if self.extra_gres:
+            gres_items.append(self.extra_gres)
+
+        flag_parts: list[str] = [f"--partition={partition}"]
+        if gres_items:
+            flag_parts.append(f"--gres={','.join(gres_items)}")
+        flag_parts.append(f"--time={time_in_h}:00:00")
+
+        if self.exclusive_node:
+            flag_parts += ["--mem=0", "--nodes=1", "--exclusive"]
+        else:
+            flag_parts.append(f"--cpus-per-task={resources_setup.num_cpus}")
+            memory_limit = resources_setup.memory_limit
+            if memory_limit is not None:
+                if self.mem_per_handle:
+                    divisor = resources_setup.num_gpus if is_gpu_job else resources_setup.num_cpus
+                    prefix = "--mem-per-gpu" if is_gpu_job else "--mem-per-cpu"
+                    flag_parts.append(f"{prefix}={memory_limit // divisor}G")
+                else:
+                    flag_parts.append(f"--mem={memory_limit}G")
+
+        flag_parts.append(f"--output={slurm_log_output}/%A/slurm-%A_%a.out")
+        flag_parts.append(slurm_script_path)
+        return " ".join(flag_parts)
 
 
 @dataclass
@@ -450,22 +644,13 @@ class TasksToRunSetup:
 
 
 @dataclass
-class TabArenaBenchmarkSetup:
-    """Manually set the parameters for the benchmark run."""
+class ModelPipelinesToRunSetup:
+    """Defines which models to run in the benchmark, plus model-related behavior.
 
-    benchmark_name: str
-    """Unique name of the benchmark; determines where output artifacts are stored."""
-
-    tasks_to_run_setup: TasksToRunSetup
-    """Defines which tasks to run in the benchmark, including the source of
-    task metadata and any filters applied on top of it."""
-
-    path_setup: PathSetup = field(default_factory=PathSetup)
-    """Contains all path related to the benchmark."""
-    slurm_setup: SlurmSetup = field(default_factory=SlurmSetup)
-    """SLURM config information for the benchmark."""
-    resources_setup: ResourcesSetup = field(default_factory=ResourcesSetup)
-    """Compute and time-budget resources for the benchmark jobs."""
+    Encapsulates the list of models with per-model config counts, preprocessing
+    pipelines applied to each model, and miscellaneous model-level settings
+    (predict batching, verbosity, artifact paths, fake memory, fold fitting).
+    """
 
     n_random_configs: int = 50
     """Number of random hyperparameter configurations to run for each model"""
@@ -516,6 +701,239 @@ class TabArenaBenchmarkSetup:
             updates for TabArena (experimental, can be buggy!).
         - Any other string points to custom experimental code for now.
     """
+    max_predict_batch_size: int | None = None
+    """Maximal batch size for the predict function of the models.
+    This is used at validation and test predict time. Thus, it trades off speed for memory usage.
+    If None, no limit is applied.
+    """
+    sequential_local_fold_fitting: bool = False
+    """Use Ray for local fold fitting. This is used to speed up the local fold fitting
+    and force this behavior if True. If False the default strategy of running the
+    local fold fitting is used, as determined by AutoGluon and the model's
+    default_ag_args_ensemble parameters."""
+    model_artifacts_base_path: str | Path | None = "/tmp"  # noqa: S108
+    """Adapt the default temporary directory used for model artifacts in TabArena.
+        - If None, the default temporary directory is used: "./AutoGluonModels".
+        - If a string or Path, the directory is used as the base path for the temporary
+        and any model artifacts will be stored in time-stamped subdirectories.
+    """
+    fake_memory_for_estimates: int | None = None
+    """Experimental parameter that is to be ignored!
+
+    If not None, we use this value to fake the amount of available (CPU) memory
+    such that the memory estimates for a model are compared this value instead
+    of the actually available memory on the system.
+
+    Values in GB as `memory_limit`.
+
+    This can be useful if:
+        - To test or overrule (bad) memory estimates.
+        - For models that use CPU memory as a proxy for GPU memory (e.g. most TFMs),
+          this can be used if the job has much more VRAM than CPU memory.
+    """
+    model_verbosity: int | None = None
+    """Verbosity level passed to the model via model_hyperparameters['verbose'].
+    Controls model-level logging (e.g. CatBoost iteration logs, LightGBM verbosity)
+    independently of AutoGluon's overall verbosity. If None, no model-level verbosity is set."""
+    adapt_num_folds_to_n_classes: bool = True
+    """Whether to adapt the number of folds to the number of classes for classification tasks.
+    Ensures that each fold has at least one sample of each class.
+    """
+    dynamic_tabarena_validation_protocol: bool = True
+    """If True, the validation data will be adapted dynamically based on the task.
+    WARNING: this can overwrite the configured validation of a configuration!"""
+
+    def generate_configs_yaml(
+        self,
+        *,
+        configs_path: str,
+        resources_setup: ResourcesSetup,
+        verbosity: int,
+        shuffle_features: bool,
+    ) -> list[dict]:
+        """Build experiments, write them to `configs_path`, and return the parsed methods list.
+
+        `verbosity` and `shuffle_features` are bench-level toggles threaded
+        through into the per-method kwargs alongside the model-specific
+        overrides this dataclass owns.
+        """
+        from tabarena.benchmark.experiment import (
+            YamlExperimentSerializer,
+        )
+
+        base_method_kwargs = {
+            "init_kwargs": {"verbosity": verbosity},
+            "shuffle_features": shuffle_features,
+            "fit_kwargs": {},
+            "extra_model_hyperparameters": {},
+        }
+
+        experiments_all = self.generate_experiments(
+            base_method_kwargs=base_method_kwargs,
+            resources_setup=resources_setup,
+        )
+
+        # Verify no duplicate names
+        experiment_names = set()
+        for experiment in experiments_all:
+            if experiment.name in experiment_names:
+                raise AssertionError(
+                    f"Found multiple instances of experiment named {experiment.name}. "
+                    f"All experiment names must be unique!",
+                )
+            experiment_names.add(experiment.name)
+
+        YamlExperimentSerializer.to_yaml(
+            experiments=experiments_all,
+            path=configs_path,
+        )
+
+        # Read YAML file and return the methods list.
+        with open(configs_path) as file:
+            return yaml.safe_load(file)["methods"]
+
+    def generate_experiments(
+        self,
+        *,
+        base_method_kwargs: dict,
+        resources_setup: ResourcesSetup,
+    ) -> list:
+        """Build the full list of experiment configs (one per model x pipeline x random config)."""
+        method_kwargs = deepcopy(base_method_kwargs)
+        if self.model_artifacts_base_path is not None:
+            method_kwargs["init_kwargs"]["default_base_path"] = self.model_artifacts_base_path
+        if not self.model_agnostic_preprocessing:
+            method_kwargs["fit_kwargs"]["feature_generator"] = None
+        if self.adapt_num_folds_to_n_classes:
+            method_kwargs["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"] = True
+        if self.max_predict_batch_size is not None:
+            method_kwargs["extra_model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
+        if self.model_verbosity is not None:
+            method_kwargs["extra_model_hyperparameters"]["ag.verbosity"] = self.model_verbosity
+
+        print(
+            "Generating experiments for models...",
+            f"\n\t`all` := number of configs: {self.n_random_configs}",
+            f"\n\t{len(self.models)} models: {self.models}",
+            f"\n\t{len(self.preprocessing_pipelines)} preprocessing pipelines: {self.preprocessing_pipelines}",
+            f"\n\tMethod kwargs: {method_kwargs}",
+        )
+
+        experiments_all = []
+        for preprocessing_name in self.preprocessing_pipelines:
+            pipeline_method_kwargs = deepcopy(method_kwargs)
+
+            name_id_suffix = ""
+            if self.model_agnostic_preprocessing:
+                if preprocessing_name != "default":
+                    pipeline_method_kwargs["preprocessing_pipeline"] = preprocessing_name
+                if preprocessing_name != "tabarena_default":
+                    name_id_suffix = f"_{preprocessing_name}"
+
+            for model in self.models:
+                if isinstance(model, Experiment):
+                    experiments_all.append(model)
+                    continue
+                model_name, n_configs_or_kwargs = model[0], model[1]
+
+                if isinstance(model_name, str) and model_name.startswith("AutoGluon"):
+                    experiments_all.extend(
+                        self._generate_autogluon_config(
+                            model_name=model_name,
+                            agexp_kwargs=n_configs_or_kwargs,
+                            pipeline_method_kwargs=pipeline_method_kwargs,
+                            resources_setup=resources_setup,
+                        )
+                    )
+                    continue
+
+                experiments_all.extend(
+                    self._generate_model_configs(
+                        model_name=model_name,
+                        n_configs=n_configs_or_kwargs,
+                        pipeline_method_kwargs=pipeline_method_kwargs,
+                        name_id_suffix=name_id_suffix,
+                        resources_setup=resources_setup,
+                    )
+                )
+
+        return experiments_all
+
+    @staticmethod
+    def _generate_autogluon_config(
+        *,
+        model_name: str,
+        agexp_kwargs: dict,
+        pipeline_method_kwargs: dict,
+        resources_setup: ResourcesSetup,
+    ) -> list:
+        """Parse the AutoGluon config from the models."""
+        from tabarena.benchmark.experiment.experiment_constructor import (
+            AGExperiment,
+        )
+        agexp_kwargs = agexp_kwargs.copy()
+        for key in ["fit_kwargs", "init_kwargs"]:
+            if key not in agexp_kwargs:
+                agexp_kwargs[key] = {}
+            if key in pipeline_method_kwargs:
+                agexp_kwargs[key].update(pipeline_method_kwargs[key])
+        agexp_kwargs["fit_kwargs"]["time_limit"] = resources_setup.time_limit
+
+        return [AGExperiment(name=model_name, **agexp_kwargs)]
+
+    def _generate_model_configs(
+        self,
+        *,
+        model_name: str,
+        n_configs: int | str,
+        pipeline_method_kwargs: dict,
+        name_id_suffix: str,
+        resources_setup: ResourcesSetup,
+        default_seed_config: str = "fold-config-wise",
+    ) -> list:
+        from tabarena.models.utils import get_configs_generator_from_name
+
+        if isinstance(n_configs, str) and n_configs == "all":
+            n_configs = self.n_random_configs
+        elif not isinstance(n_configs, int):
+            raise ValueError(
+                f"Invalid number of configurations for model {model_name}: {n_configs}. Must be an integer or 'all'."
+            )
+        if isinstance(model_name, str):
+            config_generator = get_configs_generator_from_name(model_name)
+        else:
+            config_generator = copy.deepcopy(model_name)
+        return config_generator.generate_all_bag_experiments(
+            num_random_configs=n_configs,
+            add_seed=default_seed_config,
+            name_id_suffix=name_id_suffix,
+            method_kwargs=pipeline_method_kwargs,
+            time_limit=resources_setup.time_limit,
+            time_limit_with_preprocessing=resources_setup.time_limit_with_model_agnostic_preprocessing,
+        )
+
+
+@dataclass
+class TabArenaBenchmarkSetup:
+    """Manually set the parameters for the benchmark run."""
+
+    benchmark_name: str
+    """Unique name of the benchmark; determines where output artifacts are stored."""
+
+    tasks_to_run_setup: TasksToRunSetup
+    """Defines which tasks to run in the benchmark, including the source of
+    task metadata and any filters applied on top of it."""
+
+    path_setup: PathSetup = field(default_factory=PathSetup)
+    """Contains all path related to the benchmark."""
+    scheduler_setup: SchedulerSetup = field(default_factory=SlurmSetup)
+    """Scheduler-specific config for the benchmark (defaults to SLURM)."""
+    resources_setup: ResourcesSetup = field(default_factory=ResourcesSetup)
+    """Compute and time-budget resources for the benchmark jobs."""
+    model_pipelines_to_run_setup: ModelPipelinesToRunSetup = field(default_factory=ModelPipelinesToRunSetup)
+    """Defines which models and preprocessing pipelines to run in the benchmark,
+    along with related fit/validation behavior."""
+
     custom_model_constraints: dict[str, dict[str, int]] | None = None
     """Custom mapping of model names to constraints to filter which models runs on
     what kind of datasets.
@@ -549,24 +967,12 @@ class TabArenaBenchmarkSetup:
             }
         }
     """
-    max_predict_batch_size: int | None = None
-    """Maximal batch size for the predict function of the models.
-    This is used at validation and test predict time. Thus, it trades off speed for memory usage.
-    If None, no limit is applied.
-    """
 
     # Misc Settings
     # -------------
-    dynamic_tabarena_validation_protocol: bool = True
-    """If True, the validation data will be adapted dynamically based on the task.
-    WARNING: this can overwrite the configured validation of a configuration!"""
     shuffle_features: bool = True
     """Whether to shuffle the features of the datasets. Only here for backward compatibility
     with the original TabArena setup, but not recommended to change."""
-    adapt_num_folds_to_n_classes: bool = True
-    """Whether to adapt the number of folds to the number of classes for classification tasks.
-    Ensures that each fold has at least one sample of each class.
-    """
     parallel_benchmark_name: str | None = None
     """Set this is to some string value to make sure you can run parallel
     jobs for the same benchmark name. This ensures that the config and job .yaml/.json
@@ -579,42 +985,8 @@ class TabArenaBenchmarkSetup:
     """Number of CPUs to use for checking the cache and generating the jobs.
     This should be set to the number of CPUs available to the python script.
     If "auto", we use all available CPUs."""
-    sequential_local_fold_fitting: bool = False
-    """Use Ray for local fold fitting. This is used to speed up the local fold fitting
-    and force this behavior if True. If False the default strategy of running the
-    local fold fitting is used, as determined by AutoGluon and the model's
-    default_ag_args_ensemble parameters."""
-    model_artifacts_base_path: str | Path | None = "/tmp"  # noqa: S108
-    """Adapt the default temporary directory used for model artifacts in TabArena.
-        - If None, the default temporary directory is used: "./AutoGluonModels".
-        - If a string or Path, the directory is used as the base path for the temporary
-        and any model artifacts will be stored in time-stamped subdirectories.
-    """
-    fake_memory_for_estimates: int | None = None
-    """Experimental parameter that is to be ignored!
-
-    If not None, we use this value to fake the amount of available (CPU) memory
-    such that the memory estimates for a model are compared this value instead
-    of the actually available memory on the system.
-
-    Values in GB as `memory_limit`.
-
-    This can be useful if:
-        - To test or overrule (bad) memory estimates.
-        - For models that use CPU memory as a proxy for GPU memory (e.g. most TFMs),
-          this can be used if the job has much more VRAM than CPU memory.
-    """
     verbosity: int = 2
     """Verbosity level for logging and printing."""
-    model_verbosity: int | None = None
-    """Verbosity level passed to the model via model_hyperparameters['verbose'].
-    Controls model-level logging (e.g. CatBoost iteration logs, LightGBM verbosity)
-    independently of AutoGluon's overall verbosity. If None, no model-level verbosity is set."""
-
-    def __post_init__(self):
-        # Max number of configs per job. Might be overridden.
-        # Determines total time for a job.
-        self._max_configs_per_job = self.slurm_setup.configs_per_job
 
     @property
     def _parallel_safe_benchmark_name(self) -> str:
@@ -623,102 +995,6 @@ class TabArenaBenchmarkSetup:
         if self.parallel_benchmark_name is not None:
             benchmark_name += f"_{self.parallel_benchmark_name}"
         return benchmark_name
-
-    @staticmethod
-    def _get_slurm_base_command(  # noqa: PLR0913
-        *,
-        num_gpus: int,
-        num_cpus: int,
-        time_limit_per_config: int,
-        configs_per_job: int,
-        time_limit_overhead: int,
-        gpu_partition: str,
-        cpu_partition: str,
-        slurm_log_output: str,
-        slurm_script_path: str,
-        slurm_extra_gres: str,
-        slurm_exclusive_node: bool,
-        memory_limit: int,
-        slurm_mem_per_handle: bool,
-    ):
-        """SLURM command to run the benchmark.
-
-        We set the following parameters based on the benchmark setup:
-            - slurm script
-            - partition
-            - gres (including GPUs)
-            - time
-            - cpus
-            - memory
-
-        Parameter
-        --------
-        num_gpus: int
-            Number of GPUs to use for the jobs.
-        num_cpus: int
-            Number of CPUs to use for the job.
-        time_limit_per_config: int
-            Time limit for each fit of a config.
-
-        """
-        is_gpu_job = num_gpus > 0
-
-        partition = gpu_partition if is_gpu_job else cpu_partition
-        partition = "--partition=" + partition
-        slurm_logs = f"--output={slurm_log_output}/%A/slurm-%A_%a.out"
-
-        time_in_h = time_limit_per_config // 3600 * configs_per_job + time_limit_overhead
-        time_in_h = f"--time={time_in_h}:00:00"
-
-        # Handle GPU (same for exclusive and non-exclusive)
-        gres = f"gpu:{num_gpus}" if is_gpu_job else ""
-        if slurm_extra_gres:
-            if len(gres) > 0:
-                gres += ","
-            gres += slurm_extra_gres
-        gres = f"--gres={gres}" if len(gres) > 0 else None
-        cmd_arg = f"{partition}"
-        if gres is not None:
-            cmd_arg += f" {gres}"
-
-        if slurm_exclusive_node:
-            return f"{cmd_arg} {time_in_h} --mem=0 --nodes=1 --exclusive {slurm_logs} {slurm_script_path}"
-
-        # Handle CPU
-        cpus = f"--cpus-per-task={num_cpus}"
-        # Handle Memory
-        if slurm_mem_per_handle:
-            if is_gpu_job:
-                mem = f"--mem-per-gpu={memory_limit // num_gpus}G"
-            else:
-                mem = f"--mem-per-cpu={memory_limit // num_cpus}G"
-        else:
-            mem = f"--mem={memory_limit}G"
-        if memory_limit is None:
-            mem = mem[:-1]
-
-        return f"{cmd_arg} {time_in_h} {cpus} {mem} {slurm_logs} {slurm_script_path}"
-
-    @property
-    def slurm_base_command(self):
-        """SLURM command to run the benchmark."""
-        slurm_script_path = self.path_setup.get_slurm_script_path(self.slurm_setup.script_name)
-
-        return self._get_slurm_base_command(
-            num_cpus=self.resources_setup.num_cpus,
-            num_gpus=self.resources_setup.num_gpus,
-            memory_limit=self.resources_setup.memory_limit,
-            time_limit_per_config=self.resources_setup.time_limit_per_config,
-            configs_per_job=self._max_configs_per_job,
-            time_limit_overhead=self.slurm_setup.time_limit_overhead,
-            slurm_log_output=self.path_setup.get_slurm_log_output_path(self.benchmark_name),
-            slurm_script_path=slurm_script_path,
-            slurm_extra_gres=self.slurm_setup.extra_gres,
-            slurm_exclusive_node=self.slurm_setup.exclusive_node,
-            slurm_mem_per_handle=self.slurm_setup.mem_per_handle,
-            gpu_partition=self.slurm_setup.gpu_partition,
-            cpu_partition=self.slurm_setup.cpu_partition,
-        )
 
     def get_jobs_to_run(self):  # noqa: C901
         """Determine all jobs to run by checking the cache and filtering
@@ -730,7 +1006,12 @@ class TabArenaBenchmarkSetup:
         Path(self.path_setup.get_slurm_log_output_path(self.benchmark_name)).mkdir(parents=True, exist_ok=True)
 
         task_metadata_list = self.tasks_to_run_setup.load_task_metadata()
-        configs = self.generate_configs_yaml()
+        configs = self.model_pipelines_to_run_setup.generate_configs_yaml(
+            configs_path=self.path_setup.get_configs_path(self._parallel_safe_benchmark_name),
+            resources_setup=self.resources_setup,
+            verbosity=self.verbosity,
+            shuffle_features=self.shuffle_features,
+        )
 
         def yield_all_jobs():
             for ta_task_metadata in task_metadata_list:
@@ -791,219 +1072,55 @@ class TabArenaBenchmarkSetup:
         ]
         to_run_jobs = len(approved_items)
 
-        bundle_size = self.slurm_setup.bundle_size
-        if bundle_size is None:
-            # Legacy path: bundle config_indices within each (task, fold, repeat)
-            # group, capped at `configs_per_job`.
-            to_run_job_map: dict[tuple, list[int]] = {}
-            for item in approved_items:
-                key = (item["task_id"], item["fold"], item["repeat"])
-                to_run_job_map.setdefault(key, []).append(item["config_index"])
+        # Bin (task, fold, repeat, config_index) tuples into bundles of length
+        # up to `bundle_size`, with per-dataset overrides. Items are grouped by
+        # their effective bundle size so we don't mix different sizes within
+        # the same array task (this matches
+        # tabflow/cli/launch_jobs.py::get_tasks_batched).
+        bundle_size = self.scheduler_setup.bundle_size
+        bundle_size_per_dataset = self.scheduler_setup.bundle_size_per_dataset or {}
+        items_by_size: dict[int, list[dict]] = {}
+        for item in approved_items:
+            effective_size = bundle_size_per_dataset.get(item["dataset_name"], bundle_size)
+            items_by_size.setdefault(effective_size, []).append(item)
 
-            jobs = []
-            max_config_batch = 1
-            for job_key, config_indices in to_run_job_map.items():
-                for config_batch in to_batch_list(config_indices, self.slurm_setup.configs_per_job):
-                    max_config_batch = max(max_config_batch, len(config_batch))
-                    jobs.append(
-                        {
-                            "task_id": job_key[0],
-                            "fold": job_key[1],
-                            "repeat": job_key[2],
-                            "config_index": config_batch,
-                        },
-                    )
-            self._max_configs_per_job = max_config_batch
-        else:
-            # Flat-bundle path: bin (task, fold, repeat, config_index) tuples into
-            # bundles of length up to `bundle_size`, with per-dataset overrides.
-            # Items are grouped by their effective bundle size so we don't mix
-            # different sizes within the same SLURM array task (this matches
-            # tabflow/cli/launch_jobs.py::get_tasks_batched).
-            bundle_size_per_dataset = self.slurm_setup.bundle_size_per_dataset or {}
-            items_by_size: dict[int, list[dict]] = {}
-            for item in approved_items:
-                effective_size = bundle_size_per_dataset.get(item["dataset_name"], bundle_size)
-                items_by_size.setdefault(effective_size, []).append(item)
-
-            jobs = []
-            max_bundle_size = 1
-            # Sort sizes for deterministic job ordering across runs.
-            for size in sorted(items_by_size):
-                items = items_by_size[size]
-                for bundle in to_batch_list(items, size):
-                    max_bundle_size = max(max_bundle_size, len(bundle))
-                    jobs.append(
-                        {
-                            "items": [
-                                {
-                                    "task_id": it["task_id"],
-                                    "fold": it["fold"],
-                                    "repeat": it["repeat"],
-                                    "config_index": it["config_index"],
-                                }
-                                for it in bundle
-                            ],
-                        },
-                    )
-            self._max_configs_per_job = max_bundle_size
+        jobs = []
+        max_configs_per_job = 1
+        # Sort sizes for deterministic job ordering across runs.
+        for size in sorted(items_by_size):
+            items = items_by_size[size]
+            for bundle in to_batch_list(items, size):
+                max_configs_per_job = max(max_configs_per_job, len(bundle))
+                jobs.append(
+                    {
+                        "items": [
+                            {
+                                "task_id": it["task_id"],
+                                "fold": it["fold"],
+                                "repeat": it["repeat"],
+                                "config_index": it["config_index"],
+                            }
+                            for it in bundle
+                        ],
+                    },
+                )
 
         print(f"Generated {to_run_jobs} jobs to run without batching.")
         print(f"Jobs with batching: {len(jobs)}")
-        return jobs
-
-    def _generate_autogluon_config(self, *, model_name: str, agexp_kwargs: dict, pipeline_method_kwargs: dict) -> list:
-        """Parse the AutoGluon config from the models."""
-        from tabarena.benchmark.experiment.experiment_constructor import (
-            AGExperiment,
-        )
-        agexp_kwargs = agexp_kwargs.copy()
-
-        for key in ["fit_kwargs", "init_kwargs"]:
-            if key not in agexp_kwargs:
-                agexp_kwargs[key] = {}
-            if key in pipeline_method_kwargs:
-                agexp_kwargs[key].update(pipeline_method_kwargs[key])
-        agexp_kwargs["fit_kwargs"]["time_limit"] = self.resources_setup.time_limit
-
-        return [
-            AGExperiment(
-                name=model_name,
-                **agexp_kwargs,
-            )
-        ]
-
-    def _generate_model_configs(
-        self,
-        *,
-        model_name: str,
-        n_configs: int | str,
-        pipeline_method_kwargs: dict,
-        name_id_suffix: str,
-        default_seed_config: str = "fold-config-wise",
-    ) -> list:
-
-        from tabarena.models.utils import get_configs_generator_from_name
-
-        if isinstance(n_configs, str) and n_configs == "all":
-            n_configs = self.n_random_configs
-        elif not isinstance(n_configs, int):
-            raise ValueError(
-                f"Invalid number of configurations for model {model_name}: {n_configs}. Must be an integer or 'all'."
-            )
-        if isinstance(model_name, str):
-            config_generator = get_configs_generator_from_name(model_name)
-        else:
-            config_generator = copy.deepcopy(model_name)
-        # TODO: add model agnostic time limit here
-        return config_generator.generate_all_bag_experiments(
-            num_random_configs=n_configs,
-            add_seed=default_seed_config,
-            name_id_suffix=name_id_suffix,
-            method_kwargs=pipeline_method_kwargs,
-            time_limit=self.resources_setup.time_limit,
-            time_limit_with_preprocessing=self.resources_setup.time_limit_with_model_agnostic_preprocessing,
-        )
-
-    def generate_configs_yaml(self) -> list[dict]:
-        """Generate the YAML file with the configurations to run based
-        on specific models to run.
-        """
-        from tabarena.benchmark.experiment import (
-            YamlExperimentSerializer,
-        )
-
-        experiments_all = []
-        method_kwargs = {
-            "init_kwargs": {"verbosity": self.verbosity},
-            "shuffle_features": self.shuffle_features,
-            "fit_kwargs": dict(),
-            "extra_model_hyperparameters": dict(),
-        }
-        if self.model_artifacts_base_path is not None:
-            method_kwargs["init_kwargs"]["default_base_path"] = self.model_artifacts_base_path
-        if not self.model_agnostic_preprocessing:
-            method_kwargs["fit_kwargs"]["feature_generator"] = None
-        if self.adapt_num_folds_to_n_classes:
-            method_kwargs["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"] = True
-        if self.max_predict_batch_size is not None:
-            method_kwargs["extra_model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
-        if self.model_verbosity is not None:
-            method_kwargs["extra_model_hyperparameters"]["ag.verbosity"] = self.model_verbosity
-
-        print(
-            "Generating experiments for models...",
-            f"\n\t`all` := number of configs: {self.n_random_configs}",
-            f"\n\t{len(self.models)} models: {self.models}",
-            f"\n\t{len(self.preprocessing_pipelines)} preprocessing pipelines: {self.preprocessing_pipelines}",
-            f"\n\tMethod kwargs: {method_kwargs}",
-        )
-        for preprocessing_name in self.preprocessing_pipelines:
-            pipeline_method_kwargs = deepcopy(method_kwargs)
-
-            name_id_suffix = ""
-            if self.model_agnostic_preprocessing:
-                if preprocessing_name != "default":
-                    pipeline_method_kwargs["preprocessing_pipeline"] = preprocessing_name
-                if preprocessing_name != "tabarena_default":
-                    name_id_suffix = f"_{preprocessing_name}"
-
-            for model in self.models:
-                if isinstance(model, Experiment):
-                    experiments_all.append(model)
-                    continue
-                model_name, n_configs_or_kwargs = model[0], model[1]
-
-                # Resolve AutoGluon Config
-                if isinstance(model_name, str) and model_name.startswith("AutoGluon"):
-                    experiments_all.extend(
-                        self._generate_autogluon_config(
-                            model_name=model_name,
-                            agexp_kwargs=n_configs_or_kwargs,
-                            pipeline_method_kwargs=pipeline_method_kwargs,
-                        )
-                    )
-                    continue
-
-                # Resolve model configs
-                experiments_all.extend(
-                    self._generate_model_configs(
-                        model_name=model_name,
-                        n_configs=n_configs_or_kwargs,
-                        pipeline_method_kwargs=pipeline_method_kwargs,
-                        name_id_suffix=name_id_suffix,
-                    )
-                )
-
-        # Verify no duplicate names
-        experiment_names = set()
-        for experiment in experiments_all:
-            if experiment.name not in experiment_names:
-                experiment_names.add(experiment.name)
-            else:
-                raise AssertionError(
-                    f"Found multiple instances of experiment named {experiment.name}. "
-                    f"All experiment names must be unique!",
-                )
-
-        configs_path = self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)
-        YamlExperimentSerializer.to_yaml(
-            experiments=experiments_all,
-            path=configs_path,
-        )
-
-        # Read YAML file and get the number of configs
-        with open(configs_path) as file:
-            return yaml.safe_load(file)["methods"]
+        return jobs, max_configs_per_job
 
     def get_jobs_dict(self):
-        """Get the jobs to run as a dictionary with default arguments and jobs."""
-        jobs = list(self.get_jobs_to_run())
+        """Get the jobs to run as a dictionary with default arguments and jobs.
+
+        Also carries the scheduler-side metadata (`max_configs_per_job`) needed
+        to budget the SLURM time limit for the worst-case array task.
+        """
+        jobs, max_configs_per_job = self.get_jobs_to_run()
 
         # Fake memory limit for estimates if needed
         memory_limit = self.resources_setup.memory_limit
-        if self.fake_memory_for_estimates is not None:
-            memory_limit = self.fake_memory_for_estimates
+        if self.model_pipelines_to_run_setup.fake_memory_for_estimates is not None:
+            memory_limit = self.model_pipelines_to_run_setup.fake_memory_for_estimates
 
         default_args = {
             "python": self.path_setup.python_path,
@@ -1015,62 +1132,30 @@ class TabArenaBenchmarkSetup:
             "num_gpus": self.resources_setup.num_gpus,
             "num_gpus_model": self.resources_setup.num_gpus_model,
             "memory_limit": memory_limit,
-            "setup_ray_for_slurm_shared_resources_environment": self.slurm_setup.setup_ray_for_slurm_shared_resources_environment,
             "ignore_cache": self.ignore_cache,
-            "sequential_local_fold_fitting": self.sequential_local_fold_fitting,
-            "dynamic_tabarena_validation_protocol": self.dynamic_tabarena_validation_protocol,
+            "sequential_local_fold_fitting": self.model_pipelines_to_run_setup.sequential_local_fold_fitting,
+            "dynamic_tabarena_validation_protocol": self.model_pipelines_to_run_setup.dynamic_tabarena_validation_protocol,
+            **self.scheduler_setup.get_extra_default_args(),
         }
-        return {"defaults": default_args, "jobs": jobs}
+        return {"defaults": default_args, "jobs": jobs, "max_configs_per_job": max_configs_per_job}
 
-    def setup_jobs(self, array_job_limit: int = 100) -> list[str]:
-        """Setup the jobs to run by generating the SLURM job JSON file(s).
+    def setup_jobs(self) -> list[str]:
+        """Generate the scheduler job file(s) and return the run commands.
 
-        If the number of jobs exceeds `slurm_setup.max_array_size`, the jobs
-        are split into multiple array jobs, each with its own JSON file.
-
-        Returns a single command string if one batch, or a list of command
-        strings if multiple batches are needed.
+        Delegates persistence and command construction to
+        `scheduler_setup.get_run_commands`. When there are no jobs to run, the
+        configs YAML for this parallel run is also removed so it can be
+        re-prepared cleanly on the next invocation.
         """
-        jobs_dict = self.get_jobs_dict()
-        base_json_path = self.path_setup.get_slurm_job_json_path(self._parallel_safe_benchmark_name)
-        all_jobs = jobs_dict["jobs"]
-        n_jobs = len(all_jobs)
-        if n_jobs == 0:
-            print("No jobs to run.")
-            Path(base_json_path).unlink(missing_ok=True)
-            Path(self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)).unlink(missing_ok=True)
-            return ["N/A"]
-
-        max_array_size = self.slurm_setup.max_array_size
-        job_batches = list(to_batch_list(all_jobs, max_array_size))
-
-        run_commands = []
-        for batch_idx, batch_jobs in enumerate(job_batches):
-            batch_jobs = list(batch_jobs)
-            # Use original path for single batch, append _batch{i} for multiple
-            if len(job_batches) == 1:
-                json_path = base_json_path
-            else:
-                json_path = base_json_path.replace(".json", f"_batch{batch_idx}.json")
-
-            batch_dict = {"defaults": jobs_dict["defaults"], "jobs": batch_jobs}
-            with open(json_path, "w") as f:
-                json.dump(batch_dict, f)
-
-            batch_size = len(batch_jobs)
-            run_command = f"sbatch --array=0-{batch_size - 1}%{array_job_limit} {self.slurm_base_command} {json_path}"
-            run_commands.append(run_command)
-
-        batch_info = ""
-        if len(job_batches) > 1:
-            batch_info = f"\nSplit into {len(job_batches)} array job batches (max {max_array_size} per batch)."
-        print(
-            f"##### Setup Jobs for {self._parallel_safe_benchmark_name}"
-            f"{batch_info}"
-            "\nRun the following command(s) to start the jobs:"
-            f"\n" + "\n".join(run_commands) + "\n"
+        run_commands = self.scheduler_setup.get_run_commands(
+            jobs_dict=self.get_jobs_dict(),
+            path_setup=self.path_setup,
+            benchmark_name=self.benchmark_name,
+            parallel_safe_benchmark_name=self._parallel_safe_benchmark_name,
+            resources_setup=self.resources_setup,
         )
-
+        if run_commands == ["N/A"]:
+            Path(self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)).unlink(missing_ok=True)
         return run_commands
 
     @property
