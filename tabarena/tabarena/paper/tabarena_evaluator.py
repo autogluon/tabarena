@@ -348,6 +348,7 @@ class TabArenaEvaluator:
         error_col: str = "metric_error",
         tie_policy: str = "half",  # {"ignore", "half", "count_as_disagree"}
         min_splits: int = 2,
+        tie_decimals: int | None = None,
     ) -> dict[str, float]:
         """
         Compute average split agreement across all method pairs within ONE dataset.
@@ -382,11 +383,17 @@ class TabArenaEvaluator:
         X = wide.to_numpy(dtype=float)  # shape (S, M)
         S, M = X.shape
 
+        # Optional: round to tie_decimals so two methods that hit the same
+        # metric via different code paths (floating-point noise in the last
+        # few bits) still count as tied. Default None preserves the original
+        # exact-equality behavior.
+        X_cmp = np.round(X, tie_decimals) if tie_decimals is not None else X
+
         # Broadcast comparisons: for each split s, compare all method pairs (i,j)
         # win[s,i,j] = 1 if X[s,i] < X[s,j]
         # tie[s,i,j] = 1 if X[s,i] == X[s,j]
-        win = (X[:, :, None] < X[:, None, :])
-        tie = (X[:, :, None] == X[:, None, :])
+        win = (X_cmp[:, :, None] < X_cmp[:, None, :])
+        tie = (X_cmp[:, :, None] == X_cmp[:, None, :])
 
         # Handle missing values: comparisons where either side is NaN should not count
         valid = np.isfinite(X)
