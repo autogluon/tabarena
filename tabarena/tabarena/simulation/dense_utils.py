@@ -1,6 +1,45 @@
+from __future__ import annotations
+
 from typing import List, Optional, Tuple
 
 from ..predictions.tabular_predictions import TabularModelPredictions
+from .ground_truth import GroundTruth
+from .simulation_context import ZeroshotSimulatorContext
+
+
+def intersect_folds_and_datasets(zsc: ZeroshotSimulatorContext,
+                                 zeroshot_pred_proba: TabularModelPredictions,
+                                 zeroshot_gt: GroundTruth):
+    zpp_datasets = [dataset for dataset in zeroshot_pred_proba.datasets]
+    zsc_datasets = zsc.get_datasets()
+    zsc_datasets_set = set(zsc_datasets)
+    valid_datasets = [dataset for dataset in zpp_datasets if dataset in zsc_datasets_set]
+    if set(zpp_datasets) != set(valid_datasets):
+        zeroshot_pred_proba.restrict_datasets(datasets=valid_datasets)
+        zpp_datasets = zeroshot_pred_proba.datasets
+        gt_datasets = zeroshot_gt.datasets
+        for d in gt_datasets:
+            if d not in zpp_datasets:
+                zeroshot_gt.remove_dataset(dataset=d)
+    zsc_datasets = zsc.get_datasets()
+    zpp_datasets = [dataset for dataset in zeroshot_pred_proba.datasets if dataset in zsc_datasets]
+    zsc.subset_datasets(zpp_datasets, only_configs=True)
+
+
+def prune_zeroshot_gt(dataset_to_tid_dict, zeroshot_pred_proba: TabularModelPredictions | None, zeroshot_gt: GroundTruth, verbose: bool = True) -> GroundTruth:
+    num_datasets_start = len(zeroshot_gt.datasets)
+    if zeroshot_pred_proba is not None:
+        dataset_pred = set(dataset for dataset in zeroshot_pred_proba.datasets if dataset in dataset_to_tid_dict)
+    else:
+        dataset_pred = set(dataset_to_tid_dict.keys())
+    for dataset in zeroshot_gt.datasets:
+        if dataset not in dataset_pred:
+            zeroshot_gt.remove_dataset(dataset=dataset)
+    num_datasets_end = len(zeroshot_gt.datasets)
+    if verbose:
+        print(f'Aligning GroundTruth with TabularPredictions... (Dataset count {num_datasets_start} -> {num_datasets_end})')
+    assert len(dataset_pred) == num_datasets_end
+    return zeroshot_gt
 
 
 def is_dense_folds(tabular_predictions: TabularModelPredictions) -> bool:

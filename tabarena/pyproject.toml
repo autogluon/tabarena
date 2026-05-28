@@ -1,15 +1,35 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "tabarena"
 version = "0.0.1"
-description = "Dataset of model evaluations supporting ensembling and simulation"
+description = "A Living Benchmark for Machine Learning on Tabular Data"
 readme = "README.md"
-license = { text = "Apache-2.0" }
-authors = [{ name = "AutoGluon Community" }]
+license = "Apache-2.0"
+authors = [{ name = "TabArena Community" }]
 requires-python = ">=3.11,<3.14"
+keywords = [
+  "tabular",
+  "machine-learning",
+  "benchmark",
+  "automl",
+  "autogluon",
+  "ensemble",
+  "deep-learning",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 
 # NOTE: To allow pre-release resolution of AutoGluon with uv, install with:
 #   uv pip install --prerelease=allow .
@@ -38,18 +58,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Core model extras — installed together via the `benchmark` union below.
 tabpfn = [
-  "tabpfn>=8.0.0",
+  "tabpfn>=8.0.3",
   "tabpfn-extensions[many_class] @ git+https://github.com/PriorLabs/tabpfn-extensions.git",
 ]
 tabicl = ["tabicl>=2.0.0"]
 ebm = ["interpret-core>=0.7.3"]
 search_spaces = ["configspace>=1.2,<2.0"]
 realmlp = ["pytabkit>=1.5.0,<2.0"]
-tabdpt = [
-    "tabdpt>=1.1.10",
-]
+tabdpt = ["tabdpt>=1.1.10"]
 tabm = ["torch"]
+
+# Extended model extras — opt-in individually or together via the `extended` union below.
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
 sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa"]
@@ -65,31 +86,51 @@ limix = [
   "einops",
   "kditransform",
 ]
+tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
 
-# union of all above extras (mirrors your "benchmark" extra)
+# Core benchmark set: the always-on models for benchmarking. Self-references avoid duplicating package specs.
 benchmark = [
-  "tabpfn>=8.0.0",
-  "tabpfn-extensions[many_class] @ git+https://github.com/PriorLabs/tabpfn-extensions.git",
-  "tabicl>=2.0.0",
-  "interpret-core>=0.7.3",
-  "configspace>=1.2,<2.0",
-  "pytabkit>=1.5.0,<2.0",
-  "tabdpt>=1.1.10",
-  "torch",
-  "category_encoders",
-  "xrfm[cu12]",
-  "sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa",
-  "perpetual",
-  "tabstar==1.1.15",
-  "einops",
-  "kditransform",
-  "tabtune @ git+https://github.com/Lexsi-Labs/TabTune.git",
-  "iltm>=0.1.1",
+  "tabarena[tabpfn]",
+  "tabarena[tabicl]",
+  "tabarena[ebm]",
+  "tabarena[search_spaces]",
+  "tabarena[realmlp]",
+  "tabarena[tabdpt]",
+  "tabarena[tabm]",
+]
+
+# Extended set: extra models layered on top of `benchmark` when needed.
+# Note: `probmetrics` is intentionally excluded — install it explicitly via `tabarena[probmetrics]` or `tabarena[all]`.
+extended = [
+  "tabarena[modernnca]",
+  "tabarena[xrfm]",
+  "tabarena[sap-rpt-oss]",
+  "tabarena[tabprep]",
+  "tabarena[tabstar]",
+  "tabarena[perpetualboosting]",
+  "tabarena[orionmsp]",
+  "tabarena[limix]",
+  "tabarena[tabpfnwide]",
+  "tabarena[iltm]",
+]
+
+# Convenience: everything (core + extended + probmetrics).
+all = [
+  "tabarena[benchmark]",
+  "tabarena[extended]",
+  "tabarena[probmetrics]",
 ]
 
 [project.urls]
 Homepage = "https://github.com/autogluon/tabarena"
+
+# PEP 735 dependency groups: dev-only tools, not shipped in the wheel.
+# Install with: `uv sync --group dev`  (or `--group lint`, `--group test`).
+[dependency-groups]
+lint = ["ruff>=0.6"]
+test = ["pytest>=7"]
+dev = [{ include-group = "lint" }, { include-group = "test" }]
 
 [tool.setuptools]
 include-package-data = true

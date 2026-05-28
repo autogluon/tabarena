@@ -98,8 +98,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         if not inplace:
             return copy.deepcopy(self).force_to_dense(inplace=True, verbose=verbose)
 
-        # TODO: Move these util functions to simulations or somewhere else to avoid circular imports
-        from tabarena.contexts.utils import intersect_folds_and_datasets, prune_zeroshot_gt
+        from tabarena.simulation.dense_utils import intersect_folds_and_datasets, prune_zeroshot_gt
         # keep only dataset whose folds are all present
         intersect_folds_and_datasets(self._zeroshot_context, self._tabular_predictions, self._ground_truth)
 
@@ -222,25 +221,6 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
             return self._construct_single_best_config_scorer(**config_scorer_kwargs)
         else:
             raise ValueError(f'Invalid config_scorer_type: {config_scorer_type}')
-
-    @classmethod
-    def from_context(
-        cls,
-        version: str = None,
-        cache: bool = False,
-        load_predictions: bool = True,
-        prediction_format: str = "memmap",
-        use_s3: bool = True,
-        verbose: bool = True,
-    ) -> Self:
-        return load_repository(
-            version=version,
-            cache=cache,
-            load_predictions=load_predictions,
-            prediction_format=prediction_format,
-            use_s3=use_s3,
-            verbose=verbose,
-        )
 
     # TODO: 1. Cleanup results_lst_simulation_artifacts, 2. Make context work with tasks instead of datasets x folds
     # TODO: Get raw data from repo method (X, y)
@@ -392,47 +372,3 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         return simulation_artifacts_full
 
 
-def load_repository(
-    version: str,
-    *,
-    load_predictions: bool = True,
-    cache: bool | str = False,
-    prediction_format: str = "memmap",
-    use_s3: bool = True,
-    verbose: bool = True,
-) -> EvaluationRepository:
-    """
-    Load the specified EvaluationRepository. Will automatically download all required inputs if they do not already exist on local disk.
-
-    Parameters
-    ----------
-    version: str
-        The name of the context to load.
-    load_predictions: bool, default = True
-        If True, loads the config predictions.
-        If False, does not load the config predictions (disabling the ability to simulate ensembling).
-    cache: bool | str, default = False
-        Valid values: [True, False, "overwrite"]
-        If True, will load directly from a cached repository or cache the loaded evaluation repository to accelerate future load calls.
-        Setting to True may lead to incompatibility in loading repositories from different versions of the codebase.
-        If "overwrite", will overwrite the existing cache and cache the new version.
-    prediction_format: str, default = "memmap"
-        Options: ["memmap", "memopt", "mem"]
-        Determines the way the predictions are represented in the repo.
-        It is recommended to keep the value as "memmap" for optimal performance.
-    use_s3: bool, default = True
-        Whether to use S3 to download tabrepo files, if False uses HuggingFace instead.
-    Returns
-    -------
-    EvaluationRepository object for the given context.
-    """
-    from tabarena.contexts import get_subcontext
-    if cache is not False:
-        kwargs = dict()
-        if isinstance(cache, str) and cache == "overwrite":
-            kwargs["ignore_cache"] = True
-            kwargs["exists"] = "overwrite"
-        repo = get_subcontext(version).load(load_predictions=load_predictions, prediction_format=prediction_format, use_s3=use_s3, verbose=verbose, **kwargs)
-    else:
-        repo = get_subcontext(version).load_from_parent(load_predictions=load_predictions, prediction_format=prediction_format, use_s3=use_s3, verbose=verbose)
-    return repo

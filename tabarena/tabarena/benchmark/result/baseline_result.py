@@ -4,7 +4,6 @@ import copy
 from pathlib import Path
 
 import pandas as pd
-
 from autogluon.common.loaders import load_pkl
 from autogluon.common.savers import save_pkl
 
@@ -33,11 +32,17 @@ class BaselineResult(AbstractResult):
 
     @classmethod
     def from_dict(cls, result: dict | BaselineResult) -> BaselineResult:
-        """
-        Converts results in old format to new format
+        """Converts results in old format to new format
         Keeps results in new format as-is.
 
         This enables the use of results in the old format alongside results in the new format.
+
+        When `simulation_artifacts` is present but `method_metadata` and/or
+        `metric_error_val` are missing, sensible defaults are populated so the
+        result is treated as a `ConfigResult` rather than a `BaselineResult`:
+        `method_metadata` is filled with the framework name as `model_type`,
+        and `metric_error_val` is recomputed from the validation predictions
+        in `simulation_artifacts`.
         """
         from tabarena.benchmark.result.ag_bag_result import AGBagResult
         from tabarena.benchmark.result.config_result import ConfigResult
@@ -48,6 +53,14 @@ class BaselineResult(AbstractResult):
         result_cls = BaselineResult
         sim_artifacts = result.get("simulation_artifacts", None)
         method_metadata = result.get("method_metadata", None)
+        if sim_artifacts is not None and method_metadata is None:
+            framework = result["framework"]
+            method_metadata = {
+                "model_type": framework,
+                "model_hyperparameters": {},
+                "name_prefix": framework,
+            }
+            result["method_metadata"] = method_metadata
         if sim_artifacts is not None and method_metadata is not None:
             assert isinstance(sim_artifacts, dict)
             if "task_metadata" in result:
@@ -59,23 +72,52 @@ class BaselineResult(AbstractResult):
             result_cls = ConfigResult
             if list(sim_artifacts.keys()) == [dataset]:
                 sim_artifacts = sim_artifacts[dataset][split_idx]
+            if "metric_error_val" not in result:
+                metric_error_val = cls._compute_metric_error_val(
+                    result=result, sim_artifacts=sim_artifacts,
+                )
+                if metric_error_val is not None:
+                    result["metric_error_val"] = metric_error_val
             bag_info = sim_artifacts.get("bag_info", None)
             if bag_info is not None:
                 assert isinstance(bag_info, dict)
                 result_cls = AGBagResult
-        result_obj = result_cls(result=result, convert_format=True, inplace=False)
-        return result_obj
+        return result_cls(result=result, convert_format=True, inplace=False)
+
+    @staticmethod
+    def _compute_metric_error_val(result: dict, sim_artifacts: dict) -> float | None:
+        framework = result["framework"]
+        y_val = sim_artifacts.get("y_val")
+        pred_proba_val = sim_artifacts.get("pred_val")
+        if pred_proba_val is None:
+            pred_proba_dict_val = sim_artifacts.get("pred_proba_dict_val")
+            if isinstance(pred_proba_dict_val, dict):
+                pred_proba_val = pred_proba_dict_val.get(framework)
+        if y_val is None or pred_proba_val is None:
+            return None
+        from autogluon.core.metrics import get_metric
+        from autogluon.core.utils.utils import get_pred_from_proba
+        ag_metric = get_metric(metric=result["metric"], problem_type=result["problem_type"])
+        if ag_metric.needs_class:
+            y_pred_val = get_pred_from_proba(
+                y_pred_proba=pred_proba_val, problem_type=result["problem_type"],
+            )
+            return ag_metric.error(y_val, y_pred_val)
+        if result["problem_type"] == "binary":
+            if len(pred_proba_val.shape) != 1:
+                pred_proba_val = pred_proba_val[:, 1]
+        return ag_metric.error(y_val, pred_proba_val)
 
     @classmethod
     def from_pickle(cls, path: str | Path) -> BaselineResult:
         result: dict | BaselineResult = load_pkl.load(path)
         return cls.from_dict(result=result)
 
-    def update_name(self, name: str = None, name_prefix: str = None, name_suffix: str = None):
+    def update_name(self, name: str | None = None, name_prefix: str | None = None, name_suffix: str | None = None):
         assert name is not None or name_prefix is not None or name_suffix is not None, \
-            f"Must specify one of `name`, `name_prefix`, `name_suffix`."
-        assert name is None or name_prefix is None, f"Must only specify one of `name`, `name_prefix`."
-        assert name is None or name_suffix is None, f"Must only specify one of `name`, `name_suffix`."
+            "Must specify one of `name`, `name_prefix`, `name_suffix`."
+        assert name is None or name_prefix is None, "Must only specify one of `name`, `name_prefix`."
+        assert name is None or name_suffix is None, "Must only specify one of `name`, `name_suffix`."
         if name is not None:
             self.result["framework"] = name
             return
@@ -117,13 +159,12 @@ class BaselineResult(AbstractResult):
         return self.result["task_metadata"]
 
     def _align_result_input_format(self) -> dict:
-        """
-        Converts results in old format to new format
+        """Converts results in old format to new format
         Keeps results in new format as-is.
 
         This enables the use of results in the old format alongside results in the new format.
 
-        Returns
+        Returns:
         -------
 
         """
@@ -188,12 +229,11 @@ class BaselineResult(AbstractResult):
 
             for col in optional_metadata_columns:
                 if col in method_metadata:
-                    assert col not in data.keys()
+                    assert col not in data
                     data.update({col: method_metadata[col]})
 
-        df_result = pd.DataFrame([data])
+        return pd.DataFrame([data])
 
-        return df_result
 
     def to_dir(self, path: str | Path):
         suffix = Path(f"{self.framework}")

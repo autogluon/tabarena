@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import copy
+from typing import Any
+from typing_extensions import Self
 
 import numpy as np
 import pandas as pd
-from typing import Any
-from typing_extensions import Self
 
 from tabarena.benchmark.result.baseline_result import BaselineResult
 from tabarena.utils.aux_metric import get_aux_metric_map
@@ -39,11 +39,11 @@ class ConfigResult(BaselineResult):
     def ag_key(self) -> str:
         return self.result["method_metadata"].get("ag_key", self.model_type)
 
-    def update_name(self, name: str = None, name_prefix: str = None, name_suffix: str = None, keep_suffix: bool = True):
+    def update_name(self, name: str | None = None, name_prefix: str | None = None, name_suffix: str | None = None, keep_suffix: bool = True):
         assert name is not None or name_prefix is not None or name_suffix is not None, \
-            f"Must specify one of `name`, `name_prefix`, `name_suffix`."
-        assert name is None or name_prefix is None, f"Must only specify one of `name`, `name_prefix`."
-        assert name is None or name_suffix is None, f"Must only specify one of `name`, `name_suffix`."
+            "Must specify one of `name`, `name_prefix`, `name_suffix`."
+        assert name is None or name_prefix is None, "Must only specify one of `name`, `name_prefix`."
+        assert name is None or name_suffix is None, "Must only specify one of `name`, `name_suffix`."
         if name is not None:
             if keep_suffix:
                 self.result["framework"] = f"{name}{self.name_suffix}"
@@ -74,11 +74,11 @@ class ConfigResult(BaselineResult):
             self.result["method_metadata"]["name_prefix"] = new_name_prefix
             self.result["framework"] = new_name
 
-    def update_model_type(self, name: str = None, name_prefix: str = None, name_suffix: str = None):
+    def update_model_type(self, name: str | None = None, name_prefix: str | None = None, name_suffix: str | None = None):
         assert name is not None or name_prefix is not None or name_suffix is not None, \
-            f"Must specify one of `name`, `name_prefix`, `name_suffix`."
-        assert name is None or name_prefix is None, f"Must only specify one of `name`, `name_prefix`."
-        assert name is None or name_suffix is None, f"Must only specify one of `name`, `name_suffix`."
+            "Must specify one of `name`, `name_prefix`, `name_suffix`."
+        assert name is None or name_prefix is None, "Must only specify one of `name`, `name_prefix`."
+        assert name is None or name_suffix is None, "Must only specify one of `name`, `name_suffix`."
         if "ag_key" not in self.result["method_metadata"]:
             self.result["method_metadata"]["ag_key"] = self.model_type
         if name is not None:
@@ -183,7 +183,60 @@ class ConfigResult(BaselineResult):
             assert self.result["simulation_artifacts"]["problem_type"] == self.result["problem_type"]
             self.result["simulation_artifacts"].pop("problem_type")
 
+        if self.problem_type == "binary":
+            if len(self.result["simulation_artifacts"]["pred_test"].shape) > 1:
+                self.result["simulation_artifacts"]["pred_test"] = self.result["simulation_artifacts"]["pred_test"][:, 1]
+            if len(self.result["simulation_artifacts"]["pred_val"].shape) > 1:
+                self.result["simulation_artifacts"]["pred_val"] = self.result["simulation_artifacts"]["pred_val"][:, 1]
+
+        self._infer_class_metadata_if_missing()
+
         return self.result
+
+    def _infer_class_metadata_if_missing(self) -> None:
+        """Populate `num_classes`, `ordered_class_labels`, and
+        `ordered_class_labels_transformed` in `simulation_artifacts` if missing.
+
+        These are required by `convert_simulation_artifacts_to_tabular_predictions_dict`
+        as the column labels for the (transformed/encoded) prediction probabilities.
+        For binary/multiclass we infer the encoded labels (0..num_classes-1) from the
+        pred shape or y_val; for regression all three are None.
+        """
+        sim = self.result["simulation_artifacts"]
+        problem_type = self.result["problem_type"]
+
+        has_num_classes = "num_classes" in sim
+        has_ocl = "ordered_class_labels" in sim
+        has_oclt = "ordered_class_labels_transformed" in sim
+        if has_num_classes and has_ocl and has_oclt:
+            return
+
+        if problem_type == "regression":
+            num_classes = None
+            ordered_class_labels_transformed = None
+        elif problem_type == "binary":
+            num_classes = 2
+            ordered_class_labels_transformed = [0, 1]
+        elif problem_type == "multiclass":
+            pred_val = sim.get("pred_val")
+            if isinstance(pred_val, np.ndarray) and pred_val.ndim == 2:
+                num_classes = int(pred_val.shape[1])
+            else:
+                y_val = sim.get("y_val")
+                if isinstance(y_val, np.ndarray) and y_val.size > 0:
+                    num_classes = int(np.unique(y_val).max()) + 1
+                else:
+                    return
+            ordered_class_labels_transformed = list(range(num_classes))
+        else:
+            return
+
+        if not has_num_classes:
+            sim["num_classes"] = num_classes
+        if not has_oclt:
+            sim["ordered_class_labels_transformed"] = ordered_class_labels_transformed
+        if not has_ocl:
+            sim["ordered_class_labels"] = ordered_class_labels_transformed
 
     def _pred_val_from_children(self) -> np.ndarray:
         num_samples_val = len(self.simulation_artifacts["y_val_idx"])
@@ -195,10 +248,8 @@ class ConfigResult(BaselineResult):
         for val_idx_child, pred_val_child in zip(self.bag_info["val_idx_per_child"], self.bag_info["pred_val_per_child"]):
             val_child_count[val_idx_child] += 1
             pred_val[val_idx_child] += pred_val_child
-            pass
         pred_val = pred_val / val_child_count[:, None]
-        pred_val = pred_val.astype(np.float32)
-        return pred_val
+        return pred_val.astype(np.float32)
 
     def _pred_test_from_children(self) -> np.ndarray:
         num_samples_test = len(self.simulation_artifacts["y_test_idx"])
@@ -210,8 +261,7 @@ class ConfigResult(BaselineResult):
         for pred_test_child in self.bag_info["pred_test_per_child"]:
             pred_test += pred_test_child
         pred_test = pred_test / num_children
-        pred_test = pred_test.astype(np.float32)
-        return pred_test
+        return pred_test.astype(np.float32)
 
     # TODO: Maybe calibrating model binary pred proba will improve ensemble roc_auc?
     def temp_scale(self, y_val, y_pred_proba_val, method: str = "v2"):
@@ -220,8 +270,8 @@ class ConfigResult(BaselineResult):
         lr = 0.1
         from tabarena.utils.temp_scaling.calibrators import (
             AutoGluonTemperatureScalingCalibrator,
-            TemperatureScalingCalibrator,
             AutoGluonTemperatureScalingCalibratorFixed,
+            TemperatureScalingCalibrator,
             TemperatureScalingCalibratorFixed,
         )
         if method == "v1":
@@ -259,7 +309,7 @@ class ConfigResult(BaselineResult):
         metric_error_val_cal = ag_metric.error(y_val, y_pred_proba_val_scaled)
 
         if metric_error_val_cal > metric_error_val_og:
-            print(f"WARNING:")
+            print("WARNING:")
             print(metric_error_val_cal, metric_error_val_og)
             print(result["framework"], result["dataset"], result["fold"])
 
@@ -303,7 +353,6 @@ class ConfigResult(BaselineResult):
             # metric_error_test = ag_metric.error(y_test, y_pred_test)
 
             if decision_threshold == "auto":
-                min_val_rows_for_calibration = 10000
                 if self.problem_type == "binary":
                     from autogluon.core.calibrate import calibrate_decision_threshold
                     decision_threshold = calibrate_decision_threshold(
@@ -338,8 +387,7 @@ class ConfigResult(BaselineResult):
             metric_score_test = ag_metric.convert_score_to_original(score=ag_metric.convert_error_to_score(error=metric_error_test))
             metric_score_val = ag_metric.convert_score_to_original(score=ag_metric.convert_error_to_score(error=metric_error_val))
             return metric_score_test, metric_score_val
-        else:
-            return metric_error_test, metric_error_val
+        return metric_error_test, metric_error_val
 
     def generate_old_sim_artifact(self) -> dict[str, dict[int, dict[str, Any]]]:
         sim_artifacts = copy.deepcopy(self.simulation_artifacts)
@@ -352,8 +400,7 @@ class ConfigResult(BaselineResult):
         sim_artifacts["eval_metric"] = self.result["metric"]
         sim_artifacts["problem_type"] = self.result["problem_type"]
         sim_artifacts["problem_type_transform"] = self.result["problem_type"]
-        sim_artifacts = {dataset: {split_idx: sim_artifacts}}
-        return sim_artifacts
+        return {dataset: {split_idx: sim_artifacts}}
 
     @property
     def hyperparameters(self) -> dict:

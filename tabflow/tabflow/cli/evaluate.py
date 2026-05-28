@@ -7,7 +7,6 @@ from autogluon.common.loaders import load_json
 from tabflow.utils.utils import find_method_by_name
 from tabflow.utils.s3_utils import download_from_s3
 from tabflow.utils.logging_utils import setup_logging
-from tabarena import EvaluationRepository
 from tabarena.benchmark.experiment import ExperimentBatchRunner, AGModelBagExperiment, Experiment, YamlExperimentSerializer, YamlSingleExperimentSerializer, AGExperiment
 from tabarena.benchmark.models.simple import SimpleLightGBM
 from autogluon.tabular.models import *
@@ -69,27 +68,18 @@ def evaluate(
     tasks_s3_path: str,
     s3_bucket: str,
     methods_s3_path: str,
-    context_name: str = None,
-    load_predictions: bool = False,
+    task_metadata_path: str,
     run_mode: str = "aws",
     raise_on_failure: bool = False,
     debug_mode: bool = False,
     s3_dataset_cache: str = None,
-    task_metadata_path: str = None,
     custom_model_s3_path: str = None,
     ignore_cache: bool = False,
 ):
-    # Load Context
     expname = experiment_name
 
-    if task_metadata_path is not None:
-        assert context_name is None
-        from autogluon.common.loaders import load_pd
-        task_metadata = load_pd.load(task_metadata_path)
-    else:
-        assert context_name is not None
-        repo: EvaluationRepository = EvaluationRepository.from_context(context_name, load_predictions=load_predictions, verbose=False)
-        task_metadata = repo.task_metadata
+    from autogluon.common.loaders import load_pd
+    task_metadata = load_pd.load(task_metadata_path)
     assert "dataset" in task_metadata
     assert "tid" in task_metadata
 
@@ -151,14 +141,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--experiment_name', type=str, required=True, help="Name of the experiment")
-    parser.add_argument('--context_name', type=str, required=False, default=None, help="Name of the context")
     parser.add_argument('--tasks_s3_path', type=str, required=True, help="S3 path to batch of tasks JSON")
     parser.add_argument('--s3_bucket', type=str, required=True, help="S3 bucket for the experiment")
     parser.add_argument('--methods_s3_path', type=str, required=True, help="S3 path to methods config")
-    parser.add_argument('--load_predictions', action='store_true', help="Load predictions from S3")
+    parser.add_argument('--task_metadata_path', type=str, required=True, help="Path (S3 or local) to a parquet/CSV with at least 'dataset' and 'tid' columns")
     parser.add_argument('--run_mode', type=str, default='aws', choices=['aws', 'local'], help="Run mode: aws or local")
     parser.add_argument('--s3_dataset_cache', type=str, required=False, default=None, help="S3 path for dataset cache")
-    parser.add_argument('--task_metadata_path', type=str, required=False, default=None, help="S3 path for dataset cache")
     parser.add_argument('--custom_model_s3_path', type=str, required=False, default=None,
                         help="S3 path for a Python class that extends AbstractExecModel")
     parser.add_argument('--raise_on_failure', type=bool, required=False, default=False, help="Crashes if the program fails")
@@ -168,21 +156,15 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.s3_dataset_cache == "":
         args.s3_dataset_cache = None
-    if args.context_name == "":
-        args.context_name = None
-    if args.task_metadata_path == "":
-        args.task_metadata_path = None
 
     evaluate(
         experiment_name=args.experiment_name,
-        context_name=args.context_name,
         tasks_s3_path=args.tasks_s3_path,
         s3_bucket=args.s3_bucket,
         methods_s3_path=args.methods_s3_path,
-        load_predictions=args.load_predictions,
+        task_metadata_path=args.task_metadata_path,
         run_mode=args.run_mode,
         s3_dataset_cache=args.s3_dataset_cache,
-        task_metadata_path=args.task_metadata_path,
         custom_model_s3_path=args.custom_model_s3_path,
         raise_on_failure=args.raise_on_failure,
     )

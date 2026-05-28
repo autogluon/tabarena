@@ -7,6 +7,7 @@ import logging
 import uuid
 import pandas as pd
 
+from autogluon.common.loaders import load_pd
 from autogluon.common.savers import save_pd
 from botocore.config import Config
 from datetime import datetime
@@ -499,7 +500,6 @@ def launch_jobs(
 
     Args:
         experiment_name: Name of the experiment
-        context_name: Name of the TabArena context
         entry_point: The Python script to run in sagemaker training job
         source_dir: Directory containing the training code (here the entry point)
         instance_type: SageMaker instance type
@@ -554,7 +554,8 @@ def main():
     """Entrypoint for Launching sagemaker jobs using CLI"""
     parser = argparse.ArgumentParser()
     parser.add_argument('--experiment_name', type=str, required=True, help="Name of the experiment")
-    parser.add_argument('--context_name', type=str, default="D244_F3_C1530_30", help="Name of the context")
+    parser.add_argument('--task_metadata_path', type=str, required=True,
+                        help="Path (S3 or local) to a parquet/CSV with 'tid', 'name', and optionally 'dataset' columns")
     parser.add_argument('--datasets', nargs='+', type=str, required=True, help="List of datasets to evaluate")
     parser.add_argument('--folds', nargs='+', type=int, required=True, help="List of folds to evaluate")
     parser.add_argument('--methods_file', type=str, required=True, help="Path to the YAML file containing methods")
@@ -574,9 +575,11 @@ def main():
     
     args = parser.parse_args()
 
+    task_metadata = load_pd.load(args.task_metadata_path)
+
     launch_jobs(
         experiment_name=args.experiment_name,
-        context_name=args.context_name,
+        task_metadata=task_metadata,
         datasets=args.datasets,
         folds=args.folds,
         methods_file=args.methods_file,
