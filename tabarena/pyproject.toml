@@ -87,6 +87,7 @@ limix = [
   "kditransform",
 ]
 tabpfnwide = ["tabpfnwide>=0.3.0"]
+iltm = ["iltm>=0.1.1"]
 
 # Core benchmark set: the always-on models for benchmarking. Self-references avoid duplicating package specs.
 benchmark = [
@@ -111,6 +112,7 @@ extended = [
   "tabarena[orionmsp]",
   "tabarena[limix]",
   "tabarena[tabpfnwide]",
+  "tabarena[iltm]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).
