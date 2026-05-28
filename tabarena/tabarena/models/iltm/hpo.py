@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ConfigSpace import Categorical, ConfigurationSpace, Float
 
-from tabarena.benchmark.models.ag.iltm.iltm_model import ILTMModel
+from tabarena.models.iltm.model import ILTMModel
 from tabarena.models.utils import convert_numpy_dtypes
 from tabarena.utils.config_utils import CustomAGConfigGenerator
 
@@ -90,6 +90,7 @@ gen_iltm = CustomAGConfigGenerator(
     search_space_func=generate_configs_iltm,
     manual_configs=[{}],
 )
+
 
 if __name__ == "__main__":
     from tabarena.benchmark.experiment import YamlExperimentSerializer

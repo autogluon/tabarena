@@ -6,7 +6,7 @@ import pytest
 def test_iltm():
     try:
         from autogluon.tabular.testing import FitHelper
-        from tabarena.benchmark.models.ag.iltm.iltm_model import ILTMModel
+        from tabarena.models.iltm.model import ILTMModel
 
         model_cls = ILTMModel
         FitHelper.verify_model(

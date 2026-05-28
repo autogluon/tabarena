@@ -12,6 +12,7 @@ from tabarena.models._registry import (
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
     from tabarena.models.ebm.model import ExplainableBoostingMachineModel
+    from tabarena.models.iltm.model import ILTMModel
     from tabarena.models.knn.model import KNNNewModel
     from tabarena.models.limix.model import LimiXModel
     from tabarena.models.modernnca.model import ModernNCAModel
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 _LAZY_CLASSES: dict[str, str] = {
     "MethodMetadata": "tabarena.models._method_metadata",
     "ExplainableBoostingMachineModel": "tabarena.models.ebm.model",
+    "ILTMModel": "tabarena.models.iltm.model",
     "KNNNewModel": "tabarena.models.knn.model",
     "LimiXModel": "tabarena.models.limix.model",
     "ModernNCAModel": "tabarena.models.modernnca.model",
