@@ -1,3 +1,32 @@
+"""DEPRECATED: kept for backward compatibility with existing slurm setup scripts.
+
+The supported replacement lives at :mod:`tabarena.benchmark.task.data_foundry`. It is
+driven by :class:`data_foundry.collections.DatasetCollection` (online via
+``HuggingFaceSource`` or offline via ``LocalWarehouseSource``) instead of a raw list of
+relative-path strings plus a local warehouse directory. Migration sketch::
+
+    # Before (this module):
+    download_data_foundry_datasets(
+        benchmark_suite_name="beyond_iid_benchmark_2026",
+        data_foundry_artifacts=[...],
+        data_foundry_cache=Path("/.../local-data-warehouse"),
+    )
+
+    # After:
+    from data_foundry.collections import DatasetCollection, LocalWarehouseSource
+    from tabarena.benchmark.task.data_foundry import prepare_collection_for_tabarena
+
+    collection = DatasetCollection.from_relative_paths(
+        name="beyond_iid_benchmark_2026",
+        description="...",
+        relative_paths=[...],
+        source=LocalWarehouseSource(base_dir=Path("/.../local-data-warehouse")),
+    )
+    prepare_collection_for_tabarena(collection=collection)
+
+This file is kept untouched so existing callers keep working until they are migrated.
+"""
+
 from __future__ import annotations
 
 from copy import deepcopy
