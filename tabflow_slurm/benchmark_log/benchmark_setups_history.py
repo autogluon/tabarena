@@ -8,7 +8,7 @@ from tabflow_slurm.setup_slurm_base import BenchmarkSetup
 BenchmarkSetup(
     benchmark_name="benchmark_iltm_14052026",
     models=[
-        ("iLTM", 0),
+        ("iLTM", 25), # only 25 due to compute constraints and similar to TabSTAR as a foundation model
     ],
     num_gpus=1,
     configs_per_job=1,
