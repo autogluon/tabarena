@@ -58,6 +58,7 @@ def plot_hpo(
     legend_display_names: dict[str, str] | None = None,
     left_label_methods: list[str] | None = None,
     below_label_methods: list[str] | None = None,
+    clamp_negative_ymin: bool = False,
 ):
     """
     Plot HPO trajectories for multiple methods.
@@ -533,6 +534,16 @@ def plot_hpo(
 
     if ylim is not None:
         ax.set_ylim(ylim)
+
+    # Clamp y_min to 0 when the auto / explicit limits would dip below
+    # zero. Used by improvability and metric-error plots, where negative
+    # values are nonsensical and just leave a stripe of empty space at
+    # the bottom of the axis. Other axes (Elo, Baseline Advantage) opt
+    # out by leaving ``clamp_negative_ymin`` False.
+    if clamp_negative_ymin:
+        cur_y_min, cur_y_max = ax.get_ylim()
+        if cur_y_min < 0:
+            ax.set_ylim(0, cur_y_max)
 
     ax.grid(True)
     grid_color = ax.xaxis.get_gridlines()[0].get_color()
@@ -1406,6 +1417,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp_tot_train{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1415,6 +1427,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp_tot_infer{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1425,6 +1438,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_err_tot_train{file_ext}",
         max_Y=False,
         # ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1435,6 +1449,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_err_tot_infer{file_ext}",
         max_Y=False,
         # ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1461,6 +1476,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1478,6 +1494,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp_infer{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
 
@@ -1511,6 +1528,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp_tot_total{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1520,6 +1538,7 @@ def plot_tuning_trajectories_from_leaderboard(
         ylabel_display=err_ylabel,
         save_path=fig_save_dir / f"pareto_n_configs_err_tot_total{file_ext}",
         max_Y=False,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1537,6 +1556,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp_total{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(

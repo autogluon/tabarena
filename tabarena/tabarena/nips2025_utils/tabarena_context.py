@@ -173,11 +173,16 @@ class TabArenaContext:
         plot_compare: bool = True,
         plot_runtime_per_method: bool = False,
         plot_tuning_trajectories: bool = False,
+        save_website_leaderboard: bool = False,
+        website_leaderboard_kwargs: dict | None = None,
+        website_leaderboard_filename: str = "leaderboard_website.csv",
     ) -> None:
         if compare_kwargs is None:
             compare_kwargs = {}
         if tuning_trajectory_kwargs is None:
             tuning_trajectory_kwargs = {}
+        if website_leaderboard_kwargs is None:
+            website_leaderboard_kwargs = {}
         if subsets == "auto":
             subsets = self._default_subsets
         for subset in subsets:
@@ -198,13 +203,23 @@ class TabArenaContext:
 
             # FIXME: new_results
             if plot_compare:
-                self.compare(
+                lb_df = self.compare(
                     output_dir=output_dir_subset,
                     subset=subset,
                     new_results=new_results,
                     subset_label=output_suffix,
                     **compare_kwargs,
                 )
+                if save_website_leaderboard and lb_df is not None:
+                    lb_website = self.leaderboard_to_website_format(
+                        leaderboard=lb_df,
+                        **website_leaderboard_kwargs,
+                    )
+                    output_dir_subset.mkdir(parents=True, exist_ok=True)
+                    lb_website.to_csv(
+                        output_dir_subset / website_leaderboard_filename,
+                        index=False,
+                    )
             if plot_tuning_trajectories:
                 self.plot_tuning_trajectories(
                     save_path=output_dir_subset / "tuning_trajectories",
