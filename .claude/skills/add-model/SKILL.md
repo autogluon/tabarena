@@ -150,6 +150,14 @@ Always declare the pip spec exactly once in the per-model extra, then reference 
 
 After this, users can install the model alone (`uv sync --extra benchmark --extra {ModelKey}`), as part of the extended set (`uv sync --extra benchmark --extra extended`), or via `--extra all`.
 
+**Step 3 — verify the per-model extra matches `info.py`** with the drift checker:
+
+```bash
+python -m tabarena.tools.sync_pyproject_extras
+```
+
+`tabarena/tabarena/tools/sync_pyproject_extras.py` aggregates every `ModelInfo.pip_extra` from the registry and compares it against `[project.optional-dependencies]` in `tabarena/pyproject.toml`, printing per-folder `OK`/`DRIFT`. Add `--check` to make it exit non-zero on drift (CI mode). Run it after editing either side so the two stay in sync.
+
 ## Step 5: Auto-derived registries (no manual edit)
 
 These pieces pick up the new model automatically once Step 3 lands — do not edit them by hand:
