@@ -8,7 +8,7 @@ import warnings
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 import pandas as pd
 import ray
@@ -643,6 +643,58 @@ class TasksToRunSetup:
         return task_metadata
 
 
+@dataclass(frozen=True)
+class ModelConstraints:
+    """Per-model dataset-compatibility constraints.
+
+    A constraint is "active" only when its corresponding field is set
+    (non-`None`); unset fields impose no restriction. `regression_support`
+    defaults to True — set False for classification-only models.
+    """
+
+    max_n_features: int | None = None
+    max_n_samples_train_per_fold: int | None = None
+    min_n_samples_train_per_fold: int | None = None
+    max_n_classes: int | None = None
+    regression_support: bool = True
+
+    def applies(
+        self,
+        *,
+        n_features: int,
+        n_classes: int,
+        n_samples_train_per_fold: int,
+        problem_type: str | None = None,
+    ) -> bool:
+        """True if a dataset with these properties is compatible with the model.
+
+        For regression datasets, `problem_type == "regression"` is the
+        authoritative signal — `n_classes` from metadata can be 0/-1/None.
+        """
+        if problem_type == "regression" and not self.regression_support:
+            return False
+        if self.max_n_features is not None and n_features > self.max_n_features:
+            return False
+        if self.max_n_samples_train_per_fold is not None and n_samples_train_per_fold > self.max_n_samples_train_per_fold:
+            return False
+        if self.min_n_samples_train_per_fold is not None and n_samples_train_per_fold < self.min_n_samples_train_per_fold:
+            return False
+        return not (self.max_n_classes is not None and n_classes > self.max_n_classes)
+
+
+# Shared constraints for model families (used by ModelPipelinesToRunSetup.DEFAULT_MODEL_CONSTRAINTS).
+_TABICL_CONSTRAINTS = ModelConstraints(
+    max_n_samples_train_per_fold=100_000,
+    max_n_features=500,
+    regression_support=False,
+)
+_TABPFNV2_CONSTRAINTS = ModelConstraints(
+    max_n_samples_train_per_fold=10_000,
+    max_n_features=500,
+    max_n_classes=10,
+)
+
+
 @dataclass
 class ModelPipelinesToRunSetup:
     """Defines which models to run in the benchmark, plus model-related behavior.
@@ -742,6 +794,27 @@ class ModelPipelinesToRunSetup:
     dynamic_tabarena_validation_protocol: bool = True
     """If True, the validation data will be adapted dynamically based on the task.
     WARNING: this can overwrite the configured validation of a configuration!"""
+
+    custom_model_constraints: dict[str, ModelConstraints] = field(default_factory=dict)
+    """Per-model overrides of dataset compatibility, keyed by AG model key.
+
+    Entries here are merged on top of `DEFAULT_MODEL_CONSTRAINTS` (custom wins
+    on key collisions). Models not listed in either map are considered
+    compatible with every dataset.
+    """
+
+    DEFAULT_MODEL_CONSTRAINTS: ClassVar[dict[str, ModelConstraints]] = {
+        "TABICL": _TABICL_CONSTRAINTS,
+        "TA-TABICL": _TABICL_CONSTRAINTS,
+        "TABPFNV2": _TABPFNV2_CONSTRAINTS,
+        "TA-TABPFNV2": _TABPFNV2_CONSTRAINTS,
+        "MITRA": _TABPFNV2_CONSTRAINTS,
+    }
+
+    @property
+    def model_constraints(self) -> dict[str, ModelConstraints]:
+        """Effective model constraints (defaults overridden by `custom_model_constraints`)."""
+        return {**self.DEFAULT_MODEL_CONSTRAINTS, **self.custom_model_constraints}
 
     def generate_configs_yaml(
         self,
@@ -934,40 +1007,6 @@ class TabArenaBenchmarkSetup:
     """Defines which models and preprocessing pipelines to run in the benchmark,
     along with related fit/validation behavior."""
 
-    custom_model_constraints: dict[str, dict[str, int]] | None = None
-    """Custom mapping of model names to constraints to filter which models runs on
-    what kind of datasets.
-
-    For each model, provide a dictionary with the constraints for that model and
-    the model AG Key as the name.
-
-    Each constraint is a dictionary with keys:
-        - "max_n_features": int
-            Maximal number of features.
-        - "max_n_samples_train_per_fold": int
-        - "min_n_samples_train_per_fold": int
-        - "max_n_classes": int
-            Maximal number of classes.
-        - "regression_support": bool
-            False, if the model does not support regression.
-
-    All keys are optional and can be omitted if there is no constraint for that key.
-
-    Example for TabPFNv2:
-        custom_model_constraints = {
-            "TABPFNV2": {
-                    "max_n_samples_train_per_fold": 10_000,
-                    "max_n_features": 500,
-                    "max_n_classes": 10,
-            },
-            "TABICL": {
-                    "max_n_samples_train_per_fold": 100_000,
-                    "max_n_features": 500,
-                    "regression_support": False,
-            }
-        }
-    """
-
     # Misc Settings
     # -------------
     shuffle_features: bool = True
@@ -1051,7 +1090,7 @@ class TabArenaBenchmarkSetup:
             num_cpus_per_worker=1,
             func_kwargs={
                 "output_dir": self.path_setup.get_output_path(self.benchmark_name),
-                "models_to_constraints": self.models_to_constraints,
+                "model_constraints": self.model_pipelines_to_run_setup.model_constraints,
                 "ignore_cache": self.ignore_cache,
             },
             track_progress=True,
@@ -1158,124 +1197,37 @@ class TabArenaBenchmarkSetup:
             Path(self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)).unlink(missing_ok=True)
         return run_commands
 
-    @property
-    def models_to_constraints(self) -> dict[str, dict[str, int]]:
-        """Mapping of model names to their constraints.
-
-        Returns:
-        --------
-        model_constraints: dict[str, dict[str, int]]
-            Mapping of model names to their constraints.
-            Each constraint is a dictionary with keys:
-                - "max_n_features": int
-                    Maximal number of features.
-                - "max_n_samples_train_per_fold": int
-                - "min_n_samples_train_per_fold": int
-                - "max_n_classes": int
-                    Maximal number of classes.
-                - "regression_support": bool
-                    False, if the model does not support regression.
-            Keys are optional and will be omitted if there is no constraint for that key.
-        """
-        model_constrains = {}
-
-        # TabICL Subset
-        for model in ["TA-TABICL", "TABICL"]:
-            model_constrains[model] = {
-                "max_n_samples_train_per_fold": 100_000,
-                "max_n_features": 500,
-                "regression_support": False,
-            }
-
-        # TabPFNv2 Subset
-        for model in ["TABPFNV2", "TA-TABPFNV2", "MITRA"]:
-            model_constrains[model] = {
-                "max_n_samples_train_per_fold": 10_000,
-                "max_n_features": 500,
-                "max_n_classes": 10,
-            }
-
-        if self.custom_model_constraints is not None:
-            model_constrains = {
-                **model_constrains,
-                **self.custom_model_constraints,
-            }
-
-        return model_constrains
-
-    @staticmethod
-    def are_model_constraints_valid(
-        *,
-        model_cls: str,
-        n_features: int,
-        n_classes: int,
-        n_samples_train_per_fold: int,
-        models_to_constraints: dict[str, dict[str, int]],
-        problem_type: str | None = None,
-    ) -> bool:
-        """Check if the model constraints are valid for the given model and dataset.
-
-        Arguments:
-        ----------
-        model_cls: str
-            The name of the model class to check. AG key of abstract model class.
-        n_features: int
-            The number of features in the dataset.
-        n_classes: int
-            The number of classes in the dataset.
-            For regression tasks this may be 0, -1, or NaN/None depending on the
-            metadata source — prefer `problem_type` for the regression check.
-        n_samples_train_per_fold: int
-            The number of training samples per fold in the dataset.
-        models_to_constraints: dict[str, dict[str, int]]
-            Mapping of model names to their potential constraints.
-        problem_type: str | None
-            "binary" | "multiclass" | "regression". Authoritative source for
-            the `regression_support` check.
-
-        Returns:
-        --------
-        model_is_valid: bool
-            True if the model can be run on the dataset, False otherwise.
-        """
-        model_constraints = models_to_constraints.get(model_cls)
-        if model_constraints is None:
-            return True  # No constraints for this model
-
-        regression_support = model_constraints.get("regression_support", True)
-        if (problem_type == "regression") and (not regression_support):
-            return False
-
-        max_n_features = model_constraints.get("max_n_features", None)
-        if (max_n_features is not None) and (n_features > max_n_features):
-            return False
-
-        max_n_samples_train_per_fold = model_constraints.get("max_n_samples_train_per_fold", None)
-        if (max_n_samples_train_per_fold is not None) and (n_samples_train_per_fold > max_n_samples_train_per_fold):
-            return False
-
-        min_n_samples_train_per_fold = model_constraints.get("min_n_samples_train_per_fold", None)
-        if (min_n_samples_train_per_fold is not None) and (n_samples_train_per_fold < min_n_samples_train_per_fold):
-            return False
-
-        max_n_classes = model_constraints.get("max_n_classes", None)
-        if (max_n_classes is not None) and (n_classes > max_n_classes):
-            return False
-
-        # All constraints are valid
-        return True
-
-
 def should_run_job_batch(*, input_data_list: list[dict], **kwargs) -> list[bool]:
     """Batched version for Ray."""
     return [should_run_job(input_data=data, **kwargs) for data in input_data_list]
+
+
+def _resolve_ag_key(config: dict) -> str:
+    """Resolve the AutoGluon model key from a serialized experiment config.
+
+    `model_cls` (AGModelExperiment) and `method_cls` (plain Experiment) both
+    carry the class identifier as a dotted import path. Resolve back to the
+    class and use `ag_key` so the lookup matches the AG-key-based
+    `model_constraints` dict. Fall back to "AutoGluon" for the full-pipeline
+    AutoGluon experiments (which expose neither field).
+    """
+    raw_cls = config.get("model_cls") or config.get("method_cls")
+    if raw_cls is not None:
+        try:
+            cls_obj = resolve_class(raw_cls, registry_resolver=infer_model_cls)
+            return getattr(cls_obj, "ag_key", None) or raw_cls
+        except (ImportError, AttributeError, ValueError, TypeError):
+            return raw_cls
+    if config.get("name", "").startswith("AutoGluon"):
+        return "AutoGluon"
+    return config.get("name", "")
 
 
 def should_run_job(
     *,
     input_data: dict,
     output_dir: str,
-    models_to_constraints: dict,
+    model_constraints: dict[str, ModelConstraints],
     ignore_cache: bool,
 ) -> bool:
     """Check if a job should be run based on the configuration and cache.
@@ -1294,28 +1246,11 @@ def should_run_job(
         task_id = task_id.split("|", 2)[1]
 
     # Filter out-of-constraints datasets.
-    # `model_cls` (AGModelExperiment) and `method_cls` (plain Experiment) both
-    # carry the class identifier — serialized to YAML as a dotted import path.
-    # Resolve back to the class and use `ag_key` so the lookup matches the
-    # AG-key-based `models_to_constraints` dict. Fall back to "AutoGluon" for
-    # the full-pipeline AutoGluon experiments (which expose neither field).
-    raw_cls = config.get("model_cls") or config.get("method_cls")
-    if raw_cls is not None:
-        try:
-            cls_obj = resolve_class(raw_cls, registry_resolver=infer_model_cls)
-            model_cls = getattr(cls_obj, "ag_key", None) or raw_cls
-        except (ImportError, AttributeError, ValueError, TypeError):
-            model_cls = raw_cls
-    elif config.get("name", "").startswith("AutoGluon"):
-        model_cls = "AutoGluon"
-    else:
-        model_cls = config.get("name", "")
-    if not TabArenaBenchmarkSetup.are_model_constraints_valid(
-        model_cls=model_cls,
+    constraints = model_constraints.get(_resolve_ag_key(config))
+    if constraints is not None and not constraints.applies(
         n_features=input_data["n_features"],
         n_classes=input_data["n_classes"],
         n_samples_train_per_fold=input_data["n_samples_train_per_fold"],
-        models_to_constraints=models_to_constraints,
         problem_type=input_data.get("problem_type"),
     ):
         return False
