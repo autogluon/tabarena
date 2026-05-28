@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from tabarena.models.ebm.model import ExplainableBoostingMachineModel
+from autogluon.tabular.models import EBMModel
+
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.ebm.hpo import gen_ebm
-from tabarena.models._method_metadata import MethodMetadata
-
 
 ebm_method_metadata = MethodMetadata(
     method="ExplainableBM",
@@ -30,8 +30,8 @@ ebm_method_metadata = MethodMetadata(
 
 
 ebm_info = ModelInfo(
-    model_cls=ExplainableBoostingMachineModel,
+    model_cls=EBMModel,
     search_space=gen_ebm,
     method_metadata=ebm_method_metadata,
-    pip_extra=("interpret-core>=0.7.3",),
+    pip_extra=("autogluon.tabular[interpret]>=1.5,<1.6",),
 )

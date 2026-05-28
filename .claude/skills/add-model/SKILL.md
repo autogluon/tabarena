@@ -49,7 +49,7 @@ Choose the most similar existing model to read for detailed inspiration:
 |---|---|---|
 | Foundation / pre-trained / GPU (e.g. TabPFN, SAP-RPT-OSS, TabSTAR) | `AbstractTorchModel` | `tabarena/tabarena/models/sap_rpt_oss/model.py` |
 | Torch NN trained from scratch (e.g. TabM, RealMLP) | `AbstractTorchModel` | `tabarena/tabarena/models/tabm/model.py` |
-| CPU / sklearn-like (e.g. EBM, KNN) | `AbstractModel` | `tabarena/tabarena/models/ebm/model.py` |
+| CPU / sklearn-like (e.g. KNN) | `AbstractModel` | `tabarena/tabarena/models/knn/model.py` |
 
 Read the reference model file now (use the Read tool). Use it as a structural guide — you will adapt rather than copy.
 
