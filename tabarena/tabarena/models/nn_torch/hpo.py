@@ -6,14 +6,6 @@ from autogluon.tabular.models import TabularNeuralNetTorchModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 
-_manual_configs_full = [
-    {},
-    {"use_batchnorm": True},
-    {"num_layers": 2},
-    {"use_batchnorm": True, "num_layers": 2},
-]
-
-
 search_space = {
     "learning_rate": Real(1e-4, 3e-2, default=3e-4, log=True),
     "weight_decay": Real(1e-12, 0.1, default=1e-6, log=True),
@@ -30,12 +22,3 @@ gen_nn_torch = ConfigGenerator(
     manual_configs=[{}],
     search_space=search_space,
 )
-
-
-def generate_configs_nn_torch(num_random_configs=200):
-    config_generator = ConfigGenerator(
-        name="NeuralNetTorch",
-        manual_configs=_manual_configs_full,
-        search_space=search_space,
-    )
-    return config_generator.generate_all_configs(num_random_configs=num_random_configs)
