@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import json
 import os
 import re
@@ -91,8 +90,7 @@ class PathSetup:
         This is generated from the configs and metadata.
         """
         # TODO: change UX for config and slurm paths.
-        path_to_config_file = str(Path(self.configs_base_path).parent) + "/"
-        return f"{self.base_path}{path_to_config_file}slurm_run_data_{safe_benchmark_name}.json"
+        return f"{self.base_path}{Path(self.configs_base_path).parent}/slurm_run_data_{safe_benchmark_name}.json"
 
     def get_configs_path(self, safe_benchmark_name: str) -> str:
         """YAML file with the configs to run."""
@@ -143,8 +141,11 @@ class SchedulerSetup:
         benchmark_name: str,
         parallel_safe_benchmark_name: str,
         resources_setup: ResourcesSetup,
-    ) -> list[str]:
+    ) -> list[str] | None:
         """Persist `jobs_dict` and return the run commands a user should invoke.
+
+        Returns `None` when there is no work to launch (so the caller can
+        clean up any stale per-run artifacts).
 
         Schedulers receive `path_setup` and the benchmark name(s) so they can
         derive any scheduler-specific paths (log dirs, scripts, job-definition
@@ -260,7 +261,7 @@ class SlurmSetup(SchedulerSetup):
         benchmark_name: str,
         parallel_safe_benchmark_name: str,
         resources_setup: ResourcesSetup,
-    ) -> list[str]:
+    ) -> list[str] | None:
         """Persist `jobs_dict` to one or more JSON files and return matching sbatch commands.
 
         If `jobs_dict["jobs"]` exceeds `max_array_size`, the jobs are split across
@@ -274,7 +275,7 @@ class SlurmSetup(SchedulerSetup):
         configs handled by a single array task; this is read from
         `jobs_dict["max_configs_per_job"]` (populated by the caller).
 
-        Returns the list of sbatch commands to run, or `["N/A"]` if there are
+        Returns the list of sbatch commands to run, or `None` if there are
         no jobs (in which case the base JSON file is also removed if it exists).
         """
         base_json_path = path_setup.get_slurm_job_json_path(parallel_safe_benchmark_name)
@@ -283,7 +284,7 @@ class SlurmSetup(SchedulerSetup):
         if not all_jobs:
             print("No jobs to run.")
             Path(base_json_path).unlink(missing_ok=True)
-            return ["N/A"]
+            return None
 
         base_command = self._build_sbatch_prefix(
             resources_setup=resources_setup,
@@ -619,9 +620,8 @@ class TasksToRunSetup:
         lines = [
             f"Found {filter_history[-1][1]} tasks to run.",
             "\tTask Filter History:",
+            *(f"\t({i}) {label}: {count}." for i, (label, count) in enumerate(filter_history, start=1)),
         ]
-        for i, (label, count) in enumerate(filter_history, start=1):
-            lines.append(f"\t({i}) {label}: {count}.")
         print("\n".join(lines))
 
     @staticmethod
@@ -629,7 +629,7 @@ class TasksToRunSetup:
         """Load TabArena v0.1 task metadata and convert it to the new
         TabArenaTaskMetadata format (one entry per task, with splits unrolled).
         """
-        print("Loading task metadata from TabArena v0.1 and converting to new TabArenaTaskMetadata fromat...")
+        print("Loading task metadata from TabArena v0.1 and converting to new TabArenaTaskMetadata format...")
         from tabarena.nips2025_utils.fetch_metadata import (
             load_curated_task_metadata,
         )
@@ -938,18 +938,30 @@ class ModelPipelinesToRunSetup:
         resources_setup: ResourcesSetup,
     ) -> list:
         """Build the full list of experiment configs (one per model x pipeline x random config)."""
-        method_kwargs = deepcopy(base_method_kwargs)
-        if self.model_artifacts_base_path is not None:
-            method_kwargs["init_kwargs"]["default_base_path"] = self.model_artifacts_base_path
-        if not self.model_agnostic_preprocessing:
-            method_kwargs["fit_kwargs"]["feature_generator"] = None
-        if self.adapt_num_folds_to_n_classes:
-            method_kwargs["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"] = True
-        if self.max_predict_batch_size is not None:
-            method_kwargs["extra_model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
-        if self.model_verbosity is not None:
-            method_kwargs["extra_model_hyperparameters"]["ag.verbosity"] = self.model_verbosity
+        method_kwargs = self._enrich_method_kwargs(base_method_kwargs)
+        self._print_experiment_summary(method_kwargs)
+        return [
+            exp
+            for pipeline_name in self.preprocessing_pipelines
+            for exp in self._build_experiments_for_pipeline(pipeline_name, method_kwargs, resources_setup)
+        ]
 
+    def _enrich_method_kwargs(self, base_method_kwargs: dict) -> dict:
+        """Layer this dataclass's model-level overrides on top of the bench-level base."""
+        mk = deepcopy(base_method_kwargs)
+        if self.model_artifacts_base_path is not None:
+            mk["init_kwargs"]["default_base_path"] = self.model_artifacts_base_path
+        if not self.model_agnostic_preprocessing:
+            mk["fit_kwargs"]["feature_generator"] = None
+        if self.adapt_num_folds_to_n_classes:
+            mk["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"] = True
+        if self.max_predict_batch_size is not None:
+            mk["extra_model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
+        if self.model_verbosity is not None:
+            mk["extra_model_hyperparameters"]["ag.verbosity"] = self.model_verbosity
+        return mk
+
+    def _print_experiment_summary(self, method_kwargs: dict) -> None:
         print(
             "Generating experiments for models...",
             f"\n\t`all` := number of configs: {self.n_random_configs}",
@@ -958,45 +970,52 @@ class ModelPipelinesToRunSetup:
             f"\n\tMethod kwargs: {method_kwargs}",
         )
 
-        experiments_all = []
-        for preprocessing_name in self.preprocessing_pipelines:
-            pipeline_method_kwargs = deepcopy(method_kwargs)
+    def _build_experiments_for_pipeline(
+        self,
+        pipeline_name: str,
+        method_kwargs: dict,
+        resources_setup: ResourcesSetup,
+    ) -> list:
+        """Per-pipeline overrides + per-model dispatch."""
+        pipeline_kwargs = deepcopy(method_kwargs)
+        name_id_suffix = ""
+        if self.model_agnostic_preprocessing:
+            if pipeline_name != "default":
+                pipeline_kwargs["preprocessing_pipeline"] = pipeline_name
+            if pipeline_name != "tabarena_default":
+                name_id_suffix = f"_{pipeline_name}"
 
-            name_id_suffix = ""
-            if self.model_agnostic_preprocessing:
-                if preprocessing_name != "default":
-                    pipeline_method_kwargs["preprocessing_pipeline"] = preprocessing_name
-                if preprocessing_name != "tabarena_default":
-                    name_id_suffix = f"_{preprocessing_name}"
+        experiments: list = []
+        for model in self.models:
+            experiments.extend(
+                self._build_experiments_for_model(model, pipeline_kwargs, name_id_suffix, resources_setup)
+            )
+        return experiments
 
-            for model in self.models:
-                if isinstance(model, Experiment):
-                    experiments_all.append(model)
-                    continue
-                model_name, n_configs_or_kwargs = model[0], model[1]
-
-                if isinstance(model_name, str) and model_name.startswith("AutoGluon"):
-                    experiments_all.extend(
-                        self._generate_autogluon_config(
-                            model_name=model_name,
-                            agexp_kwargs=n_configs_or_kwargs,
-                            pipeline_method_kwargs=pipeline_method_kwargs,
-                            resources_setup=resources_setup,
-                        )
-                    )
-                    continue
-
-                experiments_all.extend(
-                    self._generate_model_configs(
-                        model_name=model_name,
-                        n_configs=n_configs_or_kwargs,
-                        pipeline_method_kwargs=pipeline_method_kwargs,
-                        name_id_suffix=name_id_suffix,
-                        resources_setup=resources_setup,
-                    )
-                )
-
-        return experiments_all
+    def _build_experiments_for_model(
+        self,
+        model: Experiment | tuple,
+        pipeline_method_kwargs: dict,
+        name_id_suffix: str,
+        resources_setup: ResourcesSetup,
+    ) -> list:
+        if isinstance(model, Experiment):
+            return [model]
+        model_name, n_configs_or_kwargs = model[0], model[1]
+        if isinstance(model_name, str) and model_name.startswith("AutoGluon"):
+            return self._generate_autogluon_config(
+                model_name=model_name,
+                agexp_kwargs=n_configs_or_kwargs,
+                pipeline_method_kwargs=pipeline_method_kwargs,
+                resources_setup=resources_setup,
+            )
+        return self._generate_model_configs(
+            model_name=model_name,
+            n_configs=n_configs_or_kwargs,
+            pipeline_method_kwargs=pipeline_method_kwargs,
+            name_id_suffix=name_id_suffix,
+            resources_setup=resources_setup,
+        )
 
     @staticmethod
     def _generate_autogluon_config(
@@ -1010,10 +1029,12 @@ class ModelPipelinesToRunSetup:
         from tabarena.benchmark.experiment.experiment_constructor import (
             AGExperiment,
         )
-        agexp_kwargs = agexp_kwargs.copy()
+        # deepcopy: shallow .copy() leaves nested `fit_kwargs` / `init_kwargs` shared with
+        # the caller's dict, and the subsequent .update() / item assignment would mutate
+        # the user's `self.models` entry across calls.
+        agexp_kwargs = deepcopy(agexp_kwargs)
         for key in ["fit_kwargs", "init_kwargs"]:
-            if key not in agexp_kwargs:
-                agexp_kwargs[key] = {}
+            agexp_kwargs.setdefault(key, {})
             if key in pipeline_method_kwargs:
                 agexp_kwargs[key].update(pipeline_method_kwargs[key])
         agexp_kwargs["fit_kwargs"]["time_limit"] = resources_setup.time_limit
@@ -1041,7 +1062,7 @@ class ModelPipelinesToRunSetup:
         if isinstance(model_name, str):
             config_generator = get_configs_generator_from_name(model_name)
         else:
-            config_generator = copy.deepcopy(model_name)
+            config_generator = deepcopy(model_name)
         return config_generator.generate_all_bag_experiments(
             num_random_configs=n_configs,
             add_seed=default_seed_config,
@@ -1236,13 +1257,13 @@ class TabArenaBenchmarkSetup:
             **self.scheduler_setup.get_extra_default_args(),
         }
 
-    def setup_jobs(self) -> list[str]:
+    def setup_jobs(self) -> list[str] | None:
         """Generate the scheduler job file(s) and return the run commands.
 
         Delegates persistence and command construction to
-        `scheduler_setup.get_run_commands`. When there are no jobs to run, the
-        configs YAML for this parallel run is also removed so it can be
-        re-prepared cleanly on the next invocation.
+        `scheduler_setup.get_run_commands`. Returns `None` when there are no
+        jobs to run; in that case the configs YAML for this parallel run is
+        also removed so it can be re-prepared cleanly on the next invocation.
         """
         run_commands = self.scheduler_setup.get_run_commands(
             jobs_dict=self.get_jobs_dict(),
@@ -1251,7 +1272,7 @@ class TabArenaBenchmarkSetup:
             parallel_safe_benchmark_name=self._parallel_safe_benchmark_name,
             resources_setup=self.resources_setup,
         )
-        if run_commands == ["N/A"]:
+        if run_commands is None:
             Path(self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)).unlink(missing_ok=True)
         return run_commands
 
