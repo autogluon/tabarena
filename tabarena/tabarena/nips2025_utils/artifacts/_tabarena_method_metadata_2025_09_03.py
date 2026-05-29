@@ -1,6 +1,16 @@
+"""Residual 2025-09-03 entries that don't fit the per-model `info.py` shape.
+
+`tabflex_metadata` / `betatabpfn_metadata` are benchmark-result metadata for
+models with no tabarena-side wrapper class (results were produced by external
+code), and `TabPFNv2_GPU` similarly has no wrapper here. They're kept as
+standalone `MethodMetadata` instances rather than `ModelInfo`. `ag_140_metadata`
+is an AutoGluon baseline. `limix_metadata` is the deprecated GPU-named entry
+(the active LimiX metadata lives in `tabarena.models.limix.info`).
+"""
+
 from __future__ import annotations
 
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 _common_kwargs = dict(
     artifact_name="tabarena-2025-09-03",
@@ -24,21 +34,6 @@ ag_140_metadata = MethodMetadata(
     reference_url="https://arxiv.org/abs/2003.06505",
     **_common_kwargs,
 )
-mitra_metadata = MethodMetadata(
-    method="Mitra_GPU",
-    method_type="config",
-    display_name="Mitra",
-    compute="gpu",
-    date="2025-09-03",
-    ag_key="MITRA",
-    model_key="MITRA_GPU",
-    config_default="Mitra_GPU_c1_BAG_L1",
-    can_hpo=False,
-    is_bag=True,
-    verified=True,
-    reference_url="https://arxiv.org/abs/2510.21204",
-    **_common_kwargs,
-)
 limix_metadata = MethodMetadata(
     method="LimiX_GPU",
     method_type="config",
@@ -52,50 +47,6 @@ limix_metadata = MethodMetadata(
     is_bag=False,
     verified=False,
     reference_url="https://arxiv.org/abs/2509.03505",
-    **_common_kwargs,
-)
-realmlp_gpu_metadata = MethodMetadata(
-    method="RealMLP_GPU",
-    method_type="config",
-    display_name="RealMLP",
-    compute="gpu",
-    date="2025-09-03",
-    ag_key="TA-REALMLP",
-    model_key="REALMLP_GPU",
-    config_default="RealMLP_GPU_c1_BAG_L1",
-    can_hpo=True,
-    is_bag=True,
-    verified=True,
-    reference_url="https://arxiv.org/abs/2407.04491",
-    **_common_kwargs,
-)
-ebm_metadata = MethodMetadata(
-    method="ExplainableBM",
-    method_type="config",
-    display_name="EBM",
-    compute="cpu",
-    date="2025-09-03",
-    ag_key="EBM",
-    config_default="ExplainableBM_c1_BAG_L1",
-    can_hpo=True,
-    is_bag=True,
-    verified=True,
-    reference_url="https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
-    **_common_kwargs,
-)
-xrfm_metadata = MethodMetadata(
-    method="xRFM_GPU",
-    method_type="config",
-    display_name="xRFM",
-    compute="gpu",
-    date="2025-09-03",
-    ag_key="XRFM",
-    model_key="XRFM_GPU",
-    config_default="xRFM_GPU_c1_BAG_L1",
-    can_hpo=True,
-    is_bag=True,
-    verified=True,
-    reference_url="https://arxiv.org/abs/2508.10053",
     **_common_kwargs,
 )
 tabflex_metadata = MethodMetadata(

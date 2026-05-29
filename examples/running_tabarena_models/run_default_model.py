@@ -49,7 +49,7 @@ The recommended options are:
 
 You can also import it manually from TabArena / AutoGluon, which we recommend
 for practical applications, for example:
- - RealMLP: from tabarena.benchmark.models.ag.realmlp.realmlp_model import RealMLPModel
+ - RealMLP: from tabarena.models.realmlp.model import RealMLPModel
  - Catboost: from autogluon.tabular.models.catboost.catboost_model import CatBoostModel
 """
 model_meta = get_configs_generator_from_name(model_name=model_to_run)

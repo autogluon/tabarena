@@ -24,7 +24,7 @@ if __name__ == '__main__':
     folds = [0]
 
     # import your model classes
-    from tabarena.benchmark.models.ag import RealMLPModel
+    from tabarena.models import RealMLPModel
     from autogluon.tabular.models import LGBModel
 
     # This list of methods will be fit sequentially on each task (dataset x fold)

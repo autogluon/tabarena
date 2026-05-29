@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from tabflow.cli.build_docker import build_docker
 from tabflow.cli.launch_jobs import JobManager
-from tabarena.models.lightgbm.generate import gen_lightgbm
+from tabarena.models.lightgbm.hpo import gen_lightgbm
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.benchmark.experiment.experiment_constructor import Experiment, YamlExperimentSerializer
 

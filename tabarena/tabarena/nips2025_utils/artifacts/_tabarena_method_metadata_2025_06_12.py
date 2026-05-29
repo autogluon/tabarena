@@ -2,9 +2,42 @@ from __future__ import annotations
 
 import copy
 
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models.catboost.info import catboost_method_metadata
+from tabarena.models.extra_trees.info import extra_trees_method_metadata
+from tabarena.models.fastai.info import fastai_method_metadata
+from tabarena.models.lightgbm.info import lightgbm_method_metadata
+from tabarena.models.modernnca.info import (
+    modernnca_gpu_method_metadata,
+    modernnca_method_metadata,
+)
+from tabarena.models.nn_torch.info import nn_torch_method_metadata
+from tabarena.models.random_forest.info import random_forest_method_metadata
+from tabarena.models.realmlp.info import realmlp_cpu_method_metadata
+from tabarena.models.tabicl.info import tabicl_method_metadata
+from tabarena.models.tabm.info import tabm_gpu_method_metadata, tabm_method_metadata
+from tabarena.models.xgboost.info import xgboost_method_metadata
+from tabarena.models._method_metadata import MethodMetadata
 
-methods_2025_06_12 = []
+# Models that own their MethodMetadata via per-model `info.py` modules. The
+# factory loop below skips these; they are seeded into `methods_2025_06_12` here.
+_per_model_metadata = [
+    catboost_method_metadata,
+    extra_trees_method_metadata,
+    fastai_method_metadata,
+    lightgbm_method_metadata,
+    modernnca_method_metadata,
+    modernnca_gpu_method_metadata,
+    nn_torch_method_metadata,
+    random_forest_method_metadata,
+    realmlp_cpu_method_metadata,
+    tabicl_method_metadata,
+    tabm_method_metadata,
+    tabm_gpu_method_metadata,
+    xgboost_method_metadata,
+]
+_migrated_method_names = {m.method for m in _per_model_metadata}
+
+methods_2025_06_12 = list(_per_model_metadata)
 
 common_kwargs = dict(
     artifact_name="tabarena-2025-06-12",
@@ -264,6 +297,8 @@ methods_to_url_map = {
 tabarena_method_metadata_map_2025_06_12: dict[str, MethodMetadata] = {}
 
 for method in methods:
+    if method in _migrated_method_names:
+        continue
     compute_type = methods_compute_map[method]
     ag_key = methods_ag_key_map[method]
     config_default = methods_config_default_map[method]
@@ -299,32 +334,8 @@ for method in methods:
     methods_2025_06_12.append(method_metadata)
 
 
-ag_130_metadata = MethodMetadata(
-    method="AutoGluon_v130",
-    name="AutoGluon 1.3 (best, 4h)",
-    artifact_name="tabarena-2025-06-12",
-    date="2025-06-12",
-    method_type="baseline",
-    compute="cpu",
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    upload_as_public=True,
-    **s3_cache_kwargs,
-)
+# Non-model baselines / portfolio live in `tabarena.baselines.info`.
+from tabarena.baselines.info import ag_130_metadata, portfolio_metadata
 
 methods_2025_06_12.append(ag_130_metadata)
-
-portfolio_metadata = MethodMetadata(
-    method="Portfolio-N200-4h",
-    artifact_name="tabarena-2025-06-12",
-    date="2025-06-12",
-    method_type="portfolio",
-    has_raw=False,
-    has_processed=False,
-    has_results=True,
-    upload_as_public=True,
-    **s3_cache_kwargs,
-)
-
 methods_2025_06_12.append(portfolio_metadata)

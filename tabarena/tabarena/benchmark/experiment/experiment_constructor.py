@@ -149,10 +149,11 @@ class Experiment:
         sample: int = 0,
         cacher: AbstractCacheFunction | None = None,
         ignore_cache: bool = False,
+        verbose: bool = True,
         **experiment_kwargs,
     ) -> dict:
         if cacher is None:
-            cacher = CacheFunctionDummy()
+            cacher = CacheFunctionDummy(verbose=verbose)
         # Resolve the preprocessing pipeline (if any) into a ready-to-run experiment.
         resolved = self._resolve_preprocessing()
         if task is not None:

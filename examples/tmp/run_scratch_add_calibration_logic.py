@@ -11,7 +11,7 @@ from tabarena import EvaluationRepository
 from tabarena.simulation.ensemble_scorer_calibrated import EnsembleScorerCalibrated, EnsembleScorerCalibratedCV
 from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer
 from autogluon.common import TabularDataset
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 
 def run_cal(

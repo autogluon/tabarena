@@ -10,7 +10,7 @@ import pandas as pd
 from autogluon.common.savers import save_pd
 
 from tabarena.benchmark.result import BaselineResult, ConfigResult
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.nips2025_utils.compare import compare_on_tabarena
 from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
 from tabarena.nips2025_utils.method_processor import (

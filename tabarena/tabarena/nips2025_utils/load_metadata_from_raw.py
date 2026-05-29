@@ -4,7 +4,7 @@ from typing import Literal
 from pathlib import Path
 
 from tabarena.benchmark.result import BaselineResult
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.utils.parallel_for import parallel_for
 
 

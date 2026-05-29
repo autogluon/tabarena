@@ -348,6 +348,7 @@ class TabArenaEvaluator:
         error_col: str = "metric_error",
         tie_policy: str = "half",  # {"ignore", "half", "count_as_disagree"}
         min_splits: int = 2,
+        tie_decimals: int | None = None,
     ) -> dict[str, float]:
         """
         Compute average split agreement across all method pairs within ONE dataset.
@@ -382,11 +383,17 @@ class TabArenaEvaluator:
         X = wide.to_numpy(dtype=float)  # shape (S, M)
         S, M = X.shape
 
+        # Optional: round to tie_decimals so two methods that hit the same
+        # metric via different code paths (floating-point noise in the last
+        # few bits) still count as tied. Default None preserves the original
+        # exact-equality behavior.
+        X_cmp = np.round(X, tie_decimals) if tie_decimals is not None else X
+
         # Broadcast comparisons: for each split s, compare all method pairs (i,j)
         # win[s,i,j] = 1 if X[s,i] < X[s,j]
         # tie[s,i,j] = 1 if X[s,i] == X[s,j]
-        win = (X[:, :, None] < X[:, None, :])
-        tie = (X[:, :, None] == X[:, None, :])
+        win = (X_cmp[:, :, None] < X_cmp[:, None, :])
+        tie = (X_cmp[:, :, None] == X_cmp[:, None, :])
 
         # Handle missing values: comparisons where either side is NaN should not count
         valid = np.isfinite(X)
@@ -909,23 +916,34 @@ class TabArenaEvaluator:
             else:
                 _results_to_use_winrate_matrix = results_te_per_split.copy()
 
-            # Drop hidden_methods from the winrate matrix. ``config_type`` on
-            # the raw per-task/split dataframes is the *short* framework name
-            # ("RF", "XT", "GBM"); callers supply ``hidden_methods`` in the
-            # *long* display-name form ("RandomForest", "ExtraTrees",
-            # "LightGBM"). ``f_map_type_name`` (computed above at line ~618)
-            # is exactly that short → long rename map, so route the column
-            # through it before filtering and fall back to the raw value
-            # whenever the map has no entry for that short name.
+            # Drop hidden_methods from the winrate matrix. Two surfaces to
+            # cover:
+            #   - Configs: ``config_type`` on the raw per-task/split
+            #     dataframes is the *short* framework name ("RF", "XT",
+            #     "GBM"); callers supply ``hidden_methods`` in the *long*
+            #     display-name form ("RandomForest", "ExtraTrees",
+            #     "LightGBM"). ``f_map_type_name`` is exactly that
+            #     short → long rename map, so route the column through it
+            #     before filtering and fall back to the raw value whenever
+            #     the map has no entry for that short name.
+            #   - Baselines: ``config_type`` is typically NaN for these
+            #     rows; their long display name lives in ``self.method_col``
+            #     (already passed through ``rename_model`` above), so match
+            #     hidden_methods against that column directly.
             hidden_methods_winrate = plot_tuning_kwargs.get("hidden_methods") or []
-            if hidden_methods_winrate and "config_type" in _results_to_use_winrate_matrix.columns:
-                mapped_names = (
-                    _results_to_use_winrate_matrix["config_type"]
-                    .map(f_map_type_name)
-                    .fillna(_results_to_use_winrate_matrix["config_type"])
+            if hidden_methods_winrate:
+                hidden_mask = _results_to_use_winrate_matrix[self.method_col].isin(
+                    hidden_methods_winrate
                 )
+                if "config_type" in _results_to_use_winrate_matrix.columns:
+                    mapped_names = (
+                        _results_to_use_winrate_matrix["config_type"]
+                        .map(f_map_type_name)
+                        .fillna(_results_to_use_winrate_matrix["config_type"])
+                    )
+                    hidden_mask = hidden_mask | mapped_names.isin(hidden_methods_winrate)
                 _results_to_use_winrate_matrix = _results_to_use_winrate_matrix.loc[
-                    ~mapped_names.isin(hidden_methods_winrate)
+                    ~hidden_mask
                 ]
 
             if len(_results_to_use_winrate_matrix) != 0:

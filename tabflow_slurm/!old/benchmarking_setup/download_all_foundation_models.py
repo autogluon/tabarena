@@ -53,7 +53,7 @@ def download_mitra() -> None:
 
 def download_tabflex() -> None:
     try:
-        from tabarena.benchmark.models.ag.tabflex.tabflex_model import TabFlexModel
+        from tabarena.models import TabFlexModel
     except ImportError:
         print("TabFlexModel not found. Skipping downloading its models.")
         return
@@ -62,7 +62,7 @@ def download_tabflex() -> None:
 
 def download_limix() -> None:
     try:
-        from tabarena.benchmark.models.ag.limix.limix_model import LimiXModel
+        from tabarena.models.limix.model import LimiXModel
     except ImportError:
         print("LimiXModel not found. Skipping downloading its models.")
         return
@@ -72,7 +72,7 @@ def download_limix() -> None:
 def download_sap_rpt_oss() -> None:
     # Gated, requires accepting terms on Hugging Face!
     try:
-        from tabarena.benchmark.models.ag.sap_rpt_oss.sap_rpt_oss_model import pre_download_model
+        from tabarena.models.sap_rpt_oss.model import pre_download_model
     except ImportError:
         print("SAP RPT-1 OSS model not found. Skipping downloading its model.")
         return
