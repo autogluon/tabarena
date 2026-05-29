@@ -29,7 +29,7 @@ from tabarena.benchmark.task.metadata import (
     SplitTimeHorizonTypes,
     SplitTimeHorizonUnitTypes,
 )
-from tabarena.benchmark.task.tabarena_openml_task import (
+from tabarena.benchmark.task.openml import (
     TabArenaOpenMLClassificationTask,
     TabArenaOpenMLRegressionTask,
     TabArenaOpenMLSupervisedTask,

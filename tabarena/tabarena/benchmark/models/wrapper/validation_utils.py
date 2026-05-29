@@ -374,7 +374,7 @@ class TabArenaValidationProtocolExecMixin:
         """Compute the number of rows that represent how much (multi-instance) samples
         the data has. This is used to determine which splits to use.
         """
-        from tabarena.benchmark.task.tabarena_openml_task import TabArenaTaskMetadataMixin
+        from tabarena.benchmark.task.openml import TabArenaTaskMetadataMixin
 
         return TabArenaTaskMetadataMixin.get_num_instance_groups(
             X=X,

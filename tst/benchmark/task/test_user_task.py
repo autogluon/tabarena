@@ -17,7 +17,7 @@ from tabarena.benchmark.task.metadata import (
     SplitMetadata,
     TabArenaTaskMetadata,
 )
-from tabarena.benchmark.task.tabarena_openml_task import (
+from tabarena.benchmark.task.openml import (
     TabArenaTaskMetadataMixin,
 )
 from tabarena.benchmark.task.user_task import (
