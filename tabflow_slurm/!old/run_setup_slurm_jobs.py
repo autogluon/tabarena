@@ -14,7 +14,7 @@ BenchmarkSetup(
 
 from __future__ import annotations
 
-from tabflow_slurm.setup_slurm_base import BenchmarkSetup
+from .setup_slurm_base import BenchmarkSetup
 
 # # -- Benchmark XXX XX/XX/2026
 # BenchmarkSetup(

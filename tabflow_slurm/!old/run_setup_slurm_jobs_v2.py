@@ -5,7 +5,7 @@ from __future__ import annotations
 from tabflow_slurm.benchmarking_setup.data_foundry_integration.data_foundry_task_creator import (
     get_metadata_for_benchmark_suite,
 )
-from tabflow_slurm.setup_slurm_base_v2 import BenchmarkSetup2026
+from .setup_slurm_base_v2 import BenchmarkSetup2026
 
 # -- Minimal Working Example for new benchmark setup
 BenchmarkSetup2026(

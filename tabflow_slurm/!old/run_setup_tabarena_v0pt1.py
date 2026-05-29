@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from tabflow_slurm.setup_slurm_base_v2 import BenchmarkSetup2026, PathSetup, SlurmSetup
+from .setup_slurm_base_v2 import BenchmarkSetup2026, PathSetup, SlurmSetup
 
 
 @dataclass
