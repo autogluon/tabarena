@@ -4,61 +4,58 @@ import copy
 
 from autogluon.tabular.registry import ModelRegistry, ag_model_registry
 
-from tabarena.benchmark.models.ag import (
-    ILTMModel,
-    KNNNewModel,
-    LimiXModel,
-    ModernNCAModel,
-    OrionMSPModel,
-    PerpetualBoosterModel,
-    RealMLPModel,
-    RealTabPFNv25Model,
-    SAPRPTOSSModel,
-    TabDPTModel,
-    TabICLModel,
-    TabICLv2Model,
-    TabMModel,
-    TabPFN3Model,
-    TabPFNWideModel,
-    TabPFNv26Model,
-    TabSTARModel,
-    XRFMModel,
-)
 
-tabarena_model_registry: ModelRegistry = copy.deepcopy(ag_model_registry)
+# `tabarena_model_registry` and `_models_to_add` are built lazily on first
+# access so that this module finishes loading before `get_model_registry()`
+# (which transitively triggers `experiment_constructor` → `model_registry`)
+# tries to import from us. See PEP 562. Note: they are NOT predefined as
+# module-level globals — that would short-circuit `__getattr__` and yield
+# `None` on first access. The cache lives in `_lazy_state` instead.
+_lazy_state: dict[str, object] = {}
 
-_models_to_add = [
-    RealMLPModel,
-    TabICLModel,
-    TabDPTModel,
-    TabMModel,
-    ModernNCAModel,
-    XRFMModel,
-    KNNNewModel,
-    RealTabPFNv25Model,
-    SAPRPTOSSModel,
-    PerpetualBoosterModel,
-    TabICLv2Model,
-    TabSTARModel,
-    TabPFNv26Model,
-    LimiXModel,
-    TabPFN3Model,
-    TabPFNWideModel,
-    OrionMSPModel,
-    ILTMModel,
-]
 
-for _model_cls in _models_to_add:
-    _new_key = _model_cls.ag_key
-    if _new_key in tabarena_model_registry.keys:
-        _existing_model_cls = tabarena_model_registry.key_to_cls(key=_new_key)
-        print(
-            f"WARNING: Multiple models exist with the ag_key '{_new_key}'..."
-            f"\n\tOnly keeping the TabArena version..."
-            f"\n\tThis can cause subtle bugs and should be resolved ASAP."
-        )
-        tabarena_model_registry.remove(model_cls=_existing_model_cls)
-    tabarena_model_registry.add(_model_cls)
+def _build_tabarena_model_registry() -> tuple[ModelRegistry, list[type]]:
+    """Auto-derive `tabarena_model_registry` and `_models_to_add` from the
+    per-model `MODEL_REGISTRY`: every model class declared via a `ModelInfo`
+    in `tabarena/models/<key>/info.py`. Multi-compute variants (e.g. TabM CPU +
+    TabM_GPU) share one `model_cls`, hence the set dedup.
+    """
+    from tabarena.models import get_model_registry
+
+    registry: ModelRegistry = copy.deepcopy(ag_model_registry)
+    # Skip AG-builtin classes (e.g. CatBoostModel, LGBModel) whose `ag_key`
+    # is already present in `ag_model_registry`. Those entries exist in
+    # MODEL_REGISTRY for their MethodMetadata, but the underlying class
+    # is the AG one — re-adding it would only trigger a "duplicate key"
+    # warning and reinsert the same class.
+    models_to_add: list[type] = list({
+        info.model_cls for info in get_model_registry().values()
+        if info.model_cls.ag_key not in ag_model_registry.keys
+    })
+
+    for model_cls in models_to_add:
+        new_key = model_cls.ag_key
+        if new_key in registry.keys:
+            existing_model_cls = registry.key_to_cls(key=new_key)
+            print(
+                f"WARNING: Multiple models exist with the ag_key '{new_key}'..."
+                f"\n\tOnly keeping the TabArena version..."
+                f"\n\tThis can cause subtle bugs and should be resolved ASAP."
+            )
+            registry.remove(model_cls=existing_model_cls)
+        registry.add(model_cls)
+
+    return registry, models_to_add
+
+
+def __getattr__(name: str):
+    if name in ("tabarena_model_registry", "_models_to_add"):
+        if "tabarena_model_registry" not in _lazy_state:
+            registry, models_to_add = _build_tabarena_model_registry()
+            _lazy_state["tabarena_model_registry"] = registry
+            _lazy_state["_models_to_add"] = models_to_add
+        return _lazy_state[name]
+    raise AttributeError(name)
 
 
 def infer_model_cls(model_cls: str, model_register: ModelRegistry = None):

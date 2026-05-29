@@ -58,6 +58,7 @@ def plot_hpo(
     legend_display_names: dict[str, str] | None = None,
     left_label_methods: list[str] | None = None,
     below_label_methods: list[str] | None = None,
+    clamp_negative_ymin: bool = False,
 ):
     """
     Plot HPO trajectories for multiple methods.
@@ -87,6 +88,16 @@ def plot_hpo(
         and highlights the point with the highest value of this column using a different marker.
     """
     df = df.copy(deep=True)
+    # Drop rows where the x or y plotting column is NaN. Methods whose
+    # validation-axis values are unavailable (e.g. dropped from the val
+    # leaderboard in `compute_tuning_trajectories_leaderboard` because
+    # they had NaN `metric_error_val`) would otherwise propagate NaN
+    # into the per-method peak ranking and the Pareto-frontier
+    # computation, producing a corrupted frontier line and bogus axis
+    # ranges. Methods that end up with zero rows after the filter are
+    # silently skipped by the existing `df_method.empty` guard below.
+    df = df.dropna(subset=[xlabel, ylabel])
+
     if display_names is not None:
         df[method_col] = df[method_col].map(display_names).fillna(df[method_col])
         if method_order is not None:
@@ -330,16 +341,28 @@ def plot_hpo(
             x_min, x_max = ax.get_xlim()
             y_min, y_max = ax.get_ylim()
 
-            # Extension logic copied from ``plot_pareto``: walk past the
-            # first / last real frontier vertex along the axis being
-            # maximized, and drop to the "worst" Y on the other side, so
-            # the dashed line spans the whole plot rather than stopping
-            # at the data points.
+            # Extension logic: extend the dashed line past the front so
+            # it spans the whole plot. Two pieces, on opposite sides:
+            #   - Horizontal extension out to ``x_min`` / ``x_max`` on the
+            #     "worse-X" side, at the front's extreme Y on that side.
+            #   - Vertical drop to ``y_min`` / ``y_max`` on the
+            #     "better-X" side, anchored at the front's extreme X.
+            # ``get_pareto_frontier`` builds the front in the direction of
+            # the better X first (descending when ``max_X``, ascending
+            # otherwise), so for ``max_X`` the better-X end is ``pf_X[0]``
+            # (and ``pf_Y[0]`` is the worst Y on the front there); for
+            # ``not max_X`` the better-X end is ``pf_X[-1]`` (and
+            # ``pf_Y[-1]`` is the worst Y on the front there).
+            #
+            # Previous mistake: for ``max_X`` the extension was anchored
+            # at ``pf_X[-1]`` (the worse-X end), drawing the vertical
+            # drop on the wrong side of the plot. See
+            # ``pareto_n_configs_adv_overfit_v2``.
             if max_X:
-                pf_X_first = x_min
-                pf_X_last = pf_X[-1]
-                pf_Y_first = pf_Y[0]
-                pf_Y_last = y_min if max_Y else y_max
+                pf_X_first = pf_X[0]
+                pf_X_last = x_min
+                pf_Y_first = y_min if max_Y else y_max
+                pf_Y_last = pf_Y[-1]
             else:
                 pf_X_first = pf_X[0]
                 pf_X_last = x_max
@@ -512,6 +535,16 @@ def plot_hpo(
     if ylim is not None:
         ax.set_ylim(ylim)
 
+    # Clamp y_min to 0 when the auto / explicit limits would dip below
+    # zero. Used by improvability and metric-error plots, where negative
+    # values are nonsensical and just leave a stripe of empty space at
+    # the bottom of the axis. Other axes (Elo, Baseline Advantage) opt
+    # out by leaving ``clamp_negative_ymin`` False.
+    if clamp_negative_ymin:
+        cur_y_min, cur_y_max = ax.get_ylim()
+        if cur_y_min < 0:
+            ax.set_ylim(0, cur_y_max)
+
     ax.grid(True)
     grid_color = ax.xaxis.get_gridlines()[0].get_color()
     ax.spines['top'].set_visible(True)
@@ -636,8 +669,24 @@ def compute_tuning_trajectories_leaderboard(
         include_baseline_advantage=True,
     )
 
+    # The bencheval validator rejects any null values in the error column,
+    # so a method with even one NaN `metric_error_val` row would crash the
+    # val leaderboard. Drop those methods from the val pass only — the
+    # test leaderboard (`arena`) is unaffected. After the merge below the
+    # dropped methods receive NaN for the val-derived columns
+    # (elo_val / improvability_val / baseline_advantage_val) since the
+    # column assignment aligns on the method index.
+    val_nan_mask = combined_data["metric_error_val"].isna()
+    val_nan_methods = sorted(combined_data.loc[val_nan_mask, "method"].unique().tolist())
+    if val_nan_methods:
+        print(
+            f"Dropping {len(val_nan_methods)} method(s) from validation-score "
+            f"leaderboard due to NaN metric_error_val: {val_nan_methods}"
+        )
+    combined_data_val = combined_data[~combined_data["method"].isin(val_nan_methods)]
+
     leaderboard_val = arena_val.leaderboard(
-        data=combined_data,
+        data=combined_data_val,
         include_elo=True,
         include_error=True,
         elo_kwargs=dict(
@@ -1368,6 +1417,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp_tot_train{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1377,6 +1427,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp_tot_infer{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1387,6 +1438,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_err_tot_train{file_ext}",
         max_Y=False,
         # ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1397,6 +1449,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_err_tot_infer{file_ext}",
         max_Y=False,
         # ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1423,6 +1476,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1440,6 +1494,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp_infer{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
 
@@ -1473,6 +1528,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp_tot_total{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1482,6 +1538,7 @@ def plot_tuning_trajectories_from_leaderboard(
         ylabel_display=err_ylabel,
         save_path=fig_save_dir / f"pareto_n_configs_err_tot_total{file_ext}",
         max_Y=False,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(
@@ -1499,6 +1556,7 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_imp_total{file_ext}",
         max_Y=False,
         ylim=ylim_imp,
+        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(

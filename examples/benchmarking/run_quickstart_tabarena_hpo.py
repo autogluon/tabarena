@@ -24,8 +24,8 @@ if __name__ == '__main__':
     folds = [0]
 
     # import your model search spaces
-    from tabarena.models.lightgbm.generate import gen_lightgbm
-    from tabarena.models.random_forest.generate import gen_randomforest
+    from tabarena.models.lightgbm.hpo import gen_lightgbm
+    from tabarena.models.random_forest.hpo import gen_randomforest
 
     # run the default config + 5 random configurations
     experiments_lightgbm = gen_lightgbm.generate_all_bag_experiments(num_random_configs=5)

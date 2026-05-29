@@ -4,7 +4,7 @@ from functools import partial
 
 import pandas as pd
 
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 
 class Constants:
     col_name: str = "method_type"

@@ -13,7 +13,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split
 
 # Import a TabArena model
-from tabarena.benchmark.models.ag.realmlp.realmlp_model import RealMLPModel
+from tabarena.models.realmlp.model import RealMLPModel
 
 # Get Data
 X, y = load_breast_cancer(return_X_y=True, as_frame=True)

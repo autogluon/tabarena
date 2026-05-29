@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from tabflow.cli.launch_jobs import JobManager
-from tabarena.models.lr.generate import gen_linear
+from tabarena.models.lr.hpo import gen_linear
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.benchmark.experiment.experiment_constructor import Experiment, YamlExperimentSerializer
 

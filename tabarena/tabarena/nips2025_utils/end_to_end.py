@@ -8,7 +8,7 @@ from typing_extensions import Self
 import pandas as pd
 
 from tabarena.benchmark.result import BaselineResult
-from tabarena.nips2025_utils.artifacts.method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.nips2025_utils.compare import compare, compare_on_tabarena
 from tabarena.nips2025_utils.end_to_end_single import (
     EndToEndResultsSingle,

@@ -8,8 +8,8 @@ from tabarena.benchmark.experiment.experiment_constructor import (
     YamlExperimentSerializer,
     YamlSingleExperimentSerializer,
 )
-from tabarena.models.realmlp.generate import gen_realmlp
-from tabarena.benchmark.models.ag.realmlp.realmlp_model import RealMLPModel
+from tabarena.models.realmlp.hpo import gen_realmlp
+from tabarena.models.realmlp.model import RealMLPModel
 
 
 def _as_str_path(p: str | os.PathLike) -> str:

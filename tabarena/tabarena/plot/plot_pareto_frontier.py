@@ -332,22 +332,26 @@ def plot_pareto(
     x_min, x_max = ax.get_xlim()
     y_min, y_max = ax.get_ylim()
 
+    # Extension logic: extend the dashed line past the front so it spans
+    # the whole plot. Two pieces, on opposite sides:
+    #   - Vertical drop to ``y_min`` / ``y_max`` on the "better-X" side,
+    #     anchored at the front's extreme X (``pf_X[0]``).
+    #   - Horizontal extension out to ``x_min`` / ``x_max`` on the
+    #     "worse-X" side, anchored at the front's other extreme Y
+    #     (``pf_Y[-1]``).
+    # ``get_pareto_frontier`` builds the front in the direction of the
+    # better X first, so ``pf_X[0]`` is always the better-X end (and
+    # ``pf_Y[-1]`` is the best-Y end on the opposite side). Previously
+    # the ``max_X`` branch anchored the drop at ``pf_X[-1]`` (the worse-X
+    # end), drawing the vertical drop on the wrong side of the plot.
     if max_X:
-        pf_X_first = x_min
-        pf_X_last = pf_X[-1]
-        pf_Y_first = pf_Y[0]
-        if max_Y:
-            pf_Y_last = y_min
-        else:
-            pf_Y_last = y_max
+        pf_X_first = pf_X[0]
+        pf_X_last = x_min
     else:
         pf_X_first = pf_X[0]
         pf_X_last = x_max
-        pf_Y_last = pf_Y[-1]
-        if max_Y:
-            pf_Y_first = y_min
-        else:
-            pf_Y_first = y_max
+    pf_Y_first = y_min if max_Y else y_max
+    pf_Y_last = pf_Y[-1]
 
     pf_X = [pf_X_first] + pf_X + [pf_X_last]
     pf_Y = [pf_Y_first] + pf_Y + [pf_Y_last]
