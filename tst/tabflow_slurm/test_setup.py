@@ -14,6 +14,7 @@ The task-metadata loading/filtering moved into `TabArenaMetadataBundle`
 from __future__ import annotations
 
 import pytest
+from tabarena.benchmark.experiment import TabArenaExperimentBundle
 from tabarena.benchmark.task.metadata import TabArenaMetadataBundle
 
 # Import a real submodule (not the bare `tabflow_slurm` namespace): when the package
@@ -48,8 +49,12 @@ class TestPathSetup:
         ps = PathSetup(workspace="/ws", python_path="/py", openml_cache="auto")
         assert ps.openml_cache_path == "auto"
 
-    def test_openml_cache_path_defaults_under_workspace(self):
+    def test_openml_cache_path_defaults_to_auto(self):
         ps = PathSetup(workspace="/ws", python_path="/py")
+        assert ps.openml_cache_path == "auto"
+
+    def test_openml_cache_path_none_is_under_workspace(self):
+        ps = PathSetup(workspace="/ws", python_path="/py", openml_cache=None)
         assert ps.openml_cache_path == "/ws/.openml-cache"
 
     def test_openml_cache_path_custom(self):
@@ -86,7 +91,8 @@ class TestPathSetup:
         assert str(ps.get_setup_out_path("my_bench")) == "/ws/setup_out/my_bench"
 
     def test_ensure_runtime_dirs_creates_directories(self, tmp_path):
-        ps = PathSetup(workspace=tmp_path, python_path="/py")
+        # openml_cache=None -> the cache dir is created under the workspace too.
+        ps = PathSetup(workspace=tmp_path, python_path="/py", openml_cache=None)
         ps.ensure_runtime_dirs("bench")
         assert (tmp_path / "output" / "bench").is_dir()
         assert (tmp_path / "slurm_out" / "bench").is_dir()
@@ -99,30 +105,34 @@ class TestPathSetup:
 # ---------------------------------------------------------------------------
 
 
+def _slurm(**kw) -> SlurmSetup:
+    """SlurmSetup with the (now required) cluster partitions filled in."""
+    kw.setdefault("gpu_partition", "gpu_part")
+    kw.setdefault("cpu_partition", "cpu_part")
+    kw.setdefault("extra_gres", "localtmp:100")
+    return SlurmSetup(**kw)
+
+
 class TestSlurmSetup:
-    def test_default_gpu_partition(self):
-        assert SlurmSetup().gpu_partition == "alldlc2_gpu-l40s"
-
-    def test_default_cpu_partition(self):
-        assert SlurmSetup().cpu_partition == "alldlc2_cpu-epyc9655"
-
-    def test_default_extra_gres(self):
-        assert SlurmSetup().extra_gres == "localtmp:100"
+    def test_partitions_and_gres_are_required(self):
+        # gpu_partition / cpu_partition / extra_gres have no defaults (cluster-specific).
+        with pytest.raises(TypeError):
+            SlurmSetup()
 
     def test_default_mem_per_handle_is_false(self):
-        assert SlurmSetup().mem_per_handle is False
+        assert _slurm().mem_per_handle is False
 
     def test_default_exclusive_node_is_false(self):
-        assert SlurmSetup().exclusive_node is False
+        assert _slurm().exclusive_node is False
 
     def test_default_time_limit_overhead(self):
-        assert SlurmSetup().time_limit_overhead == 1
+        assert _slurm().time_limit_overhead == 1
 
     def test_default_bundle_size(self):
-        assert SlurmSetup().bundle_size == 5
+        assert _slurm().bundle_size == 5
 
     def test_default_setup_ray_for_slurm(self):
-        assert SlurmSetup().setup_ray_for_slurm_shared_resources_environment is True
+        assert _slurm().setup_ray_for_slurm_shared_resources_environment is True
 
     def test_custom_values(self):
         ss = SlurmSetup(
@@ -148,9 +158,17 @@ class TestSlurmSetup:
 # ---------------------------------------------------------------------------
 
 
+def _resources(**kw) -> ResourcesSetup:
+    """ResourcesSetup with the (now required) compute fields filled in."""
+    kw.setdefault("num_cpus", 8)
+    kw.setdefault("num_gpus", 0)
+    kw.setdefault("memory_limit", 32)
+    return ResourcesSetup(**kw)
+
+
 class TestTimeLimitPerConfig:
     def test_no_preprocessing_overhead(self):
-        rs = ResourcesSetup(
+        rs = _resources(
             time_limit=3600,
             time_limit_for_model_agnostic_preprocessing=None,
             time_limit_with_model_agnostic_preprocessing=False,
@@ -158,7 +176,7 @@ class TestTimeLimitPerConfig:
         assert rs.time_limit_per_config == 3600
 
     def test_adds_preprocessing_time(self):
-        rs = ResourcesSetup(
+        rs = _resources(
             time_limit=3600,
             time_limit_for_model_agnostic_preprocessing=300,
             time_limit_with_model_agnostic_preprocessing=False,
@@ -166,7 +184,7 @@ class TestTimeLimitPerConfig:
         assert rs.time_limit_per_config == 3900
 
     def test_adds_constant_overhead_when_flag_true(self):
-        rs = ResourcesSetup(
+        rs = _resources(
             time_limit=3600,
             time_limit_for_model_agnostic_preprocessing=None,
             time_limit_with_model_agnostic_preprocessing=True,
@@ -174,7 +192,7 @@ class TestTimeLimitPerConfig:
         assert rs.time_limit_per_config == 3600 + 60 * 15
 
     def test_both_overheads_combined(self):
-        rs = ResourcesSetup(
+        rs = _resources(
             time_limit=3600,
             time_limit_for_model_agnostic_preprocessing=300,
             time_limit_with_model_agnostic_preprocessing=True,
@@ -182,7 +200,7 @@ class TestTimeLimitPerConfig:
         assert rs.time_limit_per_config == 3600 + 300 + 60 * 15
 
     def test_zero_time_limit(self):
-        rs = ResourcesSetup(
+        rs = _resources(
             time_limit=0,
             time_limit_for_model_agnostic_preprocessing=None,
             time_limit_with_model_agnostic_preprocessing=False,
@@ -199,7 +217,12 @@ def _benchmark_setup(**kwargs) -> TabArenaBenchmarkSetup:
     defaults = {
         "benchmark_name": "my_bench",
         "tasks_to_run_setup": TabArenaMetadataBundle(task_metadata=[]),
+        "experiment_bundle": TabArenaExperimentBundle(
+            n_random_configs=0, models=[], preprocessing_pipelines=["default"]
+        ),
         "path_setup": PathSetup(workspace="/ws", python_path="/py"),
+        "scheduler_setup": _slurm(),
+        "resources_setup": _resources(time_limit=3600),
     }
     defaults.update(kwargs)
     return TabArenaBenchmarkSetup(**defaults)

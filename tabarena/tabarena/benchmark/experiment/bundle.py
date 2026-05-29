@@ -68,7 +68,7 @@ TABPFNV2_CONSTRAINTS = ModelConstraints(
 )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TabArenaExperimentBundle:
     """Defines which models/experiments to run in a benchmark and builds them.
 
@@ -429,7 +429,7 @@ class TabArenaExperimentBundle:
             dynamic_tabarena_validation_protocol=self.dynamic_tabarena_validation_protocol,
         )
 
-@dataclass
+@dataclass(kw_only=True)
 class TabArenaV0pt1ExperimentBundle(TabArenaExperimentBundle):
     """The original TabArena-v0.1 experiment bundle, for backward compatibility."""
 

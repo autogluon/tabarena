@@ -23,6 +23,7 @@ def _generate_yaml(
     tmp_path,
     *,
     models,
+    n_random_configs: int = 50,
     time_limit: int = 123,
     num_cpus: int | None = 8,
     num_gpus: int = 0,
@@ -31,6 +32,7 @@ def _generate_yaml(
     **bundle_kwargs,
 ) -> str:
     bundle = TabArenaExperimentBundle(
+        n_random_configs=n_random_configs,
         models=models,
         preprocessing_pipelines=["tabarena_default"],
         **bundle_kwargs,
@@ -159,7 +161,12 @@ def test_build_can_disable_dynamic_validation_protocol(tmp_path):
 
 def test_bundle_model_constraints_merges_defaults_and_custom():
     custom = ModelConstraints(max_n_features=3)
-    bundle = TabArenaExperimentBundle(custom_model_constraints={"MYMODEL": custom})
+    bundle = TabArenaExperimentBundle(
+        n_random_configs=0,
+        models=[],
+        preprocessing_pipelines=["default"],
+        custom_model_constraints={"MYMODEL": custom},
+    )
     effective = bundle.model_constraints
     assert effective["MYMODEL"] is custom  # custom override present
     assert "TABICL" in effective  # default policy preserved
