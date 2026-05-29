@@ -24,9 +24,9 @@ from tabarena.utils.ray_utils import ray_map_list, to_batch_list
 class PathSetup:
     """Configure paths for the benchmark.
 
-    Only two paths are required from the user: the `workspace` directory and
-    the `run_script` to launch a single experiment. Everything else is derived
-    from these (and can be overridden individually if needed).
+    The user provides the `workspace` directory plus three direct paths
+    (`run_script`, `submit_script`, `python_path`); `openml_cache` is optional.
+    All per-benchmark output/log/setup locations are derived from `workspace`.
 
     The workspace is a persistent directory that all SLURM jobs can access. We
     create and use the following structure inside it:
@@ -38,8 +38,6 @@ class PathSetup:
             - setup_out         -- generated configs YAML + SLURM job JSON
                                    (one `benchmark_name` subfolder each)
             - .openml-cache     -- the OpenML cache (unless overridden)
-
-    Both the run script and the SLURM submit script are given as direct paths.
     """
 
     workspace: str | Path
@@ -53,8 +51,8 @@ class PathSetup:
     """Path to the SLURM (array) submit script invoked by `sbatch`
     (e.g. `.../tabflow_slurm/submit_template.sh`)."""
     python_path: str | Path
-    """Python executable to use for the SLURM jobs. Defaults to the interpreter
-    running this setup script, which is assumed to be the cluster venv."""
+    """Python executable to use for the SLURM jobs. Should point to the cluster
+    venv (e.g. pass `sys.executable` if this setup runs inside that venv)."""
     openml_cache: str | Path | Literal["auto"] | None = None
     """OpenML cache directory, used to store dataset and task data from OpenML.
 
@@ -466,13 +464,12 @@ class TasksToRunSetup:
     """
 
     task_metadata: Literal["tabarena-v0.1"] | pd.DataFrame | list[TabArenaTaskMetadata] | str | Path
-    """Metadat that defines the tasks to benchmark.
+    """Metadata that defines the tasks to benchmark.
 
-    If str, we assume it is the path to a CSV file, which we load as DataFrame.
-
-    This is either a pandas DataFrame or a TabArenaTaskMetadata object.
-    We assume the DataFrame is created from a TabArenaTaskMetadata (or has all columns
-    needed to parse each row via TabArenaTaskMetadata.from_row).
+    Accepts the `"tabarena-v0.1"` literal, a pandas DataFrame, a list of
+    TabArenaTaskMetadata, or a str/Path to a CSV file (loaded as a DataFrame).
+    We assume any DataFrame is created from a TabArenaTaskMetadata (or has all
+    columns needed to parse each row via TabArenaTaskMetadata.from_row).
     """
     problem_types_to_run: list[str] = field(
         default_factory=lambda: [
@@ -1088,8 +1085,8 @@ class TabArenaBenchmarkSetup:
     task metadata and any filters applied on top of it."""
 
     path_setup: PathSetup
-    """Contains all paths related to the benchmark. Requires at least a
-    `workspace` directory and a `run_script` path."""
+    """Contains all paths related to the benchmark. Requires a `workspace`
+    directory plus the `run_script`, `submit_script`, and `python_path`."""
     scheduler_setup: SchedulerSetup = field(default_factory=SlurmSetup)
     """Scheduler-specific config for the benchmark (defaults to SLURM)."""
     resources_setup: ResourcesSetup = field(default_factory=ResourcesSetup)
@@ -1138,7 +1135,7 @@ class TabArenaBenchmarkSetup:
         """Resolve the work to run for this benchmark.
 
         Pipeline:
-            1. Create the output / log / OpenML-cache directories if missing.
+            1. Create the output / log / setup / OpenML-cache directories if missing.
             2. Load task metadata + generate the experiment configs YAML.
             3. Enumerate the cartesian product (task split x config) as
                candidate items.
