@@ -4,7 +4,10 @@ import argparse
 
 import pytest
 
-pytest.importorskip("tabflow_slurm", reason="tabflow_slurm is not installed")
+# Import a real submodule (not the bare `tabflow_slurm` namespace): when the package
+# is not installed, the repo-root workspace dir is importable as an empty namespace
+# package, so `importorskip("tabflow_slurm")` would NOT skip. A submodule does.
+pytest.importorskip("tabflow_slurm.run_tabarena_experiment", reason="tabflow_slurm is not installed")
 
 from tabflow_slurm.run_tabarena_experiment import (  # noqa: E402
     _parse_int_list,

@@ -16,7 +16,10 @@ from __future__ import annotations
 import pytest
 from tabarena.benchmark.task.metadata import TabArenaMetadataBundle
 
-pytest.importorskip("tabflow_slurm", reason="tabflow_slurm is not installed")
+# Import a real submodule (not the bare `tabflow_slurm` namespace): when the package
+# is not installed, the repo-root workspace dir is importable as an empty namespace
+# package, so `importorskip("tabflow_slurm")` would NOT skip. A submodule does.
+pytest.importorskip("tabflow_slurm.setup", reason="tabflow_slurm is not installed")
 
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup  # noqa: E402
 from tabflow_slurm.setup.paths import PathSetup  # noqa: E402
