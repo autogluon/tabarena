@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from tabflow_slurm.setup import (
     JobCandidate,
-    ModelConstraints,
-    ModelPipelinesToRunSetup,
     PathSetup,
     ResourcesSetup,
     SchedulerSetup,
@@ -29,8 +27,6 @@ from tabflow_slurm.setup import (
 
 __all__ = [
     "JobCandidate",
-    "ModelConstraints",
-    "ModelPipelinesToRunSetup",
     "PathSetup",
     "ResourcesSetup",
     "SchedulerSetup",

@@ -13,16 +13,12 @@ from __future__ import annotations
 
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
 from tabflow_slurm.setup.candidates import JobCandidate, should_run_job, should_run_job_batch
-from tabflow_slurm.setup.constraints import ModelConstraints
-from tabflow_slurm.setup.models import ModelPipelinesToRunSetup
 from tabflow_slurm.setup.paths import PathSetup, get_run_script_path, get_submit_script_path
 from tabflow_slurm.setup.resources import ResourcesSetup
 from tabflow_slurm.setup.scheduler import SchedulerSetup, SlurmSetup
 
 __all__ = [
     "JobCandidate",
-    "ModelConstraints",
-    "ModelPipelinesToRunSetup",
     "PathSetup",
     "ResourcesSetup",
     "SchedulerSetup",

@@ -11,8 +11,8 @@ from tabflow_slurm.run_tabarena_experiment import (  # noqa: E402
     _parse_int_or_none,
     _parse_task_id,
     _str2bool,
-    setup_slurm_job,
 )
+from tabflow_slurm.slurm_utils import setup_slurm_job  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # _str2bool

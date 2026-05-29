@@ -34,9 +34,6 @@ NUM_GPUS=$(jq -r '.defaults.num_gpus' "$JSON_FILE")
 MEMORY_LIMIT=$(jq -r '.defaults.memory_limit' "$JSON_FILE")
 SETUP_RAY=$(jq -r '.defaults.setup_ray_for_slurm_shared_resources_environment' "$JSON_FILE")
 IGNORE_CACHE=$(jq -r '.defaults.ignore_cache' "$JSON_FILE")
-DYNAMIC_TABARENA_VALIDATION_PROTOCOL=$(
-  jq -r '.defaults.dynamic_tabarena_validation_protocol // false' "$JSON_FILE"
-)
 
 echo "Python Path: $PYTHON_PATH"
 echo "Run Script: $RUNSCRIPT"
@@ -48,7 +45,6 @@ echo "Number of GPUs: $NUM_GPUS"
 echo "Memory Limit: $MEMORY_LIMIT"
 echo "Setup Ray for SLURM Shared Resources Environment: $SETUP_RAY"
 echo "Ignore Cache: $IGNORE_CACHE"
-echo "Dynamic TabArena Validation Protocol: $DYNAMIC_TABARENA_VALIDATION_PROTOCOL"
 
 run_one() {
     local TASK_ID="$1"
@@ -69,8 +65,7 @@ run_one() {
         --num_gpus $NUM_GPUS \
         --memory_limit $MEMORY_LIMIT \
         --setup_ray_for_slurm_shared_resources_environment $SETUP_RAY \
-        --ignore_cache $IGNORE_CACHE \
-        --dynamic_tabarena_validation_protocol $DYNAMIC_TABARENA_VALIDATION_PROTOCOL
+        --ignore_cache $IGNORE_CACHE
 }
 
 # Bundle format: each job has `items: [...]` with one entry per

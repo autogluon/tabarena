@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import ray
+from tabarena.benchmark.experiment import TabArenaExperimentBundle
 from tabarena.utils.ray_utils import ray_map_list, to_batch_list
 
 from tabflow_slurm.setup.candidates import JobCandidate, should_run_job_batch
-from tabflow_slurm.setup.models import ModelPipelinesToRunSetup
 from tabflow_slurm.setup.resources import ResourcesSetup
 from tabflow_slurm.setup.scheduler import SchedulerSetup, SlurmSetup
 
@@ -41,15 +41,13 @@ class TabArenaBenchmarkSetup:
     """Scheduler-specific config for the benchmark (defaults to SLURM)."""
     resources_setup: ResourcesSetup = field(default_factory=ResourcesSetup)
     """Compute and time-budget resources for the benchmark jobs."""
-    model_pipelines_to_run_setup: ModelPipelinesToRunSetup = field(default_factory=ModelPipelinesToRunSetup)
-    """Defines which models and preprocessing pipelines to run in the benchmark,
-    along with related fit/validation behavior."""
+    experiment_bundle: TabArenaExperimentBundle = field(default_factory=TabArenaExperimentBundle)
+    """Defines which models / experiments to run in the benchmark and builds them
+    (models, per-model config counts, preprocessing pipelines, fold fitting,
+    per-model constraints, and the dynamic validation protocol)."""
 
     # Misc Settings
     # -------------
-    shuffle_features: bool = True
-    """Whether to shuffle the features of the datasets. Only here for backward compatibility
-    with the original TabArena setup, but not recommended to change."""
     parallel_benchmark_name: str | None = None
     """Set this is to some string value to make sure you can run parallel
     jobs for the same benchmark name. This ensures that the config and job .yaml/.json
@@ -92,14 +90,17 @@ class TabArenaBenchmarkSetup:
         """
         self.path_setup.ensure_runtime_dirs(self.benchmark_name)
         task_metadata_list = self.tasks_to_run_setup.load_task_metadata()
-        configs = self.model_pipelines_to_run_setup.generate_configs_yaml(
+        configs = self.experiment_bundle.generate_configs_yaml(
             configs_path=self.path_setup.get_configs_path(
                 benchmark_name=self.benchmark_name,
                 safe_benchmark_name=self._parallel_safe_benchmark_name,
             ),
-            resources_setup=self.resources_setup,
+            time_limit=self.resources_setup.time_limit,
+            num_cpus=self.resources_setup.num_cpus,
+            num_gpus=self.resources_setup.effective_num_gpus_model,
+            memory_limit=self.resources_setup.effective_memory_limit,
+            time_limit_with_preprocessing=self.resources_setup.time_limit_with_model_agnostic_preprocessing,
             verbosity=self.verbosity,
-            shuffle_features=self.shuffle_features,
         )
 
         candidates = self._enumerate_candidates(task_metadata_list, configs)
@@ -156,7 +157,7 @@ class TabArenaBenchmarkSetup:
             num_cpus_per_worker=1,
             func_kwargs={
                 "output_dir": self.path_setup.get_output_path(self.benchmark_name),
-                "model_constraints": self.model_pipelines_to_run_setup.model_constraints,
+                "model_constraints": self.experiment_bundle.model_constraints,
                 "ignore_cache": self.ignore_cache,
             },
             track_progress=True,
@@ -197,7 +198,6 @@ class TabArenaBenchmarkSetup:
             "num_gpus": self.resources_setup.num_gpus,
             "memory_limit": self.resources_setup.effective_memory_limit,
             "ignore_cache": self.ignore_cache,
-            "dynamic_tabarena_validation_protocol": self.model_pipelines_to_run_setup.dynamic_tabarena_validation_protocol,
             **self.scheduler_setup.get_extra_default_args(),
         }
 

@@ -11,7 +11,7 @@ from tabarena.benchmark.models.model_registry import infer_model_cls
 from tabarena.utils.cache import CacheFunctionPickle
 
 if TYPE_CHECKING:
-    from tabflow_slurm.setup.constraints import ModelConstraints
+    from tabarena.benchmark.experiment import ModelConstraints
 
 
 @dataclass(frozen=True)
