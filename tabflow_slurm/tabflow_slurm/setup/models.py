@@ -179,7 +179,7 @@ class ModelPipelinesToRunSetup:
         resources_setup: ResourcesSetup,
     ) -> list:
         """Build the full list of experiment configs (one per model x pipeline x random config)."""
-        method_kwargs = self._enrich_method_kwargs(base_method_kwargs)
+        method_kwargs = self._enrich_method_kwargs(base_method_kwargs, resources_setup=resources_setup)
         self._print_experiment_summary(method_kwargs)
         return [
             exp
@@ -187,7 +187,7 @@ class ModelPipelinesToRunSetup:
             for exp in self._build_experiments_for_pipeline(pipeline_name, method_kwargs, resources_setup)
         ]
 
-    def _enrich_method_kwargs(self, base_method_kwargs: dict) -> dict:
+    def _enrich_method_kwargs(self, base_method_kwargs: dict, *, resources_setup: ResourcesSetup) -> dict:
         """Layer this dataclass's model-level overrides on top of the bench-level base."""
         mk = deepcopy(base_method_kwargs)
         if self.model_artifacts_base_path is not None:
@@ -200,6 +200,10 @@ class ModelPipelinesToRunSetup:
             mk["extra_model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
         if self.model_verbosity is not None:
             mk["extra_model_hyperparameters"]["ag.verbosity"] = self.model_verbosity
+        # Bake compute resources into the experiment
+        mk["fit_kwargs"]["num_cpus"] = resources_setup.num_cpus
+        mk["fit_kwargs"]["num_gpus"] = resources_setup.effective_num_gpus_model
+        mk["fit_kwargs"]["memory_limit"] = resources_setup.effective_memory_limit
         return mk
 
     def _print_experiment_summary(self, method_kwargs: dict) -> None:
@@ -220,16 +224,19 @@ class ModelPipelinesToRunSetup:
         """Per-pipeline overrides + per-model dispatch."""
         pipeline_kwargs = deepcopy(method_kwargs)
         name_id_suffix = ""
+        preprocessing_pipeline = None
         if self.model_agnostic_preprocessing:
             if pipeline_name != "default":
-                pipeline_kwargs["preprocessing_pipeline"] = pipeline_name
+                preprocessing_pipeline = pipeline_name
             if pipeline_name != "tabarena_default":
                 name_id_suffix = f"_{pipeline_name}"
 
         experiments: list = []
         for model in self.models:
             experiments.extend(
-                self._build_experiments_for_model(model, pipeline_kwargs, name_id_suffix, resources_setup)
+                self._build_experiments_for_model(
+                    model, pipeline_kwargs, name_id_suffix, resources_setup, preprocessing_pipeline
+                )
             )
         return experiments
 
@@ -239,6 +246,7 @@ class ModelPipelinesToRunSetup:
         pipeline_method_kwargs: dict,
         name_id_suffix: str,
         resources_setup: ResourcesSetup,
+        preprocessing_pipeline: str | None,
     ) -> list:
         if isinstance(model, Experiment):
             return [model]
@@ -256,6 +264,7 @@ class ModelPipelinesToRunSetup:
             pipeline_method_kwargs=pipeline_method_kwargs,
             name_id_suffix=name_id_suffix,
             resources_setup=resources_setup,
+            preprocessing_pipeline=preprocessing_pipeline,
         )
 
     @staticmethod
@@ -291,6 +300,7 @@ class ModelPipelinesToRunSetup:
         pipeline_method_kwargs: dict,
         name_id_suffix: str,
         resources_setup: ResourcesSetup,
+        preprocessing_pipeline: str | None = None,
         default_seed_config: str = "fold-config-wise",
     ) -> list:
         from tabarena.models.utils import get_configs_generator_from_name
@@ -312,4 +322,6 @@ class ModelPipelinesToRunSetup:
             method_kwargs=pipeline_method_kwargs,
             time_limit=resources_setup.time_limit,
             time_limit_with_preprocessing=resources_setup.time_limit_with_model_agnostic_preprocessing,
+            preprocessing_pipeline=preprocessing_pipeline,
+            fold_fitting_strategy="sequential_local" if self.sequential_local_fold_fitting else None,
         )

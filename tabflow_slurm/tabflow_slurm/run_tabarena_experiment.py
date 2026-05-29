@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import logging
 import shutil
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -97,119 +96,6 @@ def setup_slurm_job(
     return ray_dir
 
 
-def _parse_yaml_config(
-    *,
-    configs_yaml_file: str,
-    config_index: list[int] | None,
-    num_cpus: int,
-    num_gpus: int,
-    memory_limit: int,
-    sequential_local_fold_fitting: bool,
-) -> list:
-    """Parse the YAML configuration file and return a list of method configurations to run.
-
-    Parameters
-    ----------
-    configs_yaml_file
-        The path to the YAML file containing the configurations of all methods to run for the experiment.
-    config_index
-        The index of the configuration from the YAML file to run. If None, all configurations will be run.
-    num_cpus
-        The number of CPUs to use for the experiment.
-    num_gpus
-        The number of GPUs to use for the experiment.
-    memory_limit
-        The memory limit to use for the experiment.
-    sequential_local_fold_fitting
-        Whether to force to use sequential local fold fitting or not.
-
-    Returns:
-    -------
-    methods: list
-        Parsed TabArena experiment configurations to run, with resources and special model cases handled.
-    """
-    from tabarena.benchmark.experiment.experiment_constructor import (
-        YamlExperimentSerializer,
-        YamlSingleExperimentSerializer,
-    )
-
-    yaml_out = YamlExperimentSerializer.load_yaml(path=configs_yaml_file)
-    methods = []
-    for m_i, method in enumerate(yaml_out):
-        if (config_index is not None) and (m_i not in config_index):
-            continue
-
-        if method["type"] == "AGExperiment":
-            method["fit_kwargs"]["num_cpus"] = num_cpus
-            method["fit_kwargs"]["num_gpus"] = num_gpus
-            method["fit_kwargs"]["memory_limit"] = memory_limit
-            methods.append(YamlSingleExperimentSerializer.parse_method(method))
-            continue
-
-        if "method_kwargs" not in method:
-            method["method_kwargs"] = {}
-
-        # Logic to handle resources and special model cases
-        if "fit_kwargs" not in method["method_kwargs"]:
-            method["method_kwargs"]["fit_kwargs"] = {}
-        method["method_kwargs"]["fit_kwargs"]["num_cpus"] = num_cpus
-        method["method_kwargs"]["fit_kwargs"]["num_gpus"] = num_gpus
-        method["method_kwargs"]["fit_kwargs"]["memory_limit"] = memory_limit
-
-        # `model_hyperparameters` is an AGModelExperiment field; injecting it on
-        # plain `Experiment` (e.g. method_cls=TabPFNPlus) trips a TypeError in
-        # `Experiment.__init__`. Only set it when actually needed.
-        if sequential_local_fold_fitting:
-            if "model_hyperparameters" not in method:
-                method["model_hyperparameters"] = {}
-            if "ag_args_ensemble" not in method["model_hyperparameters"]:
-                method["model_hyperparameters"]["ag_args_ensemble"] = {}
-            method["model_hyperparameters"]["ag_args_ensemble"]["fold_fitting_strategy"] = "sequential_local"
-
-        methods.append(YamlSingleExperimentSerializer.parse_method(method))
-
-    # TODO: Update
-    #   - Make this a general purpose logic inside of TabArena code base to edit feature generator
-    for m_i in range(len(methods)):
-        preprocessing_name = methods[m_i].method_kwargs.pop("preprocessing_pipeline", None)
-
-        if (preprocessing_name is None) or (preprocessing_name == "default"):
-            continue
-
-        if preprocessing_name == "tabarena_default":
-            print("=== Using new TabArena default preprocessing pipeline for method!")
-            from tabarena.benchmark.preprocessing import (
-                TabArenaModelAgnosticPreprocessing,
-                TabArenaModelSpecificPreprocessing,
-            )
-
-            new_experiment = deepcopy(methods[m_i])
-            new_experiment.method_kwargs["fit_kwargs"]["feature_generator_cls"] = TabArenaModelAgnosticPreprocessing
-            new_experiment.method_kwargs["fit_kwargs"]["feature_generator_kwargs"] = {}
-            new_experiment.method_kwargs["model_hyperparameters"] = (
-                TabArenaModelSpecificPreprocessing.add_to_hyperparameters(
-                    new_experiment.method_kwargs["model_hyperparameters"]
-                )
-            )
-        elif preprocessing_name.startswith("FSBench__"):
-            # Logic for feature selection benchmark
-            from tabarena.benchmark.feature_selection_methods.feature_selection_benchmark_utils import (
-                apply_fs_bench_preprocessing,
-            )
-
-            new_experiment = apply_fs_bench_preprocessing(
-                preprocessing_name=preprocessing_name,
-                experiment=methods[m_i],
-            )
-
-        else:
-            raise ValueError(f"Preprocessing pipeline name '{preprocessing_name}' not recognized.")
-
-        methods[m_i] = new_experiment
-
-    return methods
-
-
 def _parse_task_id(task_id_str: str) -> int | object:
     """Parse the task id from a string and return either an int or a TabArena UserTask object.
 
@@ -243,13 +129,12 @@ def run_experiment(
     config_index: list[int] | None,
     output_dir: str,
     ignore_cache: bool,
-    num_cpus: int,
-    num_gpus: int,
-    memory_limit: int,
-    sequential_local_fold_fitting: bool,
     dynamic_tabarena_validation_protocol: bool,
 ):
     """Run an individual experiment for a given task id and dataset name.
+
+    Compute resources, fold-fitting strategy and preprocessing are baked into
+    each Experiment at build time, so they are no longer passed here.
 
     Parameters
     ----------
@@ -270,26 +155,13 @@ def run_experiment(
     ignore_cache : bool
         Whether to ignore the cache or not. If True, the cache will be ignored and the experiment will be
         run from scratch and potentially overwrite existing results.
-    num_cpus : int
-        The number of CPUs to use for the experiment.
-    num_gpus : int
-        The number of GPUs to use for the experiment.
-    memory_limit : int
-        The memory limit to use for the experiment.
-    sequential_local_fold_fitting : bool
-        Whether to use sequential local fold fitting or not. If True, the experiment will be run without
-        Ray. This might create a large speedup for some models.
     """
-    from tabarena.benchmark.experiment import run_experiments_new
+    from tabarena.benchmark.experiment import YamlExperimentSerializer, run_experiments_new
 
     task_id_or_object = _parse_task_id(task_id)
-    methods = _parse_yaml_config(
-        configs_yaml_file=configs_yaml_file,
+    methods = YamlExperimentSerializer.from_yaml(
+        path=configs_yaml_file,
         config_index=config_index,
-        num_cpus=num_cpus,
-        num_gpus=num_gpus,
-        memory_limit=memory_limit,
-        sequential_local_fold_fitting=sequential_local_fold_fitting,
     )
 
     results_lst: dict[str, Any] = run_experiments_new(
@@ -370,13 +242,6 @@ if __name__ == "__main__":
         help="Whether to ignore the cache or not. If True, the cache will be ignored and "
         "the experiment will be run from scratch and potentially overwrite existing results.",
     )
-    parser.add_argument(
-        "--sequential_local_fold_fitting",
-        type=_str2bool,
-        default=False,
-        help="Whether to force to use sequential local fold fitting or not. If True, the "
-        "experiment will be run without Ray. This might create a large speedup for some models.",
-    )
     # Experiment environment settings
     parser.add_argument(
         "--openml_cache_dir",
@@ -405,14 +270,6 @@ if __name__ == "__main__":
         default=0,
     )
     parser.add_argument(
-        "--num_gpus_model",
-        type=_parse_int_or_none,
-        help="Number of GPUs passed to AutoGluon for model fitting. "
-        "If None, defaults to --num_gpus. Set to 0 to reserve the GPU "
-        "for preprocessing only (e.g. text embedding) while fitting models on CPU.",
-        default=None,
-    )
-    parser.add_argument(
         "--memory_limit",
         type=_parse_int_or_none,
         help="Memory limit to use for the experiment. Given in GB. If None, no memory limit will be set.",
@@ -436,20 +293,17 @@ if __name__ == "__main__":
 
     num_cpus = args.num_cpus
     if num_cpus is None:
-        from autogluon.common.utils.cpu_utils import get_available_cpu_count
+        from tabarena.utils.resources import detect_num_cpus
 
-        num_cpus = get_available_cpu_count(only_physical_cores=False)
+        num_cpus = detect_num_cpus()
         print(f"Number of CPUs not provided, using detected number of CPUs: {num_cpus}")
 
     memory_limit = args.memory_limit
     if memory_limit is None:
-        from autogluon.common.utils.resource_utils import ResourceManager
+        from tabarena.utils.resources import detect_memory_limit_gb
 
-        memory_limit = int(ResourceManager.get_memory_size(format="GB"))
+        memory_limit = detect_memory_limit_gb()
         print(f"Memory limit not provided, using detected memory size: {memory_limit} GB")
-
-    num_gpus_model = args.num_gpus_model if args.num_gpus_model is not None else args.num_gpus
-    print(f"GPUs for node/Ray: {args.num_gpus}, GPUs for model fitting: {num_gpus_model}")
 
     ray_temp_dir = setup_slurm_job(
         openml_cache_dir=args.openml_cache_dir,
@@ -467,10 +321,6 @@ if __name__ == "__main__":
             configs_yaml_file=args.configs_yaml_file,
             output_dir=args.output_dir,
             ignore_cache=args.ignore_cache,
-            num_cpus=num_cpus,
-            num_gpus=num_gpus_model,
-            memory_limit=memory_limit,
-            sequential_local_fold_fitting=args.sequential_local_fold_fitting,
             dynamic_tabarena_validation_protocol=args.dynamic_tabarena_validation_protocol,
         )
     finally:

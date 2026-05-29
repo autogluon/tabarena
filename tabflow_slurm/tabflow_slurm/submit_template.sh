@@ -31,11 +31,9 @@ CONFIGS_YAML_FILE=$(jq -r '.defaults.configs_yaml_file' "$JSON_FILE")
 OUTPUT_DIR=$(jq -r '.defaults.output_dir' "$JSON_FILE")
 NUM_CPUS=$(jq -r '.defaults.num_cpus' "$JSON_FILE")
 NUM_GPUS=$(jq -r '.defaults.num_gpus' "$JSON_FILE")
-NUM_GPUS_MODEL=$(jq -r '.defaults.num_gpus_model' "$JSON_FILE")
 MEMORY_LIMIT=$(jq -r '.defaults.memory_limit' "$JSON_FILE")
 SETUP_RAY=$(jq -r '.defaults.setup_ray_for_slurm_shared_resources_environment' "$JSON_FILE")
 IGNORE_CACHE=$(jq -r '.defaults.ignore_cache' "$JSON_FILE")
-SEQUENTIAL_LOCAL_FOLD_FITTING=$(jq -r '.defaults.sequential_local_fold_fitting' "$JSON_FILE")
 DYNAMIC_TABARENA_VALIDATION_PROTOCOL=$(
   jq -r '.defaults.dynamic_tabarena_validation_protocol // false' "$JSON_FILE"
 )
@@ -47,11 +45,9 @@ echo "Configs YAML File: $CONFIGS_YAML_FILE"
 echo "Output Directory: $OUTPUT_DIR"
 echo "Number of CPUs: $NUM_CPUS"
 echo "Number of GPUs: $NUM_GPUS"
-echo "Number of GPUs for model fitting: $NUM_GPUS_MODEL"
 echo "Memory Limit: $MEMORY_LIMIT"
 echo "Setup Ray for SLURM Shared Resources Environment: $SETUP_RAY"
 echo "Ignore Cache: $IGNORE_CACHE"
-echo "Sequential Local Fold Fitting: $SEQUENTIAL_LOCAL_FOLD_FITTING"
 echo "Dynamic TabArena Validation Protocol: $DYNAMIC_TABARENA_VALIDATION_PROTOCOL"
 
 run_one() {
@@ -71,11 +67,9 @@ run_one() {
         --output_dir $OUTPUT_DIR \
         --num_cpus $NUM_CPUS \
         --num_gpus $NUM_GPUS \
-        --num_gpus_model $NUM_GPUS_MODEL \
         --memory_limit $MEMORY_LIMIT \
         --setup_ray_for_slurm_shared_resources_environment $SETUP_RAY \
         --ignore_cache $IGNORE_CACHE \
-        --sequential_local_fold_fitting $SEQUENTIAL_LOCAL_FOLD_FITTING \
         --dynamic_tabarena_validation_protocol $DYNAMIC_TABARENA_VALIDATION_PROTOCOL
 }
 

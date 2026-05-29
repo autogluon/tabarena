@@ -62,3 +62,8 @@ class ResourcesSetup:
     def effective_memory_limit(self) -> int | None:
         """Memory limit reported to models (honors the `fake_memory_for_estimates` override)."""
         return self.fake_memory_for_estimates if self.fake_memory_for_estimates is not None else self.memory_limit
+
+    @property
+    def effective_num_gpus_model(self) -> int:
+        """Number of GPUs used for model fitting (`num_gpus_model`, falling back to `num_gpus`)."""
+        return self.num_gpus_model if self.num_gpus_model is not None else self.num_gpus

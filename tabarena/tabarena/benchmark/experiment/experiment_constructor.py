@@ -109,6 +109,7 @@ class Experiment:
         *,
         experiment_cls: Type[ExperimentRunner] = OOFExperimentRunner,
         experiment_kwargs: dict = None,
+        preprocessing_pipeline: str | None = None,
     ):
         if experiment_kwargs is None:
             experiment_kwargs = {}
@@ -123,6 +124,9 @@ class Experiment:
         self.method_kwargs = method_kwargs
         self.experiment_cls = experiment_cls
         self.experiment_kwargs = experiment_kwargs
+        # Name of an optional preprocessing pipeline to apply, resolved lazily at
+        # run time via `_resolve_preprocessing` (see that method).
+        self.preprocessing_pipeline = preprocessing_pipeline
 
     def construct_method(self, problem_type: str, eval_metric) -> AbstractExecModel:
         return self.method_cls(
@@ -144,19 +148,21 @@ class Experiment:
     ) -> dict:
         if cacher is None:
             cacher = CacheFunctionDummy()
+        # Resolve the preprocessing pipeline (if any) into a ready-to-run experiment.
+        resolved = self._resolve_preprocessing()
         if task is not None:
             out = cacher.cache(
-                fun=self.experiment_cls.init_and_run,
+                fun=resolved.experiment_cls.init_and_run,
                 fun_kwargs=dict(
-                    method_cls=self.method_cls,
+                    method_cls=resolved.method_cls,
                     task=task,
                     fold=fold,
                     repeat=repeat,
                     sample=sample,
                     task_name=task_name,
-                    method=self.name,
-                    fit_args=self.method_kwargs,
-                    **self.experiment_kwargs,
+                    method=resolved.name,
+                    fit_args=self._autodetect_resources(resolved.method_kwargs),
+                    **resolved.experiment_kwargs,
                     **experiment_kwargs,
                 ),
                 ignore_cache=ignore_cache,
@@ -166,6 +172,90 @@ class Experiment:
             out = cacher.cache(fun=None, fun_kwargs=None, ignore_cache=ignore_cache)
         return out
 
+    def _resolve_preprocessing(self) -> Experiment:
+        """Resolve `self.preprocessing_pipeline` into a ready-to-run Experiment.
+
+        Returns `self` when there is nothing to resolve; otherwise returns a
+        deep-copied Experiment with the pipeline applied and
+        `preprocessing_pipeline` cleared.
+        """
+        pipeline = self.preprocessing_pipeline
+        if pipeline is None or pipeline == "default":
+            return self
+
+        if pipeline == "tabarena_default":
+            from tabarena.benchmark.preprocessing import (
+                TabArenaModelAgnosticPreprocessing,
+                TabArenaModelSpecificPreprocessing,
+            )
+
+            resolved = copy.deepcopy(self)
+            resolved.preprocessing_pipeline = None
+            resolved.method_kwargs["fit_kwargs"]["feature_generator_cls"] = TabArenaModelAgnosticPreprocessing
+            resolved.method_kwargs["fit_kwargs"]["feature_generator_kwargs"] = {}
+            resolved.method_kwargs["model_hyperparameters"] = TabArenaModelSpecificPreprocessing.add_to_hyperparameters(
+                resolved.method_kwargs["model_hyperparameters"]
+            )
+            return resolved
+
+        if pipeline.startswith("FSBench__"):
+            # Logic for the (experimental) feature selection benchmark.
+            from tabarena.benchmark.feature_selection_methods.feature_selection_benchmark_utils import (
+                apply_fs_bench_preprocessing,
+            )
+
+            resolved = apply_fs_bench_preprocessing(preprocessing_name=pipeline, experiment=self)
+            resolved.preprocessing_pipeline = None
+            return resolved
+
+        raise ValueError(f"Preprocessing pipeline name '{pipeline}' not recognized.")
+
+    def set_resources(
+        self,
+        *,
+        num_cpus: int | None = None,
+        num_gpus: int = 0,
+        memory_limit: int | None = None,
+    ) -> None:
+        """Bake compute resources into this experiment's ``fit_kwargs``.
+
+        Useful for attaching resources to a manually-built Experiment (the
+        benchmark builder does the equivalent at construction time). ``num_cpus``
+        and ``memory_limit`` may be left ``None`` to request run-time
+        auto-detection of the node's resources (see ``_autodetect_resources``).
+        """
+        fit_kwargs = self.method_kwargs.setdefault("fit_kwargs", {})
+        fit_kwargs["num_cpus"] = num_cpus
+        fit_kwargs["num_gpus"] = num_gpus
+        fit_kwargs["memory_limit"] = memory_limit
+
+    @staticmethod
+    def _autodetect_resources(method_kwargs: dict) -> dict:
+        """Return ``method_kwargs`` with any ``None`` compute resources auto-detected.
+
+        A serialized experiment can carry ``num_cpus=None`` / ``memory_limit=None``
+        to mean "detect on whatever node I run on", preserving per-node
+        auto-detection while keeping the experiment self-contained. Returns the
+        input unchanged when there is nothing to detect (no copy); otherwise a
+        deep-copied ``method_kwargs`` with the detected values filled in.
+        """
+        fit_kwargs = method_kwargs.get("fit_kwargs") or {}
+        detect_cpus = fit_kwargs.get("num_cpus", 0) is None
+        detect_memory = fit_kwargs.get("memory_limit", 0) is None
+        if not (detect_cpus or detect_memory):
+            return method_kwargs
+
+        from tabarena.utils.resources import detect_memory_limit_gb, detect_num_cpus
+
+        method_kwargs = copy.deepcopy(method_kwargs)
+        fit_kwargs = method_kwargs["fit_kwargs"]
+        if detect_cpus:
+            fit_kwargs["num_cpus"] = detect_num_cpus()
+            print(f"num_cpus not provided, using detected number of CPUs: {fit_kwargs['num_cpus']}")
+        if detect_memory:
+            fit_kwargs["memory_limit"] = detect_memory_limit_gb()
+            print(f"memory_limit not provided, using detected memory size: {fit_kwargs['memory_limit']} GB")
+        return method_kwargs
 
     def load_validation_split_metadata(
             self,
@@ -410,6 +500,7 @@ class AGModelExperiment(Experiment):
         method_kwargs: dict = None,
         experiment_kwargs: dict = None,
         time_limit_with_preprocessing: bool = False,
+        preprocessing_pipeline: str | None = None,
     ):
         if method_kwargs is None:
             method_kwargs = {}
@@ -441,6 +532,7 @@ class AGModelExperiment(Experiment):
             },
             experiment_cls=self._experiment_cls,
             experiment_kwargs=experiment_kwargs,
+            preprocessing_pipeline=preprocessing_pipeline,
         )
 
     def _to_yaml_dict(self, locals: dict) -> dict:
@@ -541,6 +633,7 @@ class AGModelBagExperiment(AGModelExperiment):
         experiment_kwargs: dict = None,
         time_limit_with_preprocessing: bool = False,
         extra_model_hyperparameters: dict = None,
+        preprocessing_pipeline: str | None = None,
     ):
         if method_kwargs is None:
             method_kwargs = {}
@@ -590,6 +683,7 @@ class AGModelBagExperiment(AGModelExperiment):
             method_kwargs=method_kwargs,
             experiment_kwargs=experiment_kwargs,
             time_limit_with_preprocessing=time_limit_with_preprocessing,
+            preprocessing_pipeline=preprocessing_pipeline,
         )
 
 
@@ -645,11 +739,19 @@ class YamlSingleExperimentSerializer:
 
 class YamlExperimentSerializer:
     @classmethod
-    def from_yaml(cls, path: str, context=None) -> list[Experiment]:
+    def from_yaml(cls, path: str, context=None, config_index: list[int] | None = None) -> list[Experiment]:
+        """Load experiments from a YAML file.
+
+        If `config_index` is given, only the experiments at those indices
+        (into the file's `methods` list) are parsed and returned; otherwise all
+        experiments are returned.
+        """
         yaml_out = cls.load_yaml(path=path)
 
         experiments = []
-        for experiment in yaml_out:
+        for m_i, experiment in enumerate(yaml_out):
+            if (config_index is not None) and (m_i not in config_index):
+                continue
             experiments.append(
                 YamlSingleExperimentSerializer.parse_method(
                     experiment, context=context

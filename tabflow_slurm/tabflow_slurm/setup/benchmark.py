@@ -195,10 +195,8 @@ class TabArenaBenchmarkSetup:
             "output_dir": self.path_setup.get_output_path(self.benchmark_name),
             "num_cpus": self.resources_setup.num_cpus,
             "num_gpus": self.resources_setup.num_gpus,
-            "num_gpus_model": self.resources_setup.num_gpus_model,
             "memory_limit": self.resources_setup.effective_memory_limit,
             "ignore_cache": self.ignore_cache,
-            "sequential_local_fold_fitting": self.model_pipelines_to_run_setup.sequential_local_fold_fitting,
             "dynamic_tabarena_validation_protocol": self.model_pipelines_to_run_setup.dynamic_tabarena_validation_protocol,
             **self.scheduler_setup.get_extra_default_args(),
         }
