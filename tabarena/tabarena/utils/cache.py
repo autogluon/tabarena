@@ -33,8 +33,9 @@ class AbstractCacheFunction(Generic[T]):
     _save_after_run = True
     _load_after_cache = True
 
-    def __init__(self, include_self_in_call: bool = False):
+    def __init__(self, include_self_in_call: bool = False, verbose: bool = True):
         self.include_self_in_call = include_self_in_call
+        self.verbose = verbose
 
     def cache(
         self,
@@ -57,11 +58,12 @@ class AbstractCacheFunction(Generic[T]):
             msg = f'Generating cache (exists={exists}, ignore_cache={ignore_cache}, cache_file="{cache_file}")'
         else:
             msg = f'Loading cache (exists={exists}, ignore_cache={ignore_cache}, cache_file="{cache_file}")'
-        print(msg)
+        if self.verbose:
+            print(msg)
 
         if not run:
             return self.load_cache()
-        with catchtime("Evaluate function"):
+        with catchtime("Evaluate function", verbose=self.verbose):
             data = self._run(fun=fun, fun_kwargs=fun_kwargs)
             if self._save_after_run:
                 self.save_cache(data=data)
@@ -126,8 +128,8 @@ class CacheFunctionPickle(AbstractCacheFunction[object]):
     """
     _load_after_cache = False  # Loading a pickle is unnecessary when the contents are already in memory
 
-    def __init__(self, cache_name: str, cache_path: Path | str | None = None, include_self_in_call: bool = False):
-        super().__init__(include_self_in_call=include_self_in_call)
+    def __init__(self, cache_name: str, cache_path: Path | str | None = None, include_self_in_call: bool = False, verbose: bool = True):
+        super().__init__(include_self_in_call=include_self_in_call, verbose=verbose)
         self.cache_name = cache_name
         if cache_path is None:
             # TODO: Remove default_cache_path?
@@ -165,14 +167,16 @@ class CacheFunctionPickle(AbstractCacheFunction[object]):
             s3 = boto3.client('s3')
             bucket, key = s3_utils.s3_path_to_bucket_prefix(self.cache_file)
             cache = pickle.dumps(data)
-            print(f'Writing cache with size {round(sys.getsizeof(cache) / 1e6, 3)} MB to {self.cache_file}')
+            if self.verbose:
+                print(f'Writing cache with size {round(sys.getsizeof(cache) / 1e6, 3)} MB to {self.cache_file}')
             s3.put_object(Bucket=bucket, Key=key, Body=cache)
         else:
             cache_file = self.cache_file
             Path(cache_file).parent.mkdir(parents=True, exist_ok=True)
             with open(cache_file, "wb") as f:
                 cache = pickle.dumps(data)
-                print(f'Writing cache with size {round(sys.getsizeof(cache) / 1e6, 3)} MB')
+                if self.verbose:
+                    print(f'Writing cache with size {round(sys.getsizeof(cache) / 1e6, 3)} MB')
                 f.write(cache)
 
     def delete_cache(self):
@@ -223,8 +227,8 @@ def cache_function(
 class CacheFunctionDF(AbstractCacheFunction[pd.DataFrame]):
     _load_after_cache = True  # Loading from cache is necessary because .to_csv loses information from the original DataFrame
 
-    def __init__(self, cache_name: str, cache_path: Path | str, include_self_in_call: bool = False):
-        super().__init__(include_self_in_call=include_self_in_call)
+    def __init__(self, cache_name: str, cache_path: Path | str, include_self_in_call: bool = False, verbose: bool = True):
+        super().__init__(include_self_in_call=include_self_in_call, verbose=verbose)
         self.cache_name = cache_name
         self.cache_path = cache_path
 
@@ -243,14 +247,16 @@ class CacheFunctionDF(AbstractCacheFunction[pd.DataFrame]):
 
 
 @contextmanager
-def catchtime(name: str, logger=None) -> float:
+def catchtime(name: str, logger=None, verbose: bool = True) -> float:
     start = perf_counter()
     print_fun = print if logger is None else logger.info
     try:
-        print_fun(f"start: {name}")
+        if verbose:
+            print_fun(f"start: {name}")
         yield lambda: perf_counter() - start
     finally:
-        print_fun(f"Time for {name}: {perf_counter() - start:.4f} secs")
+        if verbose:
+            print_fun(f"Time for {name}: {perf_counter() - start:.4f} secs")
 
 
 # TODO: Delete and use CacheFunctionDF?
