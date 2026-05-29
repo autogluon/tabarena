@@ -66,7 +66,7 @@ class PathSetup:
     """Path to the SLURM (array) submit script invoked by `sbatch`.
     Defaults to the `submit_template.sh` bundled with this package
     (see `get_submit_script_path`)."""
-    openml_cache: str | Path | Literal["auto"] | None = None
+    openml_cache: str | Path | Literal["auto"] | None = "auto"
     """OpenML cache directory, used to store dataset and task data from OpenML.
 
         - If None (default), use `<workspace>/.openml-cache`.

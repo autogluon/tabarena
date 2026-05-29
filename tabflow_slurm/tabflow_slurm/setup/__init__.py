@@ -14,7 +14,7 @@ from __future__ import annotations
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
 from tabflow_slurm.setup.candidates import JobCandidate, should_run_job, should_run_job_batch
 from tabflow_slurm.setup.paths import PathSetup, get_run_script_path, get_submit_script_path
-from tabflow_slurm.setup.resources import ResourcesSetup
+from tabflow_slurm.setup.resources import ResourcesSetup, TabArenaV0pt1ResourcesSetup
 from tabflow_slurm.setup.scheduler import SchedulerSetup, SlurmSetup
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "SchedulerSetup",
     "SlurmSetup",
     "TabArenaBenchmarkSetup",
+    "TabArenaV0pt1ResourcesSetup",
     "get_run_script_path",
     "get_submit_script_path",
     "should_run_job",

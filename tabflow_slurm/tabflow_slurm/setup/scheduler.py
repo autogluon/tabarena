@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from tabflow_slurm.setup.resources import ResourcesSetup
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SchedulerSetup:
     """Base class for scheduler-specific job setup.
 
@@ -115,16 +115,17 @@ class SchedulerSetup:
         return jobs, max_configs_per_job
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SlurmSetup(SchedulerSetup):
     """Setup for SLURM jobs. Adjust as needed for your cluster setup."""
 
-    gpu_partition: str = "alldlc2_gpu-l40s"
+    gpu_partition: str
     """SLURM partition to use for GPU jobs."""
-    cpu_partition: str = "alldlc2_cpu-epyc9655"
+    cpu_partition: str
     """SLURM partition to use for CPU jobs."""
-    extra_gres: str | None = "localtmp:100"
+    extra_gres: str | None
     """Extra SLURM gres to use for the jobs."""
+
     mem_per_handle: bool = False
     """How to pass memory constraints to SLURM jobs.
         - If True, we set SLURM memory per CPUs (or GPUs if available).

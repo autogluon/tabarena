@@ -81,9 +81,7 @@ class TabArenaExperimentBundle:
     into each experiment so the resulting YAML is self-contained.
     """
 
-    n_random_configs: int = 50
-    """Number of random hyperparameter configurations to run for each model"""
-    models: list[tuple[str, int | str | dict]] = field(default_factory=list)
+    models: list[tuple[str, int | str | dict]]
     """List of models to run in the benchmark with metadata.
     Metadata keys from left to right:
         - model name: str
@@ -110,13 +108,9 @@ class TabArenaExperimentBundle:
     For the newest set of available models, see:
     `tabarena.models.utils.get_configs_generator_from_name`
     """
-    model_agnostic_preprocessing: bool = True
-    """Whether to use model-agnostic preprocessing or not.
-    By default, we use AutoGluon's automatic preprocessing for all models.
-    This can be disabled by setting this to False. Warning: the model then needs
-    to be able to handle this!
-    """
-    preprocessing_pipelines: list[str] = field(default_factory=lambda: ["tabarena_default"])
+    n_random_configs: int
+    """Number of random hyperparameter configurations to run for each model"""
+    preprocessing_pipelines: list[str]
     """EXPERIMENTAL!
     Preprocessing pipelines to add to the configurations we want to run.
 
@@ -130,6 +124,13 @@ class TabArenaExperimentBundle:
             updates for TabArena (experimental, can be buggy!).
         - Any other string points to custom experimental code for now.
     """
+    model_agnostic_preprocessing: bool = True
+    """Whether to use model-agnostic preprocessing or not.
+    By default, we use AutoGluon's automatic preprocessing for all models.
+    This can be disabled by setting this to False. Warning: the model then needs
+    to be able to handle this!
+    """
+
     max_predict_batch_size: int | None = None
     """Maximal batch size for the predict function of the models.
     This is used at validation and test predict time. Thus, it trades off speed for memory usage.
@@ -427,3 +428,18 @@ class TabArenaExperimentBundle:
             fold_fitting_strategy="sequential_local" if self.sequential_local_fold_fitting else None,
             dynamic_tabarena_validation_protocol=self.dynamic_tabarena_validation_protocol,
         )
+
+@dataclass
+class TabArenaV0pt1ExperimentBundle(TabArenaExperimentBundle):
+    """The original TabArena-v0.1 experiment bundle, for backward compatibility."""
+
+    n_random_configs: int = 200
+    """TabArena-v0.1 used 200 configs per model."""
+    shuffle_features: bool = False
+    """TabArena-v0.1 default"""
+    dynamic_tabarena_validation_protocol: bool = False
+    """Only used in v0.2 or larger with new data foundry task metadata integration."""
+    preprocessing_pipelines: list[str] = field(default_factory=lambda: ["default"])
+    """Use AutoGluon default preprocessing only."""
+    adapt_num_folds_to_n_classes: bool = False
+    """TabArena-v0.1 did not adapt the number of folds to the number of classes."""

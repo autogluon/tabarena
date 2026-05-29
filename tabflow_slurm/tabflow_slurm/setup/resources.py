@@ -9,9 +9,18 @@ from dataclasses import dataclass
 class ResourcesSetup:
     """Compute and time-budget resources for the benchmark jobs."""
 
-    time_limit: int = 3600
+    time_limit: int
     """Time limit for each fit of a model in seconds -- including time for validation.
     By default, 3600 seconds is used."""
+    num_cpus: int | None
+    """Number of CPUs to use for the job.
+    If None, use all available CPUs."""
+    num_gpus: int
+    """Number of GPUs to use for the jobs (SLURM allocation and Ray)."""
+    memory_limit: int | None
+    """Memory/RAM limit for the jobs in GB.
+    If None, use all available memory."""
+
     time_limit_for_model_agnostic_preprocessing: int | None = None
     """The time limit for the model agnostic preprocessing step."""
     time_limit_with_model_agnostic_preprocessing: bool = False
@@ -21,19 +30,11 @@ class ResourcesSetup:
         - If True, we stop fitting a model after `time_limit` minus the
             time it took for model agnostic preprocessing.
     """
-    num_cpus: int | None = 8
-    """Number of CPUs to use for the job.
-    If None, use all available CPUs."""
-    num_gpus: int = 0
-    """Number of GPUs to use for the jobs (SLURM allocation and Ray)."""
     num_gpus_model: int | None = None
     """Number of GPUs passed to a model for fitting.
     If None (default), uses the same value as ``num_gpus``.
     Set to 0 to reserve the GPU for preprocessing (e.g. sentence-transformer
     encoding) while fitting models on CPU only."""
-    memory_limit: int | None = 32
-    """Memory/RAM limit for the jobs in GB.
-    If None, use all available memory."""
     fake_memory_for_estimates: int | None = None
     """Experimental parameter that is to be ignored!
 
@@ -67,3 +68,11 @@ class ResourcesSetup:
     def effective_num_gpus_model(self) -> int:
         """Number of GPUs used for model fitting (`num_gpus_model`, falling back to `num_gpus`)."""
         return self.num_gpus_model if self.num_gpus_model is not None else self.num_gpus
+
+
+@dataclass
+class TabArenaV0pt1ResourcesSetup(ResourcesSetup):
+    time_limit: int = 3600
+    num_cpus: int | None = 8
+    num_gpus: int = 0  # Depends on the model
+    memory_limit: int | None = 32

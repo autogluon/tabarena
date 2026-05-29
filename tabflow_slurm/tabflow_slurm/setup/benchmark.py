@@ -32,19 +32,19 @@ class TabArenaBenchmarkSetup:
     tasks_to_run_setup: TabArenaMetadataBundle
     """Defines which tasks to run in the benchmark, including the source of
     task metadata and any filters applied on top of it."""
+    experiment_bundle: TabArenaExperimentBundle
+    """Defines which models / experiments to run in the benchmark and builds them
+    (models, per-model config counts, preprocessing pipelines, fold fitting,
+    per-model constraints, and the dynamic validation protocol)."""
 
     path_setup: PathSetup
     """Contains all paths related to the benchmark. Requires a `workspace`
     directory and the `python_path`; `run_script` and `submit_script` default
     to the scripts bundled with this package."""
-    scheduler_setup: SchedulerSetup = field(default_factory=SlurmSetup)
+    scheduler_setup: SchedulerSetup
     """Scheduler-specific config for the benchmark (defaults to SLURM)."""
-    resources_setup: ResourcesSetup = field(default_factory=ResourcesSetup)
+    resources_setup: ResourcesSetup
     """Compute and time-budget resources for the benchmark jobs."""
-    experiment_bundle: TabArenaExperimentBundle = field(default_factory=TabArenaExperimentBundle)
-    """Defines which models / experiments to run in the benchmark and builds them
-    (models, per-model config counts, preprocessing pipelines, fold fitting,
-    per-model constraints, and the dynamic validation protocol)."""
 
     # Misc Settings
     # -------------
