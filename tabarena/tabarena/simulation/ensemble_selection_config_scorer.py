@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import os
+from functools import lru_cache
 from typing import TYPE_CHECKING, Type
 
 import numpy as np
@@ -15,15 +17,28 @@ from ..utils.rank_utils import RankScorer
 from ..utils import task_to_tid_fold
 from ..metrics import _fast_log_loss
 
-try:
-    # FIXME: Requires g++, can lead to an exception on import as it needs to compile C code.
-    from ..metrics._fast_roc_auc import fast_roc_auc_cpp
-except FileNotFoundError:
-    print("Warning: Failed to compile c++ metric... Try installing g++. Falling back to sklearn implementation...")
-    fast_roc_auc_cpp = get_metric(metric="roc_auc", problem_type="binary")
-
 if TYPE_CHECKING:
     from ..repository.evaluation_repository import EvaluationRepository
+
+
+@lru_cache(maxsize=1)
+def get_fast_roc_auc() -> Scorer:
+    """Lazily import the C++ fast roc_auc metric, falling back to the sklearn implementation.
+
+    The import is deferred (rather than performed at module load) because the C++ extension
+    requires g++ to compile and can raise on import. Set the env var
+    ``TABARENA_SKIP_FAST_ROC_AUC=1`` to skip the fast metric entirely and always use the
+    sklearn implementation.
+    """
+    if os.environ.get("TABARENA_SKIP_FAST_ROC_AUC", "0") == "1":
+        return get_metric(metric="roc_auc", problem_type="binary")
+    try:
+        # FIXME: Requires g++, can lead to an exception on import as it needs to compile C code.
+        from ..metrics._fast_roc_auc import fast_roc_auc_cpp
+    except FileNotFoundError:
+        print("Warning: Failed to compile c++ metric... Try installing g++. Falling back to sklearn implementation...")
+        return get_metric(metric="roc_auc", problem_type="binary")
+    return fast_roc_auc_cpp
 
 
 class TaskEvaluator:
@@ -213,7 +228,7 @@ class EnsembleScorer:
         if metric_name == "log_loss":
             return _fast_log_loss.fast_log_loss
         if metric_name == "roc_auc":
-            return fast_roc_auc_cpp
+            return get_fast_roc_auc()
         return get_metric(metric=metric_name, problem_type=problem_type)
 
     def _get_metrics(
