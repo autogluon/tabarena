@@ -140,10 +140,11 @@ class Experiment:
         sample: int = 0,
         cacher: AbstractCacheFunction | None = None,
         ignore_cache: bool = False,
+        verbose: bool = True,
         **experiment_kwargs,
     ) -> dict:
         if cacher is None:
-            cacher = CacheFunctionDummy()
+            cacher = CacheFunctionDummy(verbose=verbose)
         if task is not None:
             out = cacher.cache(
                 fun=self.experiment_cls.init_and_run,
