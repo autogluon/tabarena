@@ -8,14 +8,15 @@ from pathlib import Path
 from typing import Literal
 
 import pandas as pd
-from tabarena.benchmark.task.metadata import SplitMetadata, TabArenaTaskMetadata
+
+from tabarena.benchmark.task.metadata.schema import SplitMetadata, TabArenaTaskMetadata
 
 
 @dataclass
-class TasksToRunSetup:
-    """Defines which tasks (datasets x splits) to run in the benchmark.
+class TabArenaMetadataBundle:
+    """Encapsulates the source of task metadata and any filters applied on top of it.
 
-    Encapsulates the source of task metadata and any filters applied on top of it.
+    Can be used to define which tasks (datasets x splits) to run in a benchmark.
     """
 
     task_metadata: Literal["tabarena-v0.1"] | pd.DataFrame | list[TabArenaTaskMetadata] | str | Path

@@ -18,7 +18,6 @@ from tabflow_slurm.setup.models import ModelPipelinesToRunSetup
 from tabflow_slurm.setup.paths import PathSetup, get_run_script_path, get_submit_script_path
 from tabflow_slurm.setup.resources import ResourcesSetup
 from tabflow_slurm.setup.scheduler import SchedulerSetup, SlurmSetup
-from tabflow_slurm.setup.tasks import TasksToRunSetup
 
 __all__ = [
     "JobCandidate",
@@ -29,7 +28,6 @@ __all__ = [
     "SchedulerSetup",
     "SlurmSetup",
     "TabArenaBenchmarkSetup",
-    "TasksToRunSetup",
     "get_run_script_path",
     "get_submit_script_path",
     "should_run_job",

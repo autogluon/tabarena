@@ -17,10 +17,9 @@ from tabflow_slurm.setup.resources import ResourcesSetup
 from tabflow_slurm.setup.scheduler import SchedulerSetup, SlurmSetup
 
 if TYPE_CHECKING:
-    from tabarena.benchmark.task.metadata import TabArenaTaskMetadata
+    from tabarena.benchmark.task.metadata import TabArenaMetadataBundle, TabArenaTaskMetadata
 
     from tabflow_slurm.setup.paths import PathSetup
-    from tabflow_slurm.setup.tasks import TasksToRunSetup
 
 
 @dataclass
@@ -30,7 +29,7 @@ class TabArenaBenchmarkSetup:
     benchmark_name: str
     """Unique name of the benchmark; determines where output artifacts are stored."""
 
-    tasks_to_run_setup: TasksToRunSetup
+    tasks_to_run_setup: TabArenaMetadataBundle
     """Defines which tasks to run in the benchmark, including the source of
     task metadata and any filters applied on top of it."""
 
