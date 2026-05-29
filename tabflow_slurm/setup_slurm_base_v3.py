@@ -22,91 +22,99 @@ from tabarena.utils.ray_utils import ray_map_list, to_batch_list
 
 @dataclass
 class PathSetup:
-    """Configure paths for the benchmark."""
+    """Configure paths for the benchmark.
 
-    base_path: str = "/work/dlclarge2/purucker-tabarena/"
-    """Base path for the project, code, and results. Within this directory,
-    all results, code, and logs for TabArena will be saved. Adjust below as needed if
-    more than one base path is desired. On a typical SLURM system, this base path
-    should point to a persistent workspace that all your jobs can access.
+    Only two paths are required from the user: the `workspace` directory and
+    the `run_script` to launch a single experiment. Everything else is derived
+    from these (and can be overridden individually if needed).
 
-    For our system, we used a structure as follows:
-        - BASE_PATH
-            - code              -- contains all code for the project (the dev install
-                                    from TabArena and AutoGluon)
-            - venvs             -- contains all virtual environments
-            - output            -- contains all output data from running the benchmark
-            - slurm_out         -- contains all SLURM output logs
-            - .openml-cache     -- contains the OpenML cache
+    The workspace is a persistent directory that all SLURM jobs can access. We
+    create and use the following structure inside it:
+        - WORKSPACE
+            - output            -- all output data from running the benchmark
+                                   (one `benchmark_name` subfolder each)
+            - slurm_out         -- all SLURM output logs
+                                   (one `benchmark_name` subfolder each)
+            - setup_out         -- generated configs YAML + SLURM job JSON
+                                   (one `benchmark_name` subfolder each)
+            - .openml-cache     -- the OpenML cache (unless overridden)
+
+    Both the run script and the SLURM submit script are given as direct paths.
     """
-    venv_name: str = "tabarena_14022026"
-    """Python venv to use for the SLURM jobs."""
-    tabarena_repo_name: str = "tabarena_new"
-    """Name of the local tabarena repository.
-    Used to determine the path to the run script"""
-    openml_cache_from_base_path: str | Literal["auto"] = ".openml-cache"
-    """OpenML cache directory. This is used to store dataset and tasks data from OpenML.
 
-    If "auto", we use the default cache from OpenML. If any other string, this is
-    interpreted as the path to the folder for a custom OpenML cache.
+    workspace: str | Path
+    """Persistent workspace directory that all jobs can access. Holds the
+    `output/`, `slurm_out/`, and `setup_out/` folders, and (by default) the
+    OpenML cache."""
+    run_script: str | Path
+    """Path to the python script that runs a single benchmark experiment
+    (e.g. `.../tabflow_slurm/run_tabarena_experiment.py`)."""
+    submit_script: str | Path
+    """Path to the SLURM (array) submit script invoked by `sbatch`
+    (e.g. `.../tabflow_slurm/submit_template.sh`)."""
+    python_path: str | Path
+    """Python executable to use for the SLURM jobs. Defaults to the interpreter
+    running this setup script, which is assumed to be the cluster venv."""
+    openml_cache: str | Path | Literal["auto"] | None = None
+    """OpenML cache directory, used to store dataset and task data from OpenML.
+
+        - If None (default), use `<workspace>/.openml-cache`.
+        - If "auto", use OpenML's own default cache location.
+        - Otherwise, the given path is used as a custom OpenML cache folder.
     """
-    slurm_log_output_from_base_path: str = "slurm_out/"
-    """Directory for the SLURM output logs. In this folder a `benchmark_name`
-    folder will be created and used to store the output logs from the SLURM jobs."""
-    output_dir_base_from_base_path: str = "output/"
-    """Output directory for the benchmark. In this folder a `benchmark_name`
-    folder will be created."""
 
     @property
-    def python_path(self) -> str:
-        """Python executable to use for the SLURM jobs."""
-        return self.base_path + f"venvs/{self.venv_name}/bin/python"
-
-    @property
-    def openml_cache_path(self) -> str:
-        """OpenML cache directory."""
-        if self.openml_cache_from_base_path == "auto":
-            return self.openml_cache_from_base_path
-        return self.base_path + self.openml_cache_from_base_path
+    def _workspace(self) -> Path:
+        return Path(self.workspace)
 
     @property
     def run_script_path(self) -> str:
-        """Python script to run the benchmark.
-        This should point to the script that runs the benchmark for TabArena.
-        """
-        return self.base_path + (f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/run_tabarena_experiment.py")
+        """Python script to run a single benchmark experiment."""
+        return str(self.run_script)
 
     @property
-    def configs_base_path(self) -> str:
-        """YAML file with the configs to run.
+    def submit_script_path(self) -> str:
+        """SLURM (array) submit script invoked by `sbatch`."""
+        return str(self.submit_script)
 
-        File path is f"{self.base_path}{self.configs_path_from_base_path}
-        {self._safe_benchmark_name}.yaml".
-        """
-        return f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/benchmark_configs_"
+    @property
+    def openml_cache_path(self) -> str:
+        """Resolved OpenML cache directory ("auto" or an absolute path)."""
+        if self.openml_cache == "auto":
+            return "auto"
+        if self.openml_cache is None:
+            return str(self._workspace / ".openml-cache")
+        return str(self.openml_cache)
 
-    def get_slurm_job_json_path(self, safe_benchmark_name: str) -> str:
+    def get_setup_out_path(self, benchmark_name: str) -> Path:
+        """Directory holding the generated configs YAML + SLURM job JSON."""
+        return self._workspace / "setup_out" / benchmark_name
+
+    def get_configs_path(self, *, benchmark_name: str, safe_benchmark_name: str) -> str:
+        """YAML file with the configs to run."""
+        return str(self.get_setup_out_path(benchmark_name) / f"benchmark_configs_{safe_benchmark_name}.yaml")
+
+    def get_slurm_job_json_path(self, *, benchmark_name: str, safe_benchmark_name: str) -> str:
         """JSON file with the job data to run used by SLURM.
         This is generated from the configs and metadata.
         """
-        # TODO: change UX for config and slurm paths.
-        return f"{self.base_path}{Path(self.configs_base_path).parent}/slurm_run_data_{safe_benchmark_name}.json"
-
-    def get_configs_path(self, safe_benchmark_name: str) -> str:
-        """YAML file with the configs to run."""
-        return f"{self.base_path}{self.configs_base_path}{safe_benchmark_name}.yaml"
+        return str(self.get_setup_out_path(benchmark_name) / f"slurm_run_data_{safe_benchmark_name}.json")
 
     def get_output_path(self, benchmark_name: str) -> str:
         """Output directory for the benchmark."""
-        return self.base_path + self.output_dir_base_from_base_path + benchmark_name
+        return str(self._workspace / "output" / benchmark_name)
 
     def get_slurm_log_output_path(self, benchmark_name: str) -> str:
         """Directory for the SLURM output logs."""
-        return self.base_path + self.slurm_log_output_from_base_path + benchmark_name
+        return str(self._workspace / "slurm_out" / benchmark_name)
 
-    def get_slurm_script_path(self, script_name: str) -> str:
-        """Path to the SLURM script to run."""
-        return self.base_path + f"code/{self.tabarena_repo_name}/tabarena/tabflow_slurm/{script_name}"
+    def ensure_runtime_dirs(self, benchmark_name: str) -> None:
+        """Create the output, log, setup, and (optional) OpenML cache directories."""
+        if self.openml_cache_path != "auto":
+            Path(self.openml_cache_path).mkdir(parents=True, exist_ok=True)
+        Path(self.get_output_path(benchmark_name)).mkdir(parents=True, exist_ok=True)
+        Path(self.get_slurm_log_output_path(benchmark_name)).mkdir(parents=True, exist_ok=True)
+        self.get_setup_out_path(benchmark_name).mkdir(parents=True, exist_ok=True)
 
 
 @dataclass
@@ -213,9 +221,6 @@ class SchedulerSetup:
 class SlurmSetup(SchedulerSetup):
     """Setup for SLURM jobs. Adjust as needed for your cluster setup."""
 
-    script_name: str = "submit_template.sh"
-    """Name of the SLURM (array) script that to run on the cluster
-    (only used to print the command to run)."""
     gpu_partition: str = "alldlc2_gpu-l40s"
     """SLURM partition to use for GPU jobs."""
     cpu_partition: str = "alldlc2_cpu-epyc9655"
@@ -267,9 +272,8 @@ class SlurmSetup(SchedulerSetup):
         If `jobs_dict["jobs"]` exceeds `max_array_size`, the jobs are split across
         multiple array-job batches; each batch gets its own `_batch{i}.json`
         file and its own sbatch command (the single-batch case keeps the base
-        path). All SLURM-specific paths (job JSON, log dir, script) are
-        derived from `path_setup` + the two benchmark name flavors and
-        `self.script_name`.
+        path). All SLURM-specific paths (job JSON, log dir, submit script) are
+        derived from `path_setup` + the two benchmark name flavors.
 
         The time-budget computation needs to know the worst-case number of
         configs handled by a single array task; this is read from
@@ -278,7 +282,10 @@ class SlurmSetup(SchedulerSetup):
         Returns the list of sbatch commands to run, or `None` if there are
         no jobs (in which case the base JSON file is also removed if it exists).
         """
-        base_json_path = path_setup.get_slurm_job_json_path(parallel_safe_benchmark_name)
+        base_json_path = path_setup.get_slurm_job_json_path(
+            benchmark_name=benchmark_name,
+            safe_benchmark_name=parallel_safe_benchmark_name,
+        )
 
         all_jobs = jobs_dict["jobs"]
         if not all_jobs:
@@ -290,7 +297,7 @@ class SlurmSetup(SchedulerSetup):
             resources_setup=resources_setup,
             configs_per_job=jobs_dict["max_configs_per_job"],
             slurm_log_output=path_setup.get_slurm_log_output_path(benchmark_name),
-            slurm_script_path=path_setup.get_slurm_script_path(self.script_name),
+            slurm_script_path=path_setup.submit_script_path,
         )
 
         run_commands = self._write_job_batches_and_build_commands(
@@ -335,11 +342,7 @@ class SlurmSetup(SchedulerSetup):
 
         run_commands: list[str] = []
         for batch_idx, batch_jobs in enumerate(job_batches):
-            json_path = (
-                base_json_path.replace(".json", f"_batch{batch_idx}.json")
-                if multi_batch
-                else base_json_path
-            )
+            json_path = base_json_path.replace(".json", f"_batch{batch_idx}.json") if multi_batch else base_json_path
             with open(json_path, "w") as f:
                 json.dump({"defaults": defaults, "jobs": batch_jobs}, f)
 
@@ -365,10 +368,7 @@ class SlurmSetup(SchedulerSetup):
         is_gpu_job = resources_setup.num_gpus > 0
         partition = self.gpu_partition if is_gpu_job else self.cpu_partition
 
-        time_in_h = (
-            resources_setup.time_limit_per_config // 3600 * configs_per_job
-            + self.time_limit_overhead
-        )
+        time_in_h = resources_setup.time_limit_per_config // 3600 * configs_per_job + self.time_limit_overhead
 
         gres_items: list[str] = []
         if is_gpu_job:
@@ -603,11 +603,7 @@ class TasksToRunSetup:
         lb, ub = self.n_train_samples_to_run
         lb = lb if lb is not None else 0
         ub = ub if ub is not None else float("inf")
-        return [
-            ttm
-            for ttm in task_metadata
-            if lb < ttm.splits_metadata[ttm.split_index].num_instances_train <= ub
-        ]
+        return [ttm for ttm in task_metadata if lb < ttm.splits_metadata[ttm.split_index].num_instances_train <= ub]
 
     @staticmethod
     def _sanity_check_task_ids(task_metadata: list[TabArenaTaskMetadata]) -> None:
@@ -731,9 +727,15 @@ class ModelConstraints:
             return False
         if self.max_n_features is not None and n_features > self.max_n_features:
             return False
-        if self.max_n_samples_train_per_fold is not None and n_samples_train_per_fold > self.max_n_samples_train_per_fold:
+        if (
+            self.max_n_samples_train_per_fold is not None
+            and n_samples_train_per_fold > self.max_n_samples_train_per_fold
+        ):
             return False
-        if self.min_n_samples_train_per_fold is not None and n_samples_train_per_fold < self.min_n_samples_train_per_fold:
+        if (
+            self.min_n_samples_train_per_fold is not None
+            and n_samples_train_per_fold < self.min_n_samples_train_per_fold
+        ):
             return False
         return not (self.max_n_classes is not None and n_classes > self.max_n_classes)
 
@@ -1029,6 +1031,7 @@ class ModelPipelinesToRunSetup:
         from tabarena.benchmark.experiment.experiment_constructor import (
             AGExperiment,
         )
+
         # deepcopy: shallow .copy() leaves nested `fit_kwargs` / `init_kwargs` shared with
         # the caller's dict, and the subsequent .update() / item assignment would mutate
         # the user's `self.models` entry across calls.
@@ -1084,8 +1087,9 @@ class TabArenaBenchmarkSetup:
     """Defines which tasks to run in the benchmark, including the source of
     task metadata and any filters applied on top of it."""
 
-    path_setup: PathSetup = field(default_factory=PathSetup)
-    """Contains all path related to the benchmark."""
+    path_setup: PathSetup
+    """Contains all paths related to the benchmark. Requires at least a
+    `workspace` directory and a `run_script` path."""
     scheduler_setup: SchedulerSetup = field(default_factory=SlurmSetup)
     """Scheduler-specific config for the benchmark (defaults to SLURM)."""
     resources_setup: ResourcesSetup = field(default_factory=ResourcesSetup)
@@ -1122,6 +1126,14 @@ class TabArenaBenchmarkSetup:
             benchmark_name += f"_{self.parallel_benchmark_name}"
         return benchmark_name
 
+    @property
+    def _configs_path(self) -> str:
+        """Path to this run's generated configs YAML (under `setup_out`)."""
+        return self.path_setup.get_configs_path(
+            benchmark_name=self.benchmark_name,
+            safe_benchmark_name=self._parallel_safe_benchmark_name,
+        )
+
     def get_jobs_to_run(self) -> tuple[list[dict], int]:
         """Resolve the work to run for this benchmark.
 
@@ -1139,10 +1151,10 @@ class TabArenaBenchmarkSetup:
         `{"items": [...]}` per array task; `max_configs_per_job` is the
         largest bundle observed and is used to budget the per-task time limit.
         """
-        self._ensure_runtime_dirs()
+        self.path_setup.ensure_runtime_dirs(self.benchmark_name)
         task_metadata_list = self.tasks_to_run_setup.load_task_metadata()
         configs = self.model_pipelines_to_run_setup.generate_configs_yaml(
-            configs_path=self.path_setup.get_configs_path(self._parallel_safe_benchmark_name),
+            configs_path=self._configs_path,
             resources_setup=self.resources_setup,
             verbosity=self.verbosity,
             shuffle_features=self.shuffle_features,
@@ -1158,13 +1170,6 @@ class TabArenaBenchmarkSetup:
             f" -> {len(jobs)} array tasks (max {max_configs_per_job} items/task)."
         )
         return jobs, max_configs_per_job
-
-    def _ensure_runtime_dirs(self) -> None:
-        """Create the output, log, and (optional) OpenML cache directories."""
-        if self.path_setup.openml_cache_path != "auto":
-            Path(self.path_setup.openml_cache_path).mkdir(parents=True, exist_ok=True)
-        Path(self.path_setup.get_output_path(self.benchmark_name)).mkdir(parents=True, exist_ok=True)
-        Path(self.path_setup.get_slurm_log_output_path(self.benchmark_name)).mkdir(parents=True, exist_ok=True)
 
     @staticmethod
     def _enumerate_candidates(
@@ -1194,11 +1199,7 @@ class TabArenaBenchmarkSetup:
 
     def _filter_via_ray(self, candidates: list[JobCandidate]) -> list[JobCandidate]:
         """Fan out `should_run_job` across Ray workers; return the approved subset."""
-        num_ray_cpus = (
-            len(os.sched_getaffinity(0))
-            if self.num_ray_cpus == "auto"
-            else self.num_ray_cpus
-        )
+        num_ray_cpus = len(os.sched_getaffinity(0)) if self.num_ray_cpus == "auto" else self.num_ray_cpus
         if ray.is_initialized():
             ray.shutdown()
         with warnings.catch_warnings():
@@ -1245,7 +1246,7 @@ class TabArenaBenchmarkSetup:
             "python": self.path_setup.python_path,
             "run_script": self.path_setup.run_script_path,
             "openml_cache_dir": self.path_setup.openml_cache_path,
-            "configs_yaml_file": self.path_setup.get_configs_path(self._parallel_safe_benchmark_name),
+            "configs_yaml_file": self._configs_path,
             "output_dir": self.path_setup.get_output_path(self.benchmark_name),
             "num_cpus": self.resources_setup.num_cpus,
             "num_gpus": self.resources_setup.num_gpus,
@@ -1273,8 +1274,9 @@ class TabArenaBenchmarkSetup:
             resources_setup=self.resources_setup,
         )
         if run_commands is None:
-            Path(self.path_setup.get_configs_path(self._parallel_safe_benchmark_name)).unlink(missing_ok=True)
+            Path(self._configs_path).unlink(missing_ok=True)
         return run_commands
+
 
 def should_run_job_batch(*, candidates: list[JobCandidate], **kwargs) -> list[bool]:
     """Batched version for Ray."""
