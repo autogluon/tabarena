@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 import pandas as pd
-from tabarena.benchmark.task.user_task import SplitMetadata, TabArenaTaskMetadata
+from tabarena.benchmark.task.metadata import SplitMetadata, TabArenaTaskMetadata
 
 
 @dataclass

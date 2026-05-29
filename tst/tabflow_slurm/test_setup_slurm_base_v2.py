@@ -15,7 +15,7 @@ setup_mod = pytest.importorskip(
     reason="tabflow_slurm.setup_slurm_base_v2 import failed",
 )
 
-from tabarena.benchmark.task.user_task import (  # noqa: E402
+from tabarena.benchmark.task.metadata import (  # noqa: E402
     SplitMetadata,
     TabArenaTaskMetadata,
 )

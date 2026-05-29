@@ -31,7 +31,7 @@ from tabarena.benchmark.preprocessing.text_feature_generators import (
     SemanticTextFeatureGenerator,
     StatisticalTextFeatureGenerator,
 )
-from tabarena.benchmark.task.user_task import GroupLabelTypes
+from tabarena.benchmark.task.metadata import GroupLabelTypes
 
 if TYPE_CHECKING:
     from autogluon.common.features.feature_metadata import FeatureMetadata

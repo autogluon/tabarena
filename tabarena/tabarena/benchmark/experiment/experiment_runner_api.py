@@ -424,7 +424,7 @@ def run_experiments_new(
                         from tabarena.benchmark.experiment.experiment_constructor import (
                             AGModelBagExperiment,
                         )
-                        from tabarena.benchmark.task.user_task import TabArenaOpenMLSupervisedTask
+                        from tabarena.benchmark.task.tabarena_openml_task import TabArenaOpenMLSupervisedTask
 
                         if not isinstance(task.task, TabArenaOpenMLSupervisedTask):
                             raise ValueError(

@@ -12,11 +12,15 @@ import pytest
 from openml.tasks import OpenMLClassificationTask, OpenMLRegressionTask, TaskType
 from openml.tasks.split import OpenMLSplit
 from tabarena.benchmark.task import UserTask
-from tabarena.benchmark.task.user_task import (
+from tabarena.benchmark.task.metadata import (
     GroupLabelTypes,
     SplitMetadata,
     TabArenaTaskMetadata,
+)
+from tabarena.benchmark.task.tabarena_openml_task import (
     TabArenaTaskMetadataMixin,
+)
+from tabarena.benchmark.task.user_task import (
     from_sklearn_splits_to_user_task_splits,
 )
 

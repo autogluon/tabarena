@@ -17,7 +17,7 @@ from tabarena.benchmark.experiment.experiment_runner import ExperimentRunner, OO
 from tabarena.benchmark.models.model_registry import infer_model_cls
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
-from tabarena.benchmark.task.user_task import GroupLabelTypes, SplitTimeHorizonTypes, SplitTimeHorizonUnitTypes
+from tabarena.benchmark.task.metadata import GroupLabelTypes, SplitTimeHorizonTypes, SplitTimeHorizonUnitTypes
 
 class Experiment:
     """

@@ -17,7 +17,7 @@ from tabflow_slurm.setup.resources import ResourcesSetup
 from tabflow_slurm.setup.scheduler import SchedulerSetup, SlurmSetup
 
 if TYPE_CHECKING:
-    from tabarena.benchmark.task.user_task import TabArenaTaskMetadata
+    from tabarena.benchmark.task.metadata import TabArenaTaskMetadata
 
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.tasks import TasksToRunSetup

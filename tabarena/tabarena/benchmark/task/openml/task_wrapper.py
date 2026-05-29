@@ -240,7 +240,7 @@ class OpenMLTaskWrapper:
         """
         from openml.tasks import OpenMLSupervisedTask
 
-        from tabarena.benchmark.task.user_task import TabArenaOpenMLSupervisedTask
+        from tabarena.benchmark.task.tabarena_openml_task import TabArenaOpenMLSupervisedTask
 
         oml_task: TabArenaOpenMLSupervisedTask | OpenMLSupervisedTask  = self.task
 

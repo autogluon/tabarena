@@ -16,7 +16,7 @@ import yaml
 from tabarena.benchmark.experiment.experiment_constructor import Experiment, resolve_class
 from tabarena.benchmark.experiment.experiment_utils import check_cache_hit
 from tabarena.benchmark.models.model_registry import infer_model_cls
-from tabarena.benchmark.task.user_task import SplitMetadata, TabArenaTaskMetadata
+from tabarena.benchmark.task.metadata import SplitMetadata, TabArenaTaskMetadata
 from tabarena.utils.cache import CacheFunctionPickle
 from tabarena.utils.ray_utils import ray_map_list, to_batch_list
 
