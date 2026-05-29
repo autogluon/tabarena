@@ -1,42 +1,49 @@
 """Tests for the build -> serialize -> load experiment pipeline.
 
-After the consolidation refactor, compute resources, the fold-fitting strategy,
-and the preprocessing pipeline are all baked into each Experiment at *build*
-time and the preprocessing pipeline + `None` resources are resolved lazily by
-the Experiment itself.
-Loading is therefore just `YamlExperimentSerializer.from_yaml` (with an
+Compute resources, the fold-fitting strategy, and the preprocessing pipeline are
+all baked into each Experiment at *build* time by `TabArenaExperimentBundle` (the
+preprocessing pipeline + `None` resources are then resolved lazily by the
+Experiment itself). Loading is just `YamlExperimentSerializer.from_yaml` (with an
 optional `config_index` filter), yielding ready-to-run experiments.
-
-Built through `ModelPipelinesToRunSetup` so we exercise the real generated YAML
-rather than a hand-crafted one.
 """
 
 from __future__ import annotations
 
-import pytest
-from tabarena.benchmark.experiment import YamlExperimentSerializer
+from tabarena.benchmark.experiment import (
+    ModelConstraints,
+    TabArenaExperimentBundle,
+    YamlExperimentSerializer,
+)
 from tabarena.benchmark.preprocessing.model_agnostic_default_preprocessing import (
     TabArenaModelAgnosticPreprocessing,
 )
 
-pytest.importorskip("tabflow_slurm", reason="tabflow_slurm is not installed")
 
-from tabflow_slurm.setup.models import ModelPipelinesToRunSetup  # noqa: E402
-from tabflow_slurm.setup.resources import ResourcesSetup  # noqa: E402
-
-
-def _generate_yaml(tmp_path, *, models, resources_setup=None, **setup_kwargs) -> str:
-    setup = ModelPipelinesToRunSetup(
+def _generate_yaml(
+    tmp_path,
+    *,
+    models,
+    time_limit: int = 123,
+    num_cpus: int | None = 8,
+    num_gpus: int = 0,
+    memory_limit: int | None = 32,
+    time_limit_with_preprocessing: bool = False,
+    **bundle_kwargs,
+) -> str:
+    bundle = TabArenaExperimentBundle(
         models=models,
         preprocessing_pipelines=["tabarena_default"],
-        **setup_kwargs,
+        **bundle_kwargs,
     )
     configs_path = str(tmp_path / "configs.yaml")
-    setup.generate_configs_yaml(
+    bundle.generate_configs_yaml(
         configs_path=configs_path,
-        resources_setup=resources_setup or ResourcesSetup(time_limit=123),
+        time_limit=time_limit,
+        num_cpus=num_cpus,
+        num_gpus=num_gpus,
+        memory_limit=memory_limit,
+        time_limit_with_preprocessing=time_limit_with_preprocessing,
         verbosity=0,
-        shuffle_features=False,
     )
     return configs_path
 
@@ -46,7 +53,9 @@ def test_build_bakes_resources_fold_fitting_and_carries_preprocessing(tmp_path):
         tmp_path,
         models=[("RealMLP", 0)],
         sequential_local_fold_fitting=True,
-        resources_setup=ResourcesSetup(time_limit=123, num_cpus=4, num_gpus=1, memory_limit=16),
+        num_cpus=4,
+        num_gpus=1,
+        memory_limit=16,
     )
 
     methods = YamlExperimentSerializer.from_yaml(path=configs_path, config_index=None)
@@ -57,7 +66,7 @@ def test_build_bakes_resources_fold_fitting_and_carries_preprocessing(tmp_path):
 
     # resources baked into fit_kwargs at build time
     assert mk["fit_kwargs"]["num_cpus"] == 4
-    assert mk["fit_kwargs"]["num_gpus"] == 1  # effective_num_gpus_model (num_gpus_model None -> num_gpus)
+    assert mk["fit_kwargs"]["num_gpus"] == 1
     assert mk["fit_kwargs"]["memory_limit"] == 16
 
     # sequential local fold fitting baked into model hyperparameters at build time
@@ -84,7 +93,10 @@ def test_build_without_sequential_fold_fitting(tmp_path):
         tmp_path,
         models=[("RealMLP", 0)],
         sequential_local_fold_fitting=False,
-        resources_setup=ResourcesSetup(time_limit=60, num_cpus=2, num_gpus=0, memory_limit=8),
+        time_limit=60,
+        num_cpus=2,
+        num_gpus=0,
+        memory_limit=8,
     )
 
     methods = YamlExperimentSerializer.from_yaml(path=configs_path, config_index=None)
@@ -101,7 +113,10 @@ def test_build_with_none_resources_is_autodetected_lazily(tmp_path):
     configs_path = _generate_yaml(
         tmp_path,
         models=[("RealMLP", 0)],
-        resources_setup=ResourcesSetup(time_limit=60, num_cpus=None, num_gpus=0, memory_limit=None),
+        time_limit=60,
+        num_cpus=None,
+        num_gpus=0,
+        memory_limit=None,
     )
 
     exp = YamlExperimentSerializer.from_yaml(path=configs_path, config_index=None)[0]
@@ -123,3 +138,28 @@ def test_from_yaml_config_index_filters(tmp_path):
     methods = YamlExperimentSerializer.from_yaml(path=configs_path, config_index=[0])
 
     assert len(methods) == 1
+
+
+def test_build_bakes_dynamic_validation_protocol_and_round_trips(tmp_path):
+    # The bundle default (True) is baked into each experiment and survives YAML round-trip.
+    configs_path = _generate_yaml(tmp_path, models=[("RealMLP", 0)])
+    exp = YamlExperimentSerializer.from_yaml(path=configs_path, config_index=None)[0]
+    assert exp.dynamic_tabarena_validation_protocol is True
+
+
+def test_build_can_disable_dynamic_validation_protocol(tmp_path):
+    configs_path = _generate_yaml(
+        tmp_path,
+        models=[("RealMLP", 0)],
+        dynamic_tabarena_validation_protocol=False,
+    )
+    exp = YamlExperimentSerializer.from_yaml(path=configs_path, config_index=None)[0]
+    assert exp.dynamic_tabarena_validation_protocol is False
+
+
+def test_bundle_model_constraints_merges_defaults_and_custom():
+    custom = ModelConstraints(max_n_features=3)
+    bundle = TabArenaExperimentBundle(custom_model_constraints={"MYMODEL": custom})
+    effective = bundle.model_constraints
+    assert effective["MYMODEL"] is custom  # custom override present
+    assert "TABICL" in effective  # default policy preserved

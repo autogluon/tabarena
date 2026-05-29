@@ -177,7 +177,6 @@ def run_experiments_new(
     raise_on_failure: bool = True,
     debug_mode: bool = False,
     failure_on_non_finite_metric_error: bool = False,
-    dynamic_tabarena_validation_protocol: bool = False,
 ) -> list[dict]:
     """Run model experiments for a set of tasks.
 
@@ -300,9 +299,10 @@ def run_experiments_new(
         the cache file produced for the run. This is useful to ensure that such
         errors resulting from models running into overflows are not ignored silently.
         Moreover, if `raise_on_failure` is also True, the exception will be raised.
-    dynamic_tabarena_validation_protocol: bool, default False
-        If True, the validation split is dynamically configured based on the task
-        type and dataset type.
+
+    Each experiment carries its own `dynamic_tabarena_validation_protocol` flag
+    (see `Experiment`): when True, that experiment's validation split is
+    dynamically configured based on the task type and dataset type at run time.
 
     Returns:
     -------
@@ -420,7 +420,7 @@ def run_experiments_new(
                         print(f"Using eval metric: {eval_metric_name}")
 
                     # EXPERIMENTAL: update validation split metadata logic
-                    if (task is not None) and dynamic_tabarena_validation_protocol:
+                    if (task is not None) and model_experiment.dynamic_tabarena_validation_protocol:
                         from tabarena.benchmark.experiment.experiment_constructor import (
                             AGModelBagExperiment,
                         )

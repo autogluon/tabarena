@@ -110,6 +110,7 @@ class Experiment:
         experiment_cls: Type[ExperimentRunner] = OOFExperimentRunner,
         experiment_kwargs: dict = None,
         preprocessing_pipeline: str | None = None,
+        dynamic_tabarena_validation_protocol: bool = False,
     ):
         if experiment_kwargs is None:
             experiment_kwargs = {}
@@ -127,6 +128,10 @@ class Experiment:
         # Name of an optional preprocessing pipeline to apply, resolved lazily at
         # run time via `_resolve_preprocessing` (see that method).
         self.preprocessing_pipeline = preprocessing_pipeline
+        # Whether `run_experiments_new` should adapt this experiment's validation
+        # data dynamically based on the task it runs on (task-dependent, so applied
+        # at run time rather than baked into method_kwargs).
+        self.dynamic_tabarena_validation_protocol = dynamic_tabarena_validation_protocol
 
     def construct_method(self, problem_type: str, eval_metric) -> AbstractExecModel:
         return self.method_cls(
@@ -501,6 +506,7 @@ class AGModelExperiment(Experiment):
         experiment_kwargs: dict = None,
         time_limit_with_preprocessing: bool = False,
         preprocessing_pipeline: str | None = None,
+        dynamic_tabarena_validation_protocol: bool = False,
     ):
         if method_kwargs is None:
             method_kwargs = {}
@@ -533,6 +539,7 @@ class AGModelExperiment(Experiment):
             experiment_cls=self._experiment_cls,
             experiment_kwargs=experiment_kwargs,
             preprocessing_pipeline=preprocessing_pipeline,
+            dynamic_tabarena_validation_protocol=dynamic_tabarena_validation_protocol,
         )
 
     def _to_yaml_dict(self, locals: dict) -> dict:
@@ -634,6 +641,7 @@ class AGModelBagExperiment(AGModelExperiment):
         time_limit_with_preprocessing: bool = False,
         extra_model_hyperparameters: dict = None,
         preprocessing_pipeline: str | None = None,
+        dynamic_tabarena_validation_protocol: bool = False,
     ):
         if method_kwargs is None:
             method_kwargs = {}
@@ -684,6 +692,7 @@ class AGModelBagExperiment(AGModelExperiment):
             experiment_kwargs=experiment_kwargs,
             time_limit_with_preprocessing=time_limit_with_preprocessing,
             preprocessing_pipeline=preprocessing_pipeline,
+            dynamic_tabarena_validation_protocol=dynamic_tabarena_validation_protocol,
         )
 
 
