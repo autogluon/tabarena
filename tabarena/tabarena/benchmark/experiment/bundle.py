@@ -81,7 +81,7 @@ class TabArenaExperimentBundle:
     into each experiment so the resulting YAML is self-contained.
     """
 
-    models: list[tuple[str, int | str | dict]]
+    models: list[tuple[str, int | str | dict]] = field(default_factory=list)
     """List of models to run in the benchmark with metadata.
     Metadata keys from left to right:
         - model name: str
@@ -147,6 +147,8 @@ class TabArenaExperimentBundle:
         - If a string or Path, the directory is used as the base path for the temporary
         and any model artifacts will be stored in time-stamped subdirectories.
     """
+    verbosity: int = 2
+    """AutoGluon verbosity level for the fit, passed via `init_kwargs['verbosity']`."""
     model_verbosity: int | None = None
     """Verbosity level passed to the model via model_hyperparameters['verbose'].
     Controls model-level logging (e.g. CatBoost iteration logs, LightGBM verbosity)
@@ -194,13 +196,12 @@ class TabArenaExperimentBundle:
         num_gpus: int,
         memory_limit: int | None,
         time_limit_with_preprocessing: bool,
-        verbosity: int,
     ) -> list[dict]:
         """Build experiments, write them to `configs_path`, and return the parsed methods list.
 
         Compute resources (`num_cpus`/`num_gpus`/`memory_limit`/`time_limit`) are
-        baked into each experiment. `verbosity` is threaded through into the
-        per-method kwargs alongside the model-specific overrides this bundle owns.
+        baked into each experiment alongside the model-specific overrides this
+        bundle owns (including `verbosity`).
         """
         import yaml
 
@@ -212,7 +213,6 @@ class TabArenaExperimentBundle:
             num_gpus=num_gpus,
             memory_limit=memory_limit,
             time_limit_with_preprocessing=time_limit_with_preprocessing,
-            verbosity=verbosity,
         )
 
         # Verify no duplicate names
@@ -242,14 +242,12 @@ class TabArenaExperimentBundle:
         num_gpus: int,
         memory_limit: int | None,
         time_limit_with_preprocessing: bool,
-        verbosity: int = 2,
     ) -> list[Experiment]:
         """Build the full list of experiments (one per model x pipeline x random config)."""
         method_kwargs = self._init_base_method_kwargs(
             num_cpus=num_cpus,
             num_gpus=num_gpus,
             memory_limit=memory_limit,
-            verbosity=verbosity,
         )
         self._print_experiment_summary(method_kwargs)
         return [
@@ -269,12 +267,11 @@ class TabArenaExperimentBundle:
         num_cpus: int | None,
         num_gpus: int,
         memory_limit: int | None,
-        verbosity: int,
     ) -> dict:
         """Build the per-method kwargs: the bench-level base, plus this bundle's
         model-level overrides and the (baked) compute resources."""
         mk = {
-            "init_kwargs": {"verbosity": verbosity},
+            "init_kwargs": {"verbosity": self.verbosity},
             "shuffle_features": self.shuffle_features,
             "fit_kwargs": {},
             "extra_model_hyperparameters": {},

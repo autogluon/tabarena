@@ -24,7 +24,12 @@ if TYPE_CHECKING:
 
 @dataclass
 class TabArenaBenchmarkSetup:
-    """Manually set the parameters for the benchmark run."""
+    """A single homogeneous benchmark run (one resources/scheduler/tasks/experiment).
+
+    Internal engine — not part of the public API. Construct and drive it via
+    `TabArenaBenchmarkPlan` (see `tabflow_slurm.setup.plan`), which resolves
+    per-model overrides, groups jobs, and builds one of these per group.
+    """
 
     benchmark_name: str
     """Unique name of the benchmark; determines where output artifacts are stored."""
@@ -48,28 +53,23 @@ class TabArenaBenchmarkSetup:
 
     # Misc Settings
     # -------------
-    parallel_benchmark_name: str | None = None
-    """Set this is to some string value to make sure you can run parallel
-    jobs for the same benchmark name. This ensures that the config and job .yaml/.json
-    files are not overwritten, while SLURM output and TabArena output are still saved
-    in the same folders.
-    """
+    parallel_safe_benchmark_name: str | None = None
+    """Per-run name for the config/job `.yaml`/`.json` setup artifacts, so
+    parallel runs of the same `benchmark_name` don't overwrite each other (SLURM
+    output and TabArena output still share the `benchmark_name` folders). Set by
+    `TabArenaBenchmarkPlan` (one per group); falls back to `benchmark_name` for a
+    single, non-parallel run."""
     ignore_cache: bool = False
     """If True, will overwrite the cache and run all jobs again."""
     num_ray_cpus: int | Literal["auto"] = "auto"
     """Number of CPUs to use for checking the cache and generating the jobs.
     This should be set to the number of CPUs available to the python script.
     If "auto", we use all available CPUs."""
-    verbosity: int = 2
-    """Verbosity level for logging and printing."""
 
     @property
-    def _parallel_safe_benchmark_name(self) -> str:
-        """Safe benchmark name for file paths."""
-        benchmark_name = self.benchmark_name
-        if self.parallel_benchmark_name is not None:
-            benchmark_name += f"_{self.parallel_benchmark_name}"
-        return benchmark_name
+    def _safe_benchmark_name(self) -> str:
+        """Per-run name for setup artifacts; falls back to `benchmark_name`."""
+        return self.parallel_safe_benchmark_name or self.benchmark_name
 
     def get_jobs_to_run(self) -> tuple[list[dict], int]:
         """Resolve the work to run for this benchmark.
@@ -93,14 +93,13 @@ class TabArenaBenchmarkSetup:
         configs = self.experiment_bundle.generate_configs_yaml(
             configs_path=self.path_setup.get_configs_path(
                 benchmark_name=self.benchmark_name,
-                safe_benchmark_name=self._parallel_safe_benchmark_name,
+                safe_benchmark_name=self._safe_benchmark_name,
             ),
             time_limit=self.resources_setup.time_limit,
             num_cpus=self.resources_setup.num_cpus,
             num_gpus=self.resources_setup.effective_num_gpus_model,
             memory_limit=self.resources_setup.effective_memory_limit,
             time_limit_with_preprocessing=self.resources_setup.time_limit_with_model_agnostic_preprocessing,
-            verbosity=self.verbosity,
         )
 
         candidates = self._enumerate_candidates(task_metadata_list, configs)
@@ -191,7 +190,7 @@ class TabArenaBenchmarkSetup:
             "openml_cache_dir": self.path_setup.openml_cache_path,
             "configs_yaml_file": self.path_setup.get_configs_path(
                 benchmark_name=self.benchmark_name,
-                safe_benchmark_name=self._parallel_safe_benchmark_name,
+                safe_benchmark_name=self._safe_benchmark_name,
             ),
             "output_dir": self.path_setup.get_output_path(self.benchmark_name),
             "num_cpus": self.resources_setup.num_cpus,
@@ -213,14 +212,14 @@ class TabArenaBenchmarkSetup:
             jobs_dict=self.get_jobs_dict(),
             path_setup=self.path_setup,
             benchmark_name=self.benchmark_name,
-            parallel_safe_benchmark_name=self._parallel_safe_benchmark_name,
+            parallel_safe_benchmark_name=self._safe_benchmark_name,
             resources_setup=self.resources_setup,
         )
         if run_commands is None:
             Path(
                 self.path_setup.get_configs_path(
                     benchmark_name=self.benchmark_name,
-                    safe_benchmark_name=self._parallel_safe_benchmark_name,
+                    safe_benchmark_name=self._safe_benchmark_name,
                 )
             ).unlink(missing_ok=True)
         return run_commands

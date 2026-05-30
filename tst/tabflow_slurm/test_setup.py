@@ -209,7 +209,7 @@ class TestTimeLimitPerConfig:
 
 
 # ---------------------------------------------------------------------------
-# TabArenaBenchmarkSetup._parallel_safe_benchmark_name
+# TabArenaBenchmarkSetup._safe_benchmark_name
 # ---------------------------------------------------------------------------
 
 
@@ -217,9 +217,7 @@ def _benchmark_setup(**kwargs) -> TabArenaBenchmarkSetup:
     defaults = {
         "benchmark_name": "my_bench",
         "tasks_to_run_setup": TabArenaMetadataBundle(task_metadata=[]),
-        "experiment_bundle": TabArenaExperimentBundle(
-            n_random_configs=0, models=[], preprocessing_pipelines=["default"]
-        ),
+        "experiment_bundle": TabArenaExperimentBundle(n_random_configs=0, preprocessing_pipelines=["default"]),
         "path_setup": PathSetup(workspace="/ws", python_path="/py"),
         "scheduler_setup": _slurm(),
         "resources_setup": _resources(time_limit=3600),
@@ -228,14 +226,14 @@ def _benchmark_setup(**kwargs) -> TabArenaBenchmarkSetup:
     return TabArenaBenchmarkSetup(**defaults)
 
 
-class TestParallelSafeBenchmarkName:
-    def test_no_parallel_name_returns_benchmark_name(self):
-        bs = _benchmark_setup(benchmark_name="my_bench", parallel_benchmark_name=None)
-        assert bs._parallel_safe_benchmark_name == "my_bench"
+class TestSafeBenchmarkName:
+    def test_no_parallel_name_falls_back_to_benchmark_name(self):
+        bs = _benchmark_setup(benchmark_name="my_bench", parallel_safe_benchmark_name=None)
+        assert bs._safe_benchmark_name == "my_bench"
 
-    def test_parallel_name_appended_with_underscore(self):
-        bs = _benchmark_setup(benchmark_name="my_bench", parallel_benchmark_name="run1")
-        assert bs._parallel_safe_benchmark_name == "my_bench_run1"
+    def test_parallel_safe_name_used_directly(self):
+        bs = _benchmark_setup(benchmark_name="my_bench", parallel_safe_benchmark_name="my_bench_run1")
+        assert bs._safe_benchmark_name == "my_bench_run1"
 
 
 # ---------------------------------------------------------------------------

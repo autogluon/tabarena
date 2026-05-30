@@ -35,6 +35,7 @@ def _generate_yaml(
         n_random_configs=n_random_configs,
         models=models,
         preprocessing_pipelines=["tabarena_default"],
+        verbosity=0,
         **bundle_kwargs,
     )
     configs_path = str(tmp_path / "configs.yaml")
@@ -45,7 +46,6 @@ def _generate_yaml(
         num_gpus=num_gpus,
         memory_limit=memory_limit,
         time_limit_with_preprocessing=time_limit_with_preprocessing,
-        verbosity=0,
     )
     return configs_path
 

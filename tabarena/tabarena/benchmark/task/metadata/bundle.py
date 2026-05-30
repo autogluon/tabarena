@@ -246,3 +246,14 @@ class TabArenaMetadataBundle:
                         )
                     )
         return task_metadata
+
+
+@dataclass
+class TabArenaV0pt1MetadataBundle(TabArenaMetadataBundle):
+    """Metadata for full TabArena v0.1 benchmark: 51 datasets, 816 tasks."""
+    task_metadata: str = "tabarena-v0.1"
+
+@dataclass
+class TabArenaV0pt1LiteMetadataBundle(TabArenaV0pt1MetadataBundle):
+    """TabArena v0.1 Lite (first split of each dataset): 51 datasets, 51 tasks."""
+    split_indices_to_run = "lite"

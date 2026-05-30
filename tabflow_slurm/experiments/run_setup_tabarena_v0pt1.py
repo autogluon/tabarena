@@ -1,35 +1,39 @@
-"""Code for running the benchmark on a full node in a GCP cluster."""
+"""Code for running the benchmark on a full node in a GCP cluster.
+
+Uses `TabArenaBenchmarkPlan` to launch several models with different per-model
+hardware on top of one shared default setup: TabPFN-3 on a GPU node and
+RandomForest on a CPU node. The differing `num_gpus` puts them in two groups, so
+`setup_jobs()` emits two `sbatch` commands (one GPU run, one CPU run).
+"""
 
 from __future__ import annotations
 
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
-from tabarena.benchmark.task.metadata import TabArenaMetadataBundle
-from tabflow_slurm import PathSetup, SlurmSetup, TabArenaBenchmarkSetup, TabArenaV0pt1ResourcesSetup
+from tabarena.benchmark.task.metadata import TabArenaV0pt1LiteMetadataBundle
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaBenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
 
-tabpfn_benchmark_setup = TabArenaBenchmarkSetup(
+benchmark_plan = TabArenaBenchmarkPlan(
     benchmark_name="example_tabarena_v0pt1_29052026",
-    tasks_to_run_setup=TabArenaMetadataBundle(
-        task_metadata="tabarena-v0.1",
-        split_indices_to_run="lite",
-    ),
-    experiment_bundle=TabArenaV0pt1ExperimentBundle(
-        models=[
-            ("TabPFN-3", 0),
-        ],
-    ),
+    model_jobs=[
+        # GPU model: override the base (CPU-only) resources to request a GPU.
+        ModelJob(models=("TabPFN-3", 0), name="gpu", resources={"num_gpus": 1}),
+        # CPU model: no resource override, so it runs on the base CPU resources.
+        ModelJob(models=("RandomForest", "all"), name="cpu"),
+    ],
+    tasks_to_run_setup=TabArenaV0pt1LiteMetadataBundle(),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(),
     path_setup=PathSetup(
         workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
         python_path="/home/lennart_priorlabs_ai/.venvs/beyondarena_27052026/bin/python",
     ),
-    resources_setup=TabArenaV0pt1ResourcesSetup(
-        num_gpus=1,
-    ),
-    scheduler_setup=SlurmSetup(
-        gpu_partition="gpua100highmemoryspotmt",
-        cpu_partition="cpuhighmem16mtspot",
-        extra_gres=None,
-        exclusive_node=True,
-    ),
+    resources_setup=TabArenaV0pt1ResourcesSetup(),
+    scheduler_setup=GCPSlurmSetup(),
 )
 
-tabpfn_benchmark_setup.setup_jobs()
+benchmark_plan.setup_jobs()

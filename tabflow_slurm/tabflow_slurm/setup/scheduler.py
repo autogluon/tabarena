@@ -296,3 +296,13 @@ class SlurmSetup(SchedulerSetup):
         flag_parts.append(f"--output={slurm_log_output}/%A/slurm-%A_%a.out")
         flag_parts.append(slurm_script_path)
         return " ".join(flag_parts)
+
+
+@dataclass(kw_only=True)
+class GCPSlurmSetup(SlurmSetup):
+    """Default Slurm setup for a GCP Slurm cluster used for BeyondArena."""
+
+    gpu_partition: str = "gpua100highmemoryspotmt"
+    cpu_partition: str = "cpuhighmem16mtspot"
+    extra_gres: None = None
+    exclusive_node: bool = True

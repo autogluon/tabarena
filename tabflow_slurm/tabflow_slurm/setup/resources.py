@@ -72,7 +72,8 @@ class ResourcesSetup:
 
 @dataclass
 class TabArenaV0pt1ResourcesSetup(ResourcesSetup):
+    """Hardware resources and time budget used in TabArena-v0.1."""
     time_limit: int = 3600
     num_cpus: int | None = 8
-    num_gpus: int = 0  # Depends on the model
+    num_gpus: int = 0  # Default 0, only some models use GPU
     memory_limit: int | None = 32
