@@ -256,4 +256,4 @@ class TabArenaV0pt1MetadataBundle(TabArenaMetadataBundle):
 @dataclass
 class TabArenaV0pt1LiteMetadataBundle(TabArenaV0pt1MetadataBundle):
     """TabArena v0.1 Lite (first split of each dataset): 51 datasets, 51 tasks."""
-    split_indices_to_run = "lite"
+    split_indices_to_run: str = "lite"
