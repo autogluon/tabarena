@@ -13,7 +13,7 @@ import yaml
 from autogluon.common.savers import save_pd
 from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
-from tabarena.loaders import Paths
+from tabarena.loaders import get_tabarena_cache_root
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_results_lst
 from tabarena.nips2025_utils.load_artifacts import results_to_holdout
 from tabarena.nips2025_utils.method_processor import get_info_from_result, load_raw
@@ -321,11 +321,11 @@ class MethodMetadata:
 
     @property
     def _path_root(self) -> Path:
-        return Paths.artifacts_root_cache_tabarena
+        return get_tabarena_cache_root() / "artifacts"
 
     @property
     def path_cache_root(self) -> Path:
-        return Paths._tabarena_root_cache
+        return get_tabarena_cache_root()
 
     @property
     def path(self) -> Path:
@@ -865,7 +865,7 @@ class MethodMetadata:
         if path is None:
             assert method is not None, "method must be specified if path is not specified"
             assert artifact_name is not None, "artifact_name must be specified if path is not specified"
-            path = Paths._tabarena_root_cache / "artifacts" / artifact_name / "methods" / method / "metadata.yaml"
+            path = get_tabarena_cache_root() / "artifacts" / artifact_name / "methods" / method / "metadata.yaml"
 
         assert str(path).endswith(".yaml")
         with open(path) as file:

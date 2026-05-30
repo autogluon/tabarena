@@ -21,10 +21,14 @@ instead of ``compare_on_tabarena``.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from tabarena.loaders import set_tabarena_cache_root
+from tabarena.nips2025_utils.end_to_end import EndToEndResults
+from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
+from tabarena.website.website_format import format_leaderboard
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -78,7 +82,7 @@ class TabArenaEvalConfig:
     num_cpus: int | None = None
     """CPUs for raw-result post-processing (None = all available)."""
     tabarena_cache_path: str | None = None
-    """If set, exported as ``TABARENA_CACHE`` before the heavy imports."""
+    """If set, used as the TabArena cache root (via ``set_tabarena_cache_root``)."""
     openml_cache_path: str | None = None
     """If set, used as the OpenML root cache (for fetching task metadata)."""
     save_leaderboards: bool = True
@@ -94,10 +98,10 @@ class TabArenaEvalConfig:
         return self.subsets if self.subsets is not None else [[]]
 
     def init_caches(self) -> None:
-        """Point TabArena/OpenML at the configured caches (call before heavy imports)."""
+        """Point TabArena/OpenML at the configured caches (resolved lazily, so order-independent)."""
         if self.tabarena_cache_path is not None:
-            os.environ["TABARENA_CACHE"] = self.tabarena_cache_path
-            print("Set TABARENA_CACHE to:", self.tabarena_cache_path)
+            set_tabarena_cache_root(self.tabarena_cache_path)
+            print("Set TabArena cache root to:", self.tabarena_cache_path)
         if self.openml_cache_path is not None:
             import openml
 
@@ -133,11 +137,6 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
     Returns ``{subset_label: leaderboard_df}``.
     """
     config.init_caches()
-
-    # Imported here so TABARENA_CACHE (set above) is honored.
-    from tabarena.nips2025_utils.end_to_end import EndToEndResults
-    from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
-    from tabarena.website.website_format import format_leaderboard
 
     singles = []
     for method in config.methods:

@@ -6,11 +6,11 @@ monkeypatched, so these only exercise the orchestration + the pure helpers.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pandas as pd
 from tabarena.evaluation import EvalMethod, TabArenaEvalConfig, run_eval
+from tabarena.loaders import get_tabarena_cache_root, set_tabarena_cache_root
 
 
 def _config(tmp_path: Path, **kwargs) -> TabArenaEvalConfig:
@@ -40,16 +40,18 @@ class TestConfig:
     def test_subsets_passthrough(self, tmp_path):
         assert _config(tmp_path, subsets=[[], ["regression"]]).subsets_to_run() == [[], ["regression"]]
 
-    def test_init_caches_sets_tabarena_env(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("TABARENA_CACHE", raising=False)
-        _config(tmp_path, tabarena_cache_path="/c").init_caches()
-        assert os.environ["TABARENA_CACHE"] == "/c"
+    def test_init_caches_sets_tabarena_cache_root(self, tmp_path):
+        try:
+            _config(tmp_path, tabarena_cache_path="/c").init_caches()
+            assert get_tabarena_cache_root() == Path("/c")
+        finally:
+            set_tabarena_cache_root(None)
 
 
 def test_run_eval_orchestration(tmp_path, monkeypatch):
+    import tabarena.evaluation.benchmark_eval as bm
     import tabarena.nips2025_utils.end_to_end as ee
     import tabarena.nips2025_utils.end_to_end_single as ees
-    import tabarena.website.website_format as wf
 
     post_calls: list[dict] = []
     cache_calls: list[dict] = []
@@ -76,7 +78,7 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
         def to_markdown(self, **_kwargs):
             return ""
 
-    monkeypatch.setattr(wf, "format_leaderboard", lambda _df, **_kw: _FakeLB())
+    monkeypatch.setattr(bm, "format_leaderboard", lambda _df, **_kw: _FakeLB())
 
     cfg = _config(
         tmp_path,
