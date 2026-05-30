@@ -200,13 +200,17 @@ class TabArenaBenchmarkSetup:
             **self.scheduler_setup.get_extra_default_args(),
         }
 
-    def setup_jobs(self) -> list[str] | None:
+    def setup_jobs(self, *, print_run_commands: bool = True) -> list[str] | None:
         """Generate the scheduler job file(s) and return the run commands.
 
         Delegates persistence and command construction to
         `scheduler_setup.get_run_commands`. Returns `None` when there are no
         jobs to run; in that case the configs YAML for this parallel run is
         also removed so it can be re-prepared cleanly on the next invocation.
+
+        `print_run_commands` controls whether the scheduler prints its own
+        run-command summary; `TabArenaBenchmarkPlan` sets this to False so it can
+        print one consolidated summary across all runs instead.
         """
         run_commands = self.scheduler_setup.get_run_commands(
             jobs_dict=self.get_jobs_dict(),
@@ -214,6 +218,7 @@ class TabArenaBenchmarkSetup:
             benchmark_name=self.benchmark_name,
             parallel_safe_benchmark_name=self._safe_benchmark_name,
             resources_setup=self.resources_setup,
+            print_summary=print_run_commands,
         )
         if run_commands is None:
             Path(

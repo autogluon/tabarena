@@ -47,11 +47,14 @@ class SchedulerSetup:
         benchmark_name: str,
         parallel_safe_benchmark_name: str,
         resources_setup: ResourcesSetup,
+        print_summary: bool = True,
     ) -> list[str] | None:
         """Persist `jobs_dict` and return the run commands a user should invoke.
 
         Returns `None` when there is no work to launch (so the caller can
-        clean up any stale per-run artifacts).
+        clean up any stale per-run artifacts). When `print_summary` is False the
+        scheduler stays quiet (no run-command block / "no jobs" notice) so a
+        caller like `TabArenaBenchmarkPlan` can print one consolidated summary.
 
         Schedulers receive `path_setup` and the benchmark name(s) so they can
         derive any scheduler-specific paths (log dirs, scripts, job-definition
@@ -165,6 +168,7 @@ class SlurmSetup(SchedulerSetup):
         benchmark_name: str,
         parallel_safe_benchmark_name: str,
         resources_setup: ResourcesSetup,
+        print_summary: bool = True,
     ) -> list[str] | None:
         """Persist `jobs_dict` to one or more JSON files and return matching sbatch commands.
 
@@ -188,7 +192,8 @@ class SlurmSetup(SchedulerSetup):
 
         all_jobs = jobs_dict["jobs"]
         if not all_jobs:
-            print("No jobs to run.")
+            if print_summary:
+                print("No jobs to run.")
             Path(base_json_path).unlink(missing_ok=True)
             return None
 
@@ -206,19 +211,19 @@ class SlurmSetup(SchedulerSetup):
             base_command=base_command,
         )
 
-        # --- Print summary ---
-        n_batches = len(run_commands)
-        batch_info = (
-            f"\nSplit into {n_batches} array job batches (max {self.max_array_size} per batch)."
-            if n_batches > 1
-            else ""
-        )
-        print(
-            "##### Setup Jobs"
-            f"{batch_info}"
-            "\nRun the following command(s) to start the jobs:"
-            "\n" + "\n".join(run_commands) + "\n"
-        )
+        if print_summary:
+            n_batches = len(run_commands)
+            batch_info = (
+                f"\nSplit into {n_batches} array job batches (max {self.max_array_size} per batch)."
+                if n_batches > 1
+                else ""
+            )
+            print(
+                "##### Setup Jobs"
+                f"{batch_info}"
+                "\nRun the following command(s) to start the jobs:"
+                "\n" + "\n".join(run_commands) + "\n"
+            )
         return run_commands
 
     def _write_job_batches_and_build_commands(

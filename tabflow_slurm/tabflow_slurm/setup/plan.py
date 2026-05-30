@@ -139,6 +139,28 @@ class ModelJob:
         return [m if isinstance(m, Experiment) else m.to_entry() for m in self.models]
 
 
+_SUMMARY_BAR = "=" * 78
+
+
+def _format_models(models: list) -> str:
+    """Comma-separated model names for a run (tuples -> name, Experiment -> .name)."""
+    names = [m[0] if isinstance(m, tuple) else getattr(m, "name", str(m)) for m in models]
+    return ", ".join(str(n) for n in names) if names else "(none)"
+
+
+def _format_resources(resources: ResourcesSetup) -> str:
+    """One-line compute summary: GPUs / CPUs / memory / per-config time budget."""
+    cpus = resources.num_cpus if resources.num_cpus is not None else "all"
+    mem = f"{resources.memory_limit}GB" if resources.memory_limit is not None else "all RAM"
+    return f"{resources.num_gpus} GPU, {cpus} CPU, {mem}, ~{resources.time_limit / 3600:g}h/config"
+
+
+def _format_partition(scheduler: SchedulerSetup, resources: ResourcesSetup) -> str:
+    """The partition this run lands on (GPU vs CPU), or the scheduler type if it has none."""
+    attr = "gpu_partition" if resources.num_gpus > 0 else "cpu_partition"
+    return getattr(scheduler, attr, None) or type(scheduler).__name__
+
+
 @dataclass
 class TabArenaBenchmarkPlan:
     """A base benchmark setup plus per-model jobs that override parts of it.
@@ -250,22 +272,52 @@ class TabArenaBenchmarkPlan:
         return new
 
     def setup_jobs(self, num_ray_cpus: int | Literal["auto"] = "auto") -> list[str]:
-        """Generate the job files for every group and return all run commands.
+        """Generate the job files for every run and return all run commands.
 
-        Calls `TabArenaBenchmarkSetup.setup_jobs` on each generated setup,
-        dropping groups with no work to launch, and returns the flat list of
-        run commands. `num_ray_cpus` is forwarded to `build_setups`.
+        Prepares each run (`TabArenaBenchmarkSetup`) in turn — printing a banner
+        per run so the interleaved cache/filter logs are attributable — then
+        prints one consolidated summary and the final list of commands to launch.
+        `num_ray_cpus` is forwarded to `build_setups`.
         """
         setups = self.build_setups(num_ray_cpus=num_ray_cpus)
-        all_commands: list[str] = []
-        for setup in setups:
-            commands = setup.setup_jobs()
-            if commands:
-                all_commands.extend(commands)
+        n = len(setups)
+
+        print(f"\n{_SUMMARY_BAR}\nBenchmark plan '{self.benchmark_name}': preparing {n} run(s)\n{_SUMMARY_BAR}")
+
+        runs: list[tuple[str, str, list[str]]] = []
+        for idx, setup in enumerate(setups, start=1):
+            label = setup._safe_benchmark_name
+            models = _format_models(setup.experiment_bundle.models)
+            print(
+                f"\n----- [{idx}/{n}] run '{label}' -----"
+                f"\n  models:    {models}"
+                f"\n  resources: {_format_resources(setup.resources_setup)}"
+                f"\n  partition: {_format_partition(setup.scheduler_setup, setup.resources_setup)}"
+            )
+            commands = setup.setup_jobs(print_run_commands=False) or []
+            runs.append((label, models, commands))
+
+        return self._print_summary_and_collect(runs)
+
+    def _print_summary_and_collect(self, runs: list[tuple[str, str, list[str]]]) -> list[str]:
+        """Print the consolidated per-run summary + final command list; return all commands."""
+        all_commands = [cmd for _, _, commands in runs for cmd in commands]
 
         print(
-            f"##### Plan {self.benchmark_name}: {len(setups)} run(s), "
-            f"{len(all_commands)} command(s) to launch."
-            + ("\n" + "\n".join(all_commands) + "\n" if all_commands else " (nothing to run)")
+            f"\n{_SUMMARY_BAR}"
+            f"\nPlan '{self.benchmark_name}' summary "
+            f"— {len(runs)} run(s), {len(all_commands)} command(s) to launch"
+            f"\n{_SUMMARY_BAR}"
         )
+        prefix = f"{self.benchmark_name}_"
+        for label, models, commands in runs:
+            short = label[len(prefix) :] if label.startswith(prefix) else label
+            status = f"{len(commands)} command(s)" if commands else "no jobs (all cached / filtered out)"
+            print(f"  - {short:<10} {status:<36} [{models}]")
+
+        if all_commands:
+            print(f"\nRun the following {len(all_commands)} command(s) to launch the jobs:\n")
+            print("\n\n".join(all_commands) + "\n")
+        else:
+            print("\nNothing to launch — all runs are already cached / filtered out.\n")
         return all_commands
