@@ -3,22 +3,22 @@ from __future__ import annotations
 import copy
 import os
 from functools import lru_cache
-from typing import TYPE_CHECKING, Type
+from typing import TYPE_CHECKING
 
 import numpy as np
-
-from autogluon.core.metrics import get_metric, Scorer
+from autogluon.core.metrics import Scorer, get_metric
 from autogluon.core.models.greedy_ensemble.ensemble_selection import EnsembleSelection
+
+from tabarena.metrics import _fast_log_loss
+from tabarena.utils import task_to_tid_fold
+from tabarena.utils.aux_metric import get_aux_metric_map
+from tabarena.utils.parallel_for import parallel_for
+
 from .configuration_list_scorer import ConfigurationListScorer
 
-from ..utils.aux_metric import get_aux_metric_map
-from ..utils.parallel_for import parallel_for
-from ..utils.rank_utils import RankScorer
-from ..utils import task_to_tid_fold
-from ..metrics import _fast_log_loss
-
 if TYPE_CHECKING:
-    from ..repository.evaluation_repository import EvaluationRepository
+    from tabarena.repository.evaluation_repository import EvaluationRepository
+    from tabarena.utils.rank_utils import RankScorer
 
 
 @lru_cache(maxsize=1)
@@ -34,16 +34,22 @@ def get_fast_roc_auc() -> Scorer:
         return get_metric(metric="roc_auc", problem_type="binary")
     try:
         # FIXME: Requires g++, can lead to an exception on import as it needs to compile C code.
-        from ..metrics._fast_roc_auc import fast_roc_auc_cpp
-    except FileNotFoundError:
-        print("Warning: Failed to compile c++ metric... Try installing g++. Falling back to sklearn implementation...")
+        from tabarena.metrics._fast_roc_auc import fast_roc_auc_cpp
+    except (OSError, ValueError) as e:
+        # OSError covers g++ missing (FileNotFoundError) and read-only filesystems
+        # (EROFS, e.g. Singularity containers); ValueError covers a non-zero/timed-out
+        # g++ run, including being unable to write cpp_auc.so into a read-only install dir.
+        print(
+            f"Warning: Failed to obtain c++ roc_auc metric ({type(e).__name__}: {e}). "
+            "Try installing g++ or set TABARENA_SKIP_FAST_ROC_AUC=1. "
+            "Falling back to sklearn implementation..."
+        )
         return get_metric(metric="roc_auc", problem_type="binary")
     return fast_roc_auc_cpp
 
 
 class TaskEvaluator:
-    """
-    Minimal per-task evaluator:
+    """Minimal per-task evaluator:
       - knows how to fit an ensemble given (y_train, pred_train)
       - knows how to predict/score given (y, pred)
     It does NOT know anything about repo/dataset/fold/models or optimize_on.
@@ -51,7 +57,7 @@ class TaskEvaluator:
     def __init__(
         self,
         *,
-        ensemble_method: Type,
+        ensemble_method: type,
         ensemble_kwargs: dict,
         eval_metric: Scorer,
         fit_eval_metric: Scorer,
@@ -156,18 +162,17 @@ class TaskEvaluator:
 class EnsembleScorer:
     def __init__(
         self,
-        repo: "EvaluationRepository",
+        repo: EvaluationRepository,
         task_metrics_metadata,
-        evaluator_cls: Type[TaskEvaluator] = TaskEvaluator,
-        ensemble_method: Type = EnsembleSelection,
+        evaluator_cls: type[TaskEvaluator] = TaskEvaluator,
+        ensemble_method: type = EnsembleSelection,
         ensemble_method_kwargs: dict | None = None,
         proxy_fit_metric_map: dict | None = None,
         use_fast_metrics: bool = True,
         optimize_on: str = "val",
         return_metric_error_val: bool = True,
     ):
-        """
-        Parameters
+        """Parameters
         ----------
         repo: EvaluationRepository
         task_metrics_metadata
@@ -192,7 +197,7 @@ class EnsembleScorer:
 
         self.repo = repo
         self.evaluator_cls = evaluator_cls
-        self.ensemble_method: Type = ensemble_method
+        self.ensemble_method: type = ensemble_method
         self.ensemble_method_kwargs = ensemble_method_kwargs
         self.task_metrics_metadata = task_metrics_metadata
         self.proxy_fit_metric_map = proxy_fit_metric_map
@@ -208,7 +213,7 @@ class EnsembleScorer:
     def filter_models(self, dataset: str, fold: int, models: list[str]) -> list[str]:
         return models
 
-    def get_ensemble_method_for_task(self, dataset: str, fold: int, models: list[str]) -> Type:
+    def get_ensemble_method_for_task(self, dataset: str, fold: int, models: list[str]) -> type:
         return self.ensemble_method
 
     def get_ensemble_method_kwargs_for_task(self, dataset: str, fold: int, models: list[str]) -> dict:
@@ -267,10 +272,9 @@ class EnsembleScorer:
     ) -> tuple[np.ndarray, np.ndarray]:
         if self.optimize_on == "val":
             return y_val, pred_val
-        elif self.optimize_on == "test":
+        if self.optimize_on == "test":
             return y_test, pred_test
-        else:
-            raise ValueError(f"Invalid value for `optimize_on`: {self.optimize_on}")
+        raise ValueError(f"Invalid value for `optimize_on`: {self.optimize_on}")
 
     # -------------------------
     # Main entry
@@ -310,7 +314,7 @@ class EnsembleScorer:
             aux_eval_metric=aux_eval_metric,
         )
 
-        results, fitted_ensemble = evaluator.run(
+        results, _fitted_ensemble = evaluator.run(
             pred_train=pred_train,
             y_train=y_train,
             pred_test=pred_test,
@@ -347,8 +351,7 @@ class EnsembleScorer:
 
 
 class EnsembleScorerMaxModels(EnsembleScorer):
-    """
-    Identical to EnsembleScorer, with the addition of `max_models` and `max_models_per_type`.
+    """Identical to EnsembleScorer, with the addition of `max_models` and `max_models_per_type`.
 
     Parameters
     ----------
@@ -359,7 +362,7 @@ class EnsembleScorerMaxModels(EnsembleScorer):
         If specified, will limit ensemble candidates of a given model type to the top `max_models_per_type` highest validation score models.
         If "auto", scales dynamically with the number of rows in the dataset.
     """
-    def __init__(self, repo: "EvaluationRepository", max_models: int = None, max_models_per_type: int | str = None, **kwargs):
+    def __init__(self, repo: EvaluationRepository, max_models: int | None = None, max_models_per_type: int | str | None = None, **kwargs):
         super().__init__(repo=repo, **kwargs)
         assert self.repo is not None
         if max_models is not None:
@@ -373,9 +376,7 @@ class EnsembleScorerMaxModels(EnsembleScorer):
         self.max_models_per_type = max_models_per_type
 
     def filter_models(self, dataset: str, fold: int, models: list[str]) -> list[str]:
-        """
-        Filters models by user-defined logic. Used in class extensions.
-        """
+        """Filters models by user-defined logic. Used in class extensions."""
         if self.max_models is not None or self.max_models_per_type is not None:
             if self.max_models_per_type is not None and isinstance(self.max_models_per_type, str) and self.max_models_per_type == "auto":
                 max_models_per_type = self._get_max_models_per_type_auto(dataset=dataset)
@@ -391,9 +392,7 @@ class EnsembleScorerMaxModels(EnsembleScorer):
         return models
 
     def _get_max_models_per_type_auto(self, dataset: str) -> int:
-        """
-        Logic to mimic AutoGluon's default setting for `max_models_per_type`.
-        """
+        """Logic to mimic AutoGluon's default setting for `max_models_per_type`."""
         # TODO: Make it easier to get this info without accessing private variables in repo
         df_metadata = self.repo._zeroshot_context.df_metadata
         num_rows = int(df_metadata[df_metadata["dataset"] == dataset].iloc[0]["NumberOfInstances"] * 9 / 10)
@@ -428,20 +427,19 @@ class EnsembleScorerMaxModels(EnsembleScorer):
 class EnsembleSelectionConfigScorer(ConfigurationListScorer):
     def __init__(self,
                  tasks: list[str],
-                 repo: "EvaluationRepository",
+                 repo: EvaluationRepository,
                  ranker: RankScorer,
                  tid_to_dataset_name_dict: dict[int, str],
                  task_metrics_metadata: dict[int, dict[str, str]],
                  ensemble_size=100,
                  ensemble_selection_kwargs=None,
-                 backend: str = 'native',
+                 backend: str = "native",
                  use_fast_metrics: bool = True,
                  proxy_fit_metric_map: dict | str | None = None,  # TODO: Add unit test
-                 ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
-                 ensemble_kwargs: dict = None,
+                 ensemble_cls: type[EnsembleScorer] = EnsembleScorerMaxModels,
+                 ensemble_kwargs: dict | None = None,
                  ):
-        """
-        A scorer object to evaluate configs via simulating ensemble selection.
+        """A scorer object to evaluate configs via simulating ensemble selection.
 
         :param tasks: The list of tasks to consider for scoring.
         :param ranker: The ranking object used to compute scores on each task.
@@ -470,7 +468,7 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
         if ensemble_selection_kwargs is None:
             ensemble_selection_kwargs = {}
         self.ensemble_selection_kwargs = ensemble_selection_kwargs
-        assert backend in ['native', 'ray']
+        assert backend in ["native", "ray"]
         self.backend = backend
         self.use_fast_metrics = ensemble_kwargs.pop("use_fast_metrics", use_fast_metrics)
         if "proxy_fit_metric_map" in ensemble_kwargs:
@@ -478,8 +476,8 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
         if proxy_fit_metric_map is None:
             proxy_fit_metric_map = {}
         elif isinstance(proxy_fit_metric_map, str):
-            assert proxy_fit_metric_map == 'roc_auc_to_log_loss'
-            proxy_fit_metric_map = {'roc_auc': 'log_loss'}  # log_loss is fast to compute and a good proxy for roc_auc
+            assert proxy_fit_metric_map == "roc_auc_to_log_loss"
+            proxy_fit_metric_map = {"roc_auc": "log_loss"}  # log_loss is fast to compute and a good proxy for roc_auc
         self.proxy_fit_metric_map = proxy_fit_metric_map
 
         ensemble_selection_kwargs = copy.deepcopy(ensemble_selection_kwargs)
@@ -495,10 +493,10 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
         )
 
     @classmethod
-    def from_repo(cls, repo: "EvaluationRepository", **kwargs):
+    def from_repo(cls, repo: EvaluationRepository, **kwargs):
         zeroshot_simulator_context = repo._zeroshot_context
-        if 'tasks' not in kwargs:
-            kwargs['tasks'] = zeroshot_simulator_context.get_tasks()
+        if "tasks" not in kwargs:
+            kwargs["tasks"] = zeroshot_simulator_context.get_tasks()
 
         dataset_to_tid_dict = zeroshot_simulator_context.dataset_to_tid_dict
         task_metrics_metadata = zeroshot_simulator_context.df_metrics
@@ -521,8 +519,7 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
         return self.ensemble_scorer.evaluate_task(dataset=dataset, fold=fold, models=models)
 
     def compute_errors(self, configs: list[str]) -> dict[str, dict[str, object]]:
-        """
-        Compute and return test errors and ensemble weights for all tasks on the user-specified list of configs.
+        """Compute and return test errors and ensemble weights for all tasks on the user-specified list of configs.
 
         :param configs: List of model config names to ensemble and compute test errors with.
         :return: dict:
@@ -540,10 +537,7 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
             models=configs,
         )
 
-        if engine == "sequential":
-            progress_bar = False
-        else:
-            progress_bar = True
+        progress_bar = engine != "sequential"
 
         inputs = [{"task": task} for task in self.tasks]
         results_rows = parallel_for(
@@ -553,8 +547,7 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
             engine=engine,
             progress_bar=progress_bar,
         )
-        results = {task: result for task, result in zip(self.tasks, results_rows)}
-        return results
+        return dict(zip(self.tasks, results_rows))
 
     def compute_ranks(self, errors: dict[str, float]) -> dict[str, float]:
         ranks = {}
@@ -565,16 +558,14 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
 
     def compute_rank_mean(self, errors: dict[str, float]) -> float:
         ranks = self.compute_ranks(errors=errors)
-        average_rank = np.mean(list(ranks.values()))
-        return average_rank
+        return np.mean(list(ranks.values()))
 
     def score(self, configs: list[str]) -> float:
-        errors, ensemble_weights = self.compute_errors(configs=configs)
-        rank = self.compute_rank_mean(errors)
-        return rank
+        errors, _ensemble_weights = self.compute_errors(configs=configs)
+        return self.compute_rank_mean(errors)
 
     def score_per_dataset(self, configs: list[str]) -> dict[str, float]:
-        errors, ensemble_weights = self.compute_errors(configs=configs)
+        errors, _ensemble_weights = self.compute_errors(configs=configs)
         return self.compute_ranks(errors=errors)
 
     def subset(self, tasks):
