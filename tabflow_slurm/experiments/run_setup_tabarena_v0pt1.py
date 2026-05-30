@@ -23,8 +23,8 @@ benchmark_plan = TabArenaBenchmarkPlan(
     model_jobs=[
         # GPU model: override the base (CPU-only) resources to request a GPU.
         ModelJob(models=("TabPFN-3", 0), name="gpu", resources={"num_gpus": 1}),
-        # CPU model: no resource override, so it runs on the base CPU resources.
-        ModelJob(models=("RandomForest", 1), name="cpu"),
+        # Example for CPU model: no resource override, so it runs on the base CPU resources.
+        # ModelJob(models=("RandomForest", 1), name="cpu"),
     ],
     tasks_to_run_setup=TabArenaV0pt1LiteMetadataBundle(),
     experiment_bundle=TabArenaV0pt1ExperimentBundle(),

@@ -81,24 +81,25 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     cfg = _config(
         tmp_path,
         methods=[
-            EvalMethod("A", ag_name_override="AG_A"),
+            EvalMethod("A", ag_name_override="AG_A", result_suffix=" [Rerun]"),
             EvalMethod("B", ag_name_override="AG_B", only_load_cache=True),
         ],
         subsets=[[], ["regression"]],
     )
     out = run_eval(cfg)
 
-    # Only the non-cache-only method is post-processed, with the right keys.
+    # Only the non-cache-only method is post-processed, with the suffix baked in.
     assert len(post_calls) == 1
     assert post_calls[0]["name_prefix_raw"] == "AG_A"
     assert post_calls[0]["method"] == "AG_A"
     assert post_calls[0]["artifact_name"] == "bench"
+    assert post_calls[0]["name_suffix"] == " [Rerun]"
     assert Path(post_calls[0]["path_raw"]) == cfg.path_raw
 
     # The cache-only method is loaded from cache (keyed by benchmark_name).
     assert cache_calls == [{"method": "AG_B", "artifact_name": "bench"}]
 
-    # One comparison per subset, with the expected output dir + subset arg.
+    # One comparison per subset, with the expected output dir + subset + context.
     figs = Path(cfg.figure_output_dir)
     assert [c[0] for c in compare_calls] == [figs / "subsets" / "full", figs / "subsets" / "regression"]
     assert [c[1] for c in compare_calls] == [None, ["regression"]]

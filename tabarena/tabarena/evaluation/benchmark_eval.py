@@ -6,9 +6,10 @@ A benchmark run writes raw prediction artifacts to
 those raw artifacts into a TabArena leaderboard, reusing the same
 ``benchmark_name`` the plan was launched with to locate them.
 
-Currently implements the TabArena-v0.1 flow: post-process the raw
-results into the TabArena cache, then compare against the
-TabArena-v0.1 paper baselines via ``EndToEndResults.compare_on_tabarena``.
+Currently implements the TabArena-v0.1 flow: post-process the raw results into
+the TabArena cache, then compare against the TabArena-v0.1 paper baselines via
+``EndToEndResults.compare_on_tabarena``. Each method can be renamed in the
+leaderboard via its ``result_suffix`` (e.g. to distinguish a re-run).
 
 Beyond-arena (future): ``_compare_subset`` is the extension seam. The general
 path would accept a ``TabArenaMetadataBundle``, convert it to the eval
@@ -40,6 +41,12 @@ class EvalMethod:
     ag_name_override: str | None = None
     """Use this AG name instead of deriving it from the registry (for custom methods
     not in `tabarena.models.utils.get_configs_generator_from_name`)."""
+    result_suffix: str | None = None
+    """Optional suffix appended to this method's name in the leaderboard, e.g.
+    `" [Rerun]"` renders ``TabPFN-3`` as ``TabPFN-3 [Rerun]``. Useful to distinguish
+    a re-run from the original TabArena baseline. Baked into the cached results at
+    post-processing time (via the engine's ``name_suffix``); for ``only_load_cache``
+    the cache must already have been built with the same suffix."""
 
     @property
     def ag_name(self) -> str:
@@ -116,11 +123,12 @@ def _compare_subset(results, subset: list[str], *, config: TabArenaEvalConfig, f
 
 
 def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
-    """Build a TabArena leaderboard per subset from a plan's raw results.
+    """Build a TabArena leaderboard per subset from raw results.
 
     Post-processes each non-cache-only method's raw artifacts into the TabArena
-    cache (keyed by ``benchmark_name``), compares against the TabArena-v0.1
-    baselines, prints each leaderboard, and (by default) saves it as CSV.
+    cache (keyed by ``benchmark_name``, with its ``result_suffix`` baked into the
+    method name), compares against the TabArena-v0.1 baselines, prints each
+    leaderboard, and (by default) saves it as CSV.
 
     Returns ``{subset_label: leaderboard_df}``.
     """
@@ -140,6 +148,7 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
             single = EndToEndSingle.from_path_raw_to_results(
                 path_raw=config.path_raw,
                 name_prefix_raw=method.ag_name,
+                name_suffix=method.result_suffix,
                 method=method.ag_name,
                 artifact_name=config.benchmark_name,
                 num_cpus=config.num_cpus,
