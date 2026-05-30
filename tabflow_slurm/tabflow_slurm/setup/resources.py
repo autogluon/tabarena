@@ -73,7 +73,37 @@ class ResourcesSetup:
 @dataclass
 class TabArenaV0pt1ResourcesSetup(ResourcesSetup):
     """Hardware resources and time budget used in TabArena-v0.1."""
+
     time_limit: int = 3600
     num_cpus: int | None = 8
     num_gpus: int = 0  # Default 0, only some models use GPU
     memory_limit: int | None = 32
+
+
+@dataclass
+class BeyondArenaResourcesSetup(ResourcesSetup):
+    """Hardware resources and time budget used in BeyondArena.
+
+    For BeyondArena, we used auto-detect for cpus and memory on the node.
+    And selected nods with as many resources as we wanted.
+
+    The nodes were different for GPU and CPU jobs:
+        * CPU jobs used: 16 vCPUs, 64 GB RAM, 0 GB VRAM
+        * GPUs jobs used (varied due to availability and cost):
+            * 12 vCPUs, 85 GB RAM, 40 GB VRAM (for MLPs with less than 250k rows)
+            * 12 vCPUs, 170 GB RAM, 80 GB VRAM
+            * 24 vCPUs, 180 GB RAM, 96 GB VRAM
+            * 13 vCPUs, 125 GB RAM, 80 GB VRAM
+
+    Adjust your benchmark partitions, memory limit and num_cpus as
+    needed to reflect this setting, when benchmarking on a shared
+    resource cluster.
+    """
+
+    time_limit: int = 3600 * 4
+    num_gpus: int = 0  # Default 0, only some models use GPU
+    # When using GPU, we set the below to match the GPU VRAM
+    # fake_memory_for_estimates: int = 80 # 40/80/96 depending on the GPU node used
+
+    memory_limit: int | None = None
+    num_cpus: int | None = None

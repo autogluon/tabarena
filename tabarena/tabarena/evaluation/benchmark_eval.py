@@ -1,12 +1,11 @@
 """Native evaluation of a ``TabArenaBenchmarkPlan``'s results.
 
 A benchmark run writes raw prediction artifacts to
-``<output_dir>/data/<method>/<task>/<r{r}f{f}>/results/results.pkl`` where
-``output_dir == PathSetup.get_output_path(benchmark_name)``. This module turns
-those raw artifacts into a TabArena leaderboard, reusing the same
+``<output_dir>/data/<method>/<task>/<r{r}f{f}>/results/results.pkl``.
+This module turns those raw artifacts into a TabArena leaderboard, reusing the same
 ``benchmark_name`` the plan was launched with to locate them.
 
-Currently implements the TabArena-v0.1 flow: post-process the raw results into
+Currently, implements the TabArena-v0.1 flow: post-process the raw results into
 the TabArena cache, then compare against the TabArena-v0.1 paper baselines via
 ``EndToEndResults.compare_on_tabarena``. Each method can be renamed in the
 leaderboard via its ``result_suffix`` (e.g. to distinguish a re-run).
@@ -69,7 +68,7 @@ class TabArenaEvalConfig:
     benchmark_name: str
     """Matches the plan's benchmark name; also used as the cache ``artifact_name``."""
     output_dir: str | Path
-    """The run's output dir, i.e. ``PathSetup.get_output_path(benchmark_name)``."""
+    """The run's output dir of TabArena runs."""
     methods: list[EvalMethod]
     """Methods to include in the leaderboard (alongside the TabArena baselines)."""
     figure_output_dir: str | Path

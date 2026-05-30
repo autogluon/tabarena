@@ -149,7 +149,7 @@ class TabArenaExperimentBundle:
     """
     verbosity: int = 2
     """AutoGluon verbosity level for the fit, passed via `init_kwargs['verbosity']`."""
-    model_verbosity: int | None = None
+    model_verbosity: int | None = 4
     """Verbosity level passed to the model via model_hyperparameters['verbose'].
     Controls model-level logging (e.g. CatBoost iteration logs, LightGBM verbosity)
     independently of AutoGluon's overall verbosity. If None, no model-level verbosity is set."""
@@ -269,7 +269,8 @@ class TabArenaExperimentBundle:
         memory_limit: int | None,
     ) -> dict:
         """Build the per-method kwargs: the bench-level base, plus this bundle's
-        model-level overrides and the (baked) compute resources."""
+        model-level overrides and the (baked) compute resources.
+        """
         mk = {
             "init_kwargs": {"verbosity": self.verbosity},
             "shuffle_features": self.shuffle_features,
@@ -440,3 +441,12 @@ class TabArenaV0pt1ExperimentBundle(TabArenaExperimentBundle):
     """Use AutoGluon default preprocessing only."""
     adapt_num_folds_to_n_classes: bool = False
     """TabArena-v0.1 did not adapt the number of folds to the number of classes."""
+
+@dataclass(kw_only=True)
+class BeyondArenaExperimentBundle(TabArenaExperimentBundle):
+    """Experiment bundle for the BeyondArena paper.
+    It used the current defaults, 25 configs, and the new TabArena preprocessing.
+    """
+
+    n_random_configs: int = 25
+    preprocessing_pipelines: list[str] = field(default_factory=lambda: ["tabarena_default"])
