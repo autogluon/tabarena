@@ -6,7 +6,7 @@ from collections import OrderedDict
 from collections.abc import Iterable
 from copy import deepcopy
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import openml
@@ -24,16 +24,32 @@ from openml.tasks import (
     TaskType,
 )
 
-from tabarena.benchmark.task.metadata import (
-    GroupLabelTypes,
-    SplitTimeHorizonTypes,
-    SplitTimeHorizonUnitTypes,
-)
 from tabarena.benchmark.task.openml import (
     TabArenaOpenMLClassificationTask,
     TabArenaOpenMLRegressionTask,
     TabArenaOpenMLSupervisedTask,
 )
+
+if TYPE_CHECKING:
+    from tabarena.benchmark.task.metadata import (
+        GroupLabelTypes,
+        SplitTimeHorizonTypes,
+        SplitTimeHorizonUnitTypes,
+    )
+
+
+#: Number of hex chars of the task-name hash appended to a slug for uniqueness.
+_SLUG_HASH_LEN = 12
+
+
+def _slugify(name: str, *, max_len: int = 40) -> str:
+    """Make ``name`` filesystem/display safe: chars outside ``[A-Za-z0-9._-]`` -> ``_``.
+
+    Trimmed of leading/trailing ``_.-`` and length-capped; falls back to ``"task"``
+    if nothing readable remains.
+    """
+    safe = "".join(c if (c.isalnum() or c in "._-") else "_" for c in name)
+    return safe.strip("_.-")[:max_len] or "task"
 
 
 # Patch Functions for OpenML Dataset
@@ -108,14 +124,31 @@ class UserTask:
         return f"UserTask|{self.task_id}|{self.task_name}|{self.task_cache_path}"
 
     @property
+    def slug(self) -> str:
+        """Human-readable, filesystem-safe, unique identifier for the task.
+
+        Format ``{readable}-{shorthash}`` where ``readable`` is the first
+        ``/``-segment of the task name (the dataset name for data_foundry tasks,
+        e.g. ``blood_transfusion/<uuid>`` -> ``blood_transfusion``) and
+        ``shorthash`` is the first :data:`_SLUG_HASH_LEN` hex chars of the task
+        name's SHA-256. The hash is always present and derived from the full
+        (unique) task name, so the slug stays unique and collision-safe even when
+        the readable parts coincide, and is reproducible from ``task_name`` alone.
+        """
+        readable = _slugify(self.task_name.split("/")[0])
+        return f"{readable}-{self._task_name_hash[:_SLUG_HASH_LEN]}"
+
+    @property
     def tabarena_task_name(self) -> str:
-        """Task/Dataset Name used for the task/dataset."""
-        return f"Task-{self.task_id}"
+        """Task/Dataset name used for the task (and as the results ``dataset`` key)."""
+        return self.slug
 
     @property
     def task_id(self) -> int:
-        """Generate a unique task ID based on the task name and a UUID.
-        This is used to identify the task, for example, when caching results.
+        """Generate a unique integer task ID based on the task name.
+
+        Used where an integer id is structurally required (the OpenML task object).
+        Human-facing references / caches use :attr:`slug` instead.
         """
         return int(self._task_name_hash, 16) % 10**10
 
@@ -336,7 +369,7 @@ class UserTask:
 
     @property
     def openml_task_path(self) -> Path:
-        return self.task_cache_path / f"{self.task_id}.pkl"
+        return self.task_cache_path / f"{self.slug}.pkl"
 
     def save_local_openml_task(self, task: OpenMLSupervisedTask) -> None:
         """Safe the OpenML task to be usable by loading from disk later."""

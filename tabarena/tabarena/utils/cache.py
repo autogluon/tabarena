@@ -13,6 +13,19 @@ from time import perf_counter
 from dataclasses import dataclass
 from typing import Callable, Generic, Optional, TypeVar
 
+from tabarena.utils.pickle_utils import dumps_pickle, load_pickle
+
+
+def _default_compress_results() -> bool:
+    """Whether pickle caches are gzip-compressed on write.
+
+    Compression is **on by default**; set ``TABARENA_DISABLE_RESULT_COMPRESSION`` to a
+    truthy value (``1`` / ``true`` / ``yes``) to disable it. Reads are always transparent
+    (both raw and gzip ``.pkl`` files load), so this setting only affects newly written
+    caches — existing raw caches keep loading either way.
+    """
+    return os.environ.get("TABARENA_DISABLE_RESULT_COMPRESSION", "").strip().lower() not in ("1", "true", "yes")
+
 from autogluon.common.loaders import load_pkl
 from autogluon.common.savers import save_pkl
 from autogluon.common.utils import s3_utils
@@ -128,7 +141,7 @@ class CacheFunctionPickle(AbstractCacheFunction[object]):
     """
     _load_after_cache = False  # Loading a pickle is unnecessary when the contents are already in memory
 
-    def __init__(self, cache_name: str, cache_path: Path | str | None = None, include_self_in_call: bool = False, verbose: bool = True):
+    def __init__(self, cache_name: str, cache_path: Path | str | None = None, include_self_in_call: bool = False, verbose: bool = True, compress: bool | None = None):
         super().__init__(include_self_in_call=include_self_in_call, verbose=verbose)
         self.cache_name = cache_name
         if cache_path is None:
@@ -139,6 +152,9 @@ class CacheFunctionPickle(AbstractCacheFunction[object]):
             raise ValueError(f"cache_path must not end with a directory separator! (cache_path='{cache_path}'")
         self.cache_path = cache_path
         self.is_s3 = self.cache_path.startswith("s3://")
+        # Whether to gzip-compress on write. Reads transparently handle both raw and
+        # gzip-compressed ``.pkl`` files regardless of this setting.
+        self.compress = _default_compress_results() if compress is None else compress
 
     @property
     def cache_file(self) -> str:
@@ -163,10 +179,10 @@ class CacheFunctionPickle(AbstractCacheFunction[object]):
             return Path(self.cache_file).exists()
 
     def save_cache(self, data: object) -> None:
+        cache = dumps_pickle(data, compress=self.compress)
         if self.is_s3:
             s3 = boto3.client('s3')
             bucket, key = s3_utils.s3_path_to_bucket_prefix(self.cache_file)
-            cache = pickle.dumps(data)
             if self.verbose:
                 print(f'Writing cache with size {round(sys.getsizeof(cache) / 1e6, 3)} MB to {self.cache_file}')
             s3.put_object(Bucket=bucket, Key=key, Body=cache)
@@ -174,7 +190,6 @@ class CacheFunctionPickle(AbstractCacheFunction[object]):
             cache_file = self.cache_file
             Path(cache_file).parent.mkdir(parents=True, exist_ok=True)
             with open(cache_file, "wb") as f:
-                cache = pickle.dumps(data)
                 if self.verbose:
                     print(f'Writing cache with size {round(sys.getsizeof(cache) / 1e6, 3)} MB')
                 f.write(cache)
@@ -187,8 +202,8 @@ class CacheFunctionPickle(AbstractCacheFunction[object]):
 
 
     def load_cache(self) -> object:
-        with open(self.cache_file, "rb") as f:
-            return pickle.loads(f.read())
+        # Transparently handles both raw and gzip-compressed ``.pkl`` files.
+        return load_pickle(self.cache_file)
 
 
 # TODO: Delete and use CacheFunctionPickle

@@ -289,9 +289,33 @@ def test_task_id_str_format(tmp_path):
     assert Path(parts[3]) == tmp_path
 
 
-def test_tabarena_task_name():
+def test_tabarena_task_name_is_slug():
     ut = UserTask(task_name="my-task")
-    assert ut.tabarena_task_name == f"Task-{ut.task_id}"
+    assert ut.tabarena_task_name == ut.slug
+
+
+def test_slug_is_readable_first_segment_plus_shorthash():
+    ut = UserTask(task_name="blood_transfusion/019d7366-d9d0-777d-b0ae-e7a5175f7f09")
+    readable, _, shorthash = ut.slug.rpartition("-")
+    assert readable == "blood_transfusion"  # first /-segment
+    assert len(shorthash) == 12 and shorthash == ut._task_name_hash[:12]
+
+
+def test_slug_is_deterministic_and_unique():
+    assert UserTask(task_name="a/x").slug == UserTask(task_name="a/x").slug
+    # Same readable prefix, different full name -> different (hash) suffix.
+    assert UserTask(task_name="a/x").slug != UserTask(task_name="a/y").slug
+
+
+def test_slug_sanitizes_unsafe_characters():
+    ut = UserTask(task_name="weird name/v2!")
+    readable = ut.slug.rpartition("-")[0]
+    assert readable == "weird_name"  # space/punct -> "_", trimmed; "/" splits
+
+
+def test_openml_task_path_uses_slug(tmp_path):
+    ut = UserTask(task_name="ds/uuid", task_cache_path=tmp_path)
+    assert ut.openml_task_path == tmp_path / f"{ut.slug}.pkl"
 
 
 def test_from_task_id_str_round_trip(tmp_path):

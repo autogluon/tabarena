@@ -365,7 +365,7 @@ def run_experiments_new(
 
             for me_index, model_experiment in enumerate(model_experiments, start=1):
                 cur_experiment_idx += 1
-                cache_task_key = task_id_or_object if isinstance(task_id_or_object, int) else task_id_or_object.task_id
+                cache_task_key = task_id_or_object if isinstance(task_id_or_object, int) else task_id_or_object.slug
                 print(
                     f"Starting Model {me_index}/{len(model_experiments)}..."
                     f"\n\t"
