@@ -4,6 +4,7 @@ from tabarena.benchmark.experiment.bundle import (
     ModelConstraints,
     TabArenaExperimentBundle,
     TabArenaV0pt1ExperimentBundle,
+    BeyondArenaExperimentBundle,
 )
 from tabarena.benchmark.experiment.experiment_constructor import (
     AGExperiment,
@@ -30,6 +31,7 @@ __all__ = [
     "AGModelBagExperiment",
     "AGModelExperiment",
     "AGModelOuterExperiment",
+    "BeyondArenaExperimentBundle",
     "Experiment",
     "ExperimentBatchRunner",
     "ExperimentRunner",

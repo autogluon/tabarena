@@ -143,9 +143,13 @@ class DataFoundryAdapter:
             task_metadata = oml_task.compute_metadata(
                 tabarena_task_name=user_task.tabarena_task_name,
                 task_id_str=user_task.task_id_str,
-            ).to_dataframe()
-            task_metadata["data_foundry_uri"] = entry.relative_path.as_posix()
-            rows.append(task_metadata)
+            )
+            task_metadata.data_foundry_uri = entry.relative_path.as_posix()
+            # Warehouse-level metadata only available from the Data Foundry container.
+            task_metadata.domain = container.dataset_metadata.domain_str
+            task_metadata.dataset_year = container.dataset_metadata.dataset_year
+            task_metadata.source = container.dataset_metadata.dataset_source
+            rows.append(task_metadata.to_dataframe())
 
         metadata_df = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 

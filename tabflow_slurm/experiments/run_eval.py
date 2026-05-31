@@ -26,11 +26,12 @@ config = TabArenaEvalConfig(
     output_dir=path_setup.get_output_path(BENCHMARK_NAME),
     methods=[
         EvalMethod("TabPFN-3", result_suffix=" [Rerun]"),
+        EvalMethod("Linear", result_suffix=" [Rerun]"),
     ],
     figure_output_dir=Path(__file__).parent / "eval_output" / BENCHMARK_NAME,
     subsets=[
         ["lite"],
-    ]
+    ],
 )
 
 run_eval(config)

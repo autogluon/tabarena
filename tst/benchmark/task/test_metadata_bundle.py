@@ -8,8 +8,6 @@ dependency on the tabflow_slurm package.
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pandas as pd
 import pytest
 from tabarena.benchmark.task.metadata import (
@@ -17,6 +15,7 @@ from tabarena.benchmark.task.metadata import (
     TabArenaMetadataBundle,
     TabArenaTaskMetadata,
 )
+from tabarena.benchmark.task.metadata.sources import load_tabarena_v0_1_task_metadata
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -165,7 +164,28 @@ class TestLoadTaskMetadata:
 
 
 # ---------------------------------------------------------------------------
-# load_task_metadata — Literal["tabarena-v0.1"] path
+# to_dataframe(add_old_minimal_metadata=True) — legacy tid + task_type
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("task_id_str", "expected_tid"),
+    [
+        ("363612", 363612),  # plain OpenML integer id (e.g. v0.1)
+        ("UserTask|9900335484|ds/uuid", 9900335484),  # local UserTask id
+    ],
+    ids=["openml_int", "user_task"],
+)
+def test_add_old_minimal_metadata_tid_handles_both_id_formats(task_id_str, expected_tid):
+    meta = _task_meta(task_id_str=task_id_str)
+    with pytest.warns(UserWarning, match="task_type"):
+        df = meta.to_dataframe(add_old_minimal_metadata=True)
+    assert df["tid"].iloc[0] == expected_tid
+    assert df["task_type"].iloc[0] == "classification"  # legacy overwrite still applied
+
+
+# ---------------------------------------------------------------------------
+# load_task_metadata — TabArena v0.1 rebuild conversion
 # ---------------------------------------------------------------------------
 
 
@@ -189,28 +209,23 @@ def _fake_curated_metadata(rows: list[dict] | None = None) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-_CURATED_PATCH = "tabarena.nips2025_utils.fetch_metadata.load_curated_task_metadata"
+class TestTabArenaV0pt1Conversion:
+    """Tests for load_tabarena_v0_1_task_metadata (the v0.1 rebuild) and bundle filtering on top."""
 
-
-class TestLoadTaskMetadataLiteral:
-    """Tests for task_metadata = Literal["tabarena-v0.1"]."""
-
-    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
-    def test_literal_returns_task_metadata_list(self, _mock):
-        result = _bundle(task_metadata="tabarena-v0.1").load_task_metadata()
+    def test_returns_task_metadata_list(self):
+        result = load_tabarena_v0_1_task_metadata(_fake_curated_metadata())
         assert isinstance(result, list)
         assert len(result) > 0
         assert all(isinstance(r, TabArenaTaskMetadata) for r in result)
 
-    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
-    def test_literal_creates_splits_per_repeat_and_fold(self, _mock):
-        """1 repeat x 3 folds = 3 unrolled entries."""
-        result = _bundle(task_metadata="tabarena-v0.1").load_task_metadata()
+    def test_creates_one_entry_per_repeat_and_fold(self):
+        """1 repeat x 3 folds = 3 entries."""
+        result = load_tabarena_v0_1_task_metadata(_fake_curated_metadata())
         assert len(result) == 3
 
-    @patch(
-        _CURATED_PATCH,
-        return_value=_fake_curated_metadata(
+    def test_multiple_repeats(self):
+        """2 repeats x 3 folds = 6 entries."""
+        curated = _fake_curated_metadata(
             [
                 {
                     "dataset_name": "ds_multi_repeat",
@@ -225,26 +240,19 @@ class TestLoadTaskMetadataLiteral:
                     "num_folds": 3,
                 },
             ]
-        ),
-    )
-    def test_literal_multiple_repeats(self, _mock):
-        """2 repeats x 3 folds = 6 entries."""
-        result = _bundle(task_metadata="tabarena-v0.1").load_task_metadata()
-        assert len(result) == 6
+        )
+        assert len(load_tabarena_v0_1_task_metadata(curated)) == 6
 
-    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
-    def test_literal_dataset_name_propagated(self, _mock):
-        result = _bundle(task_metadata="tabarena-v0.1").load_task_metadata()
+    def test_dataset_name_propagated(self):
+        result = load_tabarena_v0_1_task_metadata(_fake_curated_metadata())
         assert all(r.dataset_name == "fake_ds" for r in result)
 
-    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
-    def test_literal_task_id_str_propagated(self, _mock):
-        result = _bundle(task_metadata="tabarena-v0.1").load_task_metadata()
+    def test_task_id_str_propagated(self):
+        result = load_tabarena_v0_1_task_metadata(_fake_curated_metadata())
         assert all(r.task_id_str == "999" for r in result)
 
-    @patch(
-        _CURATED_PATCH,
-        return_value=_fake_curated_metadata(
+    def test_problem_type_filter_applied_via_bundle(self):
+        curated = _fake_curated_metadata(
             [
                 {
                     "dataset_name": "bin_ds",
@@ -271,34 +279,29 @@ class TestLoadTaskMetadataLiteral:
                     "num_folds": 1,
                 },
             ]
-        ),
-    )
-    def test_literal_problem_type_filter_applied(self, _mock):
+        )
         result = _bundle(
-            task_metadata="tabarena-v0.1",
+            task_metadata=load_tabarena_v0_1_task_metadata(curated),
             problem_types_to_run=["binary"],
         ).load_task_metadata()
         assert len(result) == 1
         assert result[0].problem_type == "binary"
 
-    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
-    def test_literal_split_indices_lite_filter(self, _mock):
+    def test_split_indices_lite_filter_via_bundle(self):
         """With 'lite', only r0f0 should survive out of 3 folds."""
         result = _bundle(
-            task_metadata="tabarena-v0.1",
+            task_metadata=load_tabarena_v0_1_task_metadata(_fake_curated_metadata()),
             split_indices_to_run="lite",
         ).load_task_metadata()
         assert len(result) == 1
         assert result[0].split_index == "r0f0"
 
-    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
-    def test_literal_eval_metric_binary_is_roc_auc(self, _mock):
-        result = _bundle(task_metadata="tabarena-v0.1").load_task_metadata()
+    def test_eval_metric_binary_is_roc_auc(self):
+        result = load_tabarena_v0_1_task_metadata(_fake_curated_metadata())
         assert all(r.eval_metric == "roc_auc" for r in result)
 
-    @patch(
-        _CURATED_PATCH,
-        return_value=_fake_curated_metadata(
+    def test_eval_metric_multiclass_is_log_loss(self):
+        curated = _fake_curated_metadata(
             [
                 {
                     "dataset_name": "mc_ds",
@@ -313,15 +316,11 @@ class TestLoadTaskMetadataLiteral:
                     "num_folds": 1,
                 },
             ]
-        ),
-    )
-    def test_literal_eval_metric_multiclass_is_log_loss(self, _mock):
-        result = _bundle(task_metadata="tabarena-v0.1").load_task_metadata()
-        assert result[0].eval_metric == "log_loss"
+        )
+        assert load_tabarena_v0_1_task_metadata(curated)[0].eval_metric == "log_loss"
 
-    @patch(
-        _CURATED_PATCH,
-        return_value=_fake_curated_metadata(
+    def test_eval_metric_regression_is_rmse(self):
+        curated = _fake_curated_metadata(
             [
                 {
                     "dataset_name": "reg_ds",
@@ -336,14 +335,33 @@ class TestLoadTaskMetadataLiteral:
                     "num_folds": 1,
                 },
             ]
-        ),
-    )
-    def test_literal_eval_metric_regression_is_rmse(self, _mock):
-        result = _bundle(task_metadata="tabarena-v0.1").load_task_metadata()
-        assert result[0].eval_metric == "rmse"
+        )
+        assert load_tabarena_v0_1_task_metadata(curated)[0].eval_metric == "rmse"
 
-    @patch(_CURATED_PATCH, return_value=_fake_curated_metadata())
-    def test_literal_each_result_has_one_split(self, _mock):
-        result = _bundle(task_metadata="tabarena-v0.1").load_task_metadata()
+    def test_each_result_has_one_split(self):
+        result = load_tabarena_v0_1_task_metadata(_fake_curated_metadata())
         for item in result:
             assert item.n_splits == 1
+
+    def test_warehouse_fields_mapped_from_curated(self):
+        """domain/year/source/task_type are populated; dataset-derived stats stay None."""
+        curated = _fake_curated_metadata()
+        curated["domain"] = "medical & healthcare"
+        curated["year"] = 2014
+        curated["data_source"] = "UCI"
+        ttm = load_tabarena_v0_1_task_metadata(curated)[0]
+        assert ttm.task_type == "random"
+        assert ttm.domain == "medical & healthcare"
+        assert ttm.dataset_year == "2014"  # cast to str
+        assert ttm.source == "UCI"
+        # No dataset is loaded for v0.1, so dataset-derived stats are unavailable.
+        assert ttm.num_cols_after_preprocessing is None
+        assert ttm.missing_value_fraction is None
+
+    def test_warehouse_fields_optional_when_columns_absent(self):
+        """A curated table without domain/year/source still converts (fields -> None)."""
+        ttm = load_tabarena_v0_1_task_metadata(_fake_curated_metadata())[0]
+        assert ttm.task_type == "random"
+        assert ttm.domain is None
+        assert ttm.dataset_year is None
+        assert ttm.source is None

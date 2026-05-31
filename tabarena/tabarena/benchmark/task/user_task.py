@@ -73,17 +73,38 @@ class UserTask:
 
     @staticmethod
     def from_task_id_str(task_id_str: str) -> UserTask:
-        """Create a UserTask from a task ID string."""
+        """Reconstruct a UserTask from its ``task_id_str``.
+
+        Two forms are accepted:
+
+        * ``UserTask|{task_id}|{task_name}`` — the standardized, portable form.
+          The cache directory is resolved from the ambient OpenML config at load
+          time (``<openml_root>/tabarena_tasks``), so the same id works on any
+          machine. This is what data_foundry / BeyondArena tasks use.
+        * ``UserTask|{task_id}|{task_name}|{task_cache_path}`` — the explicit-path
+          fallback, for a task stored at a custom location. The embedded path is
+          honored as-is.
+
+        ``{task_id}`` is informational only; it is recomputed from ``{task_name}``.
+        """
         parts = task_id_str.split("|")
-        if (len(parts)) != 4 or (parts[0] != "UserTask"):
+        if (parts[0] != "UserTask") or (len(parts) not in (3, 4)):
             raise ValueError(f"Invalid task ID string: {task_id_str}")
         task_name = parts[2]
-        task_cache_path = Path(parts[3])
+        task_cache_path = Path(parts[3]) if len(parts) == 4 else None
         return UserTask(task_name=task_name, task_cache_path=task_cache_path)
 
     @property
     def task_id_str(self) -> str:
-        """Task ID used for the task."""
+        """Portable identifier for this task.
+
+        Standardized tasks (no explicit ``task_cache_path``) serialize *without* a
+        path, so the id is machine-independent and resolves against the ambient
+        OpenML cache on load. Tasks created with a custom ``task_cache_path``
+        include it so they remain self-describing.
+        """
+        if self._task_cache_path is None:
+            return f"UserTask|{self.task_id}|{self.task_name}"
         return f"UserTask|{self.task_id}|{self.task_name}|{self.task_cache_path}"
 
     @property

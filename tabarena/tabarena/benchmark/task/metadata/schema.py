@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import MISSING, asdict, dataclass, fields, replace
 from enum import StrEnum
 from typing import Annotated, Literal
@@ -15,6 +16,19 @@ SplitTimeHorizonUnitTypes = Literal["steps", "days", "weeks", "months", "years"]
 class GroupLabelTypes(StrEnum):
     PER_SAMPLE = "per_sample"
     PER_GROUP = "per_group"
+
+
+def derive_task_type(*, time_on: str | None, group_on: str | list[str] | None) -> str:
+    """Classify a task's split regime from its split columns.
+
+    Returns ``"temporal"`` if ``time_on`` is set, ``"grouped"`` if ``group_on`` is set,
+    else ``"random"`` (IID). Mirrors the Data Foundry warehouse ``task_type``.
+    """
+    if time_on is not None:
+        return "temporal"
+    if group_on is not None:
+        return "grouped"
+    return "random"
 
 
 @dataclass
@@ -104,6 +118,37 @@ class TabArenaTaskMetadata:
     """Whether the dataset contains a categorical (category dtype) feature column
     with more than 50 unique values."""
 
+    data_foundry_uri: str | None = None
+    """For tasks sourced from a Data Foundry collection, the collection-entry relative
+    path (``<unique_name>/[versions/]<uuid>``) that identifies the source container.
+    Used to (re)download and materialize the task on demand. ``None`` for tasks that do
+    not originate from Data Foundry."""
+
+    # -- Warehouse-level metadata (added later; default to None for backward compat) --
+    # These align the in-task metadata with the columns previously merged in from a
+    # separate warehouse_metadata.csv (see BeyondArenaContext). Dataset-derived fields
+    # are computed at creation when the dataset is available (data_foundry / OpenML
+    # task path); they remain None when only tabular metadata is known (e.g. v0.1).
+    task_type: str | None = None
+    """The split regime of the task: ``"random"`` (IID), ``"temporal"``, or
+    ``"grouped"``. Derived from ``time_on`` / ``group_on`` (see :func:`derive_task_type`)."""
+    num_text_cols: int | None = None
+    """Number of text (string-dtype) feature columns."""
+    num_high_cardinality_cats: int | None = None
+    """Number of categorical (category-dtype) feature columns with more than 50 unique values."""
+    num_cols_after_preprocessing: int | None = None
+    """Estimated feature count after preprocessing: numerical_non_binary +
+    categorical_non_binary + num_text * 32 + num_binary + num_datetime * 10
+    (matches the Data Foundry warehouse computation)."""
+    missing_value_fraction: float | None = None
+    """Fraction of missing values across all feature cells (excluding target/group cols)."""
+    domain: str | None = None
+    """Application domain of the dataset (e.g. ``"medical & healthcare"``)."""
+    dataset_year: str | None = None
+    """Year the dataset originates from."""
+    source: str | None = None
+    """Origin of the dataset (e.g. ``"Kaggle"``, ``"OpenML"``, ``"UCI"``)."""
+
     @property
     def n_splits(self):
         """Get the number of splits in the task."""
@@ -160,8 +205,11 @@ class TabArenaTaskMetadata:
         """Transform metadata to a DataFrame.
 
         If add_old_minimal_metadata is True, also add old minimal metadata for backward
-        compatibility with old eval code. That is, we add the columns: "tid", "name", "task_type", "dataset",
-        "n_samples_train_per_fold", "n_samples_test_per_fold".
+        compatibility with old eval code. That is, we add the columns: "tid", "name", "task_type",
+        "dataset", "n_samples_train_per_fold", "n_samples_test_per_fold". Note that this
+        *overwrites* the split-regime ``task_type`` field with the legacy
+        classification/regression value (a warning is emitted); this is kept for backward
+        compatibility and will be refactored.
         """
         rows = []
         static_metadata = self.to_dict(exclude_splits_metadata=True)
@@ -178,8 +226,19 @@ class TabArenaTaskMetadata:
         # TODO: move somewhere else / get rid of this?
         if add_old_minimal_metadata:
             # Add old minimal metadata for backward compatibility with old eval code
-            df["tid"] = int(self.task_id_str.split("|")[1])  # FIXME: avoid hacky way
+            # Integer task id: the UserTask hash id (``UserTask|<id>|...``) for local
+            # tasks, or the plain OpenML integer task id otherwise (handles str or int).
+            task_id_str = str(self.task_id_str)
+            df["tid"] = int(task_id_str.split("|")[1]) if task_id_str.startswith("UserTask|") else int(task_id_str)
             df["name"] = df["tabarena_task_name"]
+            # Legacy: overwrites the split-regime `task_type` field with the
+            # classification/regression value expected by old eval code. To be refactored.
+            warnings.warn(
+                "add_old_minimal_metadata=True overwrites the split-regime `task_type` column "
+                "with the legacy classification/regression value. This is kept for backward "
+                "compatibility and will be refactored.",
+                stacklevel=2,
+            )
             df["task_type"] = "classification"
             df.loc[~df["is_classification"], "task_type"] = "regression"
             df["dataset"] = df["tabarena_task_name"]

@@ -13,6 +13,7 @@ from tabarena.benchmark.task.metadata import (
     SplitTimeHorizonUnitTypes,
     TabArenaTaskMetadata,
 )
+from tabarena.benchmark.task.metadata.schema import derive_task_type
 
 
 def _detect_binary_columns(feature_df: pd.DataFrame, *, sample_size: int = 10_000) -> set[str]:
@@ -232,6 +233,26 @@ class TabArenaTaskMetadataMixin:
             for c in non_binary_categorical_cols
         )
 
+        # Warehouse-level counts (consistent with the Data Foundry warehouse computation,
+        # see data-foundry simple_metadata_exploration). Text/datetime counts are raw
+        # (binary-inclusive); the after-preprocessing estimate expands text/datetime.
+        category_only_cols = feature_df.select_dtypes(include=["category"]).columns
+        num_text_cols = len(text_cols)
+        num_datetime_cols = len(datetime_cols)
+        num_high_cardinality_cats = int(
+            sum(feature_df[c].nunique(dropna=True) > 50 for c in category_only_cols)
+        )
+        num_cols_after_preprocessing = (
+            sum(c not in binary_cols for c in numerical_cols)
+            + sum(c not in binary_cols for c in categorical_cols)
+            + num_text_cols * 32
+            + len(binary_cols)
+            + num_datetime_cols * 10
+        )
+        missing_value_fraction = (
+            float(feature_df.isna().to_numpy().sum() / feature_df.size) if feature_df.size else 0.0
+        )
+
         self._task_metadata = TabArenaTaskMetadata(
             dataset_name=dataset_name,
             eval_metric=eval_metric,
@@ -261,6 +282,11 @@ class TabArenaTaskMetadataMixin:
             has_numerical=has_numerical,
             has_binary=has_binary,
             has_high_cardinality_categorical=has_high_cardinality_categorical,
+            task_type=derive_task_type(time_on=self.time_on, group_on=self.group_on),
+            num_text_cols=num_text_cols,
+            num_high_cardinality_cats=num_high_cardinality_cats,
+            num_cols_after_preprocessing=num_cols_after_preprocessing,
+            missing_value_fraction=missing_value_fraction,
         )
 
         return self._task_metadata

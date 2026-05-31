@@ -10,6 +10,10 @@ Primary entry points:
 * :func:`prepare_collection_for_tabarena` / :func:`get_metadata_for_benchmark_suite` —
   download (if needed) + convert + persist a task-metadata CSV under the OpenML cache,
   for downstream slurm jobs to discover.
+* :func:`load_reference_metadata` / :func:`materialize_task` /
+  :func:`generate_reference_metadata` — load a
+  reference metadata table without downloading, then materialize only the tasks that
+  survive filtering (see :class:`tabarena.benchmark.task.metadata.BeyondArenaMetadataBundle`).
 
 The vocabulary "data_foundry_uri" is preserved in the metadata DataFrame and CSV for
 backward compatibility with existing downstream code (e.g. ``tabflow_slurm``).
@@ -22,6 +26,13 @@ from tabarena.benchmark.task.data_foundry.adapter import (
     DataFoundryAdapter,
     convert_curated_container_to_user_task,
 )
+from tabarena.benchmark.task.data_foundry.beyond_arena import (
+    generate_reference_metadata,
+    get_beyond_arena_collection,
+    load_reference_metadata,
+    materialize_task,
+    reference_metadata_package_path,
+)
 from tabarena.benchmark.task.data_foundry.metadata_cache import (
     get_metadata_for_benchmark_suite,
     get_path_to_metadata_cache,
@@ -32,7 +43,12 @@ __all__ = [
     "DEFAULT_EVAL_METRICS",
     "DataFoundryAdapter",
     "convert_curated_container_to_user_task",
+    "generate_reference_metadata",
+    "get_beyond_arena_collection",
     "get_metadata_for_benchmark_suite",
     "get_path_to_metadata_cache",
+    "load_reference_metadata",
+    "materialize_task",
     "prepare_collection_for_tabarena",
+    "reference_metadata_package_path",
 ]

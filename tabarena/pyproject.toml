@@ -151,6 +151,7 @@ tabarena = [
   "metrics/_roc_auc_cpp/compile.sh",
   "metrics/_roc_auc_cpp/cpp_auc.cpp",
   "nips2025_utils/metadata/task_metadata_tabarena51.csv",
+  "benchmark/task/metadata/sources/data/*.csv",
   "benchmark/models/ag/limix/_vendor/config/*.json",
   "benchmark/models/ag/limix/_vendor/LICENSE.txt",
   "benchmark/models/ag/limix/_vendor/README.md",

@@ -301,14 +301,23 @@ def test_from_task_id_str_round_trip(tmp_path):
     assert ut2.task_cache_path == ut.task_cache_path
 
 
+def test_from_task_id_str_path_free_is_valid():
+    """The standardized 3-part form has no path and resolves to the ambient cache."""
+    ut = UserTask.from_task_id_str("UserTask|123|name")
+    assert ut.task_name == "name"
+    # No explicit path -> resolves against the ambient OpenML cache.
+    assert "tabarena_tasks" in str(ut.task_cache_path)
+
+
 @pytest.mark.parametrize(
     "bad_str",
     [
         "bad",
-        "UserTask|123|name",
+        "UserTask|123",
+        "UserTask|1|a|b|c",
         "NotUserTask|123|name|/tmp",
     ],
-    ids=["too_short", "missing_path", "wrong_prefix"],
+    ids=["too_short", "two_parts", "too_many_parts", "wrong_prefix"],
 )
 def test_from_task_id_str_invalid(bad_str):
     with pytest.raises(ValueError, match="Invalid task ID string"):

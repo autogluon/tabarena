@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+import openml
+
 # The runner script and submit template live at the package root, one level
 # up from this `setup/` subpackage.
 _PACKAGE_ROOT = Path(__file__).resolve().parent.parent
@@ -120,9 +122,17 @@ class PathSetup:
         return str(self._workspace / "slurm_out" / benchmark_name)
 
     def ensure_runtime_dirs(self, benchmark_name: str) -> None:
-        """Create the output, log, setup, and (optional) OpenML cache directories."""
+        """Create the output, log, setup, and (optional) OpenML cache directories.
+
+        Also points the ambient OpenML cache at ``openml_cache_path`` when it is
+        not ``"auto"``, so any task artifacts materialized during setup (e.g.
+        data_foundry ``UserTask`` pickles) land where the SLURM workers resolve
+        them — the workers configure the same cache via ``--openml_cache_dir``.
+        """
         if self.openml_cache_path != "auto":
             Path(self.openml_cache_path).mkdir(parents=True, exist_ok=True)
+            print(f"Setting OpenML cache directory to: {self.openml_cache_path}")
+            openml.config.set_root_cache_directory(root_cache_directory=self.openml_cache_path)
         Path(self.get_output_path(benchmark_name)).mkdir(parents=True, exist_ok=True)
         Path(self.get_slurm_log_output_path(benchmark_name)).mkdir(parents=True, exist_ok=True)
         self.get_setup_out_path(benchmark_name).mkdir(parents=True, exist_ok=True)
