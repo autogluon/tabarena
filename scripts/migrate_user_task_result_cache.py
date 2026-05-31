@@ -25,6 +25,9 @@ left untouched. Dataset / task pickles are not migrated: they re-materialize on 
         [--dest-dir /path/to/dest] [--in-place] [--dry-run] [--no-compress] [--num-ray-cpus auto]
 
 ``--metadata-csv`` must have a ``task_id_str`` column (e.g. a committed reference CSV).
+
+The committed reference CSV's ``tabarena_task_name`` column needs migrating too (it still holds
+the legacy ``Task-<task_id>`` value); use the standalone ``scripts/migrate_user_task_metadata_csv.py``.
 """
 
 from __future__ import annotations
