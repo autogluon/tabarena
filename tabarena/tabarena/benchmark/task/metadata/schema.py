@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from dataclasses import MISSING, asdict, dataclass, fields, replace
 from enum import StrEnum
 from typing import Annotated, Literal
@@ -205,11 +204,8 @@ class TabArenaTaskMetadata:
         """Transform metadata to a DataFrame.
 
         If add_old_minimal_metadata is True, also add old minimal metadata for backward
-        compatibility with old eval code. That is, we add the columns: "tid", "name", "task_type",
-        "dataset", "n_samples_train_per_fold", "n_samples_test_per_fold". Note that this
-        *overwrites* the split-regime ``task_type`` field with the legacy
-        classification/regression value (a warning is emitted); this is kept for backward
-        compatibility and will be refactored.
+        compatibility with old eval code. That is, we add the columns: "tid", "name",
+        "dataset", "n_samples_train_per_fold", "n_samples_test_per_fold".
         """
         rows = []
         static_metadata = self.to_dict(exclude_splits_metadata=True)
@@ -231,16 +227,6 @@ class TabArenaTaskMetadata:
             task_id_str = str(self.task_id_str)
             df["tid"] = int(task_id_str.split("|")[1]) if task_id_str.startswith("UserTask|") else int(task_id_str)
             df["name"] = df["tabarena_task_name"]
-            # Legacy: overwrites the split-regime `task_type` field with the
-            # classification/regression value expected by old eval code. To be refactored.
-            warnings.warn(
-                "add_old_minimal_metadata=True overwrites the split-regime `task_type` column "
-                "with the legacy classification/regression value. This is kept for backward "
-                "compatibility and will be refactored.",
-                stacklevel=2,
-            )
-            df["task_type"] = "classification"
-            df.loc[~df["is_classification"], "task_type"] = "regression"
             df["dataset"] = df["tabarena_task_name"]
             df["n_samples_train_per_fold"] = df["num_instances_train"]
             df["n_samples_test_per_fold"] = df["num_instances_test"]

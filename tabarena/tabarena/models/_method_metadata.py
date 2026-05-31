@@ -17,7 +17,6 @@ from tabarena.loaders import get_tabarena_cache_root
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_results_lst
 from tabarena.nips2025_utils.load_artifacts import results_to_holdout
 from tabarena.nips2025_utils.method_processor import get_info_from_result, load_raw
-from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
 from tabarena.repository.evaluation_repository import EvaluationRepository
 from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.utils.s3_utils import s3_get_object
@@ -643,6 +642,8 @@ class MethodMetadata:
         else:
             model_type = None
 
+        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
+
         simulator = PaperRunTabArena(repo=repo, backend=backend)
 
         if self.method_type == "config":
@@ -690,6 +691,8 @@ class MethodMetadata:
         if config_type is None:
             assert self.config_type is not None
             config_type = self.config_type
+        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
+
         simulator = PaperRunTabArena(repo=repo, backend=backend)
         df_results_hpo = simulator.run_ensemble_config_type(
             config_type=config_type,
@@ -808,6 +811,8 @@ class MethodMetadata:
     ):
         if repo is None:
             repo = self.load_processed(as_holdout=holdout)
+        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
+
         simulator = PaperRunTabArena(repo=repo, backend=backend)
         df_results_best = simulator.run_zs(
             n_portfolios=n_configs,

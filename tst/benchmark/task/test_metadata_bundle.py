@@ -164,7 +164,7 @@ class TestLoadTaskMetadata:
 
 
 # ---------------------------------------------------------------------------
-# to_dataframe(add_old_minimal_metadata=True) — legacy tid + task_type
+# to_dataframe(add_old_minimal_metadata=True) — legacy tid
 # ---------------------------------------------------------------------------
 
 
@@ -178,10 +178,8 @@ class TestLoadTaskMetadata:
 )
 def test_add_old_minimal_metadata_tid_handles_both_id_formats(task_id_str, expected_tid):
     meta = _task_meta(task_id_str=task_id_str)
-    with pytest.warns(UserWarning, match="task_type"):
-        df = meta.to_dataframe(add_old_minimal_metadata=True)
+    df = meta.to_dataframe(add_old_minimal_metadata=True)
     assert df["tid"].iloc[0] == expected_tid
-    assert df["task_type"].iloc[0] == "classification"  # legacy overwrite still applied
 
 
 # ---------------------------------------------------------------------------

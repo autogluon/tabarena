@@ -25,8 +25,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tabarena.loaders import set_tabarena_cache_root
-from tabarena.nips2025_utils.end_to_end import EndToEndResults
-from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
 from tabarena.website.website_format import format_leaderboard
 
 if TYPE_CHECKING:
@@ -135,6 +133,9 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
 
     Returns ``{subset_label: leaderboard_df}``.
     """
+    from tabarena.nips2025_utils.end_to_end import EndToEndResults
+    from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
+
     config.init_caches()
 
     singles = []
