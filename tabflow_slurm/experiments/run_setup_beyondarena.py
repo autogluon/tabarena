@@ -17,23 +17,25 @@ from __future__ import annotations
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
 from tabarena.benchmark.task.metadata import BeyondArenaLiteMetadataBundle
 from tabflow_slurm import (
+    BeyondArenaResourcesSetup,
     GCPSlurmSetup,
     ModelJob,
     PathSetup,
     TabArenaBenchmarkPlan,
-    BeyondArenaResourcesSetup,
 )
 
 benchmark_plan = TabArenaBenchmarkPlan(
     benchmark_name="example_beyondarena_31052026",
     model_jobs=[
-        # FIXME: need to use correct resource keys here and check how to make that easier.
-        # GPU model: override the base (CPU-only) resources to request a GPU.
-        ModelJob(models=("TabPFN-3", 0), name="gpu", resources={"num_gpus": 1}),
-        # Example for CPU model: no resource override, so it runs on the base CPU resources.
-        ModelJob(models=("Linear", 1), name="cpu"),
+        ModelJob(
+            models=("TabPFN-3", 0),
+            name="gpu",
+            resources={
+                "num_gpus": 1,
+                "fake_memory_for_estimates": 80, # we have 80 GB VRAM CPU.
+            }
+        ),
     ],
-    # Pass `dataset_names_to_run=[...]` to filter to specific datasets before download.
     tasks_to_run_setup=BeyondArenaLiteMetadataBundle(),
     experiment_bundle=BeyondArenaExperimentBundle(),
     path_setup=PathSetup(
