@@ -61,6 +61,10 @@ def generate_website_artifacts(output_path: str | Path):
         ban_bad_methods=True,
         file_ext=file_ext,
         engine=engine,
+        # Order methods per-plot by each plot's own y-axis instead of pinning a
+        # single Elo-derived order across the whole set (e.g. so the improvability
+        # legend ends with the lowest/best method).
+        use_elo_method_order=False,
     )
 
     zip_results = True

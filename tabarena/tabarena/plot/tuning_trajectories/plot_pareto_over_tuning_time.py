@@ -419,19 +419,31 @@ def plot_hpo(
             ax.set_xlim(x_min, x_max)
             ax.set_ylim(y_min, y_max)
 
-    # By default, flip legend order when ``max_Y`` is False so the legend
-    # reads top-to-bottom in the same direction as the lines on the plot.
-    # When the caller pins the ordering explicitly via ``method_order`` (as
-    # the per-dataset trajectory pipeline does to keep colors and legend
-    # positions identical across the multiple Pareto plots for one dataset),
-    # we respect that order verbatim — flipping would defeat the purpose.
+    # Order the legend so it reads top-to-bottom in the same vertical direction
+    # as the y-axis, keeping the legend consistent with the plotted points.
+    #   * Higher-is-better (``max_Y``): the best method sits at the top of the
+    #     plot, so keep the build order — which honours an explicit
+    #     ``method_order`` (e.g. the Elo-derived ranking the per-dataset
+    #     trajectory pipeline shares across a dataset's Pareto plots to keep
+    #     colors and legend positions aligned) — leaving the best method first.
+    #   * Lower-is-better: the best method sits at the *bottom* of the plot, so
+    #     the legend must end with the method that has the lowest (best) value.
+    #     Sort by each method's peak (best) value descending so the lowest value
+    #     lands last. This must run even when ``method_order`` is pinned —
+    #     otherwise an Elo-derived (higher-is-better) order leaves the lowest
+    #     value first, contradicting the plot's "lower is better" direction.
     legend_fontsize = 9
-    if max_Y or method_order:
+    if max_Y:
         handles_legend = handles
         labels_legend = labels
     else:
-        handles_legend = handles[::-1]
-        labels_legend = labels[::-1]
+        legend_order = sorted(
+            range(len(labels)),
+            key=lambda i: peak_per_method.get(labels[i], float("inf")),
+            reverse=True,
+        )
+        handles_legend = [handles[i] for i in legend_order]
+        labels_legend = [labels[i] for i in legend_order]
 
     # Filter out methods that should still appear in the figure but be
     # hidden from the legend (e.g. cluster of TabPFN-3 variants where we
@@ -753,6 +765,7 @@ def plot_tuning_trajectories_all(
     include_baselines: bool = False,
     engine: str = "auto",
     progress_bar: bool = True,
+    use_elo_method_order: bool = True,
 ):
     if isinstance(fig_save_dir, str):
         fig_save_dir = Path(fig_save_dir)
@@ -811,6 +824,7 @@ def plot_tuning_trajectories_all(
             "methods_to_display": methods_to_display,
             "plot_kwargs": plot_kwargs,
             "include_baselines": include_baselines,
+            "use_elo_method_order": use_elo_method_order,
         },
         engine=engine,
         progress_bar=progress_bar,
@@ -1177,6 +1191,7 @@ def _plot_tuning_trajectories_from_prepared(
     show_titles: bool = False,
     show_coverage_legend: bool = False,
     subset_display_names: dict[str, str] | None = None,
+    use_elo_method_order: bool = True,
 ):
     """Run the per-(dataset-subset, subset_map) leaderboard + plotting steps from already-prepared data."""
     fig_save_dir = Path(fig_save_dir)
@@ -1263,6 +1278,7 @@ def _plot_tuning_trajectories_from_prepared(
             dataset_metadata=subset_dataset_metadata,
             show_titles=show_titles,
             title_prefix=subset_title_prefix,
+            use_elo_method_order=use_elo_method_order,
         )
 
 
@@ -1287,6 +1303,7 @@ def plot_tuning_trajectories(
     show_titles: bool = False,
     show_coverage_legend: bool = False,
     subset_display_names: dict[str, str] | None = None,
+    use_elo_method_order: bool = True,
 ):
     name_col = "config_type"
     if subset_map is None:
@@ -1337,6 +1354,7 @@ def plot_tuning_trajectories(
         show_titles=show_titles,
         show_coverage_legend=show_coverage_legend,
         subset_display_names=subset_display_names,
+        use_elo_method_order=use_elo_method_order,
     )
 
 
@@ -1372,6 +1390,7 @@ def plot_tuning_trajectories_from_leaderboard(
     dataset_metadata: dict[str, str] | None = None,
     show_titles: bool = False,
     title_prefix: str | None = None,
+    use_elo_method_order: bool = True,
 ):
     if plot_kwargs is None:
         plot_kwargs = {}
@@ -1398,8 +1417,10 @@ def plot_tuning_trajectories_from_leaderboard(
     # y-axis, causing the same method to flip color and legend slot between
     # plots. Rank by best Elo per method (descending) since Elo is the
     # canonical "higher is better" summary; fall back gracefully when the
-    # column or method column isn't present.
-    if "method_order" not in plot_kwargs:
+    # column or method column isn't present. Disable via
+    # ``use_elo_method_order=False`` to let every plot order methods by its own
+    # y-axis instead (an explicit ``plot_kwargs["method_order"]`` still wins).
+    if use_elo_method_order and "method_order" not in plot_kwargs:
         method_col = plot_kwargs.get("method_col", "name")
         if "Elo" in leaderboard.columns and method_col in leaderboard.columns:
             plot_kwargs["method_order"] = (
