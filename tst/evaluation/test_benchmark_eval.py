@@ -54,25 +54,28 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     import tabarena.website.website_format as wf
 
     post_calls: list[dict] = []
-    cache_calls: list[dict] = []
     monkeypatch.setattr(
         ees.EndToEndSingle,
         "from_path_raw_to_results",
-        staticmethod(lambda **kw: post_calls.append(kw) or "single"),
-    )
-    monkeypatch.setattr(
-        ees.EndToEndSingle,
-        "from_cache",
-        classmethod(lambda _cls, **kw: cache_calls.append(kw) or "single"),
+        staticmethod(lambda **kw: post_calls.append(kw)),
     )
 
     compare_calls: list[tuple] = []
 
-    def fake_compare(_self, output_dir, *, subset=None, tabarena_context_kwargs=None, **_kw):
-        compare_calls.append((Path(output_dir), subset, tabarena_context_kwargs))
-        return pd.DataFrame({"method": ["m"], "metric": [1.0]})
+    class _FakeResults:
+        """Stands in for the EndToEndResults re-loaded from cache (phase 2)."""
 
-    monkeypatch.setattr(ee.EndToEndResults, "compare_on_tabarena", fake_compare)
+        def compare_on_tabarena(self, output_dir, *, subset=None, tabarena_context_kwargs=None, **_kw):
+            compare_calls.append((Path(output_dir), subset, tabarena_context_kwargs))
+            return pd.DataFrame({"method": ["m"], "metric": [1.0]})
+
+    # Phase 2 re-loads every method from the cache via EndToEndResults.from_cache; capture the args.
+    from_cache_calls: list = []
+    monkeypatch.setattr(
+        ee.EndToEndResults,
+        "from_cache",
+        classmethod(lambda _cls, methods, **kw: from_cache_calls.append(methods) or _FakeResults()),
+    )
 
     class _FakeLB:
         def to_markdown(self, **_kwargs):
@@ -91,7 +94,7 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     )
     out = run_eval(cfg)
 
-    # Only the non-cache-only method is post-processed, with the suffix baked in.
+    # Phase 1: only the non-cache-only method is post-processed, with the suffix baked in.
     assert len(post_calls) == 1
     assert post_calls[0]["name_prefix_raw"] == "AG_A"
     assert post_calls[0]["method"] == "AG_A"
@@ -99,8 +102,8 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     assert post_calls[0]["name_suffix"] == " [Rerun]"
     assert Path(post_calls[0]["path_raw"]) == cfg.path_raw
 
-    # The cache-only method is loaded from cache (keyed by benchmark_name).
-    assert cache_calls == [{"method": "AG_B", "artifact_name": "bench"}]
+    # Phase 2: every method is re-loaded from cache as (ag_name, artifact_name), exactly once.
+    assert from_cache_calls == [[("AG_A", "bench"), ("AG_B", "bench")]]
 
     # One comparison per subset, with the expected output dir + subset + context.
     figs = Path(cfg.figure_output_dir)

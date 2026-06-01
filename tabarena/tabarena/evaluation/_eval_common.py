@@ -95,33 +95,38 @@ def post_process_to_results(
     task_metadata: pd.DataFrame | None = None,
     num_cpus: int | None = None,
 ) -> EndToEndResults:
-    """Post-process each method's raw artifacts into the cache and collect them as results.
+    """Post-process each method's raw artifacts into the cache, then re-load all from the cache.
 
-    For each artifact, either loads the existing cache (``only_load_cache``) or processes the raw
-    ``results.pkl`` files into per-task results (caching them), then bundles all into a single
-    :class:`EndToEndResults`. ``task_metadata`` is forwarded to the raw post-processing so custom
-    (e.g. BeyondArena) task sets match correctly; pass ``None`` to infer it from the results.
+    Two phases, matching the canonical eval flow:
+
+    1. **Cache:** for each non-``only_load_cache`` method, ``EndToEndSingle.from_path_raw_to_results``
+       processes the raw ``results.pkl`` files into per-task results and writes them to the cache
+       (keyed by ``(artifact_name, ag_name)``). ``task_metadata`` is forwarded so custom (e.g.
+       BeyondArena) task sets match correctly; pass ``None`` to infer it from the results.
+    2. **Load:** every method is (re-)loaded from the cache via ``EndToEndResults.from_cache`` — in
+       all cases, including the ones just cached — so the in-memory results always come from the
+       same code path (the cache), not from the transient post-processing return value.
     """
     from tabarena.nips2025_utils.end_to_end import EndToEndResults
     from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
 
-    singles = []
+    # Phase 1: post-process raw -> cache for each method (skip the cache-only ones).
     for ma in method_artifacts:
         if ma.only_load_cache:
-            single = EndToEndSingle.from_cache(method=ma.ag_name, artifact_name=ma.artifact_name)
-        else:
-            print(f"Post-processing raw results for ag_name={ma.ag_name} (artifact={ma.artifact_name})...")
-            single = EndToEndSingle.from_path_raw_to_results(
-                path_raw=ma.path_raw,
-                name_prefix_raw=ma.ag_name,
-                name_suffix=ma.result_suffix,
-                method=ma.ag_name,
-                artifact_name=ma.artifact_name,
-                task_metadata=task_metadata,
-                num_cpus=num_cpus,
-            )
-        singles.append(single)
-    return EndToEndResults(end_to_end_results_lst=singles)
+            continue
+        print(f"Post-processing raw results for ag_name={ma.ag_name} (artifact={ma.artifact_name})...")
+        EndToEndSingle.from_path_raw_to_results(
+            path_raw=ma.path_raw,
+            name_prefix_raw=ma.ag_name,
+            name_suffix=ma.result_suffix,
+            method=ma.ag_name,
+            artifact_name=ma.artifact_name,
+            task_metadata=task_metadata,
+            num_cpus=num_cpus,
+        )
+
+    # Phase 2: re-load every method from the cache (one (ag_name, artifact_name) per artifact).
+    return EndToEndResults.from_cache(methods=[(ma.ag_name, ma.artifact_name) for ma in method_artifacts])
 
 
 def subset_label(subset: list[str]) -> str:
