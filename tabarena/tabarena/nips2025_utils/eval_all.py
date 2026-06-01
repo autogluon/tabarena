@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import time
 from itertools import product
 from pathlib import Path
-
-import pandas as pd
+from typing import TYPE_CHECKING
 
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
+from tabarena.utils.parallel_for import parallel_for
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def get_all_subset_combinations() -> list[tuple[bool, str, bool, str | None, bool, bool]]:
@@ -38,8 +40,7 @@ def get_website_folder_name(
     folder_name = folder_name / ("splits_lite" if lite else "splits_all")
     folder_name = folder_name / f"tasks_{problem_type}"
     dataset_subset_name = dataset_subset if dataset_subset is not None else "all"
-    folder_name = folder_name / f"datasets_{dataset_subset_name}"
-    return folder_name
+    return folder_name / f"datasets_{dataset_subset_name}"
 
 
 def evaluate_all(
@@ -49,7 +50,9 @@ def evaluate_all(
     elo_bootstrap_rounds: int = 200,
     use_latex: bool = False,
     use_website_folder_names: bool = False,
-    evaluator_kwargs: dict = None,
+    evaluator_kwargs: dict | None = None,
+    engine: str = "auto",
+    progress_bar: bool = True,
 ):
     if evaluator_kwargs is None:
         evaluator_kwargs = {}
@@ -63,6 +66,9 @@ def evaluate_all(
     evaluator_kwargs = evaluator_kwargs_
 
     eval_save_path = Path(eval_save_path)
+
+    if engine == "auto":
+        engine = tabarena_context.engine
 
     # TODO: Avoid hardcoding baselines
     baselines = [
@@ -82,39 +88,47 @@ def evaluate_all(
     df_results["imputed"] = df_results["imputed"].fillna(0)
 
     all_combinations = get_all_subset_combinations()
-    n_combinations = len(all_combinations)
 
-    # TODO: Use ray to speed up?
-    ts = time.time()
-    # plots for sub-benchmarks, with and without imputation
-    for i, (use_imputation, problem_type, with_baselines, dataset_subset, lite, average_seeds) in enumerate(all_combinations):
-        print(f"Running figure generation {i+1}/{n_combinations}... {(time.time() - ts):.1f}s elapsed...")
+    # One job per sub-benchmark subset combination. Build the per-combination kwargs up
+    # front so the heavy, read-only inputs (`tabarena_context`, `df_results`, ...) can be
+    # shared once via `parallel_for`'s `context` (ray's object store) instead of being
+    # serialized per job. Each `evaluate_single` writes its own figures/tables to disk.
+    inputs = []
+    for use_imputation, problem_type, with_baselines, dataset_subset, lite, average_seeds in all_combinations:
         custom_folder_name = None
-
         if use_website_folder_names:
             custom_folder_name = str(get_website_folder_name(
                 use_imputation=use_imputation,
                 problem_type=problem_type,
                 dataset_subset=dataset_subset,
-                lite=lite
+                lite=lite,
             ))
+        inputs.append({
+            "use_imputation": use_imputation,
+            "problem_type": problem_type,
+            "with_baselines": with_baselines,
+            "dataset_subset": dataset_subset,
+            "lite": lite,
+            "average_seeds": average_seeds,
+            "custom_folder_name": custom_folder_name,
+        })
 
-        evaluate_single(
-            tabarena_context=tabarena_context,
-            df_results=df_results,
-            use_imputation=use_imputation,
-            problem_type=problem_type,
-            with_baselines=with_baselines,
-            dataset_subset=dataset_subset,
-            lite=lite,
-            average_seeds=average_seeds,
-            eval_save_path=eval_save_path,
-            evaluator_kwargs=evaluator_kwargs,
-            baselines=baselines,
-            baseline_colors=baseline_colors,
-            elo_bootstrap_rounds=elo_bootstrap_rounds,
-            custom_folder_name=custom_folder_name,
-        )
+    parallel_for(
+        f=evaluate_single,
+        inputs=inputs,
+        context={
+            "tabarena_context": tabarena_context,
+            "df_results": df_results,
+            "eval_save_path": eval_save_path,
+            "evaluator_kwargs": evaluator_kwargs,
+            "baselines": baselines,
+            "baseline_colors": baseline_colors,
+            "elo_bootstrap_rounds": elo_bootstrap_rounds,
+        },
+        engine=engine,
+        progress_bar=progress_bar,
+        desc="Generating evaluation figures/tables per subset",
+    )
 
 
 
@@ -164,7 +178,7 @@ def evaluate_single(
         )
 
     if len(df_results) == 0:
-        print(f"\tNo results after filtering, skipping...")
+        print("\tNo results after filtering, skipping...")
         return
 
     folder_name = str(Path(folder_name_prefix) / folder_name)
@@ -182,7 +196,7 @@ def evaluate_single(
         df_results = df_results.loc[imputed_freq < 1]  # always filter out methods that are imputed 100% of the time
 
     if len(df_results) == 0:
-        print(f"\tNo results after filtering, skipping...")
+        print("\tNo results after filtering, skipping...")
         return
 
     if lite:

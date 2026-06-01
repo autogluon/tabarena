@@ -3,8 +3,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories_all
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories_all
 from tabarena.website.process_artifacts_to_website import process_one_folder
 from tabarena.website.process_pngs import process_png_bulk
 
@@ -23,6 +23,11 @@ def generate_website_artifacts(output_path: str | Path):
     include_unverified = True
     run_ablations = False
     figure_file_type = "png"
+
+    # Generate the per-subset-combination figures/tables and tuning trajectories in
+    # parallel (one job per combination). "ray" parallelizes across all local CPUs;
+    # set to "sequential" to debug or "auto" to follow the TabArenaContext backend.
+    engine = "ray"
 
     tabarena_context = TabArenaContext(include_unverified=include_unverified)
     tabarena_context.load_results_paper(download_results=download_results)
@@ -47,6 +52,7 @@ def generate_website_artifacts(output_path: str | Path):
         use_latex=use_latex,
         use_website_folder_names=True,
         evaluator_kwargs=evaluator_kwargs,
+        engine=engine,
     )
 
     plot_tuning_trajectories_all(
@@ -54,6 +60,7 @@ def generate_website_artifacts(output_path: str | Path):
         fig_save_dir=save_path,
         ban_bad_methods=True,
         file_ext=file_ext,
+        engine=engine,
     )
 
     zip_results = True

@@ -2,26 +2,24 @@ from __future__ import annotations
 
 import copy
 import os
-import time
 from pathlib import Path
 
-import numpy as np
-import matplotlib.pyplot as plt
 import matplotlib.patheffects as PathEffects
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import seaborn as sns
-
-from bencheval.tabarena import TabArena
 from autogluon.common.loaders import load_pd
+from bencheval.tabarena import TabArena
 
-from tabarena.paper.paper_utils import get_method_rename_map
-from tabarena.plot.plot_pareto_frontier import plot_optimal_arrow
 from tabarena.nips2025_utils.compare import subset_tasks
 from tabarena.nips2025_utils.eval_all import (
-    get_website_folder_name,
     get_all_subset_combinations,
+    get_website_folder_name,
 )
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+from tabarena.paper.paper_utils import get_method_rename_map
+from tabarena.plot.plot_pareto_frontier import plot_optimal_arrow
 from tabarena.utils.parallel_for import parallel_for
 
 
@@ -60,8 +58,7 @@ def plot_hpo(
     below_label_methods: list[str] | None = None,
     clamp_negative_ymin: bool = False,
 ):
-    """
-    Plot HPO trajectories for multiple methods.
+    """Plot HPO trajectories for multiple methods.
 
     Parameters
     ----------
@@ -183,7 +180,7 @@ def plot_hpo(
         color = color_map[method_name]
 
         # 1) Draw the connecting line (no markers)
-        h, = ax.plot(
+        _h, = ax.plot(
             times,
             scores,
             "-",                # no point markers
@@ -369,8 +366,8 @@ def plot_hpo(
                 pf_Y_first = y_min if max_Y else y_max
                 pf_Y_last = pf_Y[-1]
 
-            pf_X = [pf_X_first] + pf_X + [pf_X_last]
-            pf_Y = [pf_Y_first] + pf_Y + [pf_Y_last]
+            pf_X = [pf_X_first, *pf_X, pf_X_last]
+            pf_Y = [pf_Y_first, *pf_Y, pf_Y_last]
 
             ax.plot(
                 pf_X,
@@ -547,14 +544,14 @@ def plot_hpo(
 
     ax.grid(True)
     grid_color = ax.xaxis.get_gridlines()[0].get_color()
-    ax.spines['top'].set_visible(True)
-    ax.spines['right'].set_visible(True)
-    ax.spines['top'].set_color(grid_color)
-    ax.spines['right'].set_color(grid_color)
-    ax.spines['bottom'].set_color(grid_color)
-    ax.spines['left'].set_color(grid_color)
+    ax.spines["top"].set_visible(True)
+    ax.spines["right"].set_visible(True)
+    ax.spines["top"].set_color(grid_color)
+    ax.spines["right"].set_color(grid_color)
+    ax.spines["bottom"].set_color(grid_color)
+    ax.spines["left"].set_color(grid_color)
     # Make major and minor tick lines gray, but labels stay black
-    ax.tick_params(axis='both', which='both', color=grid_color, labelcolor='black')
+    ax.tick_params(axis="both", which="both", color=grid_color, labelcolor="black")
 
     if title is not None:
         ax.set_title(title, fontsize=title_fontsize)
@@ -564,7 +561,7 @@ def plot_hpo(
     # caption from the column key when the caller wants a richer label.
     ax.set_ylabel(ylabel_display if ylabel_display is not None else ylabel, fontsize=17)
     ax.set_xlabel(xlabel_display if xlabel_display is not None else xlabel, fontsize=17)
-    ax.tick_params(axis='both', labelsize=9)
+    ax.tick_params(axis="both", labelsize=9)
     fig.tight_layout()
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     # ``bbox_inches="tight"`` lets savefig expand the output canvas to
@@ -650,11 +647,11 @@ def compute_tuning_trajectories_leaderboard(
 
     if exclude_imputed:
         imputed_methods_count = combined_data.groupby("method")["imputed"].sum()
-        imputed_methods = sorted(list(imputed_methods_count[imputed_methods_count > 0].index))
+        imputed_methods = sorted(imputed_methods_count[imputed_methods_count > 0].index)
         print(f"Excluding {len(imputed_methods)} imputed methods: {imputed_methods}")
         combined_data = combined_data[~combined_data["method"].isin(imputed_methods)]
 
-    results_per_task = arena.compute_results_per_task(data=combined_data)
+    arena.compute_results_per_task(data=combined_data)
 
     leaderboard = arena.leaderboard(
         data=combined_data,
@@ -731,9 +728,9 @@ def compute_tuning_trajectories_leaderboard(
     leaderboard["Baseline Advantage (%) (Test - Val)"] = (leaderboard["baseline_advantage"] - leaderboard[
         "baseline_advantage_val"]) * 100
 
-    leaderboard['Train time per 1K samples (s) (median)'] = leaderboard["median_time_train_s_per_1K"]
-    leaderboard['Inference time per 1K samples (s) (median)'] = leaderboard["median_time_infer_s_per_1K"]
-    leaderboard['Total time per 1K samples (s) (median)'] = leaderboard["median_time_total_s_per_1K"]
+    leaderboard["Train time per 1K samples (s) (median)"] = leaderboard["median_time_train_s_per_1K"]
+    leaderboard["Inference time per 1K samples (s) (median)"] = leaderboard["median_time_infer_s_per_1K"]
+    leaderboard["Total time per 1K samples (s) (median)"] = leaderboard["median_time_total_s_per_1K"]
 
     leaderboard["Train time (s)"] = leaderboard["time_train_s"]
     leaderboard["Infer time (s)"] = leaderboard["time_infer_s"]
@@ -754,28 +751,31 @@ def plot_tuning_trajectories_all(
     methods_to_display: list[str] | None = None,
     plot_kwargs: dict | None = None,
     include_baselines: bool = False,
+    engine: str = "auto",
+    progress_bar: bool = True,
 ):
     if isinstance(fig_save_dir, str):
         fig_save_dir = Path(fig_save_dir)
     fig_save_dir.mkdir(parents=True, exist_ok=True)
 
+    if engine == "auto":
+        engine = tabarena_context.engine if tabarena_context is not None else "sequential"
+
     all_combinations = get_all_subset_combinations()
-    n_combinations = len(all_combinations)
-    ts = time.time()
-    # plots for sub-benchmarks, with and without imputation
-    for i, (
+
+    # One job per sub-benchmark subset combination. Resolve the per-combination output
+    # dir and subset filters up front (and create the dirs in the parent) so the shared,
+    # read-only inputs (`tabarena_context`, ...) are passed once via `parallel_for`'s
+    # `context` (ray's object store) instead of being serialized per job.
+    inputs = []
+    for (
         use_imputation,
         problem_type,
         _,
         dataset_subset,
         lite,
         average_seeds,
-    ) in enumerate(all_combinations):
-        print(
-            f"Running tuning trajectories generation {i + 1}/{n_combinations}... {(time.time() - ts):.1f}s elapsed..."
-        )
-
-        # will take a few minutes
+    ) in all_combinations:
         custom_folder_name = get_website_folder_name(
             use_imputation=use_imputation,
             problem_type=problem_type,
@@ -791,24 +791,31 @@ def plot_tuning_trajectories_all(
             subset_list.append("lite")
         (fig_save_dir / custom_folder_name).mkdir(parents=True, exist_ok=True)
 
-        plot_tuning_trajectories(
-            subset_map={
-                "placeholder_name": subset_list
-            },
-            average_seeds=average_seeds,
-            exclude_imputed=not use_imputation,
-            # Meta
-            tabarena_context=tabarena_context,
-            fig_save_dir=fig_save_dir / custom_folder_name / "tuning_trajectories",
-            ban_bad_methods=ban_bad_methods,
-            file_ext=file_ext,
-            extra_results=extra_results,
-            calibration_framework=calibration_framework,
-            folds=folds,
-            methods_to_display=methods_to_display,
-            plot_kwargs=plot_kwargs,
-            include_baselines=include_baselines,
-        )
+        inputs.append({
+            "subset_map": {"placeholder_name": subset_list},
+            "average_seeds": average_seeds,
+            "exclude_imputed": not use_imputation,
+            "fig_save_dir": fig_save_dir / custom_folder_name / "tuning_trajectories",
+        })
+
+    parallel_for(
+        f=plot_tuning_trajectories,
+        inputs=inputs,
+        context={
+            "tabarena_context": tabarena_context,
+            "ban_bad_methods": ban_bad_methods,
+            "file_ext": file_ext,
+            "extra_results": extra_results,
+            "calibration_framework": calibration_framework,
+            "folds": folds,
+            "methods_to_display": methods_to_display,
+            "plot_kwargs": plot_kwargs,
+            "include_baselines": include_baselines,
+        },
+        engine=engine,
+        progress_bar=progress_bar,
+        desc="Generating tuning trajectories per subset",
+    )
 
 
 def _build_dataset_metadata_map(
@@ -846,7 +853,8 @@ def _build_dataset_metadata_map(
         """Return ``None`` (signaling 'omit row') when value is missing,
         else a stringified value. Distinct from ``_fmt_int`` because text
         fields shouldn't print ``?`` — better to drop the line entirely
-        than show ``Domain: ?`` when the warehouse simply doesn't have it."""
+        than show ``Domain: ?`` when the warehouse simply doesn't have it.
+        """
         if value is None or (isinstance(value, float) and pd.isna(value)):
             return None
         s = str(value).strip()
@@ -943,7 +951,7 @@ def plot_tuning_trajectories_per_dataset(
         include_baselines=include_baselines,
     )
 
-    datasets = sorted(list(tabarena_context.task_metadata["dataset"].unique()))
+    datasets = sorted(tabarena_context.task_metadata["dataset"].unique())
 
     use_imputation = False
     problem_type = "all"
@@ -1049,9 +1057,8 @@ def _prepare_tuning_trajectories_data(
     method_metadata_lst = [m for m in method_metadata_lst_og if m.method_type == "config"]
     results_hpo_lst = []
     for m in method_metadata_lst:
-        if methods_to_display is not None:
-            if m.method not in methods_to_display:
-                continue
+        if methods_to_display is not None and m.method not in methods_to_display:
+            continue
         results_hpo_trajectory = m.load_hpo_trajectories()
         results_hpo_trajectory["display_name"] = m.display_name
         results_hpo_lst.append(results_hpo_trajectory)
@@ -1087,9 +1094,8 @@ def _prepare_tuning_trajectories_data(
         results_baselines = []
         method_metadata_lst_baselines = [m for m in method_metadata_lst_og if m.method_type == "baseline"]
         for m in method_metadata_lst_baselines:
-            if methods_to_display is not None:
-                if m.method not in methods_to_display:
-                    continue
+            if methods_to_display is not None and m.method not in methods_to_display:
+                continue
             results_baseline = m.load_model_results()
             results_baseline["n_configs"] = 1
             results_baseline["n_iterations"] = 1
@@ -1130,17 +1136,17 @@ def _prepare_tuning_trajectories_data(
     dataset_to_n_samples_train = tabarena_context.task_metadata.set_index("name")["n_samples_train_per_fold"].to_dict()
     dataset_to_n_samples_test = tabarena_context.task_metadata.set_index("name")["n_samples_test_per_fold"].to_dict()
 
-    combined_data['time_train_s_per_1K'] = combined_data['time_train_s'] * 1000 / combined_data["dataset"].map(
+    combined_data["time_train_s_per_1K"] = combined_data["time_train_s"] * 1000 / combined_data["dataset"].map(
         dataset_to_n_samples_train)
-    combined_data['time_infer_s_per_1K'] = combined_data['time_infer_s'] * 1000 / combined_data["dataset"].map(
+    combined_data["time_infer_s_per_1K"] = combined_data["time_infer_s"] * 1000 / combined_data["dataset"].map(
         dataset_to_n_samples_test)
 
     # Combined train + inference runtime, both raw and per-1K-samples.
     # Computed at the row level (not as the sum of medians) so the
     # downstream median aggregation reflects the median total wall-time
     # of one method-run, not an artifact of summing two separate medians.
-    combined_data['time_total_s'] = combined_data['time_train_s'] + combined_data['time_infer_s']
-    combined_data['time_total_s_per_1K'] = combined_data['time_train_s_per_1K'] + combined_data['time_infer_s_per_1K']
+    combined_data["time_total_s"] = combined_data["time_train_s"] + combined_data["time_infer_s"]
+    combined_data["time_total_s_per_1K"] = combined_data["time_train_s_per_1K"] + combined_data["time_infer_s_per_1K"]
 
     methods_map = results_hpo[["method", "n_configs", "n_iterations", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
 
@@ -1203,10 +1209,7 @@ def _plot_tuning_trajectories_from_prepared(
         if hidden_methods:
             leaderboard = leaderboard[~leaderboard["config_type"].isin(hidden_methods)]
 
-        if subset_name is not None:
-            fig_save_dir_subset = fig_save_dir / subset_name
-        else:
-            fig_save_dir_subset = fig_save_dir
+        fig_save_dir_subset = fig_save_dir / subset_name if subset_name is not None else fig_save_dir
 
         # Build the coverage-counts metadata for the second legend whenever
         # *either* the titles or the dedicated coverage-legend toggle is
@@ -1230,7 +1233,7 @@ def _plot_tuning_trajectories_from_prepared(
 
         if show_coverage_legend:
             n_datasets = int(filtered["dataset"].nunique())
-            n_tasks = int(len(filtered[["dataset", "fold"]].drop_duplicates()))
+            n_tasks = len(filtered[["dataset", "fold"]].drop_duplicates())
 
             # If the caller already supplied per-plot metadata, append the
             # coverage counts so both render in the same legend block.
@@ -1248,10 +1251,7 @@ def _plot_tuning_trajectories_from_prepared(
             if subset_name:
                 subset_title_prefix = subset_name
             elif subset:
-                if subset_display_names:
-                    parts = [subset_display_names.get(p, p) for p in subset]
-                else:
-                    parts = list(subset)
+                parts = [subset_display_names.get(p, p) for p in subset] if subset_display_names else list(subset)
                 subset_title_prefix = ", ".join(parts)
 
         plot_tuning_trajectories_from_leaderboard(
@@ -1355,7 +1355,8 @@ def _test_error_ylabel(metric: str | None) -> str:
     ``metric`` is provided, returns ``"Test Error (<friendly>)"`` using a
     short friendly name (matching the per-dataset table captions); otherwise
     falls back to ``"Test Error"`` so the rename still applies even when no
-    single metric describes the data."""
+    single metric describes the data.
+    """
     if not metric:
         return "Test Error"
     friendly = _TEST_ERROR_METRIC_DISPLAY.get(metric, metric)

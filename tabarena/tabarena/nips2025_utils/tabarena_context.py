@@ -917,6 +917,8 @@ class TabArenaContext:
         fillna_method: str | None = "auto",
         use_website_folder_names: bool = False,
         evaluator_kwargs: dict | None = None,
+        engine: str = "auto",
+        progress_bar: bool = True,
     ):
         if df_results is None:
             df_results = self.load_results_paper(download_results="auto")
@@ -939,6 +941,8 @@ class TabArenaContext:
             use_latex=use_latex,
             use_website_folder_names=use_website_folder_names,
             evaluator_kwargs=evaluator_kwargs,
+            engine=engine,
+            progress_bar=progress_bar,
         )
 
     def plot_tuning_trajectories(
