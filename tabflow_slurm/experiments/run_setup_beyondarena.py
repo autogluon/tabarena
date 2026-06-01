@@ -1,10 +1,5 @@
 """Code for running the BeyondArena benchmark on a full node in a GCP cluster.
 
-Uses `TabArenaBenchmarkPlan` to launch several models with different per-model
-hardware on top of one shared default setup: TabPFN-3 on a GPU node and
-RandomForest on a CPU node. The differing `num_gpus` puts them in two groups, so
-`setup_jobs()` emits two `sbatch` commands (one GPU run, one CPU run).
-
 The tasks come from the Data Foundry ``BeyondArena`` collection via
 `BeyondArenaLiteMetadataBundle`: it loads reference metadata, applies the filters
 below, and (on this head node) downloads + converts only the surviving datasets

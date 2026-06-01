@@ -13,6 +13,7 @@ import openml
 import openml._api_calls
 import openml.utils
 import pandas as pd
+from loguru import logger
 from openml.datasets.dataset import OpenMLDataset
 from openml.datasets.functions import (
     _expand_parameter,
@@ -265,7 +266,7 @@ class UserTask:
             raise NotImplementedError(f"Task type {task_type:d} not supported.")
 
         dataset_name = self.get_dataset_name(dataset_name=dataset_name)
-        print(f"Creating local OpenML task {self.task_id} with dataset '{dataset_name}'...")
+        logger.debug(f"Creating local OpenML task {self.task_id} with dataset '{dataset_name}'...")
         local_dataset = openml_create_datasets_without_arff_dump(
             name=dataset_name,
             data=dataset,
@@ -373,7 +374,7 @@ class UserTask:
 
     def save_local_openml_task(self, task: OpenMLSupervisedTask) -> None:
         """Safe the OpenML task to be usable by loading from disk later."""
-        print(f"Saving local task {self.task_name} to: {self.task_cache_path}")
+        logger.debug(f"Saving local task {self.task_name} to: {self.task_cache_path}")
 
         self.task_cache_path.mkdir(parents=True, exist_ok=True)
         # Remove monkey patch to avoid pickle issues.

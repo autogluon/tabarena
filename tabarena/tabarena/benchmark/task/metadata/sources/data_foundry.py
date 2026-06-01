@@ -79,16 +79,35 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
         if not to_materialize:
             return
 
+        from contextlib import suppress
+
         from tqdm import tqdm
 
         from tabarena.benchmark.task.data_foundry import materialize_task
 
-        for ttm in tqdm(to_materialize, desc=f"Materializing {self.collection.name} tasks"):
-            ttm.task_id_str = materialize_task(
-                collection=self.collection,
-                task_id_str=ttm.task_id_str,
-                data_foundry_uri=ttm.data_foundry_uri,
-                evaluation_metrics=self.evaluation_metrics,
-                cache_dir=self.cache_dir,
-                force_download=self.force_download,
-            )
+        # Silence huggingface_hub's per-file "Fetching N files" bars — the single progress bar below
+        # (showing the current dataset) is the clean view; restore HF bars afterwards.
+        restore_hf_bars = None
+        with suppress(ImportError):
+            from huggingface_hub.utils import disable_progress_bars, enable_progress_bars
+
+            disable_progress_bars()
+            restore_hf_bars = enable_progress_bars
+
+        print(f"Materializing {len(to_materialize)} {self.collection.name} task(s) (datasets + text caches)...")
+        bar = tqdm(to_materialize, desc=f"Materializing {self.collection.name}", unit="task")
+        try:
+            for ttm in bar:
+                bar.set_postfix_str(ttm.tabarena_task_name or ttm.dataset_name or "")
+                ttm.task_id_str = materialize_task(
+                    collection=self.collection,
+                    task_id_str=ttm.task_id_str,
+                    data_foundry_uri=ttm.data_foundry_uri,
+                    evaluation_metrics=self.evaluation_metrics,
+                    cache_dir=self.cache_dir,
+                    force_download=self.force_download,
+                )
+        finally:
+            bar.close()
+            if restore_hf_bars is not None:
+                restore_hf_bars()

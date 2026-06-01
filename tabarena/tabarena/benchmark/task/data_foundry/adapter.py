@@ -236,7 +236,7 @@ def convert_curated_container_to_user_task(  # noqa: C901 — linear problem-typ
         allowed = evaluation_metrics[df_problem_type]
         if eval_metric not in allowed:
             fallback = allowed[0]
-            logger.info(
+            logger.debug(
                 f"Objective metric {eval_metric!r} not allowed for problem type "
                 f"{problem_type!r}. Falling back to {fallback!r}.",
             )

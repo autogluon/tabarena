@@ -18,6 +18,8 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 if TYPE_CHECKING:
     from data_foundry.collections import DatasetCollection
 
@@ -49,11 +51,15 @@ def import_text_cache_from_container(container, task_key: str) -> Path | None:
 
     filename = container_text_cache_filename()
     if not container.has_extra_file(filename):
+        logger.debug(f"[text-cache] {task_key}: container ships no '{filename}'; skipping.")
         return None
     dst = text_cache_path(task_key)
-    if not dst.exists():
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(container.extra_file_path(filename), dst)
+    if dst.exists():
+        logger.debug(f"[text-cache] {task_key}: already present at {dst}; skipping import.")
+        return dst
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(container.extra_file_path(filename), dst)
+    logger.info(f"[text-cache] {task_key}: imported embeddings from container -> {dst}")
     return dst
 
 
