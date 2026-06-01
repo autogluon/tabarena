@@ -19,8 +19,8 @@ class MethodArtifactManager:
     path_suffix: Path       # e.g., Path("leaderboard_submissions/data_xRFM_11092025.zip")
     download_prefix: str    # e.g., "https://data.lennart-purucker.com/tabarena/"
     local_prefix: Path      # e.g., Path("local_data") <- Local dir to download raw files. Can delete after cache.
-    s3_bucket: str          # e.g., "my-bucket"
-    s3_prefix: str          # e.g., "cache"
+    s3_bucket: str | None   # e.g., "my-bucket"
+    s3_prefix: str | None   # e.g., "cache"
     upload_as_public: bool = False  # Whether the s3 upload will make files public readable
     method_metadata: MethodMetadata | None = None
 
@@ -34,7 +34,8 @@ class MethodArtifactManager:
         if not isinstance(self.local_prefix, Path):
             self.local_prefix = Path(self.local_prefix)
         # Normalize s3_prefix to avoid accidental '//' in keys
-        self.s3_prefix = self.s3_prefix.strip("/")
+        if self.s3_prefix is not None:
+            self.s3_prefix = self.s3_prefix.strip("/")
 
     @classmethod
     def from_method_metadata(
@@ -111,12 +112,7 @@ class MethodArtifactManager:
         s3://{self.s3_bucket}/{self.s3_prefix}/artifacts/{self.artifact_name}/methods/{self.name}/.
         """
         method_metadata = self.load_metadata()
-        uploader = MethodUploaderS3(
-            method_metadata=method_metadata,
-            s3_bucket=self.s3_bucket,
-            s3_prefix=self.s3_prefix,
-            upload_as_public=self.upload_as_public,
-        )
+        uploader = method_metadata.method_uploader()
         uploader.upload_all()
 
     def load_metadata(self) -> MethodMetadata:

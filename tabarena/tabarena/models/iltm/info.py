@@ -7,14 +7,19 @@ from tabarena.models.iltm.model import ILTMModel
 
 iltm_method_metadata = MethodMetadata(
     method="iLTM",
+    artifact_name="tabarena-2026-05-13",
     method_type="config",
     display_name="iLTM",
     compute="gpu",
     ag_key="TA-ILTM",
-    config_default="TA-iLTM_c1_BAG_L1",
+    config_default="iLTM_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,
     verified=True,
+    s3_bucket="tabarena",
+    s3_prefix="cache",
+    upload_as_public=True,
+    cache_type="r2",
     reference_url="https://arxiv.org/abs/2511.15941",
 )
 

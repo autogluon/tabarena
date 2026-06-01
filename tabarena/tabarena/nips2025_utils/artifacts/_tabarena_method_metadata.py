@@ -8,6 +8,7 @@ from tabarena.models._method_metadata_collection import MethodMetadataCollection
 # `MethodMetadata`. Aliased here under the historical name so the rest of
 # the aggregator (and downstream collections) keeps working unchanged.
 from tabarena.models.ebm.info import ebm_method_metadata as ebm_metadata
+from tabarena.models.iltm.info import iltm_method_metadata
 from tabarena.models.knn.info import knn_method_metadata as knn_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata
 from tabarena.models.lr.info import lr_method_metadata as lr_metadata
@@ -152,6 +153,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(method_metadata_l
     [tabpfn26_metadata] +
     [tabpfnv3_method_metadata] +
     [orionmsp_metadata] +
+    [iltm_method_metadata] +
     methods_misc,
 )
 
@@ -171,6 +173,7 @@ tabarena_method_metadata_complete_collection = MethodMetadataCollection(method_m
     [tabpfn26_metadata] +
     [tabpfnv3_method_metadata] +
     [orionmsp_metadata] +
+    [iltm_method_metadata] +
     methods_misc,
 )
 

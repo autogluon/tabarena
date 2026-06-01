@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from pathlib import Path
 
 import pandas as pd
+from tabarena.models.iltm.info import iltm_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata_new
 from tabarena.models.orionmsp.info import orionmsp_method_metadata as orionmsp_metadata
 from tabarena.models.perpetual_booster.info import (
@@ -177,9 +179,21 @@ def log_raw_data_info(method_info: MethodArtifactManager) -> None:
     inferred_can_hpo = len(frameworks) > 1
     inferred_config_default = frameworks[0] if len(frameworks) == 1 else None
 
-    n_tasks = info_df["tid"].nunique() if "tid" in info_df.columns else None
+    n_tasks = (
+        info_df[["tid", "split_idx"]].drop_duplicates().shape[0]
+        if {"tid", "split_idx"}.issubset(info_df.columns)
+        else None
+    )
     n_datasets = info_df["name"].nunique() if "name" in info_df.columns else None
     n_folds = info_df["split_idx"].nunique() if "split_idx" in info_df.columns else None
+
+    # Per-config (framework) coverage: total occurrences (dataset x fold) each config
+    # has results for. These frameworks are the valid configs present in the raw data.
+    config_task_counts = (
+        info_df.groupby("framework").size().sort_index()
+        if "framework" in info_df.columns
+        else None
+    )
 
     print(f"[raw-info]   method_type   = {method_types}")
     print(f"[raw-info]   model_type    = {model_types}")
@@ -192,8 +206,16 @@ def log_raw_data_info(method_info: MethodArtifactManager) -> None:
     print(f"[raw-info]   n_frameworks  = {len(frameworks)} -> can_hpo={inferred_can_hpo}, "
           f"config_default={inferred_config_default!r}")
     print(f"[raw-info]   n_datasets    = {n_datasets}")
-    print(f"[raw-info]   n_tasks (tid) = {n_tasks}")
+    print(f"[raw-info]   n_tasks (dxf) = {n_tasks}")
     print(f"[raw-info]   n_folds       = {n_folds}")
+
+    if config_task_counts is not None:
+        print(f"[raw-info]   valid configs ({len(config_task_counts)}) and their n_tasks (dataset x fold):")
+        name_w = max((len(str(f)) for f in config_task_counts.index), default=0)
+        for framework, n in config_task_counts.items():
+            print(f"[raw-info]     {str(framework).ljust(name_w)} -> {n}")
+    else:
+        print(f"[raw-info]   valid configs = {frameworks}")
 
     _compare_with_provided_metadata(
         method_info,
@@ -225,6 +247,27 @@ if __name__ == "__main__":
     log_raw_details = True
     cache = False  # Note: Requires a large amount of available disk space
     upload = False  # Requires s3 write permissions to the intended s3 location
+
+    # --- Cloudflare R2 credentials (only needed when upload=True) ----------------
+    # `MethodMetadata.method_uploader(cache_type="r2")` reads these three env vars
+    # (the R2 endpoint is derived from R2_ACCOUNT_ID, so no extra endpoint/region
+    # vars are needed). Find them in the Cloudflare R2 dashboard
+    # (https://dash.cloudflare.com/ -> R2 Object Storage):
+    #   - R2_ACCOUNT_ID: 'Account ID' on the R2 overview page (also in the URL
+    #     dash.cloudflare.com/<account_id>/r2).
+    #   - R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY: 'Manage R2 API Tokens' ->
+    #     'Create API Token' (Object Read & Write); the secret is shown only once.
+    #
+    # Preferred: export these in your shell so secrets stay out of source control:
+    #   export R2_ACCOUNT_ID="..."
+    #   export R2_ACCESS_KEY_ID="..."
+    #   export R2_SECRET_ACCESS_KEY="..."
+    # `setdefault` only fills in vars you have NOT already exported, so real
+    # shell-exported credentials always win over the placeholders below. Otherwise
+    # replace the placeholders here.
+    os.environ.setdefault("R2_ACCOUNT_ID", "<your-r2-account-id>")
+    os.environ.setdefault("R2_ACCESS_KEY_ID", "<your-r2-access-key-id>")
+    os.environ.setdefault("R2_SECRET_ACCESS_KEY", "<your-r2-secret-access-key>")
 
     path_args = dict(
         download_prefix="https://data.lennart-purucker.com/tabarena/",
@@ -372,8 +415,15 @@ if __name__ == "__main__":
         **path_args,
     )
 
+    iltm_info = MethodArtifactManager.from_method_metadata(
+        method_metadata=iltm_method_metadata,
+        path_suffix=Path("leaderboard_submissions") / "data_iLTM_28052026.zip",
+        **path_args,
+    )
+
     # Uncomment whichever artifacts you want to process
     method_infos = [
+        # iltm_info,
         # orionmsp_info,
         # tabpfnv3_info,
         # limix_new_info,

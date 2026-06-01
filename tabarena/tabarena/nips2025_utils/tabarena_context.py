@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 _methods_paper = [
     "AutoGluon_v140_bq_4h8c",
-    "AutoGluon_v140_eq_4h8c",
+    # "AutoGluon_v140_eq_4h8c",
     "AutoGluon_v150_eq_4h8c",
     # "Portfolio-N200-4h",
 
@@ -67,6 +67,7 @@ _methods_paper = [
     "LimiX",
     "OrionMSP",
     "TabPFN-3",
+    "iLTM",
 ]
 
 
