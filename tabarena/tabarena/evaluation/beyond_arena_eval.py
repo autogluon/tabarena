@@ -55,10 +55,22 @@ class BenchmarkRun:
     result_suffix: str | None = None
     """Optional suffix appended to every method name from this run, to distinguish it in the
     leaderboard (e.g. ``" [new]"``). Baked into the cache at post-process time."""
-    only_load_cache: bool = False
-    """If True, skip raw->cache post-processing and load this run's existing cache instead."""
+    only_load_cache: bool | list[str] = False
+    """Which of this run's models load from cache vs. re-generate from raw results:
+
+    * ``False`` (default): re-generate every model from raw.
+    * ``True``: load every model from cache (skip raw post-processing).
+    * ``list[str]``: only the named models load from cache; the rest are re-generated. Lets you
+      keep expensive already-cached models as-is while regenerating just the ones you changed.
+    """
     ag_name_overrides: dict[str, str] | None = None
     """Optional per-model AG-name overrides for custom methods not in the model registry."""
+
+    def loads_from_cache(self, model: str) -> bool:
+        """Whether ``model`` should be loaded from cache (vs. re-generated) for this run."""
+        if isinstance(self.only_load_cache, bool):
+            return self.only_load_cache
+        return model in self.only_load_cache
 
 
 @dataclass
@@ -124,7 +136,7 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
             path_raw=Path(run.output_dir) / "data",
             artifact_name=run.benchmark_name,
             result_suffix=run.result_suffix,
-            only_load_cache=run.only_load_cache,
+            only_load_cache=run.loads_from_cache(model),
         )
         for run in config.runs
         for model in run.models
