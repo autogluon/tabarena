@@ -218,3 +218,16 @@ def test_data_foundry_source_materialize_skips_tasks_without_uri(patched_data_fo
     by_name = {t.dataset_name: t for t in tasks}
     assert by_name["ds_a"].task_id_str == "materialized::ds_a/uuid-a"
     assert by_name["ds_b"].task_id_str == "UserTask|1|ds_b"  # untouched
+
+
+def test_data_foundry_source_materialize_dedups_splits_of_same_dataset(patched_data_foundry):
+    """A dataset unrolled into N splits is downloaded once, but every split is updated."""
+    src = DataFoundryTaskMetadataSource(_DummyCollection())
+    # Three splits of the same dataset (same data_foundry_uri), as produced by unroll_splits().
+    splits = [_task(dataset_name="ds_a", uri="ds_a/uuid-a") for _ in range(3)]
+    src.materialize(splits)
+
+    # materialize_task is invoked once for the unique dataset, not once per split.
+    assert patched_data_foundry == ["ds_a/uuid-a"]
+    # ...yet the resolved task_id_str is propagated to all of the dataset's splits.
+    assert all(s.task_id_str == "materialized::ds_a/uuid-a" for s in splits)
