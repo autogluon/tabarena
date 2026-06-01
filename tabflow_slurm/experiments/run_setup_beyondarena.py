@@ -10,7 +10,7 @@ and only those datasets are fetched.
 from __future__ import annotations
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
-from tabarena.benchmark.task.metadata import BeyondArenaLiteMetadataBundle
+from tabarena.benchmark.task.metadata import BeyondArenaMetadataBundle
 from tabflow_slurm import (
     BeyondArenaResourcesSetup,
     GCPSlurmSetup,
@@ -31,7 +31,7 @@ benchmark_plan = TabArenaBenchmarkPlan(
             }
         ),
     ],
-    tasks_to_run_setup=BeyondArenaLiteMetadataBundle(),
+    tasks_to_run_setup=BeyondArenaMetadataBundle(),
     experiment_bundle=BeyondArenaExperimentBundle(),
     path_setup=PathSetup(
         workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",

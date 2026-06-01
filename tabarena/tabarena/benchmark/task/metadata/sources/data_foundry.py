@@ -72,12 +72,23 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
 
         Tasks without a ``data_foundry_uri`` are skipped (e.g. custom tasks mixed
         in via a hand-edited frame) — they are assumed to be locally available.
+
+        ``task_metadata`` is typically unrolled to one entry per split, so the same
+        dataset (same ``data_foundry_uri``) appears once per split. Materialization
+        is a dataset-level operation, so we download/convert each unique dataset only
+        once and then propagate the resulting ``task_id_str`` to all of its splits —
+        avoiding the long loop of redundant (no-op) per-split calls.
         """
         to_materialize = [
             ttm for ttm in task_metadata if isinstance(ttm.data_foundry_uri, str) and ttm.data_foundry_uri
         ]
         if not to_materialize:
             return
+
+        # Group splits by their unique dataset (data_foundry_uri), preserving order.
+        splits_by_uri: dict[str, list[TabArenaTaskMetadata]] = {}
+        for ttm in to_materialize:
+            splits_by_uri.setdefault(ttm.data_foundry_uri, []).append(ttm)
 
         from contextlib import suppress
 
@@ -94,19 +105,26 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
             disable_progress_bars()
             restore_hf_bars = enable_progress_bars
 
-        print(f"Materializing {len(to_materialize)} {self.collection.name} task(s) (datasets + text caches)...")
-        bar = tqdm(to_materialize, desc=f"Materializing {self.collection.name}", unit="task")
+        print(
+            f"Materializing {len(splits_by_uri)} {self.collection.name} dataset(s) "
+            f"across {len(to_materialize)} split(s) (datasets + text caches)..."
+        )
+        bar = tqdm(splits_by_uri.items(), desc=f"Materializing {self.collection.name}", unit="dataset")
         try:
-            for ttm in bar:
-                bar.set_postfix_str(ttm.tabarena_task_name or ttm.dataset_name or "")
-                ttm.task_id_str = materialize_task(
+            for data_foundry_uri, splits in bar:
+                first = splits[0]
+                bar.set_postfix_str(first.tabarena_task_name or first.dataset_name or "")
+                task_id_str = materialize_task(
                     collection=self.collection,
-                    task_id_str=ttm.task_id_str,
-                    data_foundry_uri=ttm.data_foundry_uri,
+                    task_id_str=first.task_id_str,
+                    data_foundry_uri=data_foundry_uri,
                     evaluation_metrics=self.evaluation_metrics,
                     cache_dir=self.cache_dir,
                     force_download=self.force_download,
                 )
+                # Propagate the resolved local id to every split of this dataset.
+                for ttm in splits:
+                    ttm.task_id_str = task_id_str
         finally:
             bar.close()
             if restore_hf_bars is not None:
