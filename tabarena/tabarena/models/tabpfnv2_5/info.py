@@ -3,6 +3,7 @@ from __future__ import annotations
 from tabarena.models.tabpfnv2_5.model import (
     RealTabPFNv25Model,
     TabPFNv26Model,
+    prefetch_weights,
 )
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabpfnv2_5.hpo import gen_realtabpfnv25, gen_tabpfnv26
@@ -63,6 +64,7 @@ realtabpfnv25_info = ModelInfo(
     search_space=gen_realtabpfnv25,
     method_metadata=realtabpfnv25_method_metadata,
     pip_extra=("tabpfn>=8.0.0",),
+    prefetch_weights=prefetch_weights,
 )
 
 
@@ -71,4 +73,5 @@ tabpfnv26_info = ModelInfo(
     search_space=gen_tabpfnv26,
     method_metadata=tabpfnv26_method_metadata,
     pip_extra=("tabpfn>=8.0.0",),
+    prefetch_weights=prefetch_weights,
 )

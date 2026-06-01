@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fnmatch
+import gzip
 import os
 import pickle
 import warnings
@@ -10,6 +11,36 @@ from pathlib import Path
 from typing import Any
 
 import tqdm
+
+#: Gzip magic bytes, used to transparently detect gzip-compressed pickle files.
+_GZIP_MAGIC = b"\x1f\x8b"
+
+
+def is_gzipped(data: bytes) -> bool:
+    """Return True if ``data`` starts with the gzip magic bytes."""
+    return data[:2] == _GZIP_MAGIC
+
+
+def dumps_pickle(obj: Any, *, compress: bool = False) -> bytes:
+    """Pickle ``obj`` to bytes, optionally gzip-compressed."""
+    data = pickle.dumps(obj)
+    return gzip.compress(data) if compress else data
+
+
+def read_pickle_bytes(path: str | Path) -> bytes:
+    """Read a pickle file and return the raw (uncompressed) pickle bytes.
+
+    Transparently decompresses gzip-compressed files, so both compressed and raw
+    ``.pkl`` files load the same way (the filename/extension is unchanged).
+    """
+    with open(path, "rb") as f:
+        data = f.read()
+    return gzip.decompress(data) if is_gzipped(data) else data
+
+
+def load_pickle(path: str | Path) -> Any:
+    """Load a (possibly gzip-compressed) pickle file."""
+    return pickle.loads(read_pickle_bytes(path))  # noqa: S301 — our own trusted artifacts
 
 
 def fetch_all_pickles_new(

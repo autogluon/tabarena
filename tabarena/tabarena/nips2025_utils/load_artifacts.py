@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 import pickle
 
 from tabarena.benchmark.result import AGBagResult, BaselineResult
 from tabarena.utils.parallel_for import parallel_for
+from tabarena.utils.pickle_utils import read_pickle_bytes
 
 
 # TODO: This is a hack to ensure old result artifacts still load properly after renaming tabrepo to tabarena.
@@ -28,9 +30,8 @@ def _rename_load(file_obj):
 
 
 def load_and_align(path, convert_to_holdout: bool = False) -> BaselineResult:
-    with open(path, "rb") as f:
-        data: dict | BaselineResult = _rename_load(f)
-        # data: dict | BaselineResult = pickle.load(f)  # TODO: Use this once all the legacy artifacts are fixed
+    # Transparently handles both raw and gzip-compressed ``.pkl`` artifacts.
+    data: dict | BaselineResult = _rename_load(io.BytesIO(read_pickle_bytes(path)))
 
     data_aligned = BaselineResult.from_dict(data)
     if convert_to_holdout:

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tabflow_slurm"
+version = "0.0.1"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "tabarena", # FIXME: make it like bencheval/tabarena use local install?
+]
+
+[tool.setuptools]
+package-dir = {}
+packages = ["tabflow_slurm", "tabflow_slurm.setup"]
+
+[tool.setuptools.package-data]
+# Ship the SLURM submit template alongside the package so
+# `get_submit_script_path()` resolves in wheel/sdist installs too.
+tabflow_slurm = ["*.sh"]

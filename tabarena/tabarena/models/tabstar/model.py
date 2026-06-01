@@ -164,3 +164,10 @@ class TabSTARModel(AbstractModel):
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
+
+
+def prefetch_weights() -> None:
+    """Pre-download the TabSTAR base-model weights (warms the cache for offline / parallel fits)."""
+    from tabstar.tabstar_model import BaseTabSTAR
+
+    BaseTabSTAR.download_base_model()

@@ -62,6 +62,7 @@ tabicl_info = ModelInfo(
     search_space=gen_tabicl,
     method_metadata=tabicl_method_metadata,
     pip_extra=("tabicl>=2.0.0",),
+    prefetch_weights=TabICLModel.prefetch_weights,
 )
 
 
@@ -70,4 +71,5 @@ tabiclv2_info = ModelInfo(
     search_space=gen_tabiclv2,
     method_metadata=tabiclv2_method_metadata,
     pip_extra=("tabicl>=2.0.0",),
+    prefetch_weights=TabICLv2Model.prefetch_weights,
 )

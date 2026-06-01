@@ -3,14 +3,19 @@ from __future__ import annotations
 import argparse
 
 import pytest
-from tabflow_slurm.run_tabarena_experiment import (
+
+# Import a real submodule (not the bare `tabflow_slurm` namespace): when the package
+# is not installed, the repo-root workspace dir is importable as an empty namespace
+# package, so `importorskip("tabflow_slurm")` would NOT skip. A submodule does.
+pytest.importorskip("tabflow_slurm.run_tabarena_experiment", reason="tabflow_slurm is not installed")
+
+from tabflow_slurm.run_tabarena_experiment import (  # noqa: E402
     _parse_int_list,
-    _parse_int_list_or_none,
     _parse_int_or_none,
     _parse_task_id,
     _str2bool,
-    setup_slurm_job,
 )
+from tabflow_slurm.slurm_utils import setup_slurm_job  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # _str2bool
@@ -74,34 +79,6 @@ class TestParseIntList:
     def test_float_raises(self):
         with pytest.raises((ValueError, TypeError)):
             _parse_int_list("1.5,2.0")
-
-
-# ---------------------------------------------------------------------------
-# _parse_int_list_or_none
-# ---------------------------------------------------------------------------
-
-
-class TestParseIntListOrNone:
-    @pytest.mark.parametrize("value", ["none", "None", "NONE", "null", "Null", "NULL"])
-    def test_none_variants_return_none(self, value):
-        assert _parse_int_list_or_none(value) is None
-
-    def test_python_none_returns_none(self):
-        assert _parse_int_list_or_none(None) is None
-
-    def test_single_int(self):
-        assert _parse_int_list_or_none("3") == [3]
-
-    def test_multiple_ints(self):
-        assert _parse_int_list_or_none("1,2,3") == [1, 2, 3]
-
-    def test_result_type_is_list(self):
-        result = _parse_int_list_or_none("10,20")
-        assert isinstance(result, list)
-
-    def test_empty_string_raises(self):
-        with pytest.raises((ValueError, TypeError)):
-            _parse_int_list_or_none("")
 
 
 # ---------------------------------------------------------------------------

@@ -194,3 +194,10 @@ class TabDPTModel(AbstractTorchModel):
 
         # Note: This memory estimate is way off if `context_size` is not None
         return int(memory_estimate)
+
+
+def prefetch_weights() -> None:
+    """Pre-download the TabDPT weights (warms the cache for offline / parallel fits)."""
+    from tabdpt.estimator import TabDPTEstimator
+
+    TabDPTEstimator.download_weights()

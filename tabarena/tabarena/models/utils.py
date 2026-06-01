@@ -23,14 +23,13 @@ def convert_numpy_dtypes(data: dict) -> dict:
     return converted_data
 
 
-def get_configs_generator_from_name(model_name: str):
-    """Map a friendly model name to its search-space generator (`gen_<key>`).
+def get_model_info_from_name(model_name: str):
+    """Map a friendly model name to its full ``ModelInfo`` (model class + search space + metadata).
 
-    Resolves against the auto-discovered `MODEL_REGISTRY`: the first
-    `ModelInfo` whose `method_metadata.display_name` or
-    `method_metadata.method` equals `model_name` wins. CPU and GPU variants
-    of the same model share the same `ConfigGenerator` instance, so any tie
-    between compute variants returns the same generator either way.
+    Resolves against the auto-discovered ``MODEL_REGISTRY``: the first ``ModelInfo`` whose
+    ``method_metadata.display_name`` or ``method_metadata.method`` equals ``model_name`` wins. CPU
+    and GPU variants of the same model share the same ``ConfigGenerator`` instance, so any tie
+    between compute variants resolves to the same generator either way.
     """
     from tabarena.models import get_model_registry
 
@@ -38,7 +37,7 @@ def get_configs_generator_from_name(model_name: str):
     for info in registry.values():
         md = info.method_metadata
         if model_name in (md.display_name, md.method):
-            return info.search_space
+            return info
 
     available = sorted({
         name
@@ -49,3 +48,11 @@ def get_configs_generator_from_name(model_name: str):
     raise ValueError(
         f"Model name {model_name!r} is not recognized. Options are: {available}"
     )
+
+
+def get_configs_generator_from_name(model_name: str):
+    """Map a friendly model name to its search-space generator (`gen_<key>`).
+
+    Thin wrapper over :func:`get_model_info_from_name` returning only the search space.
+    """
+    return get_model_info_from_name(model_name).search_space

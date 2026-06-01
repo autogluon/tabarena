@@ -197,3 +197,11 @@ class TabPFN3Model(AbstractTorchModel):
         baseline_mem_est = 10 * 1e9  # 10 GB minimum for TabPFN-3 model + activations
         dataset_mem_est = 5 * get_approximate_df_mem_usage(X).sum()
         return int(baseline_mem_est + dataset_mem_est)
+
+
+def prefetch_weights() -> None:
+    """Pre-download all TabPFN checkpoints via the tabpfn loader (warms the cache)."""
+    from tabpfn.model_loading import download_all_models, resolve_model_path
+
+    _, model_dir, _, _ = resolve_model_path(model_path=None, which="classifier")
+    download_all_models(to=model_dir[0])

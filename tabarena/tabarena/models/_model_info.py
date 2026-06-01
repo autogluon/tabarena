@@ -31,9 +31,17 @@ class ModelInfo:
     pip_extra
         Pip-install specs required to use this model (e.g. `("tabstar==1.1.15",)`).
         Empty tuple means no extra dependencies beyond the base install.
+    prefetch_weights
+        Optional zero-arg ``prefetch_weights`` callable that ensures this model's (foundation)
+        weights are present locally — by convention a ``prefetch_weights`` function in the model's
+        ``model.py`` (or its ``info.py`` for models supported out of the box via an external class).
+        ``None`` (the default) means the model has nothing to prefetch (tree / linear baselines).
+        Consumed by :func:`tabarena.models.prefetch.prefetch_weights`, the single standardized entry
+        point for warming weights before a benchmark runs.
     """
 
     model_cls: type
     search_space: Callable
     method_metadata: "MethodMetadata"
     pip_extra: tuple[str, ...] = field(default_factory=tuple)
+    prefetch_weights: Callable[[], None] | None = None

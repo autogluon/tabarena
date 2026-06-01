@@ -39,7 +39,7 @@ from tabarena.benchmark.preprocessing import (
     TabArenaModelAgnosticPreprocessing,
     TabArenaModelSpecificPreprocessing,
 )
-from tabarena.benchmark.task.user_task import GroupLabelTypes
+from tabarena.benchmark.task.metadata import GroupLabelTypes
 
 # ---------------------------------------------------------------------------
 # 1. Synthetic dataset

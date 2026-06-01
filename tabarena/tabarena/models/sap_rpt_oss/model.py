@@ -132,7 +132,7 @@ class SAPRPTOSSModel(AbstractTorchModel):
     #     return default_auxiliary_params
 
 
-def pre_download_model():
+def prefetch_weights() -> None:
     from huggingface_hub import hf_hub_download
 
     # Hardcoded to the checkpoint we use in TabArena.

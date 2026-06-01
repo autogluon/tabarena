@@ -9,7 +9,7 @@ from tabarena.benchmark.models.wrapper.validation_utils import (
     TabArenaValidationProtocolExecMixin,
     split_time_index_into_intervals,
 )
-from tabarena.benchmark.task.user_task import GroupLabelTypes
+from tabarena.benchmark.task.metadata import GroupLabelTypes
 
 _DATA_FOUNDRY_AVAILABLE = importlib.util.find_spec("data_foundry") is not None
 

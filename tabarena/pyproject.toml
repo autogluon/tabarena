@@ -58,6 +58,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+
+# Data Foundry integration: lets `tabarena.benchmark.task.data_foundry` convert
+# curated containers into TabArena UserTasks. Included in the `benchmark` union.
+# FIXME: To use `uv`, you need to do `uv pip install --prerelease=allow .` so it recognizes pre-release data-foundry
+data-foundry = ["data-foundry>=0.0.3"]
+
 # Core model extras — installed together via the `benchmark` union below.
 tabpfn = [
   "tabpfn>=8.0.3",
@@ -98,6 +104,7 @@ benchmark = [
   "tabarena[realmlp]",
   "tabarena[tabdpt]",
   "tabarena[tabm]",
+  "tabarena[data-foundry]",
 ]
 
 # Extended set: extra models layered on top of `benchmark` when needed.
@@ -144,6 +151,7 @@ tabarena = [
   "metrics/_roc_auc_cpp/compile.sh",
   "metrics/_roc_auc_cpp/cpp_auc.cpp",
   "nips2025_utils/metadata/task_metadata_tabarena51.csv",
+  "benchmark/task/metadata/sources/data/*.csv",
   "benchmark/models/ag/limix/_vendor/config/*.json",
   "benchmark/models/ag/limix/_vendor/LICENSE.txt",
   "benchmark/models/ag/limix/_vendor/README.md",

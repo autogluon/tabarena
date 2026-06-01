@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.models.tabpfn_3.model import TabPFN3Model
+from tabarena.models.tabpfn_3.model import TabPFN3Model, prefetch_weights
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabpfn_3.hpo import gen_tabpfn_3
 from tabarena.models._method_metadata import MethodMetadata
@@ -34,4 +34,5 @@ tabpfn_3_info = ModelInfo(
     search_space=gen_tabpfn_3,
     method_metadata=tabpfn_3_method_metadata,
     pip_extra=("tabpfn>=8.0.0",),
+    prefetch_weights=prefetch_weights,
 )

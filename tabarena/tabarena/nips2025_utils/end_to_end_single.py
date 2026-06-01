@@ -531,16 +531,12 @@ class EndToEndSingle:
             all_file_paths_method[did_sid].append(file_path)
 
         if task_metadata is None:
-            tids = list({int(r.split("/")[0]) for r in all_file_paths_method})
+            # Only integer (OpenML) task dirs can be fetched from OpenML; UserTask slugs
+            # require an explicitly-provided ``task_metadata``.
+            tids = list({int(_task_dir(k)) for k in all_file_paths_method if _task_dir(k).isdigit()})
             task_metadata = EndToEndSingle.fetch_task_metadata(tids=tids, verbose=verbose)
 
-        valid_tids = set(task_metadata["tid"].unique())
-        removed = [k for k in all_file_paths_method if int(k.split("/")[0]) not in valid_tids]
-        removed_tids = sorted({int(k.split("/")[0]) for k in removed})
-        for tid in removed_tids:
-            print(f"Removing file paths for task not in task_metadata: tid={tid}")
-        for k in removed:
-            del all_file_paths_method[k]
+        all_file_paths_method = _filter_file_paths_by_task_metadata(all_file_paths_method, task_metadata)
 
         import ray
         if not ray.is_initialized():
@@ -776,6 +772,36 @@ class EndToEndResultsSingle:
             hpo_results=hpo_results,
             model_results=model_results,
         )
+
+
+def _task_dir(file_path_key: str) -> str:
+    """Extract the task-directory component from a ``"{task}/{split}"`` grouping key.
+
+    The task directory is either an OpenML integer task id or a UserTask slug
+    (== ``tabarena_task_name``, e.g. ``"emscad-1790bb44ad91"``), so it must be
+    treated as an opaque string rather than coerced to ``int``.
+    """
+    return file_path_key.split("/")[0]
+
+
+def _filter_file_paths_by_task_metadata(
+    all_file_paths_method: dict[str, list[Path]],
+    task_metadata: pd.DataFrame,
+) -> dict[str, list[Path]]:
+    """Drop grouped file paths whose task is absent from ``task_metadata``.
+
+    Matches each task directory against both the integer ``tid`` and the slug
+    ``tabarena_task_name`` so local/user tasks (whose directories are slugs, not
+    integers) are not erroneously removed.
+    """
+    valid_task_keys = {str(t) for t in task_metadata["tid"].unique()}
+    if "tabarena_task_name" in task_metadata.columns:
+        valid_task_keys |= {str(n) for n in task_metadata["tabarena_task_name"].unique()}
+
+    removed = [k for k in all_file_paths_method if _task_dir(k) not in valid_task_keys]
+    for task_key in sorted({_task_dir(k) for k in removed}):
+        print(f"Removing file paths for task not in task_metadata: task={task_key}")
+    return {k: v for k, v in all_file_paths_method.items() if k not in removed}
 
 
 def _process_result_list(

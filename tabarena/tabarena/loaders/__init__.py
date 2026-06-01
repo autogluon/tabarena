@@ -7,6 +7,33 @@ from ._results import load_results
 from ._download import download_zs_metadata
 
 
+# One-element holder for the runtime TabArena cache-root override. Resolved
+# lazily (see `get_tabarena_cache_root`) so it can be set *after* this module is
+# imported — avoiding the need to set `$TABARENA_CACHE` before importing tabarena.
+_tabarena_cache_override = [None]
+
+
+def get_tabarena_cache_root() -> Path:
+    """Resolve the TabArena cache root.
+
+    Preference order, evaluated on every call (lazy): a runtime override set via
+    `set_tabarena_cache_root`, then `$TABARENA_CACHE`, then `~/.cache/tabarena`.
+    """
+    if _tabarena_cache_override[0] is not None:
+        return _tabarena_cache_override[0]
+    env = os.getenv("TABARENA_CACHE")
+    return Path(env) if env else Path.home() / ".cache" / "tabarena"
+
+
+def set_tabarena_cache_root(path: str | Path | None) -> None:
+    """Override the TabArena cache root at runtime (pass None to clear).
+
+    Lets callers point TabArena at a cache directory programmatically instead of
+    relying on `$TABARENA_CACHE` being set before import.
+    """
+    _tabarena_cache_override[0] = Path(path) if path is not None else None
+
+
 class Paths:
     project_root: Path = Path(__file__).parent.parent.parent
     data_root: Path = project_root / 'data'

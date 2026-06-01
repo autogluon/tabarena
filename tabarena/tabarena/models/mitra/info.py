@@ -7,6 +7,18 @@ from tabarena.models.mitra.hpo import gen_mitra
 from tabarena.models._method_metadata import MethodMetadata
 
 
+# NOTE: Prefetchers normally live in the model's ``model.py``. Mitra is the exception: it is
+# supported out of the box via AutoGluon's external ``MitraModel`` (re-exported below), so there is
+# no tabarena-side ``model.py`` to host this — it lives in ``info.py`` alongside the registration.
+def prefetch_weights() -> None:
+    """Pre-download the Mitra classifier + regressor checkpoints from Hugging Face."""
+    from huggingface_hub import hf_hub_download
+
+    for repo_id in ("autogluon/mitra-classifier", "autogluon/mitra-regressor"):
+        hf_hub_download(repo_id=repo_id, filename="config.json")
+        hf_hub_download(repo_id=repo_id, filename="model.safetensors")
+
+
 mitra_method_metadata = MethodMetadata(
     method="Mitra_GPU",
     method_type="config",
@@ -35,4 +47,5 @@ mitra_info = ModelInfo(
     model_cls=MitraModel,
     search_space=gen_mitra,
     method_metadata=mitra_method_metadata,
+    prefetch_weights=prefetch_weights,
 )

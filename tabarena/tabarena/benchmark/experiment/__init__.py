@@ -1,5 +1,11 @@
 from __future__ import annotations  # noqa: I001
 
+from tabarena.benchmark.experiment.bundle import (
+    ModelConstraints,
+    TabArenaExperimentBundle,
+    TabArenaV0pt1ExperimentBundle,
+    BeyondArenaExperimentBundle,
+)
 from tabarena.benchmark.experiment.experiment_constructor import (
     AGExperiment,
     AGModelBagExperiment,
@@ -25,10 +31,14 @@ __all__ = [
     "AGModelBagExperiment",
     "AGModelExperiment",
     "AGModelOuterExperiment",
+    "BeyondArenaExperimentBundle",
     "Experiment",
     "ExperimentBatchRunner",
     "ExperimentRunner",
+    "ModelConstraints",
     "OOFExperimentRunner",
+    "TabArenaExperimentBundle",
+    "TabArenaV0pt1ExperimentBundle",
     "YamlExperimentSerializer",
     "run_experiments",
     "run_experiments_new",

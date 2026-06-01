@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
+from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel, prefetch_weights
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.sap_rpt_oss.hpo import gen_sap_rpt_oss
 from tabarena.models._method_metadata import MethodMetadata
@@ -37,4 +37,5 @@ sap_rpt_oss_info = ModelInfo(
     pip_extra=(
         "sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa",
     ),
+    prefetch_weights=prefetch_weights,
 )
