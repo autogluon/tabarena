@@ -52,9 +52,11 @@ class TabArenaDefaultTextEncoder:
         import torch
         from sentence_transformers import SentenceTransformer
 
+        from tabarena.benchmark.preprocessing.text_cache import SEMANTIC_EMBEDDING
+
         return SentenceTransformer(
-            "Qwen/Qwen3-Embedding-8B",
-            truncate_dim=32,  # minimal MRL dimension for Qwen3-Embedding
+            SEMANTIC_EMBEDDING.model,
+            truncate_dim=SEMANTIC_EMBEDDING.truncate_dim,  # minimal MRL dimension for Qwen3-Embedding
             model_kwargs={"dtype": torch.float16, "attn_implementation": "sdpa"},
             processor_kwargs={"padding_side": "left"},
         )
@@ -282,12 +284,14 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
 
     @staticmethod
     def get_text_cache_dir(task_id_str: str) -> Path:
-        import openml
+        """Deprecated: prefer :func:`tabarena.benchmark.preprocessing.text_cache.text_cache_path`.
 
-        base_path = (openml.config._root_cache_directory / "tabarena_text_cache").expanduser().resolve() / "text_cache"
-        Path(base_path).mkdir(parents=True, exist_ok=True)
+        Kept for back-compat; returns the canonical (encoder-versioned, TabArena-cache-root) path.
+        """
+        from tabarena.benchmark.preprocessing.text_cache import text_cache_path
 
-        return base_path / f"{task_id_str}_cache.parquet"
+        return text_cache_path(task_id_str)
+
 
 class StatisticalTextFeatureGenerator(AbstractFeatureGenerator):
     """Generate a statistical embedding of text features using skrub.

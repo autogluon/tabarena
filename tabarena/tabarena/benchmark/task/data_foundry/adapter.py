@@ -259,4 +259,11 @@ def convert_curated_container_to_user_task(  # noqa: C901 — linear problem-typ
         split_time_horizon_unit=container.experiment_metadata.time_horizon_unit,
     )
     user_task.save_local_openml_task(oml_task)
+
+    # The container ships its semantic-text embedding cache as an extra artifact; copy it into the
+    # canonical tabarena cache so the fit-time loader finds it (no-op when the container has none).
+    from tabarena.benchmark.task.data_foundry.text_cache import import_text_cache_from_container
+
+    import_text_cache_from_container(container, user_task.slug)
+
     return user_task

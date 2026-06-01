@@ -195,6 +195,13 @@ def materialize_task(
 
     task = UserTask.from_task_id_str(task_id_str)
     if (not force_download) and task.openml_task_path.exists():
+        # Dataset already local (no re-download). Still ensure its text cache was imported from the
+        # (already-downloaded) container — handles tasks materialized before text-cache import.
+        from tabarena.benchmark.task.data_foundry.text_cache import ensure_text_cache_for_task
+
+        ensure_text_cache_for_task(
+            collection=collection, data_foundry_uri=data_foundry_uri, task_key=task.slug, cache_dir=cache_dir
+        )
         return task.task_id_str
 
     if evaluation_metrics is None:

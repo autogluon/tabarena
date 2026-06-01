@@ -420,6 +420,9 @@ def run_experiments_new(
                         print(f"Using eval metric: {eval_metric_name}")
 
                     # EXPERIMENTAL: update validation split metadata logic
+                    from contextlib import nullcontext
+
+                    text_cache_cm = nullcontext()
                     if (task is not None) and model_experiment.dynamic_tabarena_validation_protocol:
                         from tabarena.benchmark.experiment.experiment_constructor import (
                             AGModelBagExperiment,
@@ -445,39 +448,31 @@ def run_experiments_new(
                             **task.get_validation_split_kwargs(),
                         )
 
-                        # FIXME: move this somewhere else and allow to enable/disable this to not use cache.
-                        # Load text cache into memory for the current task
-                        from tabarena.benchmark.preprocessing.text_feature_generators import (
-                            SemanticTextFeatureGenerator,
-                        )
+                        # Load this task's semantic-text embedding cache for the duration of the
+                        # fit (slug-keyed + encoder-versioned; restored afterwards). Default
+                        # ``require``: a text task with no cache fails fast — warm it first via the
+                        # prefetch/download path or pre-generation.
+                        from tabarena.benchmark.preprocessing.text_cache import use_text_cache_for_task
 
-                        cache_path = SemanticTextFeatureGenerator.get_text_cache_dir(task_id_str=str(task.task_id))
-                        if cache_path.exists():
-                            print("[LOADING TEXT CACHE] Loading text embedding cache into memory...")
-                            SemanticTextFeatureGenerator._embedding_look_up = (
-                                SemanticTextFeatureGenerator.load_embedding_cache(path=cache_path)
-                            )
-                            SemanticTextFeatureGenerator.only_load_from_cache = True
-                        elif task._has_text:
-                            raise FileNotFoundError(
-                                f"Text cache not found for task {task.task_id} at expected location {cache_path}. "
-                                f"This is required when `dynamic_tabarena_validation_protocol` is set to 'force'."
-                            )
+                        text_cache_cm = use_text_cache_for_task(
+                            task_id_or_object, has_text=task._has_text, mode="require"
+                        )
 
                     try:
-                        out = model_experiment.run(
-                            task=task,
-                            fold=fold,
-                            cacher=cacher,
-                            ignore_cache=cache_mode == "ignore",
-                            debug_mode=debug_mode,
-                            repeat=repeat,
-                            # TODO: remove task_name as required parameter in .run()
-                            #   - also unclear how this is used in only cache case,
-                            #     where we don't have the task object.
-                            task_name=tabarena_task_name,  # used in eval as name later.
-                            eval_metric_name=eval_metric_name,
-                        )
+                        with text_cache_cm:
+                            out = model_experiment.run(
+                                task=task,
+                                fold=fold,
+                                cacher=cacher,
+                                ignore_cache=cache_mode == "ignore",
+                                debug_mode=debug_mode,
+                                repeat=repeat,
+                                # TODO: remove task_name as required parameter in .run()
+                                #   - also unclear how this is used in only cache case,
+                                #     where we don't have the task object.
+                                task_name=tabarena_task_name,  # used in eval as name later.
+                                eval_metric_name=eval_metric_name,
+                            )
                     except Exception as exc:
                         if raise_on_failure:
                             raise
