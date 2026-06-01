@@ -164,10 +164,12 @@ class TabArenaDefaultTextEncoder:
 
 
 class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
-    """Create semantic text embeddings using a pre-trained sentencetransformer model.
+    """Create semantic text embeddings using a pre-trained sentence-transformer model.
 
-    Uses ``Qwen/Qwen3-Embedding-0.6B`` with Matryoshka Representation Learning
-    (MRL) to produce compact ``_MRL_DIM``-dimensional embeddings per text value.
+    Uses the encoder declared by
+    :data:`~tabarena.benchmark.preprocessing.text_cache.SEMANTIC_EMBEDDING`
+    (``Qwen/Qwen3-Embedding-8B`` with Matryoshka truncation to 32 dims) to produce a compact
+    embedding per text value.
     """
 
     _embedding_look_up: dict[str, np.ndarray] = {}
