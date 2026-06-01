@@ -22,7 +22,7 @@ class TabArenaMetadataBundle:
 
     task_metadata: (
         TaskMetadataSource
-        | Literal["TabArena-v0.1", "tabarena-v0.1", "BeyondArena"]
+        | Literal["TabArena-v0.1", "BeyondArena"]
         | pd.DataFrame
         | list[TabArenaTaskMetadata]
         | str

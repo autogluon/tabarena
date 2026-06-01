@@ -75,11 +75,6 @@ def test_resolve_source_maps_registered_literal():
     assert isinstance(resolve_source("TabArena-v0.1"), TabArenaV0pt1TaskMetadataSource)
 
 
-def test_resolve_source_legacy_literal_still_works():
-    """The old lowercase literal stays supported for backward compatibility."""
-    assert isinstance(resolve_source("tabarena-v0.1"), TabArenaV0pt1TaskMetadataSource)
-
-
 # ---------------------------------------------------------------------------
 # TabArenaV0pt1TaskMetadataSource — committed CSV + rebuild fallback
 # ---------------------------------------------------------------------------

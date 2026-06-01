@@ -22,7 +22,6 @@ from tabarena.benchmark.task.metadata.sources.base import (
 from tabarena.benchmark.task.metadata.sources.data_foundry import DataFoundryTaskMetadataSource
 from tabarena.benchmark.task.metadata.sources.openml import OpenMLTaskMetadataSource
 from tabarena.benchmark.task.metadata.sources.tabarena_v0pt1 import (
-    TABARENA_V0PT1_ALIASES,
     TABARENA_V0PT1_NAME,
     TabArenaV0pt1TaskMetadataSource,
     load_tabarena_v0_1_task_metadata,
@@ -41,8 +40,6 @@ def _beyond_arena_source() -> TaskMetadataSource:
 _SOURCE_REGISTRY: dict[str, Callable[[], TaskMetadataSource]] = {
     TABARENA_V0PT1_NAME: TabArenaV0pt1TaskMetadataSource,  # "TabArena-v0.1"
     "BeyondArena": _beyond_arena_source,
-    # Backward-compatible aliases (e.g. the old lowercase "tabarena-v0.1").
-    **dict.fromkeys(TABARENA_V0PT1_ALIASES, TabArenaV0pt1TaskMetadataSource),
 }
 
 
@@ -55,8 +52,7 @@ def resolve_source(
 
     1. A :class:`TaskMetadataSource` instance is returned unchanged.
     2. A string matching a registered suite literal (e.g. ``"TabArena-v0.1"``,
-       ``"BeyondArena"``; the legacy ``"tabarena-v0.1"`` still resolves) builds that
-       suite's source.
+       ``"BeyondArena"``) builds that suite's source.
     3. Anything else — a DataFrame, a ``list[TabArenaTaskMetadata]``, or a str/Path
        to a CSV file — is wrapped in an :class:`InMemoryTaskMetadataSource`.
     """

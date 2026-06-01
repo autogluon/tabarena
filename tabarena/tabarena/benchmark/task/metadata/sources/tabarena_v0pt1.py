@@ -22,9 +22,6 @@ from tabarena.benchmark.task.metadata.sources.openml import OpenMLTaskMetadataSo
 #: Surface suite name used for the committed reference CSV and the source registry.
 TABARENA_V0PT1_NAME = "TabArena-v0.1"
 
-#: Backward-compatible literal(s) that still resolve to this source.
-TABARENA_V0PT1_ALIASES = ("tabarena-v0.1",)
-
 
 def committed_metadata_path() -> Path:
     """Path to the git-committed v0.1 reference-metadata CSV (package data)."""
