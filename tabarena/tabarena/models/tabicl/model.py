@@ -233,6 +233,19 @@ class TabICLModelBase(AbstractTorchModel):
     def checkpoint_search_space() -> list[str | tuple[str, str]]:
         raise NotImplementedError("This method must be implemented in the subclass.")
 
+    @classmethod
+    def prefetch_weights(cls) -> None:
+        """Pre-download this variant's checkpoint(s) by loading each from its search space.
+
+        Self-describing: iterates ``cls.checkpoint_search_space()`` (so the v1 and v2 wrappers each
+        warm their own checkpoints) and triggers the classifier weight download for each.
+        """
+        from tabicl import TabICLClassifier
+
+        for entry in cls.checkpoint_search_space():
+            clf_checkpoint = entry[0] if isinstance(entry, tuple) else entry
+            TabICLClassifier(checkpoint_version=clf_checkpoint)._load_model()
+
     def get_device(self) -> str:
         return self.model.device_.type
 

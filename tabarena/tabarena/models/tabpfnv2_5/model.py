@@ -523,3 +523,10 @@ class TabPFNv26Model(TabPFNModel):
                 )
 
         return hps
+
+def prefetch_weights() -> None:
+    """Pre-download all TabPFN checkpoints (shared by the v2.5 / v2.6 wrappers)."""
+    from tabpfn.model_loading import download_all_models, resolve_model_path
+
+    _, model_dir, _, _ = resolve_model_path(model_path=None, which="classifier")
+    download_all_models(to=model_dir[0])

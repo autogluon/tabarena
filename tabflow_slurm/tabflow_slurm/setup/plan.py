@@ -189,6 +189,10 @@ class TabArenaBenchmarkPlan:
     """Default scheduler. Per-job `scheduler` overrides are applied on top."""
     resources_setup: ResourcesSetup
     """Default resources. Per-job `resources` overrides are applied on top."""
+    prefetch_model_weights: bool = True
+    """If True, `setup_jobs` warms the weights of any selected foundation models on this (head)
+    node before emitting jobs, so parallel/offline compute nodes find them cached. Set False to
+    skip (e.g. weights already present, or no network on the head node)."""
 
     def build_setups(self, num_ray_cpus: int | Literal["auto"] = "auto") -> list[TabArenaBenchmarkSetup]:
         """Expand the model jobs into one `TabArenaBenchmarkSetup` per group.
@@ -282,6 +286,9 @@ class TabArenaBenchmarkPlan:
         setups = self.build_setups(num_ray_cpus=num_ray_cpus)
         n = len(setups)
 
+        if self.prefetch_model_weights:
+            self._prefetch_model_weights()
+
         print(f"\n{_SUMMARY_BAR}\nBenchmark plan '{self.benchmark_name}': preparing {n} run(s)\n{_SUMMARY_BAR}")
 
         runs: list[tuple[str, str, list[str]]] = []
@@ -298,6 +305,28 @@ class TabArenaBenchmarkPlan:
             runs.append((label, models, commands))
 
         return self._print_summary_and_collect(runs)
+
+    def selected_model_names(self) -> list[str]:
+        """Unique benchmark model names across all jobs (first-appearance order)."""
+        names: list[str] = []
+        for job in self.model_jobs:
+            for entry in job._model_entries():
+                name = entry[0] if isinstance(entry, tuple) else getattr(entry, "name", None)
+                if name is not None and name not in names:
+                    names.append(name)
+        return names
+
+    def _prefetch_model_weights(self) -> None:
+        """Warm the weights of any selected foundation models on this node before dispatch."""
+        from tabarena.models.prefetch import prefetch_weights
+
+        model_names = self.selected_model_names()
+        print(
+            f"\n{_SUMMARY_BAR}"
+            f"\nPrefetching foundation-model weights for: {', '.join(model_names) or '(none)'}"
+            f"\n{_SUMMARY_BAR}"
+        )
+        prefetch_weights(model_names)
 
     def _print_summary_and_collect(self, runs: list[tuple[str, str, list[str]]]) -> list[str]:
         """Print the consolidated per-run summary + final command list; return all commands."""

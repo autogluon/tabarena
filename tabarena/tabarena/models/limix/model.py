@@ -276,7 +276,7 @@ class LimiXModel(AbstractTorchModel):
         return {"can_refit_full": True}
 
     @classmethod
-    def download_model(cls) -> str:
+    def prefetch_weights(cls) -> str:
         """Pre-download the default LimiX checkpoint from Hugging Face.
 
         Returns the local cache path. Used by the foundation-model pre-download
@@ -305,7 +305,7 @@ def _load_bundled_config(filename: str) -> list:
 
 
 def _download_default_checkpoint() -> str:
-    return LimiXModel.download_model()
+    return LimiXModel.prefetch_weights()
 
 
 class _NaNCleanEncoder(nn.Module):

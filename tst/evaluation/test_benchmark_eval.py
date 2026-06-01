@@ -49,9 +49,9 @@ class TestConfig:
 
 
 def test_run_eval_orchestration(tmp_path, monkeypatch):
-    import tabarena.evaluation.benchmark_eval as bm
     import tabarena.nips2025_utils.end_to_end as ee
     import tabarena.nips2025_utils.end_to_end_single as ees
+    import tabarena.website.website_format as wf
 
     post_calls: list[dict] = []
     cache_calls: list[dict] = []
@@ -78,7 +78,8 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
         def to_markdown(self, **_kwargs):
             return ""
 
-    monkeypatch.setattr(bm, "format_leaderboard", lambda _df, **_kw: _FakeLB())
+    # run_eval imports format_leaderboard from its source at call time, so patch there.
+    monkeypatch.setattr(wf, "format_leaderboard", lambda _df, **_kw: _FakeLB())
 
     cfg = _config(
         tmp_path,

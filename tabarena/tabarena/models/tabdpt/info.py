@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.models.tabdpt.model import TabDPTModel
+from tabarena.models.tabdpt.model import TabDPTModel, prefetch_weights
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabdpt.hpo import gen_tabdpt
 from tabarena.models._method_metadata import MethodMetadata
@@ -35,4 +35,5 @@ tabdpt_info = ModelInfo(
     search_space=gen_tabdpt,
     method_metadata=tabdpt_method_metadata,
     pip_extra=("tabdpt>=1.1.10",),
+    prefetch_weights=prefetch_weights,
 )

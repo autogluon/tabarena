@@ -171,7 +171,7 @@ def _resolve_checkpoint(filename: str, allow_auto_download: bool = True) -> str:
             raise ValueError(
                 f"Checkpoint '{filename}' not cached locally and "
                 f"allow_auto_download=False. Pre-download it via "
-                f"`pre_download_model(filename='{filename}')` or set "
+                f"`prefetch_weights(filename='{filename}')` or set "
                 f"allow_auto_download=True."
             ) from None
         logger.info(
@@ -182,7 +182,7 @@ def _resolve_checkpoint(filename: str, allow_auto_download: bool = True) -> str:
         return hf_hub_download(repo_id=_HF_REPO_ID, filename=filename)
 
 
-def pre_download_model(filename: str = _DEFAULT_CHECKPOINT_FILE) -> str:
+def prefetch_weights(filename: str = _DEFAULT_CHECKPOINT_FILE) -> str:
     # Defaults to the latest v1.5 checkpoint we use in TabArena. Skips the
     # network call if the file is already present in the HF cache.
     return _resolve_checkpoint(filename=filename, allow_auto_download=True)

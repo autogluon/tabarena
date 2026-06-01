@@ -1,21 +1,17 @@
-"""Native evaluation of a ``TabArenaBenchmarkPlan``'s results.
+"""Native evaluation of a ``TabArenaBenchmarkPlan``'s results (TabArena v0.1 flow).
 
 A benchmark run writes raw prediction artifacts to
 ``<output_dir>/data/<method>/<task>/<r{r}f{f}>/results/results.pkl``.
 This module turns those raw artifacts into a TabArena leaderboard, reusing the same
 ``benchmark_name`` the plan was launched with to locate them.
 
-Currently, implements the TabArena-v0.1 flow: post-process the raw results into
-the TabArena cache, then compare against the TabArena-v0.1 paper baselines via
-``EndToEndResults.compare_on_tabarena``. Each method can be renamed in the
-leaderboard via its ``result_suffix`` (e.g. to distinguish a re-run).
+It implements the TabArena-v0.1 flow: post-process the raw results into the TabArena cache
+(shared with ``beyond_arena_eval`` via :mod:`tabarena.evaluation._eval_common`), then compare
+against the TabArena-v0.1 paper baselines via ``EndToEndResults.compare_on_tabarena``. Each method
+can be renamed in the leaderboard via its ``result_suffix`` (e.g. to distinguish a re-run).
 
-Beyond-arena (future): ``_compare_subset`` is the extension seam. The general
-path would accept a ``TabArenaMetadataBundle``, convert it to the eval
-``task_metadata`` DataFrame via ``TabArenaTaskMetadata.to_dataframe(...)`` and
-pass it to ``EndToEndSingle.from_path_raw_to_results``, then compare with a
-data-foundry context (e.g. ``BeyondArenaContext`` + ``subset_tasks_data_foundry``)
-instead of ``compare_on_tabarena``.
+For the data-foundry / BeyondArena flow (multiple runs, data-foundry subset predicates, no paper
+baselines), see :mod:`tabarena.evaluation.beyond_arena_eval`.
 """
 
 from __future__ import annotations
@@ -23,9 +19,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
-
-from tabarena.loaders import set_tabarena_cache_root
-from tabarena.website.website_format import format_leaderboard
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -52,11 +45,9 @@ class EvalMethod:
     @property
     def ag_name(self) -> str:
         """AG name used as the raw-folder prefix and the cache method name."""
-        if self.ag_name_override is not None:
-            return self.ag_name_override
-        from tabarena.models.utils import get_configs_generator_from_name
+        from tabarena.evaluation._eval_common import resolve_ag_name
 
-        return get_configs_generator_from_name(self.name).model_cls.ag_name
+        return resolve_ag_name(self.name, self.ag_name_override)
 
 
 @dataclass
@@ -96,28 +87,21 @@ class TabArenaEvalConfig:
 
     def init_caches(self) -> None:
         """Point TabArena/OpenML at the configured caches (resolved lazily, so order-independent)."""
-        if self.tabarena_cache_path is not None:
-            set_tabarena_cache_root(self.tabarena_cache_path)
-            print("Set TabArena cache root to:", self.tabarena_cache_path)
-        if self.openml_cache_path is not None:
-            import openml
+        from tabarena.evaluation._eval_common import init_caches
 
-            openml.config.set_root_cache_directory(str(Path(self.openml_cache_path).expanduser()))
-
-
-def _subset_label(subset: list[str]) -> str:
-    """Filesystem-friendly label for a subset spec (``[]`` -> ``"full"``)."""
-    return "_".join(sorted(subset)) if subset else "full"
+        init_caches(self.tabarena_cache_path, self.openml_cache_path)
 
 
 def _compare_subset(results, subset: list[str], *, config: TabArenaEvalConfig, figure_output_dir: Path):
     """Leaderboard for one subset (TabArena-v0.1 baselines via ``compare_on_tabarena``).
 
-    Beyond-arena extension point: override/replace this to compare against a
-    data-foundry context instead.
+    The comparison seam that differs from the BeyondArena flow (which uses ``compare`` +
+    data-foundry subset predicates in :mod:`tabarena.evaluation.beyond_arena_eval`).
     """
+    from tabarena.evaluation._eval_common import subset_label
+
     return results.compare_on_tabarena(
-        output_dir=figure_output_dir / "subsets" / _subset_label(subset),
+        output_dir=figure_output_dir / "subsets" / subset_label(subset),
         subset=subset or None,
         tabarena_context_kwargs={"include_unverified": config.include_unverified},
     )
@@ -133,42 +117,39 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
 
     Returns ``{subset_label: leaderboard_df}``.
     """
-    from tabarena.nips2025_utils.end_to_end import EndToEndResults
-    from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
+    from tabarena.evaluation._eval_common import (
+        MethodArtifact,
+        post_process_to_results,
+        save_leaderboard,
+        subset_label,
+    )
+    from tabarena.website.website_format import format_leaderboard
 
     config.init_caches()
 
-    singles = []
-    for method in config.methods:
-        if method.only_load_cache:
-            single = EndToEndSingle.from_cache(method=method.ag_name, artifact_name=config.benchmark_name)
-        else:
-            print(f"Post-processing raw results for {method.name} (ag_name={method.ag_name})...")
-            single = EndToEndSingle.from_path_raw_to_results(
-                path_raw=config.path_raw,
-                name_prefix_raw=method.ag_name,
-                name_suffix=method.result_suffix,
-                method=method.ag_name,
-                artifact_name=config.benchmark_name,
-                num_cpus=config.num_cpus,
-            )
-        singles.append(single)
-
-    results = EndToEndResults(end_to_end_results_lst=singles)
+    artifacts = [
+        MethodArtifact(
+            ag_name=method.ag_name,
+            path_raw=config.path_raw,
+            artifact_name=config.benchmark_name,
+            result_suffix=method.result_suffix,
+            only_load_cache=method.only_load_cache,
+        )
+        for method in config.methods
+    ]
+    results = post_process_to_results(artifacts, task_metadata=None, num_cpus=config.num_cpus)
 
     figure_output_dir = Path(config.figure_output_dir)
     leaderboards: dict[str, pd.DataFrame] = {}
     for subset in config.subsets_to_run():
-        label = _subset_label(subset)
+        label = subset_label(subset)
         leaderboard = _compare_subset(results, subset, config=config, figure_output_dir=figure_output_dir)
 
         print(f"\n##### Leaderboard [{label}]")
         print(format_leaderboard(leaderboard).to_markdown(index=False))
 
         if config.save_leaderboards:
-            lb_dir = figure_output_dir / "leaderboards"
-            lb_dir.mkdir(parents=True, exist_ok=True)
-            leaderboard.to_csv(lb_dir / f"{label}.csv", index=False)
+            save_leaderboard(leaderboard, figure_output_dir, label)
         leaderboards[label] = leaderboard
 
     return leaderboards
