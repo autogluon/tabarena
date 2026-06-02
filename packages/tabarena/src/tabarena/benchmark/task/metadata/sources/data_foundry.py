@@ -37,6 +37,7 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
         force_download: bool = False,
         force_regenerate: bool = False,
         evaluation_metrics: dict[str, list[str]] | None = None,
+        verbose: bool = False,
     ) -> None:
         """Initialize the source.
 
@@ -49,12 +50,16 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
                 rebuild it by downloading the whole collection.
             evaluation_metrics: Override the allowed eval metrics per problem type
                 (see :data:`tabarena.benchmark.task.data_foundry.DEFAULT_EVAL_METRICS`).
+            verbose: Emit per-task ``debug`` logs during materialization (e.g. the
+                text-cache "skipping" lines). Off by default to keep the materialize
+                progress bar clean.
         """
         self.collection = collection
         self.cache_dir = cache_dir
         self.force_download = force_download
         self.force_regenerate = force_regenerate
         self.evaluation_metrics = evaluation_metrics
+        self.verbose = verbose
 
     def load(self) -> list[TabArenaTaskMetadata]:
         """Load the collection's reference metadata (no dataset downloads)."""
@@ -121,6 +126,7 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
                     evaluation_metrics=self.evaluation_metrics,
                     cache_dir=self.cache_dir,
                     force_download=self.force_download,
+                    verbose=self.verbose,
                 )
                 # Propagate the resolved local id to every split of this dataset.
                 for ttm in splits:

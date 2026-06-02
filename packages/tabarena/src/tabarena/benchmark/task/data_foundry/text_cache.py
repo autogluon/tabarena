@@ -39,27 +39,33 @@ def container_text_cache_filename(embedding_id: str | None = None) -> str:
     return f"{CONTAINER_TEXT_CACHE_PREFIX}_{embedding_id}.parquet"
 
 
-def import_text_cache_from_container(container, task_key: str) -> Path | None:
+def import_text_cache_from_container(container, task_key: str, *, verbose: bool = False) -> Path | None:
     """Copy a container's bundled text cache into the canonical tabarena location.
 
     ``container`` is a (downloaded) ``data_foundry.curation_container.CuratedContainer`` — its
     ``loaded_from_path`` points at the on-disk container dir. Looks for the encoder-versioned
     artifact (``tabarena_text_cache_<embedding-id>.parquet``). Returns the destination path, or
     ``None`` if the container ships no cache for the current encoder. Existing destinations are kept.
+
+    ``verbose`` emits a per-task ``debug`` line for each outcome (prefixed with a newline so it stays
+    readable when interleaved with a progress bar); it is silent by default.
     """
     from tabarena.benchmark.preprocessing.text_cache import text_cache_path
 
     filename = container_text_cache_filename()
     if not container.has_extra_file(filename):
-        logger.debug(f"[text-cache] {task_key}: container ships no '{filename}'; skipping.")
+        if verbose:
+            logger.debug(f"\n[text-cache] {task_key}: container ships no '{filename}'; skipping.")
         return None
     dst = text_cache_path(task_key)
     if dst.exists():
-        logger.debug(f"[text-cache] {task_key}: already present at {dst}; skipping import.")
+        if verbose:
+            logger.debug(f"\n[text-cache] {task_key}: already present at {dst}; skipping import.")
         return dst
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(container.extra_file_path(filename), dst)
-    logger.info(f"[text-cache] {task_key}: imported embeddings from container -> {dst}")
+    if verbose:
+        logger.debug(f"\n[text-cache] {task_key}: imported embeddings from container -> {dst}")
     return dst
 
 
@@ -70,6 +76,7 @@ def ensure_text_cache_for_task(
     task_key: str,
     cache_dir: str | None = None,
     force_download: bool = False,
+    verbose: bool = False,
 ) -> Path | None:
     """Ensure ``task_key``'s text cache is in the canonical location, importing it from the container.
 
@@ -77,6 +84,8 @@ def ensure_text_cache_for_task(
     container — using the local Data Foundry download if available, else fetching it from the source
     (the same ``snapshot_download`` that brings the dataset) — and copies its bundled text cache.
     The container's dataframe is not loaded (only its extra files are read).
+
+    ``verbose`` forwards to :func:`import_text_cache_from_container` for per-task ``debug`` logging.
     """
     from tabarena.benchmark.preprocessing.text_cache import resolve_existing_cache_path
 
@@ -92,4 +101,4 @@ def ensure_text_cache_for_task(
     container = collection.get_dataset(
         uuid, cache_dir=cache_dir, load_dataset=False, force_download=force_download
     )
-    return import_text_cache_from_container(container, task_key)
+    return import_text_cache_from_container(container, task_key, verbose=verbose)

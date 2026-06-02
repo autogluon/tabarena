@@ -161,6 +161,7 @@ def materialize_task(
     evaluation_metrics: dict[str, list[str]] | None = None,
     cache_dir: str | None = None,
     force_download: bool = False,
+    verbose: bool = False,
 ) -> str:
     """Ensure one task's local OpenML pickle exists; return its local ``task_id_str``.
 
@@ -181,6 +182,7 @@ def materialize_task(
             :data:`DEFAULT_EVAL_METRICS`.
         cache_dir: Optional data_foundry cache override.
         force_download: Re-fetch + reconvert even if the pickle already exists.
+        verbose: Forwarded to the text-cache import for per-task ``debug`` logging.
 
     Returns:
         The ``task_id_str`` whose resolved pickle path now exists on disk.
@@ -200,7 +202,11 @@ def materialize_task(
         from tabarena.benchmark.task.data_foundry.text_cache import ensure_text_cache_for_task
 
         ensure_text_cache_for_task(
-            collection=collection, data_foundry_uri=data_foundry_uri, task_key=task.slug, cache_dir=cache_dir
+            collection=collection,
+            data_foundry_uri=data_foundry_uri,
+            task_key=task.slug,
+            cache_dir=cache_dir,
+            verbose=verbose,
         )
         return task.task_id_str
 
