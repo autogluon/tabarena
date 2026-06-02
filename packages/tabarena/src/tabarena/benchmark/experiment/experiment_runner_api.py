@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 
 from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
-from tabarena.benchmark.task.openml import OpenMLS3TaskWrapper, OpenMLTaskWrapper
+from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 from tabarena.benchmark.task.user_task import UserTask
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle
 
@@ -219,12 +219,10 @@ def run_experiments_new(
     tasks_metadata: pd.DataFrame | None = None,
     use_metadata_task_name: bool = False,
     repetitions_mode_args: tuple | list | None = None,
-    run_mode: str = "local",
     cache_mode: Literal["default", "ignore", "only"] = "default",
     include_repeat_in_cache_name: bool = True,
     cache_cls: type[AbstractCacheFunction] = CacheFunctionPickle,
     cache_cls_kwargs: dict | None = None,
-    s3_kwargs: dict | None = None,
     raise_on_failure: bool = True,
     debug_mode: bool = False,
     failure_on_non_finite_metric_error: bool = False,
@@ -234,9 +232,7 @@ def run_experiments_new(
     Parameters
     ----------
     output_dir: str
-        Name of the output directory for the experiments. If `run_mode` is "local",
-        this should be the path to local directory. If `run_mode` is "aws", this should
-        be the name of a dir in the S3 bucket.
+        Path to the local directory where experiment artifacts are cached.
     model_experiments: list[Experiment]
         List of model experiments to run. Each element must be an instance of the
         Experiment class. Each instance contains the configuration of the model
@@ -321,12 +317,6 @@ def run_experiments_new(
                 above format, that specifies the repeat and fold pairs to run for
                 each task. We assume the list is ordered the same as the tasks, so the
                 first tuple corresponds to the first task, and so on.
-    run_mode: Literal["local", "aws"], default "local"
-        Determines where and how to run the experiments:
-            - "local": Runs the experiments locally, storing results in the
-                specified `output_dir`.
-            - "aws": Runs the experiments on AWS, storing results in the
-                specified S3 bucket.
     cache_mode: Literal["default", "ignore", "only"], default "default"
         Determines how to handle the cache:
             - "default": Skip experiment if cache exists, otherwise run the experiment.
@@ -348,13 +338,6 @@ def run_experiments_new(
         or a drop-in replacement).
     cache_cls_kwargs: dict | None, default None
         Extra keyword arguments forwarded to `cache_cls(...)` (e.g. `compress`).
-    s3_kwargs: dict | None, default None
-        Additional keyword arguments for S3 operations. Required when mode="aws".
-        Supported kwargs:
-            - `bucket`: str, the S3 bucket where artifacts will be stored. Required.
-            - `dataset_cache`: str, full S3 URI to the openml dataset cache
-                (format: s3://bucket/prefix). If not provided, the S3 download attempt
-                will be skipped.
     raise_on_failure: bool, default True
         If True, will raise exceptions that occur during experiments, stopping all runs.
         If False, will ignore exceptions and continue fitting queued experiments.
@@ -382,18 +365,7 @@ def run_experiments_new(
     result_lst: list[dict]
         Containing all metrics from fit() and predict() of all the given tasks
     """
-    if run_mode == "aws":
-        if s3_kwargs is None:
-            raise ValueError(f"s3_kwargs parameter is required when mode is 'aws', got {s3_kwargs}")
-        if s3_kwargs.get("bucket") is None or s3_kwargs.get("bucket") == "":
-            raise ValueError(
-                f"bucket parameter in s3_kwargs is required when mode is 'aws', got {s3_kwargs.get('bucket')}",
-            )
-        base_cache_path = f"s3://{s3_kwargs['bucket']}/{output_dir}"
-    elif run_mode == "local":
-        base_cache_path = output_dir
-    else:
-        raise ValueError(f"Invalid mode: {run_mode}. Supported modes are 'local' and 'aws'.")
+    base_cache_path = output_dir
 
     assert all(isinstance(exp, Experiment) for exp in model_experiments), (
         "All `model_experiments` elements must be instances of Experiment class"
@@ -490,16 +462,7 @@ def run_experiments_new(
                 else:
                     if (task is None) and ((cache_mode == "ignore") or (not cache_exists)):
                         if isinstance(task_id_or_object, int):
-                            if (s3_kwargs is not None) and ("dataset_cache" in s3_kwargs):
-                                assert isinstance(s3_kwargs["dataset_cache"], str), (
-                                    "'s3_kwargs `dataset_cache` must be a str!"
-                                )
-                                task = OpenMLS3TaskWrapper.from_task_id(
-                                    task_id=task_id_or_object,
-                                    s3_dataset_cache=s3_kwargs["dataset_cache"],
-                                )
-                            else:
-                                task = OpenMLTaskWrapper.from_task_id(task_id=task_id_or_object)
+                            task = OpenMLTaskWrapper.from_task_id(task_id=task_id_or_object)
                             if tabarena_task_name is None:
                                 tabarena_task_name = task.task.get_dataset().name
                         else:

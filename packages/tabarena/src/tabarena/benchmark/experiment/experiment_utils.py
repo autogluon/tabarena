@@ -23,20 +23,13 @@ class ExperimentBatchRunner:
         cache_cls: type[AbstractCacheFunction] | None = CacheFunctionPickle,
         cache_cls_kwargs: dict | None = None,
         only_cache: bool = False,
-        mode: str = "local",
-        s3_bucket: str | None = None,
         debug_mode: bool = True,
-        s3_dataset_cache: str | None = None,
     ):
         """Parameters
         ----------
         expname
         cache_cls
         cache_cls_kwargs
-        mode: str, default "local"
-            Either "local" or "aws". In "aws" mode, s3_bucket must be provided.
-        s3_bucket: str, optional
-            Required when mode="aws". The S3 bucket where artifacts will be stored.
         debug_mode: bool, default True
             If True, will operate in a manner best suited for local model development.
             This mode will be friendly to local debuggers and will avoid subprocesses/threads
@@ -45,9 +38,6 @@ class ExperimentBatchRunner:
             IF False, will operate in a manner best suited for large-scale benchmarking.
             This mode will try to record information when method's fail
             and might not work well with local debuggers.
-        s3_dataset_cache: str, optional
-            Full S3 URI to the openml dataset cache (format: s3://bucket/prefix)
-            If None, skip S3 download attempt
         """
         cache_cls = CacheFunctionDummy if cache_cls is None else cache_cls
         cache_cls_kwargs = {"include_self_in_call": True} if cache_cls_kwargs is None else cache_cls_kwargs
@@ -63,10 +53,7 @@ class ExperimentBatchRunner:
             .set_index("dataset")["tid"]
             .to_dict()
         )
-        self.mode = mode
-        self.s3_bucket = s3_bucket
         self.debug_mode = debug_mode
-        self.s3_dataset_cache = s3_dataset_cache
 
     @property
     def datasets(self) -> list[str]:
@@ -166,13 +153,6 @@ class ExperimentBatchRunner:
         else:
             cache_mode = "default"
 
-        if self.mode == "aws":
-            s3_kwargs = {"bucket": self.s3_bucket}
-            if self.s3_dataset_cache is not None:
-                s3_kwargs["dataset_cache"] = self.s3_dataset_cache
-        else:
-            s3_kwargs = None
-
         return run_experiments_new(
             output_dir=self.expname,
             model_experiments=methods,
@@ -182,7 +162,6 @@ class ExperimentBatchRunner:
             use_metadata_task_name=True,
             repetitions_mode="individual",
             repetitions_mode_args=fold_repeat_pairs,
-            run_mode=self.mode,
             cache_mode=cache_mode,
             include_repeat_in_cache_name=include_repeat_in_cache_name,
             # Forward the configured cache backend. The default `cache_cls_kwargs`
@@ -190,7 +169,6 @@ class ExperimentBatchRunner:
             # `model_failures` artifact on failure.
             cache_cls=self.cache_cls,
             cache_cls_kwargs=self.cache_cls_kwargs,
-            s3_kwargs=s3_kwargs,
             raise_on_failure=raise_on_failure,
             debug_mode=self.debug_mode,
         )

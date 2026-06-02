@@ -222,53 +222,6 @@ def _make_minimal_experiment(name: str = "lgbm_test"):
 
 
 class TestRunExperimentsNewValidation:
-    def test_aws_mode_without_s3_kwargs_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="s3_kwargs"):
-            run_experiments_new(
-                output_dir=str(tmp_path),
-                model_experiments=[_make_minimal_experiment()],
-                tasks=[360],
-                repetitions_mode="individual",
-                repetitions_mode_args=[(0, 0)],
-                run_mode="aws",
-                s3_kwargs=None,
-            )
-
-    def test_aws_mode_with_empty_bucket_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="bucket"):
-            run_experiments_new(
-                output_dir=str(tmp_path),
-                model_experiments=[_make_minimal_experiment()],
-                tasks=[360],
-                repetitions_mode="individual",
-                repetitions_mode_args=[(0, 0)],
-                run_mode="aws",
-                s3_kwargs={"bucket": ""},
-            )
-
-    def test_aws_mode_with_none_bucket_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="bucket"):
-            run_experiments_new(
-                output_dir=str(tmp_path),
-                model_experiments=[_make_minimal_experiment()],
-                tasks=[360],
-                repetitions_mode="individual",
-                repetitions_mode_args=[(0, 0)],
-                run_mode="aws",
-                s3_kwargs={"bucket": None},
-            )
-
-    def test_invalid_run_mode_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="Invalid mode"):
-            run_experiments_new(
-                output_dir=str(tmp_path),
-                model_experiments=[_make_minimal_experiment()],
-                tasks=[360],
-                repetitions_mode="individual",
-                repetitions_mode_args=[(0, 0)],
-                run_mode="ftp",
-            )
-
     def test_non_experiment_in_model_experiments_raises(self, tmp_path):
         with pytest.raises(AssertionError):
             run_experiments_new(
@@ -400,7 +353,7 @@ class TestRunExperimentsNewCacheOnly:
         assert result == []
 
     def test_local_base_cache_path_uses_output_dir(self, tmp_path):
-        # With run_mode="local" (default), base_cache_path == output_dir.
+        # base_cache_path == output_dir.
         # Result is empty because no cache exists; but it shouldn't raise.
         result = run_experiments_new(
             output_dir=str(tmp_path / "subdir"),
@@ -408,7 +361,6 @@ class TestRunExperimentsNewCacheOnly:
             tasks=[360],
             repetitions_mode="individual",
             repetitions_mode_args=[(0, 0)],
-            run_mode="local",
             cache_mode="only",
         )
         assert result == []
