@@ -38,7 +38,11 @@ if __name__ == "__main__":
         *experiments_rf,
     ]
 
-    exp_batch_runner = ExperimentBatchRunner(expname=expname, task_metadata=task_metadata)
+    exp_batch_runner = ExperimentBatchRunner(
+        expname=expname,
+        task_metadata=task_metadata,
+        cache_mode="ignore" if ignore_cache else "default",
+    )
 
     # Get the run artifacts.
     # Fits each method on each task (datasets * folds)
@@ -46,7 +50,6 @@ if __name__ == "__main__":
         datasets=datasets,
         folds=folds,
         methods=methods,
-        ignore_cache=ignore_cache,
     )
 
     # compute results

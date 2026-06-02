@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from tabarena.benchmark.experiment.experiment_constructor import Experiment
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy, CacheFunctionPickle
@@ -19,14 +19,20 @@ class ExperimentBatchRunner:
         task_metadata: pd.DataFrame,
         cache_cls: type[AbstractCacheFunction] | None = CacheFunctionPickle,
         cache_cls_kwargs: dict | None = None,
-        only_cache: bool = False,
+        cache_mode: Literal["default", "ignore", "only"] = "default",
         debug_mode: bool = True,
+        raise_on_failure: bool = True,
     ):
         """Parameters
         ----------
         expname
         cache_cls
         cache_cls_kwargs
+        cache_mode: {"default", "ignore", "only"}, default "default"
+            How to handle the experiment cache:
+                - "default": skip an experiment if its cache exists, otherwise run it.
+                - "ignore": always run the experiment, overwriting any existing cache.
+                - "only": only load results from cache; never run an experiment.
         debug_mode: bool, default True
             If True, will operate in a manner best suited for local model development.
             This mode will be friendly to local debuggers and will avoid subprocesses/threads
@@ -35,6 +41,9 @@ class ExperimentBatchRunner:
             IF False, will operate in a manner best suited for large-scale benchmarking.
             This mode will try to record information when method's fail
             and might not work well with local debuggers.
+        raise_on_failure: bool, default True
+            If True, exceptions raised during an experiment propagate and stop the run.
+            If False, failures are recorded and the remaining experiments continue.
         """
         cache_cls = CacheFunctionDummy if cache_cls is None else cache_cls
         cache_cls_kwargs = {"include_self_in_call": True} if cache_cls_kwargs is None else cache_cls_kwargs
@@ -43,7 +52,7 @@ class ExperimentBatchRunner:
         self.task_metadata = task_metadata
         self.cache_cls = cache_cls
         self.cache_cls_kwargs = cache_cls_kwargs
-        self.only_cache = only_cache
+        self.cache_mode = cache_mode
         self._dataset_to_tid_dict = (
             self.task_metadata[["tid", "dataset"]]
             .drop_duplicates(["tid", "dataset"])
@@ -51,6 +60,7 @@ class ExperimentBatchRunner:
             .to_dict()
         )
         self.debug_mode = debug_mode
+        self.raise_on_failure = raise_on_failure
 
     @property
     def datasets(self) -> list[str]:
@@ -62,8 +72,6 @@ class ExperimentBatchRunner:
         datasets: list[str],
         folds: list[int],
         repeats: list[int] | None = None,
-        ignore_cache: bool = False,
-        raise_on_failure: bool = True,
     ) -> list[dict[str, Any]]:
         """Parameters
         ----------
@@ -72,9 +80,6 @@ class ExperimentBatchRunner:
         datasets
         folds
         repeats
-        ignore_cache: bool, default False
-            If True, will run the experiments regardless if the cache exists already, and will overwrite the cache file upon completion.
-            If False, will load the cache result if it exists for a given experiment, rather than running the experiment again.
 
         Returns:
         -------
@@ -101,16 +106,12 @@ class ExperimentBatchRunner:
             methods=methods,
             tids=tids,
             repetitions_mode_args=fold_repeat_pairs,
-            ignore_cache=ignore_cache,
-            raise_on_failure=raise_on_failure,
         )
 
     def run_dataset_fold_repeats(
         self,
         methods: list[Experiment],
         dataset_fold_repeats: list[tuple[str, int, int]],
-        ignore_cache: bool = False,
-        raise_on_failure: bool = True,
     ) -> list[dict[str, Any]]:
         """Run an explicit list of (dataset, fold, repeat) tasks.
 
@@ -123,10 +124,6 @@ class ExperimentBatchRunner:
         Methods:
         dataset_fold_repeats: list[tuple[str, int, int]]
             The (dataset, fold, repeat) triples to run. Must not contain duplicates.
-        ignore_cache: bool, default False
-            If True, will run the experiments regardless if the cache exists already, and will overwrite the cache file upon completion.
-            If False, will load the cache result if it exists for a given experiment, rather than running the experiment again.
-        raise_on_failure
 
         Returns:
         -------
@@ -154,15 +151,11 @@ class ExperimentBatchRunner:
             methods=methods,
             tids=tids,
             repetitions_mode_args=repetitions_mode_args,
-            ignore_cache=ignore_cache,
-            raise_on_failure=raise_on_failure,
         )
 
     def run_all(
         self,
         methods: list[Experiment],
-        ignore_cache: bool = False,
-        raise_on_failure: bool = True,
     ) -> list[dict[str, Any]]:
         """Run every (dataset, fold, repeat) dictated by `task_metadata`.
 
@@ -174,10 +167,6 @@ class ExperimentBatchRunner:
         ----------
 
         Methods:
-        ignore_cache: bool, default False
-            If True, will run the experiments regardless if the cache exists already, and will overwrite the cache file upon completion.
-            If False, will load the cache result if it exists for a given experiment, rather than running the experiment again.
-        raise_on_failure
 
         Returns:
         -------
@@ -202,8 +191,6 @@ class ExperimentBatchRunner:
         return self.run_dataset_fold_repeats(
             methods=methods,
             dataset_fold_repeats=dataset_fold_repeats,
-            ignore_cache=ignore_cache,
-            raise_on_failure=raise_on_failure,
         )
 
     def _run_individual(
@@ -211,8 +198,6 @@ class ExperimentBatchRunner:
         methods: list[Experiment],
         tids: list[int],
         repetitions_mode_args: list,
-        ignore_cache: bool,
-        raise_on_failure: bool,
     ) -> list[dict[str, Any]]:
         """Invoke `run_experiments_new` in 'individual' repetitions mode.
 
@@ -223,13 +208,6 @@ class ExperimentBatchRunner:
         # Lazy import to avoid a circular import (experiment_runner_api imports this module).
         from tabarena.benchmark.experiment.experiment_runner_api import run_experiments_new
 
-        if self.only_cache:
-            cache_mode = "only"
-        elif ignore_cache:
-            cache_mode = "ignore"
-        else:
-            cache_mode = "default"
-
         return run_experiments_new(
             output_dir=self.expname,
             model_experiments=methods,
@@ -237,13 +215,13 @@ class ExperimentBatchRunner:
             tasks_metadata=self.task_metadata,
             repetitions_mode="individual",
             repetitions_mode_args=repetitions_mode_args,
-            cache_mode=cache_mode,
+            cache_mode=self.cache_mode,
             # Forward the configured cache backend. The default `cache_cls_kwargs`
             # carries `include_self_in_call=True`, preserving the legacy
             # `model_failures` artifact on failure.
             cache_cls=self.cache_cls,
             cache_cls_kwargs=self.cache_cls_kwargs,
-            raise_on_failure=raise_on_failure,
+            raise_on_failure=self.raise_on_failure,
             debug_mode=self.debug_mode,
         )
 

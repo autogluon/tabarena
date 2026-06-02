@@ -391,9 +391,9 @@ class TestExperimentBatchRunnerDelegation:
         )
 
     def test_only_cache_no_cache_returns_empty(self, tmp_path):
-        # only_cache => cache_mode="only"; with no cache present, returns [] without
+        # cache_mode="only"; with no cache present, returns [] without
         # loading any task or training (exercises the full delegation wiring).
-        runner = self._runner(tmp_path, only_cache=True)
+        runner = self._runner(tmp_path, cache_mode="only")
         result = runner.run(
             methods=[_make_minimal_experiment()],
             datasets=["d0", "d1"],
@@ -402,7 +402,7 @@ class TestExperimentBatchRunnerDelegation:
         assert result == []
 
     def test_only_cache_with_repeats(self, tmp_path):
-        runner = self._runner(tmp_path, only_cache=True)
+        runner = self._runner(tmp_path, cache_mode="only")
         result = runner.run(
             methods=[_make_minimal_experiment()],
             datasets=["d0"],
@@ -414,7 +414,7 @@ class TestExperimentBatchRunnerDelegation:
     def test_custom_cache_cls_is_forwarded(self, tmp_path):
         # A non-Pickle cache class is threaded through to run_experiments_new and used.
         _RecordingCache.instances.clear()
-        runner = self._runner(tmp_path, only_cache=True, cache_cls=_RecordingCache)
+        runner = self._runner(tmp_path, cache_mode="only", cache_cls=_RecordingCache)
         result = runner.run(
             methods=[_make_minimal_experiment()],
             datasets=["d0"],
@@ -426,7 +426,7 @@ class TestExperimentBatchRunnerDelegation:
         assert all(kw.get("include_self_in_call") is True for *_, kw in _RecordingCache.instances)
 
     def test_unknown_dataset_raises(self, tmp_path):
-        runner = self._runner(tmp_path, only_cache=True)
+        runner = self._runner(tmp_path, cache_mode="only")
         with pytest.raises(ValueError, match="present in task_metadata"):
             runner.run(
                 methods=[_make_minimal_experiment()],
@@ -453,7 +453,7 @@ class TestExperimentBatchRunnerRunAll:
 
     def test_run_dataset_fold_repeats_runs_exact_triples(self, tmp_path):
         _RecordingCache.instances.clear()
-        runner = self._runner(tmp_path, only_cache=True, cache_cls=_RecordingCache)
+        runner = self._runner(tmp_path, cache_mode="only", cache_cls=_RecordingCache)
         result = runner.run_dataset_fold_repeats(
             methods=[_make_minimal_experiment("m")],
             dataset_fold_repeats=[("d0", 0, 0), ("d0", 1, 0), ("d1", 2, 1)],
@@ -463,7 +463,7 @@ class TestExperimentBatchRunnerRunAll:
         assert self._cache_suffixes() == ["m/0/0_0", "m/0/0_1", "m/1/1_2"]
 
     def test_run_dataset_fold_repeats_duplicate_triples_raises(self, tmp_path):
-        runner = self._runner(tmp_path, only_cache=True)
+        runner = self._runner(tmp_path, cache_mode="only")
         with pytest.raises(AssertionError, match="Duplicate"):
             runner.run_dataset_fold_repeats(
                 methods=[_make_minimal_experiment()],
@@ -471,7 +471,7 @@ class TestExperimentBatchRunnerRunAll:
             )
 
     def test_run_dataset_fold_repeats_unknown_dataset_raises(self, tmp_path):
-        runner = self._runner(tmp_path, only_cache=True)
+        runner = self._runner(tmp_path, cache_mode="only")
         with pytest.raises(ValueError, match="present in task_metadata"):
             runner.run_dataset_fold_repeats(
                 methods=[_make_minimal_experiment()],
@@ -483,14 +483,14 @@ class TestExperimentBatchRunnerRunAll:
         task_metadata = pd.DataFrame(
             {"tid": [0, 1], "dataset": ["d0", "d1"], "n_folds": [2, 1], "n_repeats": [1, 2]},
         )
-        runner = self._runner(tmp_path, task_metadata=task_metadata, only_cache=True, cache_cls=_RecordingCache)
+        runner = self._runner(tmp_path, task_metadata=task_metadata, cache_mode="only", cache_cls=_RecordingCache)
         result = runner.run_all(methods=[_make_minimal_experiment("m")])
         assert result == []
         # d0: 2 folds x 1 repeat -> (f0,r0),(f1,r0); d1: 1 fold x 2 repeats -> (f0,r0),(f0,r1)
         assert self._cache_suffixes() == ["m/0/0_0", "m/0/0_1", "m/1/0_0", "m/1/1_0"]
 
     def test_run_all_missing_metadata_columns_raises(self, tmp_path):
-        runner = self._runner(tmp_path, only_cache=True)  # task_metadata lacks n_folds/n_repeats
+        runner = self._runner(tmp_path, cache_mode="only")  # task_metadata lacks n_folds/n_repeats
         with pytest.raises(AssertionError, match="n_folds"):
             runner.run_all(methods=[_make_minimal_experiment()])
 
