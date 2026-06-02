@@ -11,11 +11,14 @@ from tabarena.models.tabicl.model import (
 )
 from tabarena.utils.config_utils import ConfigGenerator
 
-
 # Unofficial search space
 base_search_space = {
     "norm_methods": Categorical(
-        "none", "power", "robust", "quantile_rtdl", ["none", "power"]
+        "none",
+        "power",
+        "robust",
+        "quantile_rtdl",
+        ["none", "power"],
     ),
     # just in case, tuning between TabICL and TabPFN defaults
     "outlier_threshold": Real(4.0, 12.0),
@@ -30,10 +33,12 @@ base_search_space = {
 def get_gen_function(model_cls: TabICLModelBase):
     search_space = deepcopy(base_search_space)
     search_space["checkpoint_version"] = Categorical(
-        *model_cls.checkpoint_search_space()
+        *model_cls.checkpoint_search_space(),
     )
     return ConfigGenerator(
-        model_cls=model_cls, manual_configs=[{}], search_space=search_space
+        model_cls=model_cls,
+        manual_configs=[{}],
+        search_space=search_space,
     )
 
 

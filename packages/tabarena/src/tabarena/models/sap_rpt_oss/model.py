@@ -92,7 +92,8 @@ class SAPRPTOSSModel(AbstractTorchModel):
         return num_cpus, num_gpus
 
     def get_minimum_resources(
-        self, is_gpu_available: bool = False
+        self,
+        is_gpu_available: bool = False,
     ) -> dict[str, int | float]:
         return {
             "num_cpus": 1,
@@ -137,5 +138,6 @@ def prefetch_weights() -> None:
 
     # Hardcoded to the checkpoint we use in TabArena.
     hf_hub_download(
-        repo_id="SAP/sap-rpt-1-oss", filename="2025-11-04_sap-rpt-one-oss.pt"
+        repo_id="SAP/sap-rpt-1-oss",
+        filename="2025-11-04_sap-rpt-one-oss.pt",
     )

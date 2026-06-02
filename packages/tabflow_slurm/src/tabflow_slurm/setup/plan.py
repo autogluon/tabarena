@@ -20,13 +20,11 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 from tabarena.benchmark.experiment import Experiment
-
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
 
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import TabArenaExperimentBundle
     from tabarena.benchmark.task.metadata import TabArenaMetadataBundle
-
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
     from tabflow_slurm.setup.scheduler import SchedulerSetup
@@ -45,8 +43,7 @@ def _apply_overrides(base: Any, overrides: dict[str, Any], label: str) -> Any:
     unknown = set(overrides) - valid
     if unknown:
         raise ValueError(
-            f"Unknown {label} override key(s) {sorted(unknown)}. "
-            f"Valid {label} keys: {sorted(valid)}."
+            f"Unknown {label} override key(s) {sorted(unknown)}. Valid {label} keys: {sorted(valid)}.",
         )
     return replace(base, **overrides)
 
@@ -83,7 +80,7 @@ class SingleModel:
             return cls(*model)
         raise TypeError(
             f"Cannot interpret {model!r} as a model. Expected a SingleModel, "
-            f"a (name, n_configs) tuple, or a model name string."
+            f"a (name, n_configs) tuple, or a model name string.",
         )
 
     def to_entry(self) -> tuple[str, int | str | dict]:
@@ -219,7 +216,7 @@ class TabArenaBenchmarkPlan:
                     resources_setup=group["resources"],
                     ignore_cache=group["ignore_cache"],
                     num_ray_cpus=num_ray_cpus,
-                )
+                ),
             )
         return setups
 
@@ -235,7 +232,7 @@ class TabArenaBenchmarkPlan:
         for job in self.model_jobs:
             if "models" in job.experiment:
                 raise ValueError(
-                    "ModelJob.experiment must not set 'models'; use ModelJob.models instead."
+                    "ModelJob.experiment must not set 'models'; use ModelJob.models instead.",
                 )
             resources = _apply_overrides(self.resources_setup, job.resources, "resources")
             scheduler = _apply_overrides(self.scheduler_setup, job.scheduler, "scheduler")
@@ -256,7 +253,7 @@ class TabArenaBenchmarkPlan:
                         "ignore_cache": job.ignore_cache,
                         "models": list(job._model_entries()),
                         "name": job.name,
-                    }
+                    },
                 )
             else:
                 match["models"].extend(job._model_entries())
@@ -271,7 +268,7 @@ class TabArenaBenchmarkPlan:
         if current is not None and current != new:
             raise ValueError(
                 f"Jobs with identical settings merge into one run but have conflicting "
-                f"names {current!r} and {new!r}. Use the same name (or leave one unset)."
+                f"names {current!r} and {new!r}. Use the same name (or leave one unset).",
             )
         return new
 
@@ -299,7 +296,7 @@ class TabArenaBenchmarkPlan:
                 f"\n----- [{idx}/{n}] run '{label}' -----"
                 f"\n  models:    {models}"
                 f"\n  resources: {_format_resources(setup.resources_setup)}"
-                f"\n  partition: {_format_partition(setup.scheduler_setup, setup.resources_setup)}"
+                f"\n  partition: {_format_partition(setup.scheduler_setup, setup.resources_setup)}",
             )
             commands = setup.setup_jobs(print_run_commands=False) or []
             runs.append((label, models, commands))
@@ -324,7 +321,7 @@ class TabArenaBenchmarkPlan:
         print(
             f"\n{_SUMMARY_BAR}"
             f"\nPrefetching foundation-model weights for: {', '.join(model_names) or '(none)'}"
-            f"\n{_SUMMARY_BAR}"
+            f"\n{_SUMMARY_BAR}",
         )
         prefetch_weights(model_names)
 
@@ -336,7 +333,7 @@ class TabArenaBenchmarkPlan:
             f"\n{_SUMMARY_BAR}"
             f"\nPlan '{self.benchmark_name}' summary "
             f"— {len(runs)} run(s), {len(all_commands)} command(s) to launch"
-            f"\n{_SUMMARY_BAR}"
+            f"\n{_SUMMARY_BAR}",
         )
         prefix = f"{self.benchmark_name}_"
         for label, models, commands in runs:

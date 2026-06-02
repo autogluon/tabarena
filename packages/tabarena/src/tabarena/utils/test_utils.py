@@ -1,22 +1,22 @@
+from __future__ import annotations
+
 from math import prod
-from typing import List
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-from tabarena.predictions.tabular_predictions import TabularPredictionsDict
+if TYPE_CHECKING:
+    from tabarena.predictions.tabular_predictions import TabularPredictionsDict
 
 
 def generate_dummy(shape, models):
-    return {
-        model: np.arange(prod(shape)).reshape(shape) + int(model)
-        for model in models
-    }
+    return {model: np.arange(prod(shape)).reshape(shape) + int(model) for model in models}
 
 
 def generate_artificial_dict(
-        num_folds: int,
-        models: List[str],
-        dataset_shapes: dict = None,
+    num_folds: int,
+    models: list[str],
+    dataset_shapes: dict | None = None,
 ) -> TabularPredictionsDict:
     if dataset_shapes is None:
         dataset_shapes = {

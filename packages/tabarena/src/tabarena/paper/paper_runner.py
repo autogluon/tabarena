@@ -1,16 +1,20 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
 
 from tabarena.evaluation.evaluator import Evaluator
-from tabarena.repository import EvaluationRepository
+
+if TYPE_CHECKING:
+    from tabarena.repository import EvaluationRepository
 
 
 class PaperRun:
-    def __init__(self, repo: EvaluationRepository, output_dir: str = None, backend: Literal["ray", "native"] = "ray"):
+    def __init__(
+        self, repo: EvaluationRepository, output_dir: str | None = None, backend: Literal["ray", "native"] = "ray"
+    ):
         self.repo = repo
         self.evaluator = Evaluator(repo=self.repo)
         self.output_dir = output_dir
@@ -34,12 +38,20 @@ class PaperRun:
 
     def run_hpo(self, model_type: str) -> tuple[pd.DataFrame, pd.DataFrame]:
         df_results_family_hpo_ens = self.run_ensemble_config_type(
-            config_type=model_type, fit_order="original", seed=0, n_iterations=40, time_limit=None,
+            config_type=model_type,
+            fit_order="original",
+            seed=0,
+            n_iterations=40,
+            time_limit=None,
         )
         df_results_family_hpo_ens["framework"] = f"{model_type} (tuned + ensemble)"
 
         df_results_family_hpo = self.run_ensemble_config_type(
-            config_type=model_type, fit_order="original", seed=0, n_iterations=1, time_limit=None,
+            config_type=model_type,
+            fit_order="original",
+            seed=0,
+            n_iterations=1,
+            time_limit=None,
         )
         df_results_family_hpo["framework"] = f"{model_type} (tuned)"
         return df_results_family_hpo, df_results_family_hpo_ens
@@ -52,20 +64,21 @@ class PaperRun:
         if model_types is None:
             model_types = list(config_type_groups.keys())
         for family in model_types:
-            assert family in config_type_groups, f"Model family {family} missing from available families: {list(config_type_groups.keys())}"
+            assert family in config_type_groups, (
+                f"Model family {family} missing from available families: {list(config_type_groups.keys())}"
+            )
 
         for family in model_types:
             df_results_family_hpo, df_results_family_hpo_ens = self.run_hpo(model_type=family)
             hpo_results_lst += [df_results_family_hpo, df_results_family_hpo_ens]
 
-        df_results_hpo_all = pd.concat(hpo_results_lst, ignore_index=True)
-        return df_results_hpo_all
+        return pd.concat(hpo_results_lst, ignore_index=True)
 
     def run_ensemble_config_type(
         self,
         config_type: str | list[str],
         n_iterations: int,
-        n_configs: int = None,
+        n_configs: int | None = None,
         fixed_configs: list[str] | None = None,
         time_limit: float | None = None,
         fit_order: Literal["original", "random"] = "original",
@@ -107,10 +120,7 @@ class PaperRun:
         df_results_family_hpo = df_results_family_hpo.reset_index()
         df_results_family_hpo["method_type"] = "hpo"
 
-        if n_iterations == 1:
-            method_subtype = "tuned"
-        else:
-            method_subtype = "tuned_ensemble"
+        method_subtype = "tuned" if n_iterations == 1 else "tuned_ensemble"
         df_results_family_hpo["method_subtype"] = method_subtype
         df_results_family_hpo["config_type"] = str(config_type)
 
@@ -151,10 +161,7 @@ class PaperRun:
         df_results = df_results.reset_index()
         df_results["method_type"] = "portfolio"
 
-        if n_iterations == 1:
-            method_subtype = "tuned"
-        else:
-            method_subtype = "tuned_ensemble"
+        method_subtype = "tuned" if n_iterations == 1 else "tuned_ensemble"
         df_results["method_subtype"] = method_subtype
 
         method_metadata = dict(
@@ -188,10 +195,7 @@ class PaperRun:
         df_results = df_results.reset_index()
         df_results["method_type"] = "portfolio"
 
-        if n_iterations == 1:
-            method_subtype = "tuned"
-        else:
-            method_subtype = "tuned_ensemble"
+        method_subtype = "tuned" if n_iterations == 1 else "tuned_ensemble"
         df_results["method_subtype"] = method_subtype
 
         method_metadata = dict(
@@ -207,7 +211,7 @@ class PaperRun:
     def run_zs(
         self,
         n_portfolios: int = 200,
-        n_ensemble: int = None,
+        n_ensemble: int | None = None,
         n_ensemble_in_name: bool = True,
         n_max_models_per_type: int | str | None = None,
         time_limit: float | None = 14400,
@@ -239,7 +243,9 @@ class PaperRun:
 
     def run_config_family(self, config_type: str) -> pd.DataFrame:
         configs = self.repo.configs(config_types=[config_type])
-        df_results_configs = self.evaluator.compare_metrics(configs=configs, baselines=[], include_metric_error_val=True).reset_index()
+        df_results_configs = self.evaluator.compare_metrics(
+            configs=configs, baselines=[], include_metric_error_val=True
+        ).reset_index()
         df_results_configs["method_type"] = "config"
         configs_types = self.repo.configs_type()
         df_results_configs["config_type"] = df_results_configs["framework"].map(configs_types)

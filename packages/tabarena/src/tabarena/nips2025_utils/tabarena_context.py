@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -22,6 +21,8 @@ from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.website.website_format import format_leaderboard
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tabarena.benchmark.result import BaselineResult
     from tabarena.repository.abstract_repository import AbstractRepository
 
@@ -30,7 +31,6 @@ _methods_paper = [
     # "AutoGluon_v140_eq_4h8c",
     "AutoGluon_v150_eq_4h8c",
     # "Portfolio-N200-4h",
-
     "CatBoost",
     # "Dummy",
     "ExplainableBM",
@@ -45,7 +45,6 @@ _methods_paper = [
     # "RealMLP",
     # "TabM",
     "XGBoost",
-
     "Mitra_GPU",
     "ModernNCA_GPU",
     "RealMLP_GPU",
@@ -53,7 +52,6 @@ _methods_paper = [
     "TabICL_GPU",
     "TabM_GPU",
     "TabPFNv2_GPU",
-
     "xRFM_GPU",
     "BetaTabPFN_GPU",
     "TabFlex_GPU",
@@ -62,7 +60,6 @@ _methods_paper = [
     "TabICLv2",
     "TabSTAR",
     "PerpetualBooster",
-
     "TabPFN-v2.6",
     "LimiX",
     "OrionMSP",
@@ -123,7 +120,7 @@ class TabArenaContext:
                 raise ValueError(f"Unknown methods preset '{methods}'.")
             methods = copy.deepcopy(_methods_paper)
             method_metadata_lst: list[MethodMetadata] = copy.deepcopy(
-                tabarena_method_metadata_collection.method_metadata_lst
+                tabarena_method_metadata_collection.method_metadata_lst,
             )
 
             method_metadata_lst = [m for m in method_metadata_lst if m.method in methods]
@@ -168,9 +165,9 @@ class TabArenaContext:
         self,
         output_dir,
         subsets: list[list[str] | tuple[str, list[str]]] | str = "auto",
-        new_results = None,
-        compare_kwargs = None,
-        tuning_trajectory_kwargs = None,
+        new_results=None,
+        compare_kwargs=None,
+        tuning_trajectory_kwargs=None,
         plot_compare: bool = True,
         plot_runtime_per_method: bool = False,
         plot_tuning_trajectories: bool = False,
@@ -338,7 +335,7 @@ class TabArenaContext:
                         print(
                             f"WARNING: Multiple display_name values detected for the same config_type={m.config_type!r}"
                             f"\n\tdisplay_name 1: {method_rename_map[m.config_type]!r}"
-                            f"\n\tdisplay_name 2: {display_name!r}"
+                            f"\n\tdisplay_name 2: {display_name!r}",
                         )
                     method_rename_map[m.config_type] = display_name
         return method_rename_map
@@ -347,7 +344,9 @@ class TabArenaContext:
         metadata: MethodMetadata = self.method_metadata(method=method)
         return metadata.load_raw(engine=self.engine, as_holdout=as_holdout)
 
-    def load_repo(self, methods: list[str | MethodMetadata] | None = None, config_fallback: str | None = None) -> EvaluationRepositoryCollection:
+    def load_repo(
+        self, methods: list[str | MethodMetadata] | None = None, config_fallback: str | None = None
+    ) -> EvaluationRepositoryCollection:
         if methods is None:
             methods = self.methods
         repos = []
@@ -596,12 +595,14 @@ class TabArenaContext:
         tuned_ens["config_type"] = new_config_type
         tuned_ens["method"] = f"{new_config_type} (tuned + ensemble)"
 
-        return pd.concat([
-            default,
-            tuned,
-            tuned_ens,
-        ], ignore_index=True)
-
+        return pd.concat(
+            [
+                default,
+                tuned,
+                tuned_ens,
+            ],
+            ignore_index=True,
+        )
 
     def run_hpo(
         self,
@@ -640,9 +641,11 @@ class TabArenaContext:
             seed=seed,
             **kwargs,
         )
-        df_results_family_hpo = df_results_family_hpo.rename(columns={
-            "framework": "method",
-        })
+        df_results_family_hpo = df_results_family_hpo.rename(
+            columns={
+                "framework": "method",
+            }
+        )
         name = "HPO"
         if n_configs is not None:
             name += f"-N{n_configs}"
@@ -756,7 +759,9 @@ class TabArenaContext:
             time_limit=time_limit,
         )
 
-    def simulate_portfolio(self, methods: list[str], config_fallback: str, repo: EvaluationRepositoryCollection = None, **kwargs):
+    def simulate_portfolio(
+        self, methods: list[str], config_fallback: str, repo: EvaluationRepositoryCollection = None, **kwargs
+    ):
         if repo is None:
             repo = self.load_repo(methods=methods, config_fallback=config_fallback)
         simulator = PaperRunTabArena(repo=repo, backend=self.backend)
@@ -765,7 +770,8 @@ class TabArenaContext:
         n_portfolios = [200] if "n_portfolios" not in kwargs else kwargs.pop("n_portfolios")
         for n_portfolio in n_portfolios:
             df_results_n_portfolio.append(
-                simulator.run_zs(n_portfolios=n_portfolio, n_ensemble=None, n_ensemble_in_name=False, **kwargs))
+                simulator.run_zs(n_portfolios=n_portfolio, n_ensemble=None, n_ensemble_in_name=False, **kwargs)
+            )
         return pd.concat(df_results_n_portfolio, ignore_index=True)
 
     def run_portfolio_from_config_types(
@@ -815,8 +821,7 @@ class TabArenaContext:
             for method in methods_drop:
                 if method not in methods:
                     raise AssertionError(
-                        f"Specified '{method}' in `methods_drop`, "
-                        f"but '{method}' is not present in methods: {methods}"
+                        f"Specified '{method}' in `methods_drop`, but '{method}' is not present in methods: {methods}",
                     )
             methods = [method for method in methods if method not in methods_drop]
 
@@ -834,7 +839,7 @@ class TabArenaContext:
                     print(
                         f"Missing local results files for method! "
                         f"Attempting to download from s3 and retry... "
-                        f'(download_results={download_results}, method="{method_metadata.method}")'
+                        f'(download_results={download_results}, method="{method_metadata.method}")',
                     )
                     method_downloader = method_metadata.method_downloader()
                     method_downloader.download_results(holdout=holdout)
@@ -842,7 +847,7 @@ class TabArenaContext:
                 else:
                     print(
                         f"Missing local results files for method {method_metadata.method}! "
-                        f"Try setting `download_results=True` to get the required files."
+                        f"Try setting `download_results=True` to get the required files.",
                     )
                     raise err
             df_results_lst.append(df_results)
@@ -859,6 +864,7 @@ class TabArenaContext:
         folds: list[int] | None = None,
     ) -> pd.DataFrame:
         from tabarena.nips2025_utils.compare import subset_tasks
+
         if subset is not None or datasets is not None or folds is not None or tasks is not None:
             df_results = subset_tasks(
                 df_results=df_results,
@@ -897,7 +903,7 @@ class TabArenaContext:
                         raise KeyError(
                             f"Duplicate key found in configs_hyperparameters: {key}\n"
                             f"This should never happen and may mean that a given config name "
-                            f"belongs to multiple different hyperparameters!"
+                            f"belongs to multiple different hyperparameters!",
                         )
                 merged.update(d)
             return merged
@@ -952,6 +958,7 @@ class TabArenaContext:
         **kwargs,
     ):
         from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories
+
         plot_tuning_trajectories(
             tabarena_context=self,
             fig_save_dir=save_path,
@@ -969,6 +976,7 @@ class TabArenaContext:
         if to_grid:
             assert file_ext == ".png", f"to_grid=True only works with file_ext={'.png'!r}"
         from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories_per_dataset
+
         plot_tuning_trajectories_per_dataset(
             tabarena_context=self,
             fig_save_dir=save_path,
@@ -990,6 +998,7 @@ class TabArenaContext:
         datasets: list[str] | None = None,
     ):
         from tabarena.plot.png_to_grid import make_png_grid
+
         if not datasets:
             task_metadata = self.task_metadata
             datasets = sorted(task_metadata["dataset"].unique())
@@ -1040,9 +1049,7 @@ class TabArenaContext:
             if m.method_type == "config"
         }
         df_results_configs["config_type"] = (
-            df_results_configs["ta_name"]
-            .map(method_to_display_name)
-            .fillna(df_results_configs["ta_name"])
+            df_results_configs["ta_name"].map(method_to_display_name).fillna(df_results_configs["ta_name"])
         )
 
         deep_dive_kwargs = dict(kwargs.pop("deep_dive_kwargs", None) or {})
@@ -1119,7 +1126,7 @@ class TabArenaContext:
             columns={
                 "method": "ta_name",
                 "artifact_name": "ta_suite",
-            }
+            },
         )
         return format_leaderboard(
             df_leaderboard=leaderboard,
@@ -1170,7 +1177,7 @@ class TabArenaContext:
 
             for dataset, fold in tasks_missing:
                 runs_missing_lst.append(
-                    (dataset, fold, config)
+                    (dataset, fold, config),
                 )
 
             print(f"{n_tasks_missing}\t{config}\t{i + 1}/{n_configs}")
@@ -1222,7 +1229,7 @@ class TabArenaContext:
             if not invalid.empty:
                 raise AssertionError(
                     f"Found a method with multiple values for column {c} (must be unique):\n"
-                    f"{groupby_method_invalid.value_counts(dropna=False)}"
+                    f"{groupby_method_invalid.value_counts(dropna=False)}",
                 )
 
             # Using .first() is safe because nunique == 1 for every method

@@ -10,9 +10,10 @@ import time
 
 import pandas as pd
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
-from ._internal.tabm_utils import get_tabm_auto_batch_size
 from autogluon.tabular import __version__
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+
+from ._internal.tabm_utils import get_tabm_auto_batch_size
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +114,7 @@ class TabMModel(AbstractTorchModel):
             X_val=X_val,
             y_val=y_val,
             cat_col_names=X.select_dtypes(include="category").columns.tolist(),
-            time_to_fit_in_seconds=time_limit - (time.time() - start_time)
-            if time_limit is not None
-            else None,
+            time_to_fit_in_seconds=time_limit - (time.time() - start_time) if time_limit is not None else None,
         )
 
     # FIXME: bool_to_cat is a hack: Maybe move to abstract model?
@@ -134,7 +133,7 @@ class TabMModel(AbstractTorchModel):
         if is_train:
             self._bool_to_cat = bool_to_cat
             self._features_bool = self._feature_metadata.get_features(
-                required_special_types=["bool"]
+                required_special_types=["bool"],
             )
         if self._bool_to_cat and self._features_bool:
             # FIXME: Use CategoryFeatureGenerator? Or tell the model which is category
@@ -223,7 +222,6 @@ class TabMModel(AbstractTorchModel):
         # Given the good mem estimates with overhead, we set the threshold to 1.
         return super()._validate_fit_memory_usage(mem_error_threshold=mem_error_threshold, **kwargs)
 
-
     @classmethod
     def _estimate_tabm_ram(
         cls,
@@ -266,17 +264,13 @@ class TabMModel(AbstractTorchModel):
         # 2 for pre-act, post-act
         n_floats_forward += n_blocks * 2 * d_block + 2 * max(1, n_classes)
         # 2 for forward and backward, 4 bytes per float
-        mem_forward_backward = (
-            4 * predict_batch_size * n_floats_forward * tabm_k
-        )
+        mem_forward_backward = 4 * predict_batch_size * n_floats_forward * tabm_k
         # * 8 is pessimistic for the long tensors in the forward pass, 4 would probably suffice
 
         mem_ds = n_samples * (4 * n_numerical + 8 * len(cat_sizes))
 
         # some safety constants and offsets (the 5 is probably excessive)
-        res = (
-            4 * mem_ds + 1.2 * mem_forward_backward + 1.2 * mem_params + 0.3 * (1024**3)
-        )
+        res = 4 * mem_ds + 1.2 * mem_forward_backward + 1.2 * mem_params + 0.3 * (1024**3)
         # Safety overhead
         res = res + (5 * 1e9)
 
@@ -285,7 +279,7 @@ class TabMModel(AbstractTorchModel):
 
         logger.log(
             40,
-            f"\tEstimated memory usage {res/1e9:4}.",
+            f"\tEstimated memory usage {res / 1e9:4}.",
         )
         return res
 

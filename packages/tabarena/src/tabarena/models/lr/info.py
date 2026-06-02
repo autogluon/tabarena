@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from autogluon.tabular.models import LinearModel
 
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.lr.hpo import gen_linear
-from tabarena.models._method_metadata import MethodMetadata
-
 
 lr_method_metadata = MethodMetadata(
     method="LinearModel",

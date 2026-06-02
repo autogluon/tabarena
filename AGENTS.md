@@ -43,7 +43,15 @@ ruff check .               # Lint (config: ruff.toml)
 ruff format .              # Format
 ```
 
-Key rules: `from __future__ import annotations` is required in every file (enforced via isort `required-imports`). Line length 120. Google-style docstrings. Run ruff on touched files before finishing a task.
+Key rules: `from __future__ import annotations` is required in every file (enforced via isort `required-imports`). Line length 120 (the formatter is the authority — `E501` is not enforced). Google-style docstrings. Run ruff on touched files before finishing a task.
+
+**CI runs `ruff check .` and `ruff format --check .`** (see `.github/workflows/pytest-pytest.yml`), so lint/format violations fail the build. Optionally install the local pre-commit hook so commits are auto-fixed before they reach CI:
+
+```bash
+pip install pre-commit && pre-commit install   # one-time, per clone
+```
+
+After that, `git commit` runs ruff on staged files; if a hook reformats or fixes anything the commit aborts — re-`git add` and commit again. The ruff version is pinned identically in `.pre-commit-config.yaml`, the CI workflow, and the `lint` dependency group in `packages/tabarena/pyproject.toml`; keep all three in sync.
 
 ## Testing
 

@@ -9,13 +9,13 @@ import pytest
 # package, so `importorskip("tabflow_slurm")` would NOT skip. A submodule does.
 pytest.importorskip("tabflow_slurm.run_tabarena_experiment", reason="tabflow_slurm is not installed")
 
-from tabflow_slurm.run_tabarena_experiment import (  # noqa: E402
+from tabflow_slurm.run_tabarena_experiment import (
     _parse_int_list,
     _parse_int_or_none,
     _parse_task_id,
     _str2bool,
 )
-from tabflow_slurm.slurm_utils import setup_slurm_job  # noqa: E402
+from tabflow_slurm.slurm_utils import setup_slurm_job
 
 # ---------------------------------------------------------------------------
 # _str2bool

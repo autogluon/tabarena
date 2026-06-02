@@ -1,45 +1,49 @@
+from __future__ import annotations
+
 import copy
-from collections import defaultdict
 import math
 import random
 import time
-from typing import Any, Dict, List
+from collections import defaultdict
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import ray
 from sklearn.model_selection import RepeatedKFold
 
-from .configuration_list_scorer import ConfigurationListScorer
-from .simulation_context import ZeroshotSimulatorContext
-from ..portfolio import Portfolio, PortfolioCV
+from tabarena.portfolio import Portfolio, PortfolioCV
+
+if TYPE_CHECKING:
+    from .configuration_list_scorer import ConfigurationListScorer
+    from .simulation_context import ZeroshotSimulatorContext
 
 
 @ray.remote
 def score_config_ray(config_scorer, existing_configs, new_config) -> float:
-    configs = existing_configs + [new_config]
-    score = config_scorer.score(configs)
-    return score
+    configs = [*existing_configs, new_config]
+    return config_scorer.score(configs)
 
 
 class ZeroshotConfigGenerator:
-    def __init__(self, config_scorer, configs: List[str], backend='ray'):
+    def __init__(self, config_scorer, configs: list[str], backend="ray"):
         self.config_scorer = config_scorer
         self.all_configs = configs
         self.backend = backend
 
-    def select_zeroshot_configs(self,
-                                num_zeroshot: int,
-                                zeroshot_configs: List[str] = None,
-                                removal_stage=False,
-                                removal_threshold=0,
-                                config_scorer_test=None,
-                                return_all_metadata: bool = False,
-                                ) -> (List[Dict[str, Any]]):
+    def select_zeroshot_configs(
+        self,
+        num_zeroshot: int,
+        zeroshot_configs: list[str] | None = None,
+        removal_stage=False,
+        removal_threshold=0,
+        config_scorer_test=None,
+        return_all_metadata: bool = False,
+    ) -> list[dict[str, Any]]:
         zeroshot_configs = [] if zeroshot_configs is None else copy.deepcopy(zeroshot_configs)
         metadata_list = []
 
         iteration = 0
-        if self.backend == 'ray':
+        if self.backend == "ray":
             if not ray.is_initialized():
                 ray.init()
             config_scorer = ray.put(self.config_scorer)
@@ -66,13 +70,13 @@ class ZeroshotConfigGenerator:
 
             zeroshot_configs.append(best_next_config)
             fit_time = time_end - time_start
-            msg = f'{iteration}\t: Train: {round(best_train_score, 2)}'
+            msg = f"{iteration}\t: Train: {round(best_train_score, 2)}"
             if config_scorer_test:
                 test_score = config_scorer_test.score(zeroshot_configs)
-                msg += f'\t| Test: {round(test_score, 2)} \t| Overfit: {round(test_score-best_train_score, 2)}'
+                msg += f"\t| Test: {round(test_score, 2)} \t| Overfit: {round(test_score - best_train_score, 2)}"
             else:
                 test_score = None
-            msg += f' | {round(fit_time, 2)}s | {self.backend} | {best_next_config}'
+            msg += f" | {round(fit_time, 2)}s | {self.backend} | {best_next_config}"
             # print('here, make metadata')
             metadata_out = dict(
                 configs=copy.deepcopy(zeroshot_configs),
@@ -95,7 +99,7 @@ class ZeroshotConfigGenerator:
             # FIXME: Get this from prune instead
             metadata_out = self._get_metadata_from_configs(
                 configs=zeroshot_configs,
-                step=iteration+1,
+                step=iteration + 1,
                 train_score=None,
                 test_score=None,
                 config_scorer=self.config_scorer,
@@ -111,15 +115,17 @@ class ZeroshotConfigGenerator:
         # TODO: metadata_list not updated by prune_zeroshot_configs
         return metadata_list
 
-    def _get_metadata_from_configs(self,
-                                   configs,
-                                   new_config=None,
-                                   step=None,
-                                   train_score=None,
-                                   test_score=None,
-                                   fit_time=None,
-                                   config_scorer=None,
-                                   config_scorer_test=None) -> Dict[str, Any]:
+    def _get_metadata_from_configs(
+        self,
+        configs,
+        new_config=None,
+        step=None,
+        train_score=None,
+        test_score=None,
+        fit_time=None,
+        config_scorer=None,
+        config_scorer_test=None,
+    ) -> dict[str, Any]:
         if train_score is None and config_scorer is not None:
             train_score = config_scorer.score(configs)
         if test_score is None and config_scorer_test is not None:
@@ -141,7 +147,7 @@ class ZeroshotConfigGenerator:
         # todo could use np.inf but would need unit-test (also to check that ray/sequential returns the same selection)
         best_score = 999999999
         for config in configs:
-            config_selected = prior_configs + [config]
+            config_selected = [*prior_configs, config]
             config_score = config_scorer.score(config_selected)
             if config_score < best_score:
                 best_score = config_score
@@ -153,18 +159,20 @@ class ZeroshotConfigGenerator:
         # Create and execute all tasks in parallel
         results = []
         for i in range(len(configs)):
-            results.append(score_config_ray.remote(
-                config_scorer,
-                prior_configs,
-                configs[i],
-            ))
+            results.append(
+                score_config_ray.remote(
+                    config_scorer,
+                    prior_configs,
+                    configs[i],
+                )
+            )
         result = ray.get(results)
         result_idx_min = result.index(min(result))
         best_next_config = configs[result_idx_min]
         best_score = result[result_idx_min]
         return best_next_config, best_score
 
-    def prune_zeroshot_configs(self, zeroshot_configs: List[str], removal_threshold=0) -> List[str]:
+    def prune_zeroshot_configs(self, zeroshot_configs: list[str], removal_threshold=0) -> list[str]:
         zeroshot_configs = copy.deepcopy(zeroshot_configs)
         best_score = self.config_scorer.score(zeroshot_configs)
         finished_removal = False
@@ -178,12 +186,11 @@ class ZeroshotConfigGenerator:
                     if config_score <= (best_score + removal_threshold):
                         best_score = config_score
                         best_remove_config = config
-                else:
-                    if config_score <= best_score:
-                        best_score = config_score
-                        best_remove_config = config
+                elif config_score <= best_score:
+                    best_score = config_score
+                    best_remove_config = config
             if best_remove_config is not None:
-                print(f'REMOVING: {best_score} | {best_remove_config}')
+                print(f"REMOVING: {best_score} | {best_remove_config}")
                 zeroshot_configs.remove(best_remove_config)
             else:
                 finished_removal = True
@@ -191,16 +198,17 @@ class ZeroshotConfigGenerator:
 
 
 class ZeroshotConfigGeneratorCV:
-    def __init__(self,
-                 n_splits: int,
-                 zeroshot_simulator_context: ZeroshotSimulatorContext,
-                 config_scorer: ConfigurationListScorer,
-                 config_generator_kwargs=None,
-                 configs: List[str] = None,
-                 n_repeats: int = 1,
-                 backend='ray'):
-        """
-        Runs zero-shot selection on `n_splits` ("train", "test") folds of datasets.
+    def __init__(
+        self,
+        n_splits: int,
+        zeroshot_simulator_context: ZeroshotSimulatorContext,
+        config_scorer: ConfigurationListScorer,
+        config_generator_kwargs=None,
+        configs: list[str] | None = None,
+        n_repeats: int = 1,
+        backend="ray",
+    ):
+        """Runs zero-shot selection on `n_splits` ("train", "test") folds of datasets.
         For each split, zero-shot configurations are selected using the datasets belonging on the "train" split and the
         performance of the zero-shot configuration is evaluated using the datasets in the "test" split.
         :param n_splits: number of splits for RepeatedKFold
@@ -232,7 +240,7 @@ class ZeroshotConfigGeneratorCV:
                 self.dataset_to_task_map[dataset] = [task]
         for dataset in self.dataset_to_task_map:
             self.dataset_to_task_map[dataset] = sorted(self.dataset_to_task_map[dataset])
-        self.unique_datasets = np.array((sorted(list(self.unique_datasets))))
+        self.unique_datasets = np.array(sorted(self.unique_datasets))
 
         if configs is None:
             configs = zeroshot_simulator_context.get_configs()
@@ -249,41 +257,38 @@ class ZeroshotConfigGeneratorCV:
     def get_n_configs(self) -> int:
         return len(self.configs)
 
-    def _get_tasks_from_datasets(self, datasets: List[str], num_folds=None) -> List[str]:
+    def _get_tasks_from_datasets(self, datasets: list[str], num_folds=None) -> list[str]:
         tasks = []
         for d in datasets:
             tasks += self._get_tasks_from_dataset(dataset=d, num_folds=num_folds)
         return tasks
 
-    def _get_tasks_from_dataset(self, dataset: str, num_folds=None) -> List[str]:
+    def _get_tasks_from_dataset(self, dataset: str, num_folds=None) -> list[str]:
         if num_folds is None:
             return self.dataset_to_task_map[dataset]
-        else:
-            return self.dataset_to_task_map[dataset][:num_folds]
+        return self.dataset_to_task_map[dataset][:num_folds]
 
     def _get_split(self, fold: int) -> int:
-        """
-        Note: fold 0 is the first fold, not fold 1.
+        """Note: fold 0 is the first fold, not fold 1.
         split 0 is the first split.
         """
         return fold % self.n_splits
 
     def _get_repeat(self, fold: int) -> int:
-        """
-        repeat 0 is the first repeat
-        """
+        """Repeat 0 is the first repeat."""
         return int(fold / self.n_splits)
 
-    def run_and_return_all_steps(self,
-                                 sample_train_folds: int = None,
-                                 sample_train_ratio: float = None,
-                                 sample_configs_ratio: float = None,
-                                 # TODO: Sample configs
-                                 score_all: bool = True,
-                                 score_final: bool = True,
-                                 return_all_metadata: bool = True) -> List[PortfolioCV]:
-        """
-        Run cross-validated zeroshot simulation.
+    def run_and_return_all_steps(
+        self,
+        sample_train_folds: int | None = None,
+        sample_train_ratio: float | None = None,
+        sample_configs_ratio: float | None = None,
+        # TODO: Sample configs
+        score_all: bool = True,
+        score_final: bool = True,
+        return_all_metadata: bool = True,
+    ) -> list[PortfolioCV]:
+        """Run cross-validated zeroshot simulation.
 
         :param sample_train_folds:
             Number of folds to filter training data to for each fold. Used for debugging.
@@ -308,14 +313,15 @@ class ZeroshotConfigGeneratorCV:
         n_configs_total = self.get_n_configs()
         is_first_fold = True
         configs = self.configs
-        print(f'Fitting CV\n'
-              f'\tscorer={self.config_scorer.__class__.__name__}\n'
-              f'\tn_splits={self.n_splits}, n_repeats={self.n_repeats}, n_configs={n_configs_total}\n'
-              f'\tn_datasets={self.get_n_datasets()}, n_tasks={self.get_n_tasks()}\n'
-              f'\tsample_train_folds={sample_train_folds} '
-              f'| sample_train_ratio={sample_train_ratio} '
-              f'| sample_configs_ratio={sample_configs_ratio}'
-              )
+        print(
+            f"Fitting CV\n"
+            f"\tscorer={self.config_scorer.__class__.__name__}\n"
+            f"\tn_splits={self.n_splits}, n_repeats={self.n_repeats}, n_configs={n_configs_total}\n"
+            f"\tn_datasets={self.get_n_datasets()}, n_tasks={self.get_n_tasks()}\n"
+            f"\tsample_train_folds={sample_train_folds} "
+            f"| sample_train_ratio={sample_train_ratio} "
+            f"| sample_configs_ratio={sample_configs_ratio}",
+        )
         for i, (train_index, test_index) in enumerate(self.kf.split(self.unique_datasets)):
             split = self._get_split(i)
             repeat = self._get_repeat(i)
@@ -337,82 +343,83 @@ class ZeroshotConfigGeneratorCV:
             test_tasks = self._get_tasks_from_datasets(datasets=X_test)
             len_train_tasks = len(train_tasks)
             len_train_datasets = len(X_train)
-            print(f'Fitting Fold {i + 1}/{self.n_splits*self.n_repeats} (R{repeat+1}S{split+1})...\n'
-                  f'\ttrain_datasets: {len_train_datasets}/{len_X_train_og} | train_tasks: {len_train_tasks}\n'
-                  f'\ttest_datasets : {len(X_test)}/{len_X_test_og} | test_tasks : {len(test_tasks)}\n'
-                  f'\tn_configs={n_configs_avail}/{n_configs_total}'
-                  )
-            metadata_fold = self.run_fold(train_tasks,
-                                          test_tasks,
-                                          configs=configs,
-                                          score_all=score_all,
-                                          score_final=score_final,
-                                          return_all_metadata=return_all_metadata)
+            print(
+                f"Fitting Fold {i + 1}/{self.n_splits * self.n_repeats} (R{repeat + 1}S{split + 1})...\n"
+                f"\ttrain_datasets: {len_train_datasets}/{len_X_train_og} | train_tasks: {len_train_tasks}\n"
+                f"\ttest_datasets : {len(X_test)}/{len_X_test_og} | test_tasks : {len(test_tasks)}\n"
+                f"\tn_configs={n_configs_avail}/{n_configs_total}",
+            )
+            metadata_fold = self.run_fold(
+                train_tasks,
+                test_tasks,
+                configs=configs,
+                score_all=score_all,
+                score_final=score_final,
+                return_all_metadata=return_all_metadata,
+            )
             for j, m in enumerate(metadata_fold):
                 # FIXME: It is possible not all folds will have results match up correctly
                 #  if we introduce config pruning.
                 #  This logic should probably only be present in scenarios where we are debugging
                 #  Otherwise we should only take the final result of each fold.
                 results_fold_i = Portfolio(
-                    configs=m['configs'],
-                    train_score=m['train_score'],
-                    test_score=m['test_score'],
+                    configs=m["configs"],
+                    train_score=m["train_score"],
+                    test_score=m["test_score"],
                     train_datasets=X_train,
                     test_datasets=X_test,
                     train_datasets_fold=train_tasks,
                     test_datasets_fold=test_tasks,
                     fold=i + 1,
-                    split=split+1,
-                    repeat=repeat+1,
-                    step=m['step'],
+                    split=split + 1,
+                    repeat=repeat + 1,
+                    step=m["step"],
                     n_configs_avail=n_configs_avail,
                 )
                 results_dict_by_len[j].append(results_fold_i)
             is_first_fold = False
         for val in results_dict_by_len.values():
-            assert (self.n_splits * self.n_repeats) == len(val)  # Ensure no bugs such as only getting a subset of fold results
-        portfolio_cv_list = [PortfolioCV(portfolios=v) for k, v in results_dict_by_len.items()]
-        return portfolio_cv_list
+            assert (self.n_splits * self.n_repeats) == len(
+                val
+            )  # Ensure no bugs such as only getting a subset of fold results
+        return [PortfolioCV(portfolios=v) for k, v in results_dict_by_len.items()]
 
-    def run(self,
-            sample_train_folds=None,
-            sample_train_ratio=None,
-            score_all=False,
-            score_final=True) -> PortfolioCV:
-        """
-        Identical to `run_and_return_all_steps`, but the output is simply the final PortfolioCV.
+    def run(self, sample_train_folds=None, sample_train_ratio=None, score_all=False, score_final=True) -> PortfolioCV:
+        """Identical to `run_and_return_all_steps`, but the output is simply the final PortfolioCV.
 
         score_all is also set to False by default to speed up the simulation.
         """
-        results_cv_list = self.run_and_return_all_steps(sample_train_folds=sample_train_folds,
-                                                        sample_train_ratio=sample_train_ratio,
-                                                        score_all=score_all,
-                                                        score_final=score_final,
-                                                        return_all_metadata=False)
+        results_cv_list = self.run_and_return_all_steps(
+            sample_train_folds=sample_train_folds,
+            sample_train_ratio=sample_train_ratio,
+            score_all=score_all,
+            score_final=score_final,
+            return_all_metadata=False,
+        )
 
         assert len(results_cv_list) == 1
-        results_cv = results_cv_list[0]
+        return results_cv_list[0]
 
-        return results_cv
-
-    def run_fold(self,
-                 train_tasks: List[str],
-                 test_tasks: List[str],
-                 configs: List[str] = None,
-                 score_all=False,
-                 score_final=True,
-                 return_all_metadata=False) -> List[Dict[str, Any]]:
+    def run_fold(
+        self,
+        train_tasks: list[str],
+        test_tasks: list[str],
+        configs: list[str] | None = None,
+        score_all=False,
+        score_final=True,
+        return_all_metadata=False,
+    ) -> list[dict[str, Any]]:
         if configs is None:
             configs = self.configs
         config_scorer_train = self.config_scorer.subset(tasks=train_tasks)
         config_scorer_test = self.config_scorer.subset(tasks=test_tasks)
 
-        zs_config_generator = ZeroshotConfigGenerator(config_scorer=config_scorer_train,
-                                                      configs=configs,
-                                                      backend=self.backend)
+        zs_config_generator = ZeroshotConfigGenerator(
+            config_scorer=config_scorer_train, configs=configs, backend=self.backend
+        )
 
-        num_zeroshot = self.config_generator_kwargs.get('num_zeroshot', 10)
-        removal_stage = self.config_generator_kwargs.get('removal_stage', False)
+        num_zeroshot = self.config_generator_kwargs.get("num_zeroshot", 10)
+        removal_stage = self.config_generator_kwargs.get("removal_stage", False)
 
         metadata_list = zs_config_generator.select_zeroshot_configs(
             num_zeroshot=num_zeroshot,
@@ -424,9 +431,9 @@ class ZeroshotConfigGeneratorCV:
         # FIXME: SPEEDUP WITH RAY
         # zeroshot_configs = zs_config_generator.prune_zeroshot_configs(zeroshot_configs, removal_threshold=0)
 
-        if score_final and metadata_list[-1]['test_score'] is None:
-            score = config_scorer_test.score(metadata_list[-1]['configs'])
-            print(f'test_score: {score}')
-            metadata_list[-1]['test_score'] = score
+        if score_final and metadata_list[-1]["test_score"] is None:
+            score = config_scorer_test.score(metadata_list[-1]["configs"])
+            print(f"test_score: {score}")
+            metadata_list[-1]["test_score"] = score
 
         return metadata_list

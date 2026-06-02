@@ -7,7 +7,8 @@ from autogluon.core.metrics import METRICS, make_scorer
 
 
 def amex_metric(
-    target: np.ndarray | pd.DataFrame | pd.Series, preds: np.ndarray | pd.DataFrame | pd.Series
+    target: np.ndarray | pd.DataFrame | pd.Series,
+    preds: np.ndarray | pd.DataFrame | pd.Series,
 ) -> float:
     """Optimized AMEX Competition Metric.
 

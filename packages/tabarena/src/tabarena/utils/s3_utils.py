@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import logging
 import os
-import xmltodict
 from pathlib import Path
+
+import xmltodict
 
 logger = logging.getLogger(__name__)
 
 
 def s3_get_object(Bucket: str, Key: str, s3=None, **kwargs) -> dict:
-    """
-    Get an S3 object, automatically falling back to an anonymous (unsigned) GET
+    """Get an S3 object, automatically falling back to an anonymous (unsigned) GET
     when a signed request is not possible or is denied.
 
     This helper first attempts a standard **signed** `GetObject` using the
@@ -31,7 +33,7 @@ def s3_get_object(Bucket: str, Key: str, s3=None, **kwargs) -> dict:
         e.g. `Range`, `VersionId`, `IfMatch`, `IfModifiedSince`, `IfNoneMatch`,
         `IfUnmodifiedSince`, `RequestPayer='requester'`, etc.
 
-    Returns
+    Returns:
     -------
     dict
         The standard `GetObject` response dict from boto3. The payload stream is
@@ -41,7 +43,7 @@ def s3_get_object(Bucket: str, Key: str, s3=None, **kwargs) -> dict:
     import boto3
     from botocore import UNSIGNED
     from botocore.config import Config
-    from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
+    from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
 
     if s3 is None:
         s3 = boto3.client("s3")
@@ -52,7 +54,9 @@ def s3_get_object(Bucket: str, Key: str, s3=None, **kwargs) -> dict:
         # Note: even if you *have* creds, a signed request can be denied while the
         # object is still publicly readable; unsigned can succeed in that case.
         if isinstance(e, ClientError) and e.response["Error"]["Code"] not in {
-            "AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch"
+            "AccessDenied",
+            "InvalidAccessKeyId",
+            "SignatureDoesNotMatch",
         }:
             raise
 
@@ -60,23 +64,24 @@ def s3_get_object(Bucket: str, Key: str, s3=None, **kwargs) -> dict:
         return s3_unsigned.get_object(Bucket=Bucket, Key=Key, **kwargs)
 
 
-def parse_s3_uri(s3_uri: str = None):
-    """Helper function to parse an S3 URI into bucket and key parts"""
+def parse_s3_uri(s3_uri: str | None = None):
+    """Helper function to parse an S3 URI into bucket and key parts."""
     if s3_uri is None:
         raise ValueError("s3_uri cannot be None")
 
-    if s3_uri.startswith('s3://'):
+    if s3_uri.startswith("s3://"):
         s3_uri = s3_uri[5:]
-    parts = s3_uri.split('/', 1)
+    parts = s3_uri.split("/", 1)
     bucket = parts[0]
-    prefix = parts[1] if len(parts) > 1 else ''
-    if prefix and prefix.endswith('/'):
+    prefix = parts[1] if len(parts) > 1 else ""
+    if prefix and prefix.endswith("/"):
         prefix = prefix[:-1]
     return bucket, prefix
 
 
-def upload_task_to_s3(task_id: int, dataset_id: int, s3_dataset_cache: str = None) -> bool:
+def upload_task_to_s3(task_id: int, dataset_id: int, s3_dataset_cache: str | None = None) -> bool:
     import boto3
+
     """
     Uploads the task and dataset to S3.
     """
@@ -87,7 +92,7 @@ def upload_task_to_s3(task_id: int, dataset_id: int, s3_dataset_cache: str = Non
     assert local_cache_dir.is_dir()
 
     try:
-        s3_client = boto3.client('s3')
+        s3_client = boto3.client("s3")
         s3_bucket, s3_prefix = parse_s3_uri(s3_uri=s3_dataset_cache)
         logger.info(f"Attempting to upload task {task_id} to S3 bucket {s3_bucket}")
 
@@ -100,7 +105,7 @@ def upload_task_to_s3(task_id: int, dataset_id: int, s3_dataset_cache: str = Non
             s3_dataset_key_prefix = f"{s3_prefix}/tasks/{task_id}/org/openml/www/datasets/{dataset_id}"
             cache_dirs.append(dataset_cache_dir)
             s3_key_prefixes.append(s3_dataset_key_prefix)
-        for cache_dir, s3_key_prefix in zip(cache_dirs, s3_key_prefixes):
+        for cache_dir, s3_key_prefix in zip(cache_dirs, s3_key_prefixes, strict=False):
             for root, _, files in os.walk(cache_dir):
                 for filename in files:
                     local_path = os.path.join(root, filename)
@@ -111,12 +116,13 @@ def upload_task_to_s3(task_id: int, dataset_id: int, s3_dataset_cache: str = Non
         logger.info(f"Task {task_id} successfully uploaded to S3 at s3://{s3_bucket}/{s3_key}.")
         return True
     except Exception as e:
-        logger.error(f"Error upaloading to S3 for task {task_id}: {str(e)}")
+        logger.error(f"Error upaloading to S3 for task {task_id}: {e!s}")
         return False
 
 
-def download_task_from_s3(task_id: int, s3_dataset_cache: str = None) -> bool:
+def download_task_from_s3(task_id: int, s3_dataset_cache: str | None = None) -> bool:
     import boto3
+
     """
     Downloads the task and dataset from S3 if available.
     """
@@ -128,7 +134,7 @@ def download_task_from_s3(task_id: int, s3_dataset_cache: str = None) -> bool:
     os.makedirs(local_cache_dir, exist_ok=True)
 
     try:
-        s3_client = boto3.client('s3')
+        s3_client = boto3.client("s3")
         s3_bucket, s3_prefix = parse_s3_uri(s3_uri=s3_dataset_cache)
 
         task_cache_dir = local_cache_dir / "tasks" / str(task_id)
@@ -136,18 +142,18 @@ def download_task_from_s3(task_id: int, s3_dataset_cache: str = None) -> bool:
 
         logger.info(f"Attempting to download task {task_id} from S3 bucket {s3_bucket}")
         s3_key_prefix = f"{s3_prefix}/tasks/{task_id}/org/openml/www/tasks/{task_id}"
-        logger.info(f"s3_key_prefix set to: " + s3_key_prefix)
+        logger.info("s3_key_prefix set to: " + s3_key_prefix)
         try:
             s3_task_prefix = f"{s3_prefix}/tasks/{task_id}/org/openml/www/tasks/{task_id}"
             response = s3_client.list_objects_v2(
                 Bucket=s3_bucket,
-                Prefix=f"{s3_task_prefix}/"
+                Prefix=f"{s3_task_prefix}/",
             )
 
-            for obj in response['Contents']:
-                s3_key = obj['Key']
+            for obj in response["Contents"]:
+                s3_key = obj["Key"]
                 filename = os.path.basename(s3_key)
-                if filename == '':
+                if filename == "":
                     continue
 
                 local_file_path = task_cache_dir / filename
@@ -156,7 +162,7 @@ def download_task_from_s3(task_id: int, s3_dataset_cache: str = None) -> bool:
                         s3_client.download_file(
                             Bucket=s3_bucket,
                             Key=s3_key,
-                            Filename=str(local_file_path)
+                            Filename=str(local_file_path),
                         )
                         logger.info(f"Downloaded {filename} for task {task_id} from S3")
                     except s3_client.exceptions.ClientError as e:
@@ -164,7 +170,7 @@ def download_task_from_s3(task_id: int, s3_dataset_cache: str = None) -> bool:
                 else:
                     logger.info(f"{filename} already exists for task {task_id}, skipping download")
 
-            with open(task_cache_dir / "task.xml", 'r') as f:
+            with open(task_cache_dir / "task.xml") as f:
                 task_xml = f.read()
 
             task_dict = xmltodict.parse(task_xml)["oml:task"]
@@ -174,9 +180,8 @@ def download_task_from_s3(task_id: int, s3_dataset_cache: str = None) -> bool:
                     if input_item["@name"] == "source_data":
                         dataset_id = int(input_item["oml:data_set"]["oml:data_set_id"])
                         break
-            else:
-                if task_dict["oml:input"]["@name"] == "source_data":
-                    dataset_id = int(task_dict["oml:input"]["oml:data_set"]["oml:data_set_id"])
+            elif task_dict["oml:input"]["@name"] == "source_data":
+                dataset_id = int(task_dict["oml:input"]["oml:data_set"]["oml:data_set_id"])
 
             if dataset_id is not None:
                 dataset_id_str = str(dataset_id)
@@ -189,14 +194,14 @@ def download_task_from_s3(task_id: int, s3_dataset_cache: str = None) -> bool:
                 try:
                     response = s3_client.list_objects_v2(
                         Bucket=s3_bucket,
-                        Prefix=f"{s3_dataset_prefix}/"
+                        Prefix=f"{s3_dataset_prefix}/",
                     )
 
-                    if 'Contents' in response:
-                        for obj in response['Contents']:
-                            s3_key = obj['Key']
+                    if "Contents" in response:
+                        for obj in response["Contents"]:
+                            s3_key = obj["Key"]
                             filename = os.path.basename(s3_key)
-                            if filename == '':
+                            if filename == "":
                                 continue
 
                             local_file_path = dataset_cache_dir / filename
@@ -205,7 +210,7 @@ def download_task_from_s3(task_id: int, s3_dataset_cache: str = None) -> bool:
                                     s3_client.download_file(
                                         Bucket=s3_bucket,
                                         Key=s3_key,
-                                        Filename=str(local_file_path)
+                                        Filename=str(local_file_path),
                                     )
                                     logger.info(f"Downloaded {filename} for dataset {dataset_id} from S3")
                                 except s3_client.exceptions.ClientError as e:
@@ -225,5 +230,5 @@ def download_task_from_s3(task_id: int, s3_dataset_cache: str = None) -> bool:
             return False
 
     except Exception as e:
-        logger.error(f"Error accessing S3 for task {task_id}: {str(e)}")
+        logger.error(f"Error accessing S3 for task {task_id}: {e!s}")
         return False

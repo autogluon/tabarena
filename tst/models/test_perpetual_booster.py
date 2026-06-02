@@ -12,6 +12,7 @@ def test_perpetual():
         from tabarena.models.perpetual_booster.model import (
             PerpetualBoosterModel,
         )
+
         model_cls = PerpetualBoosterModel
         FitHelper.verify_model(
             model_cls=model_cls,
@@ -21,5 +22,5 @@ def test_perpetual():
         pytest.skip(
             f"Import Error, skipping test... "
             f"Ensure you have the proper dependencies installed to run this test:\n"
-            f"{err}"
+            f"{err}",
         )

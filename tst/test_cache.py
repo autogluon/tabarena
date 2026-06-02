@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import pandas as pd
+
 from tabarena.utils.cache import CacheFunctionDF, CacheFunctionDummy, CacheFunctionPickle
 
 
@@ -14,7 +17,6 @@ def test_cache_pickle():
 
 
 def test_cache_dataframe():
-
     def f():
         return pd.DataFrame({"a": [1, 2], "b": [3, 4]})
 

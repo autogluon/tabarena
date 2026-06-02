@@ -17,10 +17,12 @@ def generate_configs_rf(num_random_configs=200):
             Float("max_samples", (0.5, 1.0)),
             Integer("min_samples_split", (2, 4), log=True),
             Categorical(
-                "bootstrap", [False, True]
+                "bootstrap",
+                [False, True],
             ),  # bootstrap=False doesn't allow OOB scores but seems to help
             Categorical(
-                "n_estimators", [50]
+                "n_estimators",
+                [50],
             ),  # 50 is decent, could go a bit higher for small gains
             Float("min_impurity_decrease", (1e-5, 1e-3), log=True),
         ],

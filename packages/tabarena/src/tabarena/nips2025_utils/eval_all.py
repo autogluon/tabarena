@@ -19,14 +19,17 @@ def get_all_subset_combinations() -> list[tuple[bool, str, bool, str | None, boo
     lite_lst = [False, True]
     average_seeds_lst = [False]
 
-    return list(product(
-        use_imputation_lst,
-        problem_type_lst,
-        with_baselines_lst,
-        dataset_subset_lst,
-        lite_lst,
-        average_seeds_lst,
-    ))
+    return list(
+        product(
+            use_imputation_lst,
+            problem_type_lst,
+            with_baselines_lst,
+            dataset_subset_lst,
+            lite_lst,
+            average_seeds_lst,
+        )
+    )
+
 
 def get_website_folder_name(
     *,
@@ -97,21 +100,25 @@ def evaluate_all(
     for use_imputation, problem_type, with_baselines, dataset_subset, lite, average_seeds in all_combinations:
         custom_folder_name = None
         if use_website_folder_names:
-            custom_folder_name = str(get_website_folder_name(
-                use_imputation=use_imputation,
-                problem_type=problem_type,
-                dataset_subset=dataset_subset,
-                lite=lite,
-            ))
-        inputs.append({
-            "use_imputation": use_imputation,
-            "problem_type": problem_type,
-            "with_baselines": with_baselines,
-            "dataset_subset": dataset_subset,
-            "lite": lite,
-            "average_seeds": average_seeds,
-            "custom_folder_name": custom_folder_name,
-        })
+            custom_folder_name = str(
+                get_website_folder_name(
+                    use_imputation=use_imputation,
+                    problem_type=problem_type,
+                    dataset_subset=dataset_subset,
+                    lite=lite,
+                )
+            )
+        inputs.append(
+            {
+                "use_imputation": use_imputation,
+                "problem_type": problem_type,
+                "with_baselines": with_baselines,
+                "dataset_subset": dataset_subset,
+                "lite": lite,
+                "average_seeds": average_seeds,
+                "custom_folder_name": custom_folder_name,
+            }
+        )
 
     parallel_for(
         f=evaluate_single,
@@ -131,8 +138,6 @@ def evaluate_all(
     )
 
 
-
-
 def evaluate_single(
     tabarena_context,
     df_results,
@@ -150,6 +155,7 @@ def evaluate_single(
     custom_folder_name: str | None = None,
 ):
     from tabarena.nips2025_utils.compare import subset_tasks
+
     df_results = df_results.copy()
 
     method_rename_map = tabarena_context.get_method_rename_map()

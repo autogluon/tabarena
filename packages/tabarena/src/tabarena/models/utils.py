@@ -39,14 +39,16 @@ def get_model_info_from_name(model_name: str):
         if model_name in (md.display_name, md.method):
             return info
 
-    available = sorted({
-        name
-        for info in registry.values()
-        for name in (info.method_metadata.display_name, info.method_metadata.method)
-        if name
-    })
+    available = sorted(
+        {
+            name
+            for info in registry.values()
+            for name in (info.method_metadata.display_name, info.method_metadata.method)
+            if name
+        }
+    )
     raise ValueError(
-        f"Model name {model_name!r} is not recognized. Options are: {available}"
+        f"Model name {model_name!r} is not recognized. Options are: {available}",
     )
 
 

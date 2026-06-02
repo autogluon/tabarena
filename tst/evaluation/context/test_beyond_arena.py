@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pandas as pd
+
 from tabarena.evaluation.context.beyond_arena import BeyondArenaContext, _merge_warehouse_fields
 
 
@@ -31,9 +32,22 @@ def test_merge_repopulates_all_null_column():
 
 def test_subset_predicates_cover_beyond_subsets():
     expected = {
-        "binary", "multiclass", "classification", "regression",
-        "tiny", "small", "medium", "large",
-        "random", "iid", "temporal", "grouped",
-        "low-dim", "high-dim", "text", "high-cardinality", "lite",
+        "binary",
+        "multiclass",
+        "classification",
+        "regression",
+        "tiny",
+        "small",
+        "medium",
+        "large",
+        "random",
+        "iid",
+        "temporal",
+        "grouped",
+        "low-dim",
+        "high-dim",
+        "text",
+        "high-cardinality",
+        "lite",
     }
     assert expected <= set(BeyondArenaContext.SUBSET_PREDICATES)

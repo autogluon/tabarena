@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from tabarena.models._method_metadata import MethodMetadata
 
-
 tabprep_gbm_metadata = MethodMetadata(
     method="PrepLightGBM",
     artifact_name="tabarena-2026-01-23",

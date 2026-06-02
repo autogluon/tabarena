@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+
 from tabarena.benchmark.task.metadata import (
     SplitMetadata,
     TabArenaMetadataBundle,
@@ -237,7 +238,7 @@ class TestTabArenaV0pt1Conversion:
                     "tabarena_num_repeats": 2,
                     "num_folds": 3,
                 },
-            ]
+            ],
         )
         assert len(load_tabarena_v0_1_task_metadata(curated)) == 6
 
@@ -276,7 +277,7 @@ class TestTabArenaV0pt1Conversion:
                     "tabarena_num_repeats": 1,
                     "num_folds": 1,
                 },
-            ]
+            ],
         )
         result = _bundle(
             task_metadata=load_tabarena_v0_1_task_metadata(curated),
@@ -313,7 +314,7 @@ class TestTabArenaV0pt1Conversion:
                     "tabarena_num_repeats": 1,
                     "num_folds": 1,
                 },
-            ]
+            ],
         )
         assert load_tabarena_v0_1_task_metadata(curated)[0].eval_metric == "log_loss"
 
@@ -332,7 +333,7 @@ class TestTabArenaV0pt1Conversion:
                     "tabarena_num_repeats": 1,
                     "num_folds": 1,
                 },
-            ]
+            ],
         )
         assert load_tabarena_v0_1_task_metadata(curated)[0].eval_metric == "rmse"
 

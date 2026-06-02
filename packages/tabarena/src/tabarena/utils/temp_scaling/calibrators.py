@@ -1,30 +1,33 @@
-"""
-Original code from https://github.com/dholzmueller/probmetrics
-Credit to David Holzmüller
+"""Original code from https://github.com/dholzmueller/probmetrics
+Credit to David Holzmüller.
 """
 
-from typing import Callable
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
 from sklearn.base import BaseEstimator, ClassifierMixin
 from torch import nn
 
-from tabarena.utils.temp_scaling.distributions import CategoricalDistribution, CategoricalProbs, CategoricalLogits
+from tabarena.utils.temp_scaling.distributions import CategoricalDistribution, CategoricalLogits, CategoricalProbs
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class Calibrator(BaseEstimator, ClassifierMixin):
-    """
-    Calibrator base class. To implement,
+    """Calibrator base class. To implement,
     - override at least one of _fit_impl and _fit_torch_impl
-    - override at least one of predict_proba and predict_proba_torch
+    - override at least one of predict_proba and predict_proba_torch.
     """
 
     def __init__(self):
         # assert self.__class__.fit == Calibrator.fit
         assert self.__class__.fit_torch == Calibrator.fit_torch
 
-    def fit(self, X, y) -> 'Calibrator':
+    def fit(self, X, y) -> Calibrator:
         assert isinstance(X, np.ndarray)
         assert isinstance(y, np.ndarray)
 
@@ -35,8 +38,9 @@ class Calibrator(BaseEstimator, ClassifierMixin):
             return self
 
         if self.__class__._fit_torch_impl != Calibrator._fit_torch_impl:
-            self._fit_torch_impl(y_pred=CategoricalProbs(torch.as_tensor(X)),
-                                 y_true_labels=torch.as_tensor(y, dtype=torch.long))
+            self._fit_torch_impl(
+                y_pred=CategoricalProbs(torch.as_tensor(X)), y_true_labels=torch.as_tensor(y, dtype=torch.long)
+            )
             return self
 
         raise NotImplementedError()
@@ -44,7 +48,7 @@ class Calibrator(BaseEstimator, ClassifierMixin):
     def _fit_impl(self, X: np.ndarray, y: np.ndarray) -> None:
         raise NotImplementedError()
 
-    def fit_torch(self, y_pred: CategoricalDistribution, y_true_labels: torch.Tensor) -> 'Calibrator':
+    def fit_torch(self, y_pred: CategoricalDistribution, y_true_labels: torch.Tensor) -> Calibrator:
         assert isinstance(y_true_labels, torch.Tensor)
         assert isinstance(y_pred, CategoricalDistribution)
         # default implementation, using sklearn
@@ -96,8 +100,15 @@ def bisection_search(f: Callable[[float], float], a: float, b: float, n_steps: i
 
 
 class TemperatureScalingCalibrator(Calibrator):
-    def __init__(self, opt: str = 'bisection', max_bisection_steps: int = 30, lr: float = 0.1, max_iter: int = 200,
-                 use_inv_temp: bool = True, inv_temp_init: float = 1 / 1.5):
+    def __init__(
+        self,
+        opt: str = "bisection",
+        max_bisection_steps: int = 30,
+        lr: float = 0.1,
+        max_iter: int = 200,
+        use_inv_temp: bool = True,
+        inv_temp_init: float = 1 / 1.5,
+    ):
         super().__init__()
         self.lr = lr
         self.max_bisection_steps = max_bisection_steps
@@ -115,9 +126,9 @@ class TemperatureScalingCalibrator(Calibrator):
         logits = y_pred.get_logits()
         labels = y_true_labels
 
-        if self.opt in ['lbfgs', 'lbfgs_line_search']:
+        if self.opt in ["lbfgs", "lbfgs_line_search"]:
             self._fit_lbfgs(logits, labels)
-        elif self.opt == 'bisection':
+        elif self.opt == "bisection":
             self._fit_bisection(logits, labels)
         else:
             raise ValueError(f'Unknown optimizer "{self.opt}"')
@@ -127,10 +138,15 @@ class TemperatureScalingCalibrator(Calibrator):
     def _fit_lbfgs(self, logits: torch.Tensor, labels: torch.Tensor):
         # following https://github.com/gpleiss/temperature_scaling/blob/master/temperature_scaling.py
         param = nn.Parameter(
-            torch.ones(1, device=logits.device) * (self.inv_temp_init if self.use_inv_temp else 1 / self.inv_temp_init))
+            torch.ones(1, device=logits.device) * (self.inv_temp_init if self.use_inv_temp else 1 / self.inv_temp_init)
+        )
         criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.LBFGS([param], lr=self.lr, max_iter=self.max_iter,
-                                      line_search_fn='strong_wolfe' if self.opt == 'lbfgs_line_search' else None)
+        optimizer = torch.optim.LBFGS(
+            [param],
+            lr=self.lr,
+            max_iter=self.max_iter,
+            line_search_fn="strong_wolfe" if self.opt == "lbfgs_line_search" else None,
+        )
 
         def eval():
             optimizer.zero_grad()
@@ -212,12 +228,13 @@ class AutoGluonTemperatureScalingCalibratorFixed(AutoGluonTemperatureScalingCali
     def fit(self, X, y, scorer=None):
         if scorer is None:
             from autogluon.core.metrics import get_metric
+
             scorer = get_metric("log_loss", problem_type="multiclass")
         super().fit(X=X, y=y)
         if self.temperature == 1:
             return self
-        elif self.temperature <= 0:
-            print(f"NEGATIVE TEMP, SETTING TO 1")
+        if self.temperature <= 0:
+            print("NEGATIVE TEMP, SETTING TO 1")
             self.temperature = 1
             return self
         y_pred_proba_post = self.predict_proba(X)
@@ -225,7 +242,7 @@ class AutoGluonTemperatureScalingCalibratorFixed(AutoGluonTemperatureScalingCali
         err_og = scorer.error(y, X)
         err_post = scorer.error(y, y_pred_proba_post)
         if err_post > err_og:
-            print(f"WORSE ERROR: SETTING TO 1")
+            print("WORSE ERROR: SETTING TO 1")
             self.temperature = 1
         return self
 
@@ -234,12 +251,13 @@ class TemperatureScalingCalibratorFixed(TemperatureScalingCalibrator):
     def fit(self, X, y, scorer=None):
         if scorer is None:
             from autogluon.core.metrics import get_metric
+
             scorer = get_metric("log_loss", problem_type="multiclass")
         super().fit(X=X, y=y)
         if self.inv_temp_init == 1:
             return self
-        elif self.inv_temp_init <= 0:
-            print(f"NEGATIVE TEMP, SETTING TO 1")
+        if self.inv_temp_init <= 0:
+            print("NEGATIVE TEMP, SETTING TO 1")
             self.inv_temp_init = 1
             return self
         y_pred_proba_post = self.predict_proba(X)
@@ -247,7 +265,7 @@ class TemperatureScalingCalibratorFixed(TemperatureScalingCalibrator):
         err_og = scorer.error(y, X)
         err_post = scorer.error(y, y_pred_proba_post)
         if err_post > err_og:
-            print(f"WORSE ERROR: SETTING TO 1")
+            print("WORSE ERROR: SETTING TO 1")
             self.inv_temp_init = 1
         return self
 

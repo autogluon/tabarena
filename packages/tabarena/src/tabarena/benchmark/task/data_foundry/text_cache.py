@@ -99,6 +99,9 @@ def ensure_text_cache_for_task(
     # dataframe), so skip the full `dataset.parquet` read — otherwise every cache-less dataset
     # pays a wasted parquet load on each setup run.
     container = collection.get_dataset(
-        uuid, cache_dir=cache_dir, load_dataset=False, force_download=force_download
+        uuid,
+        cache_dir=cache_dir,
+        load_dataset=False,
+        force_download=force_download,
     )
     return import_text_cache_from_container(container, task_key, verbose=verbose)

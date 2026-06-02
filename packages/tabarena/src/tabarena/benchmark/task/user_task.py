@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import pickle
 from collections import OrderedDict
-from collections.abc import Iterable
 from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -32,6 +31,8 @@ from tabarena.benchmark.task.openml import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from tabarena.benchmark.task.metadata import (
         GroupLabelTypes,
         SplitTimeHorizonTypes,
@@ -355,11 +356,11 @@ class UserTask:
                     raise ValueError(f"Indices in split {split_id} must be non-negative.")
                 if any(np.array(train_indices + test_indices) >= n_samples):
                     raise ValueError(
-                        f"Indices in split {split_id} must not exceed the dataset size (0 to {n_samples - 1})."
+                        f"Indices in split {split_id} must not exceed the dataset size (0 to {n_samples - 1}).",
                     )
                 if test_indices_per_repeat & set(test_indices):
                     raise ValueError(
-                        f"Test indices in split {split_id} must not overlap with previous splits in repeat {repeat_id}."
+                        f"Test indices in split {split_id} must not overlap with previous splits in repeat {repeat_id}.",
                     )
                 test_indices_per_repeat.update(test_indices)
 
@@ -436,7 +437,7 @@ def openml_create_datasets_without_arff_dump(
     unsupported_cols = data.select_dtypes(include=["datetime64", "timedelta64"]).columns
     # select_dtypes doesn't support "period" or "interval" as strings, so detect manually
     unsupported_cols = unsupported_cols.append(
-        pd.Index(col for col in data.columns if isinstance(data[col].dtype, (pd.PeriodDtype, pd.IntervalDtype)))
+        pd.Index(col for col in data.columns if isinstance(data[col].dtype, (pd.PeriodDtype, pd.IntervalDtype))),
     )
     # Cast categories of categorical columns to string so that
     # attributes_arff_from_df can handle them (e.g. integer categories).
@@ -485,7 +486,8 @@ def openml_create_datasets_without_arff_dump(
 
 
 def from_sklearn_splits_to_user_task_splits(
-    sklearn_splits: Iterable, n_splits: int
+    sklearn_splits: Iterable,
+    n_splits: int,
 ) -> dict[int, dict[int, tuple[list, list]]]:
     """Convert sklearn splits to the OpenML splits format used in TabArena's
     local user tasks.

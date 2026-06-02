@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._model_info import ModelInfo
+from tabarena.models.perpetual_booster.hpo import gen_perpetual_booster
 from tabarena.models.perpetual_booster.model import (
     PerpetualBoosterModel,
 )
-from tabarena.models._model_info import ModelInfo
-from tabarena.models.perpetual_booster.hpo import gen_perpetual_booster
-from tabarena.models._method_metadata import MethodMetadata
-
 
 perpetual_booster_method_metadata = MethodMetadata(
     method="PerpetualBooster",

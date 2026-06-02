@@ -1,8 +1,29 @@
 # https://github.com/charliermarsh/ruff
-target-version = "py39"
+target-version = "py311"
 line-length = 120
 output-format = "full"
-src = ["examples", "packages/tabflow_slurm/src"]
+src = [
+    "packages/tabarena/src",
+    "packages/bencheval/src",
+    "packages/tabflow_slurm/src",
+    "examples",
+    "tst",
+]
+
+# File-discovery exclusions. MUST be top-level (not under [lint]): top-level `extend-exclude`
+# prunes paths from both linting and formatting, and ADDS to ruff's built-in defaults
+# (.git, build, dist, .venv, node_modules, ...) rather than replacing them.
+extend-exclude = [
+    "docs", # not one of ruff's built-in default excludes
+    # --- Vendored upstream sources (not first-party; keep as-imported) ---
+    "packages/tabarena/src/tabarena/models/limix/_vendor",       # vendored LimiX (Apache-2.0)
+    "packages/tabarena/src/tabarena/models/tabm/_internal",      # vendored from yandex-research/tabm
+    "packages/tabarena/src/tabarena/models/modernnca/_internal", # vendored from LAMDA-Tabular/TALENT
+    # --- Archived / experimental examples ---
+    "examples/!old",
+    "examples/!experimental",
+    "examples/tmp",
+]
 
 [lint]
 # Extend what ruff is allowed to fix, even it it may break
@@ -56,7 +77,7 @@ select = [
     "T10",
     "T20",
     "TID",
-    "TCH",
+    "TC",
     "UP",
     "N",
     "W",
@@ -76,7 +97,7 @@ ignore = [
     "S101", # Use of assert detected.
     "W292", # No newline at end of file
     "PLC1901", # "" can be simplified to be falsey
-    "TCH003", # Move stdlib import into TYPE_CHECKING
+    "TC003", # Move stdlib import into TYPE_CHECKING
     "PLR2004", # Magic numbers, gets in the way a lot
     "PLR0915", # Too many statements
     "N803", # Argument name `X` should be lowercase
@@ -84,29 +105,75 @@ ignore = [
     "COM812", # Trailing comma missing (conflicts with formatter)
     "T201", # Remove prints
     "C408", # use of {} instead of dict
+    # --- Relaxed during the repo-wide ruff rollout (high-volume, non-auto-fixable, stylistic) ---
+    "D102", # Missing docstring in public method (consistent with ignored D104/D105; backfilling ~850 docstrings is out of scope)
+    "D103", # Missing docstring in public function (same rationale as D102)
+    "FBT001", # Boolean-typed positional arg (pervasive in existing public APIs; changing signatures is behavioral)
+    "FBT002", # Boolean default positional arg (same rationale as FBT001)
+    "PLC0415", # `import` outside top-level (the repo intentionally lazy-imports optional model deps inside _fit/class bodies)
+    "ERA001", # Commented-out code (cleanup is judgment-heavy; avoid churn)
+    # --- Stage 3: remaining high-volume, non-auto-fixable, stylistic rules (kept correctness/safety rules enabled) ---
+    # Docstrings (consistent with already-ignored D102/D103/D104/D105):
+    "D100", # Missing docstring in public module
+    "D101", # Missing docstring in public class
+    "D107", # Missing docstring in __init__
+    "D414", # Empty docstring section
+    "D415", # Docstring first line should end with punctuation
+    "D417", # Missing argument description in docstring
+    # Complexity metrics (consistent with already-ignored PLR0915; max-args already set to 10):
+    "C901", # Function is too complex
+    "PLR0912", # Too many branches
+    "PLR0913", # Too many arguments
+    # Unused arguments — required to honor shared interfaces (sklearn/AutoGluon fit/predict signatures):
+    "ARG001", # Unused function argument
+    "ARG002", # Unused method argument
+    "ARG003", # Unused class method argument
+    "ARG005", # Unused lambda argument
+    "FBT003", # Boolean positional value in call (consistent with already-ignored FBT001/FBT002)
+    # Ambiguous-unicode (math symbols/accents in strings, docstrings, comments are intentional):
+    "RUF001", "RUF002", "RUF003",
+    # pandas idiom opinions (noisy / frequent false positives; .values etc. are used deliberately):
+    "PD011", "PD003", "PD010", "PD013", "PD015",
+    "INP001", # Implicit namespace package (examples/scripts dirs intentionally have no __init__.py)
+    "PLW2901", # `for` loop variable overwritten (stylistic)
+    "NPY002", # Legacy numpy random (migration to Generator is a behavioral change; pervasive)
+    "E501", # Line too long (the ruff formatter is the authority for code line length; residual is unwrappable URLs/strings/comments)
+    "PTH", # Prefer pathlib over os.path (stylistic; os.path usage is correct and pervasive — avoid ~56 hand conversions)
+    "E741", # Ambiguous variable name (e.g. `l`) (stylistic)
+    "PLW0603", # Use of `global` (occasionally necessary; low value to refactor)
+    # Naming (consistent with already-ignored N802/N803/N806):
+    "A001", # Variable shadows a builtin (consistent with ignored A002/A003)
+    "N801", # Class name should use CapWords
+    "N812", # Lowercase imported as non-lowercase (e.g. `torch.nn.functional as F`)
+    "N999", # Invalid module name
+    # Broadly-applied stylistic opinions (pervasive, low value, non-auto-fixable):
+    "BLE001", # Blind `except Exception` (intentional in benchmark runners that must not crash)
+    "RUF059", # Unused variable in unpacking assignment
+    "B007", # Loop control variable not used within loop body
+    "RUF012", # Mutable class attribute should be annotated `ClassVar` (pervasive in ML config classes)
+    "UP035", # Deprecated import (typing aliases; harmless, low priority)
+    "SIM102", "SIM105", "SIM108", "SIM117", # if/with simplification opinions
+    "PLC0206", # Extracting value from dict without `.items()`
+    "E402", # Module import not at top of file (intentional after sys.path / lazy setup)
+    "S301", # `pickle` usage (intrinsic to the benchmark's result serialization)
+    "B021", # f-string docstring (only flagged instances have no placeholders; harmless)
 ]
 
-exclude = [
-    ".bzr",
-    ".direnv",
-    ".eggs",
-    ".git",
-    ".hg",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".ruff_cache",
-    ".svn",
-    ".tox",
-    ".venv",
-    "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
-    "docs",
+[lint.per-file-ignores]
+# Tests don't need module/class docstrings, and test packages are intentionally
+# implicit namespace packages (no __init__.py).
+"tst/**" = [
+    "D100", # Missing docstring in public module
+    "D101", # Missing docstring in public class
+    "INP001", # File is part of an implicit namespace package
+    "PT011", # pytest.raises(...) too broad — acceptable in tests
+    "PT018", # Composite assertion — acceptable in tests
+    "B017", # assert pytest.raises(Exception) — acceptable in tests
+    "RUF043", # pytest.raises pattern is a regex — acceptable in tests
+]
+# `__init__.py` files intentionally re-export names for the public API surface.
+"**/__init__.py" = [
+    "F401", # Imported but unused (re-export)
 ]
 
 [lint.isort]

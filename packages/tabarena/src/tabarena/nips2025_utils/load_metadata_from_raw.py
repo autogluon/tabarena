@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-from typing import Literal
-from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 from tabarena.benchmark.result import BaselineResult
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.utils.parallel_for import parallel_for
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 def load_raw_to_get_metadata(path: str) -> tuple[MethodMetadata, dict]:
-    """
-    Load a raw result pickle file, align it into a `BaselineResult`,
+    """Load a raw result pickle file, align it into a `BaselineResult`,
     and derive the associated `MethodMetadata` and task metadata.
 
     Parameters
@@ -19,14 +20,14 @@ def load_raw_to_get_metadata(path: str) -> tuple[MethodMetadata, dict]:
         Path to the pickle file containing either a raw result
         dictionary or a serialized `BaselineResult`.
 
-    Returns
+    Returns:
     -------
     tuple[MethodMetadata, dict]
         A tuple containing:
         - `MethodMetadata`: Metadata object constructed from the result.
         - dict: The task metadata dictionary extracted from the result.
 
-    Notes
+    Notes:
     -----
     This function ensures that raw results are normalized into
     `BaselineResult` objects before metadata extraction. It should
@@ -44,8 +45,7 @@ def load_from_raw_all_metadata(
     engine: Literal["sequential", "ray", "joblib"] = "sequential",
     progress_bar: bool = True,
 ) -> list[tuple[MethodMetadata, dict]]:
-    """
-    Batch-load multiple raw pickle results and extract their
+    """Batch-load multiple raw pickle results and extract their
     `MethodMetadata` and task metadata in parallel.
 
     Parameters
@@ -57,14 +57,14 @@ def load_from_raw_all_metadata(
     progress_bar : bool, default=True
         Whether to display a progress bar while processing.
 
-    Returns
+    Returns:
     -------
     list[tuple[MethodMetadata, dict]]
         A list of tuples, one per input file, each containing:
         - `MethodMetadata`: Metadata object extracted from the result.
         - dict: Task metadata dictionary.
 
-    Notes
+    Notes:
     -----
     This function leverages `parallel_for` to parallelize calls to
     `load_raw_to_get_metadata`. The parallelization backend can be
@@ -75,7 +75,7 @@ def load_from_raw_all_metadata(
         file_paths_lst.append(
             {
                 "path": str(file_path),
-            }
+            },
         )
 
     results_lst: list[tuple[MethodMetadata, dict]] = parallel_for(

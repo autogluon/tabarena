@@ -52,5 +52,6 @@ if __name__ == "__main__":
 
     experiments = gen_lightgbm.generate_all_bag_experiments(num_random_configs=200)
     YamlExperimentSerializer.to_yaml(
-        experiments=experiments, path="configs_lightgbm_alt.yaml"
+        experiments=experiments,
+        path="configs_lightgbm_alt.yaml",
     )

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from typing import List
 import logging
 import math
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -35,14 +34,13 @@ class EloHelper:
         SCALE: int | float = 400,
         BASE: int = 10,
         INIT_RATING: int | float = 1000,
-        calibration_framework: str = None,
-        calibration_elo: float = None,
+        calibration_framework: str | None = None,
+        calibration_elo: float | None = None,
         use_pair_aggregation: bool = True,
         force_iterative_elo: bool = False,
         max_iter: int = 1000,
     ) -> pd.Series:
-        """
-        MLE ELO with per-task equal weighting via sample_weight.
+        """MLE ELO with per-task equal weighting via sample_weight.
 
         Adapted from ChatBot Arena: https://colab.research.google.com/drive/1KdwokPjirkTmpO_P1WByFNFiqxWQquwH#scrollTo=4_x-vXL4yxvC
         """
@@ -55,9 +53,13 @@ class EloHelper:
             if len(Y) == 0 or (np.unique(Y).size < 2):
                 # Degenerate draw (e.g., total dominance in a bootstrap): fall back.
                 logger.warning(
-                    "compute_mle_elo: only one class present after aggregation; falling back to iterative ELO.")
+                    "compute_mle_elo: only one class present after aggregation; falling back to iterative ELO."
+                )
                 elo_scores = self.compute_iterative_elo_scores(
-                    df_original, INIT_RATING=INIT_RATING, SCALE=SCALE, models=models
+                    df_original,
+                    INIT_RATING=INIT_RATING,
+                    SCALE=SCALE,
+                    models=models,
                 )
                 SeriesOut = pd.Series(elo_scores, index=models.index)
             else:
@@ -85,7 +87,7 @@ class EloHelper:
 
             # tie handling: make half wins for each side
             tie_idx = battles["winner"] == "tie"
-            tie_idx[len(tie_idx) // 2:] = False
+            tie_idx[len(tie_idx) // 2 :] = False
             Y[tie_idx] = 1.0
 
             # Build sample weights so each task contributes total weight 1 across its splits
@@ -96,7 +98,7 @@ class EloHelper:
 
             if len(np.unique(Y)) == 1 or force_iterative_elo:
                 logger.warning(
-                    "compute_mle_elo fell back to iterative ELO (dominance in labels or forced)."
+                    "compute_mle_elo fell back to iterative ELO (dominance in labels or forced).",
                 )
                 elo_scores = self.compute_iterative_elo_scores(
                     df_original,
@@ -114,7 +116,7 @@ class EloHelper:
         if calibration_framework is not None:
             if calibration_elo is None:
                 calibration_elo = INIT_RATING
-            SeriesOut += (calibration_elo - SeriesOut[calibration_framework])
+            SeriesOut += calibration_elo - SeriesOut[calibration_framework]
 
         return SeriesOut.sort_values(ascending=False)
 
@@ -130,8 +132,7 @@ class EloHelper:
         shuffle: bool = True,
         seed: int | np.random.Generator | None = 0,
     ):
-        """
-        Iterative ELO with optional deterministic shuffling and multi-epoch passes.
+        """Iterative ELO with optional deterministic shuffling and multi-epoch passes.
 
         Parameters
         ----------
@@ -154,7 +155,7 @@ class EloHelper:
             Controls the shuffle order. If an int or Generator is provided and
             shuffle=True, the traversal order is deterministic across runs.
 
-        Returns
+        Returns:
         -------
         np.ndarray
             ELO scores aligned to `models.index` order.
@@ -195,10 +196,7 @@ class EloHelper:
         base_order = np.arange(n)
 
         for _ in range(max(1, int(epochs))):
-            if shuffle:
-                order = rng.permutation(n)
-            else:
-                order = base_order
+            order = rng.permutation(n) if shuffle else base_order
 
             for i in order:
                 a = m1_idx[i]
@@ -236,9 +234,7 @@ class EloHelper:
         max_iter: int = 1000,
         show_process: bool = True,
     ):
-        """
-        Task-level bootstrap with pair-compressed MLE.
-        """
+        """Task-level bootstrap with pair-compressed MLE."""
         if func_kwargs is None:
             func_kwargs = {}
 
@@ -257,8 +253,9 @@ class EloHelper:
             return df[df.median().sort_values(ascending=False).index]
 
         # One-time precompute
-        model_to_idx, pairs, X2, Y2, SU, SV, task_ids = self._precompute_pair_agg_for_bootstrap(
-            battles=battles, BASE=BASE
+        model_to_idx, _pairs, X2, Y2, SU, SV, task_ids = self._precompute_pair_agg_for_bootstrap(
+            battles=battles,
+            BASE=BASE,
         )
         n_tasks = SU.shape[0]
         if SU.shape[1] == 0:
@@ -301,8 +298,8 @@ class EloHelper:
     def convert_results_to_battles(
         self,
         results_df: pd.DataFrame,
-        frameworks: List[str] = None,
-        datasets: List[str] = None,
+        frameworks: list[str] | None = None,
+        datasets: list[str] | None = None,
     ) -> pd.DataFrame:
         # Keep only needed columns (+ split if available)
         cols = [self.method_col, self.task_col, self.error_col]
@@ -316,10 +313,7 @@ class EloHelper:
             results_df = results_df[results_df[self.method_col].isin(frameworks)]
 
         # Determine how to pair: by (task, split) if split_col is given; else by task only
-        if self.split_col is not None:
-            on_cols = [self.task_col, self.split_col]
-        else:
-            on_cols = [self.task_col]
+        on_cols = [self.task_col, self.split_col] if self.split_col is not None else [self.task_col]
 
         results_df_after_dedupe = results_df.drop_duplicates(subset=[self.method_col, *on_cols])
         if len(results_df_after_dedupe) != len(results_df):
@@ -330,8 +324,8 @@ class EloHelper:
             results_df,
             results_df,
             on=on_cols,
-            suffixes=('_1', '_2'),
-            how='inner',
+            suffixes=("_1", "_2"),
+            how="inner",
         )
 
         # Keep only pairs with different methods
@@ -341,22 +335,31 @@ class EloHelper:
         # Winner of the pair
         results_pairs_df["winner"] = [
             self.calc_battle_outcome(e1, e2)
-            for e1, e2 in zip(results_pairs_df[f"{self.error_col}_1"], results_pairs_df[f"{self.error_col}_2"])
+            for e1, e2 in zip(
+                results_pairs_df[f"{self.error_col}_1"], results_pairs_df[f"{self.error_col}_2"], strict=False
+            )
         ]
 
         # Avoid counting each battle twice (dedupe A vs B with B vs A) by method pair (orderless) within the same on_cols
         # Build a canonical key for the unordered pair
-        pair_key = list(zip(
-            np.minimum(results_pairs_df[self.method_1], results_pairs_df[self.method_2]),
-            np.maximum(results_pairs_df[self.method_1], results_pairs_df[self.method_2]),
-        ))
+        pair_key = list(
+            zip(
+                np.minimum(results_pairs_df[self.method_1], results_pairs_df[self.method_2]),
+                np.maximum(results_pairs_df[self.method_1], results_pairs_df[self.method_2]),
+                strict=False,
+            )
+        )
 
         # Create a boolean mask that keeps the first occurrence of each (task[, split], unordered pair)
         # Easiest way: use a DataFrame of keys and drop_duplicates, then reindex
-        key_df = pd.DataFrame({**{c: results_pairs_df[c].values for c in on_cols},
-                               "__a": [k[0] for k in pair_key],
-                               "__b": [k[1] for k in pair_key]})
-        keep_idx = key_df.drop_duplicates(subset=on_cols + ["__a", "__b"]).index
+        key_df = pd.DataFrame(
+            {
+                **{c: results_pairs_df[c].values for c in on_cols},
+                "__a": [k[0] for k in pair_key],
+                "__b": [k[1] for k in pair_key],
+            }
+        )
+        keep_idx = key_df.drop_duplicates(subset=[*on_cols, "__a", "__b"]).index
         results_pairs_df = results_pairs_df.iloc[keep_idx].copy()
 
         # Compute per-task weights so each task contributes total weight 1.
@@ -388,7 +391,7 @@ class EloHelper:
         show_process: bool = True,
     ) -> pd.DataFrame:
         rng = np.random.default_rng(seed=seed)
-        bootstrap_elo_lu = self.get_bootstrap_result(
+        return self.get_bootstrap_result(
             battles=battles,
             func_compute_elo=self.compute_mle_elo,
             num_round=BOOTSTRAP_ROUNDS,
@@ -401,7 +404,6 @@ class EloHelper:
             },
             show_process=show_process,
         )
-        return bootstrap_elo_lu
 
     def compute_elo_rating_dataset_contributon(
         self,
@@ -426,12 +428,14 @@ class EloHelper:
                 "SCALE": SCALE,
                 "calibration_framework": calibration_framework,
                 "calibration_elo": calibration_elo,
-            }
+            },
         )
 
-        bars = pd.DataFrame(dict(
-            rating=bootstrap_elo_lu.quantile(.5),
-        )).sort_values("rating", ascending=False)
+        bars = pd.DataFrame(
+            dict(
+                rating=bootstrap_elo_lu.quantile(0.5),
+            )
+        ).sort_values("rating", ascending=False)
 
         elo_impact_by_dataset_list = []
         for dataset_to_skip in datasets:
@@ -446,17 +450,18 @@ class EloHelper:
                     "SCALE": SCALE,
                     "calibration_framework": calibration_framework,
                     "calibration_elo": calibration_elo,
-                }
+                },
             )
-            bars_by_dataset = pd.DataFrame(dict(
-                rating=bootstrap_elo_lu_w_dataset_removed.quantile(.5),
-            ))
+            bars_by_dataset = pd.DataFrame(
+                dict(
+                    rating=bootstrap_elo_lu_w_dataset_removed.quantile(0.5),
+                )
+            )
 
             delta = bars["rating"] - bars_by_dataset["rating"]
             delta.name = dataset_to_skip
             elo_impact_by_dataset_list.append(delta)
-        elo_impact_by_dataset = pd.concat(elo_impact_by_dataset_list, axis=1)
-        return elo_impact_by_dataset
+        return pd.concat(elo_impact_by_dataset_list, axis=1)
 
     def get_rank_confidence(self, df: pd.DataFrame):
         df = df.copy()
@@ -472,7 +477,7 @@ class EloHelper:
         prev_lower = None
         num_models = len(elo_ratings)
         for i in range(num_models):
-            cur_elo = elo_ratings[i]
+            elo_ratings[i]
             cur_upper = uppers[i]
             cur_lower = lowers[i]
             if prev_lower is None or cur_upper < prev_lower:
@@ -485,7 +490,7 @@ class EloHelper:
         return df
 
     def predict_win_rate(self, elo_ratings: dict, SCALE=400, BASE=10):
-        names = sorted(list(elo_ratings.keys()))
+        names = sorted(elo_ratings.keys())
         wins = defaultdict(lambda: defaultdict(lambda: 0))
         for a in names:
             for b in names:
@@ -493,10 +498,7 @@ class EloHelper:
                 wins[a][b] = ea
                 wins[b][a] = 1 - ea
 
-        data = {
-            a: [wins[a][b] if a != b else np.NAN for b in names]
-            for a in names
-        }
+        data = {a: [wins[a][b] if a != b else np.nan for b in names] for a in names}
 
         df = pd.DataFrame(data, index=names)
         df.index.name = "model_a"
@@ -535,8 +537,7 @@ class EloHelper:
         for a in missing_A:
             if a not in df:
                 df[a] = 0
-        df = df.T
-        return df
+        return df.T
 
     def compute_pairwise_win_fraction(self, battles, max_num_models=30) -> pd.DataFrame:
         unique_A = list(battles[self.method_1].unique())
@@ -546,23 +547,28 @@ class EloHelper:
         unique_all = unique_A + missing_A
         # Times each model wins as Model A
         a_win_ptbl = pd.pivot_table(
-            battles[battles['winner'] == "1"],
-            index=self.method_1, columns=self.method_2, aggfunc="size", fill_value=0)
+            battles[battles["winner"] == "1"], index=self.method_1, columns=self.method_2, aggfunc="size", fill_value=0
+        )
 
         # Table counting times each model wins as Model B
         b_win_ptbl = pd.pivot_table(
-            battles[battles['winner'] == "2"],
-            index=self.method_1, columns=self.method_2, aggfunc="size", fill_value=0)
+            battles[battles["winner"] == "2"], index=self.method_1, columns=self.method_2, aggfunc="size", fill_value=0
+        )
 
         # Table counting times each model wins as Model B
         tie_ptbl = pd.pivot_table(
-            battles[battles['winner'] == "tie"],
-            index=self.method_1, columns=self.method_2, aggfunc="size", fill_value=0)
+            battles[battles["winner"] == "tie"],
+            index=self.method_1,
+            columns=self.method_2,
+            aggfunc="size",
+            fill_value=0,
+        )
         tie_ptbl *= 0.5
 
         # Table counting number of A-B pairs
-        num_battles_ptbl = pd.pivot_table(battles,
-            index=self.method_1, columns=self.method_2, aggfunc="size", fill_value=0)
+        num_battles_ptbl = pd.pivot_table(
+            battles, index=self.method_1, columns=self.method_2, aggfunc="size", fill_value=0
+        )
 
         missing_A = unique_all
         missing_B = unique_all
@@ -575,21 +581,18 @@ class EloHelper:
 
         # Computing the proportion of wins for each model as A and as B
         # against all other models
-        row_beats_col_freq = (
-            (a_win_ptbl + b_win_ptbl.T + tie_ptbl + tie_ptbl.T) /
-            (num_battles_ptbl + num_battles_ptbl.T)
+        row_beats_col_freq = (a_win_ptbl + b_win_ptbl.T + tie_ptbl + tie_ptbl.T) / (
+            num_battles_ptbl + num_battles_ptbl.T
         )
 
         # Arrange ordering according to proprition of wins
         prop_wins = row_beats_col_freq.mean(axis=1).sort_values(ascending=False)
         prop_wins = prop_wins[:max_num_models]
         model_names = list(prop_wins.keys())
-        row_beats_col = row_beats_col_freq.loc[model_names, model_names]
-        return row_beats_col
+        return row_beats_col_freq.loc[model_names, model_names]
 
     def _aggregate_battles_for_mle(self, battles: pd.DataFrame, BASE: int = 10):
-        """
-        Compress battles to two rows per unordered (A,B) pair for exact MLE equivalence.
+        """Compress battles to two rows per unordered (A,B) pair for exact MLE equivalence.
 
         For each unordered pair (A,B):
           - Build features X for "A vs B" once: +log(BASE) at A, -log(BASE) at B.
@@ -613,16 +616,16 @@ class EloHelper:
         # accumulate weighted wins/ties in canonical coordinates
         wins_u = {}  # A-side under (u,v)
         wins_v = {}
-        for ui, vi, ai, bi, wi, yi in zip(u, v, a, b, w, win):
+        for ui, vi, ai, bi, wi, yi in zip(u, v, a, b, w, win, strict=False):
             key = (ui, vi)
             su = wins_u.get(key, 0.0)
             sv = wins_v.get(key, 0.0)
-            if yi == '1':  # method_1 (ai) beat method_2 (bi)
+            if yi == "1":  # method_1 (ai) beat method_2 (bi)
                 if ui == ai:
                     su += wi
                 else:
                     sv += wi
-            elif yi == '2':  # method_2 (bi) beat method_1 (ai)
+            elif yi == "2":  # method_2 (bi) beat method_1 (ai)
                 if ui == bi:
                     su += wi
                 else:
@@ -639,7 +642,7 @@ class EloHelper:
         X_rows, y_rows, sw_rows = [], [], []
         logB = math.log(BASE)
 
-        for (ui, vi) in pairs:
+        for ui, vi in pairs:
             su = wins_u[(ui, vi)]
             sv = wins_v[(ui, vi)]
             if su == 0.0 and sv == 0.0:
@@ -666,15 +669,23 @@ class EloHelper:
         return X, y, sample_weight, model_to_idx
 
     def get_arena_leaderboard(self, bootstrap_elo_lu: pd.DataFrame, results_df: pd.DataFrame):
-        bars = pd.DataFrame(dict(
-            lower=bootstrap_elo_lu.quantile(.025),
-            rating=bootstrap_elo_lu.quantile(.5),
-            upper=bootstrap_elo_lu.quantile(.975))).reset_index(names="model").sort_values("rating", ascending=False)
-        bars['error_y'] = bars['upper'] - bars["rating"]
-        bars['error_y_minus'] = bars['rating'] - bars["lower"]
-        bars['rating_rounded'] = np.round(bars['rating'], 2)
+        bars = (
+            pd.DataFrame(
+                dict(
+                    lower=bootstrap_elo_lu.quantile(0.025),
+                    rating=bootstrap_elo_lu.quantile(0.5),
+                    upper=bootstrap_elo_lu.quantile(0.975),
+                )
+            )
+            .reset_index(names="model")
+            .sort_values("rating", ascending=False)
+        )
+        bars["error_y"] = bars["upper"] - bars["rating"]
+        bars["error_y_minus"] = bars["rating"] - bars["lower"]
+        bars["rating_rounded"] = np.round(bars["rating"], 2)
         battles = self.convert_results_to_battles(results_df=results_df)
         from collections import defaultdict
+
         framework_battle_counts = defaultdict(int)
         framework_win_counts = defaultdict(float)
         for f, win_val in [(self.method_1, "1"), (self.method_2, "2")]:
@@ -694,8 +705,11 @@ class EloHelper:
             return f"+{upper:.0f}/-{lower:.0f}"
 
         leaderboard = bars.copy()
-        leaderboard["95% CI"] = [_get_95_ci(upper, lower) for upper, lower in zip(leaderboard["error_y"], leaderboard["error_y_minus"])]
-        leaderboard["Arena Elo"] = np.round(leaderboard['rating'], 0).astype(int)
+        leaderboard["95% CI"] = [
+            _get_95_ci(upper, lower)
+            for upper, lower in zip(leaderboard["error_y"], leaderboard["error_y_minus"], strict=False)
+        ]
+        leaderboard["Arena Elo"] = np.round(leaderboard["rating"], 0).astype(int)
         leaderboard["Battles"] = leaderboard["model"].map(framework_battle_counts)
         leaderboard["Wins"] = np.round(leaderboard["model"].map(framework_win_counts), decimals=0).astype(int)
         leaderboard["Winrate"] = np.round(leaderboard["Wins"] / leaderboard["Battles"], decimals=2)
@@ -703,7 +717,9 @@ class EloHelper:
         leaderboard["Model"] = leaderboard["model"]
         leaderboard = self.get_rank_confidence(df=leaderboard)
 
-        results_mean_agg = results_df[[self.method_col, "rank", "bestdiff", "loss_rescaled"]].groupby("framework").mean()
+        results_mean_agg = (
+            results_df[[self.method_col, "rank", "bestdiff", "loss_rescaled"]].groupby("framework").mean()
+        )
         leaderboard["mean_rank"] = leaderboard["model"].map(results_mean_agg["rank"])
         leaderboard["mean_bestdiff"] = leaderboard["model"].map(results_mean_agg["bestdiff"])
         leaderboard["mean_loss_rescaled"] = leaderboard["model"].map(results_mean_agg["loss_rescaled"])
@@ -714,19 +730,21 @@ class EloHelper:
         leaderboard["Rescaled Acc"] = np.round(1 - leaderboard["mean_loss_rescaled"], decimals=2)
         leaderboard["Elo"] = leaderboard["Arena Elo"]
 
-        leaderboard_print = leaderboard[[
-            "Rank",
-            "Model",
-            "Elo",
-            "95% CI",
-            # "Battles",
-            # "Wins",
-            "Winrate",
-            "Rescaled Acc",
-            # "Rank Avg",
-            "Champ Delta %",
-            # "Champ Delta % 2",
-        ]]
+        leaderboard_print = leaderboard[
+            [
+                "Rank",
+                "Model",
+                "Elo",
+                "95% CI",
+                # "Battles",
+                # "Wins",
+                "Winrate",
+                "Rescaled Acc",
+                # "Rank Avg",
+                "Champ Delta %",
+                # "Champ Delta % 2",
+            ]
+        ]
 
         return leaderboard, leaderboard_print
 
@@ -735,10 +753,9 @@ class EloHelper:
         battles: pd.DataFrame,
         BASE: int = 10,
     ):
-        """
-        Precompute sufficient statistics for MLE ELO under task-cluster bootstrap.
+        """Precompute sufficient statistics for MLE ELO under task-cluster bootstrap.
 
-        Returns
+        Returns:
         -------
         model_to_idx : pd.Series
             Index mapping for models -> column index in design matrix.
@@ -789,20 +806,20 @@ class EloHelper:
                 seen[k] = i
         for j, k in enumerate(uniq_pairs):
             first_idx[j] = seen[k]
-        pairs = list(zip(u[first_idx], v[first_idx]))
+        pairs = list(zip(u[first_idx], v[first_idx], strict=False))
         n_pairs = len(pairs)
 
         # accumulate per-task, per-pair effective wins for u and v sides
         SU = np.zeros((n_tasks, n_pairs), dtype=float)
         SV = np.zeros((n_tasks, n_pairs), dtype=float)
 
-        for ti, pi, ai, bi, ui, vi, yi, wi in zip(task_inverse, pair_inverse, a, b, u, v, win, w):
-            if yi == '1':  # method_1 (a) beat method_2 (b)
+        for ti, pi, ai, bi, ui, vi, yi, wi in zip(task_inverse, pair_inverse, a, b, u, v, win, w, strict=False):
+            if yi == "1":  # method_1 (a) beat method_2 (b)
                 if ui == ai:
                     SU[ti, pi] += wi
                 else:
                     SV[ti, pi] += wi
-            elif yi == '2':
+            elif yi == "2":
                 if ui == bi:
                     SU[ti, pi] += wi
                 else:
@@ -833,14 +850,14 @@ class EloHelper:
     def _bootstrap_draw_compressed(
         self,
         *,
-        counts: np.ndarray,             # shape (n_tasks,)
-        task_ids: np.ndarray,           # shape (n_tasks,), aligns with counts
-        SU: np.ndarray,                 # shape (n_tasks, n_pairs)
-        SV: np.ndarray,                 # shape (n_tasks, n_pairs)
-        X2: np.ndarray,                 # shape (2*n_pairs, n_models)
-        Y2: np.ndarray,                 # shape (2*n_pairs,)
-        model_to_idx: pd.Series,        # index = model names, values = col indices
-        battles: pd.DataFrame,          # original battles (used only for fallback)
+        counts: np.ndarray,  # shape (n_tasks,)
+        task_ids: np.ndarray,  # shape (n_tasks,), aligns with counts
+        SU: np.ndarray,  # shape (n_tasks, n_pairs)
+        SV: np.ndarray,  # shape (n_tasks, n_pairs)
+        X2: np.ndarray,  # shape (2*n_pairs, n_models)
+        Y2: np.ndarray,  # shape (2*n_pairs,)
+        model_to_idx: pd.Series,  # index = model names, values = col indices
+        battles: pd.DataFrame,  # original battles (used only for fallback)
         SCALE: int,
         INIT_RATING: float,
         solver: str,
@@ -848,27 +865,25 @@ class EloHelper:
         calibration_framework: str | None = None,
         calibration_elo: float | None = None,
     ) -> pd.Series:
-        """
-        One bootstrap draw using the pair-compressed MLE path.
+        """One bootstrap draw using the pair-compressed MLE path.
         Returns a pd.Series of ELO scores indexed by model names.
         """
         # Totals per unordered pair from task multiplicities
-        SU_tot = counts @ SU    # (n_pairs,)
-        SV_tot = counts @ SV    # (n_pairs,)
+        SU_tot = counts @ SU  # (n_pairs,)
+        SV_tot = counts @ SV  # (n_pairs,)
 
         # If one class is missing, fall back to iterative path for this draw
         has_pos = np.any(SU_tot > 0.0)
         has_neg = np.any(SV_tot > 0.0)
         if not (has_pos and has_neg):
             # Build multiplicity map for tasks in this draw
-            mult_map = dict(zip(task_ids, counts))
+            mult_map = dict(zip(task_ids, counts, strict=False))
             battles_boot = battles.copy()
             if "weight" not in battles_boot.columns:
                 battles_boot["weight"] = 1.0
-            battles_boot["weight"] = (
-                battles_boot["weight"].to_numpy(dtype=float)
-                * battles_boot[self.task_col].map(mult_map).fillna(0.0).to_numpy(dtype=float)
-            )
+            battles_boot["weight"] = battles_boot["weight"].to_numpy(dtype=float) * battles_boot[self.task_col].map(
+                mult_map
+            ).fillna(0.0).to_numpy(dtype=float)
             elo_scores = self.compute_iterative_elo_scores(
                 battles_boot,
                 INIT_RATING=INIT_RATING,
@@ -899,7 +914,7 @@ class EloHelper:
             lr.fit(X_fit, Y_fit, sample_weight=sw_fit)
 
             # Map coefficients -> ELO
-            coef = lr.coef_[0]                  # aligned with model_to_idx order
+            coef = lr.coef_[0]  # aligned with model_to_idx order
             elo_vec = SCALE * coef + INIT_RATING
             out = np.ones(len(model_to_idx), dtype=float) * INIT_RATING
             out[:] = elo_vec

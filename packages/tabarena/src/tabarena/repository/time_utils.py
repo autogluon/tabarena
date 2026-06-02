@@ -1,24 +1,26 @@
 from __future__ import annotations
 
-from typing import List, Optional, Dict
-import numpy as np
-import pandas as pd
+from typing import TYPE_CHECKING
 
-from .abstract_repository import AbstractRepository
+import numpy as np
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from .abstract_repository import AbstractRepository
 
 
 # FIXME: Should move into repo?
 def get_runtime(
-        repo: AbstractRepository,
-        dataset: str,
-        fold: int,
-        config_metrics: pd.DataFrame | None = None,
-        config_names: Optional[List[str]] = None,
-        runtime_col: str = 'time_train_s',
-        fail_if_missing: bool = True
-) -> Dict[str, float]:
-    """
-    :param repo:
+    repo: AbstractRepository,
+    dataset: str,
+    fold: int,
+    config_metrics: pd.DataFrame | None = None,
+    config_names: list[str] | None = None,
+    runtime_col: str = "time_train_s",
+    fail_if_missing: bool = True,
+) -> dict[str, float]:
+    """:param repo:
     :param dataset:
     :param fold:
     :param config_names:
@@ -45,45 +47,50 @@ def get_runtime(
     if len(missing_configurations) > 0:
         if fail_if_missing:
             raise ValueError(
-                f"not all configurations could be found in available data for the task {task}\n" \
-                f"requested: {config_names}\n" \
-                f"available: {list(runtime_configs.keys())}."
+                f"not all configurations could be found in available data for the task {task}\n"
+                f"requested: {config_names}\n"
+                f"available: {list(runtime_configs.keys())}.",
             )
+        # todo take mean of framework
+        if repo._config_fallback is not None:
+            config_metrics_fallback = repo.metrics(tasks=[task], configs=[repo._config_fallback])
+            fill_value = config_metrics_fallback.loc[(dataset, fold, repo._config_fallback), runtime_col]
         else:
-            # todo take mean of framework
-            if repo._config_fallback is not None:
-                config_metrics_fallback = repo.metrics(tasks=[task], configs=[repo._config_fallback])
-                fill_value = config_metrics_fallback.loc[(dataset, fold, repo._config_fallback), runtime_col]
-            else:
-                fill_value = np.mean(list(runtime_configs.values()))
-            # print(f"Imputing missing value {fill_value} for configurations {missing_configurations} on task {task}")
-            for configuration in missing_configurations:
-                runtime_configs[configuration] = fill_value
+            fill_value = np.mean(list(runtime_configs.values()))
+        # print(f"Imputing missing value {fill_value} for configurations {missing_configurations} on task {task}")
+        for configuration in missing_configurations:
+            runtime_configs[configuration] = fill_value
     return runtime_configs
 
 
 def sort_by_runtime(
     repo: AbstractRepository,
-    config_names: List[str],
+    config_names: list[str],
     ascending: bool = True,
-) -> List[str]:
+) -> list[str]:
     df_metrics = repo._zeroshot_context.df_configs
-    config_sorted = df_metrics.pivot_table(
-        index="framework", columns="tid", values="time_train_s"
-    ).median(axis=1).sort_values(ascending=ascending).index.tolist()
+    config_sorted = (
+        df_metrics.pivot_table(
+            index="framework",
+            columns="tid",
+            values="time_train_s",
+        )
+        .median(axis=1)
+        .sort_values(ascending=ascending)
+        .index.tolist()
+    )
     return [c for c in config_sorted if c in set(config_names)]
 
 
 def filter_configs_by_runtime(
-        repo: AbstractRepository,
-        dataset: str,
-        fold: int,
-        config_names: List[str],
-        config_metrics: pd.DataFrame = None,
-        max_cumruntime: Optional[float] = None
-) -> List[str]:
-    """
-    :param repo:
+    repo: AbstractRepository,
+    dataset: str,
+    fold: int,
+    config_names: list[str],
+    config_metrics: pd.DataFrame = None,
+    max_cumruntime: float | None = None,
+) -> list[str]:
+    """:param repo:
     :param tid:
     :param fold:
     :param config_names:
@@ -93,15 +100,20 @@ def filter_configs_by_runtime(
     """
     if not max_cumruntime:
         return config_names
-    else:
-        assert dataset in repo.datasets()
-        assert fold in repo.dataset_to_folds(dataset=dataset)
-        runtime_configs = get_runtime(repo=repo, dataset=dataset, fold=fold, config_names=config_names, config_metrics=config_metrics, fail_if_missing=False)
-        cumruntime = np.cumsum([runtime_configs[config] for config in config_names])
-        # str_runtimes = ", ".join([f"{name}: {time}" for name, time in zip(runtime_configs.keys(), cumruntime)])
-        # print(f"Cumulative runtime:\n {str_runtimes}")
+    assert dataset in repo.datasets()
+    assert fold in repo.dataset_to_folds(dataset=dataset)
+    runtime_configs = get_runtime(
+        repo=repo,
+        dataset=dataset,
+        fold=fold,
+        config_names=config_names,
+        config_metrics=config_metrics,
+        fail_if_missing=False,
+    )
+    cumruntime = np.cumsum([runtime_configs[config] for config in config_names])
+    # str_runtimes = ", ".join([f"{name}: {time}" for name, time in zip(runtime_configs.keys(), cumruntime)])
+    # print(f"Cumulative runtime:\n {str_runtimes}")
 
-        # gets index where cumulative runtime is below the target and next index is above the target
-        i = np.searchsorted(cumruntime, max_cumruntime)
-        return config_names[:i]
-
+    # gets index where cumulative runtime is below the target and next index is above the target
+    i = np.searchsorted(cumruntime, max_cumruntime)
+    return config_names[:i]

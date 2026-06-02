@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+
 from tabarena.evaluation import EvalMethod, TabArenaEvalConfig, run_eval
 from tabarena.loaders import get_tabarena_cache_root, set_tabarena_cache_root
 

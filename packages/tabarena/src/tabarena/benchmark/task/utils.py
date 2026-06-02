@@ -14,8 +14,7 @@ def get_split_idx(
     assert fold < n_folds
     assert repeat < n_repeats
     assert sample < n_samples
-    split_idx = n_folds * n_samples * repeat + n_samples * fold + sample
-    return split_idx
+    return n_folds * n_samples * repeat + n_samples * fold + sample
 
 
 def get_split_vals_from_split_idx(

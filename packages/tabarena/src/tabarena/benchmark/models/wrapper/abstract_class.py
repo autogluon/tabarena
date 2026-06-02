@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-from typing import Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 from autogluon.core.data.label_cleaner import LabelCleaner, LabelCleanerDummy
-from autogluon.core.metrics import Scorer
 from autogluon.features import AutoMLPipelineFeatureGenerator
 
-from tabarena.utils.time_utils import Timer
 from tabarena.benchmark.models.wrapper.validation_utils import TabArenaValidationProtocolExecMixin
+from tabarena.utils.time_utils import Timer
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from autogluon.core.metrics import Scorer
+
 
 class AbstractExecModel(TabArenaValidationProtocolExecMixin):
     can_get_error_val = False
@@ -81,18 +86,17 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
     # TODO: Prateek, Add a toggle here to see if user wants to fit or fit and predict, also add model saving functionality
     # TODO: Nick: Temporary name
     def fit_custom(
-            self,
-            X: pd.DataFrame | None,
-            y: pd.Series | None,
-            X_test: pd.DataFrame | None,
-            *,
-            split_seed: int | None = None,
-            lazy_load_function: Callable | None = None
+        self,
+        X: pd.DataFrame | None,
+        y: pd.Series | None,
+        X_test: pd.DataFrame | None,
+        *,
+        split_seed: int | None = None,
+        lazy_load_function: Callable | None = None,
     ) -> dict:
-        """
-        Calls the fit function of the inheriting class and proceeds to perform predictions based on the problem type
+        """Calls the fit function of the inheriting class and proceeds to perform predictions based on the problem type.
 
-        Arguments
+        Arguments:
         ---------
         split_seed:
             If not None, the seed that is different per split to use for shuffling features.
@@ -100,16 +104,17 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
             If not None, a function that one can call to load X, y, X_test lazily (e.g. to save memory by not
             loading them until needed). If provided, X, y, and X_test arguments must be None.
 
-        Returns
+        Returns:
         -------
         dict
             Returns predictions, probabilities, fit time and inference time
         """
         from tabarena.utils.memory_utils import CpuMemoryTracker, GpuMemoryTracker
+
         self._split_seed = split_seed
 
         if lazy_load_function is not None:
-            assert X is None and y is None and X_test is None, "If lazy_load_function is provided, X and y must be None"
+            assert X is None and y is None and X_test is None, "If lazy_load_function is provided, X and y must be None"  # noqa: PT018
             X, y, _ = lazy_load_function()
             self._can_use_data_in_place = True
 
@@ -163,12 +168,10 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
         out["memory_usage"] = dict(
             peak_mem_cpu=cpu_tracker.peak_rss,
             min_mem_cpu=cpu_tracker.min_rss,
-
             peak_mem_gpu=gpu_tracker.peak_allocated,
             peak_mem_gpu_reserved=gpu_tracker.peak_reserved,
             min_mem_gpu=gpu_tracker.min_allocated,
             min_mem_gpu_reserved=gpu_tracker.min_reserved,
-
             gpu_tracking_enabled=gpu_tracker.enabled,
         )
 
@@ -198,8 +201,7 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
     def predict_from_proba(self, y_pred_proba: pd.DataFrame) -> pd.Series:
         if isinstance(y_pred_proba, pd.DataFrame):
             return y_pred_proba.idxmax(axis=1)
-        else:
-            return np.argmax(y_pred_proba, axis=1)
+        return np.argmax(y_pred_proba, axis=1)
 
     def predict(self, X: pd.DataFrame) -> pd.Series:
         X = self.transform_X(X=X)

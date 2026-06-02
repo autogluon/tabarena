@@ -14,7 +14,6 @@ This module keeps that contract intact while delegating download + conversion to
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import openml
@@ -22,6 +21,8 @@ import openml
 from tabarena.benchmark.task.data_foundry.adapter import DataFoundryAdapter
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import pandas as pd
     from data_foundry.collections import DatasetCollection
 

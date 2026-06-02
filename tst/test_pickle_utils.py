@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from tabarena.utils.cache import CacheFunctionPickle
 from tabarena.utils.pickle_utils import dumps_pickle, is_gzipped, load_pickle, read_pickle_bytes
 

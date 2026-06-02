@@ -24,14 +24,13 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
 
     def get_calibrator(self):
         from probmetrics.calibrators import get_calibrator
+
         # also: pip install probmetrics pytorch-minimize
         return get_calibrator(self.calibrator_type)
 
     @staticmethod
     def _to_binary_1d(pred_proba: np.ndarray) -> np.ndarray:
-        """
-        Convert binary proba output to 1d positive-class probabilities if needed.
-        """
+        """Convert binary proba output to 1d positive-class probabilities if needed."""
         # If already 1d, assume it's positive-class proba
         if pred_proba.ndim == 1:
             return pred_proba
@@ -49,8 +48,7 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
         pred_test: np.ndarray,
         problem_type: str,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Fit a calibrator on (pred_fit, y_fit), then transform both pred_val and pred_test.
+        """Fit a calibrator on (pred_fit, y_fit), then transform both pred_val and pred_test.
         Handles binary->1d conversion.
         """
         calibrator = self.get_calibrator()
@@ -230,7 +228,7 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
         if self.optimize_on != "val":
             # This class intentionally only supports CV calibration on validation.
             raise ValueError(
-                f"{self.__class__.__name__} only supports optimize_on='val', got optimize_on={self.optimize_on!r}"
+                f"{self.__class__.__name__} only supports optimize_on='val', got optimize_on={self.optimize_on!r}",
             )
 
     def _get_cv_splitter(self, n_splits: int, problem_type: str, random_state: int):
@@ -254,10 +252,9 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
         evaluator,
         random_state: int,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Returns:
+        """Returns:
           - calibrated_val_oof: out-of-fold calibrated probabilities for validation-side data
-          - calibrated_test: calibrated probabilities for test, using calibrator fit on full validation-side data
+          - calibrated_test: calibrated probabilities for test, using calibrator fit on full validation-side data.
 
         For binary, outputs are 1d positive-class probabilities.
         For multiclass, outputs are 2d probabilities.
@@ -325,10 +322,9 @@ class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):
         evaluator,
         models: list[str],
     ):
-        """
-        optimize_on='val' only:
-          - pred_val becomes OOF-calibrated (per model)
-          - pred_test becomes calibrated via calibrator fit on full val-side (per model)
+        """optimize_on='val' only:
+        - pred_val becomes OOF-calibrated (per model)
+        - pred_test becomes calibrated via calibrator fit on full val-side (per model).
         """
         pred_val_out = copy.deepcopy(pred_val)
         pred_test_out = copy.deepcopy(pred_test)

@@ -6,6 +6,7 @@ import pytest
 def test_iltm():
     try:
         from autogluon.tabular.testing import FitHelper
+
         from tabarena.models.iltm.model import ILTMModel
 
         model_cls = ILTMModel
@@ -15,5 +16,5 @@ def test_iltm():
         )
     except ImportError as err:
         pytest.skip(
-            f"Import Error, skipping test... Ensure you have the proper dependencies installed to run this test:\n{err}"
+            f"Import Error, skipping test... Ensure you have the proper dependencies installed to run this test:\n{err}",
         )

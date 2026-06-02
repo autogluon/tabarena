@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from autogluon.tabular.models import MitraModel
 
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.mitra.hpo import gen_mitra
-from tabarena.models._method_metadata import MethodMetadata
 
 
 # NOTE: Prefetchers normally live in the model's ``model.py``. Mitra is the exception: it is

@@ -8,6 +8,7 @@ subset predicate column is present and usable on the collapsed frame.
 from __future__ import annotations
 
 import pandas as pd
+
 from tabarena.benchmark.task.metadata.sources.base import (
     InMemoryTaskMetadataSource,
     committed_metadata_path,

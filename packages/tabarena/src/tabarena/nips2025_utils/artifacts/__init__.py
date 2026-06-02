@@ -1,1 +1,3 @@
+from __future__ import annotations
+
 from ._tabarena_method_metadata import tabarena_method_metadata_collection

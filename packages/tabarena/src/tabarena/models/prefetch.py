@@ -14,7 +14,10 @@ prefetcher. Models that declare nothing (tree / linear baselines) are skipped.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 def prefetch_weights(model_names: Iterable[str], *, raise_on_error: bool = False) -> None:

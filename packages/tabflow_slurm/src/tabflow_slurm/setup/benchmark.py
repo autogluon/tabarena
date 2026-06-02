@@ -4,22 +4,21 @@ from __future__ import annotations
 
 import os
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import ray
-from tabarena.benchmark.experiment import TabArenaExperimentBundle
-from tabarena.utils.ray_utils import ray_map_list, to_batch_list
 
+from tabarena.utils.ray_utils import ray_map_list, to_batch_list
 from tabflow_slurm.setup.candidates import JobCandidate, should_run_job_batch
-from tabflow_slurm.setup.resources import ResourcesSetup
-from tabflow_slurm.setup.scheduler import SchedulerSetup, SlurmSetup
 
 if TYPE_CHECKING:
+    from tabarena.benchmark.experiment import TabArenaExperimentBundle
     from tabarena.benchmark.task.metadata import TabArenaMetadataBundle, TabArenaTaskMetadata
-
     from tabflow_slurm.setup.paths import PathSetup
+    from tabflow_slurm.setup.resources import ResourcesSetup
+    from tabflow_slurm.setup.scheduler import SchedulerSetup
 
 
 @dataclass
@@ -109,7 +108,7 @@ class TabArenaBenchmarkSetup:
 
         print(
             f"Approved {len(approved)} (task, fold, repeat, config) items"
-            f" -> {len(jobs)} array tasks (max {max_configs_per_job} items/task)."
+            f" -> {len(jobs)} array tasks (max {max_configs_per_job} items/task).",
         )
         return jobs, max_configs_per_job
 
@@ -135,7 +134,7 @@ class TabArenaBenchmarkSetup:
                         n_classes=split_md.num_classes_train,
                         n_samples_train_per_fold=split_md.num_instances_train,
                         problem_type=tm.problem_type,
-                    )
+                    ),
                 )
         return candidates
 
@@ -225,6 +224,6 @@ class TabArenaBenchmarkSetup:
                 self.path_setup.get_configs_path(
                     benchmark_name=self.benchmark_name,
                     safe_benchmark_name=self._safe_benchmark_name,
-                )
+                ),
             ).unlink(missing_ok=True)
         return run_commands

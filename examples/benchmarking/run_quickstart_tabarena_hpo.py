@@ -10,9 +10,10 @@ from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.website.website_format import format_leaderboard
 
-
-if __name__ == '__main__':
-    expname = str(Path(__file__).parent / "experiments" / "quickstart_hpo")  # folder location to save all experiment artifacts
+if __name__ == "__main__":
+    expname = str(
+        Path(__file__).parent / "experiments" / "quickstart_hpo"
+    )  # folder location to save all experiment artifacts
     eval_dir = Path(__file__).parent / "eval" / "quickstart_hpo"
     ignore_cache = False  # set to True to overwrite existing caches and re-run experiments from scratch
 

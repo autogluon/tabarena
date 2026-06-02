@@ -3,7 +3,6 @@ from __future__ import annotations
 import shutil
 import tempfile
 import zipfile
-from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urljoin
@@ -12,6 +11,8 @@ import requests
 from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from tabarena.models._method_metadata import MethodMetadata
 
 

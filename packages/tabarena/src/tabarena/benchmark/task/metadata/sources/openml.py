@@ -16,10 +16,14 @@ the old pre-download ``--directory`` flag).
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from tabarena.benchmark.task.metadata.schema import TabArenaTaskMetadata
 from tabarena.benchmark.task.metadata.sources.base import TaskMetadataSource
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from tabarena.benchmark.task.metadata.schema import TabArenaTaskMetadata
 
 
 class OpenMLTaskMetadataSource(TaskMetadataSource):

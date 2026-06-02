@@ -137,7 +137,8 @@ class TabSTARModel(AbstractModel):
         return num_cpus, num_gpus
 
     def get_minimum_resources(
-        self, is_gpu_available: bool = False
+        self,
+        is_gpu_available: bool = False,
     ) -> dict[str, int | float]:
         return {
             "num_cpus": 1,

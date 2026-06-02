@@ -1,2 +1,4 @@
+from __future__ import annotations
+
 from .tabular_predictions import TabularModelPredictions, TabularPredictionsInMemory, TabularPredictionsMemmap
 from .tabular_predictions_opt import TabularPredictionsInMemoryOpt

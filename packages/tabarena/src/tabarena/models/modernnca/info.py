@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from tabarena.models.modernnca.model import ModernNCAModel
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.modernnca.hpo import gen_modernnca
-from tabarena.models._method_metadata import MethodMetadata
-
+from tabarena.models.modernnca.model import ModernNCAModel
 
 modernnca_method_metadata = MethodMetadata(
     method="ModernNCA",

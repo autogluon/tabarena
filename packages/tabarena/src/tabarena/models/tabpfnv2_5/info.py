@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._model_info import ModelInfo
+from tabarena.models.tabpfnv2_5.hpo import gen_realtabpfnv25, gen_tabpfnv26
 from tabarena.models.tabpfnv2_5.model import (
     RealTabPFNv25Model,
     TabPFNv26Model,
     prefetch_weights,
 )
-from tabarena.models._model_info import ModelInfo
-from tabarena.models.tabpfnv2_5.hpo import gen_realtabpfnv25, gen_tabpfnv26
-from tabarena.models._method_metadata import MethodMetadata
-
 
 realtabpfnv25_method_metadata = MethodMetadata(
     method="RealTabPFN-v2.5",

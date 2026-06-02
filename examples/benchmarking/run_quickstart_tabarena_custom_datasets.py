@@ -41,7 +41,8 @@ def get_custom_classification_task(task_cache_dir: str) -> UserTask:
     # Create a stratified 10-repeated 3-fold split (any other split can be used as well)
     n_repeats, n_splits = 10, 3
     sklearn_splits = RepeatedStratifiedKFold(n_repeats=n_repeats, n_splits=n_splits, random_state=42).split(
-        X=dataset.drop(columns=["target"]), y=dataset["target"]
+        X=dataset.drop(columns=["target"]),
+        y=dataset["target"],
     )
     # Transform the splits into a standard dictionary format expected by TabArena
     splits = {}
@@ -131,7 +132,7 @@ if __name__ == "__main__":
                 task.tabarena_task_name,
                 int(len(oml_task.get_dataset().get_data()) * 0.67),
                 int(len(oml_task.get_dataset().get_data()) * 0.33),
-            ]
+            ],
         )
     task_metadata = pd.DataFrame(
         task_metadata,
@@ -156,7 +157,7 @@ if __name__ == "__main__":
             config_generator.generate_all_bag_experiments(
                 num_random_configs=num_random_configs,
                 fold_fitting_strategy="sequential_local",
-            )
+            ),
         )
 
     results_lst = run_experiments_new(
@@ -185,5 +186,3 @@ if __name__ == "__main__":
     )
     leaderboard_website = format_leaderboard(df_leaderboard=leaderboard)
     print(leaderboard_website.to_markdown(index=False))
-
-

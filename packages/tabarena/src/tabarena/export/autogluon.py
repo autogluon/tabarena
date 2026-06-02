@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import copy
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
-from tabarena.benchmark.experiment.experiment_constructor import AGModelExperiment
+if TYPE_CHECKING:
+    from tabarena.benchmark.experiment.experiment_constructor import AGModelExperiment
 
 
 class AutoGluonExporter:
@@ -11,14 +13,14 @@ class AutoGluonExporter:
         self.experiments = experiments
 
     def export_hyperparameters(self) -> dict[str, list[dict]]:
-        """
-        Convert TabArena AGModelExperiment objects into an AutoGluon-compatible
+        """Convert TabArena AGModelExperiment objects into an AutoGluon-compatible
         hyperparameters dictionary.
 
-        Returns
+        Returns:
         -------
         dict[str, list[dict]]
-            Example:
+
+        Example:
             {
                 "GBM": [
                     {"extra_trees": True, "ag_args": {"priority": -1}},
@@ -46,10 +48,9 @@ class AutoGluonExporter:
         return dict(hyperparameters)
 
     def export_fit_kwargs(self) -> dict:
-        """
-        Return shared AutoGluon fit kwargs across all experiments.
+        """Return shared AutoGluon fit kwargs across all experiments.
 
-        Raises
+        Raises:
         ------
         AssertionError
             If experiments have non-matching fit_kwargs.
@@ -65,16 +66,15 @@ class AutoGluonExporter:
                     "All experiments must have identical fit_kwargs to export "
                     f"an AutoGluon preset, but experiment 0 and experiment {i} differ.\n"
                     f"experiment 0 fit_kwargs: {fit_kwargs}\n"
-                    f"experiment {i} fit_kwargs: {e.method_kwargs['fit_kwargs']}"
+                    f"experiment {i} fit_kwargs: {e.method_kwargs['fit_kwargs']}",
                 )
 
         return fit_kwargs
 
     def export_preset(self) -> dict:
-        """
-        Export a dict of AutoGluon fit arguments.
+        """Export a dict of AutoGluon fit arguments.
 
-        Returns
+        Returns:
         -------
         dict
             Example:

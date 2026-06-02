@@ -12,7 +12,11 @@ DEFAULT_REMOTE_KWARGS = {
 
 
 def run_function_as_ray_task(
-    *, func: callable, num_cpus: int, num_gpus: int, func_kwargs: dict
+    *,
+    func: callable,
+    num_cpus: int,
+    num_gpus: int,
+    func_kwargs: dict,
 ):
     """Run a function as a ray task with the given number of cpus and gpus. Blocks until the function is done."""
     remote_func = ray.remote(**DEFAULT_REMOTE_KWARGS)(func)
@@ -107,9 +111,7 @@ def ray_map_list(
     for list_element in list_to_map[:num_workers]:
         result_ref = remote_p.options(**remote_p_options).remote(
             **{
-                func_element_key_string: ray.put(list_element)
-                if put_list_elements
-                else list_element
+                func_element_key_string: ray.put(list_element) if put_list_elements else list_element,
             },
             **job_kwargs,
         )
@@ -139,9 +141,7 @@ def ray_map_list(
             unfinished_list = unfinished_list[1:]
             result_ref = remote_p.options(**remote_p_options).remote(
                 **{
-                    func_element_key_string: ray.put(list_element)
-                    if put_list_elements
-                    else list_element
+                    func_element_key_string: ray.put(list_element) if put_list_elements else list_element,
                 },
                 **job_kwargs,
             )

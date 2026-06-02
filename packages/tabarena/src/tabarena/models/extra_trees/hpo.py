@@ -16,10 +16,12 @@ def generate_configs_xt(num_random_configs=200):
             Categorical("max_features", ["sqrt", 0.5, 0.75, 1.0]),
             Integer("min_samples_split", (2, 32), log=True),
             Categorical(
-                "bootstrap", [False]
+                "bootstrap",
+                [False],
             ),  # bootstrap=False doesn't allow OOB scores but seems to help
             Categorical(
-                "n_estimators", [50]
+                "n_estimators",
+                [50],
             ),  # 50 is decent, could go a bit higher for small gains
             Categorical(
                 "min_impurity_decrease",

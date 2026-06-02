@@ -1,0 +1,19 @@
+# Pre-commit hooks for TabArena. One-time setup:
+#
+#     pip install pre-commit   # (or: uv tool install pre-commit)
+#     pre-commit install
+#
+# After that, `git commit` runs ruff on the staged files: it auto-fixes what it
+# can and reformats; if anything was changed the commit aborts so you can re-add
+# the files and commit again. Remaining (non-auto-fixable) violations block the
+# commit until fixed or explicitly `# noqa`-ed.
+#
+# Keep `rev` in sync with the ruff version in .github/workflows/pytest-pytest.yml
+# and the `lint` dependency group in packages/tabarena/pyproject.toml.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format

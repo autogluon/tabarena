@@ -5,10 +5,20 @@ from autogluon.common.space import Categorical
 from tabarena.models.tabdpt.model import TabDPTModel
 from tabarena.utils.config_utils import ConfigGenerator
 
-
 search_space = {
     "temperature": Categorical(
-        0.8, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.9, 1.0, 1.25, 1.5
+        0.8,
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.9,
+        1.0,
+        1.25,
+        1.5,
     ),
     "context_size": Categorical(2048, 768, 256),
     "permute_classes": Categorical(True, False),

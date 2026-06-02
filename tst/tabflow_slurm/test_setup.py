@@ -14,6 +14,7 @@ The task-metadata loading/filtering moved into `TabArenaMetadataBundle`
 from __future__ import annotations
 
 import pytest
+
 from tabarena.benchmark.experiment import TabArenaExperimentBundle
 from tabarena.benchmark.task.metadata import TabArenaMetadataBundle
 
@@ -22,11 +23,11 @@ from tabarena.benchmark.task.metadata import TabArenaMetadataBundle
 # package, so `importorskip("tabflow_slurm")` would NOT skip. A submodule does.
 pytest.importorskip("tabflow_slurm.setup", reason="tabflow_slurm is not installed")
 
-from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup  # noqa: E402
-from tabflow_slurm.setup.candidates import JobCandidate  # noqa: E402
-from tabflow_slurm.setup.paths import PathSetup  # noqa: E402
-from tabflow_slurm.setup.resources import ResourcesSetup  # noqa: E402
-from tabflow_slurm.setup.scheduler import SlurmSetup  # noqa: E402
+from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
+from tabflow_slurm.setup.candidates import JobCandidate
+from tabflow_slurm.setup.paths import PathSetup
+from tabflow_slurm.setup.resources import ResourcesSetup
+from tabflow_slurm.setup.scheduler import SlurmSetup
 
 # ---------------------------------------------------------------------------
 # PathSetup

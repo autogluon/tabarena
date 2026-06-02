@@ -61,8 +61,7 @@ class TabICLModelBase(AbstractTorchModel):
                 reg_checkpoint = hyperparameter["checkpoint_version"][1]
             else:
                 raise ValueError(
-                    "checkpoint_version hyperparameter must be either "
-                    "a string or a tuple of two strings (clf, reg)."
+                    "checkpoint_version hyperparameter must be either a string or a tuple of two strings (clf, reg).",
                 )
 
         if self.problem_type in ["binary", "multiclass"]:
@@ -84,7 +83,7 @@ class TabICLModelBase(AbstractTorchModel):
     @staticmethod
     def _get_n_estimators_override(n_rows: int) -> int | None:
         # Avoid OOM and time issues
-        if n_rows >=  700_000:
+        if n_rows >= 700_000:
             return 1
         return None
 
@@ -97,7 +96,7 @@ class TabICLModelBase(AbstractTorchModel):
         **kwargs,
     ):
         try:
-            import tabicl
+            import tabicl  # noqa: F401
         except ImportError as err:
             logger.log(
                 40,
@@ -119,7 +118,8 @@ class TabICLModelBase(AbstractTorchModel):
         model_cls = self.get_model_cls()
         hyp = self._get_model_params()
         hyp["batch_size"] = hyp.get(
-            "batch_size", self._get_batch_size(X.shape[0] * X.shape[1])
+            "batch_size",
+            self._get_batch_size(X.shape[0] * X.shape[1]),
         )
         hyp["checkpoint_version"] = self.get_checkpoint_version(hyperparameter=hyp)
 
@@ -138,7 +138,7 @@ class TabICLModelBase(AbstractTorchModel):
             n_jobs=num_cpus,
             disk_offload_dir=disk_offload_dir,
             verbose=X.shape[0] > 250_000,
-            inference_config=dict(COL_CONFIG=dict(cpu_safety_factor=0.75))
+            inference_config=dict(COL_CONFIG=dict(cpu_safety_factor=0.75)),
         )
         X = self.preprocess(X, y=y)
         self.model = self.model.fit(
@@ -154,7 +154,8 @@ class TabICLModelBase(AbstractTorchModel):
         return num_cpus, num_gpus
 
     def get_minimum_resources(
-        self, is_gpu_available: bool = False
+        self,
+        is_gpu_available: bool = False,
     ) -> dict[str, int | float]:
         return {
             "num_cpus": 1,
@@ -186,21 +187,18 @@ class TabICLModelBase(AbstractTorchModel):
         if hyperparameters is None:
             hyperparameters = {}
 
-        dataset_size_mem_est = (
-            3 * get_approximate_df_mem_usage(X).sum()
-        )  # roughly 3x DataFrame memory size
+        dataset_size_mem_est = 3 * get_approximate_df_mem_usage(X).sum()  # roughly 3x DataFrame memory size
         baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
 
         n_rows = X.shape[0]
         n_features = X.shape[1]
         batch_size = hyperparameters.get(
-            "batch_size", cls._get_batch_size(X.shape[0] * X.shape[1])
+            "batch_size",
+            cls._get_batch_size(X.shape[0] * X.shape[1]),
         )
         embedding_dim = 128
         bytes_per_float = 4
-        model_mem_estimate = (
-            2 * batch_size * embedding_dim * bytes_per_float * (4 + n_rows) * n_features
-        )
+        model_mem_estimate = 2 * batch_size * embedding_dim * bytes_per_float * (4 + n_rows) * n_features
 
         model_mem_estimate *= 1.3  # add 30% buffer
 
@@ -259,6 +257,7 @@ class TabICLModelBase(AbstractTorchModel):
         self.model.inference_config_.ROW_CONFIG.device = self.model.device_
         self.model.inference_config_.ICL_CONFIG.device = self.model.device_
 
+
 class TabICLModel(TabICLModelBase):
     """TabICLv1.1 model as used on TabArena."""
 
@@ -280,7 +279,7 @@ class TabICLModel(TabICLModelBase):
 
     def _set_default_params(self):
         default_params = {
-            "n_estimators": 32, # default of TabICLv1
+            "n_estimators": 32,  # default of TabICLv1
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
@@ -306,7 +305,7 @@ class TabICLv2Model(TabICLModelBase):
             (
                 "tabicl-classifier-v2-20260212.ckpt",
                 "tabicl-regressor-v2-20260212.ckpt",
-            )
+            ),
         ]
 
     @classmethod
@@ -322,8 +321,6 @@ class TabICLv2Model(TabICLModelBase):
 
         Problems are: GPU memory est, how to handle off-loading logic, ...
         """
-        dataset_size_mem_est = (
-            3 * get_approximate_df_mem_usage(X).sum()
-        )
+        dataset_size_mem_est = 3 * get_approximate_df_mem_usage(X).sum()
         baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
         return dataset_size_mem_est + baseline_overhead_mem_est

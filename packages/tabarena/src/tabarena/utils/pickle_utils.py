@@ -40,7 +40,7 @@ def read_pickle_bytes(path: str | Path) -> bytes:
 
 def load_pickle(path: str | Path) -> Any:
     """Load a (possibly gzip-compressed) pickle file."""
-    return pickle.loads(read_pickle_bytes(path))  # noqa: S301 — our own trusted artifacts
+    return pickle.loads(read_pickle_bytes(path))
 
 
 def fetch_all_pickles_new(
@@ -66,21 +66,16 @@ def fetch_all_pickles_new(
     out: list[Path] = []
     for r in roots:
         if r.is_file():
-            if isinstance(suffix, tuple):
-                ok = any(str(r).endswith(s) for s in suffix)
-            else:
-                ok = str(r).endswith(suffix)
+            ok = any(str(r).endswith(s) for s in suffix) if isinstance(suffix, tuple) else str(r).endswith(suffix)
             if not ok:
                 raise AssertionError(f"{r} is a file that does not end in `{suffix}`.")
             out.append(r)
     # Keep only directory roots for walking
     dir_roots: list[Path] = [r for r in roots if r.exists() and r.is_dir()]
-    bad_roots = [
-        r for r in roots if not r.exists() or (not r.is_dir() and not r.is_file())
-    ]
+    bad_roots = [r for r in roots if not r.exists() or (not r.is_dir() and not r.is_file())]
     if bad_roots:
         raise NotADirectoryError(
-            f"{', '.join(map(str, bad_roots))} not found or not directories"
+            f"{', '.join(map(str, bad_roots))} not found or not directories",
         )
 
     def scan(root: Path) -> list[Path]:
@@ -145,7 +140,7 @@ def fetch_all_pickles(
     if num_workers is not None and num_workers > 1:
         if max_files is not None:
             raise NotImplementedError(
-                "Limiting max_files is not currently implemented for num_workers > 1."
+                "Limiting max_files is not currently implemented for num_workers > 1.",
             )
         return _fetch_all_pickles_parallel(
             dir_path=dir_path,
@@ -162,9 +157,7 @@ def fetch_all_pickles(
         root = Path(cur_dir_path).expanduser()
         if not root.is_dir():
             if root.is_file():
-                assert str(root).endswith(suffix), (
-                    f"{root} is a file that does not end in `{suffix}`."
-                )
+                assert str(root).endswith(suffix), f"{root} is a file that does not end in `{suffix}`."
                 file_paths.append(root)
             else:
                 raise NotADirectoryError(f"{root} is not a directory")
@@ -174,8 +167,7 @@ def fetch_all_pickles(
                 top_dirs = [
                     Path(e.path)
                     for e in os.scandir(root)
-                    if e.is_dir(follow_symlinks=False)
-                    and fnmatch.fnmatch(e.name, prefix_glob)
+                    if e.is_dir(follow_symlinks=False) and fnmatch.fnmatch(e.name, prefix_glob)
                 ]
             else:
                 top_dirs = [root]
@@ -192,10 +184,7 @@ def fetch_all_pickles(
                             if fn.endswith(suffix):
                                 file_paths.append(dp / fn)
                                 pbar.update(1)
-                                if (
-                                    max_files is not None
-                                    and len(file_paths) == max_files
-                                ):
+                                if max_files is not None and len(file_paths) == max_files:
                                     return file_paths
             finally:
                 pbar.close()
@@ -237,9 +226,7 @@ def _fetch_all_pickles_parallel(
     for cur_dir_path in dir_path:
         root = Path(cur_dir_path).expanduser()
         if root.is_file():
-            assert str(root).endswith(suffix), (
-                f"{root} is a file that does not end in `{suffix}`."
-            )
+            assert str(root).endswith(suffix), f"{root} is a file that does not end in `{suffix}`."
             file_paths.append(root)
             continue
         if not root.is_dir():
@@ -250,21 +237,16 @@ def _fetch_all_pickles_parallel(
             top_dirs = [
                 Path(e.path)
                 for e in os.scandir(root)
-                if e.is_dir(follow_symlinks=False)
-                and fnmatch.fnmatch(e.name, prefix_glob)
+                if e.is_dir(follow_symlinks=False) and fnmatch.fnmatch(e.name, prefix_glob)
             ]
         else:
             top_dirs = [root]
 
         # Expand one level deeper for better parallelism across ray workers.
         for top in top_dirs:
-            subs = [
-                Path(e.path)
-                for e in os.scandir(top)
-                if e.is_dir(follow_symlinks=False)
-            ]
+            subs = [Path(e.path) for e in os.scandir(top) if e.is_dir(follow_symlinks=False)]
             if not subs:
-                warnings.warn(f"{top} does not contain results!")
+                warnings.warn(f"{top} does not contain results!", stacklevel=2)
                 continue
             work_units.extend(subs)
 
@@ -288,8 +270,7 @@ def _fetch_all_pickles_parallel(
             track_progress=True,
             tqdm_kwargs={
                 "desc": (
-                    f"Searching for pickles (suffix={suffix}, "
-                    f"name_pattern={name_pattern}, workers={num_workers})"
+                    f"Searching for pickles (suffix={suffix}, name_pattern={name_pattern}, workers={num_workers})"
                 ),
             },
             ray_remote_kwargs={"max_calls": 0},

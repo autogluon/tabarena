@@ -1,22 +1,23 @@
 from __future__ import annotations
 
-from typing import Type
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
-from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer, EnsembleScorerMaxModels
 from tabarena.portfolio.greedy_portfolio_generator import zeroshot_results
-from ..repository import EvaluationRepository, EvaluationRepositoryCollection
-from ..repository.repo_utils import convert_time_infer_s_from_sample_to_batch
+from tabarena.repository.repo_utils import convert_time_infer_s_from_sample_to_batch
+from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer, EnsembleScorerMaxModels
+
+if TYPE_CHECKING:
+    from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection
 
 
 # TODO: This class is WIP.
 # TODO: Add unit tests
 class Evaluator:
-    """
-    Computes metrics and statistics to compare methods.
-    """
+    """Computes metrics and statistics to compare methods."""
+
     def __init__(
         self,
         repo: EvaluationRepository | EvaluationRepositoryCollection,
@@ -26,10 +27,10 @@ class Evaluator:
     def compare_metrics(
         self,
         results_df: pd.DataFrame = None,
-        datasets: list[str] = None,
-        folds: list[int] = None,
-        configs: list[str] = None,
-        baselines: list[str] = None,
+        datasets: list[str] | None = None,
+        folds: list[int] | None = None,
+        configs: list[str] | None = None,
+        baselines: list[str] | None = None,
         convert_from_sample_to_batch: bool = False,
         keep_extra_columns: bool = False,
         include_metric_error_val: bool = False,
@@ -55,7 +56,7 @@ class Evaluator:
 
         config_columns = columns
         if include_metric_error_val:
-            config_columns = config_columns + ["metric_error_val"]
+            config_columns = [*config_columns, "metric_error_val"]
         df_configs = self.repo._zeroshot_context.df_configs
         config_aux_columns = [c for c in aux_columns if c in df_configs.columns]
         # Dropping task column in df_tr
@@ -75,7 +76,7 @@ class Evaluator:
             df_baselines = self.repo._zeroshot_context.df_baselines.set_index(["dataset", "fold", "framework"])
             baseline_columns = columns
             if include_metric_error_val:
-                baseline_columns = baseline_columns + ["metric_error_val"]
+                baseline_columns = [*baseline_columns, "metric_error_val"]
                 if "metric_error_val" not in df_baselines:
                     df_baselines["metric_error_val"] = np.nan
             df_baselines = df_baselines[baseline_columns]
@@ -126,15 +127,14 @@ class Evaluator:
 
     @classmethod
     def _fillna_metrics(cls, df_metrics: pd.DataFrame, df_fillna: pd.DataFrame) -> pd.DataFrame:
-        """
-        Fills missing (dataset, fold, framework) rows in df_metrics with the (dataset, fold) row in df_fillna.
+        """Fills missing (dataset, fold, framework) rows in df_metrics with the (dataset, fold) row in df_fillna.
 
         Parameters
         ----------
         df_metrics
         df_fillna
 
-        Returns
+        Returns:
         -------
 
         """
@@ -164,27 +164,22 @@ class Evaluator:
         df_filled["imputed"] = False
         df_filled.loc[nan_vals, "imputed"] = True
 
-        df_metrics = df_filled
-
-        return df_metrics
+        return df_filled
 
     # TODO: Prototype, find a better way to do this
     # TODO: Docstring
     def compute_avg_config_prediction_delta(
         self,
         configs: list[str],
-        datasets: list[str] = None,
+        datasets: list[str] | None = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """
-
-
-        Parameters
+        """Parameters
         ----------
         configs
         datasets
         folds
 
-        Returns
+        Returns:
         -------
         delta_avg_abs_mean : pd.DataFrame
             The per-task normalized mean of the absolute delta in cells between two configs' test predictions.
@@ -196,6 +191,7 @@ class Evaluator:
         if datasets is None:
             datasets = self.repo.datasets()
         import numpy as np
+
         delta_comparison = {}
         delta_std_comparison = {}
         for dataset in datasets:
@@ -215,7 +211,7 @@ class Evaluator:
                         y_pred_test2 = self.repo.predict_test(dataset=dataset, fold=fold, config=compare_conf2)
                         delta = y_pred_test2 - y_pred_test1
                         # print(delta)
-                        mean = np.mean(delta)
+                        np.mean(delta)
                         abs_mean = np.mean(np.abs(delta))
                         stddev = np.std(delta)
                         print(f"\t{abs_mean:.3f}\t{stddev:.3f}")
@@ -228,7 +224,7 @@ class Evaluator:
                     max_abs_mean = max(max_abs_mean, v)
                 for k, v in delta_std_comparison[(dataset, fold)].items():
                     max_std = max(max_std, v)
-                for k in delta_comparison[(dataset, fold)].keys():
+                for k in delta_comparison[(dataset, fold)]:
                     if max_abs_mean != 0:
                         delta_comparison[(dataset, fold)][k] /= max_abs_mean
                     if max_std != 0:
@@ -247,11 +243,14 @@ class Evaluator:
 
         # FIXME: Make plotting optional
         from matplotlib import pyplot as plt
-        fig, ax = plt.subplots(figsize=(10, 10))
+
+        _fig, ax = plt.subplots(figsize=(10, 10))
         # config_names = list(delta_avg_abs_mean.index)
         delta_avg_abs_mean_projection = pd.DataFrame(delta_avg_abs_mean_projection, index=delta_avg_abs_mean.index)
         for config in delta_avg_abs_mean_projection.index:
-            ax.scatter(delta_avg_abs_mean_projection.loc[config, 0], delta_avg_abs_mean_projection.loc[config, 1], label=config)
+            ax.scatter(
+                delta_avg_abs_mean_projection.loc[config, 0], delta_avg_abs_mean_projection.loc[config, 1], label=config
+            )
         ax.legend()
         ax.grid(True)
         plt.savefig("pca_projection_test")
@@ -273,8 +272,8 @@ class Evaluator:
         n_ensemble_in_name: bool = True,
         n_max_models_per_type: int | str | None = None,
         n_eval_folds: int | None = None,
-        ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
-        ensemble_kwargs: dict = None,
+        ensemble_cls: type[EnsembleScorer] = EnsembleScorerMaxModels,
+        ensemble_kwargs: dict | None = None,
         patience_callback: list | None = None,
     ) -> pd.DataFrame:
         repo = self.repo
@@ -304,9 +303,11 @@ class Evaluator:
         df_zeroshot_portfolio = pd.DataFrame(a)
 
         if rename_columns:
-            df_zeroshot_portfolio = df_zeroshot_portfolio.rename(columns={
-                "metadata": "method_metadata",
-            })
+            df_zeroshot_portfolio = df_zeroshot_portfolio.rename(
+                columns={
+                    "metadata": "method_metadata",
+                }
+            )
             datasets_info = repo.datasets_info()
 
             df_zeroshot_portfolio["problem_type"] = df_zeroshot_portfolio["dataset"].map(datasets_info["problem_type"])

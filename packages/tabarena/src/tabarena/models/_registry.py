@@ -43,7 +43,9 @@ def discover_models() -> dict[str, ModelInfo]:
                 "Skipping tabarena.models.%s in registry: failed to import its "
                 "info module (%s: %s). The model will not be discoverable until "
                 "the import is fixed.",
-                name, type(exc).__name__, exc,
+                name,
+                type(exc).__name__,
+                exc,
             )
             continue
         for attr_name in dir(info_module):
@@ -56,7 +58,7 @@ def discover_models() -> dict[str, ModelInfo]:
             if key in registry:
                 raise RuntimeError(
                     f"Duplicate ModelInfo key {key!r}: {registry[key]} vs {obj} "
-                    f"(from tabarena.models.{name}.info::{attr_name})"
+                    f"(from tabarena.models.{name}.info::{attr_name})",
                 )
             registry[key] = obj
 
@@ -98,6 +100,6 @@ def register_model_info(info: ModelInfo) -> None:
         raise RuntimeError(
             f"Duplicate ModelInfo composite key {composite_key!r}: "
             f"already registered as {registry[composite_key]}; "
-            f"attempted to re-register with {info}."
+            f"attempted to re-register with {info}.",
         )
     registry[composite_key] = info

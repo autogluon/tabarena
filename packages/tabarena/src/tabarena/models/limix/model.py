@@ -254,7 +254,7 @@ class LimiXModel(AbstractTorchModel):
             {
                 "fold_fitting_strategy": "sequential_local",
                 "refit_folds": True,
-            }
+            },
         )
         return default_ag_args_ensemble
 
@@ -268,7 +268,7 @@ class LimiXModel(AbstractTorchModel):
             {
                 # "max_rows": 50_000, # Technically from LimiX
                 "max_classes": 10,
-            }
+            },
         )
         return default_auxiliary_params
 

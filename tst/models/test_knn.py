@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from autogluon.tabular.testing import FitHelper
+
 from tabarena.models.knn.model import KNNNewModel
 
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 from tabarena.models.limix.model import LimiXModel
 from tabarena.utils.config_utils import ConfigGenerator
 
-
 gen_limix = ConfigGenerator(
     model_cls=LimiXModel,
     search_space={},

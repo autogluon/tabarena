@@ -19,7 +19,7 @@ def generate_single_config_modernnca(rng):
         "sample_rate": rng.uniform(0.05, 0.6),
         "lr": np.exp(rng.uniform(np.log(1e-5), np.log(1e-1))),
         "weight_decay": rng.choice(
-            [0.0, np.exp(rng.uniform(np.log(1e-6), np.log(1e-3)))]
+            [0.0, np.exp(rng.uniform(np.log(1e-6), np.log(1e-3)))],
         ),
         "temperature": 1.0,
         "num_emb_type": "plr",

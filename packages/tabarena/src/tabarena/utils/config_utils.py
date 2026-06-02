@@ -1,24 +1,26 @@
 from __future__ import annotations
 
 import copy
-from typing import Type, Literal
+from typing import TYPE_CHECKING, Literal
 
 from autogluon.core.searcher.local_random_searcher import LocalRandomSearcher
-from autogluon.core.models import AbstractModel
 
 from tabarena.benchmark.experiment import AGModelBagExperiment, AGModelExperiment
+
+if TYPE_CHECKING:
+    from autogluon.core.models import AbstractModel
 
 
 def configs_to_name_dict(configs, name_prefix, model_type):
     configs_dict = {}
     for c in configs:
         name_suffix = c["ag_args"]["name_suffix"]
-        c_name = f'{name_prefix}{name_suffix}'
+        c_name = f"{name_prefix}{name_suffix}"
         config_dict = dict()
-        config_dict['hyperparameters'] = c
-        config_dict['name_prefix'] = name_prefix
-        config_dict['name_suffix'] = name_suffix
-        config_dict['model_type'] = model_type
+        config_dict["hyperparameters"] = c
+        config_dict["name_prefix"] = name_prefix
+        config_dict["name_suffix"] = name_suffix
+        config_dict["model_type"] = model_type
         configs_dict[c_name] = config_dict
     return configs_dict
 
@@ -26,18 +28,19 @@ def configs_to_name_dict(configs, name_prefix, model_type):
 def combine_manual_and_random_configs(manual_configs, random_configs, name_id_suffix: str = ""):
     combined_configs = []
     for i, config in enumerate(manual_configs):
-        combined_configs.append(add_suffix_to_config(config=config, suffix=f'_c{i+1}{name_id_suffix}'))
+        combined_configs.append(add_suffix_to_config(config=config, suffix=f"_c{i + 1}{name_id_suffix}"))
     for i, config in enumerate(random_configs):
-        combined_configs.append(add_suffix_to_config(config=config, suffix=f'_r{i+1}{name_id_suffix}'))
+        combined_configs.append(add_suffix_to_config(config=config, suffix=f"_r{i + 1}{name_id_suffix}"))
     return combined_configs
 
 
 def add_suffix_to_config(config, suffix):
     if "ag_args" in config:
-        raise AssertionError(f"ag_args already exists in config!")
+        raise AssertionError("ag_args already exists in config!")
     config = copy.deepcopy(config)
-    config['ag_args'] = {'name_suffix': suffix}
+    config["ag_args"] = {"name_suffix": suffix}
     return config
+
 
 def add_seed_logic(config: dict, random_seed: int, vary_seed_across_folds: bool) -> dict:
     config = copy.deepcopy(config)
@@ -47,12 +50,14 @@ def add_seed_logic(config: dict, random_seed: int, vary_seed_across_folds: bool)
     config["ag_args_ensemble"]["vary_seed_across_folds"] = vary_seed_across_folds
     return config
 
+
 def add_fold_fitting_strategy(config: dict, fold_fitting_strategy: str) -> dict:
     config = copy.deepcopy(config)
     if "ag_args_ensemble" not in config:
         config["ag_args_ensemble"] = {}
     config["ag_args_ensemble"]["fold_fitting_strategy"] = fold_fitting_strategy
     return config
+
 
 def get_random_searcher(search_space, num_configs: None | int = None):
     searcher = LocalRandomSearcher(search_space=search_space)
@@ -97,16 +102,13 @@ class AGConfigGenerator(AbstractConfigGenerator):
 
     def generate_all_configs(self, num_random_configs):
         configs = self.generate_all_configs_lst(num_random_configs=num_random_configs)
-        configs_dict = configs_to_name_dict(configs=configs, name_prefix=self.name, model_type=self.model_type)
-        return configs_dict
+        return configs_to_name_dict(configs=configs, name_prefix=self.name, model_type=self.model_type)
 
     def generate_all_configs_lst(self, num_random_configs: int, name_id_suffix: str = "") -> list[dict]:
-        if num_random_configs > 0:
-            random_configs = self.get_searcher_configs(num_random_configs)
-        else:
-            random_configs = []
-        configs = combine_manual_and_random_configs(manual_configs=self.manual_configs, random_configs=random_configs, name_id_suffix=name_id_suffix)
-        return configs
+        random_configs = self.get_searcher_configs(num_random_configs) if num_random_configs > 0 else []
+        return combine_manual_and_random_configs(
+            manual_configs=self.manual_configs, random_configs=random_configs, name_id_suffix=name_id_suffix
+        )
 
     def generate_all_bag_experiments(
         self,
@@ -141,16 +143,15 @@ class AGConfigGenerator(AbstractConfigGenerator):
             locally without good CPUs for parallelism.
         """
         configs = self.generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
-        experiments = generate_bag_experiments(
+        return generate_bag_experiments(
             model_cls=self.model_cls,
             configs=configs,
             name_suffix_from_ag_args=True,
             add_seed=add_seed,
             method_kwargs=method_kwargs,
             fold_fitting_strategy=fold_fitting_strategy,
-            **kwargs
+            **kwargs,
         )
-        return experiments
 
     def generate_all_holdout_experiments(
         self,
@@ -174,21 +175,20 @@ class AGConfigGenerator(AbstractConfigGenerator):
             runner by `method_kwargs=dict(init_kwargs=dict(path="./my_custom_path"))`
         """
         configs = self.generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
-        experiments = generate_holdout_experiments(
+        return generate_holdout_experiments(
             model_cls=self.model_cls,
             configs=configs,
             name_suffix_from_ag_args=True,
             method_kwargs=method_kwargs,
-            **kwargs
+            **kwargs,
         )
-        return experiments
 
 
 class ConfigGenerator(AGConfigGenerator):
     def __init__(
         self,
         search_space: dict,
-        model_cls: Type[AbstractModel],
+        model_cls: type[AbstractModel],
         name: str | None = None,
         manual_configs: list[dict] | None = None,
     ):
@@ -212,7 +212,7 @@ class ConfigGenerator(AGConfigGenerator):
 class CustomAGConfigGenerator(AGConfigGenerator):
     def __init__(
         self,
-        model_cls: Type[AbstractModel],
+        model_cls: type[AbstractModel],
         search_space_func,
         name: str | None = None,
         manual_configs: list[dict] | None = None,
@@ -253,15 +253,9 @@ def generate_bag_experiments(
         kwargs = {}
 
     if add_seed == "static":
-        configs = [
-            add_seed_logic(config=config, random_seed=0, vary_seed_across_folds=False)
-            for config in configs
-        ]
+        configs = [add_seed_logic(config=config, random_seed=0, vary_seed_across_folds=False) for config in configs]
     elif add_seed == "fold-wise":
-        configs = [
-            add_seed_logic(config=config, random_seed=0, vary_seed_across_folds=True)
-            for config in configs
-        ]
+        configs = [add_seed_logic(config=config, random_seed=0, vary_seed_across_folds=True) for config in configs]
     elif add_seed == "fold-config-wise":
         offset_between_configs = num_bag_sets * num_bag_folds
         configs = [
@@ -270,19 +264,18 @@ def generate_bag_experiments(
         ]
     else:
         raise ValueError(
-            f"Invalid add_seed value: {add_seed}. Choose from 'static', 'fold-wise', or 'fold-config-wise'."
+            f"Invalid add_seed value: {add_seed}. Choose from 'static', 'fold-wise', or 'fold-config-wise'.",
         )
     if fold_fitting_strategy is not None:
         configs = [
-            add_fold_fitting_strategy(config=config, fold_fitting_strategy=fold_fitting_strategy)
-            for config in configs
+            add_fold_fitting_strategy(config=config, fold_fitting_strategy=fold_fitting_strategy) for config in configs
         ]
 
     for i, config in enumerate(configs):
         if name_suffix_from_ag_args:
             name_suffix = config.get("ag_args", {}).get("name_suffix", "")
         else:
-            name_suffix = f"_{name_id_prefix}{i+1}{name_id_suffix}"
+            name_suffix = f"_{name_id_prefix}{i + 1}{name_id_suffix}"
             if add_name_suffix_to_params:
                 config = add_suffix_to_config(config=config, suffix=name_suffix)
         name = f"{model_cls.ag_name}{name_suffix}{name_bag_suffix}"
@@ -317,7 +310,7 @@ def generate_holdout_experiments(
         if name_suffix_from_ag_args:
             name_suffix = config.get("ag_args", {}).get("name_suffix", "")
         else:
-            name_suffix = f"_{name_id_prefix}{i+1}{name_id_suffix}"
+            name_suffix = f"_{name_id_prefix}{i + 1}{name_id_suffix}"
             if add_name_suffix_to_params:
                 config = add_suffix_to_config(config=config, suffix=name_suffix)
         name = f"{model_cls.ag_name}{name_suffix}"

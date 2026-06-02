@@ -32,12 +32,7 @@ class DateTimeFeatureGenerator(AbstractFeatureGenerator):
         return X_out, type_family_groups_special
 
     def _transform(self, X: pd.DataFrame, *, is_train: bool = False) -> pd.DataFrame:
-        if is_train:
-            X = self._vectorizer.fit_transform(X)
-        else:
-            X = self._vectorizer.transform(X)
-
-        return X
+        return self._vectorizer.fit_transform(X) if is_train else self._vectorizer.transform(X)
 
     @staticmethod
     def get_default_infer_features_in_args() -> dict:
@@ -45,5 +40,5 @@ class DateTimeFeatureGenerator(AbstractFeatureGenerator):
             "required_raw_special_pairs": [
                 (R_DATETIME, None),
                 (None, [S_DATETIME_AS_OBJECT]),
-            ]
+            ],
         }

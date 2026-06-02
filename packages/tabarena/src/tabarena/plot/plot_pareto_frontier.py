@@ -4,14 +4,13 @@ import io
 import os
 from contextlib import redirect_stdout
 
+import matplotlib.patheffects as PathEffects
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_numeric_dtype
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-import matplotlib.patheffects as PathEffects
-import matplotlib.patches as mpatches
 import seaborn as sns
+from matplotlib.lines import Line2D
+from pandas.api.types import is_numeric_dtype
 
 try:
     from adjustText import adjust_text
@@ -21,7 +20,9 @@ except ImportError:
     HAS_ADJUST_TEXT = False
 
 
-def aggregate_stats(df, on: str, groupby="method", method=["mean", "median", "std"]):
+def aggregate_stats(df, on: str, groupby="method", method=None):
+    if method is None:
+        method = ["mean", "median", "std"]
     return df[[groupby, on]].groupby(groupby).agg(method)[on]
 
 
@@ -34,8 +35,7 @@ def get_pareto_frontier(
     max_Y=True,
     include_boundary_edges=True,
 ):
-    """
-    Compute the (piece‑wise constant) Pareto frontier and, in parallel,
+    """Compute the (piece‑wise constant) Pareto frontier and, in parallel,
     return the label associated with each frontier vertex.
 
     Parameters
@@ -51,7 +51,7 @@ def get_pareto_frontier(
     include_boundary_edges : bool, default True
         If True, will include pareto front edges to the worst x and y values observed.
 
-    Returns
+    Returns:
     -------
     pareto_front : list[tuple[float, float]]
         The vertices that define the frontier, including the vertical
@@ -68,7 +68,7 @@ def get_pareto_frontier(
 
     # Sort primarily by X (descending if we maximise), secondarily by Y.
     pts = sorted(
-        zip(Xs, Ys, names),
+        zip(Xs, Ys, names, strict=False),
         key=lambda t: (t[0], t[1]),
         reverse=max_X,
     )
@@ -178,8 +178,7 @@ def plot_pareto(
         if place_first_at_end:
             first_in.reverse()
             return rest + first_in
-        else:
-            return first_in + rest
+        return first_in + rest
 
     # Build stable color mapping per hue category (here: method_type)
     hue_levels = list(pd.unique(plot_df[hue]))
@@ -202,11 +201,11 @@ def plot_pareto(
         extended_palette = (
             sns.color_palette("tab20", 20) + sns.color_palette("tab20b", 20) + sns.color_palette("tab20c", 20)
         )
-        colors = extended_palette[:len(hue_levels)]
+        colors = extended_palette[: len(hue_levels)]
     else:
-        colors = base_palette[:len(hue_levels)]
+        colors = base_palette[: len(hue_levels)]
     colors = [colors[i % len(colors)] for i in range(len(hue_levels))]
-    palette_map = dict(zip(hue_levels, colors))
+    palette_map = dict(zip(hue_levels, colors, strict=False))
 
     label_to_hue_dict = data.set_index(label_col)[hue].to_dict()
     label_to_color_dict = {l: palette_map[h] for l, h in label_to_hue_dict.items()}
@@ -217,7 +216,7 @@ def plot_pareto(
 
     # Create a mapping of labels to highlight colors
     label_to_highlight = {}
-    for label in label_to_color_dict.keys():
+    for label in label_to_color_dict:
         for prefix, color in highlight_prefixes.items():
             if label.startswith(prefix):
                 label_to_highlight[label] = color
@@ -353,8 +352,8 @@ def plot_pareto(
     pf_Y_first = y_min if max_Y else y_max
     pf_Y_last = pf_Y[-1]
 
-    pf_X = [pf_X_first] + pf_X + [pf_X_last]
-    pf_Y = [pf_Y_first] + pf_Y + [pf_Y_last]
+    pf_X = [pf_X_first, *pf_X, pf_X_last]
+    pf_Y = [pf_Y_first, *pf_Y, pf_Y_last]
 
     if add_optimal_arrow:
         plot_optimal_arrow(ax=ax, max_X=max_X, max_Y=max_Y, size=fig_size_ratio, scale=1.2)
@@ -385,11 +384,13 @@ def plot_pareto(
     y_offset = y_range * 0.025  # 2.5% vertical offset for "above" placement
 
     # Get all real Pareto points (with labels) for analysis
-    real_pareto_points = [(x, y, lbl) for (x, y), lbl in zip(pareto_front, pareto_names) if lbl is not None]
+    real_pareto_points = [
+        (x, y, lbl) for (x, y), lbl in zip(pareto_front, pareto_names, strict=False) if lbl is not None
+    ]
     pareto_labels_set = {lbl for _, _, lbl in real_pareto_points}
 
     # Build the list of points to label: Pareto frontier + force_labels (if not already on frontier)
-    points_to_label = list(zip(pareto_front, pareto_names))
+    points_to_label = list(zip(pareto_front, pareto_names, strict=False))
     if force_labels is not None:
         # Add forced labels that are not on the Pareto frontier
         for force_label in force_labels:
@@ -402,7 +403,7 @@ def plot_pareto(
                     points_to_label.append(((x_val, y_val), force_label))
 
     # Sort by Y to find top points
-    sorted_by_y = sorted(real_pareto_points, key=lambda p: p[1], reverse=True)
+    sorted(real_pareto_points, key=lambda p: p[1], reverse=True)
     top_y_threshold = y_max - y_range * 0.25  # Top 25% of Y range
 
     for (x, y), label in points_to_label:
@@ -431,7 +432,7 @@ def plot_pareto(
         x_log = np.log10(x)
         x_log_min, x_log_max = np.log10(x_min), np.log10(x_max)
         x_frac = (x_log - x_log_min) / (x_log_max - x_log_min) if x_log_max != x_log_min else 0.5
-        y_frac = (y - y_min) / y_range if y_range != 0 else 0.5
+        (y - y_min) / y_range if y_range != 0 else 0.5
 
         # Calculate offsets
         x_offset_log = (x_log_max - x_log_min) * 0.015  # 1.5% of x-axis range
@@ -520,7 +521,7 @@ def plot_pareto(
                         alpha=0.5,
                     ),
                     PathEffects.withStroke(linewidth=2, foreground="white"),
-                ]
+                ],
             )
         else:
             # Non-highlighted labels: white stroke for readability
@@ -691,10 +692,10 @@ def plot_pareto(
         # Need to draw to get legend bbox
         g.fig.canvas.draw()
         bbox1 = legend1.get_window_extent()
-        bbox1_axes = bbox1.transformed(ax.transAxes.inverted())
+        bbox1.transformed(ax.transAxes.inverted())
 
         # Second legend: markers (Default, Tuned, etc.) - INSIDE plot at lower right
-        legend2 = ax.legend(
+        ax.legend(
             marker_handles,
             marker_labels,
             loc="best",
@@ -839,8 +840,8 @@ def plot_pareto_aggregated(
     max_Y: bool = True,
     ylim=(None, 1),
     hue: str = "Method",
-    title: str = None,
-    save_path: str = None,
+    title: str | None = None,
+    save_path: str | None = None,
     show: bool = True,
     include_method_in_axis_name: bool = True,
     sort_y: bool = False,
@@ -849,15 +850,15 @@ def plot_pareto_aggregated(
         data_x = data
     if x_name not in data_x:
         raise AssertionError(f"Missing x_name='{x_name}' column in data_x")
-    elif not is_numeric_dtype(data_x[x_name]):
+    if not is_numeric_dtype(data_x[x_name]):
         raise AssertionError(f"x_name='{x_name}' must be a numeric dtype")
-    elif data_x[x_name].isnull().values.any():
+    if data_x[x_name].isnull().values.any():
         raise AssertionError(f"x_name='{x_name}' cannot contain NaN values")
     if y_name not in data:
         raise AssertionError(f"Missing y_name='{y_name}' column in data")
-    elif not is_numeric_dtype(data[y_name]):
+    if not is_numeric_dtype(data[y_name]):
         raise AssertionError(f"y_name='{y_name}' must be a numeric dtype")
-    elif data[y_name].isnull().values.any():
+    if data[y_name].isnull().values.any():
         raise AssertionError(f"y_name='{y_name}' cannot contain NaN values")
     y_vals = aggregate_stats(df=data, on=y_name, method=[y_method])[y_method]
     x_vals = aggregate_stats(df=data_x, on=x_name, method=[x_method])[x_method]

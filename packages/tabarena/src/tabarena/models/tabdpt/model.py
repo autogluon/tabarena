@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.constants import BINARY, MULTICLASS, REGRESSION
-from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 from autogluon.features.generators import LabelEncoderFeatureGenerator
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
     import numpy as np
@@ -23,7 +23,6 @@ class TabDPTModel(AbstractTorchModel):
         self._feature_generator = None
         self._predict_hps = None
         self._use_flash_og = None
-
 
     def _fit(
         self,
@@ -44,15 +43,9 @@ class TabDPTModel(AbstractTorchModel):
             )
         from tabdpt import TabDPTClassifier, TabDPTRegressor
 
-        model_cls = (
-            TabDPTClassifier
-            if self.problem_type in [BINARY, MULTICLASS]
-            else TabDPTRegressor
-        )
+        model_cls = TabDPTClassifier if self.problem_type in [BINARY, MULTICLASS] else TabDPTRegressor
         supported_predict_hps = (
-            ("context_size", "permute_classes", "temperature")
-            if model_cls is TabDPTClassifier
-            else ("context_size",)
+            ("context_size", "permute_classes", "temperature") if model_cls is TabDPTClassifier else ("context_size",)
         )
 
         hps = self._get_model_params()
@@ -111,7 +104,8 @@ class TabDPTModel(AbstractTorchModel):
         return num_cpus, num_gpus
 
     def get_minimum_resources(
-        self, is_gpu_available: bool = False
+        self,
+        is_gpu_available: bool = False,
     ) -> dict[str, int | float]:
         return {
             "num_cpus": 1,
@@ -136,7 +130,7 @@ class TabDPTModel(AbstractTorchModel):
         if self._feature_generator.features_in:
             X = X.copy()
             X[self._feature_generator.features_in] = self._feature_generator.transform(
-                X=X
+                X=X,
             )
         return X.to_numpy()
 

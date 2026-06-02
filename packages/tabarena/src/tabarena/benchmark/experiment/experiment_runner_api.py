@@ -31,17 +31,17 @@ def _clean_repetitions_mode_args_for_matrix(
     # If one is int and other not, error
     if isinstance(a, int) or isinstance(b, int):
         raise AssertionError(
-            "If `repetitions_mode_args` for 'matrix' is a tuple with integers, both elements must be integers."
+            "If `repetitions_mode_args` for 'matrix' is a tuple with integers, both elements must be integers.",
         )
 
     # Now both must be lists of ints
-    assert isinstance(a, list) and isinstance(b, list), (
+    assert isinstance(a, list) and isinstance(b, list), (  # noqa: PT018
         "If `repetitions_mode_args` for 'matrix' is a tuple with lists, both elements must be a list."
     )
-    assert (len(a) > 0) and all(isinstance(x, int) for x in a), (
+    assert (len(a) > 0) and all(isinstance(x, int) for x in a), (  # noqa: PT018
         "If `repetitions_mode_args` for 'matrix' is a tuple with lists, the first list must contain at least one integer for folds."
     )
-    assert (len(b) > 0) and all(isinstance(x, int) for x in b), (
+    assert (len(b) > 0) and all(isinstance(x, int) for x in b), (  # noqa: PT018
         "If `repetitions_mode_args` for 'matrix' is a tuple with lists, the second list must contain at least one integer for repeats."
     )
 
@@ -151,7 +151,7 @@ def _parse_repetitions_mode_and_args(
                 "In `repetitions_mode_args`, each task's repetition list must contain at least one (fold, repeat) tuple."
             )
             for rep in e:
-                assert isinstance(rep, tuple) and len(rep) == 2, (
+                assert isinstance(rep, tuple) and len(rep) == 2, (  # noqa: PT018
                     "In `repetitions_mode_args`, each repetition entry must be a tuple of (fold_index, repeat_index)."
                 )
                 assert all(isinstance(i, int) for i in rep), (
@@ -206,7 +206,8 @@ def _build_cache_prefix(
     legacy ``run_experiments``/``ExperimentBatchRunner`` remain discoverable.
     """
     subtask_cache_name = ExperimentBatchRunner._subtask_name(
-        fold=fold, repeat=repeat if include_repeat_in_cache_name else None
+        fold=fold,
+        repeat=repeat if include_repeat_in_cache_name else None,
     )
     if cache_path_format == "name_first":
         return f"data/{method_name}/{cache_task_key}/{subtask_cache_name}"
@@ -410,7 +411,7 @@ def run_experiments_new(
             raise ValueError(f"s3_kwargs parameter is required when mode is 'aws', got {s3_kwargs}")
         if s3_kwargs.get("bucket") is None or s3_kwargs.get("bucket") == "":
             raise ValueError(
-                f"bucket parameter in s3_kwargs is required when mode is 'aws', got {s3_kwargs.get('bucket')}"
+                f"bucket parameter in s3_kwargs is required when mode is 'aws', got {s3_kwargs.get('bucket')}",
             )
         base_cache_path = f"s3://{s3_kwargs['bucket']}/{output_dir}"
     elif run_mode == "local":
@@ -442,7 +443,7 @@ def run_experiments_new(
         f"\n\tFitting {len(model_experiments)} methods with {n_splits} fold-repeat pairs for a total of {n_splits * len(model_experiments)} jobs..."
         f"\n\tTIDs    : {tasks}"
         f"\n\tRepeat-Fold-Pairs-Per-Task (first 20): {fold_repeat_pairs_per_task[:20]}"
-        f"\n\tMethods : {[method.name for method in model_experiments]}"
+        f"\n\tMethods : {[method.name for method in model_experiments]}",
     )
 
     result_lst = []
@@ -461,7 +462,7 @@ def run_experiments_new(
 
         for split_index, (fold, repeat) in enumerate(fold_repeat_pairs_per_task[dataset_index], start=1):
             print(
-                f"Starting Split {split_index}/{len(fold_repeat_pairs_per_task[dataset_index])} (Fold {fold}, Repeat {repeat})..."
+                f"Starting Split {split_index}/{len(fold_repeat_pairs_per_task[dataset_index])} (Fold {fold}, Repeat {repeat})...",
             )
 
             for me_index, model_experiment in enumerate(model_experiments, start=1):
@@ -475,7 +476,7 @@ def run_experiments_new(
                     f"{experiment_fail_count} fail | "
                     f"{experiment_cache_exists_count} cache_exists | "
                     f"{experiment_missing_count} missing | "
-                    f"Fitting {cache_task_key} on repeat {repeat}, fold {fold} for method {model_experiment.name}"
+                    f"Fitting {cache_task_key} on repeat {repeat}, fold {fold} for method {model_experiment.name}",
                 )
 
                 # Setup Cache
@@ -550,14 +551,14 @@ def run_experiments_new(
                         if not isinstance(task.task, TabArenaOpenMLSupervisedTask):
                             raise ValueError(
                                 "`dynamic_tabarena_validation_protocol` is only "
-                                "implemented for `TabArenaOpenMLSupervisedTask`!"
+                                "implemented for `TabArenaOpenMLSupervisedTask`!",
                             )
 
                         if not isinstance(model_experiment, AGModelBagExperiment):
                             # TODO: add support
                             raise NotImplementedError(
                                 "Validation split kwargs only implemented for "
-                                f"AGModelBagExperiment for now, got {type(model_experiment)}"
+                                f"AGModelBagExperiment for now, got {type(model_experiment)}",
                             )
 
                         # Add info about group and time for the pipeline to handle
@@ -573,7 +574,9 @@ def run_experiments_new(
                         from tabarena.benchmark.preprocessing.text_cache import use_text_cache_for_task
 
                         text_cache_cm = use_text_cache_for_task(
-                            task_id_or_object, has_text=task._has_text, mode="require"
+                            task_id_or_object,
+                            has_text=task._has_text,
+                            mode="require",
                         )
 
                     try:
@@ -606,7 +609,7 @@ def run_experiments_new(
                         if not np.isfinite(out[metric_error_key]):
                             print(
                                 "Non-finite final metric error detected: "
-                                f"\t{metric_error_key}={out[metric_error_key]}. "
+                                f"\t{metric_error_key}={out[metric_error_key]}. ",
                             )
                             if failure_on_non_finite_metric_error:
                                 print("\tDeleting cache file and counting as failure.")
@@ -615,7 +618,7 @@ def run_experiments_new(
                                 out = None
                                 if raise_on_failure:
                                     raise RuntimeError(
-                                        f"Non-finite metric error detected for key {metric_error_key!r}."
+                                        f"Non-finite metric error detected for key {metric_error_key!r}.",
                                     )
                             break
 

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Literal
-
-import pandas as pd
+from typing import TYPE_CHECKING, Literal
 
 from tabarena.benchmark.task.metadata.schema import SplitMetadata, TabArenaTaskMetadata
 from tabarena.benchmark.task.metadata.sources import TaskMetadataSource, resolve_source
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    import pandas as pd
 
 
 @dataclass
@@ -42,7 +44,7 @@ class TabArenaMetadataBundle:
             "binary",
             "multiclass",
             "regression",
-        ]
+        ],
     )
     """Problem types to run in the benchmark. Adjust as needed to run only
      specific problem types.
@@ -141,7 +143,7 @@ class TabArenaMetadataBundle:
         if missing:
             raise ValueError(
                 f"Requested dataset names not found in task metadata: {sorted(missing)}. "
-                f"Available dataset names: {sorted(available)}"
+                f"Available dataset names: {sorted(available)}",
             )
         return [ttm for ttm in task_metadata if ttm.dataset_name in requested]
 

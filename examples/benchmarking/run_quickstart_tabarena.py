@@ -10,9 +10,10 @@ from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.website.website_format import format_leaderboard
 
-
-if __name__ == '__main__':
-    expname = str(Path(__file__).parent / "experiments" / "quickstart")  # folder location to save all experiment artifacts
+if __name__ == "__main__":
+    expname = str(
+        Path(__file__).parent / "experiments" / "quickstart"
+    )  # folder location to save all experiment artifacts
     eval_dir = Path(__file__).parent / "eval" / "quickstart"
     ignore_cache = False  # set to True to overwrite existing caches and re-run experiments from scratch
 
@@ -24,8 +25,9 @@ if __name__ == '__main__':
     folds = [0]
 
     # import your model classes
-    from tabarena.models import RealMLPModel
     from autogluon.tabular.models import LGBModel
+
+    from tabarena.models import RealMLPModel
 
     # This list of methods will be fit sequentially on each task (dataset x fold)
     methods = [
@@ -33,7 +35,6 @@ if __name__ == '__main__':
         AGModelBagExperiment(  # Wrapper for fitting a single bagged model via AutoGluon
             # The name you want the config to have
             name="LightGBM_c1_BAG_L1_Reproduced",
-
             # The class of the model. Can also be a string if AutoGluon recognizes it, such as `"GBM"`
             # Supports any model that inherits from `autogluon.core.models.AbstractModel`
             model_cls=LGBModel,

@@ -251,7 +251,7 @@ class SlurmSetup(SchedulerSetup):
                 "##### Setup Jobs"
                 f"{batch_info}"
                 "\nRun the following command(s) to start the jobs:"
-                "\n" + "\n".join(run_commands) + "\n"
+                "\n" + "\n".join(run_commands) + "\n",
             )
         return run_commands
 
@@ -280,7 +280,7 @@ class SlurmSetup(SchedulerSetup):
                 json.dump({"defaults": defaults, "jobs": batch_jobs}, f)
 
             run_commands.append(
-                f"sbatch --array=0-{len(batch_jobs) - 1}%{self.array_job_limit} {base_command} {json_path}"
+                f"sbatch --array=0-{len(batch_jobs) - 1}%{self.array_job_limit} {base_command} {json_path}",
             )
         return run_commands
 

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from autogluon.tabular.models import RFModel
 
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.random_forest.hpo import gen_randomforest
-from tabarena.models._method_metadata import MethodMetadata
-
 
 random_forest_method_metadata = MethodMetadata(
     method="RandomForest",

@@ -46,9 +46,7 @@ def load_beyond_task_metadata(source: str = "BeyondArena") -> pd.DataFrame:
     n_splits_per_tid = df.groupby("tid").size().rename("n_splits")
     # Reduce to one row per task; keep the row with the largest training fold so that
     # ``n_samples_train_per_fold`` (and ``max_train_rows`` below) reflect the per-task maximum.
-    ta_task_metadata = (
-        df.sort_values("n_samples_train_per_fold", ascending=False).groupby("tid").first().reset_index()
-    )
+    ta_task_metadata = df.sort_values("n_samples_train_per_fold", ascending=False).groupby("tid").first().reset_index()
     ta_task_metadata = ta_task_metadata.merge(n_splits_per_tid, on="tid", how="left")
     # The BeyondArena size predicates read ``max_train_rows`` directly off the metadata frame
     # (``subset_tasks_data_foundry`` does not go through ``compare``'s alias path).

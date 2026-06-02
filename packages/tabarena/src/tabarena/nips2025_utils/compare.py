@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def compare_on_tabarena(
@@ -52,10 +55,7 @@ def compare_on_tabarena(
         if "method_subtype" not in new_results.columns:
             new_results["method_subtype"] = np.nan
 
-    if new_results is not None:
-        df_results = pd.concat([ta_results, new_results], ignore_index=True)
-    else:
-        df_results = ta_results
+    df_results = pd.concat([ta_results, new_results], ignore_index=True) if new_results is not None else ta_results
 
     kwargs = kwargs.copy()
     if isinstance(only_valid_tasks, (str, list)):
@@ -139,10 +139,7 @@ def compare(
         error_col = "metric_error"
 
     if calibration_framework == "auto":
-        if isinstance(fillna, pd.DataFrame):
-            calibration_framework = None
-        else:
-            calibration_framework = fillna
+        calibration_framework = None if isinstance(fillna, pd.DataFrame) else fillna
 
     evaluator_kwargs = {}
     if elo_ymin is not None:
@@ -181,12 +178,14 @@ def filter_to_valid_tasks(df_to_filter: pd.DataFrame, df_filter: pd.DataFrame) -
 
     # filter `df_to_filter` to only the dataset, fold pairs that are present in `df_filter`
     is_in_lst = [
-        is_in(dataset, fold) for dataset, fold in zip(
+        is_in(dataset, fold)
+        for dataset, fold in zip(
             df_to_filter["dataset"],
             df_to_filter["fold"],
-        )]
-    df_filtered = df_to_filter[is_in_lst]
-    return df_filtered
+            strict=False,
+        )
+    ]
+    return df_to_filter[is_in_lst]
 
 
 def prepare_data(
@@ -204,10 +203,11 @@ def prepare_data(
             # Filter to tasks present in a specific method
             df_filter = df_results[df_results["method"] == filter_method]
             if "imputed" in df_filter.columns:
-                df_filter = df_filter[df_filter["imputed"] != True]
-            assert len(df_filter) != 0, \
-                (f"No method named '{filter_method}' remains to filter to!\n"
-                 f"Available tasks: {list(df_results['method'].unique())}")
+                df_filter = df_filter[not df_filter["imputed"]]
+            assert len(df_filter) != 0, (
+                f"No method named '{filter_method}' remains to filter to!\n"
+                f"Available tasks: {list(df_results['method'].unique())}"
+            )
             df_results = filter_to_valid_tasks(
                 df_to_filter=df_results,
                 df_filter=df_filter,
@@ -228,7 +228,7 @@ def prepare_data(
             raise ValueError(
                 "Missing fillna method in df_results!"
                 f"\n\tfillna={fillna!r}"
-                f"\n\tvalid_methods={sorted(list(df_results['method'].unique()))}"
+                f"\n\tvalid_methods={sorted(df_results['method'].unique())}",
             )
     if fillna is not None:
         df_results = TabArenaContext.fillna_metrics(
@@ -349,6 +349,7 @@ def subset_tasks(
         so context-specific subset definitions take effect.
     """
     from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
+
     if task_metadata_og is None:
         task_metadata_og = load_task_metadata()
 
@@ -362,9 +363,7 @@ def subset_tasks(
 
     if tasks is not None:
         task_index = pd.MultiIndex.from_tuples(tasks, names=["dataset", "fold"])
-        df_results = df_results[
-            pd.MultiIndex.from_frame(df_results[["dataset", "fold"]]).isin(task_index)
-        ]
+        df_results = df_results[pd.MultiIndex.from_frame(df_results[["dataset", "fold"]]).isin(task_index)]
     if datasets is not None:
         df_results = df_results[df_results["dataset"].isin(datasets)]
     if folds is not None:
@@ -434,6 +433,8 @@ def subset_tasks_data_foundry(
     n_folds_method_dataset = df_results.groupby(["method", "dataset"])["fold"].transform("nunique")
     df_results = df_results[n_folds_method_dataset == n_folds_dataset]
 
-    assert len(df_results) > 0, "No results remain after subsetting! Please check the subset criteria and the data_foundry_metadata."
+    assert len(df_results) > 0, (
+        "No results remain after subsetting! Please check the subset criteria and the data_foundry_metadata."
+    )
 
     return df_results.reset_index(drop=True)

@@ -1,9 +1,12 @@
-import os
-from pathlib import Path
-import pandas as pd
-import numpy as np
-import scipy.stats as stats
+from __future__ import annotations
+
 import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from scipy import stats
+
 warnings.filterwarnings("ignore", category=UserWarning, module="scipy")
 
 
@@ -39,21 +42,16 @@ PER_DATASET_PARETO_CAPTION_BODY = (
     r"Reading the plot together with the table makes it possible to compare the cost (compute budget needed to reach a given error) and the achievable error of each method on that dataset, beyond the single endpoint summary in the table."
 )
 
+
 def _max_dot_pos(s: pd.Series) -> int:
-    """
-    Return max position of '.' in stringified values.
+    """Return max position of '.' in stringified values.
     Non-finite values are ignored (so they don't dominate the decision).
     """
     s_num = pd.to_numeric(s, errors="coerce")  # non-numeric -> NaN
     finite = np.isfinite(s_num.to_numpy(dtype="float64", na_value=np.nan))
     if not finite.any():
         return 0
-    return (
-        s_num[finite]
-        .astype(str)
-        .str.find(".")
-        .max()
-    )
+    return s_num[finite].astype(str).str.find(".").max()
 
 
 def _format_fixed(s: pd.Series, decimals: int) -> pd.Series:
@@ -66,8 +64,7 @@ def _format_fixed(s: pd.Series, decimals: int) -> pd.Series:
 
 
 def _format_scaled_int_str(s: pd.Series, scale: float, decimals_after: int = 0) -> pd.Series:
-    """
-    Scale, round to integer, then string.
+    """Scale, round to integer, then string.
     NaN/inf -> NA_STR.
     """
     s_num = pd.to_numeric(s, errors="coerce")
@@ -88,11 +85,10 @@ def get_significance_dataset(df_use, method="wilcoxon", alpha=0.05, verbose=Fals
     ### Get accuracy p-values
     p_values = {}
 
-
     df_use_mean = df_use.groupby(["dataset_name", "model_name"]).mean().unstack()[0].loc[df_use.dataset_name.unique()]
-    
+
     dataset_names = list(df_use_mean.index)
-    
+
     for dataset_name in dataset_names:
         # print(dataset_name)
         p_values[dataset_name] = {}
@@ -101,35 +97,43 @@ def get_significance_dataset(df_use, method="wilcoxon", alpha=0.05, verbose=Fals
             best_model = df_use_mean.columns[df_use_mean.loc[dataset_name].argmin()]
         elif direction == "max":
             best_model = df_use_mean.columns[df_use_mean.loc[dataset_name].argmax()]
-        
+
         for model_name in df_use.model_name.unique():
             if model_name == best_model:
                 # print(dataset_name,model_name)
-                p_values[dataset_name][model_name] = 1.
+                p_values[dataset_name][model_name] = 1.0
             else:
                 # print(dataset_name,model_name)
                 # Example performance metrics over 10 repeats for two models
-                best_results = df_use.loc[np.logical_and(df_use.dataset_name==dataset_name,
-                              df_use.model_name==best_model
-                             ),0].values
-                best_results[best_results<0] = 0
-                
-                curr_model_results = df_use.loc[np.logical_and(df_use.dataset_name==dataset_name,
-                              df_use.model_name==model_name
-                             ),0].values
-                curr_model_results[curr_model_results<0] = 0
-            
-                p_values[dataset_name][model_name] = get_significance(best_results, curr_model_results, direction=direction, method=method, verbose=verbose)
+                best_results = df_use.loc[
+                    np.logical_and(
+                        df_use.dataset_name == dataset_name,
+                        df_use.model_name == best_model,
+                    ),
+                    0,
+                ].values
+                best_results[best_results < 0] = 0
+
+                curr_model_results = df_use.loc[
+                    np.logical_and(
+                        df_use.dataset_name == dataset_name,
+                        df_use.model_name == model_name,
+                    ),
+                    0,
+                ].values
+                curr_model_results[curr_model_results < 0] = 0
+
+                p_values[dataset_name][model_name] = get_significance(
+                    best_results, curr_model_results, direction=direction, method=method, verbose=verbose
+                )
         # except:
         #     p_values[dataset_name] = {model_name: 0. for model_name in df_use.model_name.unique()}
-    
-    significance_df = pd.DataFrame(p_values).transpose()
-    return significance_df
+
+    return pd.DataFrame(p_values).transpose()
 
 
 def holm_bonferroni_correction(p_values):
-    """
-    Apply Holm-Bonferroni correction to a list of p-values.
+    """Apply Holm-Bonferroni correction to a list of p-values.
     :param p_values: List of p-values.
     :return: Adjusted p-values and rejection decisions.
     """
@@ -137,56 +141,54 @@ def holm_bonferroni_correction(p_values):
     sorted_p_values = np.array(p_values)[sorted_indices]
     adjusted_p_values = np.zeros_like(sorted_p_values)
     m = len(p_values)
-    
+
     for i, p in enumerate(sorted_p_values):
         adjusted_p_values[i] = min((m - i) * p, 1.0)
-    
+
     # Reorder to original order
     adjusted_p_values = adjusted_p_values[np.argsort(sorted_indices)]
-    
+
     # Determine rejection
     reject = adjusted_p_values < 0.05
-    
-    return list(zip(p_values, adjusted_p_values, reject))
+
+    return list(zip(p_values, adjusted_p_values, reject, strict=False))
+
 
 def get_significance(best_results, curr_model_results, method="wilcoxon", alpha=0.05, verbose=False, direction="max"):
+    if (
+        (direction == "min" and np.mean(best_results) >= np.mean(curr_model_results))
+        or (direction == "max" and np.mean(best_results) <= np.mean(curr_model_results))
+        or (direction == "max" and np.all(best_results <= curr_model_results))
+    ):
+        p_value = 2
 
-    if direction =="min" and np.mean(best_results)>=np.mean(curr_model_results):
-        p_value = 2
-    elif direction =="max" and np.mean(best_results)<=np.mean(curr_model_results):
-        p_value = 2
-    elif direction =="max" and np.all(best_results<=curr_model_results):
-        p_value = 2
-    
-    else:
-        # Perform the paired t-test
-        if method == "ttest":
-            t_statistic, p_value = stats.ttest_rel(best_results, curr_model_results)
-        elif method == "wilcoxon":
-            t_statistic, p_value = stats.wilcoxon(best_results, curr_model_results) #     w_stat, p_value_w
-        # elif method == "wilcoxon-corrected":
-        #     t_statistic, p_value = stats.wilcoxon(best_results, curr_model_results) #     w_stat, p_value_w
-            # Apply Holm-Bonferroni correction
-            # reject, p_value, _, _ = multipletests(p_value, alpha=0.05, method='holm')
-        elif method == "kruskal-wallis":
-            statistic, p_value = stats.kruskal(best_results, curr_model_results)
-        elif method == "ftest":
-            statistic, p_value = stats.f_oneway(best_results, curr_model_results)
-        elif method == "tabred":
-            sub_series_mean = np.mean(best_results)
-            sub_series_std = np.std(best_results)
-            if direction == "min":
-                thresh = sub_series_mean+sub_series_std
-                p_value = (np.mean(curr_model_results)<thresh)*2
-                
-            elif direction == "max":
-                thresh = sub_series_mean-sub_series_std
-                p_value = (np.mean(curr_model_results)>thresh)*2
-            
+    # Perform the paired t-test
+    elif method == "ttest":
+        t_statistic, p_value = stats.ttest_rel(best_results, curr_model_results)
+    elif method == "wilcoxon":
+        t_statistic, p_value = stats.wilcoxon(best_results, curr_model_results)  #     w_stat, p_value_w
+    # elif method == "wilcoxon-corrected":
+    #     t_statistic, p_value = stats.wilcoxon(best_results, curr_model_results) #     w_stat, p_value_w
+    # Apply Holm-Bonferroni correction
+    # reject, p_value, _, _ = multipletests(p_value, alpha=0.05, method='holm')
+    elif method == "kruskal-wallis":
+        statistic, p_value = stats.kruskal(best_results, curr_model_results)
+    elif method == "ftest":
+        _statistic, p_value = stats.f_oneway(best_results, curr_model_results)
+    elif method == "tabred":
+        sub_series_mean = np.mean(best_results)
+        sub_series_std = np.std(best_results)
+        if direction == "min":
+            thresh = sub_series_mean + sub_series_std
+            p_value = (np.mean(curr_model_results) < thresh) * 2
+
+        elif direction == "max":
+            thresh = sub_series_mean - sub_series_std
+            p_value = (np.mean(curr_model_results) > thresh) * 2
 
     p_value_one_tailed = p_value / 2
     criterion = p_value_one_tailed < alpha
-            
+
     if verbose:
         print(f"T-statistic: {t_statistic}")
         print(f"P-value: {p_value}")
@@ -195,14 +197,14 @@ def get_significance(best_results, curr_model_results, method="wilcoxon", alpha=
     if criterion:
         if verbose:
             print("There is a statistically significant difference between the two models.")
-    else:
-        if verbose:
-            print("There is no statistically significant difference between the two models.")
+    elif verbose:
+        print("There is no statistically significant difference between the two models.")
     if verbose:
         print("----------------------------------------------------------------------------------")
 
     return p_value
- 
+
+
 def _build_dataset_name_map(task_metadata: pd.DataFrame | None) -> dict[str, str]:
     """Map internal ``dataset`` id (e.g. ``Task-7163328506``) to a human-readable
     label drawn from ``task_metadata``.
@@ -226,7 +228,8 @@ _TUNED_ENS_SUFFIX = " (tuned + ensemble)"
 
 def _regime_of(method: str) -> str | None:
     """Classify a method name into one of the three pipeline regimes by its
-    suffix, or ``None`` if it doesn't match any (treated as a baseline)."""
+    suffix, or ``None`` if it doesn't match any (treated as a baseline).
+    """
     if method.endswith(_TUNED_ENS_SUFFIX):
         return "tuned_ensemble"
     if method.endswith(_TUNED_SUFFIX):
@@ -240,7 +243,8 @@ def _default_method_order(df_results: pd.DataFrame) -> list[str]:
     """Derive a default per-dataset ordering from whatever methods are present
     in ``df_results``: every ``(default)`` method, then every ``(tuned)``,
     then every ``(tuned + ensemble)``, then any baselines, with stable
-    alphabetical order within each regime."""
+    alphabetical order within each regime.
+    """
     methods = sorted(df_results["method"].dropna().unique().tolist())
     regime_rank = {"default": 0, "tuned": 1, "tuned_ensemble": 2, None: 3}
     return sorted(methods, key=lambda m: (regime_rank[_regime_of(m)], m))
@@ -249,21 +253,29 @@ def _default_method_order(df_results: pd.DataFrame) -> list[str]:
 def _safe_significance_dataset(for_sig: pd.DataFrame) -> pd.DataFrame:
     """Run ``get_significance_dataset`` only when the slice has at least two
     methods; otherwise return an empty frame so downstream lookups fall back
-    to the ``KeyError`` -> default behavior the caller already handles."""
+    to the ``KeyError`` -> default behavior the caller already handles.
+    """
     if for_sig.empty or for_sig["model_name"].nunique() < 2:
         return pd.DataFrame()
     return get_significance_dataset(
-        for_sig, method="wilcoxon", alpha=0.05, verbose=False, direction="min",
+        for_sig,
+        method="wilcoxon",
+        alpha=0.05,
+        verbose=False,
+        direction="min",
     )
 
 
 def _is_significance_best(
-    significance_df: pd.DataFrame, dataset_name: str, method_name: str,
+    significance_df: pd.DataFrame,
+    dataset_name: str,
+    method_name: str,
 ) -> bool:
     """Return whether ``method_name`` is "not significantly worse than best"
     on ``dataset_name``. Returns ``False`` when significance was not computed
     (empty frame) or the row/column is missing — which matches what the
-    caller wants: no underline/bold when we have no signal."""
+    caller wants: no underline/bold when we have no signal.
+    """
     if significance_df.empty:
         return False
     if dataset_name not in significance_df.index:
@@ -316,20 +328,20 @@ def get_per_dataset_tables(
     baseline_methods = [m for m in use_methods_ordered if _regime_of(m) is None]
 
     df_use = df_results.loc[df_results["method"].isin(use_methods_ordered)]
-    df_use_fold = df_use.loc[df_use["fold"]==0]
+    df_use.loc[df_use["fold"] == 0]
 
     for_sig = df_use[["method", "dataset", "metric_error"]]
-    for_sig.columns=["model_name", "dataset_name", 0]
+    for_sig.columns = ["model_name", "dataset_name", 0]
 
     significance_df = _safe_significance_dataset(for_sig)
     significance_default = _safe_significance_dataset(
-        for_sig.loc[for_sig["model_name"].apply(lambda x: _regime_of(x) == "default")]
+        for_sig.loc[for_sig["model_name"].apply(lambda x: _regime_of(x) == "default")],
     )
     significance_tuned = _safe_significance_dataset(
-        for_sig.loc[for_sig["model_name"].apply(lambda x: _regime_of(x) == "tuned")]
+        for_sig.loc[for_sig["model_name"].apply(lambda x: _regime_of(x) == "tuned")],
     )
     significance_tuned_ensemble = _safe_significance_dataset(
-        for_sig.loc[for_sig["model_name"].apply(lambda x: _regime_of(x) == "tuned_ensemble")]
+        for_sig.loc[for_sig["model_name"].apply(lambda x: _regime_of(x) == "tuned_ensemble")],
     )
 
     # NOTE: the prior implementation loaded TabArena's global task metadata here
@@ -343,28 +355,22 @@ def get_per_dataset_tables(
     datasets_dict = {}
     datasets_human_name: dict[str, str] = {}
     for dataset_name in df_use["dataset"].unique():
-        df_dat = df_use.loc[df_use["dataset"]==dataset_name]
-        imputed_methods = df_dat.loc[df_dat.imputed==True,'method'].unique()
+        df_dat = df_use.loc[df_use["dataset"] == dataset_name]
+        imputed_methods = df_dat.loc[df_dat.imputed, "method"].unique()
 
-        if np.unique(df_dat["metric"])[0]=="roc_auc":
-            df_dat.loc[:, "metric_error"] = 1-df_dat["metric_error"]
+        if np.unique(df_dat["metric"])[0] == "roc_auc":
+            df_dat.loc[:, "metric_error"] = 1 - df_dat["metric_error"]
             metric_dir = "max"
         else:
             metric_dir = "min"
 
         # Reindex to ``use_methods_ordered`` so missing methods (e.g. a baseline
         # with no result for this dataset) become NaN rows rather than raising.
-        df_mean = (
-            df_dat[["method", "metric_error"]]
-            .groupby("method").mean().reindex(use_methods_ordered)
-        )
-        df_std = (
-            df_dat[["method", "metric_error"]]
-            .groupby("method").std().reindex(use_methods_ordered)
-        )
+        df_mean = df_dat[["method", "metric_error"]].groupby("method").mean().reindex(use_methods_ordered)
+        df_std = df_dat[["method", "metric_error"]].groupby("method").std().reindex(use_methods_ordered)
 
         df_mean_raw = df_mean.copy()
-        df_std_raw = df_std.copy()
+        df_std.copy()
 
         df_mean = df_mean["metric_error"]
         df_std = df_std["metric_error"]
@@ -406,9 +412,7 @@ def get_per_dataset_tables(
             return f"{mean_str} $\\pm$ {std_str}"
 
         df_latex = pd.DataFrame(
-            {dataset_name: [
-                _combine_cell(m, s) for m, s in zip(mean_series, std_series)
-            ]},
+            {dataset_name: [_combine_cell(m, s) for m, s in zip(mean_series, std_series, strict=False)]},
             index=mean_series.index,
         )
         # ``reindex`` above introduced NaN rows for methods absent from this
@@ -417,7 +421,7 @@ def get_per_dataset_tables(
         present_methods = set(df_dat["method"].unique())
         missing_methods = [m for m in use_methods_ordered if m not in present_methods]
         for method in list(imputed_methods) + missing_methods:
-            df_latex.loc[method] = '-'
+            df_latex.loc[method] = "-"
 
         placeholder_methods = set(list(imputed_methods) + missing_methods)
 
@@ -429,17 +433,13 @@ def get_per_dataset_tables(
         # altogether. The cell at ``best_idx`` is then guaranteed to render
         # a real number that we can color.
         highlight_candidates = df_mean_raw["metric_error"].drop(
-            labels=list(placeholder_methods), errors="ignore"
+            labels=list(placeholder_methods),
+            errors="ignore",
         )
         if highlight_candidates.notna().any():
-            best_idx = (
-                highlight_candidates.idxmin() if metric_dir == "min"
-                else highlight_candidates.idxmax()
-            )
+            best_idx = highlight_candidates.idxmin() if metric_dir == "min" else highlight_candidates.idxmax()
             df_latex.loc[best_idx, dataset_name] = (
-                r"\textcolor{green!50!black}{"
-                + df_latex.loc[best_idx, dataset_name]
-                + "}"
+                r"\textcolor{green!50!black}{" + df_latex.loc[best_idx, dataset_name] + "}"
             )
 
         # With only one split (one fold of data per method) the Wilcoxon
@@ -457,17 +457,17 @@ def get_per_dataset_tables(
         # ``-`` (and any literal ``NA`` that slipped through formatting) gets
         # left alone so we don't end up with ``\textbf{-}`` decorations.
         def _stylize(score: str, name: str, sig_df: pd.DataFrame, prefix: str) -> str:
-            if single_split:
+            if single_split:  # noqa: B023
                 return score
-            if name in placeholder_methods or score == "-" or NA_STR in score:
+            if name in placeholder_methods or score == "-" or NA_STR in score:  # noqa: B023
                 return score
-            if not _is_significance_best(sig_df, dataset_name, name):
+            if not _is_significance_best(sig_df, dataset_name, name):  # noqa: B023
                 return score
             return prefix + score + "}"
 
         df_latex.loc[:, dataset_name] = [
             _stylize(score, name, significance_df, r"\textbf{")
-            for name, score in zip(df_latex.index, df_latex[dataset_name])
+            for name, score in zip(df_latex.index, df_latex[dataset_name], strict=False)
         ]
 
         df_latex_def = df_latex.loc[[_regime_of(i) == "default" for i in df_latex.index]]
@@ -476,23 +476,29 @@ def get_per_dataset_tables(
 
         df_latex_def.loc[:, dataset_name] = [
             _stylize(score, name, significance_default, r"\underline{")
-            for name, score in zip(df_latex_def.index, df_latex_def[dataset_name])
+            for name, score in zip(df_latex_def.index, df_latex_def[dataset_name], strict=False)
         ]
         df_latex_tuned.loc[:, dataset_name] = [
             _stylize(score, name, significance_tuned, r"\underline{")
-            for name, score in zip(df_latex_tuned.index, df_latex_tuned[dataset_name])
+            for name, score in zip(df_latex_tuned.index, df_latex_tuned[dataset_name], strict=False)
         ]
         df_latex_tuned_ensemble.loc[:, dataset_name] = [
             _stylize(score, name, significance_tuned_ensemble, r"\underline{")
-            for name, score in zip(df_latex_tuned_ensemble.index, df_latex_tuned_ensemble[dataset_name])
+            for name, score in zip(df_latex_tuned_ensemble.index, df_latex_tuned_ensemble[dataset_name], strict=False)
         ]
 
-        df_latex_final = pd.merge(df_latex_def.rename(index=lambda s: s.split(" (")[0]),
-                                    df_latex_tuned.rename(index=lambda s: s.split(" (")[0]),
-                                    left_index=True, right_index=True, how="left"
-                                    ).merge(df_latex_tuned_ensemble.rename(index=lambda s: s.split(" (")[0])
-                                    , left_index=True, right_index=True, how="left"
-                                    )
+        df_latex_final = pd.merge(
+            df_latex_def.rename(index=lambda s: s.split(" (")[0]),
+            df_latex_tuned.rename(index=lambda s: s.split(" (")[0]),
+            left_index=True,
+            right_index=True,
+            how="left",
+        ).merge(
+            df_latex_tuned_ensemble.rename(index=lambda s: s.split(" (")[0]),
+            left_index=True,
+            right_index=True,
+            how="left",
+        )
         # Each baseline (a method with no regime suffix) gets its own row in
         # the ``Tuned + Ens.`` column with placeholders for the other two —
         # this generalizes the previous AutoGluon-specific hard-coded line.
@@ -503,10 +509,10 @@ def get_per_dataset_tables(
         df_latex_final.columns = ["Default", "Tuned", "Tuned + Ens."]
 
         # if not can_run_tabpfnv2[dataset_name]:
-        #     df_latex_final.loc["TabPFNv2"] = ["-", "-", "-"]    
+        #     df_latex_final.loc["TabPFNv2"] = ["-", "-", "-"]
         # if not can_run_tabicl[dataset_name]:
-        #     df_latex_final.loc["TabICL"] = ["-", "-", "-"]    
-        
+        #     df_latex_final.loc["TabICL"] = ["-", "-", "-"]
+
         df_latex_final.index.name = None
         latex_safe_id = dataset_name.replace("_", r"\_")
         datasets_dict[latex_safe_id] = df_latex_final.copy()
@@ -516,13 +522,16 @@ def get_per_dataset_tables(
         datasets_human_name[latex_safe_id] = human_label.replace("_", r"\_")
 
     output_file = save_path / "per_dataset_tables.tex"
-    per_col    = 2                  # 2 columns per row
-    per_page   = 6                  # 3 rows × 2 columns = 6 subtables per figure
-    sub_width  = 0.48               # width for each subtable (2 across)
+    per_col = 2  # 2 columns per row
+    per_page = 6  # 3 rows × 2 columns = 6 subtables per figure
+    sub_width = 0.48  # width for each subtable (2 across)
     sub_height = ""  # fixed height for each subtable
 
     metrics_used = dict(df_use[["dataset", "metric"]].drop_duplicates().values)
-    metrics_used = {key.replace("_", r"\_"): "AUC" if value=="roc_auc" else ("logloss" if value=="log_loss" else "rmse") for key, value in metrics_used.items()}
+    metrics_used = {
+        key.replace("_", r"\_"): "AUC" if value == "roc_auc" else ("logloss" if value == "log_loss" else "rmse")
+        for key, value in metrics_used.items()
+    }
 
     items = list(datasets_dict.items())
 
@@ -530,22 +539,21 @@ def get_per_dataset_tables(
 
     with open(output_file, "w") as f:
         for page_start in range(0, len(items), per_page):
-            page_items = items[page_start:page_start + per_page]
+            page_items = items[page_start : page_start + per_page]
 
             f.write(r"\begin{table}[htb]" + "\n")
             f.write(r"  \centering" + "\n")
             if page_start == 0:
                 f.write("\\caption{" + PER_DATASET_TABLE_CAPTION_BODY + "}\n\n")
 
-
             # Build 3 rows of 2 columns each
             for row_start in range(0, len(page_items), per_col):
-                row = page_items[row_start:row_start + per_col]
+                row = page_items[row_start : row_start + per_col]
                 for idx, (name, df) in enumerate(row):
                     print_name = datasets_human_name.get(name, name)
                     # Long-name special case from the original tabarena tables.
-                    if print_name == 'HR\\_Analytics\\_Job\\_Change\\_of\\_Data\\_Scientists':
-                        print_name = 'HR\\_Analytics\\_Job\\_Change'
+                    if print_name == "HR\\_Analytics\\_Job\\_Change\\_of\\_Data\\_Scientists":
+                        print_name = "HR\\_Analytics\\_Job\\_Change"
                     # compute column format: index, quad gap, then one 'r' per data column
                     n_data = df.shape[1]
                     col_fmt = "l@{\\quad}" + "l" * n_data
@@ -555,10 +563,7 @@ def get_per_dataset_tables(
                     f.write(r"    \scriptsize" + "\n")
 
                     # caption at the top
-                    if metrics_used[name]=="AUC":
-                        arrow = r"$\uparrow$"
-                    else:
-                        arrow = r"$\downarrow$"
+                    arrow = r"$\uparrow$" if metrics_used[name] == "AUC" else r"$\downarrow$"
                     f.write(f"    \\caption*{{{print_name} ({metrics_used[name]} {arrow})}}" + "\n")
                     f.write(r"    \vspace{-1ex}")
                     f.write(f"    \\label{{tab:{page_start + row_start + idx + 1}}}\n")
@@ -571,7 +576,7 @@ def get_per_dataset_tables(
                     latex_table = df.to_latex(
                         index=True,
                         escape=False,
-                        column_format=col_fmt
+                        column_format=col_fmt,
                     )
                     for line in latex_table.splitlines():
                         f.write("      " + line + "\n")
@@ -585,7 +590,7 @@ def get_per_dataset_tables(
 
                 # small vertical gap between rows
                 f.write(r"  \medskip" + "\n\n")
-            
+
             # overall caption & label for this figure
             # f.write(
             #     rf"  \caption{{Datasets {page_start+1}–{page_start+len(page_items)}}}" + "\n"
@@ -614,7 +619,7 @@ def get_per_dataset_tables(
             tex_path = per_dataset_dir / f"{raw_id}.tex"
             with open(tex_path, "w") as f:
                 f.write(f"% Per-dataset performance table for {human_label} ({metric} {arrow}).\n")
-                f.write(f"% Auto-generated; designed to be \\input{{}} into a minipage / subfigure.\n")
+                f.write("% Auto-generated; designed to be \\input{} into a minipage / subfigure.\n")
                 f.write(r"\scriptsize" + "\n")
                 f.write(tabular)
 

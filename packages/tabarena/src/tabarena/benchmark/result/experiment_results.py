@@ -39,7 +39,7 @@ class ExperimentResults:
             results_configs_calibrated = []
             for i, result in enumerate(results_configs):
                 if i % 100 == 0:
-                    print(f"Calibrating: {i+1}/{n_configs}\t{result.framework}")
+                    print(f"Calibrating: {i + 1}/{n_configs}\t{result.framework}")
                 results_configs_calibrated.append(self._calibrate(result=result))
             results_configs += results_configs_calibrated
 

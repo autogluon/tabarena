@@ -1,17 +1,18 @@
-from typing import List
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import numpy as np
-import pandas as pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
-def get_rank(error: float,
-             error_lst: List[float],
-             ties_win: bool = False,
-             pct: bool = False,
-             include_partial: bool = True) -> float:
-    """
-    If ties_win=True, rank will equal a win if tied with an error in error_lst. (ex: rank 1.0)
-    If ties_win=False, rank will equal a tie if tied with an error in error_lst. (ex: rank 1.5)
+def get_rank(
+    error: float, error_lst: list[float], ties_win: bool = False, pct: bool = False, include_partial: bool = True
+) -> float:
+    """If ties_win=True, rank will equal a win if tied with an error in error_lst. (ex: rank 1.0)
+    If ties_win=False, rank will equal a tie if tied with an error in error_lst. (ex: rank 1.5).
 
     If pct=True, rescales output to be between 0 and 1, with 0 = best, 1 = worst.
 
@@ -24,7 +25,7 @@ def get_rank(error: float,
         Cannot be True when ties_win=True.
     """
     if ties_win and include_partial:
-        raise AssertionError('ties_win and include_partial cannot both be True.')
+        raise AssertionError("ties_win and include_partial cannot both be True.")
     rank = 0
     prior_err = 0
     win = False
@@ -43,13 +44,8 @@ def get_rank(error: float,
             if include_partial and error > 0:
                 # Add up to 0.5 rank based on distance between closest loss and closest win.
                 divisor = e - prior_err
-                if divisor == 0:
-                    partial_rank = 0.5
-                else:
-                    partial_rank = ((error - prior_err) / divisor) / 2
-                if partial_rank > 0.5:
-                    # Safeguard against divide by 0 edge-cases
-                    partial_rank = 0.5
+                partial_rank = 0.5 if divisor == 0 else (error - prior_err) / divisor / 2
+                partial_rank = min(partial_rank, 0.5)
                 rank += partial_rank
             # error_lst is assumed to be sorted, so we know that all future elements will be wins
             # once we find our first win, allowing us to break early
@@ -73,16 +69,15 @@ class RankScorer:
     def __init__(
         self,
         df_results: pd.DataFrame,
-        tasks: List[str],
-        metric_error_col: str = 'metric_error',
-        task_col: str = 'task',
-        framework_col: str = 'framework',
+        tasks: list[str],
+        metric_error_col: str = "metric_error",
+        task_col: str = "task",
+        framework_col: str = "framework",
         ties_win: bool = False,
         pct: bool = False,
         include_partial: bool = True,
     ):
-        """
-        :param df_results: Dataframe of method performance containing columns `metric_error_col`,
+        """:param df_results: Dataframe of method performance containing columns `metric_error_col`,
         `task_col` and `framework_col`.
         :param tasks: datasets to consider
         :param ties_win: whether ties count as a win (True) or a tie (False). Set False to ensure symmetric equivalence.
@@ -102,18 +97,16 @@ class RankScorer:
         self.error_dict = {dataset: df_pivot.loc[dataset].dropna().tolist() for dataset in tasks}
 
     def rank(self, task: str, error: float) -> float:
-        """
-        Get the rank of a result on a dataset given an error.
-        """
+        """Get the rank of a result on a dataset given an error."""
         if self.ties_win and not self.include_partial:
             rank = np.searchsorted(self.error_dict[task], error)
             if self.pct:
                 return rank / len(self.error_dict[task])
-            else:
-                return rank
-        else:
-            return get_rank(error=error,
-                            error_lst=self.error_dict[task],
-                            ties_win=self.ties_win,
-                            pct=self.pct,
-                            include_partial=self.include_partial)
+            return rank
+        return get_rank(
+            error=error,
+            error_lst=self.error_dict[task],
+            ties_win=self.ties_win,
+            pct=self.pct,
+            include_partial=self.include_partial,
+        )

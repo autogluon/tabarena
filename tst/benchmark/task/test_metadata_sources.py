@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+
 from tabarena.benchmark.task.metadata import (
     DataFoundryTaskMetadataSource,
     InMemoryTaskMetadataSource,
@@ -18,7 +19,6 @@ from tabarena.benchmark.task.metadata import (
     resolve_source,
 )
 from tabarena.benchmark.task.metadata.sources import tabarena_v0pt1 as v0pt1_mod
-from tabarena.benchmark.task.metadata.sources.base import TaskMetadataSource
 
 
 def _task(*, dataset_name: str, uri: str | None) -> TabArenaTaskMetadata:
@@ -103,8 +103,8 @@ def test_v0pt1_source_falls_back_to_rebuild_when_csv_missing(monkeypatch, tmp_pa
                 "num_classes": 2,
                 "tabarena_num_repeats": 1,
                 "num_folds": 1,
-            }
-        ]
+            },
+        ],
     )
     monkeypatch.setattr(
         "tabarena.nips2025_utils.fetch_metadata.load_curated_task_metadata",
@@ -134,7 +134,9 @@ def test_openml_source_honors_custom_cache_dir(monkeypatch, tmp_path):
 
     set_dirs: list[str] = []
     monkeypatch.setattr(
-        openml.config, "set_root_cache_directory", lambda root_cache_directory: set_dirs.append(root_cache_directory)
+        openml.config,
+        "set_root_cache_directory",
+        lambda root_cache_directory: set_dirs.append(root_cache_directory),
     )
     monkeypatch.setattr(openml.config, "get_cache_directory", lambda: str(tmp_path))
     monkeypatch.setattr(openml.tasks, "get_task", lambda task_id, **_: None)
@@ -194,7 +196,7 @@ def patched_data_foundry(monkeypatch):
 
     materialized: list[str] = []
 
-    def _fake_materialize(*, collection, task_id_str, data_foundry_uri, **_):  # noqa: ARG001
+    def _fake_materialize(*, collection, task_id_str, data_foundry_uri, **_):
         materialized.append(data_foundry_uri)
         return f"materialized::{data_foundry_uri}"
 

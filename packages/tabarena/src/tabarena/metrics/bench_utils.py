@@ -1,5 +1,7 @@
 """Utilities for benchmarking the speed of evaluation metrics."""
-from typing import List, Tuple
+
+from __future__ import annotations
+
 import time
 
 import numpy as np
@@ -17,7 +19,7 @@ def generate_y_true_and_y_pred_proba(num_samples, num_classes, random_seed=0):
     np.random.seed(seed=random_seed)
     y_true = np.random.randint(0, num_classes, num_samples).astype(np.uint16)
     y_pred = np.random.rand(num_samples, num_classes)
-    y_pred = normalize(y_pred, axis=1, norm='l1').astype(np.float32)
+    y_pred = normalize(y_pred, axis=1, norm="l1").astype(np.float32)
     return y_true, y_pred
 
 
@@ -27,16 +29,16 @@ def generate_y_true_and_y_pred_proba_bulk(num_configs, num_samples, num_classes,
     if num_classes == 2:
         y_pred_bulk = np.array([np.random.rand(num_samples) for _ in range(num_configs)])
     else:
-        y_pred_bulk = [normalize(np.random.rand(num_samples, num_classes), axis=1, norm='l1') for _ in range(num_configs)]
+        y_pred_bulk = [
+            normalize(np.random.rand(num_samples, num_classes), axis=1, norm="l1") for _ in range(num_configs)
+        ]
         y_pred_bulk = np.array(y_pred_bulk)
     return y_true, y_pred_bulk
 
 
-def get_eval_speed(*,
-                   eval_metric: callable,
-                   y_true: np.array,
-                   y_pred: np.array,
-                   num_repeats: int) -> Tuple[float, float]:
+def get_eval_speed(
+    *, eval_metric: callable, y_true: np.array, y_pred: np.array, num_repeats: int
+) -> tuple[float, float]:
     score = None
     ts = time.time()
     for _ in range(num_repeats):
@@ -46,24 +48,24 @@ def get_eval_speed(*,
     return time_average_s, score
 
 
-def print_benchmark_result(*,
-                           baseline_speed: float,
-                           time_average_s: float,
-                           score: float,
-                           func_name: str):
+def print_benchmark_result(*, baseline_speed: float, time_average_s: float, score: float, func_name: str):
     relative_speedup = baseline_speed / time_average_s
-    print(f'\tTime = {time_average_s * 1000:.4f} ms\t'
-          f'| Rel Speedup = {relative_speedup:.1f}x\t'
-          f'| Score = {score}\t'
-          f'| {func_name}')
+    print(
+        f"\tTime = {time_average_s * 1000:.4f} ms\t"
+        f"| Rel Speedup = {relative_speedup:.1f}x\t"
+        f"| Score = {score}\t"
+        f"| {func_name}"
+    )
 
 
-def benchmark_metrics_speed(y_true: np.array,
-                            y_pred: np.array,
-                            benchmark_metrics: List[Tuple[callable, str]],
-                            num_repeats: int,
-                            assert_score_isclose: bool = True,
-                            rtol: float = 1e-7) -> Tuple[float, float]:
+def benchmark_metrics_speed(
+    y_true: np.array,
+    y_pred: np.array,
+    benchmark_metrics: list[tuple[callable, str]],
+    num_repeats: int,
+    assert_score_isclose: bool = True,
+    rtol: float = 1e-7,
+) -> tuple[float, float]:
     baseline_speed = None
     baseline_score = None
 
@@ -79,10 +81,9 @@ def benchmark_metrics_speed(y_true: np.array,
         if baseline_score is None:
             baseline_score = score
 
-        print_benchmark_result(baseline_speed=baseline_speed,
-                               time_average_s=time_average_s,
-                               score=score,
-                               func_name=func_name)
+        print_benchmark_result(
+            baseline_speed=baseline_speed, time_average_s=time_average_s, score=score, func_name=func_name
+        )
         if assert_score_isclose:
             np.testing.assert_allclose(baseline_score, score, rtol=rtol)
     return baseline_speed, baseline_score

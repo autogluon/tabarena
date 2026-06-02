@@ -3,14 +3,15 @@ from __future__ import annotations
 import types
 
 import pytest
+
 from tabarena.models import _registry
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models._registry import (
     discover_models,
     get_model_registry,
     register_model_info,
 )
-from tabarena.models._method_metadata import MethodMetadata
 
 
 class _DummyModel:
@@ -64,10 +65,14 @@ def patched_discovery(monkeypatch, fresh_registry):
         return result
 
     monkeypatch.setattr(
-        _registry, "pkgutil", types.SimpleNamespace(iter_modules=fake_iter_modules)
+        _registry,
+        "pkgutil",
+        types.SimpleNamespace(iter_modules=fake_iter_modules),
     )
     monkeypatch.setattr(
-        _registry, "importlib", types.SimpleNamespace(import_module=fake_import_module)
+        _registry,
+        "importlib",
+        types.SimpleNamespace(import_module=fake_import_module),
     )
     return state
 
@@ -137,10 +142,9 @@ def test_discover_models_skips_packages_without_info(patched_discovery, caplog):
 
     # Failure is logged rather than silently swallowed (the silent-skip
     # behaviour previously masked a real CatBoost discovery regression).
-    assert any(
-        "legacy" in record.message and "no info module" in record.message
-        for record in caplog.records
-    ), f"expected a warning mentioning 'legacy' and the import error, got: {[r.message for r in caplog.records]}"
+    assert any("legacy" in record.message and "no info module" in record.message for record in caplog.records), (
+        f"expected a warning mentioning 'legacy' and the import error, got: {[r.message for r in caplog.records]}"
+    )
 
 
 def test_discover_models_ignores_underscore_and_non_modelinfo_attrs(patched_discovery):

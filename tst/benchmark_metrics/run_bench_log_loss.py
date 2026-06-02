@@ -1,16 +1,21 @@
-import numpy as np
+from __future__ import annotations
 
+import numpy as np
 from autogluon.core.metrics import log_loss
 from sklearn.metrics import log_loss as sk_log_loss
-from tabarena.metrics._fast_log_loss import \
-    fast_log_loss_end_to_end, fast_log_loss, extract_true_class_prob
-from tabarena.metrics.bench_utils import benchmark_metrics_speed, print_benchmark_result,\
-    get_eval_speed, generate_y_true_and_y_pred_proba, generate_y_true_and_y_pred_binary
+
+from tabarena.metrics._fast_log_loss import extract_true_class_prob, fast_log_loss, fast_log_loss_end_to_end
+from tabarena.metrics.bench_utils import (
+    benchmark_metrics_speed,
+    generate_y_true_and_y_pred_binary,
+    generate_y_true_and_y_pred_proba,
+    get_eval_speed,
+    print_benchmark_result,
+)
 
 
 def benchmark_log_loss(num_samples: int, num_classes: int, num_repeats: int, rtol=1e-06, binary_format=False):
-    """
-    Benchmarks 4 log_loss computing methods, verifying equivalent scores and comparing compute speed
+    """Benchmarks 4 log_loss computing methods, verifying equivalent scores and comparing compute speed.
 
     1. sk_log_loss       : sklearn log_loss, which will be our baseline
     2. ag_log_loss       : AutoGluon's default log_loss implementation, which is a slightly faster variant to sklearn.
@@ -24,10 +29,12 @@ def benchmark_log_loss(num_samples: int, num_classes: int, num_repeats: int, rto
         Technically for the purposes of ZS simulation, we can run the preprocessing logic on all y_pred for all models,
         thus never paying the cost of preprocessing and massively reducing memory usage.
     """
-    print(f'Benchmarking log_loss... (num_samples={num_samples}, '
-          f'num_classes={num_classes}, '
-          f'binary_format={binary_format}, '
-          f'num_repeats={num_repeats}')
+    print(
+        f"Benchmarking log_loss... (num_samples={num_samples}, "
+        f"num_classes={num_classes}, "
+        f"binary_format={binary_format}, "
+        f"num_repeats={num_repeats}"
+    )
     if binary_format:
         assert num_classes == 2
         y_true, y_pred = generate_y_true_and_y_pred_binary(num_samples=num_samples)
@@ -35,9 +42,9 @@ def benchmark_log_loss(num_samples: int, num_classes: int, num_repeats: int, rto
         y_true, y_pred = generate_y_true_and_y_pred_proba(num_samples=num_samples, num_classes=num_classes)
 
     benchmark_metrics = [
-        (sk_log_loss, 'sk_log_loss'),
-        (log_loss.error, 'ag_log_loss'),
-        (fast_log_loss_end_to_end.error, 'fast_log_loss_e2e')
+        (sk_log_loss, "sk_log_loss"),
+        (log_loss.error, "ag_log_loss"),
+        (fast_log_loss_end_to_end.error, "fast_log_loss_e2e"),
     ]
 
     baseline_speed, baseline_score = benchmark_metrics_speed(
@@ -50,7 +57,7 @@ def benchmark_log_loss(num_samples: int, num_classes: int, num_repeats: int, rto
     )
 
     # fast log loss
-    func_name = 'fast_log_loss'
+    func_name = "fast_log_loss"
 
     # The time this takes can be ignored, as for our purposes this is only paid once,
     # but y_true_opt and y_pred_opt are re-used in many log_loss calls.
@@ -62,20 +69,19 @@ def benchmark_log_loss(num_samples: int, num_classes: int, num_repeats: int, rto
         y_pred=y_pred_opt,
         num_repeats=num_repeats,
     )
-    print_benchmark_result(baseline_speed=baseline_speed,
-                           time_average_s=time_average_s,
-                           score=score,
-                           func_name=func_name)
+    print_benchmark_result(
+        baseline_speed=baseline_speed, time_average_s=time_average_s, score=score, func_name=func_name
+    )
     np.testing.assert_allclose(baseline_score, score, rtol=rtol)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     """
     Run a benchmark demonstrating the result equivalence of `fast_log_loss` with normal `log_loss`,
     but computed much faster.
-    
+
     Below is an example output using an m6i.32xlarge machine. fast_log_loss is at minimum 46x faster than sk_log_loss.
-    
+
     Benchmarking log_loss... (num_samples=100, num_classes=2, num_repeats=1000
         Time = 0.2790 ms	| Score = 0.9403822961581705	| Rel Speedup = 1.0x	| sk_log_loss
         Time = 0.2814 ms	| Score = 0.9403822961581705	| Rel Speedup = 1.0x	| ag_log_loss
@@ -159,11 +165,9 @@ if __name__ == '__main__':
         (1000000, 100, 3),
     ]:
         if num_classes == 2:
-            benchmark_log_loss(num_samples=num_samples,
-                               num_classes=num_classes,
-                               num_repeats=num_repeats,
-                               binary_format=True)
-        benchmark_log_loss(num_samples=num_samples,
-                           num_classes=num_classes,
-                           num_repeats=num_repeats,
-                           binary_format=False)
+            benchmark_log_loss(
+                num_samples=num_samples, num_classes=num_classes, num_repeats=num_repeats, binary_format=True
+            )
+        benchmark_log_loss(
+            num_samples=num_samples, num_classes=num_classes, num_repeats=num_repeats, binary_format=False
+        )

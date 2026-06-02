@@ -25,7 +25,7 @@ if __name__ == "__main__":
     print(
         YamlExperimentSerializer.to_yaml_str(
             experiments=gen_tabstar.generate_all_bag_experiments(
-                num_random_configs=0
+                num_random_configs=0,
             ),
         ),
     )

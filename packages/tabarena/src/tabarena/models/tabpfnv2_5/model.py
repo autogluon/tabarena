@@ -5,10 +5,10 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
-from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
+from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.features.generators import LabelEncoderFeatureGenerator
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -61,16 +61,14 @@ class TabPFNModel(AbstractTorchModel):
         if self._feature_generator.features_in:
             X = X.copy()
             X[self._feature_generator.features_in] = self._feature_generator.transform(
-                X=X
+                X=X,
             )
 
             if is_train:
                 # Detect/set cat features and indices
                 if self._cat_features is None:
                     self._cat_features = self._feature_generator.features_in[:]
-                self._cat_indices = [
-                    X.columns.get_loc(col) for col in self._cat_features
-                ]
+                self._cat_indices = [X.columns.get_loc(col) for col in self._cat_features]
 
         return X
 
@@ -117,7 +115,8 @@ class TabPFNModel(AbstractTorchModel):
                     "name": scaler,
                     "global_transformer_name": hps.pop("preprocessing/global", None),
                     "categorical_name": hps.pop(
-                        "preprocessing/categoricals", "numeric"
+                        "preprocessing/categoricals",
+                        "numeric",
                     ),
                     "append_original": hps.pop("preprocessing/append_original", True),
                 }
@@ -156,9 +155,7 @@ class TabPFNModel(AbstractTorchModel):
 
         # Resolve inference_config
         inference_config = {
-            _k: v
-            for k, v in hps.items()
-            if k.startswith("inference_config/") and (_k := k.split("/")[-1])
+            _k: v for k, v in hps.items() if k.startswith("inference_config/") and (_k := k.split("/")[-1])
         }
         if inference_config:
             hps["inference_config"] = inference_config
@@ -168,9 +165,7 @@ class TabPFNModel(AbstractTorchModel):
 
         # Resolve finetuning config
         finetuning_config = {
-            _k: v
-            for k, v in hps.items()
-            if k.startswith("finetuning_config/") and (_k := k.split("/")[-1])
+            _k: v for k, v in hps.items() if k.startswith("finetuning_config/") and (_k := k.split("/")[-1])
         }
         for k in list(hps.keys()):
             if k.startswith("finetuning_config/"):
@@ -178,9 +173,7 @@ class TabPFNModel(AbstractTorchModel):
 
         # Resolve many_class config
         many_class_config = {
-            _k: v
-            for k, v in hps.items()
-            if k.startswith("many_class/") and (_k := k.split("/", 1)[1])
+            _k: v for k, v in hps.items() if k.startswith("many_class/") and (_k := k.split("/", 1)[1])
         }
         for k in list(hps.keys()):
             if k.startswith("many_class/"):
@@ -192,7 +185,6 @@ class TabPFNModel(AbstractTorchModel):
 
         if not use_finetuning:
             from tabpfn import TabPFNClassifier, TabPFNRegressor
-
 
             if self.fixed_random_state is not None:
                 hps[self.seed_name] = self.fixed_random_state
@@ -218,7 +210,7 @@ class TabPFNModel(AbstractTorchModel):
             )
         else:
             raise NotImplementedError(
-                "Finetuning is not supported anymore for now due to other changes!."
+                "Finetuning is not supported anymore for now due to other changes!.",
             )
             # TODO:
             #   Future Work for better performance:
@@ -239,19 +231,11 @@ class TabPFNModel(AbstractTorchModel):
                 "rmse": "mse",
             }
             eval_metric = metric_map.get(self.stopping_metric.name, None)
-            model_base = (
-                FinetunedTabPFNClassifier
-                if is_classification
-                else FinetunedTabPFNRegressor
-            )
+            model_base = FinetunedTabPFNClassifier if is_classification else FinetunedTabPFNRegressor
             # Large default number to avoid stopping on it.
             epochs = finetuning_config.pop("epochs", 10_000)
 
-            kwargs_name = (
-                "extra_classifier_kwargs"
-                if is_classification
-                else "extra_regressor_kwargs"
-            )
+            kwargs_name = "extra_classifier_kwargs" if is_classification else "extra_regressor_kwargs"
             finetuning_config[kwargs_name] = hps
 
             if X_val is not None:
@@ -282,7 +266,8 @@ class TabPFNModel(AbstractTorchModel):
         return num_cpus, num_gpus
 
     def get_minimum_resources(
-        self, is_gpu_available: bool = False
+        self,
+        is_gpu_available: bool = False,
     ) -> dict[str, int | float]:
         return {
             "num_cpus": 1,
@@ -367,20 +352,16 @@ class TabPFNModel(AbstractTorchModel):
         model_mem = 14489108  # Based on TabPFNv2 default
 
         n_samples, n_features = X.shape[0], min(X.shape[1], 500)
-        n_feature_groups = (
-            n_features
-        ) / features_per_group + 1  # TODO: Unsure how to calculate this
+        n_feature_groups = (n_features) / features_per_group + 1  # TODO: Unsure how to calculate this
 
         X_mem = n_samples * n_feature_groups * dtype_byte_size
-        activation_mem = (
-            n_samples * n_feature_groups * embedding_size * n_layers * dtype_byte_size
-        )
+        activation_mem = n_samples * n_feature_groups * embedding_size * n_layers * dtype_byte_size
 
         baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
 
         # Add some buffer to each term + 1 GB overhead to be safe
         return int(
-            model_mem + 4 * X_mem + 2 * activation_mem + baseline_overhead_mem_est
+            model_mem + 4 * X_mem + 2 * activation_mem + baseline_overhead_mem_est,
         )
 
     @classmethod
@@ -398,6 +379,7 @@ class TabPFNModel(AbstractTorchModel):
         """By default no adjustments, but can be overridden by subclasses."""
         return hps
 
+
 class RealTabPFNv25Model(TabPFNModel):
     """RealTabPFN-v2.5 version: https://priorlabs.ai/technical-reports/tabpfn-2-5-model-report.
 
@@ -409,9 +391,7 @@ class RealTabPFNv25Model(TabPFNModel):
     ag_key = "TA-REALTABPFN-V2.5"
     ag_name = "TA-RealTabPFN-v2.5"
 
-    default_classification_model: str | None = (
-        "tabpfn-v2.5-classifier-v2.5_default.ckpt"
-    )
+    default_classification_model: str | None = "tabpfn-v2.5-classifier-v2.5_default.ckpt"
     default_regression_model: str | None = "tabpfn-v2.5-regressor-v2.5_default.ckpt"
 
     @staticmethod
@@ -445,9 +425,10 @@ class RealTabPFNv25Model(TabPFNModel):
                 "max_rows": 100_000,
                 "max_features": 2000,
                 "max_classes": 10,
-            }
+            },
         )
         return default_auxiliary_params
+
 
 class TabPFNv26Model(TabPFNModel):
     """TabPFN-2.6 version."""
@@ -468,7 +449,7 @@ class TabPFNv26Model(TabPFNModel):
     def extra_checkpoints_for_tuning(problem_type: str) -> list[str]:
         """The list of checkpoints to use for hyperparameter tuning."""
         raise NotImplementedError(
-            "We did not benchmark more checkpoints or tuning."
+            "We did not benchmark more checkpoints or tuning.",
         )
 
     # We do not put a limit on number of classes or features anymore for
@@ -478,7 +459,7 @@ class TabPFNv26Model(TabPFNModel):
         default_auxiliary_params.update(
             {
                 "max_rows": 100_000,
-            }
+            },
         )
         return default_auxiliary_params
 
@@ -494,9 +475,7 @@ class TabPFNv26Model(TabPFNModel):
         We ignore it for now, moreover as we refit_folds=True, there is no benefit yet.
 
         """
-        dataset_size_mem_est = (
-            3 * get_approximate_df_mem_usage(X).sum()
-        )
+        dataset_size_mem_est = 3 * get_approximate_df_mem_usage(X).sum()
         baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
         return dataset_size_mem_est + baseline_overhead_mem_est
 
@@ -510,19 +489,26 @@ class TabPFNv26Model(TabPFNModel):
             # More extreme heuristic to avoid OOM
             import dataclasses
 
-            from tabpfn.inference_config import _get_v2_6_config, v2_6_classifier_preprocessor_configs, v2_6_regressor_preprocessor_configs
+            from tabpfn.inference_config import (
+                _get_v2_6_config,
+                v2_6_classifier_preprocessor_configs,
+                v2_6_regressor_preprocessor_configs,
+            )
+
             task_type = "multiclass" if is_classification else "regression"
-            preprocessor_configs = v2_6_classifier_preprocessor_configs()  if is_classification else v2_6_regressor_preprocessor_configs()
+            preprocessor_configs = (
+                v2_6_classifier_preprocessor_configs() if is_classification else v2_6_regressor_preprocessor_configs()
+            )
             preprocessor_configs = [
-                dataclasses.replace(cfg, max_features_per_estimator=300)
-                for cfg in preprocessor_configs
+                dataclasses.replace(cfg, max_features_per_estimator=300) for cfg in preprocessor_configs
             ]
             hps["inference_config"] = _get_v2_6_config(
-                    preprocessor_configs=preprocessor_configs,
-                    task_type=task_type,
-                )
+                preprocessor_configs=preprocessor_configs,
+                task_type=task_type,
+            )
 
         return hps
+
 
 def prefetch_weights() -> None:
     """Pre-download all TabPFN checkpoints (shared by the v2.5 / v2.6 wrappers)."""

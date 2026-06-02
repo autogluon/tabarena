@@ -10,8 +10,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from autogluon.common.loaders import load_pd
-from bencheval.tabarena import TabArena
 
+from bencheval.tabarena import TabArena
 from tabarena.nips2025_utils.compare import subset_tasks
 from tabarena.nips2025_utils.eval_all import (
     get_all_subset_combinations,
@@ -180,10 +180,10 @@ def plot_hpo(
         color = color_map[method_name]
 
         # 1) Draw the connecting line (no markers)
-        _h, = ax.plot(
+        (_h,) = ax.plot(
             times,
             scores,
-            "-",                # no point markers
+            "-",  # no point markers
             label=method_name,
             color=color,
             alpha=0.9,
@@ -199,7 +199,7 @@ def plot_hpo(
                     times[mask],
                     scores[mask],
                     marker="o",
-                    s=64,          # ~markersize=16 equivalent
+                    s=64,  # ~markersize=16 equivalent
                     color=color,
                     alpha=0.9,
                     zorder=4,
@@ -301,7 +301,7 @@ def plot_hpo(
                 **_annotation_placement(lbl),
             )
             txt.set_path_effects(
-                [PathEffects.withStroke(linewidth=3, foreground="white")]
+                [PathEffects.withStroke(linewidth=3, foreground="white")],
             )
 
     if show_pareto_frontier:
@@ -391,7 +391,7 @@ def plot_hpo(
             # ``seen_labels`` is shared with the ``link_points`` block —
             # a method labeled there is skipped here so it doesn't get
             # annotated twice.
-            for (x, y), lbl in zip(pareto_front, pareto_names):
+            for (x, y), lbl in zip(pareto_front, pareto_names, strict=False):
                 if lbl is None or lbl in seen_labels:
                     continue
                 seen_labels.add(lbl)
@@ -407,7 +407,7 @@ def plot_hpo(
                     **_annotation_placement(lbl),
                 )
                 txt.set_path_effects(
-                    [PathEffects.withStroke(linewidth=3, foreground="white")]
+                    [PathEffects.withStroke(linewidth=3, foreground="white")],
                 )
 
             # Plotting the extended frontier + label annotations triggers
@@ -453,10 +453,7 @@ def plot_hpo(
     # names continue to drive color lookups, frontier annotations, etc.
     if hidden_legend_methods:
         hidden_set = set(hidden_legend_methods)
-        kept = [
-            (h, lbl) for h, lbl in zip(handles_legend, labels_legend)
-            if lbl not in hidden_set
-        ]
+        kept = [(h, lbl) for h, lbl in zip(handles_legend, labels_legend, strict=False) if lbl not in hidden_set]
         handles_legend = [h for h, _ in kept]
         labels_legend = [lbl for _, lbl in kept]
     if legend_display_names:
@@ -513,10 +510,7 @@ def plot_hpo(
         # first then values in matching order.
         keys_list = list(dataset_metadata.keys())
         values_list = [str(v) for v in dataset_metadata.values()]
-        meta_handles = [
-            Line2D([], [], linestyle="none", marker="", color="none")
-            for _ in range(2 * len(keys_list))
-        ]
+        meta_handles = [Line2D([], [], linestyle="none", marker="", color="none") for _ in range(2 * len(keys_list))]
         meta_labels = keys_list + values_list
 
         # Preserve the model legend so adding the metadata one doesn't drop it.
@@ -606,7 +600,7 @@ def compute_tuning_trajectories_leaderboard(
     elo_bootstrap_rounds: int = 1,
     average_seeds: bool = False,
     subset: str | list[str] | None = None,
-    name_col = "config_type",
+    name_col="config_type",
     folds: list[int] | None = None,
 ):
     combined_data = combined_data.copy()
@@ -690,7 +684,7 @@ def compute_tuning_trajectories_leaderboard(
     if val_nan_methods:
         print(
             f"Dropping {len(val_nan_methods)} method(s) from validation-score "
-            f"leaderboard due to NaN metric_error_val: {val_nan_methods}"
+            f"leaderboard due to NaN metric_error_val: {val_nan_methods}",
         )
     combined_data_val = combined_data[~combined_data["method"].isin(val_nan_methods)]
 
@@ -732,13 +726,16 @@ def compute_tuning_trajectories_leaderboard(
     leaderboard["Improvability (%)"] = leaderboard["improvability"] * 100
     leaderboard["Improvability (%) (Test)"] = leaderboard["Improvability (%)"]
     leaderboard["Improvability (%) (Val)"] = leaderboard["improvability_val"] * 100
-    leaderboard["Improvability (%) (Test) - Improvability (%) (Val)"] = leaderboard["Improvability (%) (Test)"] - leaderboard["Improvability (%) (Val)"]
+    leaderboard["Improvability (%) (Test) - Improvability (%) (Val)"] = (
+        leaderboard["Improvability (%) (Test)"] - leaderboard["Improvability (%) (Val)"]
+    )
 
     leaderboard["Baseline Advantage (%)"] = leaderboard["baseline_advantage"] * 100
     leaderboard["Baseline Advantage (%) (Test)"] = leaderboard["Baseline Advantage (%)"]
     leaderboard["Baseline Advantage (%) (Val)"] = leaderboard["baseline_advantage_val"] * 100
-    leaderboard["Baseline Advantage (%) (Test - Val)"] = (leaderboard["baseline_advantage"] - leaderboard[
-        "baseline_advantage_val"]) * 100
+    leaderboard["Baseline Advantage (%) (Test - Val)"] = (
+        leaderboard["baseline_advantage"] - leaderboard["baseline_advantage_val"]
+    ) * 100
 
     leaderboard["Train time per 1K samples (s) (median)"] = leaderboard["median_time_train_s_per_1K"]
     leaderboard["Inference time per 1K samples (s) (median)"] = leaderboard["median_time_infer_s_per_1K"]
@@ -757,8 +754,8 @@ def plot_tuning_trajectories_all(
     fig_save_dir: str | Path = Path("plots") / "n_configs",
     ban_bad_methods: bool = True,
     file_ext: str = ".pdf",
-    extra_results = None,
-    calibration_framework = "auto",
+    extra_results=None,
+    calibration_framework="auto",
     folds: list[int] | None = None,
     methods_to_display: list[str] | None = None,
     plot_kwargs: dict | None = None,
@@ -804,12 +801,14 @@ def plot_tuning_trajectories_all(
             subset_list.append("lite")
         (fig_save_dir / custom_folder_name).mkdir(parents=True, exist_ok=True)
 
-        inputs.append({
-            "subset_map": {"placeholder_name": subset_list},
-            "average_seeds": average_seeds,
-            "exclude_imputed": not use_imputation,
-            "fig_save_dir": fig_save_dir / custom_folder_name / "tuning_trajectories",
-        })
+        inputs.append(
+            {
+                "subset_map": {"placeholder_name": subset_list},
+                "average_seeds": average_seeds,
+                "exclude_imputed": not use_imputation,
+                "fig_save_dir": fig_save_dir / custom_folder_name / "tuning_trajectories",
+            }
+        )
 
     parallel_for(
         f=plot_tuning_trajectories,
@@ -933,7 +932,7 @@ def plot_tuning_trajectories_per_dataset(
     fig_save_dir: str | Path = Path("plots") / "n_configs_per_dataset",
     ban_bad_methods: bool = True,
     file_ext: str = ".pdf",
-    extra_results = None,
+    extra_results=None,
     calibration_framework: str | None = "auto",
     fillna_method: str | None = "auto",
     folds: list[int] | None = None,
@@ -1021,14 +1020,16 @@ def plot_tuning_trajectories_per_dataset(
             plot_kwargs_cur = {}
         plot_kwargs_cur["title"] = f"Dataset: {_name_map.get(dataset, dataset)}"
 
-        inputs.append({
-            "datasets": [dataset],
-            "fig_save_dir": fig_save_dir / dataset / "tuning_trajectories",
-            "subset_map": list(subset_list),
-            "plot_kwargs": plot_kwargs_cur,
-            "error_ylabel_metric": _metric_map.get(dataset),
-            "dataset_metadata": _metadata_map.get(dataset),
-        })
+        inputs.append(
+            {
+                "datasets": [dataset],
+                "fig_save_dir": fig_save_dir / dataset / "tuning_trajectories",
+                "subset_map": list(subset_list),
+                "plot_kwargs": plot_kwargs_cur,
+                "error_ylabel_metric": _metric_map.get(dataset),
+                "dataset_metadata": _metadata_map.get(dataset),
+            }
+        )
 
     parallel_for(
         f=_plot_tuning_trajectories_from_prepared,
@@ -1094,9 +1095,15 @@ def _prepare_tuning_trajectories_data(
 
     result_baselines = tabarena_context.load_results_paper()
 
-    results_hpo_mean = results_hpo.copy().groupby(["method", "dataset", "fold", "problem_type", "metric", "config_type", "display_name"]).mean(
-        numeric_only=True
-    ).drop(columns=["seed"]).reset_index()
+    results_hpo_mean = (
+        results_hpo.copy()
+        .groupby(["method", "dataset", "fold", "problem_type", "metric", "config_type", "display_name"])
+        .mean(
+            numeric_only=True,
+        )
+        .drop(columns=["seed"])
+        .reset_index()
+    )
     results_hpo_mean["imputed"] = 0
     results_hpo_mean["imputed"] = results_hpo_mean["imputed"].astype(bool)
 
@@ -1122,18 +1129,27 @@ def _prepare_tuning_trajectories_data(
     if include_hpo_seeds:
         results_hpo_seeds = results_hpo.copy()
         results_hpo_seeds["method"] = results_hpo_seeds["method"] + "-" + results_hpo_seeds["seed"].astype(str)
-        results_hpo_seeds["config_type"] = results_hpo_seeds["config_type"] + "-" + results_hpo_seeds["seed"].astype(str)
-        results_hpo_seeds = results_hpo_seeds.groupby(["method", "dataset", "fold", "problem_type", "metric", "config_type", "display_name"]).mean(
-            numeric_only=True).reset_index()
+        results_hpo_seeds["config_type"] = (
+            results_hpo_seeds["config_type"] + "-" + results_hpo_seeds["seed"].astype(str)
+        )
+        results_hpo_seeds = (
+            results_hpo_seeds.groupby(
+                ["method", "dataset", "fold", "problem_type", "metric", "config_type", "display_name"]
+            )
+            .mean(numeric_only=True)
+            .reset_index()
+        )
         results_lst.append(results_hpo_seeds)
 
     if include_portfolio:  # TODO: This only works if you have legacy files, add general support for portfolio
         results_portfolio = load_pd.load(path="../tabarena/advanced/rebuttal/rebuttal_portfolio_n_configs.parquet")
         results_portfolio["config_type"] = results_portfolio["method"]
-        results_portfolio = results_portfolio.rename(columns={
-            "n_portfolio": "n_configs",
-            "n_ensembles": "n_iterations",
-        })
+        results_portfolio = results_portfolio.rename(
+            columns={
+                "n_portfolio": "n_configs",
+                "n_ensembles": "n_iterations",
+            }
+        )
         results_portfolio["method"] = results_portfolio["method"] + "-" + results_portfolio["n_configs"].astype(str)
         results_portfolio["imputed"] = 0
         results_portfolio["imputed"] = results_portfolio["imputed"].astype(bool)
@@ -1150,10 +1166,12 @@ def _prepare_tuning_trajectories_data(
     dataset_to_n_samples_train = tabarena_context.task_metadata.set_index("name")["n_samples_train_per_fold"].to_dict()
     dataset_to_n_samples_test = tabarena_context.task_metadata.set_index("name")["n_samples_test_per_fold"].to_dict()
 
-    combined_data["time_train_s_per_1K"] = combined_data["time_train_s"] * 1000 / combined_data["dataset"].map(
-        dataset_to_n_samples_train)
-    combined_data["time_infer_s_per_1K"] = combined_data["time_infer_s"] * 1000 / combined_data["dataset"].map(
-        dataset_to_n_samples_test)
+    combined_data["time_train_s_per_1K"] = (
+        combined_data["time_train_s"] * 1000 / combined_data["dataset"].map(dataset_to_n_samples_train)
+    )
+    combined_data["time_infer_s_per_1K"] = (
+        combined_data["time_infer_s"] * 1000 / combined_data["dataset"].map(dataset_to_n_samples_test)
+    )
 
     # Combined train + inference runtime, both raw and per-1K-samples.
     # Computed at the row level (not as the sum of medians) so the
@@ -1162,7 +1180,11 @@ def _prepare_tuning_trajectories_data(
     combined_data["time_total_s"] = combined_data["time_train_s"] + combined_data["time_infer_s"]
     combined_data["time_total_s_per_1K"] = combined_data["time_train_s_per_1K"] + combined_data["time_infer_s_per_1K"]
 
-    methods_map = results_hpo[["method", "n_configs", "n_iterations", "config_type"]].drop_duplicates(subset=["method"]).set_index("method")
+    methods_map = (
+        results_hpo[["method", "n_configs", "n_iterations", "config_type"]]
+        .drop_duplicates(subset=["method"])
+        .set_index("method")
+    )
 
     return combined_data, methods_map
 
@@ -1294,8 +1316,8 @@ def plot_tuning_trajectories(
     file_ext: str = ".pdf",
     extra_results: pd.DataFrame | None = None,
     datasets: list[str] | None = None,
-    calibration_framework = "auto",
-    fillna_method = "auto",
+    calibration_framework="auto",
+    fillna_method="auto",
     folds: list[int] | None = None,
     methods_to_display: list[str] | None = None,
     hidden_methods: list[str] | None = None,
@@ -1424,9 +1446,7 @@ def plot_tuning_trajectories_from_leaderboard(
         method_col = plot_kwargs.get("method_col", "name")
         if "Elo" in leaderboard.columns and method_col in leaderboard.columns:
             plot_kwargs["method_order"] = (
-                leaderboard.groupby(method_col)["Elo"].max()
-                .sort_values(ascending=False)
-                .index.tolist()
+                leaderboard.groupby(method_col)["Elo"].max().sort_values(ascending=False).index.tolist()
             )
 
     ylim_imp = plot_kwargs.pop("ylim_imp")

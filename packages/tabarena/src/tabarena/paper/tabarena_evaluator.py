@@ -4,31 +4,32 @@ import copy
 import itertools
 import json
 import math
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-import re
-from typing import Mapping
 
 import matplotlib
+import matplotlib.colors as mcolors
 import matplotlib.patheffects as PathEffects
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib import ticker
-from tueplots import bundles, fonts, fontsizes
-import matplotlib.pyplot as plt
 import seaborn as sns
-from matplotlib.patches import Patch
-import matplotlib.colors as mcolors
-
 from autogluon.common.savers import save_pd
+from matplotlib import ticker
+from matplotlib.patches import Patch
+from tueplots import bundles, fonts, fontsizes
 
-from tabarena.utils.normalized_scorer import NormalizedScorer
-from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
 from bencheval.tabarena import TabArena
-from tabarena.paper.paper_utils import get_framework_type_method_names, get_method_rename_map, get_f_map_suffix_plots
+from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
+from tabarena.paper.paper_utils import get_f_map_suffix_plots, get_framework_type_method_names, get_method_rename_map
 from tabarena.plot.dataset_analysis import plot_train_time_deep_dive
 from tabarena.plot.plot_ens_weights import create_heatmap
-from tabarena.plot.plot_pareto_frontier import plot_pareto as _plot_pareto, plot_pareto_aggregated
+from tabarena.plot.plot_pareto_frontier import (
+    plot_pareto as _plot_pareto,
+)
+from tabarena.utils.normalized_scorer import NormalizedScorer
 
 MethodLabelStyle = str | Mapping[str, object]
 
@@ -46,28 +47,31 @@ class TuneMethodOverride:
     Multiple overrides can coexist in the same plot; each contributes one bar
     dict and one entry to the elo err-color loop.
     """
-    tune_method: str                          # value written to df["tune_method"]; must be unique per plot
-    methods: list[str]                        # method names (in `method_col`) to retag
-    bar_label: str                            # legend label for this bar
-    bar_color: str                            # bar fill color
+
+    tune_method: str  # value written to df["tune_method"]; must be unique per plot
+    methods: list[str]  # method names (in `method_col`) to retag
+    bar_label: str  # legend label for this bar
+    bar_color: str  # bar fill color
     bar_width: float = 0.4
-    err_color: str | None = None              # whisker color; defaults to errcolors[0] (default-blue)
+    err_color: str | None = None  # whisker color; defaults to errcolors[0] (default-blue)
     err_linewidth_key: str = "tuned_ensembled"  # which entry of err_linewidths to use
     rename_map: dict[str, str] = field(default_factory=dict)  # applied to method_col before f_map_inverse
-    promote_from_baselines: bool = False      # move `methods` out of `baselines` into `framework_types`
+    promote_from_baselines: bool = False  # move `methods` out of `baselines` into `framework_types`
+
 
 matplotlib.rcParams.update(fontsizes.neurips2024())
-matplotlib.rcParams.update({
-    'text.latex.preamble': r'\usepackage{times} \usepackage{amsmath} \usepackage{amsfonts} \usepackage{amssymb} \usepackage{xcolor}'
-})
+matplotlib.rcParams.update(
+    {
+        "text.latex.preamble": r"\usepackage{times} \usepackage{amsmath} \usepackage{amsfonts} \usepackage{amssymb} \usepackage{xcolor}",
+    }
+)
 
 
 def darken_color(color_str, amount=0.5):
     # Convert color string to RGB tuple (values between 0 and 1)
     rgb = mcolors.to_rgb(color_str)
     # Interpolate with black (0, 0, 0)
-    darker_rgb = tuple((1 - amount) * c for c in rgb)
-    return darker_rgb
+    return tuple((1 - amount) * c for c in rgb)
 
 
 # FIXME: ensemble weights can get if including `config_hyperparameters` as input
@@ -77,7 +81,7 @@ class TabArenaEvaluator:
         *,
         output_dir: str | Path,
         task_metadata: pd.DataFrame | None = None,
-        config_types: dict[str, str] = None,
+        config_types: dict[str, str] | None = None,
         method_col: str = "method",
         error_col: str = "metric_error",
         methods: list[str] | None = None,
@@ -94,11 +98,10 @@ class TabArenaEvaluator:
         use_latex: bool = False,
         tabarena_context=None,  # FIXME: Remove this and refactor after leaderboard v0.2 upload, this is purely to get things working fast
     ):
-        """
-
-        Parameters
+        """Parameters
         ----------
-        methods
+
+        Methods:
             filter methods
         folds
             filter folds
@@ -140,9 +143,9 @@ class TabArenaEvaluator:
             matplotlib.rcParams.update(bundles.neurips2024())
             matplotlib.rcParams.update(fonts.neurips2024_tex())
             self.rc_context_params = {
-                                         'font.family': 'serif',
-                                         "text.usetex": True,
-                                     } | fontsizes.neurips2024(default_smaller=0)
+                "font.family": "serif",
+                "text.usetex": True,
+            } | fontsizes.neurips2024(default_smaller=0)
         else:
             self.rc_context_params = {}
 
@@ -170,10 +173,12 @@ class TabArenaEvaluator:
 
         if tabarena_context is not None:
             self.method_metadata_info = tabarena_context.method_metadata_collection.info()
-            self.method_metadata_info = self.method_metadata_info.rename(columns={
-                "method": "ta_name",
-                "artifact_name": "ta_suite",
-            })
+            self.method_metadata_info = self.method_metadata_info.rename(
+                columns={
+                    "method": "ta_name",
+                    "artifact_name": "ta_suite",
+                }
+            )
             self.method_metadata_info = self.method_metadata_info.drop(columns=["method_type"])
         else:
             self.method_metadata_info = None
@@ -186,8 +191,9 @@ class TabArenaEvaluator:
 
         method_col = self.method_col
 
-        df_results_per_dataset = df_results.groupby([method_col, "dataset"])[self.error_col].mean().reset_index(
-            drop=False)
+        df_results_per_dataset = (
+            df_results.groupby([method_col, "dataset"])[self.error_col].mean().reset_index(drop=False)
+        )
 
         # Alternative, this also incorporates Portfolios and HPO into the normalized scoring. This makes normalized-error dependent on what simulations we run.
         # This is unbiased against very strong simulation results because the best method defines what is `0.0` on a dataset.
@@ -211,18 +217,23 @@ class TabArenaEvaluator:
             framework_col=method_col,
         )
 
-        df_results["normalized-error-task"] = [normalized_scorer_task.rank(task=(dataset, fold), error=error) for
-                                               (dataset, fold, error) in
-                                               zip(df_results["dataset"], df_results["fold"],
-                                                   df_results[self.error_col])]
+        df_results["normalized-error-task"] = [
+            normalized_scorer_task.rank(task=(dataset, fold), error=error)
+            for (dataset, fold, error) in zip(
+                df_results["dataset"], df_results["fold"], df_results[self.error_col], strict=False
+            )
+        ]
 
         df_results_per_dataset["normalized-error-dataset"] = [
-            normalized_scorer_dataset.rank(task=dataset, error=error) for (dataset, error) in
-            zip(df_results_per_dataset["dataset"], df_results_per_dataset[self.error_col])
+            normalized_scorer_dataset.rank(task=dataset, error=error)
+            for (dataset, error) in zip(
+                df_results_per_dataset["dataset"], df_results_per_dataset[self.error_col], strict=False
+            )
         ]
 
         df_results_per_dataset = df_results_per_dataset.set_index(["dataset", method_col], drop=True)[
-            "normalized-error-dataset"]
+            "normalized-error-dataset"
+        ]
         df_results = df_results.merge(df_results_per_dataset, left_on=["dataset", method_col], right_index=True)
 
         df_results_og["normalized-error-dataset"] = df_results["normalized-error-dataset"]
@@ -231,11 +242,13 @@ class TabArenaEvaluator:
 
     @classmethod
     def _get_config_types(cls, df_results: pd.DataFrame) -> list[str]:
-        config_types = sorted([
-            config_type for config_type in df_results["config_type"].unique()
-            if config_type is not None and isinstance(config_type, str)
-        ])
-        return config_types
+        return sorted(
+            [
+                config_type
+                for config_type in df_results["config_type"].unique()
+                if config_type is not None and isinstance(config_type, str)
+            ]
+        )
 
     # TODO: Remove the need for this, have the original results have the correct name to begin with
     @classmethod
@@ -255,8 +268,7 @@ class TabArenaEvaluator:
         require_paired_splits: bool = True,
         zscore_ddof: int = 1,  # 1 = sample std (recommended), 0 = population std
     ) -> pd.DataFrame:
-        """
-        Compare two methods on metric_error (lower is better; 0 is perfect), per dataset.
+        """Compare two methods on metric_error (lower is better; 0 is perfect), per dataset.
 
         Adds a per-dataset z-score of the paired mean difference across splits:
             z = mean(diff) / (std(diff) / sqrt(n))
@@ -271,20 +283,15 @@ class TabArenaEvaluator:
         if missing:
             raise ValueError(f"df missing columns: {sorted(missing)}")
 
-        sub = df[df[method_col].isin([method_a, method_b])][
-            [dataset_col, split_col, method_col, error_col]
-        ].copy()
+        sub = df[df[method_col].isin([method_a, method_b])][[dataset_col, split_col, method_col, error_col]].copy()
 
         # Align A/B on the same (dataset, split)
-        wide = (
-            sub.pivot_table(
-                index=[dataset_col, split_col],
-                columns=method_col,
-                values=error_col,
-                aggfunc="mean",  # handle duplicates
-            )
-            .rename(columns={method_a: "A", method_b: "B"})
-        )
+        wide = sub.pivot_table(
+            index=[dataset_col, split_col],
+            columns=method_col,
+            values=error_col,
+            aggfunc="mean",  # handle duplicates
+        ).rename(columns={method_a: "A", method_b: "B"})
 
         if require_paired_splits:
             wide = wide.dropna(subset=["A", "B"])
@@ -311,7 +318,7 @@ class TabArenaEvaluator:
             diffs = paired["diff_A_minus_B"]
 
             out = {
-                "n_splits": int(len(paired)),
+                "n_splits": len(paired),
                 "mean_error_A": paired["A"].mean(),
                 "mean_error_B": paired["B"].mean(),
                 "median_error_A": paired["A"].median(),
@@ -333,7 +340,8 @@ class TabArenaEvaluator:
         stats = wide.groupby(level=0, sort=True).apply(_agg)
 
         stats["winner_by_mean"] = np.where(
-            stats["mean_error_A"] < stats["mean_error_B"], method_a,
+            stats["mean_error_A"] < stats["mean_error_B"],
+            method_a,
             np.where(stats["mean_error_A"] > stats["mean_error_B"], method_b, "tie"),
         )
 
@@ -350,8 +358,7 @@ class TabArenaEvaluator:
         min_splits: int = 2,
         tie_decimals: int | None = None,
     ) -> dict[str, float]:
-        """
-        Compute average split agreement across all method pairs within ONE dataset.
+        """Compute average split agreement across all method pairs within ONE dataset.
 
         Agreement for pair (i,j):
           p_ij = fraction of splits where error_i < error_j
@@ -369,7 +376,10 @@ class TabArenaEvaluator:
         """
         # Pivot to a dense matrix: rows=splits, cols=methods, values=error
         wide = df_dataset.pivot_table(
-            index=split_col, columns=method_col, values=error_col, aggfunc="mean"
+            index=split_col,
+            columns=method_col,
+            values=error_col,
+            aggfunc="mean",
         )
         # Keep only methods that appear on >=1 split (already true) and splits with >=2 methods
         if wide.shape[0] < min_splits or wide.shape[1] < 2:
@@ -392,8 +402,8 @@ class TabArenaEvaluator:
         # Broadcast comparisons: for each split s, compare all method pairs (i,j)
         # win[s,i,j] = 1 if X[s,i] < X[s,j]
         # tie[s,i,j] = 1 if X[s,i] == X[s,j]
-        win = (X_cmp[:, :, None] < X_cmp[:, None, :])
-        tie = (X_cmp[:, :, None] == X_cmp[:, None, :])
+        win = X_cmp[:, :, None] < X_cmp[:, None, :]
+        tie = X_cmp[:, :, None] == X_cmp[:, None, :]
 
         # Handle missing values: comparisons where either side is NaN should not count
         valid = np.isfinite(X)
@@ -419,8 +429,11 @@ class TabArenaEvaluator:
 
             avg = float(np.nanmean(agree_pairs))
             # weighted by how many non-tie split comparisons each pair had
-            wavg = float(np.nansum(agree_pairs * denom_pairs) / np.nansum(denom_pairs)) if np.nansum(
-                denom_pairs) > 0 else np.nan
+            wavg = (
+                float(np.nansum(agree_pairs * denom_pairs) / np.nansum(denom_pairs))
+                if np.nansum(denom_pairs) > 0
+                else np.nan
+            )
 
         elif tie_policy == "half":
             # treat ties as half-win for both sides
@@ -432,8 +445,11 @@ class TabArenaEvaluator:
             denom_pairs = denom[iu]
 
             avg = float(np.nanmean(agree_pairs))
-            wavg = float(np.nansum(agree_pairs * denom_pairs) / np.nansum(denom_pairs)) if np.nansum(
-                denom_pairs) > 0 else np.nan
+            wavg = (
+                float(np.nansum(agree_pairs * denom_pairs) / np.nansum(denom_pairs))
+                if np.nansum(denom_pairs) > 0
+                else np.nan
+            )
 
         elif tie_policy == "count_as_disagree":
             # ties count in denom but not in wins => they push p toward 0 and agreement downward
@@ -445,8 +461,11 @@ class TabArenaEvaluator:
             denom_pairs = denom[iu]
 
             avg = float(np.nanmean(agree_pairs))
-            wavg = float(np.nansum(agree_pairs * denom_pairs) / np.nansum(denom_pairs)) if np.nansum(
-                denom_pairs) > 0 else np.nan
+            wavg = (
+                float(np.nansum(agree_pairs * denom_pairs) / np.nansum(denom_pairs))
+                if np.nansum(denom_pairs) > 0
+                else np.nan
+            )
 
         else:
             raise ValueError("tie_policy must be one of: {'ignore','half','count_as_disagree'}")
@@ -487,22 +506,14 @@ class TabArenaEvaluator:
 
     def plot_imp(self, results_per_task: pd.DataFrame):
         # 1. Find the index of the lowest-rank row per dataset
-        best_idx = (
-            results_per_task
-            .groupby("dataset", sort=False)["rank"]
-            .idxmin()
-        )
+        best_idx = results_per_task.groupby("dataset", sort=False)["rank"].idxmin()
 
         # 2. Extract method name and metric_error for those rows
-        best_per_dataset = (
-            results_per_task
-            .loc[best_idx, ["dataset", "method", "metric_error"]]
-            .rename(
-                columns={
-                    "method": "best_method",
-                    "metric_error": "best_metric_error",
-                }
-            )
+        best_per_dataset = results_per_task.loc[best_idx, ["dataset", "method", "metric_error"]].rename(
+            columns={
+                "method": "best_method",
+                "metric_error": "best_metric_error",
+            },
         )
 
         # 3. Join back to the original DataFrame
@@ -515,17 +526,10 @@ class TabArenaEvaluator:
         import matplotlib.pyplot as plt
 
         # --- dataset order (same as you already do) ---
-        order = (
-            results_per_task
-            .groupby("dataset")["improvability"]
-            .median()
-            .sort_values()
-            .index
-        )
+        order = results_per_task.groupby("dataset")["improvability"].median().sort_values().index
 
         results_per_task = (
-            results_per_task
-            .assign(dataset=pd.Categorical(results_per_task["dataset"], categories=order, ordered=True))
+            results_per_task.assign(dataset=pd.Categorical(results_per_task["dataset"], categories=order, ordered=True))
             .sort_values("dataset")
             .reset_index(drop=True)
         )
@@ -565,7 +569,7 @@ class TabArenaEvaluator:
 
             # overlay in red (skip NaNs automatically by masking)
             mask = pd.notna(y)
-            ax.scatter([xi for xi, ok in zip(x, mask) if ok], y[mask], color="red", s=30, zorder=3)
+            ax.scatter([xi for xi, ok in zip(x, mask, strict=False) if ok], y[mask], color="red", s=30, zorder=3)
 
             ax.set_title(f"Improvability per Dataset — highlight: {method}")
             fig.suptitle("")  # remove pandas default subtitle
@@ -637,7 +641,7 @@ class TabArenaEvaluator:
         df_results = df_results.copy(deep=True)
         if "method_metadata" in df_results.columns:
             # currently no need to use this column
-            df_results.drop(columns=["method_metadata"], inplace=True)
+            df_results = df_results.drop(columns=["method_metadata"])
         if "imputed" not in df_results.columns:
             df_results["imputed"] = False
         df_results["imputed"] = df_results["imputed"].astype(int).fillna(0).astype(bool)
@@ -668,34 +672,50 @@ class TabArenaEvaluator:
 
         df_results_rank_compare = copy.deepcopy(df_results)
 
-        f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
+        _f_map, f_map_type, _f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
         )
 
-        df_results_rank_compare = df_results_rank_compare[(~df_results_rank_compare[self.method_col].map(f_map_type).isna()) | (df_results_rank_compare[self.method_col].isin(baselines))]
+        df_results_rank_compare = df_results_rank_compare[
+            (~df_results_rank_compare[self.method_col].map(f_map_type).isna())
+            | (df_results_rank_compare[self.method_col].isin(baselines))
+        ]
 
         # ----- end removing unused methods -----
 
         method_info: pd.DataFrame = self.get_method_info(df=df_results_rank_compare)
         if self.method_metadata_info is not None:
-            method_info_full = pd.merge(left=method_info.reset_index(), right=self.method_metadata_info, on=["ta_name", "ta_suite"])
+            method_info_full = pd.merge(
+                left=method_info.reset_index(), right=self.method_metadata_info, on=["ta_name", "ta_suite"]
+            )
             save_pd.save(path=self.output_dir / "method_info.csv", df=method_info_full)
         save_pd.save(path=self.output_dir / "results_per_split.csv", df=df_results_rank_compare)
 
         # ----- add times per 1K samples -----
         # FIXME: Hack to work in cases where this is not available
-        if "n_samples_train_per_fold" not in self.task_metadata.columns or "n_samples_test_per_fold" not in self.task_metadata.columns:
-            print(f"WARNING: Missing n_samples_train_per_fold and/or n_samples_test_per_fold in task_metadata. Using dummy values...")
+        if (
+            "n_samples_train_per_fold" not in self.task_metadata.columns
+            or "n_samples_test_per_fold" not in self.task_metadata.columns
+        ):
+            print(
+                "WARNING: Missing n_samples_train_per_fold and/or n_samples_test_per_fold in task_metadata. Using dummy values..."
+            )
             dataset_to_n_samples_train = self.task_metadata.set_index("name")["NumberOfInstances"].to_dict()
             dataset_to_n_samples_test = self.task_metadata.set_index("name")["NumberOfInstances"].to_dict()
         else:
             dataset_to_n_samples_train = self.task_metadata.set_index("name")["n_samples_train_per_fold"].to_dict()
             dataset_to_n_samples_test = self.task_metadata.set_index("name")["n_samples_test_per_fold"].to_dict()
 
-        df_results_rank_compare['time_train_s_per_1K'] = df_results_rank_compare['time_train_s'] * 1000 / df_results_rank_compare["dataset"].map(
-            dataset_to_n_samples_train)
-        df_results_rank_compare['time_infer_s_per_1K'] = df_results_rank_compare['time_infer_s'] * 1000 / df_results_rank_compare["dataset"].map(
-            dataset_to_n_samples_test)
+        df_results_rank_compare["time_train_s_per_1K"] = (
+            df_results_rank_compare["time_train_s"]
+            * 1000
+            / df_results_rank_compare["dataset"].map(dataset_to_n_samples_train)
+        )
+        df_results_rank_compare["time_infer_s_per_1K"] = (
+            df_results_rank_compare["time_infer_s"]
+            * 1000
+            / df_results_rank_compare["dataset"].map(dataset_to_n_samples_test)
+        )
 
         if plot_times:
             self.plot_tabarena_times(df=df_results_rank_compare, output_dir=self.output_dir, show=False)
@@ -703,7 +723,9 @@ class TabArenaEvaluator:
         # TODO: Move this into the `.leaderboard` call
         if "normalized-error-dataset" not in df_results_rank_compare.columns:
             df_results_rank_compare = self.compute_normalized_error_dynamic(df_results=df_results_rank_compare)
-        assert "normalized-error-dataset" in df_results_rank_compare.columns, f"Run `self.compute_normalized_error_dynamic(df_results)` first to get normalized-error."
+        assert "normalized-error-dataset" in df_results_rank_compare.columns, (
+            "Run `self.compute_normalized_error_dynamic(df_results)` first to get normalized-error."
+        )
         df_results_rank_compare["normalized-error"] = df_results_rank_compare["normalized-error-dataset"]
 
         if include_norm_score:
@@ -762,7 +784,9 @@ class TabArenaEvaluator:
         )
 
         if tmp_treat_tasks_independently:
-            df_results_rank_compare["dataset"] = df_results_rank_compare["dataset"] + "_" + df_results_rank_compare["fold"].astype(str)
+            df_results_rank_compare["dataset"] = (
+                df_results_rank_compare["dataset"] + "_" + df_results_rank_compare["fold"].astype(str)
+            )
             df_results_rank_compare["fold"] = 0
 
         tabarena = TabArena(
@@ -798,7 +822,7 @@ class TabArenaEvaluator:
             **leaderboard_kwargs,
         )
         leaderboard = leaderboard.join(method_info, on="method")
-        elo_map = leaderboard["elo"]
+        leaderboard["elo"]
         leaderboard = leaderboard.reset_index(drop=False)
         save_pd.save(path=f"{self.output_dir}/tabarena_leaderboard.csv", df=leaderboard)
 
@@ -813,7 +837,8 @@ class TabArenaEvaluator:
 
         if verbose:
             print(
-                f"Evaluating with {len(df_results_rank_compare[tabarena.task_col].unique())} datasets... ({n_tasks} tasks)| problem_types={self.problem_types}, folds={self.folds}")
+                f"Evaluating with {len(df_results_rank_compare[tabarena.task_col].unique())} datasets... ({n_tasks} tasks)| problem_types={self.problem_types}, folds={self.folds}"
+            )
             with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
                 print(leaderboard)
 
@@ -856,7 +881,6 @@ class TabArenaEvaluator:
         results_per_task = results_per_task.join(method_info, on="method")
         results_per_split = results_per_split.join(method_info, on="method")
 
-
         if compute_fold_stability_curves:
             fold_stability_curves = tabarena.jitter_bootstrap_curve_all_datasets(
                 results_per_split,
@@ -882,24 +906,37 @@ class TabArenaEvaluator:
 
         # FIXME: Is critical diagram incorrect?
         if plot_cdd:
+
             def rename_model(name: str):
                 parts = name.split(" ")
                 if parts[0] in f_map_type_name:
                     parts[0] = f_map_type_name[parts[0]]
                 name = " ".join(parts)
-                return name.replace('(tuned + ensemble)', '(T+E)')
+                return name.replace("(tuned + ensemble)", "(T+E)")
 
             # use tuned+ensembled version if available, and default otherwise
             tune_methods = results_per_task[self.method_col].map(method_info["method_subtype"])
-            method_types = results_per_task[self.method_col].map(method_info["config_type"]).fillna(results_per_task[self.method_col])
+            method_types = (
+                results_per_task[self.method_col]
+                .map(method_info["config_type"])
+                .fillna(results_per_task[self.method_col])
+            )
 
-            tuned_ens_types = method_types[tune_methods == 'tuned_ensemble']
-            per_task_filter = (tune_methods == 'tuned_ensemble') | ((tune_methods == 'default') & ~method_types.isin(tuned_ens_types))
+            tuned_ens_types = method_types[tune_methods == "tuned_ensemble"]
+            per_task_filter = (tune_methods == "tuned_ensemble") | (
+                (tune_methods == "default") & ~method_types.isin(tuned_ens_types)
+            )
 
             tune_methods_split = results_per_split[self.method_col].map(method_info["method_subtype"])
-            method_types_split = results_per_split[self.method_col].map(method_info["config_type"]).fillna(results_per_split[self.method_col])
-            tuned_ens_types_split = method_types_split[tune_methods_split == 'tuned_ensemble']
-            per_split_filter = (tune_methods_split == 'tuned_ensemble') | ((tune_methods_split == 'default') & ~method_types_split.isin(tuned_ens_types_split))
+            method_types_split = (
+                results_per_split[self.method_col]
+                .map(method_info["config_type"])
+                .fillna(results_per_split[self.method_col])
+            )
+            tuned_ens_types_split = method_types_split[tune_methods_split == "tuned_ensemble"]
+            per_split_filter = (tune_methods_split == "tuned_ensemble") | (
+                (tune_methods_split == "default") & ~method_types_split.isin(tuned_ens_types_split)
+            )
 
             if plot_with_baselines:
                 per_task_filter = per_task_filter | results_per_task[self.method_col].isin(baselines)
@@ -933,7 +970,7 @@ class TabArenaEvaluator:
             hidden_methods_winrate = plot_tuning_kwargs.get("hidden_methods") or []
             if hidden_methods_winrate:
                 hidden_mask = _results_to_use_winrate_matrix[self.method_col].isin(
-                    hidden_methods_winrate
+                    hidden_methods_winrate,
                 )
                 if "config_type" in _results_to_use_winrate_matrix.columns:
                     mapped_names = (
@@ -942,9 +979,7 @@ class TabArenaEvaluator:
                         .fillna(_results_to_use_winrate_matrix["config_type"])
                     )
                     hidden_mask = hidden_mask | mapped_names.isin(hidden_methods_winrate)
-                _results_to_use_winrate_matrix = _results_to_use_winrate_matrix.loc[
-                    ~hidden_mask
-                ]
+                _results_to_use_winrate_matrix = _results_to_use_winrate_matrix.loc[~hidden_mask]
 
             if len(_results_to_use_winrate_matrix) != 0:
                 winrate_matrix = tabarena.compute_winrate_matrix(results_per_task=_results_to_use_winrate_matrix)
@@ -977,7 +1012,7 @@ class TabArenaEvaluator:
                 except (RuntimeError, ValueError) as e:
                     print(
                         f"Warning: Error encountered during winrate matrix plotting. {e}"
-                        "This likely means the CLI does not have access to the correct Chromium version..."
+                        "This likely means the CLI does not have access to the correct Chromium version...",
                     )
 
             if len(results_te_per_task) != 0:
@@ -987,10 +1022,10 @@ class TabArenaEvaluator:
                         save_path=f"{self.output_dir}/figures/critical-diagram.{self.figure_file_type}",
                         show=False,
                     )
-                except ValueError as e:
+                except ValueError:
                     print(
-                        f"Warning: ValueError encountered during critical diagram plotting. "
-                        f"This likely means there is too little data to compute critical diagrams. Skipping ..."
+                        "Warning: ValueError encountered during critical diagram plotting. "
+                        "This likely means there is too little data to compute critical diagrams. Skipping ...",
                     )
 
         if plot_runtimes:
@@ -1008,10 +1043,12 @@ class TabArenaEvaluator:
 
     def assert_no_duplicates(self, df_results: pd.DataFrame):
         # don't allow duplicate results
-        dupes = df_results[df_results.duplicated(
-            subset=["dataset", "fold", self.method_col],
-            keep=False,
-        )]
+        dupes = df_results[
+            df_results.duplicated(
+                subset=["dataset", "fold", self.method_col],
+                keep=False,
+            )
+        ]
         if not dupes.empty:
             dupes = dupes.sort_values(by=[self.method_col, "dataset", "fold"])
             duplicated_methods = dupes["method"].value_counts()
@@ -1021,7 +1058,7 @@ class TabArenaEvaluator:
                 f"The following {len(duplicated_methods)} methods were duplicated (w/ counts):\n"
                 f"{duplicated_methods.to_string()}\n"
                 f"The following {len(dupes)} rows are duplicates:\n"
-                f"{dupes.to_string(index=False)}"
+                f"{dupes.to_string(index=False)}",
             )
 
     def assert_no_nan_methods(self, df_results: pd.DataFrame):
@@ -1030,7 +1067,7 @@ class TabArenaEvaluator:
             missing_percent = missing_count / len(df_results)
             raise AssertionError(
                 f"Found NaN values in '{self.method_col}' column: "
-                f"{missing_count}/{len(df_results)} ({missing_percent * 100:.1f}%) were NaN."
+                f"{missing_count}/{len(df_results)} ({missing_percent * 100:.1f}%) were NaN.",
             )
 
     def filter_results(self, df_results: pd.DataFrame):
@@ -1049,22 +1086,20 @@ class TabArenaEvaluator:
         return df_results
 
     def get_method_info(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Verify that each method has exactly one unique value for method_type,
+        """Verify that each method has exactly one unique value for method_type,
         method_subtype, config_type, ta_name, and ta_suite. Return a mapping dataframe.
 
-        Raises
+        Raises:
         ------
         ValueError
             If any method has non-unique values in any of the checked columns.
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             A dataframe indexed by "method" with
             the unique values for each of method_type, method_subtype, config_type, ta_name, ta_suite.
         """
-
         group_cols = self.method_col
         value_cols = ["method_type", "method_subtype", "config_type", "ta_name", "ta_suite"]
 
@@ -1085,9 +1120,7 @@ class TabArenaEvaluator:
             raise ValueError(msg)
 
         # Safe: each value is unique → extract the scalar values
-        mapping = grouped.first()  # identical to .agg("first") but faster
-
-        return mapping
+        return grouped.first()  # identical to .agg("first") but faster
 
     def plot_pareto(
         self,
@@ -1096,32 +1129,38 @@ class TabArenaEvaluator:
         with_baselines: bool = True,
         plot_tuning_kwargs: dict | None = None,
     ):
-        f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
+        _f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
         )
         leaderboard_pareto = leaderboard.copy()
-        leaderboard_pareto["Method"] = leaderboard_pareto[self.method_col].map(f_map_type).fillna(
-            leaderboard_pareto[self.method_col])
+        leaderboard_pareto["Method"] = (
+            leaderboard_pareto[self.method_col].map(f_map_type).fillna(leaderboard_pareto[self.method_col])
+        )
 
         if self.banned_pareto_methods:
             leaderboard_pareto = leaderboard_pareto[~leaderboard_pareto["Method"].isin(self.banned_pareto_methods)]
 
         leaderboard_pareto["Type"] = leaderboard_pareto[self.method_col].map(f_map_inverse).fillna("baseline")
-        leaderboard_pareto["Method"] = leaderboard_pareto["Method"].map(f_map_type_name).fillna(
-            leaderboard_pareto["Method"])
+        leaderboard_pareto["Method"] = (
+            leaderboard_pareto["Method"].map(f_map_type_name).fillna(leaderboard_pareto["Method"])
+        )
         f_map_suffix = get_f_map_suffix_plots()
         leaderboard_pareto["suffix"] = leaderboard_pareto["Type"].map(f_map_suffix).fillna("")
         method_order = None
         plot_pareto_kwargs = {}
         if plot_tuning_kwargs is not None:
             if "hidden_methods" in plot_tuning_kwargs:
-                leaderboard_pareto = leaderboard_pareto[~leaderboard_pareto["Method"].isin(plot_tuning_kwargs["hidden_methods"])]
+                leaderboard_pareto = leaderboard_pareto[
+                    ~leaderboard_pareto["Method"].isin(plot_tuning_kwargs["hidden_methods"])
+                ]
             if "pareto_order" in plot_tuning_kwargs:
                 method_order = plot_tuning_kwargs["pareto_order"]
             if "method_style_map" in plot_tuning_kwargs:
                 method_style_map = plot_tuning_kwargs["method_style_map"]
                 display_name_map = {m: v["display_name"] for m, v in method_style_map.items() if "display_name" in v}
-                leaderboard_pareto["Method"] = leaderboard_pareto["Method"].map(display_name_map).fillna(leaderboard_pareto["Method"])
+                leaderboard_pareto["Method"] = (
+                    leaderboard_pareto["Method"].map(display_name_map).fillna(leaderboard_pareto["Method"])
+                )
                 if method_order is not None:
                     method_order = [display_name_map.get(m, m) for m in method_order]
             if "title" in plot_tuning_kwargs:
@@ -1138,17 +1177,29 @@ class TabArenaEvaluator:
             "holdout_tuned": "Tuned, Holdout",
             "holdout_tuned_ensembled": "Tuned + Ens., Holdout",
         }
-        leaderboard_pareto["Type"] = leaderboard_pareto["Type"].map(fig_rename_dict).fillna(
+        leaderboard_pareto["Type"] = (
             leaderboard_pareto["Type"]
+            .map(fig_rename_dict)
+            .fillna(
+                leaderboard_pareto["Type"],
+            )
         )
 
         if not with_baselines:
             leaderboard_pareto = leaderboard_pareto[leaderboard_pareto["Type"] != "Baseline"]
 
-        self.plot_pareto_elo_vs_time_infer(leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs)
-        self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs)
-        self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs)
-        self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs)
+        self.plot_pareto_elo_vs_time_infer(
+            leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs
+        )
+        self.plot_pareto_elo_vs_time_train(
+            leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs
+        )
+        self.plot_pareto_improvability_vs_time_infer(
+            leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs
+        )
+        self.plot_pareto_improvability_vs_time_train(
+            leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs
+        )
 
     def plot_pareto_elo_vs_time_train(
         self,
@@ -1197,7 +1248,7 @@ class TabArenaEvaluator:
         y_name = "Elo"
         x_name = "Inference time per 1K samples (s) (median)"
         if title == "auto":
-            title = f"Elo vs Inference Time"
+            title = "Elo vs Inference Time"
 
         data = leaderboard.copy()
         data[x_name] = data["median_time_infer_s_per_1K"]
@@ -1317,15 +1368,18 @@ class TabArenaEvaluator:
         return imputed_names
 
     def plot_portfolio_ensemble_weights_barplot(self, df_ensemble_weights: pd.DataFrame):
-        import seaborn as sns
-        import matplotlib.pyplot as plt
         from pathlib import Path
-        import matplotlib.colors as mcolors
-        import numpy as np
 
-        fig, ax = plt.subplots(1, 1,
-                               figsize=(3.5, 3)
-                               )
+        import matplotlib.colors as mcolors
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import seaborn as sns
+
+        _fig, ax = plt.subplots(
+            1,
+            1,
+            figsize=(3.5, 3),
+        )
 
         df_ensemble_weights = df_ensemble_weights.copy(deep=True)
         _method_rename_map = self.get_method_rename_map()
@@ -1366,7 +1420,7 @@ class TabArenaEvaluator:
         )
 
         # Apply alpha to bar colors
-        for patch, alpha in zip(barplot.patches, alphas):
+        for patch, alpha in zip(barplot.patches, alphas, strict=False):
             r, g, b = patch.get_facecolor()[:3]
             patch.set_facecolor((r, g, b, alpha))
 
@@ -1397,7 +1451,7 @@ class TabArenaEvaluator:
         hidden_methods: list[str] | None = None,
     ):
         df = df.copy(deep=True)
-        f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
+        _f_map, _f_map_type, _f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
         )
 
@@ -1416,10 +1470,9 @@ class TabArenaEvaluator:
             if parts[0] in f_map_type_name:
                 parts[0] = f_map_type_name[parts[0]]
             name = " ".join(parts)
-            name = name.replace('(default)', '(D)')
-            name = name.replace('(tuned)', '(T)')
-            name = name.replace('(tuned + ensemble)', '(T+E)')
-            return name
+            name = name.replace("(default)", "(D)")
+            name = name.replace("(tuned)", "(T)")
+            return name.replace("(tuned + ensemble)", "(T+E)")
 
         df = df.sort_values(by="elo", ascending=False)
 
@@ -1427,22 +1480,23 @@ class TabArenaEvaluator:
 
         df_new[r"Model"] = df[self.method_col].map(rename_model)
         # do the more annoying way {}_{...} so that \textbf{} affects the main number
-        df_new[r"Elo ($\uparrow$)"] = [f'{round(elo)}' + r'${}_{' + f'-{math.ceil(elom)},+{math.ceil(elop)}' + r'}$'
-                                       for elo, elom, elop in zip(df["elo"], df["elo-"], df["elo+"])]
-        df_new[r"\#wins ($\uparrow$)"] = [f'{cnt:.1f}' for cnt in df["rank=1_count"]]
-        df_new[f"Improva-\n" + r"bility ($\downarrow$)"] = [f'{100*val:.1f}\\%' for val in df["improvability"]]
-        df_new[r"Train time" + "\n" + r"per 1K [s]"] = [f'{t:.2f}' for t in df["median_time_train_s_per_1K"]]
-        df_new[r"Predict time" + "\n" + r"per 1K [s]"] = [f'{t:.2f}' for t in df["median_time_infer_s_per_1K"]]
+        df_new[r"Elo ($\uparrow$)"] = [
+            f"{round(elo)}" + r"${}_{" + f"-{math.ceil(elom)},+{math.ceil(elop)}" + r"}$"
+            for elo, elom, elop in zip(df["elo"], df["elo-"], df["elo+"], strict=False)
+        ]
+        df_new[r"\#wins ($\uparrow$)"] = [f"{cnt:.1f}" for cnt in df["rank=1_count"]]
+        df_new["Improva-\n" + r"bility ($\downarrow$)"] = [f"{100 * val:.1f}\\%" for val in df["improvability"]]
+        df_new[r"Train time" + "\n" + r"per 1K [s]"] = [f"{t:.2f}" for t in df["median_time_train_s_per_1K"]]
+        df_new[r"Predict time" + "\n" + r"per 1K [s]"] = [f"{t:.2f}" for t in df["median_time_infer_s_per_1K"]]
 
         # ----- highlight best and second-best numbers per column -----
 
         # first, convert the strings back to floats
         def extract_first_float(s):
-            """
-            Extracts the first sequence of digits (including decimal point) from the input string
+            """Extracts the first sequence of digits (including decimal point) from the input string
             and returns it as a float. Returns None if no valid number is found.
             """
-            match = re.search(r'\d+(\.\d+)?', s)
+            match = re.search(r"\d+(\.\d+)?", s)
             if match:
                 return float(match.group())
             return None
@@ -1466,14 +1520,14 @@ class TabArenaEvaluator:
             return min_indices, second_min_indices
 
         # then, add textbf or underline to the correct rows
-        for col_idx, col in enumerate(df_new.columns):
-            if r'\uparrow' in col or r'\downarrow' in col:
+        for _col_idx, col in enumerate(df_new.columns):
+            if r"\uparrow" in col or r"\downarrow" in col:
                 # factor = 1 if r'\downarrow' in col else -1
                 # numbers = [factor * extract_first_float(s) for s in df_new[col]]
-                ranks = df_new[col].map(extract_first_float).rank(method="min", ascending=r'\downarrow' in col)
-                for rank, color in [(1, 'gold'), (2, 'silver'), (3, 'bronze')]:
+                ranks = df_new[col].map(extract_first_float).rank(method="min", ascending=r"\downarrow" in col)
+                for rank, color in [(1, "gold"), (2, "silver"), (3, "bronze")]:
                     df_new.loc[ranks == rank, col] = df_new.loc[ranks == rank, col].apply(
-                        lambda x: f"\\textcolor{{{color}}}{{\\textbf{{{x}}}}}"
+                        lambda x: f"\\textcolor{{{color}}}{{\\textbf{{{x}}}}}",  # noqa: B023
                     )
 
                 # min_indices, second_min_indices = find_smallest_and_second_smallest_indices(numbers)
@@ -1482,30 +1536,31 @@ class TabArenaEvaluator:
                 # for idx in second_min_indices:
                 #     df_new.iloc[idx, col_idx] = r'\underline{' + df_new.iloc[idx, col_idx] + r'}'
 
-
         # ----- create latex table -----
 
         rows = []
-        rows.append(r'\begin{tabular}{' + 'llccrr' + r'}')
-        rows.append(r'\toprule')
+        rows.append(r"\begin{tabular}{" + "llccrr" + r"}")
+        rows.append(r"\toprule")
         # rows.append(' & '.join(df_new.columns) + r' \\')
 
-        col_names_split = [col.split('\n') for col in df_new.columns]
+        col_names_split = [col.split("\n") for col in df_new.columns]
         n_rows_header = max([len(rows) for rows in col_names_split])
         for row_idx in range(n_rows_header):
-            rows.append(' & '.join([r'\textbf{' + lst[row_idx] + r'}' if row_idx < len(lst) else ''
-                                    for lst in col_names_split]) + r' \\')
-        rows.append(r'\midrule')
+            rows.append(
+                " & ".join([r"\textbf{" + lst[row_idx] + r"}" if row_idx < len(lst) else "" for lst in col_names_split])
+                + r" \\"
+            )
+        rows.append(r"\midrule")
 
-        for row_index, row in df_new.iterrows():
-            rows.append(' & '.join([row[col_name] for col_name in df_new.columns]) + r' \\')
+        for _row_index, row in df_new.iterrows():
+            rows.append(" & ".join([row[col_name] for col_name in df_new.columns]) + r" \\")
 
-        rows.append(r'\bottomrule')
-        rows.append(r'\end{tabular}')
+        rows.append(r"\bottomrule")
+        rows.append(r"\end{tabular}")
 
-        table = '\n'.join(rows)
+        table = "\n".join(rows)
 
-        with open(Path(save_dir) / 'leaderboard.tex', 'w') as f:
+        with open(Path(save_dir) / "leaderboard.tex", "w") as f:
             f.write(table)
 
     # FIXME: Avoid hardcoding
@@ -1514,8 +1569,8 @@ class TabArenaEvaluator:
         df: pd.DataFrame,
         framework_types: list,
         save_prefix: str,
-        baselines: list[str] = None,
-        baseline_colors: list[str] = None,
+        baselines: list[str] | None = None,
+        baseline_colors: list[str] | None = None,
         show: bool = True,
         use_gmean=False,
         use_score: bool = True,
@@ -1570,7 +1625,7 @@ class TabArenaEvaluator:
             df["normalized-score"] = 1 - df[metric]
             metric = "normalized-score"
         else:
-            metric = metric
+            pass  # keep the caller-provided metric
 
         if tune_method_overrides is None:
             tune_method_overrides = []
@@ -1579,9 +1634,7 @@ class TabArenaEvaluator:
         # so f_map_inverse sees the post-rename method names.
         for ov in tune_method_overrides:
             if ov.rename_map:
-                df[self.method_col] = (
-                    df[self.method_col].map(ov.rename_map).fillna(df[self.method_col])
-                )
+                df[self.method_col] = df[self.method_col].map(ov.rename_map).fillna(df[self.method_col])
                 framework_types = [ov.rename_map.get(f, f) for f in framework_types]
 
         if baselines is None:
@@ -1597,13 +1650,13 @@ class TabArenaEvaluator:
             for m in ov.methods:
                 if m in baselines:
                     idx = baselines.index(m)
-                    baselines = baselines[:idx] + baselines[idx + 1:]
+                    baselines = baselines[:idx] + baselines[idx + 1 :]
                     if baseline_colors is not None:
-                        baseline_colors = baseline_colors[:idx] + baseline_colors[idx + 1:]
+                        baseline_colors = baseline_colors[:idx] + baseline_colors[idx + 1 :]
                     if m not in framework_types:
                         framework_types.append(m)
 
-        f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
+        _f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
         )
 
@@ -1624,7 +1677,7 @@ class TabArenaEvaluator:
 
         df["framework_type"] = df["framework_type"].map(f_map_type_name).fillna(df["framework_type"])
 
-        baselines =  [f_map_type_name.get(m, m) for m in baselines]
+        baselines = [f_map_type_name.get(m, m) for m in baselines]
         tick_methods = [f_map_type_name.get(m, m) for m in tick_methods]
         if hidden_methods:
             hidden_methods = [f_map_type_name.get(m, m) for m in hidden_methods]
@@ -1637,20 +1690,26 @@ class TabArenaEvaluator:
 
         df_plot = df[df["framework_type"].isin(framework_types)]
 
-        df_plot_w_mean_per_dataset = df_plot.groupby(["framework_type", "tune_method", *groupby_columns_extra])[
-            metric].mean().reset_index()
+        df_plot_w_mean_per_dataset = (
+            df_plot.groupby(["framework_type", "tune_method", *groupby_columns_extra])[metric].mean().reset_index()
+        )
 
         if use_gmean:
             # FIXME: Doesn't plot correctly, need to figure out error bars for geometric mean
             df_plot_eps = df_plot.copy(deep=True)
             df_plot_eps[metric] += 0.01
             from scipy.stats import gmean
-            df_plot_w_gmean_per_dataset = df_plot.groupby(["framework_type", "tune_method", *groupby_columns_extra])[
-                metric].apply(gmean).reset_index()
+
+            df_plot_w_gmean_per_dataset = (
+                df_plot.groupby(["framework_type", "tune_method", *groupby_columns_extra])[metric]
+                .apply(gmean)
+                .reset_index()
+            )
             df_plot_w_mean_per_dataset = df_plot_w_gmean_per_dataset
 
-        df_plot_w_mean_2 = df_plot_w_mean_per_dataset.groupby(["framework_type", "tune_method"])[
-            metric].mean().reset_index()
+        df_plot_w_mean_2 = (
+            df_plot_w_mean_per_dataset.groupby(["framework_type", "tune_method"])[metric].mean().reset_index()
+        )
 
         df_plot_w_mean_2 = df_plot_w_mean_2.sort_values(by=metric, ascending=lower_is_better)
         baseline_means = {}
@@ -1678,7 +1737,9 @@ class TabArenaEvaluator:
             df_plot_w_mean_per_dataset = df_plot_w_mean_per_dataset.copy()
             df_plot["framework_type"] = df_plot["framework_type"].replace(display_name_map)
             df_plot_mean_dedupe["framework_type"] = df_plot_mean_dedupe["framework_type"].replace(display_name_map)
-            df_plot_w_mean_per_dataset["framework_type"] = df_plot_w_mean_per_dataset["framework_type"].replace(display_name_map)
+            df_plot_w_mean_per_dataset["framework_type"] = df_plot_w_mean_per_dataset["framework_type"].replace(
+                display_name_map
+            )
 
         if display_name_map:
             framework_type_order = [display_name_map.get(m, m) for m in framework_type_order_orig]
@@ -1705,23 +1766,20 @@ class TabArenaEvaluator:
                     y = metric
                     ylim = lim
                     if figsize is None:
-                        figsize = (0.5*len(framework_types), figheight if figheight is not None else 2.7)
+                        figsize = (0.5 * len(framework_types), figheight if figheight is not None else 2.7)
                     # figsize = None
 
                 fig, ax = plt.subplots(1, 1, figsize=figsize, constrained_layout=True)
 
-                if use_y:
-                    baseline_func = ax.axvline
-                else:
-                    baseline_func = ax.axhline
+                baseline_func = ax.axvline if use_y else ax.axhline
 
                 linewidth = 0.0 if use_y else 0.3
                 err_linewidth = 1.6
                 err_linewidths = {
-                    'tuned_ensembled': err_linewidth,
-                    'tuned': err_linewidth * 0.8,
-                    'default': err_linewidth * 0.6,
-                    'holdout_tuned_ensembled': err_linewidth * 0.6,
+                    "tuned_ensembled": err_linewidth,
+                    "tuned": err_linewidth * 0.8,
+                    "default": err_linewidth * 0.6,
+                    "holdout_tuned_ensembled": err_linewidth * 0.6,
                 }
                 # Ensure every override has an entry in err_linewidths so the
                 # elo err-bar loop below can look it up.
@@ -1742,29 +1800,43 @@ class TabArenaEvaluator:
                     if ov.tune_method in seen_tune_methods:
                         continue
                     seen_tune_methods.add(ov.tune_method)
-                    override_bars.append(dict(
-                        x=pos, y=y,
-                        label=ov.bar_label,
-                        data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == ov.tune_method],
-                        ax=ax,
-                        order=framework_type_order, color=ov.bar_color,
-                        width=ov.bar_width, linewidth=linewidth,
-                        err_kws={
-                            "color": ov.err_color if ov.err_color is not None else errcolors[0],
-                            "linewidth": err_linewidths[ov.tune_method],
-                            "alpha": err_alpha,
-                        },
-                    ))
+                    override_bars.append(
+                        dict(
+                            x=pos,
+                            y=y,
+                            label=ov.bar_label,
+                            data=df_plot_w_mean_per_dataset[
+                                df_plot_w_mean_per_dataset["tune_method"] == ov.tune_method
+                            ],
+                            ax=ax,
+                            order=framework_type_order,
+                            color=ov.bar_color,
+                            width=ov.bar_width,
+                            linewidth=linewidth,
+                            err_kws={
+                                "color": ov.err_color if ov.err_color is not None else errcolors[0],
+                                "linewidth": err_linewidths[ov.tune_method],
+                                "alpha": err_alpha,
+                            },
+                        )
+                    )
                 to_plot = [
                     *override_bars,
                     dict(
-                        x=pos, y=y,
+                        x=pos,
+                        y=y,
                         label="Tuned + Ensembled",
                         data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "tuned_ensembled"],
                         ax=ax,
-                        order=framework_type_order, color=colors[2],
-                        width=0.6, linewidth=linewidth,
-                        err_kws={"color": errcolors[2], "linewidth": err_linewidths['tuned_ensembled'], 'alpha': err_alpha},
+                        order=framework_type_order,
+                        color=colors[2],
+                        width=0.6,
+                        linewidth=linewidth,
+                        err_kws={
+                            "color": errcolors[2],
+                            "linewidth": err_linewidths["tuned_ensembled"],
+                            "alpha": err_alpha,
+                        },
                     ),
                     # dict(
                     #     x=x, y=y,
@@ -1785,33 +1857,47 @@ class TabArenaEvaluator:
                     #     err_kws={"color": errcolors[5]},
                     # ),
                     dict(
-                        x=pos, y=y,
+                        x=pos,
+                        y=y,
                         label="Tuned",
-                        data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "tuned"], ax=ax,
+                        data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "tuned"],
+                        ax=ax,
                         order=framework_type_order,
                         color=colors[1],
-                        width=0.5, linewidth=linewidth,
-                        err_kws={"color": errcolors[1], "linewidth": err_linewidths['tuned'], 'alpha': err_alpha},
+                        width=0.5,
+                        linewidth=linewidth,
+                        err_kws={"color": errcolors[1], "linewidth": err_linewidths["tuned"], "alpha": err_alpha},
                     ),
                     dict(
-                        x=pos, y=y,
+                        x=pos,
+                        y=y,
                         label="Default",
-                        data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "default"], ax=ax,
-                        order=framework_type_order, color=colors[0],
-                        width=0.4, linewidth=linewidth,
-                        err_kws={"color": errcolors[0], "linewidth": err_linewidths['default'], 'alpha': err_alpha},
+                        data=df_plot_w_mean_per_dataset[df_plot_w_mean_per_dataset["tune_method"] == "default"],
+                        ax=ax,
+                        order=framework_type_order,
+                        color=colors[0],
+                        width=0.4,
+                        linewidth=linewidth,
+                        err_kws={"color": errcolors[0], "linewidth": err_linewidths["default"], "alpha": err_alpha},
                         alpha=1.0,
                     ),
                     dict(
-                        x=pos, y=y,
+                        x=pos,
+                        y=y,
                         label="Tuned + Ensembled (Holdout)",
                         data=df_plot_w_mean_per_dataset[
-                            df_plot_w_mean_per_dataset["tune_method"] == "holdout_tuned_ensembled"], ax=ax,
+                            df_plot_w_mean_per_dataset["tune_method"] == "holdout_tuned_ensembled"
+                        ],
+                        ax=ax,
                         order=framework_type_order,
                         color=colors[3],
-                        width=0.3, linewidth=linewidth,
-                        err_kws={"color": errcolors[3], "linewidth": err_linewidths['holdout_tuned_ensembled'],
-                                 'alpha': err_alpha},
+                        width=0.3,
+                        linewidth=linewidth,
+                        err_kws={
+                            "color": errcolors[3],
+                            "linewidth": err_linewidths["holdout_tuned_ensembled"],
+                            "alpha": err_alpha,
+                        },
                     ),
                     # dict(
                     #     x=x, y=y,
@@ -1831,7 +1917,7 @@ class TabArenaEvaluator:
 
                     # to_plot.reverse()
                     same_width_value = bar_width if bar_width is not None else 0.6 * 1.3
-                    for plot_line, width, color, err_kws in zip(to_plot, widths, colors, err_kws_lst):
+                    for plot_line, width, color, _err_kws in zip(to_plot, widths, colors, err_kws_lst, strict=False):
                         if same_width:
                             plot_line["width"] = same_width_value
                         else:
@@ -1841,9 +1927,11 @@ class TabArenaEvaluator:
                     boxplot = sns.barplot(**plot_line)
 
                 if use_y:
-                    boxplot.set(xlabel='Elo' if metric=='elo' else 'Normalized score', ylabel=None)
+                    boxplot.set(xlabel="Elo" if metric == "elo" else "Normalized score", ylabel=None)
                 else:
-                    boxplot.set(xlabel=None, ylabel='Elo' if metric=='elo' else 'Normalized score')  # remove method in the x-axis
+                    boxplot.set(
+                        xlabel=None, ylabel="Elo" if metric == "elo" else "Normalized score"
+                    )  # remove method in the x-axis
                 if title is not None:
                     # ``set_title`` places text just above the axes spine,
                     # which is where the legend sits (`bbox_to_anchor=[..., 1.01]`,
@@ -1853,10 +1941,10 @@ class TabArenaEvaluator:
                     fig.suptitle(title)
 
                 # do this before setting x/y limits
-                for baseline_idx, (baseline, color) in enumerate(zip(baselines, baseline_colors)):
+                for baseline_idx, (baseline, color) in enumerate(zip(baselines, baseline_colors, strict=False)):
                     baseline_mean = baseline_means[baseline]
 
-                    style_raw = method_style_map.get(baseline, None)
+                    style_raw = method_style_map.get(baseline)
                     style = _normalize_style(style_raw)
                     baseline_label = style.get("display_name", baseline)
 
@@ -1907,7 +1995,8 @@ class TabArenaEvaluator:
 
                     if use_y:
                         txt = ax.text(
-                            y=(1 - 0.035 * (1 + 2 * baseline_text_y_gap * (len(baselines) - 1 - baseline_idx))) * ax.get_ylim()[0],
+                            y=(1 - 0.035 * (1 + 2 * baseline_text_y_gap * (len(baselines) - 1 - baseline_idx)))
+                            * ax.get_ylim()[0],
                             x=baseline_mean * 0.99,
                             s=baseline_label,
                             ha="right",
@@ -1921,8 +2010,13 @@ class TabArenaEvaluator:
                         # below the line.  Add a small fixed 3-point offset (≈ 3 px at
                         # 72 DPI, visually consistent regardless of elo / output DPI).
                         from matplotlib.transforms import offset_copy
+
                         text_transform = offset_copy(
-                            ax.transData, fig=fig, x=-8, y=-3, units="points"
+                            ax.transData,
+                            fig=fig,
+                            x=-8,
+                            y=-3,
+                            units="points",
                         )
                         txt = ax.text(
                             x=0.5,
@@ -1932,11 +2026,15 @@ class TabArenaEvaluator:
                             transform=text_transform,
                             **text_kwargs,
                         )
-                    txt.set_path_effects([PathEffects.withStroke(
-                        linewidth=2,
-                        foreground='white',
-                        alpha=0.5,
-                    )])
+                    txt.set_path_effects(
+                        [
+                            PathEffects.withStroke(
+                                linewidth=2,
+                                foreground="white",
+                                alpha=0.5,
+                            )
+                        ]
+                    )
 
                 if ylim is not None:
                     ax.set_ylim(ylim)
@@ -1944,13 +2042,13 @@ class TabArenaEvaluator:
                     ax.set_xlim(xlim)
 
                 ticks = boxplot.get_yticks() if use_y else boxplot.get_xticks()
-                ticklabels = [tick.get_text() for tick in
-                              (boxplot.get_yticklabels() if use_y else boxplot.get_xticklabels())]
+                ticklabels = [
+                    tick.get_text() for tick in (boxplot.get_yticklabels() if use_y else boxplot.get_xticklabels())
+                ]
 
                 if use_elo:
                     # ----- add elo error bars -----
                     # Get the bar positions
-
 
                     # Add asymmetric error bars manually
                     # Pair each tune_method with the same errcolor used by its
@@ -1968,40 +2066,53 @@ class TabArenaEvaluator:
                         if ov.tune_method in _seen_tune_methods:
                             continue
                         _seen_tune_methods.add(ov.tune_method)
-                        tune_method_errcolors.append((
-                            ov.tune_method,
-                            ov.err_color if ov.err_color is not None else errcolors[0],
-                        ))
-                    for pos, framework_type in zip(ticks, ticklabels):
+                        tune_method_errcolors.append(
+                            (
+                                ov.tune_method,
+                                ov.err_color if ov.err_color is not None else errcolors[0],
+                            )
+                        )
+                    for pos, framework_type in zip(ticks, ticklabels, strict=False):
                         for tune_method, errcolor in tune_method_errcolors:
-                            row = df_plot.loc[(df_plot["framework_type"] == framework_type) & (df_plot["tune_method"] == tune_method)]
+                            row = df_plot.loc[
+                                (df_plot["framework_type"] == framework_type) & (df_plot["tune_method"] == tune_method)
+                            ]
                             if len(row) == 1:
                                 # not all methods have tuned or tuned_ensembled
-                                y = row['elo'].values
-                                yerr_low = row['elo-'].values
-                                yerr_high = row['elo+'].values
+                                y = row["elo"].values
+                                yerr_low = row["elo-"].values
+                                yerr_high = row["elo+"].values
                                 if use_y:
-                                    plotline, caps, barlinecols = plt.errorbar(y, pos, xerr=[yerr_low, yerr_high],
-                                                                               fmt='none', color=errcolor,
-                                                                               alpha=err_alpha,
-                                                                               linewidth=err_linewidths[tune_method])
+                                    plotline, caps, barlinecols = plt.errorbar(
+                                        y,
+                                        pos,
+                                        xerr=[yerr_low, yerr_high],
+                                        fmt="none",
+                                        color=errcolor,
+                                        alpha=err_alpha,
+                                        linewidth=err_linewidths[tune_method],
+                                    )
                                 else:
-                                    plotline, caps, barlinecols = plt.errorbar(pos, y, yerr=[yerr_low, yerr_high],
-                                                                               fmt='none', color=errcolor,
-                                                                               alpha=err_alpha,
-                                                                               linewidth=err_linewidths[tune_method])
+                                    _plotline, _caps, _barlinecols = plt.errorbar(
+                                        pos,
+                                        y,
+                                        yerr=[yerr_low, yerr_high],
+                                        fmt="none",
+                                        color=errcolor,
+                                        alpha=err_alpha,
+                                        linewidth=err_linewidths[tune_method],
+                                    )
                                 # don't round because it will make the lines longer
                                 # plt.setp(barlinecols[0], capstyle="round")
-
 
                 # ----- highlight bars that contain imputed results -----
 
                 # Map x-tick positions to category labels
-                label_lookup = dict(zip(ticks, ticklabels))
+                label_lookup = dict(zip(ticks, ticklabels, strict=False))
 
                 has_imputed = False
 
-                for i, bar in enumerate(boxplot.patches):
+                for _i, bar in enumerate(boxplot.patches):
                     # Get position and convert to category label
                     pos = bar.get_y() + bar.get_height() / 2 if use_y else bar.get_x() + bar.get_width() / 2
                     category_index = round(pos)  # x-ticks are usually 0, 1, 2, ...
@@ -2009,7 +2120,7 @@ class TabArenaEvaluator:
 
                     if category in imputed_names:
                         has_imputed = True
-                        bar.set_hatch('xx')
+                        bar.set_hatch("xx")
 
                 if not use_y:
                     # ----- alternate rows of x tick labels -----
@@ -2017,7 +2128,9 @@ class TabArenaEvaluator:
                     labels = [label.get_text() for label in boxplot.get_xticklabels()]
 
                     # Add newline to every second label
-                    new_labels = [label if i % 2 == 0 else r'$\uparrow$' + '\n' + label for i, label in enumerate(labels)]
+                    new_labels = [
+                        label if i % 2 == 0 else r"$\uparrow$" + "\n" + label for i, label in enumerate(labels)
+                    ]
 
                     if has_non_baselines:
                         # Apply modified labels
@@ -2038,7 +2151,7 @@ class TabArenaEvaluator:
 
                 if has_imputed:
                     # Create a custom legend patch for "imputed"
-                    imputed_patch = Patch(facecolor='gray', edgecolor='white', hatch='xx', label='Partially imputed')
+                    imputed_patch = Patch(facecolor="gray", edgecolor="white", hatch="xx", label="Partially imputed")
 
                     # Add to existing legend
                     handles.append(imputed_patch)
@@ -2115,98 +2228,104 @@ class TabArenaEvaluator:
 
         framework_types = self._get_config_types(df_results=df)
 
-        f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
+        _f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
         )
 
         df["framework_type"] = df[self.method_col].map(f_map_type).fillna(df[self.method_col])
         df["tune_method"] = df[self.method_col].map(f_map_inverse).fillna("default")
         df = df[df["tune_method"].isin(["default", "tuned_ensembled"])]
-        df = df[df['framework_type'].isin(framework_types)]
+        df = df[df["framework_type"].isin(framework_types)]
         df.loc[:, "framework_type"] = df["framework_type"].map(f_map_type_name).fillna(df["framework_type"])
 
-        gpu_methods = ['TabICL', 'TabDPT', 'TabPFNv2', "ModernNCA", "TabM"]
+        gpu_methods = ["TabICL", "TabDPT", "TabPFNv2", "ModernNCA", "TabM"]
 
         # add device name
         framework_types = df["framework_type"].unique()
         device_map = {
-            ft: f'{ft} ' + r'(GPU)' if ft in gpu_methods else f'{ft} (CPU)' if not ft.endswith("(CPU)") else ft for ft in framework_types
+            ft: f"{ft} " + r"(GPU)" if ft in gpu_methods else f"{ft} (CPU)" if not ft.endswith("(CPU)") else ft
+            for ft in framework_types
         }
         device_map = {}
         for ft in framework_types:
             if ft in gpu_methods:
-                ft_new = f'{ft} (GPU)'
-            elif ft.endswith("(CPU)"):
-                ft_new = ft
-            elif ft.endswith("(GPU)"):
+                ft_new = f"{ft} (GPU)"
+            elif ft.endswith(("(CPU)", "(GPU)")):
                 ft_new = ft
             else:
-                ft_new = f'{ft} (CPU)'
+                ft_new = f"{ft} (CPU)"
             device_map[ft] = ft_new
 
         df["framework_type"] = df["framework_type"].map(device_map).fillna(df["framework_type"])
 
         # take mean times
-        df = df.groupby(['dataset', 'framework_type', 'tune_method'])[['time_train_s_per_1K', 'time_infer_s_per_1K']].mean().reset_index()
-        df = df.groupby(['framework_type', 'tune_method'])[['time_train_s_per_1K', 'time_infer_s_per_1K']].median().reset_index()
+        df = (
+            df.groupby(["dataset", "framework_type", "tune_method"])[["time_train_s_per_1K", "time_infer_s_per_1K"]]
+            .mean()
+            .reset_index()
+        )
+        df = (
+            df.groupby(["framework_type", "tune_method"])[["time_train_s_per_1K", "time_infer_s_per_1K"]]
+            .median()
+            .reset_index()
+        )
 
         # ----- ChatGPT plotting code -----
 
         # Unique values for mapping
         # Sort frameworks by max train time
         sorted_frameworks = (
-            df.groupby('framework_type')['time_train_s_per_1K']
-            .min()
-            .sort_values(ascending=False)
-            .index
-            .tolist()
+            df.groupby("framework_type")["time_train_s_per_1K"].min().sort_values(ascending=False).index.tolist()
         )
         frameworks = sorted_frameworks
         y_positions = np.arange(len(frameworks))
 
         # Maps for tuning method to color and marker
-        tune_methods = df['tune_method'].unique()
+        tune_methods = df["tune_method"].unique()
         # color_map = {tm: c for tm, c in zip(tune_methods, plt.cm.tab10.colors)}
         sns_colors = sns.color_palette("muted").as_hex()
         # sns_colors = sns.color_palette("pastel").as_hex()
-        color_map = {'default': sns_colors[0], 'tuned': sns_colors[1], 'tuned_ensembled': sns_colors[2]}
-        marker_list = ['o', 's', '^', 'D', 'P', '*', 'X', 'v']
-        marker_map = {tm: m for tm, m in zip(tune_methods, marker_list)}
+        color_map = {"default": sns_colors[0], "tuned": sns_colors[1], "tuned_ensembled": sns_colors[2]}
+        marker_list = ["o", "s", "^", "D", "P", "*", "X", "v"]
+        marker_map = dict(zip(tune_methods, marker_list, strict=False))
 
         # Create side-by-side subplots with shared y-axis
         fig, (ax_train, ax_infer) = plt.subplots(
-            1, 2, sharey=True, figsize=(5, 4)
+            1,
+            2,
+            sharey=True,
+            figsize=(5, 4),
         )
 
         # Alternate row background on both axes
         for i in range(0, len(frameworks), 2):
             for ax in [ax_train, ax_infer]:
-                ax.axhspan(i - 0.5, i + 0.5, facecolor='lightgray', alpha=0.3, zorder=0)
+                ax.axhspan(i - 0.5, i + 0.5, facecolor="lightgray", alpha=0.3, zorder=0)
 
         # Plot training and inference times
         for i, fw in enumerate(frameworks):
-            df_fw = df[df['framework_type'] == fw]
+            df_fw = df[df["framework_type"] == fw]
             for _, row in df_fw.iterrows():
-                color = color_map[row['tune_method']]
-                marker = marker_map[row['tune_method']]
-                ax_train.plot(row['time_train_s_per_1K'], i, marker=marker, color=color, linestyle='None')
-                ax_infer.plot(row['time_infer_s_per_1K'], i, marker=marker, color=color, linestyle='None')
+                color = color_map[row["tune_method"]]
+                marker = marker_map[row["tune_method"]]
+                ax_train.plot(row["time_train_s_per_1K"], i, marker=marker, color=color, linestyle="None")
+                ax_infer.plot(row["time_infer_s_per_1K"], i, marker=marker, color=color, linestyle="None")
 
         # Train time axis
-        ax_train.set_xscale('log')
+        ax_train.set_xscale("log")
         ax_train.set_xlabel("Median time per 1K samples [s]")
-        ax_train.set_title(r"\textbf{Train+val time}", fontweight='bold')
+        ax_train.set_title(r"\textbf{Train+val time}", fontweight="bold")
         ax_train.set_yticks(y_positions)
         ax_train.set_yticklabels(frameworks, fontsize=10)
-        ax_train.grid(True, axis='x', alpha=0.5)
+        ax_train.grid(True, axis="x", alpha=0.5)
 
         # Inference time axis
-        ax_infer.set_xscale('log')
+        ax_infer.set_xscale("log")
         ax_infer.set_xlabel("Median time per 1K samples [s]")
-        ax_infer.set_title(r"\textbf{Inference time}", fontweight='bold')
+        ax_infer.set_title(r"\textbf{Inference time}", fontweight="bold")
         ax_infer.set_yticks(y_positions)
         ax_infer.tick_params(labelleft=False)  # Explicitly hide y-tick labels
-        ax_infer.grid(True, axis='x', alpha=0.5)
+        ax_infer.grid(True, axis="x", alpha=0.5)
 
         for ax in [ax_train, ax_infer]:
             ax.xaxis.set_major_locator(ticker.LogLocator(base=10.0))
@@ -2217,19 +2336,32 @@ class TabArenaEvaluator:
             # ax.yaxis.set_minor_formatter(ticker.NullFormatter())
 
         tune_method_display_names = {
-            'default': 'Default',
-            'tuned': 'Tuned',
-            'tuned_ensembled': 'Tuned + Ensembled'
+            "default": "Default",
+            "tuned": "Tuned",
+            "tuned_ensembled": "Tuned + Ensembled",
         }
 
         # Add legend above both plots
         legend_elements = [
-            plt.Line2D([0], [0], marker=marker_map[tm], color=color_map[tm],
-                       linestyle='None', label=tune_method_display_names[tm], markersize=8)
+            plt.Line2D(
+                [0],
+                [0],
+                marker=marker_map[tm],
+                color=color_map[tm],
+                linestyle="None",
+                label=tune_method_display_names[tm],
+                markersize=8,
+            )
             for tm in tune_methods
         ]
-        fig.legend(handles=legend_elements,  # title='Tuning Method',
-                   loc='upper center', bbox_to_anchor=(0.65, 1.01), ncol=3, fontsize=10, title_fontsize=11)
+        fig.legend(
+            handles=legend_elements,  # title='Tuning Method',
+            loc="upper center",
+            bbox_to_anchor=(0.65, 1.01),
+            ncol=3,
+            fontsize=10,
+            title_fontsize=11,
+        )
 
         # Layout adjustment (no clipping)
         plt.tight_layout(rect=[0, 0, 1, 0.94])
@@ -2237,7 +2369,7 @@ class TabArenaEvaluator:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        plt.savefig(output_dir / f'time_plot.{self.figure_file_type}')
+        plt.savefig(output_dir / f"time_plot.{self.figure_file_type}")
         if show:
             plt.show()
         plt.close(fig)
@@ -2246,7 +2378,7 @@ class TabArenaEvaluator:
         self,
         df_results: pd.DataFrame,
         method: str,
-        excluded_families: list[str] = None,
+        excluded_families: list[str] | None = None,
         aggregate_folds: bool = False,
     ) -> pd.DataFrame:
         if self.datasets is not None:
@@ -2269,7 +2401,12 @@ class TabArenaEvaluator:
         #
         # df_ensemble_weights_2 = pd.DataFrame()
 
-        for d, f, ensemble_weights in zip(df_ensemble_weights["dataset"], df_ensemble_weights["fold"], df_ensemble_weights["ensemble_weight"]):
+        for d, f, ensemble_weights in zip(
+            df_ensemble_weights["dataset"],
+            df_ensemble_weights["fold"],
+            df_ensemble_weights["ensemble_weight"],
+            strict=False,
+        ):
             if isinstance(ensemble_weights, str):
                 ensemble_weights = json.loads(ensemble_weights)
             assert isinstance(ensemble_weights, dict)
@@ -2278,12 +2415,11 @@ class TabArenaEvaluator:
             ens_weights_w_dataset_fold["fold"] = f
             ens_weights_w_dataset_fold.update(ensemble_weights)
             full_dict.append(ens_weights_w_dataset_fold)
-            pass
 
         model_to_families = self.config_types
 
         model_families = set()
-        for m, f in model_to_families.items():
+        for _m, f in model_to_families.items():
             if f not in model_families:
                 model_families.add(f)
 
@@ -2304,6 +2440,7 @@ class TabArenaEvaluator:
             weight_per_family_dict.append(new_dict)
 
         import pandas as pd
+
         df = pd.DataFrame(weight_per_family_dict)
         df = df.set_index(["dataset", "fold"])
         df = df.fillna(0)
@@ -2318,17 +2455,16 @@ class TabArenaEvaluator:
         if excluded_families:
             df = df.drop(columns=excluded_families)
 
-        df = self._get_ensemble_weights(
+        return self._get_ensemble_weights(
             df_ensemble_weights=df,
             aggregate_folds=aggregate_folds,
             sort_by_mean=True,
         )
 
-        return df
-
     def _process_baselines(
         self,
-        df_results: pd.DataFrame, baselines: list[str] | None | str,
+        df_results: pd.DataFrame,
+        baselines: list[str] | None | str,
         baseline_colors: list[str] | None,
     ) -> tuple[list[str], list[str]]:
         methods = df_results[self.method_col].unique()
@@ -2338,9 +2474,9 @@ class TabArenaEvaluator:
         elif baselines == "auto":
             baselines = list(
                 df_results[
-                    df_results["method_type"].isin(["baseline", "portfolio"]) |
-                    ((df_results["method_type"] == "config") & df_results["method_subtype"].isna())
-                ][self.method_col].unique()
+                    df_results["method_type"].isin(["baseline", "portfolio"])
+                    | ((df_results["method_type"] == "config") & df_results["method_subtype"].isna())
+                ][self.method_col].unique(),
             )
         else:
             missing_baselines = [b for b in baselines if b not in methods]
@@ -2359,7 +2495,7 @@ class TabArenaEvaluator:
         assert len(baselines) == len(baseline_colors)
         assert len(baselines) == len(list(set(baselines))), f"Duplicates keys found in baselines: {baselines}"
         # Filter both baselines and baseline_colors using the same mask
-        filtered = [(b, c) for b, c in zip(baselines, baseline_colors) if b in methods]
+        filtered = [(b, c) for b, c in zip(baselines, baseline_colors, strict=False) if b in methods]
 
         baselines = [b for b, _ in filtered]
         baseline_colors = [c for _, c in filtered]
@@ -2374,7 +2510,7 @@ class TabArenaEvaluator:
     ) -> pd.DataFrame:
         df_ensemble_weights = copy.deepcopy(df_ensemble_weights)
         if aggregate_folds:
-            df_ensemble_weights = df_ensemble_weights.groupby(level='dataset').mean()
+            df_ensemble_weights = df_ensemble_weights.groupby(level="dataset").mean()
         else:
             index_new = list(df_ensemble_weights.index.to_flat_index())
             index_new = [str(t[0]) + "_" + str(t[1]) for t in index_new]
@@ -2405,9 +2541,7 @@ class TabArenaEvaluator:
         include_mean: bool = True,
         **kwargs,
     ):
-        """
-
-        Parameters
+        """Parameters
         ----------
         df_ensemble_weights : pd.DataFrame
             The 2nd output object of `repo.evaluate_ensembles(...)
@@ -2423,7 +2557,7 @@ class TabArenaEvaluator:
         **kwargs
             Passed to the `create_heatmap` function
 
-        Returns
+        Returns:
         -------
         plt
 
@@ -2434,8 +2568,7 @@ class TabArenaEvaluator:
         #     sort_by_mean=sort_by_mean,
         # )
 
-        p = create_heatmap(df=df_ensemble_weights, include_mean=include_mean, **kwargs)
-        return p
+        return create_heatmap(df=df_ensemble_weights, include_mean=include_mean, **kwargs)
 
     def plot_ensemble_weights_heatmap(self, df_ensemble_weights: pd.DataFrame, **kwargs):
         # FIXME: if family never present, then this won't work
@@ -2448,7 +2581,7 @@ class TabArenaEvaluator:
     def generate_runtime_plot(
         self,
         df_results: pd.DataFrame,
-        deep_dive_kwargs: dict | None = None
+        deep_dive_kwargs: dict | None = None,
     ):
         if deep_dive_kwargs is None:
             deep_dive_kwargs = {}
@@ -2459,7 +2592,9 @@ class TabArenaEvaluator:
         df_results_configs = df_results_configs[df_results_configs["config_type"].isin(framework_types)]
 
         method_rename_map = self.get_method_rename_map()
-        df_results_configs["config_type"] = df_results_configs["config_type"].map(method_rename_map).fillna(df_results_configs["config_type"])
+        df_results_configs["config_type"] = (
+            df_results_configs["config_type"].map(method_rename_map).fillna(df_results_configs["config_type"])
+        )
 
         plot_train_time_deep_dive(
             df=df_results_configs,
@@ -2487,8 +2622,7 @@ def _apply_ticklabel_styles(
     display_name_inverse_map: dict[str, str] | None = None,
     tick_method_keys: list[str] | None = None,
 ):
-    """
-    Apply per-method ticklabel styling.
+    """Apply per-method ticklabel styling.
 
     Key feature: if `tick_method_keys` is provided, styles are resolved using the
     original method key for each tick (in axis order). This prevents collisions
@@ -2521,19 +2655,14 @@ def _apply_ticklabel_styles(
 
     if tick_method_keys is not None and len(tick_method_keys) != len(tick_texts):
         raise ValueError(
-            f"tick_method_keys length ({len(tick_method_keys)}) must match number of tick labels ({len(tick_texts)})."
+            f"tick_method_keys length ({len(tick_method_keys)}) must match number of tick labels ({len(tick_texts)}).",
         )
 
     for i, t in enumerate(tick_texts):
         raw_name = t.get_text()
 
         # Normalize label text if you added arrows / newlines earlier
-        base_name = (
-            raw_name
-            .replace("\n", "")
-            .replace(r"$\uparrow$", "")
-            .strip()
-        )
+        base_name = raw_name.replace("\n", "").replace(r"$\uparrow$", "").strip()
 
         # --- Resolve the style lookup key ---
         # 1) If provided, use underlying original method key by position (robust to display_name collisions)
@@ -2590,9 +2719,7 @@ def _resolve_method_style(
 
 
 def _normalize_label_style(style: MethodLabelStyle) -> dict[str, object]:
-    """
-    Normalize label style spec into a dict usable by matplotlib Text.set_* APIs.
-    """
+    """Normalize label style spec into a dict usable by matplotlib Text.set_* APIs."""
     if isinstance(style, str):
         return {"color": style}
     return dict(style)

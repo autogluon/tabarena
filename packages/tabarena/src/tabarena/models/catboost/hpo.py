@@ -15,7 +15,8 @@ def generate_configs_catboost(num_random_configs=200):
         space=[
             Float("learning_rate", (5e-3, 1e-1), log=True),
             Categorical(
-                "bootstrap_type", ["Bernoulli"]
+                "bootstrap_type",
+                ["Bernoulli"],
             ),  # this is a bit faster than 'Bayesian'
             Float("subsample", (0.7, 1.0)),
             Categorical("grow_policy", ["SymmetricTree", "Depthwise"]),

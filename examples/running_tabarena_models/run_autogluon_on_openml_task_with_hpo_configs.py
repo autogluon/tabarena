@@ -1,9 +1,11 @@
-from tabarena.benchmark.task.openml import OpenMLTaskWrapper
-from tabarena.export.autogluon import AutoGluonExporter
-from tabarena.models.lightgbm.hpo import gen_lightgbm
-from tabarena.models.catboost.hpo import gen_catboost
+from __future__ import annotations
 
 from autogluon.tabular import TabularPredictor
+
+from tabarena.benchmark.task.openml import OpenMLTaskWrapper
+from tabarena.export.autogluon import AutoGluonExporter
+from tabarena.models.catboost.hpo import gen_catboost
+from tabarena.models.lightgbm.hpo import gen_lightgbm
 
 # run the default config + 5 random configurations of lightgbm and the default catboost config
 experiments_lightgbm = gen_lightgbm.generate_all_bag_experiments(num_random_configs=5)

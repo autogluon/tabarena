@@ -4,7 +4,6 @@ import re
 import unicodedata
 import warnings
 from collections import defaultdict
-from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
@@ -22,6 +21,8 @@ from sklearn.decomposition import PCA
 from tqdm import tqdm
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from sentence_transformers import SentenceTransformer
 
 
@@ -160,7 +161,7 @@ class TabArenaDefaultTextEncoder:
             texts=text_to_encode,
             encoder_model=TabArenaDefaultTextEncoder.get_default_encoder(),
         )
-        return dict(zip(text_to_encode, new_embeddings))
+        return dict(zip(text_to_encode, new_embeddings, strict=False))
 
 
 class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
@@ -206,18 +207,17 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
         # Encode text
         unseen_text = TabArenaDefaultTextEncoder.get_text_to_encode(X=X, seen_texts=set(self._embedding_look_up.keys()))
         if unseen_text:
-
             if self.only_load_from_cache:
                 raise ValueError(
                     "Cache miss for text values during transform with only_load_from_cache=True. "
-                    f"Unseen text values: {unseen_text[:10]} (showing up to 10)."
+                    f"Unseen text values: {unseen_text[:10]} (showing up to 10).",
                 )
 
             embeddings = TabArenaDefaultTextEncoder.encode_texts(
                 texts=list(unseen_text),
                 encoder_model=self._encoder_model,
             )
-            self._embedding_look_up.update(zip(unseen_text, embeddings))
+            self._embedding_look_up.update(zip(unseen_text, embeddings, strict=False))
 
         # Infer embedding dimension
         emb_dim = len(next(iter(self._embedding_look_up.values())))
@@ -229,7 +229,7 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
             raise ValueError(
                 "Column mismatch between training and transform.\n"
                 f"Expected: {self._expected_columns}\n"
-                f"Got: {list(X.columns)}"
+                f"Got: {list(X.columns)}",
             )
 
         # Pass 2: build matrix (optimized for repeated values)
@@ -282,7 +282,7 @@ class SemanticTextFeatureGenerator(AbstractFeatureGenerator):
     @staticmethod
     def load_embedding_cache(path: str | Path) -> dict[str, np.ndarray]:
         df = pd.read_parquet(path)
-        return dict(zip(df.index, df.to_numpy()))
+        return dict(zip(df.index, df.to_numpy(), strict=False))
 
     @staticmethod
     def get_text_cache_dir(task_id_str: str) -> Path:
@@ -469,7 +469,7 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
             raise ValueError(
                 "Column mismatch between training and transform.\n"
                 f"Expected: {self.expected_features_}\n"
-                f"Got: {list(X.columns)}"
+                f"Got: {list(X.columns)}",
             )
 
         X_out = self._transform_inference(X)
@@ -558,6 +558,7 @@ class TextEmbeddingDimensionalityReductionFeatureGenerator(AbstractFeatureGenera
             self._batch_pcas_,
             self._batch_input_columns_,
             self._batch_output_columns_,
+            strict=False,
         ):
             X_batch = X_scaled[batch_cols]
             X_pca = pca.transform(X_batch.to_numpy(copy=False))

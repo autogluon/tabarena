@@ -222,7 +222,7 @@ def use_text_cache_for_task(task_id_or_object, *, has_text: bool, mode: TextCach
                 raise FileNotFoundError(
                     f"Text cache not found for task {task_key!r} (encoder {embedding_id()!r}). "
                     f"Expected at {text_cache_path(task_key)}. Pre-generate or download it "
-                    f"(text_cache mode='require'); use mode='auto' to compute on the fly instead."
+                    f"(text_cache mode='require'); use mode='auto' to compute on the fly instead.",
                 )
         yield
     finally:

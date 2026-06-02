@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models.catboost.info import catboost_method_metadata
 from tabarena.models.extra_trees.info import extra_trees_method_metadata
 from tabarena.models.fastai.info import fastai_method_metadata
@@ -16,7 +17,6 @@ from tabarena.models.realmlp.info import realmlp_cpu_method_metadata
 from tabarena.models.tabicl.info import tabicl_method_metadata
 from tabarena.models.tabm.info import tabm_gpu_method_metadata, tabm_method_metadata
 from tabarena.models.xgboost.info import xgboost_method_metadata
-from tabarena.models._method_metadata import MethodMetadata
 
 # Models that own their MethodMetadata via per-model `info.py` modules. The
 # factory loop below skips these; they are seeded into `methods_2025_06_12` here.
@@ -119,7 +119,6 @@ methods_ag_key_map = {
     "RealMLP": "REALMLP",
     "TabM": "TABM",
     "XGBoost": "XGB",
-
     "ModernNCA_GPU": "MNCA",
     "RealMLP_GPU": "REALMLP",
     "TabDPT_GPU": "TABDPT",
@@ -144,7 +143,6 @@ methods_display_name_map = {
     "RealMLP": "RealMLP (CPU)",
     "TabM": "TabM (CPU)",
     "XGBoost": "XGBoost",
-
     "ModernNCA_GPU": "ModernNCA",
     "RealMLP_GPU": "RealMLP",
     "TabDPT_GPU": "TabDPT",
@@ -169,7 +167,6 @@ methods_config_default_map = {
     "RealMLP": "RealMLP_c1_BAG_L1",
     "TabM": "TabM_c1_BAG_L1",
     "XGBoost": "XGBoost_c1_BAG_L1",
-
     "ModernNCA_GPU": "ModernNCA_GPU_c1_BAG_L1",
     "RealMLP_GPU": "RealMLP_GPU_c1_BAG_L1",
     "TabDPT_GPU": "TabDPT_GPU_c1_BAG_L1",
@@ -194,14 +191,12 @@ methods_compute_map = {
     "RealMLP": "cpu",
     "TabM": "cpu",
     "XGBoost": "cpu",
-
     "ModernNCA_GPU": "gpu",
     "RealMLP_GPU": "gpu",
     "TabDPT_GPU": "gpu",
     "TabICL_GPU": "gpu",
     "TabM_GPU": "gpu",
     "TabPFNv2_GPU": "gpu",
-
 }
 
 methods = [
@@ -219,7 +214,6 @@ methods = [
     "RealMLP",
     "TabM",
     "XGBoost",
-
     "ModernNCA_GPU",
     "RealMLP_GPU",
     "TabDPT_GPU",
@@ -240,13 +234,11 @@ methods_main_paper = [
     "RandomForest",
     "RealMLP",
     "XGBoost",
-
     "ModernNCA_GPU",
     "TabDPT_GPU",
     "TabICL_GPU",
     "TabM_GPU",
     "TabPFNv2_GPU",
-
     "AutoGluon_v130",
     # "Portfolio-N200-4h",
 ]
@@ -304,7 +296,7 @@ for method in methods:
     config_default = methods_config_default_map[method]
     is_bag = method in methods_is_bag
     upload_as_public = method not in methods_upload_as_private
-    display_name = methods_display_name_map.get(method, None)
+    display_name = methods_display_name_map.get(method)
     assert compute_type in ["cpu", "gpu"]
     if compute_type == "cpu":
         method_kwargs = cpu_kwargs
@@ -315,7 +307,7 @@ for method in methods:
     else:
         can_hpo = True
 
-    reference_url = methods_to_url_map.get(method, None)
+    reference_url = methods_to_url_map.get(method)
 
     method_kwargs = copy.deepcopy(method_kwargs)
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from tabarena.models.tabpfnwide.model import TabPFNWideModel
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabpfnwide.hpo import gen_tabpfnwide
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models.tabpfnwide.model import TabPFNWideModel
 
 tabpfnwide_method_metadata = MethodMetadata(
     method="TabPFN-Wide",

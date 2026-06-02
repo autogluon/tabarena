@@ -216,7 +216,9 @@ def evaluate_beyond_subsets(
         method_rename_map = {**method_rename_map, **DEFAULT_METHOD_RENAME_MAP, **(method_rename_map_extra or {})}
 
     df_results = _align_results_to_task_metadata(
-        df_results, task_metadata, require=require_task_metadata_to_match
+        df_results,
+        task_metadata,
+        require=require_task_metadata_to_match,
     )
 
     figure_output_dir = Path(figure_output_dir)
@@ -271,7 +273,10 @@ def evaluate_beyond_subsets(
 
 
 def _align_results_to_task_metadata(
-    df_results: pd.DataFrame, task_metadata: pd.DataFrame, *, require: bool
+    df_results: pd.DataFrame,
+    task_metadata: pd.DataFrame,
+    *,
+    require: bool,
 ) -> pd.DataFrame:
     """Ensure every dataset in ``df_results`` has task metadata; raise or filter on mismatch."""
     import warnings
@@ -292,7 +297,7 @@ def _align_results_to_task_metadata(
         raise AssertionError(
             "Found datasets in df_results that are missing from task_metadata. This likely means "
             "task_metadata is incomplete or df_results contains results for datasets not part of "
-            f"the current evaluation context.\n{detail}"
+            f"the current evaluation context.\n{detail}",
         )
     warnings.warn(
         f"Found datasets in df_results missing from task_metadata; filtering them out.\n{detail}",

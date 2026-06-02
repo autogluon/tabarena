@@ -1,5 +1,4 @@
-"""
-TabArena quickstart tutorial (synthetic data)
+"""TabArena quickstart tutorial (synthetic data).
 
 This script:
 1) Creates synthetic long-form results with columns:
@@ -28,8 +27,7 @@ def make_synthetic_results(
     seeds: list[int],
     rng_seed: int = 0,
 ) -> pd.DataFrame:
-    """
-    Create a dense (task, seed, method) results table with realistic-ish structure:
+    """Create a dense (task, seed, method) results table with realistic-ish structure:
     - Each task has its own difficulty scale.
     - Each method has a global skill offset.
     - Each seed adds small noise.
@@ -64,10 +62,10 @@ def make_synthetic_results(
 
                 # times: better methods might be slower (arbitrary example)
                 time_train_s = float(
-                    rng.lognormal(mean=2.5, sigma=0.4) * (1.0 + 0.30 * (methods.index(method)))
+                    rng.lognormal(mean=2.5, sigma=0.4) * (1.0 + 0.30 * (methods.index(method))),
                 )
                 time_infer_s = float(
-                    rng.lognormal(mean=0.2, sigma=0.25) * (1.0 + 0.15 * (methods.index(method)))
+                    rng.lognormal(mean=0.2, sigma=0.25) * (1.0 + 0.15 * (methods.index(method))),
                 )
 
                 rows.append(
@@ -78,14 +76,13 @@ def make_synthetic_results(
                         "metric_error": error,
                         "time_train_s": time_train_s,
                         "time_infer_s": time_infer_s,
-                    }
+                    },
                 )
 
     df = pd.DataFrame(rows)
 
     # Optional: enforce nice ordering
-    df = df.sort_values(["task", "seed", "method"]).reset_index(drop=True)
-    return df
+    return df.sort_values(["task", "seed", "method"]).reset_index(drop=True)
 
 
 def main() -> None:
@@ -100,7 +97,9 @@ def main() -> None:
 
     print("Synthetic results (head):")
     print(data.head(8).to_string(index=False))
-    print("\nRow count:", len(data), "(should be tasks * seeds * methods =", len(tasks) * len(seeds) * len(methods), ")")
+    print(
+        "\nRow count:", len(data), "(should be tasks * seeds * methods =", len(tasks) * len(seeds) * len(methods), ")"
+    )
 
     # ----------------------------
     # 2) Initialize TabArena

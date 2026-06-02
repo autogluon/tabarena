@@ -1,6 +1,8 @@
-from autogluon.tabular import TabularPredictor
-from tabarena.benchmark.task.openml import OpenMLTaskWrapper
+from __future__ import annotations
 
+from autogluon.tabular import TabularPredictor
+
+from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 
 # supports any task on OpenML
 task_id = 363614  # anneal

@@ -21,7 +21,7 @@ def generate_single_config_tabm(rng):
         "share_training_batches": False,
         "lr": np.exp(rng.uniform(np.log(1e-4), np.log(3e-3))),
         "weight_decay": rng.choice(
-            [0.0, np.exp(rng.uniform(np.log(1e-4), np.log(1e-1)))]
+            [0.0, np.exp(rng.uniform(np.log(1e-4), np.log(1e-1)))],
         ),
         "n_blocks": rng.choice([2, 3, 4, 5]),
         "d_block": rng.choice([i for i in range(128, 1024 + 1) if i % 16 == 0]),

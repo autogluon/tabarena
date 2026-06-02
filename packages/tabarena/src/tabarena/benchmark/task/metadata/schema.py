@@ -166,7 +166,7 @@ class TabArenaTaskMetadata:
         if self.n_splits != 1:
             raise ValueError(
                 f"Cannot get split index for task with {self.n_splits} splits. "
-                "This is only supported for tasks with exactly one split."
+                "This is only supported for tasks with exactly one split.",
             )
         return self.split_indices[0]
 
@@ -214,7 +214,7 @@ class TabArenaTaskMetadata:
                 {
                     **static_metadata,
                     **split_metadata.to_dict(),
-                }
+                },
             )
 
         df = pd.DataFrame(rows)
@@ -250,7 +250,7 @@ class TabArenaTaskMetadata:
         if not all(name in row_dict for name in required_task_fields):
             raise ValueError(
                 "Metadata row is missing required TabArenaTaskMetadata fields: "
-                f"{required_task_fields - row_dict.keys()}"
+                f"{required_task_fields - row_dict.keys()}",
             )
         task_kwargs = {key: row_dict[key] for key in all_task_fields if key in row_dict}
 
@@ -258,7 +258,7 @@ class TabArenaTaskMetadata:
         split_field_names = {f.name for f in fields(SplitMetadata)}
         if not all(name in row_dict for name in split_field_names):
             raise ValueError(
-                f"Metadata row is missing required SplitMetadata fields: {split_field_names - row_dict.keys()}"
+                f"Metadata row is missing required SplitMetadata fields: {split_field_names - row_dict.keys()}",
             )
         split_kwargs = {key: row_dict[key] for key in split_field_names if key in row_dict}
         # Reconstruct SplitMetadata

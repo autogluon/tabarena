@@ -82,7 +82,7 @@ def convert_to_website_format(input_path: str | Path, output_path: str | Path):
     for path in file_paths:
         base_input_path = Path(path).parent
         base_output_path = path_copy / base_input_path.relative_to(
-            path_to_output_to_use
+            path_to_output_to_use,
         )
         process_one_folder(
             base_input_path=Path(path).parent,

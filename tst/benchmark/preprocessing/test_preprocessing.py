@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+
 from tabarena.benchmark.preprocessing import (
     TabArenaModelAgnosticPreprocessing,
     TabArenaModelSpecificPreprocessing,
@@ -258,7 +259,7 @@ class TestTabArenaModelAgnosticPreprocessingFitTransform:
             {
                 "num": [1.0, 2.0, 3.0, 4.0, 5.0],
                 "cat": pd.Categorical(["a", "b", "a", "c", "b"]),
-            }
+            },
         )
         gen = _make_no_text_gen()
         X_out = gen.fit_transform(X)
@@ -453,14 +454,14 @@ class TestNoCatAsStringCategoryFeatureGeneratorUnseenHandling:
             {
                 "c1": pd.Categorical(["a", "b", "a", "b"]),
                 "c2": pd.Categorical(["x", "y", "x", "y"]),
-            }
+            },
         )
         gen = self._fit_gen(X_train)
         X_test = pd.DataFrame(
             {
                 "c1": pd.Categorical(["a", "NEW_C1"]),
                 "c2": pd.Categorical(["x", "y"]),
-            }
+            },
         )
         X_out = gen.transform(X_test.copy())
         assert X_out["c1"].isna().sum() == 0
@@ -606,14 +607,14 @@ class TestStringFixAsTypeFeatureGeneratorCategoricals:
             {
                 "c1": pd.Categorical(["a", "b"]),
                 "c2": pd.Categorical(["x", "y"]),
-            }
+            },
         )
         gen = self._fit_gen(X_train)
         X_test = pd.DataFrame(
             {
                 "c1": pd.Categorical(["a", "NOVEL"]),
                 "c2": pd.Categorical(["x", "ALSO_NEW"]),
-            }
+            },
         )
         X_out = gen.transform(X_test.copy())
         assert X_out["c1"].isna().sum() == 0
@@ -629,14 +630,14 @@ class TestStringFixAsTypeFeatureGeneratorCategoricals:
             {
                 "num": [1.0, 2.0, 3.0],
                 "cat": pd.Categorical(["a", "b", "c"]),
-            }
+            },
         )
         gen = self._fit_gen(X_train)
         X_test = pd.DataFrame(
             {
                 "num": [4.0, 5.0],
                 "cat": pd.Categorical(["a", "NEW"]),
-            }
+            },
         )
         X_out = gen.transform(X_test.copy())
         assert X_out["cat"].isna().sum() == 0
@@ -906,7 +907,7 @@ class TestStatisticalTextFeatureGenerator:
             {
                 "col_a": [phrases[i % len(phrases)] for i in range(n)],
                 "col_b": [phrases[(i + 1) % len(phrases)] for i in range(n)],
-            }
+            },
         )
         X_out, _ = gen._fit_transform(X.copy())
         a_cols = [c for c in X_out.columns if c.startswith("col_a.")]
@@ -992,7 +993,7 @@ class TestSemanticTextFeatureGeneratorCacheRoundTrip:
 
         embs = []
         for t in texts:
-            seed = int(hashlib.md5(t.encode()).hexdigest(), 16) % (2**31)
+            seed = int(hashlib.md5(t.encode()).hexdigest(), 16) % (2**31)  # noqa: S324
             rng = np.random.RandomState(seed)
             emb = rng.randn(32).astype(np.float32)
             emb /= np.linalg.norm(emb)
@@ -1074,7 +1075,8 @@ class TestSemanticTextFeatureGeneratorCacheRoundTrip:
 
         cache_path = tmp_path / "partial_cache.parquet"
         SemanticTextFeatureGenerator.save_embedding_cache(
-            cache=SemanticTextFeatureGenerator._embedding_look_up, path=cache_path
+            cache=SemanticTextFeatureGenerator._embedding_look_up,
+            path=cache_path,
         )
 
         # Clear and reload
@@ -1101,8 +1103,8 @@ class TestSemanticTextFeatureGeneratorCacheRoundTrip:
             {
                 "description": [
                     f"This is a detailed text description for sample number {i} with unique content" for i in range(50)
-                ]
-            }
+                ],
+            },
         )
 
         preprocessing = TabArenaModelAgnosticPreprocessing(
@@ -1177,7 +1179,7 @@ class TestTextEmbeddingDRParseSourceColumn:
     def test_multiple_dots_uses_first(self):
         # Only the first "." separator is used.
         result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
-            "col.semantic_embedding.extra"
+            "col.semantic_embedding.extra",
         )
         assert result == "col"
 
@@ -1197,7 +1199,7 @@ class TestTextEmbeddingDRParseSourceColumn:
     def test_semantic_suffix_convention(self):
         # SemanticTextFeatureGenerator produces "description.semantic_embedding_5"
         result = TextEmbeddingDimensionalityReductionFeatureGenerator._parse_source_column(
-            "description.semantic_embedding_5"
+            "description.semantic_embedding_5",
         )
         assert result == "description"
 
@@ -1308,7 +1310,8 @@ class TestTextEmbeddingDRStaticMethods:
     )
     def test_num_components_for_variance(self, ratios, threshold, expected_min_k):
         k = TextEmbeddingDimensionalityReductionFeatureGenerator._num_components_for_variance(
-            np.array(ratios), threshold
+            np.array(ratios),
+            threshold,
         )
         assert k >= 1
         assert k <= len(ratios)
@@ -1544,7 +1547,7 @@ def _make_grouped_df(
             "num_a": rng.standard_normal(n_rows) + groups * 10,
             "num_b": rng.uniform(0, 1, n_rows),
             "cat_c": rng.choice(["x", "y", "z"], n_rows),
-        }
+        },
     )
     y = pd.Series(rng.standard_normal(n_rows), name="target")
     return X, y
@@ -1636,7 +1639,7 @@ class TestGroupAggregationFeatureGenerator:
                 "high_var": rng.standard_normal(n_rows) + groups * 1000,
                 # Low variance: nearly constant
                 "low_var": rng.standard_normal(n_rows) * 0.001,
-            }
+            },
         )
         y = pd.Series(rng.standard_normal(n_rows))
         gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=1)
@@ -1655,7 +1658,7 @@ class TestGroupAggregationFeatureGenerator:
                 "a": rng.standard_normal(n_rows) + groups * 100,
                 "b": rng.standard_normal(n_rows) + groups * 10,
                 "c": rng.standard_normal(n_rows) + groups * 1,
-            }
+            },
         )
         y = pd.Series(rng.standard_normal(n_rows))
         gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=3)
@@ -1698,7 +1701,7 @@ class TestGroupAggregationFeatureGenerator:
                 "num_a": rng.standard_normal(3),
                 "num_b": rng.uniform(0, 1, 3),
                 "cat_c": ["x", "y", "z"],
-            }
+            },
         )
         X_out = gen._transform(X_test)
         assert len(X_out) == 3
@@ -1727,7 +1730,7 @@ class TestGroupAggregationFeatureGenerator:
                 "g1": ["a", "a", "b", "b", "a", "b"],
                 "g2": [1, 1, 1, 1, 2, 2],
                 "val": rng.standard_normal(6),
-            }
+            },
         )
         y = pd.Series(rng.standard_normal(6))
         gen = GroupAggregationFeatureGenerator(group_col=["g1", "g2"], n_top_features=5)
@@ -1746,10 +1749,10 @@ class TestGroupAggregationFeatureGenerator:
             {
                 "gid": [0, 0, 0, 1, 1, 1],
                 "ts": pd.to_datetime(
-                    ["2020-01-03", "2020-01-01", "2020-01-02", "2020-02-01", "2020-02-03", "2020-02-02"]
+                    ["2020-01-03", "2020-01-01", "2020-01-02", "2020-02-01", "2020-02-03", "2020-02-02"],
                 ),
                 "val": [30.0, 10.0, 20.0, 100.0, 300.0, 200.0],
-            }
+            },
         )
         y = pd.Series([1.0] * 6)
         gen = GroupAggregationFeatureGenerator(group_col="gid", group_time_on="ts", n_top_features=100)
@@ -1794,7 +1797,7 @@ class TestGroupAggregationFeatureGenerator:
             {
                 "gid": [0, 0, 0, 0],
                 "val": rng.standard_normal(4),
-            }
+            },
         )
         y = pd.Series(rng.standard_normal(4))
         gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=5)

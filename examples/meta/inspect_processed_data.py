@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pandas as pd
 
-from tabarena import EvaluationRepository
 from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
+
+if TYPE_CHECKING:
+    from tabarena import EvaluationRepository
 
 """
 TabArena Processed-Artifact Quickstart
@@ -32,7 +36,7 @@ Typical Uses
 - Prototype ensembling strategies on top of cached predictions.
 - Extract a method's **AutoGluon** hyperparameters and re-train that exact config on
   your own dataset with `TabularPredictor.fit(hyperparameters=...)`.
-  
+
 Data Volume Tips
 ----------------
 - For a very small, fast download use: `method = "Mitra_GPU"`.
@@ -76,7 +80,7 @@ if __name__ == "__main__":
     if not method_metadata.path_processed_exists:
         print(
             f"Downloading processed data to {method_metadata.path_processed} ... "
-            f"Ensure you have a fast internet connection. This download can be up to 15 GB."
+            f"Ensure you have a fast internet connection. This download can be up to 15 GB.",
         )
         method_metadata.method_downloader().download_processed()
 
@@ -89,7 +93,7 @@ if __name__ == "__main__":
     if method_metadata.method_type != "config":
         raise AssertionError(
             f"This tutorial only supports config methods. "
-            f"(method={method_metadata.method!r}, method_type={method_metadata.method_type!r})"
+            f"(method={method_metadata.method!r}, method_type={method_metadata.method_type!r})",
         )
 
     # ----------------------------------------------------------------------
@@ -113,14 +117,14 @@ if __name__ == "__main__":
 
     config_types = repo.config_types()
     assert len(config_types) == 1, (
-        f"There should be exactly 1 config_type for method {{method_metadata.method}}: {{config_types}}"
+        "There should be exactly 1 config_type for method {method_metadata.method}: {config_types}"
     )
     repo_config_type = config_types[0]
     if repo_config_type != method_metadata.config_type:
         print(
             f"Warning: Misaligned processed config_type with method_metadata config_type!\n"
             f"\tmethod_metadata config_type: {method_metadata.config_type}\n"
-            f"\t      processed config_type: {repo_config_type}\n"
+            f"\t      processed config_type: {repo_config_type}\n",
         )
 
     config = configs[0]
@@ -138,7 +142,7 @@ if __name__ == "__main__":
         f"\t                     Name: {config}\n"
         f"\t                     Type: {config_type}\n"
         f"\t          Hyperparameters: {config_hyperparameters}\n"
-        f"\tAutoGluon Hyperparameters: {autogluon_hyperparameters}\n"
+        f"\tAutoGluon Hyperparameters: {autogluon_hyperparameters}\n",
     )
 
     # ----------------------------------------------------------------------

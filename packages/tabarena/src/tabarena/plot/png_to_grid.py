@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import math
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING
 
 from PIL import Image
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def make_png_grid(
@@ -20,8 +22,7 @@ def make_png_grid(
     scale: float | None = None,
     resample: Image.Resampling = Image.Resampling.LANCZOS,
 ) -> None:
-    """
-    Combine PNG images into an n_rows x n_cols composite PNG.
+    """Combine PNG images into an n_rows x n_cols composite PNG.
 
     Parameters
     ----------
@@ -53,7 +54,7 @@ def make_png_grid(
     resample
         PIL resampling filter used for resizing.
 
-    Notes
+    Notes:
     -----
     - If fewer images than grid cells are provided, remaining cells are left blank.
     - If more images than grid cells are provided, raises ValueError.
@@ -64,19 +65,16 @@ def make_png_grid(
 
     if len(image_paths) > n_rows * n_cols:
         raise ValueError(
-            f"Too many images ({len(image_paths)}) for grid {n_rows}x{n_cols} "
-            f"({n_rows * n_cols} cells)."
+            f"Too many images ({len(image_paths)}) for grid {n_rows}x{n_cols} ({n_rows * n_cols} cells).",
         )
 
     if not image_paths:
         raise ValueError("image_paths must contain at least one image.")
 
-    resize_args_provided = sum(
-        x is not None for x in (output_size, max_output_size, scale)
-    )
+    resize_args_provided = sum(x is not None for x in (output_size, max_output_size, scale))
     if resize_args_provided > 1:
         raise ValueError(
-            "Specify at most one of output_size, max_output_size, or scale."
+            "Specify at most one of output_size, max_output_size, or scale.",
         )
 
     if scale is not None and scale <= 0:
@@ -119,7 +117,7 @@ def make_png_grid(
             out_w, out_h = output_size
             if out_w <= 0 or out_h <= 0:
                 raise ValueError(
-                    f"output_size dimensions must be > 0, but got {output_size}."
+                    f"output_size dimensions must be > 0, but got {output_size}.",
                 )
             canvas = canvas.resize((out_w, out_h), resample)
 
@@ -127,7 +125,7 @@ def make_png_grid(
             max_w, max_h = max_output_size
             if max_w <= 0 or max_h <= 0:
                 raise ValueError(
-                    f"max_output_size dimensions must be > 0, but got {max_output_size}."
+                    f"max_output_size dimensions must be > 0, but got {max_output_size}.",
                 )
 
             scale_factor = min(max_w / canvas.width, max_h / canvas.height)
@@ -150,7 +148,6 @@ def make_png_grid(
             img.close()
 
 
-
 def make_png_grid_old(
     image_paths: Sequence[str | Path],
     output_path: str | Path,
@@ -160,8 +157,7 @@ def make_png_grid_old(
     bg_color: tuple[int, int, int, int] = (255, 255, 255, 255),
     resize_mode: str = "fit",
 ) -> None:
-    """
-    Combine PNG images into an n_rows x n_cols composite PNG.
+    """Combine PNG images into an n_rows x n_cols composite PNG.
 
     Parameters
     ----------
@@ -182,7 +178,7 @@ def make_png_grid_old(
         - "fit": preserve aspect ratio, fit inside cell
         - "stretch": resize exactly to cell size
 
-    Notes
+    Notes:
     -----
     - If fewer images than grid cells are provided, remaining cells are left blank.
     - If more images than grid cells are provided, raises ValueError.
@@ -192,8 +188,7 @@ def make_png_grid_old(
 
     if len(image_paths) > n_rows * n_cols:
         raise ValueError(
-            f"Too many images ({len(image_paths)}) for grid {n_rows}x{n_cols} "
-            f"({n_rows * n_cols} cells)."
+            f"Too many images ({len(image_paths)}) for grid {n_rows}x{n_cols} ({n_rows * n_cols} cells).",
         )
 
     if not image_paths:

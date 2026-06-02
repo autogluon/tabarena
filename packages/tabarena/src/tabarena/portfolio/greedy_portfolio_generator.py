@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import itertools
-from typing import List, Type
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
-from dataclasses import dataclass
 
-from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer, EnsembleScorerMaxModels
 from tabarena.portfolio.zeroshot_selection import zeroshot_configs
-from tabarena.repository import EvaluationRepository
+from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer, EnsembleScorerMaxModels
 from tabarena.utils.parallel_for import parallel_for
+
+if TYPE_CHECKING:
+    from tabarena.repository import EvaluationRepository
 
 default_ensemble_size = 40
 n_portfolios_default = 200
@@ -32,22 +34,20 @@ class ResultRow:
 
 
 def evaluate_configs(
-        repo: EvaluationRepository,
-        configs: List[str],
-        tid: int,
-        folds: List[int],
-        method: str,
-        ensemble_size: int = default_ensemble_size,
-        ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
-        ensemble_kwargs=None,
-        patience_callback: list | None = None,
-        time_limit: float | None = None,
-        fit_order="original",
-        seed: int = 0,
-) -> List[ResultRow]:
-    """
-
-    :param repo:
+    repo: EvaluationRepository,
+    configs: list[str],
+    tid: int,
+    folds: list[int],
+    method: str,
+    ensemble_size: int = default_ensemble_size,
+    ensemble_cls: type[EnsembleScorer] = EnsembleScorerMaxModels,
+    ensemble_kwargs=None,
+    patience_callback: list | None = None,
+    time_limit: float | None = None,
+    fit_order="original",
+    seed: int = 0,
+) -> list[ResultRow]:
+    """:param repo:
     :param configs:
     :param tid:
     :param method:
@@ -82,29 +82,31 @@ def evaluate_configs(
         ensemble_weights_dict = ensemble_weights.iloc[0].to_dict()
         ensemble_weights_dict = {k: v for k, v in ensemble_weights_dict.items() if v != 0}
 
-        task = repo.task_name(dataset=dataset, fold=fold)
+        repo.task_name(dataset=dataset, fold=fold)
 
         metric_error = metrics["metric_error"]
         metric_error_val = metrics["metric_error_val"]
         time_train_s = metrics["time_train_s"]
         time_infer_s = metrics["time_infer_s"]
 
-        rows.append(ResultRow(
-            dataset=dataset,
-            fold=fold,
-            method=method,
-            metric_error=metric_error,
-            time_train_s=time_train_s,
-            time_infer_s=time_infer_s,
-            metric_error_val=metric_error_val,
-            config_selected=configs_selected,
-            seed=seed,
-            metadata=dict(
-                n_iterations=ensemble_size,
-                time_limit=time_limit,
-            ),
-            ensemble_weight=ensemble_weights_dict,
-        ))
+        rows.append(
+            ResultRow(
+                dataset=dataset,
+                fold=fold,
+                method=method,
+                metric_error=metric_error,
+                time_train_s=time_train_s,
+                time_infer_s=time_infer_s,
+                metric_error_val=metric_error_val,
+                config_selected=configs_selected,
+                seed=seed,
+                metadata=dict(
+                    n_iterations=ensemble_size,
+                    time_limit=time_limit,
+                ),
+                ensemble_weight=ensemble_weights_dict,
+            )
+        )
     return rows
 
 
@@ -113,21 +115,24 @@ def time_suffix(max_runtime: float) -> str:
         if max_runtime >= 3600:
             str_num_hours = f"{int(max_runtime / 3600)}" if max_runtime % 3600 == 0 else f"{max_runtime / 3600:0.2f}"
             return f" ({str_num_hours}h)"
-        else:
-            str_num_mins = f"{int(max_runtime / 60)}" if max_runtime % 60 == 0 else f"{max_runtime / 60:0.2f}"
-            return f" ({str_num_mins}m)"
-    else:
-        return ""
+        str_num_mins = f"{int(max_runtime / 60)}" if max_runtime % 60 == 0 else f"{max_runtime / 60:0.2f}"
+        return f" ({str_num_mins}m)"
+    return ""
 
 
 def zeroshot_name(
-        n_portfolio: int = n_portfolios_default, n_ensemble: int = None, n_training_dataset: int = None,
-        n_training_fold: int = None, n_training_config: int = None,
-        max_runtime: float = default_runtime, prefix: str = None, n_ensemble_in_name: bool = False,
-        max_models: int = None, max_models_per_type: int = None,
+    n_portfolio: int = n_portfolios_default,
+    n_ensemble: int | None = None,
+    n_training_dataset: int | None = None,
+    n_training_fold: int | None = None,
+    n_training_config: int | None = None,
+    max_runtime: float = default_runtime,
+    prefix: str | None = None,
+    n_ensemble_in_name: bool = False,
+    max_models: int | None = None,
+    max_models_per_type: int | None = None,
 ):
-    """
-    :return: name of the zeroshot method such as Zeroshot-N20-C40 if n_training_dataset or n_training_folds are not
+    """:return: name of the zeroshot method such as Zeroshot-N20-C40 if n_training_dataset or n_training_folds are not
     None, suffixes "-D{n_training_dataset}" and "-S{n_training_folds}" are added, for instance "Zeroshot-N20-C40-D30-S5"
     would be the name if n_training_dataset=30 and n_training_fold=5
     """
@@ -137,8 +142,14 @@ def zeroshot_name(
         prefix = ""
     suffix = [
         f"-{letter}{x}" if x is not None else ""
-        for letter, x in
-        [("N", n_portfolio), ("D", n_training_dataset), ("S", n_training_fold), ("M", n_training_config), ("X", max_models), ("Z", max_models_per_type)]
+        for letter, x in [
+            ("N", n_portfolio),
+            ("D", n_training_dataset),
+            ("S", n_training_fold),
+            ("M", n_training_config),
+            ("X", max_models),
+            ("Z", max_models_per_type),
+        ]
     ]
     # if n_ensemble:
     #     suffix += f"-C{n_ensemble}"
@@ -157,39 +168,43 @@ def filter_configurations_above_budget(repo, test_tid, configs, max_runtime, qua
     dd = repo._zeroshot_context.df_configs
     dd = dd[dd["framework"].isin(set(configs))]
     dd = dd[dd.tid != test_tid]
-    df_configs_runtime = dd.pivot_table(
-        index="framework", columns="tid", values="time_train_s"
-    ).quantile(q=quantile, axis=1).sort_values()
+    df_configs_runtime = (
+        dd.pivot_table(
+            index="framework",
+            columns="tid",
+            values="time_train_s",
+        )
+        .quantile(q=quantile, axis=1)
+        .sort_values()
+    )
 
     configs_fast_enough = set(df_configs_runtime[df_configs_runtime < max_runtime].index.tolist())
-    configs = [c for c in configs if c in configs_fast_enough]
-    return configs
+    return [c for c in configs if c in configs_fast_enough]
 
 
 def zeroshot_results(
-        repo: EvaluationRepository,
-        dataset_names: List[str],
-        n_eval_folds: int,
-        framework_types: List[str] | None = None,
-        configs: list[str] | None = None,
-        n_ensembles: List[int] = [None],
-        n_portfolios: List[int] = [n_portfolios_default],
-        n_training_datasets: List[int] = [None],
-        n_training_folds: List[int] = [None],
-        n_training_configs: List[int] = [None],
-        n_max_models: List[int] = [None],
-        n_max_models_per_type: List[int] = [None],
-        max_runtimes: List[float] = [default_runtime],
-        engine: str = "ray",
-        seeds: list = [0],
-        method_prefix: str = None,
-        n_ensemble_in_name: bool = False,
-        ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
-        ensemble_kwargs: dict = None,
-        patience_callback: list | None = None,
+    repo: EvaluationRepository,
+    dataset_names: list[str],
+    n_eval_folds: int,
+    framework_types: list[str] | None = None,
+    configs: list[str] | None = None,
+    n_ensembles: list[int] | None = None,
+    n_portfolios: list[int] | None = None,
+    n_training_datasets: list[int] | None = None,
+    n_training_folds: list[int] | None = None,
+    n_training_configs: list[int] | None = None,
+    n_max_models: list[int] | None = None,
+    n_max_models_per_type: list[int] | None = None,
+    max_runtimes: list[float] | None = None,
+    engine: str = "ray",
+    seeds: list | None = None,
+    method_prefix: str | None = None,
+    n_ensemble_in_name: bool = False,
+    ensemble_cls: type[EnsembleScorer] = EnsembleScorerMaxModels,
+    ensemble_kwargs: dict | None = None,
+    patience_callback: list | None = None,
 ) -> list[ResultRow]:
-    """
-    :param dataset_names: list of dataset to use when fitting zeroshot
+    """:param dataset_names: list of dataset to use when fitting zeroshot
     :param n_eval_folds: number of folds to consider for evaluation
     :param n_ensembles: number of caruana sizes to consider
     :param n_portfolios: number of folds to use when fitting zeroshot
@@ -203,6 +218,24 @@ def zeroshot_results(
     :param seeds: the seeds for the random number generator used for shuffling the configs
     :return: evaluation obtained on all combinations
     """
+    if seeds is None:
+        seeds = [0]
+    if max_runtimes is None:
+        max_runtimes = [default_runtime]
+    if n_max_models_per_type is None:
+        n_max_models_per_type = [None]
+    if n_max_models is None:
+        n_max_models = [None]
+    if n_training_configs is None:
+        n_training_configs = [None]
+    if n_training_folds is None:
+        n_training_folds = [None]
+    if n_training_datasets is None:
+        n_training_datasets = [None]
+    if n_portfolios is None:
+        n_portfolios = [n_portfolios_default]
+    if n_ensembles is None:
+        n_ensembles = [None]
 
     def evaluate_dataset(
         test_dataset,
@@ -238,10 +271,7 @@ def zeroshot_results(
 
         # restrict number of evaluation fold
         if n_training_fold is None:
-            if n_eval_folds is None:
-                n_training_fold = len(repo.folds)
-            else:
-                n_training_fold = n_eval_folds
+            n_training_fold = len(repo.folds) if n_eval_folds is None else n_eval_folds
 
         # gets all tids that are possible available
         test_tid = repo.dataset_to_tid(test_dataset)
@@ -281,10 +311,12 @@ def zeroshot_results(
             if tid in selected_tids and fold < n_training_fold:
                 train_tasks.append(task)
                 n_folds_in_dataset = min(n_training_fold, len(repo.dataset_to_folds(repo.tid_to_dataset(tid))))
-                train_task_weight[task] = 1/n_folds_in_dataset
+                train_task_weight[task] = 1 / n_folds_in_dataset
 
         # fit zeroshot portfolio on all available tasks
-        indices = zeroshot_configs(-df_rank[train_tasks].values.T, n_portfolio, weights=[train_task_weight[task] for task in train_tasks])
+        indices = zeroshot_configs(
+            -df_rank[train_tasks].values.T, n_portfolio, weights=[train_task_weight[task] for task in train_tasks]
+        )
         portfolio_configs = [df_rank.index[i] for i in indices]
         # TODO: Technically we should exclude data from the fold when computing the average runtime and also pass the
         #  current fold when filtering by runtime.
@@ -344,10 +376,7 @@ def zeroshot_results(
                 model_frameworks[config_type] = []
             model_frameworks[config_type].append(config)
     else:
-        model_frameworks = {
-            framework: sorted([x for x in configs if framework in x])
-            for framework in framework_types
-        }
+        model_frameworks = {framework: sorted([x for x in configs if framework in x]) for framework in framework_types}
 
     tasks = repo.tasks()
     if n_eval_folds is not None:
@@ -358,14 +387,39 @@ def zeroshot_results(
 
     batch_folds = True  # It is debatable whether True or False is faster.
     if batch_folds:
-        inputs = list(itertools.product(dataset_names, n_portfolios, n_ensembles, n_training_datasets, n_training_folds,
-                                          n_training_configs, max_runtimes, n_max_models, n_max_models_per_type, seeds, [None]))
+        inputs = list(
+            itertools.product(
+                dataset_names,
+                n_portfolios,
+                n_ensembles,
+                n_training_datasets,
+                n_training_folds,
+                n_training_configs,
+                max_runtimes,
+                n_max_models,
+                n_max_models_per_type,
+                seeds,
+                [None],
+            )
+        )
     else:
-        inputs = list(itertools.product(tasks, n_portfolios, n_ensembles, n_training_datasets, n_training_folds,
-                                          n_training_configs, max_runtimes, n_max_models, n_max_models_per_type, seeds))
+        inputs = list(
+            itertools.product(
+                tasks,
+                n_portfolios,
+                n_ensembles,
+                n_training_datasets,
+                n_training_folds,
+                n_training_configs,
+                max_runtimes,
+                n_max_models,
+                n_max_models_per_type,
+                seeds,
+            )
+        )
         n_inputs = len(inputs)
         for i in range(n_inputs):
-            inputs[i] = (inputs[i][0][0], *inputs[i][1:], [inputs[i][0][1]],)
+            inputs[i] = (inputs[i][0][0], *inputs[i][1:], [inputs[i][0][1]])
 
     list_rows = parallel_for(
         evaluate_dataset,

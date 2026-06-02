@@ -133,48 +133,52 @@ removed_cpu_methods = [
     "RealMLP",
 ]
 
-methods_2025_06_12_keep = [m for m in methods_2025_06_12 if m.method not in replaced_methods and m.method not in removed_cpu_methods]
-methods_2025_10_20_camera_ready = [m for m in methods_2025_06_12 if m.method not in updated_methods_camera_ready] + methods_2025_10_20
+methods_2025_06_12_keep = [
+    m for m in methods_2025_06_12 if m.method not in replaced_methods and m.method not in removed_cpu_methods
+]
+methods_2025_10_20_camera_ready = [
+    m for m in methods_2025_06_12 if m.method not in updated_methods_camera_ready
+] + methods_2025_10_20
 
 
 # The latest results for each method
-tabarena_method_metadata_collection = MethodMetadataCollection(method_metadata_lst=
-    methods_2025_06_12_keep +
-    methods_2025_09_03_keep +
-    methods_2025_10_20 +
-    methods_2025_11_01_keep +
-    methods_2025_12_18 +
-    [tabdpt_metadata] +
-    [realtabpfn25_metadata] +
-    [contexttab_metadata] +
-    [tabiclv2_metadata] +
-    [tabstar_metadata] +
-    [perpetualbooster_metadata] +
-    [tabpfn26_metadata] +
-    [tabpfnv3_method_metadata] +
-    [orionmsp_metadata] +
-    [iltm_method_metadata] +
-    methods_misc,
+tabarena_method_metadata_collection = MethodMetadataCollection(
+    method_metadata_lst=methods_2025_06_12_keep
+    + methods_2025_09_03_keep
+    + methods_2025_10_20
+    + methods_2025_11_01_keep
+    + methods_2025_12_18
+    + [tabdpt_metadata]
+    + [realtabpfn25_metadata]
+    + [contexttab_metadata]
+    + [tabiclv2_metadata]
+    + [tabstar_metadata]
+    + [perpetualbooster_metadata]
+    + [tabpfn26_metadata]
+    + [tabpfnv3_method_metadata]
+    + [orionmsp_metadata]
+    + [iltm_method_metadata]
+    + methods_misc,
 )
 
 # All historical results for each method
-tabarena_method_metadata_complete_collection = MethodMetadataCollection(method_metadata_lst=
-    methods_2025_06_12 +
-    methods_2025_09_03 +
-    methods_2025_10_20 +
-    methods_2025_11_01_ag +
-    methods_2025_12_18 +
-    [tabdpt_metadata] +
-    [realtabpfn25_metadata] +
-    [contexttab_metadata] +
-    [tabiclv2_metadata] +
-    [tabstar_metadata] +
-    [perpetualbooster_metadata] +
-    [tabpfn26_metadata] +
-    [tabpfnv3_method_metadata] +
-    [orionmsp_metadata] +
-    [iltm_method_metadata] +
-    methods_misc,
+tabarena_method_metadata_complete_collection = MethodMetadataCollection(
+    method_metadata_lst=methods_2025_06_12
+    + methods_2025_09_03
+    + methods_2025_10_20
+    + methods_2025_11_01_ag
+    + methods_2025_12_18
+    + [tabdpt_metadata]
+    + [realtabpfn25_metadata]
+    + [contexttab_metadata]
+    + [tabiclv2_metadata]
+    + [tabstar_metadata]
+    + [perpetualbooster_metadata]
+    + [tabpfn26_metadata]
+    + [tabpfnv3_method_metadata]
+    + [orionmsp_metadata]
+    + [iltm_method_metadata]
+    + methods_misc,
 )
 
 # All historical results for each method
@@ -183,9 +187,15 @@ tabarena_method_metadata_2025_06_12_collection = MethodMetadataCollection(
 )
 
 tabarena_method_metadata_2025_06_12_collection_main = MethodMetadataCollection(
-    method_metadata_lst=[m for m in tabarena_method_metadata_2025_06_12_collection.method_metadata_lst if m.method in methods_main_paper]
+    method_metadata_lst=[
+        m for m in tabarena_method_metadata_2025_06_12_collection.method_metadata_lst if m.method in methods_main_paper
+    ]
 )
 
 tabarena_method_metadata_2025_06_12_collection_gpu_ablation = MethodMetadataCollection(
-    method_metadata_lst=[m for m in tabarena_method_metadata_2025_06_12_collection.method_metadata_lst if m.method in methods_gpu_ablation]
+    method_metadata_lst=[
+        m
+        for m in tabarena_method_metadata_2025_06_12_collection.method_metadata_lst
+        if m.method in methods_gpu_ablation
+    ]
 )

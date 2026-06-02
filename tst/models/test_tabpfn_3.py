@@ -6,6 +6,7 @@ import pytest
 def test_tabpfn_3():
     try:
         from autogluon.tabular.testing import FitHelper
+
         from tabarena.models.tabpfn_3.model import (
             TabPFN3Model,
         )
@@ -20,5 +21,5 @@ def test_tabpfn_3():
         )
     except ImportError as err:
         pytest.skip(
-            f"Import Error, skipping test... Ensure you have the proper dependencies installed to run this test:\n{err}"
+            f"Import Error, skipping test... Ensure you have the proper dependencies installed to run this test:\n{err}",
         )

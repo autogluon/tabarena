@@ -32,7 +32,7 @@ class PerpetualBoosterModel(AbstractModel):
 
         if self._category_features is None:
             self._category_features = X.select_dtypes(
-                include=["category"]
+                include=["category"],
             ).columns.tolist()
 
         return X

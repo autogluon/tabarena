@@ -3,13 +3,14 @@ from __future__ import annotations
 import io
 import shutil
 import zipfile
-from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from tabarena.models._method_metadata import MethodMetadata
 
 

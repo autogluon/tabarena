@@ -62,8 +62,7 @@ class MethodMetadataCollection:
         if not by_method:
             valid_methods = [m.method for m in self.method_metadata_lst]
             raise LookupError(
-                f"No MethodMetadata entries exist with method='{method}'."
-                f"\nValid methods: {valid_methods}"
+                f"No MethodMetadata entries exist with method='{method}'.\nValid methods: {valid_methods}",
             )
 
         # 2) Apply only the provided (non-None) fields.
@@ -102,7 +101,7 @@ class MethodMetadataCollection:
                 f"Filters used: method={method!r}, artifact_name={artifact_name!r}, "
                 f"s3_bucket={s3_bucket!r}, s3_prefix={s3_prefix!r}\n"
                 "Available candidates for this method:\n"
-                f"{df.to_string(index=False)}"
+                f"{df.to_string(index=False)}",
             )
 
         # More than one remains → ambiguous; show just those indistinguishable candidates.
@@ -112,7 +111,7 @@ class MethodMetadataCollection:
             f"Filters used: method={method!r}, artifact_name={artifact_name!r}, "
             f"s3_bucket={s3_bucket!r}, s3_prefix={s3_prefix!r}\n"
             "Indistinguishable candidates:\n"
-            f"{df.to_string(index=False)}"
+            f"{df.to_string(index=False)}",
         )
 
     def info(self) -> pd.DataFrame:

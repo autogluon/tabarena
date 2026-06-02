@@ -49,6 +49,8 @@ gen_ebm = ConfigGenerator(
 
 def generate_configs_ebm(num_random_configs=200):
     config_generator = ConfigGenerator(
-        name="EBM", manual_configs=[], search_space=search_space
+        name="EBM",
+        manual_configs=[],
+        search_space=search_space,
     )
     return config_generator.generate_all_configs(num_random_configs=num_random_configs)

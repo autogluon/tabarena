@@ -15,11 +15,14 @@ Everything else (method handling, plotting, leaderboard logic) is inherited unch
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 #: Warehouse-level columns BeyondArena predicates/plots rely on. Used by the (idempotent)
 #: back-compat merge below when a caller still supplies a separate warehouse frame.

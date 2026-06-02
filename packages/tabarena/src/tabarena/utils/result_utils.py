@@ -1,7 +1,14 @@
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from autogluon.common.loaders import load_pd
 from autogluon.common.savers import save_pd
+
 from tabarena.loaders import Paths
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def results_path() -> Path:
@@ -10,25 +17,28 @@ def results_path() -> Path:
         res.mkdir(parents=True, exist_ok=True)
     return res
 
+
 def shrink_result_file_size(path_load, path_save):
     result_df = load_pd.load(path_load)
 
-    result_df = result_df.drop(columns=[
-        'app_version',
-        'can_infer',
-        'fit_order',
-        'mode',
-        'id',
-        'seed',
-        'stack_level',
-        'fit_time',
-        'fit_time_marginal',
-        'pred_time_test_marginal',
-        'pred_time_val_marginal',
-        'pred_time_val',
-        'utc',
-        'version',
-    ])
+    result_df = result_df.drop(
+        columns=[
+            "app_version",
+            "can_infer",
+            "fit_order",
+            "mode",
+            "id",
+            "seed",
+            "stack_level",
+            "fit_time",
+            "fit_time_marginal",
+            "pred_time_test_marginal",
+            "pred_time_val_marginal",
+            "pred_time_val",
+            "utc",
+            "version",
+        ]
+    )
 
     save_pd.save(path=path_save, df=result_df)
 

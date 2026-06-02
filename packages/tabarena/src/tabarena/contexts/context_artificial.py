@@ -1,5 +1,7 @@
-import pandas as pd
+from __future__ import annotations
+
 import numpy as np
+import pandas as pd
 
 from tabarena.predictions import TabularPredictionsInMemory
 from tabarena.repository import EvaluationRepository
@@ -8,7 +10,7 @@ from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
 
 
 def make_random_metric(model):
-    output_cols = ['time_train_s', 'time_infer_s', 'metric_error', 'metric_error_val']
+    output_cols = ["time_train_s", "time_infer_s", "metric_error", "metric_error_val"]
     metric_value_dict = {
         "NeuralNetFastAI_r1": 1.0,
         "NeuralNetFastAI_r2": 2.0,
@@ -56,12 +58,15 @@ def load_context_artificial(
 
     configs_full = {model: {} for model in models}
 
-    df_metadata = pd.DataFrame([{
-        'dataset': dataset,
-        'task_type': "TaskType.SUPERVISED_CLASSIFICATION",
-    }
-        for tid, dataset in zip(tids, datasets)
-    ])
+    df_metadata = pd.DataFrame(
+        [
+            {
+                "dataset": dataset,
+                "task_type": "TaskType.SUPERVISED_CLASSIFICATION",
+            }
+            for tid, dataset in zip(tids, datasets, strict=False)
+        ]
+    )
 
     df_baselines = pd.DataFrame(
         {
@@ -72,7 +77,10 @@ def load_context_artificial(
             "problem_type": problem_type,
             "metric": "root_mean_squared_error",
             **make_random_metric(baseline),
-        } for fold in range(n_folds) for baseline in baselines for (tid, dataset) in zip(tids, datasets)
+        }
+        for fold in range(n_folds)
+        for baseline in baselines
+        for (tid, dataset) in zip(tids, datasets, strict=False)
     )
 
     if add_baselines_extra:
@@ -88,15 +96,21 @@ def load_context_artificial(
                 "problem_type": problem_type,
                 "metric": "root_mean_squared_error",
                 **make_random_metric(baseline),
-            } for fold in [0] for baseline in baselines_extra for (tid, dataset) in zip(tids_extra, datasets_extra)
+            }
+            for fold in [0]
+            for baseline in baselines_extra
+            for (tid, dataset) in zip(tids_extra, datasets_extra, strict=False)
         )
         df_baselines = pd.concat([df_baselines, df_baselines_extra], ignore_index=True)
-        df_metadata_extra = pd.DataFrame([{
-            'dataset': dataset,
-            'task_type': "TaskType.SUPERVISED_CLASSIFICATION",
-        }
-            for tid, dataset in zip(tids_extra, datasets_extra)
-        ])
+        df_metadata_extra = pd.DataFrame(
+            [
+                {
+                    "dataset": dataset,
+                    "task_type": "TaskType.SUPERVISED_CLASSIFICATION",
+                }
+                for tid, dataset in zip(tids_extra, datasets_extra, strict=False)
+            ]
+        )
         df_metadata = pd.concat([df_metadata, df_metadata_extra], ignore_index=True)
 
     df_raw = pd.DataFrame(
@@ -108,7 +122,10 @@ def load_context_artificial(
             "problem_type": problem_type,
             "metric": "root_mean_squared_error",
             **make_random_metric(model),
-        } for fold in range(n_folds) for model in models for (tid, dataset) in zip(tids, datasets)
+        }
+        for fold in range(n_folds)
+        for model in models
+        for (tid, dataset) in zip(tids, datasets, strict=False)
     )
     if not include_configs:
         df_raw = None
@@ -131,7 +148,7 @@ def load_context_artificial(
                 "pred_proba_dict_test": {
                     m: rng.random((13, n_classes), dtype=dtype) if n_classes > 2 else rng.random(13, dtype=dtype)
                     for m in models
-                }
+                },
             }
             for fold in range(n_folds)
         }
@@ -140,10 +157,7 @@ def load_context_artificial(
     zeroshot_pred_proba = TabularPredictionsInMemory.from_dict(pred_dict)
 
     make_dict = lambda size: {
-        dataset: {
-            fold: pd.Series(rng.integers(low=0, high=n_classes, size=size))
-            for fold in range(n_folds)
-        }
+        dataset: {fold: pd.Series(rng.integers(low=0, high=n_classes, size=size)) for fold in range(n_folds)}
         for dataset in datasets
     }
 
@@ -157,7 +171,7 @@ def load_context_artificial(
 
 
 def load_repo_artificial(**kwargs) -> EvaluationRepository:
-    zsc, configs_full, zeroshot_pred_proba, zeroshot_gt = load_context_artificial(**kwargs)
+    zsc, _configs_full, zeroshot_pred_proba, zeroshot_gt = load_context_artificial(**kwargs)
     return EvaluationRepository(
         zeroshot_context=zsc,
         tabular_predictions=zeroshot_pred_proba,
@@ -165,5 +179,5 @@ def load_repo_artificial(**kwargs) -> EvaluationRepository:
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     load_context_artificial()

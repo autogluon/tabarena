@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Type
-
-import pandas as pd
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
 
-from tabarena.benchmark.result import BaselineResult, ExperimentResults
-from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle, CacheFunctionDummy
-from tabarena.repository import EvaluationRepository
 from tabarena.benchmark.experiment.experiment_constructor import Experiment
+from tabarena.benchmark.result import BaselineResult, ExperimentResults
+from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy, CacheFunctionPickle
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from tabarena.repository import EvaluationRepository
 
 
 # TODO: Inspect artifact folder to load all results without needing to specify them explicitly
@@ -18,7 +20,7 @@ class ExperimentBatchRunner:
         self,
         expname: str,
         task_metadata: pd.DataFrame,
-        cache_cls: Type[AbstractCacheFunction] | None = CacheFunctionPickle,
+        cache_cls: type[AbstractCacheFunction] | None = CacheFunctionPickle,
         cache_cls_kwargs: dict | None = None,
         cache_path_format: Literal["name_first", "task_first"] = "name_first",
         only_cache: bool = False,
@@ -27,9 +29,7 @@ class ExperimentBatchRunner:
         debug_mode: bool = True,
         s3_dataset_cache: str | None = None,
     ):
-        """
-
-        Parameters
+        """Parameters
         ----------
         expname
         cache_cls
@@ -63,7 +63,12 @@ class ExperimentBatchRunner:
         self.cache_cls_kwargs = cache_cls_kwargs
         self.cache_path_format = cache_path_format
         self.only_cache = only_cache
-        self._dataset_to_tid_dict = self.task_metadata[['tid', 'dataset']].drop_duplicates(['tid', 'dataset']).set_index('dataset')['tid'].to_dict()
+        self._dataset_to_tid_dict = (
+            self.task_metadata[["tid", "dataset"]]
+            .drop_duplicates(["tid", "dataset"])
+            .set_index("dataset")["tid"]
+            .to_dict()
+        )
         self.mode = mode
         self.s3_bucket = s3_bucket
         self.debug_mode = debug_mode
@@ -80,19 +85,19 @@ class ExperimentBatchRunner:
         ignore_cache: bool = False,
         raise_on_failure: bool = True,
     ) -> list[dict[str, Any]]:
-        """
-        Similar to `run` but with the ability to specify folds and repeats on a per-dataset basis.
+        """Similar to `run` but with the ability to specify folds and repeats on a per-dataset basis.
 
         Parameters
         ----------
-        methods
+
+        Methods:
         dataset_folds_repeats_lst
         ignore_cache: bool, default False
             If True, will run the experiments regardless if the cache exists already, and will overwrite the cache file upon completion.
             If False, will load the cache result if it exists for a given experiment, rather than running the experiment again.
         raise_on_failure
 
-        Returns
+        Returns:
         -------
         results_lst: list[dict[str, Any]]
             A list of experiment run metadata dictionaries.
@@ -102,7 +107,7 @@ class ExperimentBatchRunner:
         results_lst = []
         len_datasets = len(dataset_folds_repeats_lst)
         for i, (dataset, folds, repeats) in enumerate(dataset_folds_repeats_lst):
-            print(f"Fitting dataset {i+1}/{len_datasets}... (dataset={dataset}, folds={folds}, repeats={repeats})")
+            print(f"Fitting dataset {i + 1}/{len_datasets}... (dataset={dataset}, folds={folds}, repeats={repeats})")
             results_lst_cur = self.run(
                 methods=methods,
                 datasets=[dataset],
@@ -123,11 +128,10 @@ class ExperimentBatchRunner:
         ignore_cache: bool = False,
         raise_on_failure: bool = True,
     ) -> list[dict[str, Any]]:
-        """
-
-        Parameters
+        """Parameters
         ----------
-        methods
+
+        Methods:
         datasets
         folds
         repeats
@@ -135,7 +139,7 @@ class ExperimentBatchRunner:
             If True, will run the experiments regardless if the cache exists already, and will overwrite the cache file upon completion.
             If False, will load the cache result if it exists for a given experiment, rather than running the experiment again.
 
-        Returns
+        Returns:
         -------
         results_lst: list[dict[str, Any]]
             A list of experiment run metadata dictionaries.
@@ -206,12 +210,12 @@ class ExperimentBatchRunner:
         repeats: list[int] | None = None,
         require_all: bool = True,
     ) -> list[dict[str, Any]]:
-        """
-        Load results from the cache.
+        """Load results from the cache.
 
         Parameters
         ----------
-        methods
+
+        Methods:
         datasets
         folds
         repeats
@@ -219,7 +223,7 @@ class ExperimentBatchRunner:
             If True, will raise an exception if not all methods x datasets x folds have a cached result to load.
             If False, will return only the list of results with a cached result. This can be an empty list if no cached results exist.
 
-        Returns
+        Returns:
         -------
         results_lst
             The same output format returned by `self.run`
@@ -233,10 +237,7 @@ class ExperimentBatchRunner:
         else:
             repeat_fold_pairs = [(None, f) for f in folds]
         for method in methods:
-            if isinstance(method, Experiment):
-                method_name = method.name
-            else:
-                method_name = method
+            method_name = method.name if isinstance(method, Experiment) else method
             for dataset in datasets:
                 for repeat, fold in repeat_fold_pairs:
                     cache_exists = self._cache_exists(method_name=method_name, dataset=dataset, fold=fold)
@@ -252,7 +253,7 @@ class ExperimentBatchRunner:
                 f"Missing cached results for {len(results_lst_missing)}/{len(results_lst_exists) + len(results_lst_missing)} experiments! "
                 f"\nTo load only the {len(results_lst_exists)} existing experiments, set `require_all=False`, "
                 f"or call `exp_batch_runner.run(methods=methods, datasets=datasets, folds=folds)` to run the missing experiments."
-                f"\nMissing experiments:\n\t{results_lst_missing}"
+                f"\nMissing experiments:\n\t{results_lst_missing}",
             )
         for method_name, dataset, fold, repeat in results_lst_exists:
             results_lst.append(self._load_result(method_name=method_name, dataset=dataset, fold=fold, repeat=repeat))
@@ -265,20 +266,15 @@ class ExperimentBatchRunner:
         include_holdout: bool = False,
     ) -> EvaluationRepository:
         experiment_results = ExperimentResults(task_metadata=self.task_metadata)
-        repo = experiment_results.repo_from_results(
+        return experiment_results.repo_from_results(
             results_lst=results_lst,
             calibrate=calibrate,
             include_holdout=include_holdout,
         )
-        return repo
 
     @classmethod
     def _subtask_name(cls, fold: int, repeat: int | None = None) -> str:
-        if repeat is None:
-            subtask_name = f"{fold}"
-        else:
-            subtask_name = f"{repeat}_{fold}"
-        return subtask_name
+        return f"{fold}" if repeat is None else f"{repeat}_{fold}"
 
     def _cache_name(self, method_name: str, dataset: str, fold: int, repeat: int | None = None) -> str:
         subtask_name = self._subtask_name(fold=fold, repeat=repeat)
@@ -301,10 +297,11 @@ class ExperimentBatchRunner:
         cacher = self._get_cacher(method_name=method_name, dataset=dataset, fold=fold, repeat=repeat)
         return cacher.load_cache()
 
-    def _get_cacher(self, method_name: str, dataset: str, fold: int, repeat: int | None = None) -> AbstractCacheFunction:
+    def _get_cacher(
+        self, method_name: str, dataset: str, fold: int, repeat: int | None = None
+    ) -> AbstractCacheFunction:
         cache_name = self._cache_name(method_name=method_name, dataset=dataset, fold=fold, repeat=repeat)
-        cacher = self.cache_cls(cache_name=cache_name, cache_path=self.expname, **self.cache_cls_kwargs)
-        return cacher
+        return self.cache_cls(cache_name=cache_name, cache_path=self.expname, **self.cache_cls_kwargs)
 
     def _validate_datasets(self, datasets: list[str]):
         unknown_datasets = []
@@ -315,20 +312,21 @@ class ExperimentBatchRunner:
             raise ValueError(
                 f"Dataset must be present in task_metadata!"
                 f"\n\tInvalid Datasets: {unknown_datasets}"
-                f"\n\t  Valid Datasets: {self.datasets}"
+                f"\n\t  Valid Datasets: {self.datasets}",
             )
         if len(datasets) != len(set(datasets)):
-            raise AssertionError(f"Duplicate datasets present! Ensure all datasets are unique.")
+            raise AssertionError("Duplicate datasets present! Ensure all datasets are unique.")
 
     def _validate_folds(self, folds: list[int]):
         if len(folds) != len(set(folds)):
-            raise AssertionError(f"Duplicate folds present! Ensure all folds are unique.")
+            raise AssertionError("Duplicate folds present! Ensure all folds are unique.")
 
     def _validate_repeats(self, repeats: list[int] | None):
         if repeats is None:
             return
         if len(repeats) != len(set(repeats)):
-            raise AssertionError(f"Duplicate repeats present! Ensure all repeats are unique.")
+            raise AssertionError("Duplicate repeats present! Ensure all repeats are unique.")
+
 
 def check_cache_hit(
     *,
@@ -338,7 +336,7 @@ def check_cache_hit(
     fold: int,
     repeat: int | None,
     cache_path_format: Literal["name_first", "task_first"],
-    cache_cls: Type[AbstractCacheFunction] | None,
+    cache_cls: type[AbstractCacheFunction] | None,
     cache_cls_kwargs: dict | None = None,
     mode: Literal["local", "s3"],
     s3_bucket: str | None = None,

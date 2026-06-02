@@ -64,10 +64,13 @@ class TabArenaModelSpecificPreprocessing:
 
         if hp_key_kwargs not in hyperparameters:
             hyperparameters[hp_key_kwargs] = {}
-        if isinstance(hyperparameters[hp_key_kwargs], dict) and "feature_generators" not in hyperparameters[hp_key_kwargs]:
-            hyperparameters[hp_key_kwargs]["feature_generators"] = [(
-                TabArenaModelSpecificPreprocessing.get_model_specific_generator()
-            )]
+        if (
+            isinstance(hyperparameters[hp_key_kwargs], dict)
+            and "feature_generators" not in hyperparameters[hp_key_kwargs]
+        ):
+            hyperparameters[hp_key_kwargs]["feature_generators"] = [
+                (TabArenaModelSpecificPreprocessing.get_model_specific_generator())
+            ]
         else:
             if isinstance(hyperparameters[hp_key_kwargs], dict):
                 hyperparameters[hp_key_kwargs] = [hyperparameters[hp_key_kwargs]]
@@ -98,7 +101,7 @@ class TabArenaModelSpecificPreprocessing:
             [
                 # The other features are consumed, and thus can be dropped.
                 IdentityFeatureGenerator(
-                    infer_features_in_args=NoCatAsStringCategoryFeatureGenerator.get_infer_features_in_args_to_drop()
+                    infer_features_in_args=NoCatAsStringCategoryFeatureGenerator.get_infer_features_in_args_to_drop(),
                 ),
                 NoCatAsStringCategoryFeatureGenerator(),
             ],
@@ -107,10 +110,10 @@ class TabArenaModelSpecificPreprocessing:
             generators.append(
                 [
                     IdentityFeatureGenerator(
-                        infer_features_in_args=TextEmbeddingDimensionalityReductionFeatureGenerator.get_infer_features_in_args_to_drop()
+                        infer_features_in_args=TextEmbeddingDimensionalityReductionFeatureGenerator.get_infer_features_in_args_to_drop(),
                     ),
                     TextEmbeddingDimensionalityReductionFeatureGenerator(),
-                ]
+                ],
             )
 
         bulk_kwargs = dict(
@@ -123,7 +126,6 @@ class TabArenaModelSpecificPreprocessing:
 
 class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):
     """CategoryFeatureGenerator that does not treat each string column as a category.
-
 
     CategoryFeatureGenerator that preserves unseen categories to be handled by
     the downstream model instead of setting them to NaN.

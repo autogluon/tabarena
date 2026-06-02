@@ -3,19 +3,20 @@ from __future__ import annotations
 import copy
 import os
 from dataclasses import dataclass
-from typing import Callable, Literal
-from collections.abc import Iterable
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
-
 from pandas.api.types import is_numeric_dtype
 from scipy.stats import gmean
 
 from .elo_utils import EloHelper
 from .mean_utils import compute_weighted_mean_by_task
 from .winrate_utils import compute_winrate, compute_winrate_matrix
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
 
 RANK = "rank"
 IMPROVABILITY = "improvability"
@@ -28,8 +29,7 @@ InvalidSubsetPolicy = Literal["raise", "nan", "skip"]
 
 @dataclass(frozen=True, slots=True)
 class MetricSpec:
-    """
-    Defines how to (re)compute a metric from a subset of results_per_task and how to
+    """Defines how to (re)compute a metric from a subset of results_per_task and how to
     reduce it to a single scalar score for a given method.
 
     - compute(): returns either
@@ -37,11 +37,12 @@ class MetricSpec:
         * method-aligned Series (index == method names)         [alignment="method"]
     - score(): returns a float score for method_1 given the computed metric result
     """
+
     name: str
     direction: MetricDirection
     alignment: MetricAlignment
-    compute: Callable[["TabArena", pd.DataFrame], pd.Series]
-    score: Callable[["TabArena", pd.DataFrame, pd.Series, str], float]
+    compute: Callable[[TabArena, pd.DataFrame], pd.Series]
+    score: Callable[[TabArena, pd.DataFrame, pd.Series, str], float]
     # Methods that must be present in any subset (e.g., Elo calibration framework)
     required_methods: frozenset[str] = frozenset()
     # What to do if required methods are missing from a subset
@@ -68,11 +69,11 @@ class TabArena:
         elif columns_to_agg_extra == "auto":
             columns_to_agg_extra = ["time_train_s", "time_infer_s"]
         self.columns_to_agg_extra = columns_to_agg_extra
-        self.columns_to_agg = [self.error_col] + self.columns_to_agg_extra
+        self.columns_to_agg = [self.error_col, *self.columns_to_agg_extra]
         if groupby_columns is None:
             groupby_columns = []
-        self.groupby_columns = [self.method_col, self.task_col] + groupby_columns
-        self.task_groupby_columns = [self.task_col] + groupby_columns
+        self.groupby_columns = [self.method_col, self.task_col, *groupby_columns]
+        self.task_groupby_columns = [self.task_col, *groupby_columns]
         self.seed_column = seed_column
         self.negative_error_threshold = negative_error_threshold
 
@@ -95,13 +96,13 @@ class TabArena:
     def _get_task_groupby_cols(self, results: pd.DataFrame) -> list[str]:
         task_groupby_cols = self.task_groupby_columns
         if self.seed_column is not None and self.seed_column in results.columns:
-            task_groupby_cols = task_groupby_cols + [self.seed_column]
+            task_groupby_cols = [*task_groupby_cols, self.seed_column]
         return task_groupby_cols
 
     def _get_groupby_cols(self, results: pd.DataFrame) -> list[str]:
         groupby_cols = self.groupby_columns
         if self.seed_column is not None and self.seed_column in results.columns:
-            groupby_cols = groupby_cols + [self.seed_column]
+            groupby_cols = [*groupby_cols, self.seed_column]
         return groupby_cols
 
     def leaderboard(
@@ -128,7 +129,7 @@ class TabArena:
         if relative_error_kwargs is None:
             relative_error_kwargs = {}
         if baseline_method is None:
-            baseline_method = elo_kwargs.get("calibration_framework", None)
+            baseline_method = elo_kwargs.get("calibration_framework")
 
         self.verify_data(data=data)
 
@@ -160,17 +161,21 @@ class TabArena:
             )
             improvability = results_agg[IMPROVABILITY]
             results_agg = results_agg.drop(columns=[IMPROVABILITY])
-            improvability_quantiles = pd.DataFrame({
-                f"{IMPROVABILITY}+": improvability_bootstrap.quantile(.975) - improvability,
-                f"{IMPROVABILITY}-": improvability - improvability_bootstrap.quantile(.025),
-            })
+            improvability_quantiles = pd.DataFrame(
+                {
+                    f"{IMPROVABILITY}+": improvability_bootstrap.quantile(0.975) - improvability,
+                    f"{IMPROVABILITY}-": improvability - improvability_bootstrap.quantile(0.025),
+                }
+            )
 
             results_lst += [improvability, improvability_quantiles]
         if include_baseline_advantage and baseline_method is not None:
-            results_lst.append(self.compute_baseline_advantage(
-                results_per_task,
-                baseline_method=baseline_method,
-            ))
+            results_lst.append(
+                self.compute_baseline_advantage(
+                    results_per_task,
+                    baseline_method=baseline_method,
+                )
+            )
         if include_mrr:
             results_lst.append(self.compute_mrr(results_per_task=results_per_task).to_frame())
         if baseline_method is not None:
@@ -179,12 +184,12 @@ class TabArena:
                     self.compute_relative_error(
                         results_per_task=results_per_task,
                         baseline_method=baseline_method,
-                        **relative_error_kwargs
-                    ).to_frame()
+                        **relative_error_kwargs,
+                    ).to_frame(),
                 )
             if include_skill_score:
                 results_lst.append(
-                    self.compute_skill_score(results_per_task=results_per_task, baseline_method=baseline_method)
+                    self.compute_skill_score(results_per_task=results_per_task, baseline_method=baseline_method),
                 )
 
         if include_rank_counts:
@@ -255,7 +260,7 @@ class TabArena:
                 f"\n\tMissing columns ({len(missing_columns)}): {missing_columns}"
                 f"\n\tExisting columns ({len(present_columns)}): {present_columns}"
                 f"\n\tUnused columns ({len(unused_columns)}): {unused_columns}"
-                f"\n\tIndex names ({len(index_names)}): {index_names}"
+                f"\n\tIndex names ({len(index_names)}): {index_names}",
             )
         if unused_columns:
             print(f"Unused columns: {unused_columns}")
@@ -263,7 +268,7 @@ class TabArena:
         for c in self.groupby_columns:
             assert data[c].isnull().sum() == 0, f"groupby column {c!r} contains NaN!"
         for c in self.columns_to_agg:
-            assert is_numeric_dtype(data[c]), f"aggregation columns must be numeric!"
+            assert is_numeric_dtype(data[c]), "aggregation columns must be numeric!"
         for c in self.columns_to_agg:
             if data[c].isnull().sum() != 0:
                 invalid_samples = data[data[c].isnull()]
@@ -271,7 +276,7 @@ class TabArena:
                 raise AssertionError(
                     f"Column {c} should not contain null values. "
                     f"Found {data[c].isnull().sum()}/{len(data)} null values! "
-                    f"Invalid samples:\n{invalid_samples.head(100).to_markdown()}"
+                    f"Invalid samples:\n{invalid_samples.head(100).to_markdown()}",
                 )
 
         # TODO: Check no duplicates
@@ -302,11 +307,9 @@ class TabArena:
         valid_methods_per_task = data[task_cols].value_counts()
         invalid_tasks_per_method = (-valid_tasks_per_method + num_tasks).sort_values(ascending=False)
         invalid_methods_per_dataset = (
-                -valid_methods_per_dataset + valid_methods_per_dataset.index.map(unique_seeds_per_dataset) * num_methods
+            -valid_methods_per_dataset + valid_methods_per_dataset.index.map(unique_seeds_per_dataset) * num_methods
         ).sort_values(ascending=False)
-        invalid_methods_per_task = (
-                -valid_methods_per_task + num_methods
-        ).sort_values(ascending=False)
+        invalid_methods_per_task = (-valid_methods_per_task + num_methods).sort_values(ascending=False)
 
         if (invalid_tasks_per_method != 0).any():
             invalid_tasks_per_method_filtered = invalid_tasks_per_method[invalid_tasks_per_method != 0]
@@ -319,9 +322,15 @@ class TabArena:
                 pd.Series(data=methods, name=self.method_col),
                 how="cross",
             )
-            experiment_cols = task_cols + [self.method_col]
-            overlap = pd.merge(df_experiments_dense, data[experiment_cols], on=experiment_cols, how='left', indicator='exist')
-            df_missing_experiments = overlap[overlap["exist"] == "left_only"][experiment_cols].sort_values(by=experiment_cols).reset_index(drop=True)
+            experiment_cols = [*task_cols, self.method_col]
+            overlap = pd.merge(
+                df_experiments_dense, data[experiment_cols], on=experiment_cols, how="left", indicator="exist"
+            )
+            df_missing_experiments = (
+                overlap[overlap["exist"] == "left_only"][experiment_cols]
+                .sort_values(by=experiment_cols)
+                .reset_index(drop=True)
+            )
 
             with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
                 if len(df_missing_experiments) <= 500:
@@ -339,7 +348,7 @@ class TabArena:
                 f"{len(invalid_methods_per_dataset_filtered)}/{num_datasets} datasets with missing methods.\n"
                 f"{len(invalid_methods_per_task_filtered)}/{num_tasks} tasks with missing methods.\n"
                 f"Methods sorted by failure count:\n"
-                f"{invalid_tasks_per_method_filtered}"
+                f"{invalid_tasks_per_method_filtered}",
             )
 
     def verify_error(self, data: pd.DataFrame):
@@ -352,7 +361,7 @@ class TabArena:
                 f"Ensure your error is computed correctly."
                 f"\nMinimum value found: {min_error}"
                 f"\nSometimes floating point precision can result in a tiny negative value. "
-                f"You can fix this by doing: data['{self.error_col}'] = data['{self.error_col}'].clip(lower=0)"
+                f"You can fix this by doing: data['{self.error_col}'] = data['{self.error_col}'].clip(lower=0)",
             )
 
     # TODO: Consider moving this to a different class or finding a better separation.
@@ -377,8 +386,7 @@ class TabArena:
         df_fillna: pd.DataFrame | None = None,
         fillna_method: str = "worst",
     ) -> pd.DataFrame:
-        """
-        Fills missing (task, seed, method) rows in data with the (task, seed) row in df_fillna.
+        """Fills missing (task, seed, method) rows in data with the (task, seed) row in df_fillna.
 
         Parameters
         ----------
@@ -392,22 +400,19 @@ class TabArena:
             If "worst", will fill with the result of the method with the worst error on a given task.
             Ignored if `df_fillna` is specified.
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             The filled data.
 
         """
-        if self.seed_column:
-            task_columns = [self.task_col, self.seed_column]
-        else:
-            task_columns = [self.task_col]
+        task_columns = [self.task_col, self.seed_column] if self.seed_column else [self.task_col]
 
         unique_methods = list(data[self.method_col].unique())
 
         if df_fillna is None:
             if fillna_method == "worst":
-                assert df_fillna is None, f"df_fillna must be None if fillna_method='worst'"
+                assert df_fillna is None, "df_fillna must be None if fillna_method='worst'"
                 idx_worst = data.groupby(task_columns)[self.error_col].idxmax()
                 df_fillna = data.loc[idx_worst]
             elif isinstance(fillna_method, str) and fillna_method in data[self.method_col].unique():
@@ -415,7 +420,7 @@ class TabArena:
             else:
                 raise AssertionError(
                     f"df_fillna is None and fillna_method {fillna_method!r} is not present in data."
-                    f"\n\tValid methods: {list(data[self.method_col].unique())}"
+                    f"\n\tValid methods: {list(data[self.method_col].unique())}",
                 )
         if self.method_col in df_fillna.columns:
             df_fillna = df_fillna.drop(columns=[self.method_col])
@@ -443,22 +448,20 @@ class TabArena:
         df_filled.loc[nan_vals] = a
         data = df_filled
 
-        data = data.reset_index(drop=False)
-
-        return data
+        return data.reset_index(drop=False)
 
     def get_task_groupby_cols(self, include_seed_col: bool = False):
         task_groupby_cols = self.task_groupby_columns
         if include_seed_col and self.seed_column is not None:
-            task_groupby_cols = task_groupby_cols + [self.seed_column]
+            task_groupby_cols = [*task_groupby_cols, self.seed_column]
         return task_groupby_cols
 
     def compute_results_per_task(self, data: pd.DataFrame, include_seed_col: bool = False) -> pd.DataFrame:
         groupby_cols = self.groupby_columns
         task_groupby_cols = self.task_groupby_columns
         if include_seed_col and self.seed_column is not None:
-            groupby_cols = groupby_cols + [self.seed_column]
-            task_groupby_cols = task_groupby_cols + [self.seed_column]
+            groupby_cols = [*groupby_cols, self.seed_column]
+            task_groupby_cols = [*task_groupby_cols, self.seed_column]
         columns_to_agg = self.columns_to_agg
         results_per_task = data[groupby_cols + columns_to_agg].groupby(groupby_cols).mean().reset_index()
 
@@ -468,11 +471,13 @@ class TabArena:
         results_per_task_metrics[IMPROVABILITY] = self.compute_improvability_per(results_per_task, task_groupby_cols)
         results_per_task_metrics[LOSS_RESCALED] = self.compute_loss_rescaled_per(results_per_task, task_groupby_cols)
 
-        results_per_task = pd.concat([
-            results_per_task_metrics,
-            results_per_task,
-        ], axis=1)
-        return results_per_task
+        return pd.concat(
+            [
+                results_per_task_metrics,
+                results_per_task,
+            ],
+            axis=1,
+        )
 
     def aggregate(self, results_by_dataset: pd.DataFrame) -> pd.DataFrame:
         if self.seed_column is not None and self.seed_column in results_by_dataset.columns:
@@ -483,11 +488,10 @@ class TabArena:
 
         # Compute median and prefix column names
         median_df = results_agg.groupby([self.method_col]).median(numeric_only=True)
-        median_df.columns = [f'median_{col}' for col in median_df.columns]
+        median_df.columns = [f"median_{col}" for col in median_df.columns]
 
         # Combine mean and median
-        results_agg = pd.concat([mean_df, median_df], axis=1)
-        return results_agg
+        return pd.concat([mean_df, median_df], axis=1)
 
     def compute_ranks(self, results_per_task: pd.DataFrame) -> pd.DataFrame:
         df = results_per_task.copy()
@@ -495,7 +499,7 @@ class TabArena:
         group_cols = self.groupby_columns  # e.g., ["task"] or ["task", "seed"]
         task_cols = self.task_groupby_columns
         if self.seed_column is not None and self.seed_column in results_per_task.columns:
-            task_seed_cols = task_cols + [self.seed_column]
+            task_seed_cols = [*task_cols, self.seed_column]
         else:
             task_seed_cols = task_cols
 
@@ -504,11 +508,7 @@ class TabArena:
         max_rank = df.groupby(task_seed_cols)[RANK].rank(method="max", ascending=True)
 
         # Size of the tie a row belongs to (within group and exact error value)
-        tie_size = (
-            df.groupby(task_seed_cols + [RANK])[RANK]
-            .transform("size")
-            .astype(float)
-        )
+        tie_size = df.groupby([*task_seed_cols, RANK])[RANK].transform("size").astype(float)
 
         # Each position k contributes 1 unit per group; split equally across ties covering k
         df["rank=1_count"] = ((min_rank <= 1) & (max_rank >= 1)).astype(float) / tie_size
@@ -519,17 +519,15 @@ class TabArena:
         df["rank>3_count"] = 1.0 - (df["rank=1_count"] + df["rank=2_count"] + df["rank=3_count"])
 
         # Equal-task weighting: average over group_cols (e.g., seeds) then sum per method across tasks
-        results_ranked = (
+        return (
             df.groupby(group_cols)[["rank=1_count", "rank=2_count", "rank=3_count", "rank>3_count"]]
             .mean()
             .groupby(self.method_col)
             .sum()
         )
 
-        return results_ranked
-
     def compute_mrr(self, results_per_task: pd.DataFrame) -> pd.Series:
-        """Compute mean reciprocal rank"""
+        """Compute mean reciprocal rank."""
         results_per_task = results_per_task.copy()
         results_per_task["mrr"] = 1 / results_per_task["rank"]
         results_mrr_per_task = results_per_task.groupby(self.groupby_columns)["mrr"].mean()
@@ -544,7 +542,9 @@ class TabArena:
         baseline_method: str,
     ) -> pd.Series:
         relative_error_gmean = self.compute_relative_error(
-            results_per_task=results_per_task, baseline_method=baseline_method, agg="gmean",
+            results_per_task=results_per_task,
+            baseline_method=baseline_method,
+            agg="gmean",
         )
         skill_score = 1 - relative_error_gmean
         skill_score.name = "skill_score"
@@ -565,8 +565,7 @@ class TabArena:
         clip_negative_ci: bool = True,
         post_calibrate: bool = True,
     ) -> pd.DataFrame:
-        """
-        Compute Elo ratings for methods evaluated across multiple tasks.
+        """Compute Elo ratings for methods evaluated across multiple tasks.
 
         This aggregates per-task results into head-to-head “battles” and estimates
         per-method Elo scores either by maximum likelihood (single fit) or by a
@@ -611,7 +610,7 @@ class TabArena:
             so that the `calibration_framework` has an elo of `calibration_elo`.
             This makes the 95% CI +/- independent of the calibration_framework.
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             DataFrame indexed by method (index name = ``self.method_col``) sorted
@@ -642,7 +641,9 @@ class TabArena:
         if calibration_elo is None:
             calibration_elo = INIT_RATING
 
-        elo_helper = EloHelper(method_col=self.method_col, task_col=self.task_col, error_col=self.error_col, split_col=split_col)
+        elo_helper = EloHelper(
+            method_col=self.method_col, task_col=self.task_col, error_col=self.error_col, split_col=split_col
+        )
         battles = elo_helper.convert_results_to_battles(results_df=results_per_task)
 
         can_compute_elo = len(battles) > 0
@@ -651,17 +652,12 @@ class TabArena:
             if split_col is not None:
                 task_groupby_cols.append(split_col)
 
-            methods_per_task = (
-                results_per_task
-                .groupby(task_groupby_cols)[self.method_col]
-                .nunique()
-                .sort_values()
-            )
+            methods_per_task = results_per_task.groupby(task_groupby_cols)[self.method_col].nunique().sort_values()
 
             task_method_pairs = (
-                results_per_task[task_groupby_cols + [self.method_col]]
+                results_per_task[[*task_groupby_cols, self.method_col]]
                 .drop_duplicates()
-                .sort_values(task_groupby_cols + [self.method_col])
+                .sort_values([*task_groupby_cols, self.method_col])
             )
 
             observed_methods = sorted(results_per_task[self.method_col].dropna().unique())
@@ -679,7 +675,7 @@ class TabArena:
                 f"\n\nObserved task/method pairs:\n"
                 f"{task_method_pairs.head(100).to_string(index=False)}"
                 f"\n\nShowing first {min(len(task_method_pairs), 100)} "
-                f"of {len(task_method_pairs)} observed task/method pairs."
+                f"of {len(task_method_pairs)} observed task/method pairs.",
             )
 
         bootstrap_median = None
@@ -695,7 +691,7 @@ class TabArena:
                 SCALE=SCALE,
                 show_process=False,
             )
-            bootstrap_median = bootstrap_elo_lu.quantile(.5)
+            bootstrap_median = bootstrap_elo_lu.quantile(0.5)
 
         if use_bootstrap_median:
             elo = bootstrap_median
@@ -711,36 +707,39 @@ class TabArena:
         if include_quantiles:
             if BOOTSTRAP_ROUNDS > 1:
                 assert bootstrap_elo_lu is not None
-                bars_quantiles = pd.DataFrame(dict(
-                    lower=bootstrap_elo_lu.quantile(.025),
-                    upper=bootstrap_elo_lu.quantile(.975),
-                ))
+                bars_quantiles = pd.DataFrame(
+                    dict(
+                        lower=bootstrap_elo_lu.quantile(0.025),
+                        upper=bootstrap_elo_lu.quantile(0.975),
+                    )
+                )
             else:
                 print(
-                    f"Warning: Returning 95% CI quantiles for elo when BOOTSTRAP_ROUNDS<=1. "
-                    f"The CI is invalid and widths will be set to 0."
+                    "Warning: Returning 95% CI quantiles for elo when BOOTSTRAP_ROUNDS<=1. "
+                    "The CI is invalid and widths will be set to 0.",
                 )
-                bars_quantiles = pd.DataFrame(dict(
-                    lower=elo,
-                    upper=elo,
-                ))
+                bars_quantiles = pd.DataFrame(
+                    dict(
+                        lower=elo,
+                        upper=elo,
+                    )
+                )
 
-        bars = pd.DataFrame(dict(
-            elo=elo,
-        ))
+        bars = pd.DataFrame(
+            dict(
+                elo=elo,
+            )
+        )
 
         if include_quantiles:
             assert bars_quantiles is not None
-            if use_bootstrap_median_for_quantiles:
-                relative_to = bootstrap_median
-            else:
-                relative_to = elo
-            bars['elo+'] = bars_quantiles['upper'] - relative_to
-            bars['elo-'] = relative_to - bars_quantiles["lower"]
+            relative_to = bootstrap_median if use_bootstrap_median_for_quantiles else elo
+            bars["elo+"] = bars_quantiles["upper"] - relative_to
+            bars["elo-"] = relative_to - bars_quantiles["lower"]
 
             if clip_negative_ci:
-                bars['elo+'] = bars['elo+'].clip(lower=0)
-                bars['elo-'] = bars['elo-'].clip(lower=0)
+                bars["elo+"] = bars["elo+"].clip(lower=0)
+                bars["elo-"] = bars["elo-"].clip(lower=0)
 
         if post_calibrate and post_calibration_framework is not None:
             offset = calibration_elo - elo.loc[post_calibration_framework]
@@ -748,10 +747,10 @@ class TabArena:
 
         bars = bars.sort_values(by="elo", ascending=False)
         if round_decimals is not None:
-            bars['elo'] = np.round(bars['elo'], round_decimals)
+            bars["elo"] = np.round(bars["elo"], round_decimals)
             if include_quantiles:
-                bars['elo+'] = np.round(bars['elo+'], round_decimals)
-                bars['elo-'] = np.round(bars['elo-'], round_decimals)
+                bars["elo+"] = np.round(bars["elo+"], round_decimals)
+                bars["elo-"] = np.round(bars["elo-"], round_decimals)
 
         bars.index.name = self.method_col
 
@@ -790,9 +789,11 @@ class TabArena:
         if use_optimal:
             baseline_result = results_per_task.groupby(task_groupby_cols)[self.error_col].min()
         else:
-            assert baseline_method is not None, f"baseline_method must not be None!"
+            assert baseline_method is not None, "baseline_method must not be None!"
             # Collect the baseline error per task (one row per task group)
-            baseline_result = results_per_task.loc[results_per_task[self.method_col] == baseline_method, task_groupby_cols + [self.error_col]]
+            baseline_result = results_per_task.loc[
+                results_per_task[self.method_col] == baseline_method, [*task_groupby_cols, self.error_col]
+            ]
             assert len(baseline_result) > 0, f"Baseline '{baseline_method}' does not exist!"
 
         baseline_result = baseline_result.rename(columns={self.error_col: "baseline_error"})
@@ -804,35 +805,32 @@ class TabArena:
         return relative_error
 
     def compute_winrate(self, results_per_task: pd.DataFrame) -> pd.Series:
-        """
-        results_winrate = 1 - ((results_rank - 1) / (len(results)-1))
-        results_rank = len(results_winrate) - results_winrate * (len(results_winrate) - 1)
+        """results_winrate = 1 - ((results_rank - 1) / (len(results)-1))
+        results_rank = len(results_winrate) - results_winrate * (len(results_winrate) - 1).
         """
         if self.seed_column is not None and self.seed_column not in results_per_task.columns:
             seed_col = None
         else:
             seed_col = self.seed_column
-        results_winrate = compute_winrate(
+        return compute_winrate(
             results_per_task=results_per_task,
             task_col=self.task_groupby_columns,
             method_col=self.method_col,
             error_col=self.error_col,
             seed_col=seed_col,
         )
-        return results_winrate
 
     def compute_winrate_matrix(
         self,
         results_per_task: pd.DataFrame,
     ) -> pd.DataFrame:
-        """
-        Compute pairwise win-rates between methods.
+        """Compute pairwise win-rates between methods.
 
         Parameters
         ----------
         results_per_task : pd.DataFrame
 
-        Returns
+        Returns:
         -------
         pd.DataFrame
             Square DataFrame indexed and columned by methods.
@@ -842,14 +840,13 @@ class TabArena:
             seed_col = None
         else:
             seed_col = self.seed_column
-        winrate_matrix = compute_winrate_matrix(
+        return compute_winrate_matrix(
             results_per_task=results_per_task,
             task_col=self.task_groupby_columns,
             method_col=self.method_col,
             error_col=self.error_col,
             seed_col=seed_col,
         )
-        return winrate_matrix
 
     @staticmethod
     def plot_winrate_matrix(
@@ -858,6 +855,7 @@ class TabArena:
         title: str | None = None,
     ):
         import matplotlib.pyplot as plt
+
         z = winrate_matrix.copy()
         z = (z * 100).round().astype("Int64")
 
@@ -919,7 +917,6 @@ class TabArena:
                     color=text_color,
                 )
 
-
         # Colorbar
         from matplotlib.ticker import FuncFormatter
 
@@ -966,8 +963,7 @@ class TabArena:
         df: pd.DataFrame,
         task_groupby_cols: list[str],
     ) -> pd.Series:
-        """
-        Add a per-(task, seed) rank column based on error (lower is better).
+        """Add a per-(task, seed) rank column based on error (lower is better).
         - Ties receive average ranks.
         - If `seed_col` is None, each task is treated as a single group.
 
@@ -978,7 +974,7 @@ class TabArena:
         task_groupby_cols : list[str]
             The groupby columns for calculating rank.
 
-        Returns
+        Returns:
         -------
         pd.Series
             Ranks for each method on each task/split.
@@ -1014,7 +1010,7 @@ class TabArena:
             task_groupby_cols,
             baseline_method,
         )
-        results_baseline_advantage = compute_weighted_mean_by_task(
+        return compute_weighted_mean_by_task(
             df=results_per_task,
             value_col="baseline_advantage",
             task_col=self.task_groupby_columns,
@@ -1022,7 +1018,6 @@ class TabArena:
             method_col=self.method_col,
             sort_asc=True,
         )
-        return results_baseline_advantage
 
     def compute_baseline_advantage_per(
         self,
@@ -1033,9 +1028,8 @@ class TabArena:
         df = results_per_task.copy()
 
         # Collect the baseline error per task (one row per task group)
-        base = (
-            df.loc[df[self.method_col] == baseline_method, task_groupby_cols + [self.error_col]]
-            .rename(columns={self.error_col: "baseline_error"})
+        base = df.loc[df[self.method_col] == baseline_method, [*task_groupby_cols, self.error_col]].rename(
+            columns={self.error_col: "baseline_error"}
         )
 
         # Map (join) the baseline error back onto every row of its task group
@@ -1054,9 +1048,9 @@ class TabArena:
     def compute_loss_rescaled_per(self, results_per_task: pd.DataFrame, task_groupby_cols: list[str]) -> pd.Series:
         best_error_per = results_per_task.groupby(task_groupby_cols)[self.error_col].transform("min")
         worst_error_per = results_per_task.groupby(task_groupby_cols)[self.error_col].transform("max")
-        loss_rescaled = (results_per_task[self.error_col] - best_error_per) / (
-            worst_error_per - best_error_per
-        ).fillna(0)
+        loss_rescaled = (results_per_task[self.error_col] - best_error_per) / (worst_error_per - best_error_per).fillna(
+            0
+        )
         loss_rescaled.name = LOSS_RESCALED
         return loss_rescaled
 
@@ -1082,12 +1076,16 @@ class TabArena:
         raise NotImplementedError
 
     # TODO: Should plotting live in a separate class?
-    def plot_critical_diagrams(self, results_per_task, save_path: str | None = None, show: bool = False, reverse: bool = False):
+    def plot_critical_diagrams(
+        self, results_per_task, save_path: str | None = None, show: bool = False, reverse: bool = False
+    ):
         import matplotlib.pyplot as plt
-        with plt.rc_context({'text.usetex': False}):
+
+        with plt.rc_context({"text.usetex": False}):
             from autorank import autorank
             from autorank._util import cd_diagram
-            plt.rcParams.update({'font.size': 12})
+
+            plt.rcParams.update({"font.size": 12})
 
             fig = plt.figure(figsize=(10, 4))
             ax = fig.add_subplot(1, 1, 1)
@@ -1098,7 +1096,7 @@ class TabArena:
             try:
                 _ = cd_diagram(result, reverse=reverse, ax=ax, width=6)
             except KeyError:
-                print(f"Not enough methods to generate cd_diagram, skipping...")
+                print("Not enough methods to generate cd_diagram, skipping...")
                 return
 
             # plt.tight_layout()  # cuts off text
@@ -1136,8 +1134,7 @@ class TabArena:
         value_col: str,
         sort_asc: bool,
     ) -> pd.Series:
-        """
-        Returns a per-method Series of weighted means using the same equal-task weighting
+        """Returns a per-method Series of weighted means using the same equal-task weighting
         logic as other parts of TabArena.
         """
         seed_col = self._seed_col_if_present(df)
@@ -1158,8 +1155,7 @@ class TabArena:
         method_1: str,
         method_2: str,
     ) -> float:
-        """
-        Compute the scalar score for method_1 after removing method_2 and recomputing metric.
+        """Compute the scalar score for method_1 after removing method_2 and recomputing metric.
         Returns the resulting score (NOT delta).
         """
         # Keep your prior convention: if we remove method_1 itself, return baseline score on provided df.
@@ -1182,17 +1178,10 @@ class TabArena:
         *,
         method_1: str,
     ) -> pd.Series:
-        """
-        For a fixed method_1, return a Series indexed by method_2 with values = resulting score
+        """For a fixed method_1, return a Series indexed by method_2 with values = resulting score
         for method_1 if method_2 were removed.
         """
-        methods = (
-            results_per_task[self.method_col]
-            .dropna()
-            .astype(str)
-            .unique()
-            .tolist()
-        )
+        methods = results_per_task[self.method_col].dropna().astype(str).unique().tolist()
 
         scores: dict[str, float] = {}
         for method_2 in methods:
@@ -1218,8 +1207,7 @@ class TabArena:
         method_1: str,
         stop_at_score: float | None = None,
     ) -> pd.Series:
-        """
-        Iteratively remove method_2 that yields the best improvement for method_1
+        """Iteratively remove method_2 that yields the best improvement for method_1
         according to metric.direction, recomputing the metric each iteration.
 
         Returns:
@@ -1247,10 +1235,7 @@ class TabArena:
 
             remaining_methods = current[self.method_col].dropna().astype(str).unique().tolist()
             # Exclude method_1 and any required methods (e.g., calibration framework)
-            candidates = [
-                m for m in remaining_methods
-                if m != method_1 and m not in metric.required_methods
-            ]
+            candidates = [m for m in remaining_methods if m != method_1 and m not in metric.required_methods]
             if not candidates:
                 break
 
@@ -1270,10 +1255,7 @@ class TabArena:
                 break
 
             # Choose best candidate depending on direction
-            if metric.direction == "min":
-                best_method_2 = scores_s.idxmin()
-            else:
-                best_method_2 = scores_s.idxmax()
+            best_method_2 = scores_s.idxmin() if metric.direction == "min" else scores_s.idxmax()
 
             best_score = float(scores_s.loc[best_method_2])
             removed_in_order[best_method_2] = best_score
@@ -1291,16 +1273,13 @@ class TabArena:
         methods_1: Iterable[str] | None = None,
         stop_at_score: float | None = None,
     ) -> pd.DataFrame:
-        """
-        Build a DataFrame:
-          rows = method_2 (removed)
-          cols = method_1
-          cell = resulting score for method_1 at the iteration when method_2 was removed
+        """Build a DataFrame:
+        rows = method_2 (removed)
+        cols = method_1
+        cell = resulting score for method_1 at the iteration when method_2 was removed.
         """
         if methods_1 is None:
-            methods_1 = (
-                results_per_task[self.method_col].dropna().astype(str).unique().tolist()
-            )
+            methods_1 = results_per_task[self.method_col].dropna().astype(str).unique().tolist()
 
         col_series: dict[str, pd.Series] = {}
         for method_1 in methods_1:
@@ -1318,14 +1297,13 @@ class TabArena:
     # ----------------------------
 
     def metric_spec_error(self) -> MetricSpec:
-        """
-        Lower is better. Score = weighted mean error (equal task weighting).
-        """
-        def compute(self: "TabArena", df: pd.DataFrame) -> pd.Series:
+        """Lower is better. Score = weighted mean error (equal task weighting)."""
+
+        def compute(self: TabArena, df: pd.DataFrame) -> pd.Series:
             # row-aligned; no recomputation needed
             return df[self.error_col]
 
-        def score(self: "TabArena", df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+        def score(self: TabArena, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
             groupby_columns = self._get_groupby_cols(df)
             tmp = df[groupby_columns].copy()
             tmp[self.error_col] = values.to_numpy()
@@ -1341,14 +1319,13 @@ class TabArena:
         )
 
     def metric_spec_rank(self) -> MetricSpec:
-        """
-        Lower is better. Score = weighted mean rank.
-        """
-        def compute(self: "TabArena", df: pd.DataFrame) -> pd.Series:
+        """Lower is better. Score = weighted mean rank."""
+
+        def compute(self: TabArena, df: pd.DataFrame) -> pd.Series:
             task_groupby_cols = self._get_task_groupby_cols(results=df)
             return self.compare_rank_per(df=df, task_groupby_cols=task_groupby_cols)
 
-        def score(self: "TabArena", df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+        def score(self: TabArena, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
             groupby_columns = self._get_groupby_cols(df)
             tmp = df[groupby_columns].copy()
             tmp[RANK] = values.to_numpy()
@@ -1364,14 +1341,13 @@ class TabArena:
         )
 
     def metric_spec_improvability(self) -> MetricSpec:
-        """
-        Lower is better (0 is ideal). Score = weighted mean improvability.
-        """
-        def compute(self: "TabArena", df: pd.DataFrame) -> pd.Series:
+        """Lower is better (0 is ideal). Score = weighted mean improvability."""
+
+        def compute(self: TabArena, df: pd.DataFrame) -> pd.Series:
             task_groupby_cols = self._get_task_groupby_cols(results=df)
             return self.compute_improvability_per(results_per_task=df, task_groupby_cols=task_groupby_cols)
 
-        def score(self: "TabArena", df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+        def score(self: TabArena, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
             groupby_columns = self._get_groupby_cols(df)
             tmp = df[groupby_columns].copy()
             tmp[IMPROVABILITY] = values.to_numpy()
@@ -1387,13 +1363,11 @@ class TabArena:
         )
 
     def metric_spec_elo(self, **elo_kwargs) -> MetricSpec:
-        """
-        Higher is better. Score = Elo value for method_1 computed on the subset.
-        """
-        calibration_framework = elo_kwargs.get("calibration_framework", None)
+        """Higher is better. Score = Elo value for method_1 computed on the subset."""
+        calibration_framework = elo_kwargs.get("calibration_framework")
         required = frozenset([calibration_framework]) if calibration_framework else frozenset()
 
-        def compute(self: "TabArena", df: pd.DataFrame) -> pd.Series:
+        def compute(self: TabArena, df: pd.DataFrame) -> pd.Series:
             bars = self.compute_elo(
                 results_per_task=df,
                 include_quantiles=False,
@@ -1403,7 +1377,7 @@ class TabArena:
             # method-aligned Series
             return bars["elo"]
 
-        def score(self: "TabArena", df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+        def score(self: TabArena, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
             return float(values.get(method_1, float("nan")))
 
         return MetricSpec(
@@ -1427,7 +1401,7 @@ class TabArena:
         if metric.invalid_subset_policy == "raise":
             raise ValueError(
                 f"Metric {metric.name!r} requires methods {sorted(metric.required_methods)}, "
-                f"but subset is missing {sorted(missing)}."
+                f"but subset is missing {sorted(missing)}.",
             )
         if metric.invalid_subset_policy == "nan":
             return False
@@ -1449,8 +1423,7 @@ class TabArena:
         save_path: str | None = None,
         title: str | None = None,
     ):
-        """
-        Plot a single dataset's metric distribution across methods.
+        """Plot a single dataset's metric distribution across methods.
 
         Parameters
         ----------
@@ -1479,13 +1452,14 @@ class TabArena:
         title : str | None, default None
             Optional plot title.
 
-        Returns
+        Returns:
         -------
         fig : plotly.graph_objects.Figure
         df_plot : pd.DataFrame
             Filtered dataframe used for plotting (one row per observation).
         """
         import os
+
         import plotly.express as px
 
         if metric_col is None:
@@ -1496,14 +1470,14 @@ class TabArena:
         if missing:
             raise ValueError(
                 f"results_per_task is missing required columns: {missing}\n"
-                f"Available columns: {list(results_per_task.columns)}"
+                f"Available columns: {list(results_per_task.columns)}",
             )
 
         df = results_per_task.loc[results_per_task[self.task_col] == dataset].copy()
         if df.empty:
             raise ValueError(
                 f"No rows found for {self.task_col} == {dataset!r}.\n"
-                f"Available datasets: {sorted(results_per_task[self.task_col].unique())[:50]}"
+                f"Available datasets: {sorted(results_per_task[self.task_col].unique())[:50]}",
             )
 
         # Drop NaNs in the plotted metric (shouldn’t normally exist, but be safe)
@@ -1601,8 +1575,7 @@ class TabArena:
         score_mode: str = "to_population",  # {"to_population", "mean_pairwise"}
         min_methods: int | None = None,
     ) -> dict:
-        """
-        Quantify how similar each dataset is to the others based on model performance,
+        """Quantify how similar each dataset is to the others based on model performance,
         then identify the most- and least-representative datasets.
 
         Intuition
@@ -1635,7 +1608,7 @@ class TabArena:
         min_methods : int | None
             If set, require at least this many methods to compute correlations.
 
-        Returns
+        Returns:
         -------
         out : dict with keys
             - "representativeness": pd.DataFrame indexed by dataset with columns:
@@ -1657,7 +1630,7 @@ class TabArena:
         if missing:
             raise ValueError(
                 f"results_per_task is missing required columns: {missing}\n"
-                f"Available columns: {list(results_per_task.columns)}"
+                f"Available columns: {list(results_per_task.columns)}",
             )
 
         df = results_per_task.copy()
@@ -1689,34 +1662,38 @@ class TabArena:
         # 2) Representativeness score per dataset
         if score_mode == "mean_pairwise":
             # Mean similarity to all other datasets (exclude self)
-            score = (dataset_sim.sum(axis=1) - 1.0) / (dataset_sim.shape[0] - 1) if dataset_sim.shape[0] > 1 else \
-            dataset_sim.iloc[:, 0]
+            score = (
+                (dataset_sim.sum(axis=1) - 1.0) / (dataset_sim.shape[0] - 1)
+                if dataset_sim.shape[0] > 1
+                else dataset_sim.iloc[:, 0]
+            )
+        # Similarity to a "population reference vector"
+        # Reference vector is mean performance across datasets (optionally leave-one-out).
+        elif population_mode == "global_mean":
+            ref = M.mean(axis=0)
+            score = M.apply(lambda row: row.corr(ref, method=similarity), axis=1)
         else:
-            # Similarity to a "population reference vector"
-            # Reference vector is mean performance across datasets (optionally leave-one-out).
-            if population_mode == "global_mean":
-                ref = M.mean(axis=0)
-                score = M.apply(lambda row: row.corr(ref, method=similarity), axis=1)
+            # Leave-one-out mean reference: ref_d = mean of all datasets except d
+            # Compute efficiently: total_sum - row, then divide by (n-1)
+            n = M.shape[0]
+            if n <= 1:
+                score = pd.Series(index=M.index, data=np.nan, dtype=float)
             else:
-                # Leave-one-out mean reference: ref_d = mean of all datasets except d
-                # Compute efficiently: total_sum - row, then divide by (n-1)
-                n = M.shape[0]
-                if n <= 1:
-                    score = pd.Series(index=M.index, data=np.nan, dtype=float)
-                else:
-                    total = M.sum(axis=0)
+                total = M.sum(axis=0)
 
-                    def loo_corr(row: pd.Series) -> float:
-                        ref_d = (total - row) / (n - 1)
-                        return row.corr(ref_d, method=similarity)
+                def loo_corr(row: pd.Series) -> float:
+                    ref_d = (total - row) / (n - 1)
+                    return row.corr(ref_d, method=similarity)
 
-                    score = M.apply(loo_corr, axis=1)
+                score = M.apply(loo_corr, axis=1)
 
-        rep = pd.DataFrame({
-            "score": score,
-            "num_methods": num_methods_per_dataset,
-            "num_obs": df.groupby(self.task_col).size().reindex(M.index).astype(int),
-        }).sort_values("score", ascending=False)
+        rep = pd.DataFrame(
+            {
+                "score": score,
+                "num_methods": num_methods_per_dataset,
+                "num_obs": df.groupby(self.task_col).size().reindex(M.index).astype(int),
+            }
+        ).sort_values("score", ascending=False)
 
         most_rep = rep.index[0]
         least_rep = rep.index[-1]
@@ -1740,8 +1717,7 @@ class TabArena:
         min_methods: int | None = None,
         return_pairwise: bool = True,
     ) -> dict:
-        """
-        Quantify how similar a dataset's folds/seeds are, based on how methods perform.
+        """Quantify how similar a dataset's folds/seeds are, based on how methods perform.
 
         Assumes `results_per_task` was produced with `include_seed_col=True`, so that
         each row corresponds to (task, seed, method) with a metric like rank/error.
@@ -1777,7 +1753,7 @@ class TabArena:
         return_pairwise : bool, default True
             If True, also return a tidy dataframe of fold-pair similarities.
 
-        Returns
+        Returns:
         -------
         out : dict
             - "fold_similarity_matrix": pd.DataFrame (fold x fold)
@@ -1793,7 +1769,7 @@ class TabArena:
         if self.seed_column not in results_per_task.columns:
             raise ValueError(
                 f"results_per_task must include seed column {self.seed_column!r}. "
-                "Ensure you called compute_results_per_task(..., include_seed_col=True)."
+                "Ensure you called compute_results_per_task(..., include_seed_col=True).",
             )
         if similarity not in {"spearman", "pearson"}:
             raise ValueError(f"similarity must be 'spearman' or 'pearson', got {similarity!r}")
@@ -1805,14 +1781,14 @@ class TabArena:
         if missing:
             raise ValueError(
                 f"results_per_task is missing required columns: {missing}\n"
-                f"Available columns: {list(results_per_task.columns)}"
+                f"Available columns: {list(results_per_task.columns)}",
             )
 
         df = results_per_task.loc[results_per_task[self.task_col] == dataset].copy()
         if df.empty:
             raise ValueError(
                 f"No rows found for {self.task_col} == {dataset!r}.\n"
-                f"Available datasets: {sorted(results_per_task[self.task_col].unique())[:50]}"
+                f"Available datasets: {sorted(results_per_task[self.task_col].unique())[:50]}",
             )
 
         # If duplicates exist for (task, seed, method), average them.
@@ -1845,10 +1821,12 @@ class TabArena:
             else:
                 scores = off_diag.median(axis=1, skipna=True)
 
-        fold_scores = pd.DataFrame({
-            "score": scores,
-            "num_methods": num_methods_per_fold.reindex(fold_sim.index).astype(int),
-        }).sort_values("score", ascending=False)
+        fold_scores = pd.DataFrame(
+            {
+                "score": scores,
+                "num_methods": num_methods_per_fold.reindex(fold_sim.index).astype(int),
+            }
+        ).sort_values("score", ascending=False)
 
         # Identify most/least similar fold pairs
         most_pair = None
@@ -1896,10 +1874,12 @@ class TabArena:
             # Rename back to desired output names (avoid collisions on rename too)
             col_i = f"{self.seed_column}_i"
             col_j = f"{self.seed_column}_j"
-            pairwise = pairwise.rename(columns={
-                f"__{idx_name}_i": col_i,
-                f"__{col_name}_j": col_j,
-            })
+            pairwise = pairwise.rename(
+                columns={
+                    f"__{idx_name}_i": col_i,
+                    f"__{col_name}_j": col_j,
+                }
+            )
 
             pairwise = pairwise.sort_values("similarity", ascending=False).reset_index(drop=True)
             out["pairwise"] = pairwise
@@ -1921,8 +1901,7 @@ class TabArena:
         stability_conservative: bool = True,
         stability_rho_floor: float = 0.01,
     ) -> dict:
-        """
-        Rank datasets by how consistently their folds/seeds agree with each other,
+        """Rank datasets by how consistently their folds/seeds agree with each other,
         and estimate how many folds are needed to get a stable global ordering.
 
         Assumes `results_per_task` was computed with `include_seed_col=True` so that
@@ -1964,7 +1943,7 @@ class TabArena:
         stability_rho_floor : float, default 0.01
             Minimum rho used when conservative and rho is extremely small/negative.
 
-        Returns
+        Returns:
         -------
         out : dict
             - "dataset_ranking": pd.DataFrame indexed by dataset with columns:
@@ -1985,11 +1964,11 @@ class TabArena:
         if self.seed_column not in results_per_task.columns:
             raise ValueError(
                 f"results_per_task must include seed column {self.seed_column!r}. "
-                "Ensure you called compute_results_per_task(..., include_seed_col=True)."
+                "Ensure you called compute_results_per_task(..., include_seed_col=True).",
             )
         if agg_fold_score not in {"mean_pairwise", "median_pairwise"}:
             raise ValueError(
-                f"agg_fold_score must be 'mean_pairwise' or 'median_pairwise', got {agg_fold_score!r}"
+                f"agg_fold_score must be 'mean_pairwise' or 'median_pairwise', got {agg_fold_score!r}",
             )
         if similarity not in {"spearman", "pearson"}:
             raise ValueError(f"similarity must be 'spearman' or 'pearson', got {similarity!r}")
@@ -1998,7 +1977,7 @@ class TabArena:
 
         tau = float(target_reliability)
         tau_tag = f"{tau:.2f}".rstrip("0").rstrip(".")  # e.g. "0.9" or "0.95"
-        col_stability_at_k = f"stability_at_num_folds"
+        col_stability_at_k = "stability_at_num_folds"
         col_folds_needed = f"folds_needed_for_stability@{tau_tag}"
 
         def _rel(k: int, rho: float) -> float:
@@ -2031,17 +2010,19 @@ class TabArena:
                     return_pairwise=False,
                 )
             except Exception as e:
-                rows.append({
-                    self.task_col: ds,
-                    "fold_agreement": np.nan,
-                    "num_folds": 0,
-                    "num_methods_min": np.nan,
-                    "num_methods_mean": np.nan,
-                    "rho_used": np.nan,
-                    col_stability_at_k: np.nan,
-                    col_folds_needed: np.nan,
-                    "error": repr(e),
-                })
+                rows.append(
+                    {
+                        self.task_col: ds,
+                        "fold_agreement": np.nan,
+                        "num_folds": 0,
+                        "num_methods_min": np.nan,
+                        "num_methods_mean": np.nan,
+                        "rho_used": np.nan,
+                        col_stability_at_k: np.nan,
+                        col_folds_needed: np.nan,
+                        "error": repr(e),
+                    }
+                )
                 continue
 
             fold_sim = out_ds["fold_similarity_matrix"]
@@ -2053,27 +2034,26 @@ class TabArena:
             num_methods_mean = float(methods_per_fold.mean()) if len(methods_per_fold) else np.nan
 
             if num_folds < min_folds:
-                rows.append({
-                    self.task_col: ds,
-                    "fold_agreement": np.nan,
-                    "num_folds": num_folds,
-                    "num_methods_min": num_methods_min,
-                    "num_methods_mean": num_methods_mean,
-                    "rho_used": np.nan,
-                    col_stability_at_k: np.nan,
-                    col_folds_needed: np.nan,
-                    "error": f"Too few folds (min_folds={min_folds})",
-                })
+                rows.append(
+                    {
+                        self.task_col: ds,
+                        "fold_agreement": np.nan,
+                        "num_folds": num_folds,
+                        "num_methods_min": num_methods_min,
+                        "num_methods_mean": num_methods_mean,
+                        "rho_used": np.nan,
+                        col_stability_at_k: np.nan,
+                        col_folds_needed: np.nan,
+                        "error": f"Too few folds (min_folds={min_folds})",
+                    }
+                )
                 continue
 
             # Aggregate off-diagonal similarities into dataset agreement score (rho estimate)
             sim_vals = fold_sim.to_numpy(copy=True)
             np.fill_diagonal(sim_vals, np.nan)
 
-            if agg_fold_score == "mean_pairwise":
-                rho = float(np.nanmean(sim_vals))
-            else:
-                rho = float(np.nanmedian(sim_vals))
+            rho = float(np.nanmean(sim_vals)) if agg_fold_score == "mean_pairwise" else float(np.nanmedian(sim_vals))
 
             rho_used = rho
             notes = None
@@ -2135,8 +2115,8 @@ class TabArena:
             if notes is not None:
                 per_dataset[ds]["stability_note"] = notes
             if include_pairwise_extremes:
-                per_dataset[ds]["most_similar_pair"] = row.get("most_similar_pair", None)
-                per_dataset[ds]["least_similar_pair"] = row.get("least_similar_pair", None)
+                per_dataset[ds]["most_similar_pair"] = row.get("most_similar_pair")
+                per_dataset[ds]["least_similar_pair"] = row.get("least_similar_pair")
 
         ranking = pd.DataFrame(rows).set_index(self.task_col)
         ranking = ranking.sort_values(by="fold_agreement", ascending=False)
@@ -2165,8 +2145,7 @@ class TabArena:
         sort_by: str = "jitter_mean",
         ascending: bool = True,
     ) -> tuple[pd.DataFrame, dict[str, dict] | None]:
-        """
-        Compute fold jitter metrics for each dataset.
+        """Compute fold jitter metrics for each dataset.
 
         This is a wrapper around `self.dataset_jitter(...)`.
 
@@ -2189,7 +2168,7 @@ class TabArena:
         ascending : bool, default True
             Sort direction.
 
-        Returns
+        Returns:
         -------
         df : pd.DataFrame
             One row per dataset with:
@@ -2206,7 +2185,7 @@ class TabArena:
         if self.seed_column not in results_per_task.columns:
             raise ValueError(
                 f"results_per_task must include seed column {self.seed_column!r}. "
-                "Ensure you called compute_results_per_task(..., include_seed_col=True)."
+                "Ensure you called compute_results_per_task(..., include_seed_col=True).",
             )
 
         if datasets is None:
@@ -2225,14 +2204,16 @@ class TabArena:
                     return_per_method=return_per_method,
                 )
                 # ensure consistent row schema
-                rows.append({
-                    "dataset": out["dataset"],
-                    "metric": out["metric"],
-                    "num_folds": out["num_folds"],
-                    "num_methods": out["num_methods"],
-                    "jitter_mean": out["jitter_mean"],
-                    "pairwise_jitter_mean": out["pairwise_jitter_mean"],
-                })
+                rows.append(
+                    {
+                        "dataset": out["dataset"],
+                        "metric": out["metric"],
+                        "num_folds": out["num_folds"],
+                        "num_methods": out["num_methods"],
+                        "jitter_mean": out["jitter_mean"],
+                        "pairwise_jitter_mean": out["pairwise_jitter_mean"],
+                    }
+                )
 
                 if return_per_method:
                     assert per_method is not None
@@ -2243,15 +2224,17 @@ class TabArena:
                     }
 
             except Exception as e:
-                rows.append({
-                    "dataset": ds,
-                    "metric": metric,
-                    "num_folds": np.nan,
-                    "num_methods": np.nan,
-                    "jitter_mean": np.nan,
-                    "pairwise_jitter_mean": np.nan,
-                    "error": repr(e),
-                })
+                rows.append(
+                    {
+                        "dataset": ds,
+                        "metric": metric,
+                        "num_folds": np.nan,
+                        "num_methods": np.nan,
+                        "jitter_mean": np.nan,
+                        "pairwise_jitter_mean": np.nan,
+                        "error": repr(e),
+                    }
+                )
                 if return_per_method:
                     assert per_method is not None
                     per_method[ds] = {"error": repr(e)}
@@ -2272,8 +2255,7 @@ class TabArena:
         metric: str = "winrate",
         return_per_method: bool = False,
     ) -> dict:
-        """
-        Compute fold-instability metrics for a dataset.
+        """Compute fold-instability metrics for a dataset.
 
         ``metric`` selects the per-fold per-method score:
           - ``"winrate"`` (default): per-fold winrate ``1 - (rank - 1) / (M - 1)``,
@@ -2299,7 +2281,7 @@ class TabArena:
         return_per_method : bool
             If True, also return per-method jitter statistics.
 
-        Returns
+        Returns:
         -------
         dict
         """
@@ -2312,13 +2294,10 @@ class TabArena:
             raise ValueError("seed_column must be set to compute fold jitter.")
         if self.seed_column not in results_per_task.columns:
             raise ValueError(
-                "results_per_task must include seed column. "
-                "Call compute_results_per_task(..., include_seed_col=True)"
+                "results_per_task must include seed column. Call compute_results_per_task(..., include_seed_col=True)",
             )
 
-        df = results_per_task.loc[
-            results_per_task[self.task_col] == dataset
-            ].copy()
+        df = results_per_task.loc[results_per_task[self.task_col] == dataset].copy()
 
         if df.empty:
             raise ValueError(f"No rows found for dataset {dataset!r}")
@@ -2382,16 +2361,10 @@ class TabArena:
 
         if return_per_method:
             result["per_method_jitter_mean"] = abs_dev.mean(axis=0)
-            result["per_method_pairwise_jitter_mean"] = (
-                pd.concat(
-                    [
-                        (M.iloc[i] - M.iloc[j]).abs()
-                        for i in range(num_folds)
-                        for j in range(i + 1, num_folds)
-                    ],
-                    axis=1,
-                ).mean(axis=1)
-            )
+            result["per_method_pairwise_jitter_mean"] = pd.concat(
+                [(M.iloc[i] - M.iloc[j]).abs() for i in range(num_folds) for j in range(i + 1, num_folds)],
+                axis=1,
+            ).mean(axis=1)
 
         return result
 
@@ -2407,8 +2380,7 @@ class TabArena:
         seed: int = 0,
         drop_methods_with_any_missing: bool = True,
     ) -> pd.DataFrame:
-        """
-        Bootstrap how the k-fold *mean per-method score* converges to the global mean.
+        """Bootstrap how the k-fold *mean per-method score* converges to the global mean.
 
         For each bootstrap replicate:
           - sample k folds WITH replacement
@@ -2435,7 +2407,7 @@ class TabArena:
         if self.seed_column not in results_per_task.columns:
             raise ValueError(
                 f"results_per_task must include seed column {self.seed_column!r}. "
-                "Ensure you called compute_results_per_task(..., include_seed_col=True)."
+                "Ensure you called compute_results_per_task(..., include_seed_col=True).",
             )
 
         df = results_per_task.loc[results_per_task[self.task_col] == dataset].copy()
@@ -2448,12 +2420,11 @@ class TabArena:
 
         if drop_methods_with_any_missing:
             M_df = M_df.dropna(axis=1)
-        else:
-            if M_df.isna().any().any():
-                raise ValueError(
-                    "Found NaNs in fold×method matrix. Set drop_methods_with_any_missing=True "
-                    "or impute missing values before bootstrapping."
-                )
+        elif M_df.isna().any().any():
+            raise ValueError(
+                "Found NaNs in fold×method matrix. Set drop_methods_with_any_missing=True "
+                "or impute missing values before bootstrapping.",
+            )
 
         M_full = M_df.to_numpy(dtype=float)  # shape (F, M), values are ranks
         F, M = M_full.shape
@@ -2506,18 +2477,20 @@ class TabArena:
                 jit[b] = float(np.abs(mu_hat - mu_global).mean())
 
             s = _summ(jit)
-            rows.append({
-                "dataset": dataset,
-                "metric": metric,
-                "k": k,
-                "n_bootstrap": n_bootstrap,
-                "n_folds_available": F,
-                "n_methods": M,
-                "jitter_mean": s["mean"],
-                "jitter_p50": s["p50"],
-                "jitter_p025": s["p025"],
-                "jitter_p975": s["p975"],
-            })
+            rows.append(
+                {
+                    "dataset": dataset,
+                    "metric": metric,
+                    "k": k,
+                    "n_bootstrap": n_bootstrap,
+                    "n_folds_available": F,
+                    "n_methods": M,
+                    "jitter_mean": s["mean"],
+                    "jitter_p50": s["p50"],
+                    "jitter_p025": s["p025"],
+                    "jitter_p975": s["p975"],
+                }
+            )
 
         return pd.DataFrame(rows).sort_values("k").reset_index(drop=True)
 
@@ -2552,13 +2525,19 @@ class TabArena:
                 )
                 dfs.append(d)
             except Exception as e:
-                dfs.append(pd.DataFrame([{
-                    "dataset": ds,
-                    "metric": metric,
-                    "k": np.nan,
-                    "n_bootstrap": n_bootstrap,
-                    "error": repr(e),
-                }]))
+                dfs.append(
+                    pd.DataFrame(
+                        [
+                            {
+                                "dataset": ds,
+                                "metric": metric,
+                                "k": np.nan,
+                                "n_bootstrap": n_bootstrap,
+                                "error": repr(e),
+                            }
+                        ]
+                    )
+                )
 
         return pd.concat(dfs, axis=0, ignore_index=True)
 
@@ -2572,8 +2551,7 @@ class TabArena:
         conservative: bool = True,
         rho_floor: float = 0.01,
     ) -> dict:
-        """
-        Estimate how many folds are needed to get a stable global ordering on a dataset,
+        """Estimate how many folds are needed to get a stable global ordering on a dataset,
         based on observed inter-fold agreement.
 
         Uses Spearman–Brown style extrapolation:
@@ -2596,7 +2574,7 @@ class TabArena:
         rho_floor : float, default 0.01
             Minimum rho to use when conservative and rho is extremely small/negative.
 
-        Returns
+        Returns:
         -------
         dict with:
             - "rho": used rho
@@ -2625,7 +2603,7 @@ class TabArena:
                 notes.append(
                     "fold_agreement <= 0 suggests folds disagree or are unrelated; "
                     "a stable global ordering may not be achievable by averaging folds alone. "
-                    "Returning cap."
+                    "Returning cap.",
                 )
                 rho = max(rho_floor, 0.0)
 
@@ -2667,7 +2645,9 @@ class TabArena:
         }
 
 
-def get_bootstrap_result_lst(data: list, func_, rng=None, num_round: int = None, func_kwargs=None, seed: int = 0):
+def get_bootstrap_result_lst(
+    data: list, func_, rng=None, num_round: int | None = None, func_kwargs=None, seed: int = 0
+):
     rows = []
     if rng is None:
         rng = np.random.default_rng(seed=seed)
@@ -2677,7 +2657,7 @@ def get_bootstrap_result_lst(data: list, func_, rng=None, num_round: int = None,
         rows.append(func_(data, **func_kwargs))
     else:
         num_data = len(data)
-        for i in range(num_round):
+        for _i in range(num_round):
             data_new = rng.choice(data, size=num_data, replace=True)
             rows.append(func_(data_new, **func_kwargs))
     df = pd.DataFrame(rows)
@@ -2687,22 +2667,21 @@ def get_bootstrap_result_lst(data: list, func_, rng=None, num_round: int = None,
 def _jitter_from_fold_method_matrix(
     M: np.ndarray,  # shape (k_folds, n_methods)
 ) -> tuple[float, float]:
-    """
-    Compute:
+    """Compute:
       - expected_rank_jitter relative to global (mean across folds)
-      - observed_avg_abs_rank_change between folds
+      - observed_avg_abs_rank_change between folds.
 
     Parameters
     ----------
     M : np.ndarray
         Fold x method matrix of ranks (or any scalar performance; ranks recommended).
 
-    Returns
+    Returns:
     -------
     expected_rank_jitter : float
     observed_avg_abs_rank_change : float
     """
-    k, m = M.shape
+    k, _m = M.shape
     global_rank = M.mean(axis=0, keepdims=True)  # (1, m)
     expected_rank_jitter = float(np.abs(M - global_rank).mean())
 

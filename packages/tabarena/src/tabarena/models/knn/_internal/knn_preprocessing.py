@@ -1,26 +1,28 @@
+from __future__ import annotations
+
+from typing import Literal
+
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import (
     OneHotEncoder,
     OrdinalEncoder,
-    StandardScaler,
     QuantileTransformer,
+    StandardScaler,
 )
-from typing import List, Literal, Optional
 
 
 class KNNPreprocessor(BaseEstimator, TransformerMixin):
     def __init__(
         self,
-        categorical_features: List[str],
+        categorical_features: list[str],
         cat_threshold: int = 10,
         handle_unknown: str = "ignore",
         remainder: Literal["passthrough", "drop"] = "passthrough",
-        numeric_strategy: Optional[Literal["standard", "quantile"]] = None,
+        numeric_strategy: Literal["standard", "quantile"] | None = None,
     ):
-        """
-        Parameters
+        """Parameters
         ----------
         categorical_features : list[str]
             Names of categorical columns in the input DataFrame.
@@ -67,9 +69,7 @@ class KNNPreprocessor(BaseEstimator, TransformerMixin):
             raise ValueError("remainder must be 'passthrough' or 'drop'.")
 
         self.feature_names_in_ = list(X.columns)
-        self.non_categorical_features_ = [
-            c for c in self.feature_names_in_ if c not in self.categorical_features
-        ]
+        self.non_categorical_features_ = [c for c in self.feature_names_in_ if c not in self.categorical_features]
 
         if len(self.categorical_features) == len(X.columns) and self.cat_threshold == 0:
             print("Warning: All features are categorical and cat_threshold=0. Fallback to ordinal encoding is used.")
