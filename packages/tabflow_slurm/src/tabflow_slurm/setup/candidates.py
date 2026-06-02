@@ -104,7 +104,6 @@ def should_run_job(
         task_id=task_id,
         fold=candidate.fold,
         repeat=candidate.repeat,
-        cache_path_format="name_first",
         cache_cls=CacheFunctionPickle,
         cache_cls_kwargs={"include_self_in_call": True},
         mode="local",

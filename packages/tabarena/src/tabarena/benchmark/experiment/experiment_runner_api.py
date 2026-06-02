@@ -195,12 +195,10 @@ def _build_cache_prefix(
     cache_task_key: int | str,
     fold: int,
     repeat: int,
-    cache_path_format: Literal["name_first", "task_first"],
     include_repeat_in_cache_name: bool,
 ) -> str:
     """Build the cache directory prefix (relative to the base cache path).
 
-    ``cache_path_format`` selects the directory layout and
     ``include_repeat_in_cache_name`` toggles the legacy single-repeat subtask
     name (``{fold}`` instead of ``{repeat}_{fold}``) so caches written by the
     legacy ``run_experiments``/``ExperimentBatchRunner`` remain discoverable.
@@ -209,12 +207,7 @@ def _build_cache_prefix(
         fold=fold,
         repeat=repeat if include_repeat_in_cache_name else None,
     )
-    if cache_path_format == "name_first":
-        return f"data/{method_name}/{cache_task_key}/{subtask_cache_name}"
-    if cache_path_format == "task_first":
-        # Legacy format from early prototyping.
-        return f"data/tasks/{cache_task_key}/{subtask_cache_name}/{method_name}"
-    raise ValueError(f"Invalid cache_path_format: {cache_path_format}")
+    return f"data/{method_name}/{cache_task_key}/{subtask_cache_name}"
 
 
 def run_experiments_new(
@@ -228,7 +221,6 @@ def run_experiments_new(
     repetitions_mode_args: tuple | list | None = None,
     run_mode: str = "local",
     cache_mode: Literal["default", "ignore", "only"] = "default",
-    cache_path_format: Literal["name_first", "task_first"] = "name_first",
     include_repeat_in_cache_name: bool = True,
     write_model_failures: bool = False,
     cache_cls: type[AbstractCacheFunction] = CacheFunctionPickle,
@@ -343,14 +335,6 @@ def run_experiments_new(
                 overwrite the cache file upon completion.
             - "only": Only load results from cache. This does not run the experiment
                 if cache does not exist.
-    cache_path_format: Literal["name_first", "task_first"], default "name_first"
-        Determines the on-disk layout of cached artifacts, relative to the base
-        cache path:
-            - "name_first": `data/{method}/{task}/{subtask}/results`
-            - "task_first": `data/tasks/{task}/{subtask}/{method}/results`
-                (legacy format from early prototyping)
-        Provided for backward compatibility with caches written by the legacy
-        `run_experiments`/`ExperimentBatchRunner`.
     include_repeat_in_cache_name: bool, default True
         Determines the `{subtask}` component of the cache path:
             - True: `{repeat}_{fold}` (e.g. `0_0`).
@@ -486,7 +470,6 @@ def run_experiments_new(
                     cache_task_key=cache_task_key,
                     fold=fold,
                     repeat=repeat,
-                    cache_path_format=cache_path_format,
                     include_repeat_in_cache_name=include_repeat_in_cache_name,
                 )
                 cache_path = f"{base_cache_path}/{cache_prefix}"

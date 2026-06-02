@@ -461,7 +461,6 @@ class TestBuildCachePrefix:
             cache_task_key=360,
             fold=2,
             repeat=1,
-            cache_path_format="name_first",
             include_repeat_in_cache_name=True,
         )
         assert prefix == "data/m/360/1_2"
@@ -472,32 +471,9 @@ class TestBuildCachePrefix:
             cache_task_key=360,
             fold=2,
             repeat=1,
-            cache_path_format="name_first",
             include_repeat_in_cache_name=False,
         )
         assert prefix == "data/m/360/2"
-
-    def test_task_first(self):
-        prefix = _build_cache_prefix(
-            method_name="m",
-            cache_task_key="slug-abc",
-            fold=0,
-            repeat=0,
-            cache_path_format="task_first",
-            include_repeat_in_cache_name=True,
-        )
-        assert prefix == "data/tasks/slug-abc/0_0/m"
-
-    def test_invalid_format_raises(self):
-        with pytest.raises(ValueError, match="cache_path_format"):
-            _build_cache_prefix(
-                method_name="m",
-                cache_task_key=360,
-                fold=0,
-                repeat=0,
-                cache_path_format="bogus",
-                include_repeat_in_cache_name=True,
-            )
 
 
 class TestExperimentBatchRunnerDelegation:

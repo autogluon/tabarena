@@ -22,7 +22,6 @@ class ExperimentBatchRunner:
         task_metadata: pd.DataFrame,
         cache_cls: type[AbstractCacheFunction] | None = CacheFunctionPickle,
         cache_cls_kwargs: dict | None = None,
-        cache_path_format: Literal["name_first", "task_first"] = "name_first",
         only_cache: bool = False,
         mode: str = "local",
         s3_bucket: str | None = None,
@@ -34,10 +33,6 @@ class ExperimentBatchRunner:
         expname
         cache_cls
         cache_cls_kwargs
-        cache_path_format: {"name_first", "task_first"}, default "name_first"
-            Determines the folder structure for artifacts.
-            "name_first" -> {expname}/data/{method}/{tid}/{fold}/
-            "task_first" -> {expname}/data/tasks/{tid}/{fold}/{method}/
         mode: str, default "local"
             Either "local" or "aws". In "aws" mode, s3_bucket must be provided.
         s3_bucket: str, optional
@@ -61,7 +56,6 @@ class ExperimentBatchRunner:
         self.task_metadata = task_metadata
         self.cache_cls = cache_cls
         self.cache_cls_kwargs = cache_cls_kwargs
-        self.cache_path_format = cache_path_format
         self.only_cache = only_cache
         self._dataset_to_tid_dict = (
             self.task_metadata[["tid", "dataset"]]
@@ -190,7 +184,6 @@ class ExperimentBatchRunner:
             repetitions_mode_args=fold_repeat_pairs,
             run_mode=self.mode,
             cache_mode=cache_mode,
-            cache_path_format=self.cache_path_format,
             include_repeat_in_cache_name=include_repeat_in_cache_name,
             # Forward the configured cache backend. The default `cache_cls_kwargs`
             # carries `include_self_in_call=True`, preserving the legacy
@@ -280,14 +273,7 @@ class ExperimentBatchRunner:
         subtask_name = self._subtask_name(fold=fold, repeat=repeat)
         # TODO: Windows? Use Path?
         tid = self._dataset_to_tid_dict[dataset]
-        if self.cache_path_format == "name_first":
-            cache_name = f"data/{method_name}/{tid}/{subtask_name}/results"
-        elif self.cache_path_format == "task_first":
-            # Legacy format from early prototyping
-            cache_name = f"data/tasks/{tid}/{subtask_name}/{method_name}/results"
-        else:
-            raise ValueError(f"Unknown cache_path_format: {self.cache_path_format}")
-        return cache_name
+        return f"data/{method_name}/{tid}/{subtask_name}/results"
 
     def _cache_exists(self, method_name: str, dataset: str, fold: int, repeat: int | None = None) -> bool:
         cacher = self._get_cacher(method_name=method_name, dataset=dataset, fold=fold, repeat=repeat)
@@ -335,7 +321,6 @@ def check_cache_hit(
     task_id: int,
     fold: int,
     repeat: int | None,
-    cache_path_format: Literal["name_first", "task_first"],
     cache_cls: type[AbstractCacheFunction] | None,
     cache_cls_kwargs: dict | None = None,
     mode: Literal["local", "s3"],
@@ -347,15 +332,8 @@ def check_cache_hit(
 
     subtask_cache_name = ExperimentBatchRunner._subtask_name(fold=fold, repeat=repeat)
 
-    if cache_path_format == "name_first":
-        cache_prefix = f"data/{method_name}/{task_id}/{subtask_cache_name}"
-        cache_name = "results"
-    elif cache_path_format == "task_first":
-        # Legacy format from early prototyping
-        cache_prefix = f"data/tasks/{task_id}/{subtask_cache_name}/{method_name}"
-        cache_name = "results"
-    else:
-        raise ValueError(f"Invalid cache_path_format: {cache_path_format}")
+    cache_prefix = f"data/{method_name}/{task_id}/{subtask_cache_name}"
+    cache_name = "results"
 
     cache_path = f"{base_cache_path}/{cache_prefix}"
 
