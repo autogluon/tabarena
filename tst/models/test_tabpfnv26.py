@@ -23,7 +23,7 @@ def test_tabpfn26():
         )
 
 
-def test_tabpfnv26_many_class():
+def test_tabpfnv26_many_class(tmp_path):
     """Test that RealTabPFNv25 handles >10 classes via ManyClassClassifier."""
     try:
         import numpy as np
@@ -60,6 +60,7 @@ def test_tabpfnv26_many_class():
         y_test = label_cleaner.transform(y_test)
 
         model = TabPFNv26Model(
+            path=str(tmp_path),  # avoid writing model artifacts to ./AutogluonModels
             problem_type=task_type,
             hyperparameters={"n_estimators": 1},
         )
