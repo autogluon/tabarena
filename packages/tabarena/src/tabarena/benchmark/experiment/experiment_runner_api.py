@@ -7,7 +7,7 @@ import numpy as np
 from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
 from tabarena.benchmark.task.openml import OpenMLS3TaskWrapper, OpenMLTaskWrapper
 from tabarena.benchmark.task.user_task import UserTask
-from tabarena.utils.cache import CacheFunctionPickle
+from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -163,6 +163,59 @@ def _parse_repetitions_mode_and_args(
     raise ValueError(f"Unknown `repetitions_mode` str: {repetitions_mode}")
 
 
+def _resolve_task_display_name(
+    task_id_or_object: int | UserTask,
+    tasks_metadata: pd.DataFrame | None,
+) -> str | None:
+    """Resolve the display name used as the results ``dataset`` key from metadata.
+
+    When ``tasks_metadata`` carries a name column (``dataset`` or ``name``) keyed
+    by a task-id column (``task_id`` or ``tid``), return the matching value so the
+    results join cleanly with ``tasks_metadata`` — matching the behavior of the
+    legacy ``run_experiments``/``ExperimentBatchRunner``. Returns ``None`` when no
+    usable mapping is found, in which case the caller derives the name from the
+    task object (OpenML dataset name) or the ``UserTask`` slug.
+    """
+    if tasks_metadata is None:
+        return None
+    id_col = next((c for c in ("task_id", "tid") if c in tasks_metadata.columns), None)
+    name_col = next((c for c in ("dataset", "name") if c in tasks_metadata.columns), None)
+    if id_col is None or name_col is None:
+        return None
+    t_id = task_id_or_object.task_id_str if isinstance(task_id_or_object, UserTask) else str(task_id_or_object)
+    matches = tasks_metadata[tasks_metadata[id_col].astype(str) == t_id]
+    if matches.empty:
+        return None
+    return str(matches.iloc[0][name_col])
+
+
+def _build_cache_prefix(
+    *,
+    method_name: str,
+    cache_task_key: int | str,
+    fold: int,
+    repeat: int,
+    cache_path_format: Literal["name_first", "task_first"],
+    include_repeat_in_cache_name: bool,
+) -> str:
+    """Build the cache directory prefix (relative to the base cache path).
+
+    ``cache_path_format`` selects the directory layout and
+    ``include_repeat_in_cache_name`` toggles the legacy single-repeat subtask
+    name (``{fold}`` instead of ``{repeat}_{fold}``) so caches written by the
+    legacy ``run_experiments``/``ExperimentBatchRunner`` remain discoverable.
+    """
+    subtask_cache_name = ExperimentBatchRunner._subtask_name(
+        fold=fold, repeat=repeat if include_repeat_in_cache_name else None
+    )
+    if cache_path_format == "name_first":
+        return f"data/{method_name}/{cache_task_key}/{subtask_cache_name}"
+    if cache_path_format == "task_first":
+        # Legacy format from early prototyping.
+        return f"data/tasks/{cache_task_key}/{subtask_cache_name}/{method_name}"
+    raise ValueError(f"Invalid cache_path_format: {cache_path_format}")
+
+
 def run_experiments_new(
     *,
     output_dir: str,
@@ -170,9 +223,15 @@ def run_experiments_new(
     tasks: list[int | UserTask],
     repetitions_mode: Literal["TabArena-Lite", "TabArena", "matrix", "individual"],
     tasks_metadata: pd.DataFrame | None = None,
+    use_metadata_task_name: bool = False,
     repetitions_mode_args: tuple | list | None = None,
     run_mode: str = "local",
     cache_mode: Literal["default", "ignore", "only"] = "default",
+    cache_path_format: Literal["name_first", "task_first"] = "name_first",
+    include_repeat_in_cache_name: bool = True,
+    write_model_failures: bool = False,
+    cache_cls: type[AbstractCacheFunction] = CacheFunctionPickle,
+    cache_cls_kwargs: dict | None = None,
     s3_kwargs: dict | None = None,
     raise_on_failure: bool = True,
     debug_mode: bool = False,
@@ -206,6 +265,7 @@ def run_experiments_new(
                 See `repetitions_mode_args`.
     tasks_metadata: pd.DataFrame | None, default None
         Metadata about each task in `tasks`. Required if `repetitions_mode="TabArena"`.
+        Also consumed for the display name when `use_metadata_task_name=True`.
 
         If None, we assume that the `tasks` contain tasks from the official curated
         TabArena benchmark and load the metadata internally. If it contains tasks
@@ -221,6 +281,13 @@ def run_experiments_new(
                 See tabarena.nips2025_utils.fetch_metadata._get_n_repeats for details.
             "num_folds": int
                 The number of folds for the task.
+    use_metadata_task_name: bool, default False
+        If True, each task's display name (the results `dataset` key) is taken from
+        `tasks_metadata`: a name column (`dataset` or `name`) keyed by a task-id
+        column (`task_id` or `tid`). Enable this to make results join cleanly with
+        custom metadata (the legacy `ExperimentBatchRunner` behavior). If False
+        (default), the name is derived from the task object (OpenML dataset name)
+        or the `UserTask` slug.
     repetitions_mode_args: list | tuple | None, default None
         Determine how many repetitions of the experiments to run per task, i.e., how
         many folds and repeats to run for each task. Note, all tasks come with
@@ -275,6 +342,35 @@ def run_experiments_new(
                 overwrite the cache file upon completion.
             - "only": Only load results from cache. This does not run the experiment
                 if cache does not exist.
+    cache_path_format: Literal["name_first", "task_first"], default "name_first"
+        Determines the on-disk layout of cached artifacts, relative to the base
+        cache path:
+            - "name_first": `data/{method}/{task}/{subtask}/results`
+            - "task_first": `data/tasks/{task}/{subtask}/{method}/results`
+                (legacy format from early prototyping)
+        Provided for backward compatibility with caches written by the legacy
+        `run_experiments`/`ExperimentBatchRunner`.
+    include_repeat_in_cache_name: bool, default True
+        Determines the `{subtask}` component of the cache path:
+            - True: `{repeat}_{fold}` (e.g. `0_0`).
+            - False: `{fold}` (e.g. `0`), the legacy single-repeat layout used by
+                `ExperimentBatchRunner` when called without `repeats`. Set to False
+                to keep such legacy caches discoverable. Note that the repeat is then
+                absent from the path, so distinct repeats of the same fold collide;
+                only use this for single-repeat runs.
+    write_model_failures: bool, default False
+        If True, a failed fit in benchmark mode (`debug_mode=False`) additionally
+        writes a `model_failures` artifact next to the `results` cache (matching the
+        legacy `ExperimentBatchRunner` behavior). This does not affect the `results`
+        cache file itself (path, format, or hit logic). Implemented via the cacher's
+        `include_self_in_call`; an explicit `cache_cls_kwargs["include_self_in_call"]`
+        takes precedence.
+    cache_cls: type[AbstractCacheFunction], default CacheFunctionPickle
+        The cache class used to read/write each experiment's `results`. Must accept
+        `cache_name` and `cache_path` constructor arguments (e.g. `CacheFunctionPickle`
+        or a drop-in replacement).
+    cache_cls_kwargs: dict | None, default None
+        Extra keyword arguments forwarded to `cache_cls(...)` (e.g. `compress`).
     s3_kwargs: dict | None, default None
         Additional keyword arguments for S3 operations. Required when mode="aws".
         Supported kwargs:
@@ -354,11 +450,16 @@ def run_experiments_new(
     experiment_missing_count, experiment_cache_exists_count = 0, 0
     experiment_count_total = n_splits * len(model_experiments)
     for dataset_index, task_id_or_object in enumerate(tasks):
-        task, tabarena_task_name, eval_metric_name = None, None, None
+        task, eval_metric_name = None, None
+        # Display name used as the results `dataset` key. Only resolved from
+        # `tasks_metadata` when explicitly requested; otherwise it is derived from the
+        # task object (OpenML name) / UserTask slug when the task is loaded below.
+        tabarena_task_name = (
+            _resolve_task_display_name(task_id_or_object, tasks_metadata) if use_metadata_task_name else None
+        )
         print(f"Starting Dataset {dataset_index + 1}/{len(tasks)}...")
 
         for split_index, (fold, repeat) in enumerate(fold_repeat_pairs_per_task[dataset_index], start=1):
-            subtask_cache_name = ExperimentBatchRunner._subtask_name(fold=fold, repeat=repeat)
             print(
                 f"Starting Split {split_index}/{len(fold_repeat_pairs_per_task[dataset_index])} (Fold {fold}, Repeat {repeat})..."
             )
@@ -379,9 +480,25 @@ def run_experiments_new(
 
                 # Setup Cache
                 cache_name = "results"
-                cache_prefix = f"data/{model_experiment.name}/{cache_task_key}/{subtask_cache_name}"
+                cache_prefix = _build_cache_prefix(
+                    method_name=model_experiment.name,
+                    cache_task_key=cache_task_key,
+                    fold=fold,
+                    repeat=repeat,
+                    cache_path_format=cache_path_format,
+                    include_repeat_in_cache_name=include_repeat_in_cache_name,
+                )
                 cache_path = f"{base_cache_path}/{cache_prefix}"
-                cacher = CacheFunctionPickle(cache_name=cache_name, cache_path=cache_path)
+                # `include_self_in_call` passes the cacher into the runner so a failed fit
+                # (in benchmark mode) can drop a `model_failures` artifact next to the
+                # results (see `write_model_failures`). It does not affect the `results`
+                # cache file's path, format, or hit logic. An explicit `cache_cls_kwargs`
+                # entry takes precedence over the `write_model_failures` default.
+                cacher = cache_cls(
+                    cache_name=cache_name,
+                    cache_path=cache_path,
+                    **{"include_self_in_call": write_model_failures, **(cache_cls_kwargs or {})},
+                )
                 cache_exists = cacher.exists
 
                 # Check cache state
@@ -406,10 +523,11 @@ def run_experiments_new(
                                 )
                             else:
                                 task = OpenMLTaskWrapper.from_task_id(task_id=task_id_or_object)
-                            # TODO: maybe add a prefix to this.
-                            tabarena_task_name = task.task.get_dataset().name
+                            if tabarena_task_name is None:
+                                tabarena_task_name = task.task.get_dataset().name
                         else:
-                            tabarena_task_name = task_id_or_object.tabarena_task_name
+                            if tabarena_task_name is None:
+                                tabarena_task_name = task_id_or_object.tabarena_task_name
                             task = OpenMLTaskWrapper(
                                 task=task_id_or_object.load_local_openml_task(),
                                 use_task_eval_metric=True,

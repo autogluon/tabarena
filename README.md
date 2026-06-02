@@ -38,8 +38,9 @@ TabArena currently consists of:
 ```bash
 pip install uv
 git clone https://github.com/autogluon/tabarena.git && cd tabarena
-uv sync --extra benchmark
-uv run python examples/benchmarking/run_quickstart_tabarena.py
+uv venv --seed --python 3.12 && source .venv/bin/activate
+uv pip install --prerelease=allow -e "./packages/tabarena[benchmark]"
+python examples/benchmarking/run_quickstart_tabarena.py
 ```
 
 For other install paths (eval-only, editable AutoGluon, dependency), see [Installation](#-installation) below.
@@ -67,15 +68,27 @@ TabArena code is currently being polished. Detailed Documentation for TabArena w
 > [!IMPORTANT]
 > Requires Python **3.11–3.13** and [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
-Pick the install path that matches what you want to do:
+TabArena is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/); its installable
+packages live under `packages/` (`tabarena`, `bencheval`, `tabflow_slurm`). Install the `tabarena`
+package directly from `packages/tabarena` with the extras you need. The `--prerelease=allow` flag is
+required so uv resolves the pre-release dependency.
+
+First clone the repo and create a virtual environment (one time):
+
+```bash
+git clone https://github.com/autogluon/tabarena.git
+cd tabarena
+uv venv --seed --python 3.12
+source .venv/bin/activate
+```
+
+Then pick the install path that matches what you want to do:
 
 <details>
 <summary><b>📊 Evaluation only</b> — leaderboards & metrics, no model fitting</summary>
 
 ```bash
-git clone https://github.com/autogluon/tabarena.git
-cd tabarena
-uv sync
+uv pip install --prerelease=allow -e "./packages/tabarena"
 ```
 </details>
 
@@ -85,9 +98,7 @@ uv sync
 Installs the core models used for standard benchmarking: `tabpfn`, `tabicl`, `ebm`, `search_spaces`, `realmlp`, `tabdpt`, `tabm`.
 
 ```bash
-git clone https://github.com/autogluon/tabarena.git
-cd tabarena
-uv sync --extra benchmark
+uv pip install --prerelease=allow -e "./packages/tabarena[benchmark]"
 ```
 </details>
 
@@ -101,17 +112,13 @@ uv sync --extra benchmark
 Layers the extended model set (`modernnca`, `xrfm`, `sap-rpt-oss`, ...) on top of the core benchmark set.
 
 ```bash
-git clone https://github.com/autogluon/tabarena.git
-cd tabarena
-uv sync --extra benchmark --extra extended
+uv pip install --prerelease=allow -e "./packages/tabarena[benchmark,extended]"
 ```
 
 To install only one extended model on top of `benchmark` (recommended over `extended` when you only need a single extra model), pass its extra by name — for example, just `xrfm`:
 
 ```bash
-git clone https://github.com/autogluon/tabarena.git
-cd tabarena
-uv sync --extra benchmark --extra xrfm
+uv pip install --prerelease=allow -e "./packages/tabarena[benchmark,xrfm]"
 ```
 </details>
 

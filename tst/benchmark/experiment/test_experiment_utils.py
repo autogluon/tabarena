@@ -1,13 +1,43 @@
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 from tabarena.benchmark.experiment.experiment_runner_api import (
+    _build_cache_prefix,
     _clean_repetitions_mode_args_for_matrix,
     _parse_repetitions_mode_and_args,
+    _resolve_task_display_name,
     run_experiments_new,
 )
+from tabarena.utils.cache import AbstractCacheFunction
 
 RES_2_2 = [(f, r) for f in range(2) for r in range(2)]
+
+
+class _RecordingCache(AbstractCacheFunction):
+    """Minimal cache class that records its constructions and never has a cache hit."""
+
+    instances: list = []
+
+    def __init__(self, cache_name, cache_path, **kwargs):
+        super().__init__(include_self_in_call=kwargs.get("include_self_in_call", False))
+        self.cache_name = cache_name
+        self.cache_path = cache_path
+        type(self).instances.append((cache_name, cache_path, kwargs))
+
+    @property
+    def cache_file(self):
+        return None
+
+    @property
+    def exists(self) -> bool:
+        return False
+
+    def save_cache(self, data) -> None:
+        pass
+
+    def load_cache(self):
+        return None
 
 
 @pytest.mark.parametrize(
@@ -377,3 +407,177 @@ class TestRunExperimentsNewCacheOnly:
             cache_mode="only",
         )
         assert result == []
+
+
+class TestResolveTaskDisplayName:
+    def test_none_metadata_returns_none(self):
+        assert _resolve_task_display_name(360, None) is None
+
+    def test_no_name_column_returns_none(self):
+        meta = pd.DataFrame({"tid": [360], "tabarena_num_repeats": [1]})
+        assert _resolve_task_display_name(360, meta) is None
+
+    def test_no_id_column_returns_none(self):
+        meta = pd.DataFrame({"dataset": ["anneal"]})
+        assert _resolve_task_display_name(360, meta) is None
+
+    def test_tid_dataset_columns(self):
+        meta = pd.DataFrame({"tid": [360, 361], "dataset": ["anneal", "credit-g"]})
+        assert _resolve_task_display_name(360, meta) == "anneal"
+        assert _resolve_task_display_name(361, meta) == "credit-g"
+
+    def test_task_id_preferred_over_tid(self):
+        meta = pd.DataFrame(
+            {"task_id": [360], "tid": [999], "dataset": ["from_task_id"], "name": ["from_name"]}
+        )
+        # task_id is matched and dataset is the chosen name column
+        assert _resolve_task_display_name(360, meta) == "from_task_id"
+
+    def test_name_column_fallback(self):
+        meta = pd.DataFrame({"tid": [360], "name": ["anneal"]})
+        assert _resolve_task_display_name(360, meta) == "anneal"
+
+    def test_missing_task_returns_none(self):
+        meta = pd.DataFrame({"tid": [360], "dataset": ["anneal"]})
+        assert _resolve_task_display_name(999, meta) is None
+
+    def test_user_task_matched_by_task_id_str(self):
+        from tabarena.benchmark.task.user_task import UserTask
+
+        task = UserTask(task_name="my_task")
+        meta = pd.DataFrame({"task_id": [task.task_id_str], "dataset": ["pretty_name"]})
+        assert _resolve_task_display_name(task, meta) == "pretty_name"
+
+
+class TestBuildCachePrefix:
+    def test_name_first_with_repeat(self):
+        prefix = _build_cache_prefix(
+            method_name="m",
+            cache_task_key=360,
+            fold=2,
+            repeat=1,
+            cache_path_format="name_first",
+            include_repeat_in_cache_name=True,
+        )
+        assert prefix == "data/m/360/1_2"
+
+    def test_name_first_without_repeat_is_legacy_layout(self):
+        prefix = _build_cache_prefix(
+            method_name="m",
+            cache_task_key=360,
+            fold=2,
+            repeat=1,
+            cache_path_format="name_first",
+            include_repeat_in_cache_name=False,
+        )
+        assert prefix == "data/m/360/2"
+
+    def test_task_first(self):
+        prefix = _build_cache_prefix(
+            method_name="m",
+            cache_task_key="slug-abc",
+            fold=0,
+            repeat=0,
+            cache_path_format="task_first",
+            include_repeat_in_cache_name=True,
+        )
+        assert prefix == "data/tasks/slug-abc/0_0/m"
+
+    def test_invalid_format_raises(self):
+        with pytest.raises(ValueError, match="cache_path_format"):
+            _build_cache_prefix(
+                method_name="m",
+                cache_task_key=360,
+                fold=0,
+                repeat=0,
+                cache_path_format="bogus",
+                include_repeat_in_cache_name=True,
+            )
+
+
+class TestExperimentBatchRunnerDelegation:
+    """ExperimentBatchRunner.run() now delegates to run_experiments_new."""
+
+    @staticmethod
+    def _runner(tmp_path, **kwargs):
+        from tabarena.benchmark.experiment import ExperimentBatchRunner
+
+        task_metadata = pd.DataFrame({"tid": [0, 1], "dataset": ["d0", "d1"]})
+        return ExperimentBatchRunner(
+            expname=str(tmp_path), task_metadata=task_metadata, **kwargs
+        )
+
+    def test_only_cache_no_cache_returns_empty(self, tmp_path):
+        # only_cache => cache_mode="only"; with no cache present, returns [] without
+        # loading any task or training (exercises the full delegation wiring).
+        runner = self._runner(tmp_path, only_cache=True)
+        result = runner.run(
+            methods=[_make_minimal_experiment()],
+            datasets=["d0", "d1"],
+            folds=[0],
+        )
+        assert result == []
+
+    def test_only_cache_with_repeats(self, tmp_path):
+        runner = self._runner(tmp_path, only_cache=True)
+        result = runner.run(
+            methods=[_make_minimal_experiment()],
+            datasets=["d0"],
+            folds=[0, 1],
+            repeats=[0, 1],
+        )
+        assert result == []
+
+    def test_custom_cache_cls_is_forwarded(self, tmp_path):
+        # A non-Pickle cache class is threaded through to run_experiments_new and used.
+        _RecordingCache.instances.clear()
+        runner = self._runner(tmp_path, only_cache=True, cache_cls=_RecordingCache)
+        result = runner.run(
+            methods=[_make_minimal_experiment()],
+            datasets=["d0"],
+            folds=[0],
+        )
+        assert result == []
+        assert _RecordingCache.instances, "custom cache_cls was not used"
+        # ExperimentBatchRunner's default cache_cls_kwargs forwards include_self_in_call=True.
+        assert all(kw.get("include_self_in_call") is True for *_, kw in _RecordingCache.instances)
+
+    def test_unknown_dataset_raises(self, tmp_path):
+        runner = self._runner(tmp_path, only_cache=True)
+        with pytest.raises(ValueError, match="present in task_metadata"):
+            runner.run(
+                methods=[_make_minimal_experiment()],
+                datasets=["does_not_exist"],
+                folds=[0],
+            )
+
+
+class TestRunExperimentsNewCacheCls:
+    def test_custom_cache_cls_used(self, tmp_path):
+        _RecordingCache.instances.clear()
+        result = run_experiments_new(
+            output_dir=str(tmp_path),
+            model_experiments=[_make_minimal_experiment()],
+            tasks=[360],
+            repetitions_mode="individual",
+            repetitions_mode_args=[(0, 0)],
+            cache_mode="only",
+            cache_cls=_RecordingCache,
+        )
+        assert result == []
+        assert _RecordingCache.instances, "custom cache_cls was not used"
+
+    def test_cache_cls_kwargs_forwarded(self, tmp_path):
+        _RecordingCache.instances.clear()
+        run_experiments_new(
+            output_dir=str(tmp_path),
+            model_experiments=[_make_minimal_experiment()],
+            tasks=[360],
+            repetitions_mode="individual",
+            repetitions_mode_args=[(0, 0)],
+            cache_mode="only",
+            cache_cls=_RecordingCache,
+            cache_cls_kwargs={"include_self_in_call": True},
+        )
+        # Explicit cache_cls_kwargs wins over the write_model_failures default (False).
+        assert all(kw.get("include_self_in_call") is True for *_, kw in _RecordingCache.instances)
