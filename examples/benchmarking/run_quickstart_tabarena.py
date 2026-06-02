@@ -8,7 +8,6 @@ import pandas as pd
 from tabarena.benchmark.experiment import AGModelBagExperiment, ExperimentBatchRunner
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
-from tabarena.website.website_format import format_leaderboard
 
 if __name__ == "__main__":
     expname = str(
