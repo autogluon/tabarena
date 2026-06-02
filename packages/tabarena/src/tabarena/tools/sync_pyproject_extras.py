@@ -2,7 +2,7 @@
 
 Each `tabarena/models/<key>/info.py` declares its pip dependencies via
 `ModelInfo.pip_extra`. The `[project.optional-dependencies]` section in
-`tabarena/pyproject.toml` should mirror that data — this script flags
+`packages/tabarena/pyproject.toml` should mirror that data — this script flags
 drift so the two stay in sync.
 
 Usage:
@@ -55,8 +55,8 @@ def main() -> int:
     parser.add_argument("--check", action="store_true",
                         help="Exit non-zero on drift.")
     parser.add_argument("--pyproject", type=Path,
-                        default=Path(__file__).resolve().parents[2] / "pyproject.toml",
-                        help="Path to pyproject.toml (default: tabarena/pyproject.toml).")
+                        default=Path(__file__).resolve().parents[3] / "pyproject.toml",
+                        help="Path to pyproject.toml (default: packages/tabarena/pyproject.toml).")
     args = parser.parse_args()
 
     expected = _expected_extras()

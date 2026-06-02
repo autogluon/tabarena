@@ -15,5 +15,5 @@ When the user describes work that matches a skill's trigger criteria, invoke the
 ## Working Style in This Repo
 
 - **Always run `ruff check --fix`** on touched files before reporting a task complete. The `from __future__ import annotations` requirement (isort `required-imports`) is the most common CI failure on new files.
-- **Tests live in `tst/`** — when adding a test for `tabarena/tabarena/<area>/foo.py`, mirror the path under `tst/<area>/test_foo.py`.
+- **Tests live in `tst/`** — when adding a test for `packages/tabarena/src/tabarena/<area>/foo.py`, mirror the path under `tst/<area>/test_foo.py`.
 - **Optional model deps**: when adding code that imports an optional library (e.g., `tabpfn`, `tabicl`, `xrfm`), keep the import inside the wrapper's `_fit` / class body, never at module top-level — top-level imports break installs without that extra.

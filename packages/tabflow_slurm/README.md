@@ -26,8 +26,8 @@ its batching design, but is self-contained and only depends on `tabarena`.
 the repo root:
 
 ```bash
-uv pip install --prerelease=allow -e "./tabarena[benchmark]"   # tabarena + model fitting
-uv pip install -e ./tabflow_slurm                              # this package
+uv pip install --prerelease=allow -e "./packages/tabarena[benchmark]"   # tabarena + model fitting
+uv pip install -e ./packages/tabflow_slurm                              # this package
 ```
 
 You also need the cluster to have `jq` available on the compute nodes (the submit script parses the

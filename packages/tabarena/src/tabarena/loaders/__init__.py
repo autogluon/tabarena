@@ -35,7 +35,10 @@ def set_tabarena_cache_root(path: str | Path | None) -> None:
 
 
 class Paths:
-    project_root: Path = Path(__file__).parent.parent.parent
+    # ``packages/tabarena/`` — the package dir one level above ``src/`` — so
+    # ``data_root`` resolves to ``packages/tabarena/data`` as it did before the
+    # src/ layout move (``__file__`` is ``.../src/tabarena/loaders/__init__.py``).
+    project_root: Path = Path(__file__).resolve().parents[3]
     data_root: Path = project_root / 'data'
 
     # default path is ~/.cache/tabrepo/data, can be overriden by setting the environment variable TABREPO_CACHE
