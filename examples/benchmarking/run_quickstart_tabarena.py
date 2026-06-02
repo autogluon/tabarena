@@ -71,11 +71,14 @@ if __name__ == "__main__":
     with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
         print(f"Results:\n{end_to_end_results.model_results.head(100)}")
 
-    leaderboard: pd.DataFrame = end_to_end_results.compare_on_tabarena(
-        output_dir=eval_dir,
-        only_valid_tasks=True,  # True: only compare on tasks ran in `results_lst`
-        use_model_results=True,  # If False: Will instead use the ensemble/HPO results
+    new_results: pd.DataFrame = end_to_end_results.get_results(
         new_result_prefix="Demo_",
+        use_model_results=True,  # If False: Will instead use the ensemble/HPO results
+    )
+    leaderboard: pd.DataFrame = tabarena_context.compare(
+        output_dir=eval_dir,
+        only_valid_tasks=new_results["method"].unique(),  # only compare on tasks ran in `results_lst`
+        new_results=new_results,
     )
     leaderboard_website = tabarena_context.leaderboard_to_website_format(leaderboard)
     print(leaderboard_website.to_markdown(index=False))
