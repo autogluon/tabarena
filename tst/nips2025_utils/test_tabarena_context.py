@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
@@ -75,3 +76,59 @@ class TestMakeExperimentBatchRunner:
             dataset_fold_repeats=[("small_ds", 1, 0), ("big_ds", 0, 0)],
         )
         assert runner._dataset_fold_repeats == [("small_ds", 1, 0)]
+
+
+def _ctx_multi() -> TabArenaContext:
+    # "a": 3 folds x 2 repeats -> splits 0..5; "b": 2 folds x 1 repeat -> splits 0..1.
+    task_metadata = pd.DataFrame(
+        {
+            "tid": [0, 1],
+            "dataset": ["a", "b"],
+            "n_folds": [3, 2],
+            "n_repeats": [2, 1],
+            "n_samples_train_per_fold": [100, 100],
+            "problem_type": ["binary", "binary"],
+            "n_features": [10, 10],
+            "n_classes": [2, 2],
+        },
+    )
+    return TabArenaContext(methods=[], task_metadata=task_metadata)
+
+
+class TestSplitsFoldsRepeats:
+    def _dfr(self, tmp_path, **kwargs):
+        return _ctx_multi().make_experiment_batch_runner(expname=str(tmp_path), **kwargs)._dataset_fold_repeats
+
+    def test_folds_filter(self, tmp_path):
+        # fold 0 across all repeats: a(0,0),(0,1); b(0,0).
+        assert self._dfr(tmp_path, folds=[0]) == [("a", 0, 0), ("a", 0, 1), ("b", 0, 0)]
+
+    def test_repeats_filter(self, tmp_path):
+        # repeat 1 only exists for "a" (b has a single repeat).
+        assert self._dfr(tmp_path, repeats=[1]) == [("a", 0, 1), ("a", 1, 1), ("a", 2, 1)]
+
+    def test_folds_and_repeats_compose(self, tmp_path):
+        assert self._dfr(tmp_path, folds=[0], repeats=[0]) == [("a", 0, 0), ("b", 0, 0)]
+
+    def test_splits_filter(self, tmp_path):
+        # split 3 for "a" (n_folds=3) == (fold 0, repeat 1); "b" has no split 3.
+        assert self._dfr(tmp_path, splits=[3]) == [("a", 0, 1)]
+
+    def test_splits_compose_with_datasets(self, tmp_path):
+        assert self._dfr(tmp_path, datasets=["a"], splits=[0]) == [("a", 0, 0)]
+
+    def test_splits_with_folds_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="`splits` together with `folds`"):
+            self._dfr(tmp_path, splits=[0], folds=[0])
+
+    def test_splits_with_repeats_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="`splits` together with `folds`"):
+            self._dfr(tmp_path, splits=[0], repeats=[0])
+
+    def test_dataset_fold_repeats_with_folds_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="`dataset_fold_repeats` together"):
+            self._dfr(tmp_path, dataset_fold_repeats=[("a", 0, 0)], folds=[0])
+
+    def test_dataset_fold_repeats_with_splits_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="`dataset_fold_repeats` together"):
+            self._dfr(tmp_path, dataset_fold_repeats=[("a", 0, 0)], splits=[0])
