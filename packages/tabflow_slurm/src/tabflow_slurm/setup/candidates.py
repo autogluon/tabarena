@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from tabarena.benchmark.experiment.experiment_constructor import resolve_class
 from tabarena.benchmark.experiment.experiment_utils import check_cache_hit
 from tabarena.benchmark.models.model_registry import infer_model_cls
+from tabarena.benchmark.task.user_task import UserTask
 from tabarena.utils.cache import CacheFunctionPickle
 
 if TYPE_CHECKING:
@@ -76,12 +77,14 @@ def should_run_job(
     Module-level so Ray workers can pickle it; reads everything it needs off
     the `JobCandidate` dataclass.
     """
-    # Normalize task_id: numeric OpenML IDs are ints; UserTask IDs are
-    # "<source>|<local_id>|..." strings that we split to the local part.
+    # Normalize task_id into the cache directory key. This MUST match the key the
+    # writer uses in `run_experiments_new` (`task.slug` for UserTasks, the int task
+    # id otherwise) — otherwise cache hits are looked up under the wrong path and the
+    # benchmark needlessly re-runs already-cached jobs.
     try:
         task_id = int(candidate.task_id)
     except ValueError:
-        task_id = candidate.task_id.split("|", 2)[1]
+        task_id = UserTask.from_task_id_str(candidate.task_id).slug
 
     constraints = model_constraints.get(_resolve_ag_key(candidate.config))
     if constraints is not None and not constraints.applies(

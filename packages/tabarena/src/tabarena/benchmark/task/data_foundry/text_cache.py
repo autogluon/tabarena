@@ -76,6 +76,7 @@ def ensure_text_cache_for_task(
     No-op (returns the existing path) if the cache is already present. Otherwise resolves the task's
     container — using the local Data Foundry download if available, else fetching it from the source
     (the same ``snapshot_download`` that brings the dataset) — and copies its bundled text cache.
+    The container's dataframe is not loaded (only its extra files are read).
     """
     from tabarena.benchmark.preprocessing.text_cache import resolve_existing_cache_path
 
@@ -85,5 +86,10 @@ def ensure_text_cache_for_task(
             return existing
 
     uuid = Path(data_foundry_uri).name
-    container = collection.get_dataset(uuid, cache_dir=cache_dir, force_download=force_download)
+    # `import_text_cache_from_container` only reads the container's extra files (never the
+    # dataframe), so skip the full `dataset.parquet` read — otherwise every cache-less dataset
+    # pays a wasted parquet load on each setup run.
+    container = collection.get_dataset(
+        uuid, cache_dir=cache_dir, load_dataset=False, force_download=force_download
+    )
     return import_text_cache_from_container(container, task_key)
