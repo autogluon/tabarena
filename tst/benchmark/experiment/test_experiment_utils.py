@@ -7,7 +7,6 @@ from tabarena.benchmark.experiment.experiment_runner_api import (
     _build_cache_prefix,
     _clean_repetitions_mode_args_for_matrix,
     _parse_repetitions_mode_and_args,
-    _resolve_task_display_name,
     run_experiments_new,
 )
 from tabarena.utils.cache import AbstractCacheFunction
@@ -222,53 +221,6 @@ def _make_minimal_experiment(name: str = "lgbm_test"):
 
 
 class TestRunExperimentsNewValidation:
-    def test_aws_mode_without_s3_kwargs_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="s3_kwargs"):
-            run_experiments_new(
-                output_dir=str(tmp_path),
-                model_experiments=[_make_minimal_experiment()],
-                tasks=[360],
-                repetitions_mode="individual",
-                repetitions_mode_args=[(0, 0)],
-                run_mode="aws",
-                s3_kwargs=None,
-            )
-
-    def test_aws_mode_with_empty_bucket_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="bucket"):
-            run_experiments_new(
-                output_dir=str(tmp_path),
-                model_experiments=[_make_minimal_experiment()],
-                tasks=[360],
-                repetitions_mode="individual",
-                repetitions_mode_args=[(0, 0)],
-                run_mode="aws",
-                s3_kwargs={"bucket": ""},
-            )
-
-    def test_aws_mode_with_none_bucket_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="bucket"):
-            run_experiments_new(
-                output_dir=str(tmp_path),
-                model_experiments=[_make_minimal_experiment()],
-                tasks=[360],
-                repetitions_mode="individual",
-                repetitions_mode_args=[(0, 0)],
-                run_mode="aws",
-                s3_kwargs={"bucket": None},
-            )
-
-    def test_invalid_run_mode_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="Invalid mode"):
-            run_experiments_new(
-                output_dir=str(tmp_path),
-                model_experiments=[_make_minimal_experiment()],
-                tasks=[360],
-                repetitions_mode="individual",
-                repetitions_mode_args=[(0, 0)],
-                run_mode="ftp",
-            )
-
     def test_non_experiment_in_model_experiments_raises(self, tmp_path):
         with pytest.raises(AssertionError):
             run_experiments_new(
@@ -400,7 +352,7 @@ class TestRunExperimentsNewCacheOnly:
         assert result == []
 
     def test_local_base_cache_path_uses_output_dir(self, tmp_path):
-        # With run_mode="local" (default), base_cache_path == output_dir.
+        # base_cache_path == output_dir.
         # Result is empty because no cache exists; but it shouldn't raise.
         result = run_experiments_new(
             output_dir=str(tmp_path / "subdir"),
@@ -408,50 +360,9 @@ class TestRunExperimentsNewCacheOnly:
             tasks=[360],
             repetitions_mode="individual",
             repetitions_mode_args=[(0, 0)],
-            run_mode="local",
             cache_mode="only",
         )
         assert result == []
-
-
-class TestResolveTaskDisplayName:
-    def test_none_metadata_returns_none(self):
-        assert _resolve_task_display_name(360, None) is None
-
-    def test_no_name_column_returns_none(self):
-        meta = pd.DataFrame({"tid": [360], "tabarena_num_repeats": [1]})
-        assert _resolve_task_display_name(360, meta) is None
-
-    def test_no_id_column_returns_none(self):
-        meta = pd.DataFrame({"dataset": ["anneal"]})
-        assert _resolve_task_display_name(360, meta) is None
-
-    def test_tid_dataset_columns(self):
-        meta = pd.DataFrame({"tid": [360, 361], "dataset": ["anneal", "credit-g"]})
-        assert _resolve_task_display_name(360, meta) == "anneal"
-        assert _resolve_task_display_name(361, meta) == "credit-g"
-
-    def test_task_id_preferred_over_tid(self):
-        meta = pd.DataFrame(
-            {"task_id": [360], "tid": [999], "dataset": ["from_task_id"], "name": ["from_name"]},
-        )
-        # task_id is matched and dataset is the chosen name column
-        assert _resolve_task_display_name(360, meta) == "from_task_id"
-
-    def test_name_column_fallback(self):
-        meta = pd.DataFrame({"tid": [360], "name": ["anneal"]})
-        assert _resolve_task_display_name(360, meta) == "anneal"
-
-    def test_missing_task_returns_none(self):
-        meta = pd.DataFrame({"tid": [360], "dataset": ["anneal"]})
-        assert _resolve_task_display_name(999, meta) is None
-
-    def test_user_task_matched_by_task_id_str(self):
-        from tabarena.benchmark.task.user_task import UserTask
-
-        task = UserTask(task_name="my_task")
-        meta = pd.DataFrame({"task_id": [task.task_id_str], "dataset": ["pretty_name"]})
-        assert _resolve_task_display_name(task, meta) == "pretty_name"
 
 
 class TestBuildCachePrefix:
@@ -461,43 +372,8 @@ class TestBuildCachePrefix:
             cache_task_key=360,
             fold=2,
             repeat=1,
-            cache_path_format="name_first",
-            include_repeat_in_cache_name=True,
         )
         assert prefix == "data/m/360/1_2"
-
-    def test_name_first_without_repeat_is_legacy_layout(self):
-        prefix = _build_cache_prefix(
-            method_name="m",
-            cache_task_key=360,
-            fold=2,
-            repeat=1,
-            cache_path_format="name_first",
-            include_repeat_in_cache_name=False,
-        )
-        assert prefix == "data/m/360/2"
-
-    def test_task_first(self):
-        prefix = _build_cache_prefix(
-            method_name="m",
-            cache_task_key="slug-abc",
-            fold=0,
-            repeat=0,
-            cache_path_format="task_first",
-            include_repeat_in_cache_name=True,
-        )
-        assert prefix == "data/tasks/slug-abc/0_0/m"
-
-    def test_invalid_format_raises(self):
-        with pytest.raises(ValueError, match="cache_path_format"):
-            _build_cache_prefix(
-                method_name="m",
-                cache_task_key=360,
-                fold=0,
-                repeat=0,
-                cache_path_format="bogus",
-                include_repeat_in_cache_name=True,
-            )
 
 
 class TestExperimentBatchRunnerDelegation:
@@ -586,5 +462,5 @@ class TestRunExperimentsNewCacheCls:
             cache_cls=_RecordingCache,
             cache_cls_kwargs={"include_self_in_call": True},
         )
-        # Explicit cache_cls_kwargs wins over the write_model_failures default (False).
+        # Explicit cache_cls_kwargs wins over the include_self_in_call default (False).
         assert all(kw.get("include_self_in_call") is True for *_, kw in _RecordingCache.instances)

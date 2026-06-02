@@ -8,7 +8,6 @@ import pandas as pd
 from tabarena.benchmark.experiment import AGModelBagExperiment, ExperimentBatchRunner
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
-from tabarena.website.website_format import format_leaderboard
 
 if __name__ == "__main__":
     expname = str(
@@ -78,5 +77,5 @@ if __name__ == "__main__":
         use_model_results=True,  # If False: Will instead use the ensemble/HPO results
         new_result_prefix="Demo_",
     )
-    leaderboard_website = format_leaderboard(df_leaderboard=leaderboard)
+    leaderboard_website = tabarena_context.leaderboard_to_website_format(leaderboard)
     print(leaderboard_website.to_markdown(index=False))

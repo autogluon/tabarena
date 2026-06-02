@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from tabarena.benchmark.experiment.experiment_constructor import Experiment
 from tabarena.benchmark.result import BaselineResult, ExperimentResults
@@ -22,26 +22,14 @@ class ExperimentBatchRunner:
         task_metadata: pd.DataFrame,
         cache_cls: type[AbstractCacheFunction] | None = CacheFunctionPickle,
         cache_cls_kwargs: dict | None = None,
-        cache_path_format: Literal["name_first", "task_first"] = "name_first",
         only_cache: bool = False,
-        mode: str = "local",
-        s3_bucket: str | None = None,
         debug_mode: bool = True,
-        s3_dataset_cache: str | None = None,
     ):
         """Parameters
         ----------
         expname
         cache_cls
         cache_cls_kwargs
-        cache_path_format: {"name_first", "task_first"}, default "name_first"
-            Determines the folder structure for artifacts.
-            "name_first" -> {expname}/data/{method}/{tid}/{fold}/
-            "task_first" -> {expname}/data/tasks/{tid}/{fold}/{method}/
-        mode: str, default "local"
-            Either "local" or "aws". In "aws" mode, s3_bucket must be provided.
-        s3_bucket: str, optional
-            Required when mode="aws". The S3 bucket where artifacts will be stored.
         debug_mode: bool, default True
             If True, will operate in a manner best suited for local model development.
             This mode will be friendly to local debuggers and will avoid subprocesses/threads
@@ -50,9 +38,6 @@ class ExperimentBatchRunner:
             IF False, will operate in a manner best suited for large-scale benchmarking.
             This mode will try to record information when method's fail
             and might not work well with local debuggers.
-        s3_dataset_cache: str, optional
-            Full S3 URI to the openml dataset cache (format: s3://bucket/prefix)
-            If None, skip S3 download attempt
         """
         cache_cls = CacheFunctionDummy if cache_cls is None else cache_cls
         cache_cls_kwargs = {"include_self_in_call": True} if cache_cls_kwargs is None else cache_cls_kwargs
@@ -61,7 +46,6 @@ class ExperimentBatchRunner:
         self.task_metadata = task_metadata
         self.cache_cls = cache_cls
         self.cache_cls_kwargs = cache_cls_kwargs
-        self.cache_path_format = cache_path_format
         self.only_cache = only_cache
         self._dataset_to_tid_dict = (
             self.task_metadata[["tid", "dataset"]]
@@ -69,10 +53,7 @@ class ExperimentBatchRunner:
             .set_index("dataset")["tid"]
             .to_dict()
         )
-        self.mode = mode
-        self.s3_bucket = s3_bucket
         self.debug_mode = debug_mode
-        self.s3_dataset_cache = s3_dataset_cache
 
     @property
     def datasets(self) -> list[str]:
@@ -156,14 +137,12 @@ class ExperimentBatchRunner:
         tids = [int(self._dataset_to_tid_dict[dataset]) for dataset in datasets]
 
         # Translate folds/repeats into explicit (fold, repeat) pairs run for every task.
+        # When `repeats` is unspecified, default to repeat 0. The cache path always
+        # includes the repeat (`{repeat}_{fold}`).
         if repeats is None:
-            # Legacy single-repeat layout: run repeat 0 and cache under `{fold}` (no repeat
-            # in the path), matching the cache files written before this delegation.
             fold_repeat_pairs = [(fold, 0) for fold in folds]
-            include_repeat_in_cache_name = False
         else:
             fold_repeat_pairs = [(fold, repeat) for repeat in repeats for fold in folds]
-            include_repeat_in_cache_name = True
 
         if self.only_cache:
             cache_mode = "only"
@@ -172,32 +151,19 @@ class ExperimentBatchRunner:
         else:
             cache_mode = "default"
 
-        if self.mode == "aws":
-            s3_kwargs = {"bucket": self.s3_bucket}
-            if self.s3_dataset_cache is not None:
-                s3_kwargs["dataset_cache"] = self.s3_dataset_cache
-        else:
-            s3_kwargs = None
-
         return run_experiments_new(
             output_dir=self.expname,
             model_experiments=methods,
             tasks=tids,
             tasks_metadata=self.task_metadata,
-            # Legacy behavior: the results `dataset` key comes from the metadata.
-            use_metadata_task_name=True,
             repetitions_mode="individual",
             repetitions_mode_args=fold_repeat_pairs,
-            run_mode=self.mode,
             cache_mode=cache_mode,
-            cache_path_format=self.cache_path_format,
-            include_repeat_in_cache_name=include_repeat_in_cache_name,
             # Forward the configured cache backend. The default `cache_cls_kwargs`
             # carries `include_self_in_call=True`, preserving the legacy
             # `model_failures` artifact on failure.
             cache_cls=self.cache_cls,
             cache_cls_kwargs=self.cache_cls_kwargs,
-            s3_kwargs=s3_kwargs,
             raise_on_failure=raise_on_failure,
             debug_mode=self.debug_mode,
         )
@@ -280,14 +246,7 @@ class ExperimentBatchRunner:
         subtask_name = self._subtask_name(fold=fold, repeat=repeat)
         # TODO: Windows? Use Path?
         tid = self._dataset_to_tid_dict[dataset]
-        if self.cache_path_format == "name_first":
-            cache_name = f"data/{method_name}/{tid}/{subtask_name}/results"
-        elif self.cache_path_format == "task_first":
-            # Legacy format from early prototyping
-            cache_name = f"data/tasks/{tid}/{subtask_name}/{method_name}/results"
-        else:
-            raise ValueError(f"Unknown cache_path_format: {self.cache_path_format}")
-        return cache_name
+        return f"data/{method_name}/{tid}/{subtask_name}/results"
 
     def _cache_exists(self, method_name: str, dataset: str, fold: int, repeat: int | None = None) -> bool:
         cacher = self._get_cacher(method_name=method_name, dataset=dataset, fold=fold, repeat=repeat)
@@ -335,27 +294,17 @@ def check_cache_hit(
     task_id: int,
     fold: int,
     repeat: int | None,
-    cache_path_format: Literal["name_first", "task_first"],
     cache_cls: type[AbstractCacheFunction] | None,
     cache_cls_kwargs: dict | None = None,
-    mode: Literal["local", "s3"],
-    s3_bucket: str | None = None,
     delete_cache: bool = False,
 ) -> bool:
     """Returns true if cache exists for the given experiment."""
-    base_cache_path = result_dir if mode == "local" else f"s3://{s3_bucket}/{result_dir}"
+    base_cache_path = result_dir
 
     subtask_cache_name = ExperimentBatchRunner._subtask_name(fold=fold, repeat=repeat)
 
-    if cache_path_format == "name_first":
-        cache_prefix = f"data/{method_name}/{task_id}/{subtask_cache_name}"
-        cache_name = "results"
-    elif cache_path_format == "task_first":
-        # Legacy format from early prototyping
-        cache_prefix = f"data/tasks/{task_id}/{subtask_cache_name}/{method_name}"
-        cache_name = "results"
-    else:
-        raise ValueError(f"Invalid cache_path_format: {cache_path_format}")
+    cache_prefix = f"data/{method_name}/{task_id}/{subtask_cache_name}"
+    cache_name = "results"
 
     cache_path = f"{base_cache_path}/{cache_prefix}"
 
