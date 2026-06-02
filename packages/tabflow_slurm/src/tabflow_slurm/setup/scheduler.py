@@ -37,7 +37,19 @@ class SchedulerSetup:
     bundle_size_per_dataset: dict[str, int] | None = None
     """Optional per-dataset override of `bundle_size`, keyed by `dataset_name`.
     Items from datasets not listed here use `bundle_size`. Items belonging to
-    different effective bundle sizes are not mixed in the same bundle."""
+    different effective bundle sizes are not mixed in the same bundle.
+    An explicit entry here takes precedence over the large-dataset auto-rule
+    below (so it doubles as an escape hatch for large datasets)."""
+
+    large_dataset_n_features: int | None = 5_000
+    """Wide datasets (`n_features` greater than this) are bundled one item per
+    array task (effective `bundle_size=1`), since each fit is expensive enough
+    that batching hurts scheduling. Set to `None` to disable the feature check."""
+
+    large_dataset_n_samples: int | None = 100_000
+    """Large datasets (`n_samples_train_per_fold` greater than this) are bundled
+    one item per array task (effective `bundle_size=1`). Set to `None` to
+    disable the sample-count check."""
 
     def get_run_commands(
         self,
@@ -82,19 +94,16 @@ class SchedulerSetup:
     def bundle_items(self, approved: list[JobCandidate]) -> tuple[list[dict], int]:
         """Group approved candidates into array-task bundles.
 
-        Candidates are partitioned by their effective bundle size
-        (`bundle_size_per_dataset[dataset_name]` if present, else
-        `bundle_size`) so candidates with different effective sizes never
-        share a task. Returns `(jobs, max_configs_per_job)` where each job is
-        `{"items": [...]}` (JSON-serializable, only the identifying-tuple
+        Candidates are partitioned by their effective bundle size (see
+        `_effective_bundle_size`) so candidates with different effective sizes
+        never share a task. Returns `(jobs, max_configs_per_job)` where each job
+        is `{"items": [...]}` (JSON-serializable, only the identifying-tuple
         fields), and `max_configs_per_job` is the largest bundle observed
         (used by schedulers to budget the per-task time limit).
         """
-        overrides = self.bundle_size_per_dataset or {}
         by_size: dict[int, list[JobCandidate]] = {}
         for c in approved:
-            size = overrides.get(c.dataset_name, self.bundle_size)
-            by_size.setdefault(size, []).append(c)
+            by_size.setdefault(self._effective_bundle_size(c), []).append(c)
 
         jobs: list[dict] = []
         max_configs_per_job = 1
@@ -116,6 +125,26 @@ class SchedulerSetup:
                     },
                 )
         return jobs, max_configs_per_job
+
+    def _effective_bundle_size(self, c: JobCandidate) -> int:
+        """Effective bundle size for a single candidate.
+
+        Precedence: an explicit `bundle_size_per_dataset` entry wins; otherwise
+        large datasets (see `_is_large_dataset`) collapse to 1; otherwise the
+        default `bundle_size` applies.
+        """
+        overrides = self.bundle_size_per_dataset or {}
+        if c.dataset_name in overrides:
+            return overrides[c.dataset_name]
+        if self._is_large_dataset(c):
+            return 1
+        return self.bundle_size
+
+    def _is_large_dataset(self, c: JobCandidate) -> bool:
+        """Whether a candidate's dataset exceeds either large-dataset threshold."""
+        return (self.large_dataset_n_features is not None and c.n_features > self.large_dataset_n_features) or (
+            self.large_dataset_n_samples is not None and c.n_samples_train_per_fold > self.large_dataset_n_samples
+        )
 
 
 @dataclass(kw_only=True)
