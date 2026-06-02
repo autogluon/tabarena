@@ -7,7 +7,6 @@ from tabarena.benchmark.experiment.experiment_runner_api import (
     _build_cache_prefix,
     _clean_repetitions_mode_args_for_matrix,
     _parse_repetitions_mode_and_args,
-    _resolve_task_display_name,
     run_experiments_new,
 )
 from tabarena.utils.cache import AbstractCacheFunction
@@ -364,46 +363,6 @@ class TestRunExperimentsNewCacheOnly:
             cache_mode="only",
         )
         assert result == []
-
-
-class TestResolveTaskDisplayName:
-    def test_none_metadata_returns_none(self):
-        assert _resolve_task_display_name(360, None) is None
-
-    def test_no_name_column_returns_none(self):
-        meta = pd.DataFrame({"tid": [360], "tabarena_num_repeats": [1]})
-        assert _resolve_task_display_name(360, meta) is None
-
-    def test_no_id_column_returns_none(self):
-        meta = pd.DataFrame({"dataset": ["anneal"]})
-        assert _resolve_task_display_name(360, meta) is None
-
-    def test_tid_dataset_columns(self):
-        meta = pd.DataFrame({"tid": [360, 361], "dataset": ["anneal", "credit-g"]})
-        assert _resolve_task_display_name(360, meta) == "anneal"
-        assert _resolve_task_display_name(361, meta) == "credit-g"
-
-    def test_task_id_preferred_over_tid(self):
-        meta = pd.DataFrame(
-            {"task_id": [360], "tid": [999], "dataset": ["from_task_id"], "name": ["from_name"]},
-        )
-        # task_id is matched and dataset is the chosen name column
-        assert _resolve_task_display_name(360, meta) == "from_task_id"
-
-    def test_name_column_fallback(self):
-        meta = pd.DataFrame({"tid": [360], "name": ["anneal"]})
-        assert _resolve_task_display_name(360, meta) == "anneal"
-
-    def test_missing_task_returns_none(self):
-        meta = pd.DataFrame({"tid": [360], "dataset": ["anneal"]})
-        assert _resolve_task_display_name(999, meta) is None
-
-    def test_user_task_matched_by_task_id_str(self):
-        from tabarena.benchmark.task.user_task import UserTask
-
-        task = UserTask(task_name="my_task")
-        meta = pd.DataFrame({"task_id": [task.task_id_str], "dataset": ["pretty_name"]})
-        assert _resolve_task_display_name(task, meta) == "pretty_name"
 
 
 class TestBuildCachePrefix:

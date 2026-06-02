@@ -163,32 +163,6 @@ def _parse_repetitions_mode_and_args(
     raise ValueError(f"Unknown `repetitions_mode` str: {repetitions_mode}")
 
 
-def _resolve_task_display_name(
-    task_id_or_object: int | UserTask,
-    tasks_metadata: pd.DataFrame | None,
-) -> str | None:
-    """Resolve the display name used as the results ``dataset`` key from metadata.
-
-    When ``tasks_metadata`` carries a name column (``dataset`` or ``name``) keyed
-    by a task-id column (``task_id`` or ``tid``), return the matching value so the
-    results join cleanly with ``tasks_metadata`` — matching the behavior of the
-    legacy ``run_experiments``/``ExperimentBatchRunner``. Returns ``None`` when no
-    usable mapping is found, in which case the caller derives the name from the
-    task object (OpenML dataset name) or the ``UserTask`` slug.
-    """
-    if tasks_metadata is None:
-        return None
-    id_col = next((c for c in ("task_id", "tid") if c in tasks_metadata.columns), None)
-    name_col = next((c for c in ("dataset", "name") if c in tasks_metadata.columns), None)
-    if id_col is None or name_col is None:
-        return None
-    t_id = task_id_or_object.task_id_str if isinstance(task_id_or_object, UserTask) else str(task_id_or_object)
-    matches = tasks_metadata[tasks_metadata[id_col].astype(str) == t_id]
-    if matches.empty:
-        return None
-    return str(matches.iloc[0][name_col])
-
-
 def _build_cache_prefix(
     *,
     method_name: str,
