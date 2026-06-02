@@ -156,8 +156,6 @@ class ExperimentBatchRunner:
             model_experiments=methods,
             tasks=tids,
             tasks_metadata=self.task_metadata,
-            # Legacy behavior: the results `dataset` key comes from the metadata.
-            use_metadata_task_name=True,
             repetitions_mode="individual",
             repetitions_mode_args=fold_repeat_pairs,
             cache_mode=cache_mode,

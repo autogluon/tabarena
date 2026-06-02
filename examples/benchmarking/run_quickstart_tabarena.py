@@ -78,5 +78,5 @@ if __name__ == "__main__":
         use_model_results=True,  # If False: Will instead use the ensemble/HPO results
         new_result_prefix="Demo_",
     )
-    leaderboard_website = format_leaderboard(df_leaderboard=leaderboard)
+    leaderboard_website = tabarena_context.leaderboard_to_website_format(leaderboard)
     print(leaderboard_website.to_markdown(index=False))

@@ -225,14 +225,20 @@ class MethodMetadata:
                 display_name = method
             else:
                 assert isinstance(config_type, str)
-                display_name = config_type
+                if method_subtype is None:
+                    display_name = method
+                else:
+                    display_name = config_type
 
         name_suffix = None
         if method_type in ["config", "hpo"]:
-            assert method_subtype in subtype_to_suffix_map, (
-                f"Unknown {method_subtype=}. Valid values: {list(subtype_to_suffix_map.keys())}"
-            )
-            name_suffix = subtype_to_suffix_map[method_subtype]
+            if method_subtype is None:
+                name_suffix = None
+            else:
+                assert method_subtype in subtype_to_suffix_map, (
+                    f"Unknown {method_subtype=}. Valid values: {list(subtype_to_suffix_map.keys())}"
+                )
+                name_suffix = subtype_to_suffix_map[method_subtype]
         if name_suffix:
             display_name = display_name + name_suffix
         return display_name
