@@ -4,13 +4,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from tabarena.benchmark.experiment.experiment_constructor import Experiment
-from tabarena.benchmark.result import BaselineResult, ExperimentResults
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy, CacheFunctionPickle
 
 if TYPE_CHECKING:
     import pandas as pd
-
-    from tabarena.repository import EvaluationRepository
 
 
 # TODO: Inspect artifact folder to load all results without needing to specify them explicitly
@@ -131,9 +128,6 @@ class ExperimentBatchRunner:
         self._validate_folds(folds=folds)
         self._validate_repeats(repeats=repeats)
 
-        # Lazy import to avoid a circular import (experiment_runner_api imports this module).
-        from tabarena.benchmark.experiment.experiment_runner_api import run_experiments_new
-
         tids = [int(self._dataset_to_tid_dict[dataset]) for dataset in datasets]
 
         # Translate folds/repeats into explicit (fold, repeat) pairs run for every task.
@@ -143,6 +137,132 @@ class ExperimentBatchRunner:
             fold_repeat_pairs = [(fold, 0) for fold in folds]
         else:
             fold_repeat_pairs = [(fold, repeat) for repeat in repeats for fold in folds]
+
+        return self._run_individual(
+            methods=methods,
+            tids=tids,
+            repetitions_mode_args=fold_repeat_pairs,
+            ignore_cache=ignore_cache,
+            raise_on_failure=raise_on_failure,
+        )
+
+    def run_dataset_fold_repeats(
+        self,
+        methods: list[Experiment],
+        dataset_fold_repeats: list[tuple[str, int, int]],
+        ignore_cache: bool = False,
+        raise_on_failure: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Run an explicit list of (dataset, fold, repeat) tasks.
+
+        Unlike `run`, which runs the cartesian product of `datasets` x `folds` x
+        `repeats`, this runs exactly the (dataset, fold, repeat) triples provided.
+
+        Parameters
+        ----------
+
+        Methods:
+        dataset_fold_repeats: list[tuple[str, int, int]]
+            The (dataset, fold, repeat) triples to run. Must not contain duplicates.
+        ignore_cache: bool, default False
+            If True, will run the experiments regardless if the cache exists already, and will overwrite the cache file upon completion.
+            If False, will load the cache result if it exists for a given experiment, rather than running the experiment again.
+        raise_on_failure
+
+        Returns:
+        -------
+        results_lst: list[dict[str, Any]]
+            A list of experiment run metadata dictionaries.
+            Can pass into `exp_bach_runner.repo_from_results(results_lst=results_lst)` to generate an EvaluationRepository.
+
+        """
+        if len(dataset_fold_repeats) != len(set(dataset_fold_repeats)):
+            raise AssertionError("Duplicate (dataset, fold, repeat) triples present! Ensure all triples are unique.")
+
+        # Group the (fold, repeat) pairs by dataset, preserving first-seen order, so each
+        # task gets its own list of pairs (the per-task "individual" arg format).
+        pairs_per_dataset: dict[str, list[tuple[int, int]]] = {}
+        for dataset, fold, repeat in dataset_fold_repeats:
+            pairs_per_dataset.setdefault(dataset, []).append((fold, repeat))
+
+        datasets = list(pairs_per_dataset.keys())
+        self._validate_datasets(datasets=datasets)
+
+        tids = [int(self._dataset_to_tid_dict[dataset]) for dataset in datasets]
+        repetitions_mode_args = [pairs_per_dataset[dataset] for dataset in datasets]
+
+        return self._run_individual(
+            methods=methods,
+            tids=tids,
+            repetitions_mode_args=repetitions_mode_args,
+            ignore_cache=ignore_cache,
+            raise_on_failure=raise_on_failure,
+        )
+
+    def run_all(
+        self,
+        methods: list[Experiment],
+        ignore_cache: bool = False,
+        raise_on_failure: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Run every (dataset, fold, repeat) dictated by `task_metadata`.
+
+        For each dataset, runs all folds in `range(n_folds)` x repeats in
+        `range(n_repeats)`, taken from the `n_folds` and `n_repeats` columns of
+        `task_metadata`. Delegates to `run_dataset_fold_repeats`.
+
+        Parameters
+        ----------
+
+        Methods:
+        ignore_cache: bool, default False
+            If True, will run the experiments regardless if the cache exists already, and will overwrite the cache file upon completion.
+            If False, will load the cache result if it exists for a given experiment, rather than running the experiment again.
+        raise_on_failure
+
+        Returns:
+        -------
+        results_lst: list[dict[str, Any]]
+            A list of experiment run metadata dictionaries.
+            Can pass into `exp_bach_runner.repo_from_results(results_lst=results_lst)` to generate an EvaluationRepository.
+
+        """
+        for col in ("dataset", "n_folds", "n_repeats"):
+            if col not in self.task_metadata.columns:
+                raise AssertionError(f"`task_metadata` must contain the column '{col}' to use `run_all`.")
+
+        metadata = self.task_metadata.drop_duplicates(subset="dataset")
+        dataset_fold_repeats: list[tuple[str, int, int]] = []
+        for dataset, n_folds, n_repeats in zip(
+            metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
+        ):
+            for repeat in range(int(n_repeats)):
+                for fold in range(int(n_folds)):
+                    dataset_fold_repeats.append((dataset, fold, repeat))
+
+        return self.run_dataset_fold_repeats(
+            methods=methods,
+            dataset_fold_repeats=dataset_fold_repeats,
+            ignore_cache=ignore_cache,
+            raise_on_failure=raise_on_failure,
+        )
+
+    def _run_individual(
+        self,
+        methods: list[Experiment],
+        tids: list[int],
+        repetitions_mode_args: list,
+        ignore_cache: bool,
+        raise_on_failure: bool,
+    ) -> list[dict[str, Any]]:
+        """Invoke `run_experiments_new` in 'individual' repetitions mode.
+
+        `repetitions_mode_args` is either a single list of (fold, repeat) pairs applied
+        to every task, or one (fold, repeat) list per task (aligned with `tids`). See
+        `run_experiments_new` for the 'individual' arg format.
+        """
+        # Lazy import to avoid a circular import (experiment_runner_api imports this module).
+        from tabarena.benchmark.experiment.experiment_runner_api import run_experiments_new
 
         if self.only_cache:
             cache_mode = "only"
@@ -157,7 +277,7 @@ class ExperimentBatchRunner:
             tasks=tids,
             tasks_metadata=self.task_metadata,
             repetitions_mode="individual",
-            repetitions_mode_args=fold_repeat_pairs,
+            repetitions_mode_args=repetitions_mode_args,
             cache_mode=cache_mode,
             # Forward the configured cache backend. The default `cache_cls_kwargs`
             # carries `include_self_in_call=True`, preserving the legacy
