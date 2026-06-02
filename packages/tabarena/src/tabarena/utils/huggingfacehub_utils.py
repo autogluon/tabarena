@@ -1,19 +1,22 @@
+from __future__ import annotations
+
 import os
 from pathlib import Path
+
 from huggingface_hub import HfApi
 from tqdm import tqdm
 
 from tabarena.utils.result_utils import results_path
 
+
 def upload_hugging_face(
-        version: str,
-        repo_id: str,
-        local_dir: Path | None = None,
-        override_existing_files: bool = True,
-        continue_in_case_of_error: bool = True
+    version: str,
+    repo_id: str,
+    local_dir: Path | None = None,
+    override_existing_files: bool = True,
+    continue_in_case_of_error: bool = True,
 ):
-    """
-    Uploads tabrepo data to Hugging Face repository.
+    """Uploads tabrepo data to Hugging Face repository.
     You should set your env variable HF_TOKEN and ask write access to tabrepo before using the script.
 
     Args:
@@ -22,41 +25,49 @@ def upload_hugging_face(
         repo_id (str): The ID of the Hugging Face repository.
         local_dir (Path): path to load datasets, use tabrepo default if not specified
         override_existing_files (bool): Whether to re-upload files if they are already found in HuggingFace.
+
     Returns:
         None
     """
-    commit_message = f"Upload tabrepo new version"
-    if local_dir is None:
-        local_dir = str(results_path())
-    else:
-        local_dir = str(local_dir)
+    commit_message = "Upload tabrepo new version"
+    local_dir = str(results_path()) if local_dir is None else str(local_dir)
 
     for filename in ["baselines.parquet", "configs.parquet", "model_predictions"]:
-        assert (root / filename).exists(), f"Expected to found {filename} but could not be found in {root / filename}."
+        assert (root / filename).exists(), f"Expected to found {filename} but could not be found in {root / filename}."  # noqa: F821
     api = HfApi()
     for filename in ["baselines.parquet", "configs.parquet"]:
         path_in_repo = str(Path(version) / filename)
-        if api.file_exists(repo_id=repo_id, filename=path_in_repo, token=os.getenv("HF_TOKEN"), repo_type="dataset") and not override_existing_files:
+        if (
+            api.file_exists(repo_id=repo_id, filename=path_in_repo, token=os.getenv("HF_TOKEN"), repo_type="dataset")
+            and not override_existing_files
+        ):
             print(f"Skipping {path_in_repo} which already exists in the repo.")
             continue
 
         api.upload_file(
-            path_or_fileobj=root / filename,
+            path_or_fileobj=root / filename,  # noqa: F821
             path_in_repo=path_in_repo,
             repo_id=repo_id,
             repo_type="dataset",
             commit_message=commit_message,
             token=os.getenv("HF_TOKEN"),
         )
-    files = list(sorted(Path(root / "model_predictions").glob("*")))
+    files = sorted(Path(root / "model_predictions").glob("*"))  # noqa: F821
     for dataset_path in tqdm(files):
         print(dataset_path)
         try:
             path_in_repo = str(Path(version) / "model_predictions" / dataset_path.name)
             # ideally, we would just check if the folder exists but it is not possible AFAIK, we could alternatively
             # upload per file but it would create a lot of different commits.
-            if api.file_exists(repo_id=repo_id, filename=str(Path(path_in_repo) / "0" / "metadata.json"), token=os.getenv("HF_TOKEN"),
-                               repo_type="dataset") and not override_existing_files:
+            if (
+                api.file_exists(
+                    repo_id=repo_id,
+                    filename=str(Path(path_in_repo) / "0" / "metadata.json"),
+                    token=os.getenv("HF_TOKEN"),
+                    repo_type="dataset",
+                )
+                and not override_existing_files
+            ):
                 print(f"Skipping {path_in_repo} which already exists in the repo.")
                 continue
             api.upload_folder(
@@ -76,14 +87,13 @@ def upload_hugging_face(
 
 
 def download_from_huggingface(
-        version: str = "2023_11_14",
-        force_download: bool = False,
-        local_files_only: bool = False,
-        datasets: list[str] | None = None,
-        local_dir: str | Path = None,
+    version: str = "2023_11_14",
+    force_download: bool = False,
+    local_files_only: bool = False,
+    datasets: list[str] | None = None,
+    local_dir: str | Path | None = None,
 ):
-    """
-    :param version: name of a tabrepo version such as `2023_11_14`
+    """:param version: name of a tabrepo version such as `2023_11_14`
     :param local_files_only: whether to use local files with no internet check on the Hub
     :param force_download: forces files to be downloaded
     :param datasets: list of datasets to download, if not specified all datasets will be downloaded
@@ -93,15 +103,9 @@ def download_from_huggingface(
     """
     # https://huggingface.co/datasets/Tabrepo/tabrepo/tree/main/2023_11_14/model_predictions
     api = HfApi()
-    if local_dir is None:
-        local_dir = str(results_path())
-    else:
-        local_dir = str(local_dir)
+    local_dir = str(results_path()) if local_dir is None else str(local_dir)
     print(f"Going to download tabrepo files to {local_dir}.")
-    if datasets is None:
-        allow_patterns = None
-    else:
-        allow_patterns = [f"*{version}*{d}*" for d in datasets]
+    allow_patterns = None if datasets is None else [f"*{version}*{d}*" for d in datasets]
 
     allow_patterns += [
         "*baselines.parquet",
@@ -118,14 +122,16 @@ def download_from_huggingface(
         force_download=force_download,
         local_files_only=local_files_only,
     )
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     # upload_hugging_face(
     #     version="2023_11_14",
     #     repo_id="tabrepo/tabrepo",
     #     override_existing_files=False,
     # )
     datasets = [
-        'Australian',
+        "Australian",
     ]
     download_from_huggingface(
         datasets=datasets,

@@ -5,11 +5,16 @@ from autogluon.tabular.models import NNFastAiTabularModel
 
 from tabarena.utils.config_utils import ConfigGenerator
 
-
 search_space = {
     # See docs: https://docs.fast.ai/tabular.learner.html
     "layers": Categorical(
-        [200], [400], [200, 100], [400, 200], [800, 400], [200, 100, 50], [400, 200, 100]
+        [200],
+        [400],
+        [200, 100],
+        [400, 200],
+        [800, 400],
+        [200, 100, 50],
+        [400, 200, 100],
     ),
     "emb_drop": Real(0.0, 0.7, default=0.1),
     "ps": Real(0.0, 0.7, default=0.1),
@@ -28,6 +33,8 @@ gen_fastai = ConfigGenerator(
 
 def generate_configs_fastai(num_random_configs=200):
     config_generator = ConfigGenerator(
-        name="NeuralNetFastAI", manual_configs=[{}], search_space=search_space
+        name="NeuralNetFastAI",
+        manual_configs=[{}],
+        search_space=search_space,
     )
     return config_generator.generate_all_configs(num_random_configs=num_random_configs)

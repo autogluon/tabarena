@@ -48,7 +48,8 @@ for task_id in task_ids:
     for repeat in range(tabarena_repeats):
         for fold in range(folds):
             X, y, categorical_indicator, attribute_names = dataset.get_data(
-                target=task.target_name, dataset_format="dataframe"
+                target=task.target_name,
+                dataset_format="dataframe",
             )
             train_indices, test_indices = task.get_train_test_split_indices(fold=fold, repeat=repeat)
             X_train = X.iloc[train_indices]

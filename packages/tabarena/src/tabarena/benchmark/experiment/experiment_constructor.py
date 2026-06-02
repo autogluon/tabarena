@@ -3,25 +3,26 @@ from __future__ import annotations
 import copy
 import importlib
 import inspect
-from typing import Any, Type
+from typing import TYPE_CHECKING, Any, Self
 
 import yaml
-from typing_extensions import Self
 
-from autogluon.core.models import AbstractModel
-
-from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel
-from tabarena.benchmark.models.wrapper.AutoGluon_class import AGWrapper, AGSingleWrapper, AGSingleBagWrapper
-from tabarena.benchmark.models.wrapper.ag_model import AGModelWrapper
 from tabarena.benchmark.experiment.experiment_runner import ExperimentRunner, OOFExperimentRunner
 from tabarena.benchmark.models.model_registry import infer_model_cls
+from tabarena.benchmark.models.wrapper.ag_model import AGModelWrapper
+from tabarena.benchmark.models.wrapper.AutoGluon_class import AGSingleBagWrapper, AGSingleWrapper, AGWrapper
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy
-from tabarena.benchmark.task.openml import OpenMLTaskWrapper
-from tabarena.benchmark.task.metadata import GroupLabelTypes, SplitTimeHorizonTypes, SplitTimeHorizonUnitTypes
+
+if TYPE_CHECKING:
+    from autogluon.core.models import AbstractModel
+
+    from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel
+    from tabarena.benchmark.task.metadata import GroupLabelTypes, SplitTimeHorizonTypes, SplitTimeHorizonUnitTypes
+    from tabarena.benchmark.task.openml import OpenMLTaskWrapper
+
 
 class Experiment:
-    """
-    Experiment contains a method and the logic to run it on any task.
+    """Experiment contains a method and the logic to run it on any task.
     Experiment is fully generic, and can accept any method_cls so long as it inherits from `AbstractExecModel`.
 
     Parameters
@@ -49,7 +50,7 @@ class Experiment:
         params = sig.parameters
         _args = copy.deepcopy(args)
         _kwargs = copy.deepcopy(kwargs)
-        arg_names = [param.name for param in params.values() if param.name != 'self']
+        arg_names = [param.name for param in params.values() if param.name != "self"]
         for i, arg in enumerate(_args):
             arg_name = arg_names[i]
             assert arg_name not in kwargs
@@ -62,18 +63,17 @@ class Experiment:
     def to_yaml_dict(self) -> dict:
         locals = self._locals
         locals_new = self._to_yaml_dict(locals=locals)
-        assert "type" not in locals_new, f"The `type` key is reserved for the class name."
-        locals_new = dict(
+        assert "type" not in locals_new, "The `type` key is reserved for the class name."
+        return dict(
             type=class_to_path(self.__class__),
             **locals_new,
         )
-        return locals_new
 
     def to_yaml(self, path: str):
         assert path.endswith(".yaml")
 
         yaml_out = self.to_yaml_dict()
-        with open(path, 'w') as outfile:
+        with open(path, "w") as outfile:
             yaml.dump(yaml_out, outfile, default_flow_style=False)
 
     def to_yaml_str(self) -> str:
@@ -98,17 +98,16 @@ class Experiment:
         if "experiment_cls" in kwargs:
             kwargs["experiment_cls"] = resolve_class(kwargs["experiment_cls"], context=_context)
 
-        obj = cls(method_cls=method_cls, **kwargs)
-        return obj
+        return cls(method_cls=method_cls, **kwargs)
 
     def __init__(
         self,
         name: str,
-        method_cls: Type[AbstractExecModel],
+        method_cls: type[AbstractExecModel],
         method_kwargs: dict,
         *,
-        experiment_cls: Type[ExperimentRunner] = OOFExperimentRunner,
-        experiment_kwargs: dict = None,
+        experiment_cls: type[ExperimentRunner] = OOFExperimentRunner,
+        experiment_kwargs: dict | None = None,
         preprocessing_pipeline: str | None = None,
         dynamic_tabarena_validation_protocol: bool = False,
     ):
@@ -200,7 +199,7 @@ class Experiment:
             resolved.method_kwargs["fit_kwargs"]["feature_generator_cls"] = TabArenaModelAgnosticPreprocessing
             resolved.method_kwargs["fit_kwargs"]["feature_generator_kwargs"] = {}
             resolved.method_kwargs["model_hyperparameters"] = TabArenaModelSpecificPreprocessing.add_to_hyperparameters(
-                resolved.method_kwargs["model_hyperparameters"]
+                resolved.method_kwargs["model_hyperparameters"],
             )
             return resolved
 
@@ -264,19 +263,19 @@ class Experiment:
         return method_kwargs
 
     def load_validation_split_metadata(
-            self,
-            *,
-            use_task_specific_validation: bool,
-            target_name: str | None = None,
-            stratify_on: str | None = None,
-            group_on: str | list[str] | None = None,
-            time_on: str | None = None,
-            group_time_on: str | None = None,
-            group_labels: GroupLabelTypes | None = None,
-            split_time_horizon: SplitTimeHorizonTypes | None = None,
-            split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
-            overwrite_existing: bool = False,
-        ) -> None:
+        self,
+        *,
+        use_task_specific_validation: bool,
+        target_name: str | None = None,
+        stratify_on: str | None = None,
+        group_on: str | list[str] | None = None,
+        time_on: str | None = None,
+        group_time_on: str | None = None,
+        group_labels: GroupLabelTypes | None = None,
+        split_time_horizon: SplitTimeHorizonTypes | None = None,
+        split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
+        overwrite_existing: bool = False,
+    ) -> None:
         """Load validation split metadata into the experiment's method_kwargs.
 
         Parameter
@@ -304,7 +303,7 @@ class Experiment:
             If True, will overwrite existing validation split metadata in method_kwargs.
         """
         print(
-            "Loading validation split metadata into experiment:"\
+            "Loading validation split metadata into experiment:"
             f"\n\tUse task specific validation: {use_task_specific_validation}"
             f"\n\ttarget_name: {target_name}"
             f"\n\tstratify_on: {stratify_on}"
@@ -313,7 +312,7 @@ class Experiment:
             f"\n\tsplit_time_horizon_unit: {split_time_horizon_unit}"
             f"\n\tgroup_on: {group_on}"
             f"\n\tgroup_time_on: {group_time_on}"
-            f"\n\tgroup_labels: {group_labels}"
+            f"\n\tgroup_labels: {group_labels}",
         )
         params = {
             "use_task_specific_validation": use_task_specific_validation,
@@ -330,29 +329,29 @@ class Experiment:
         for key, value in params.items():
             if (not overwrite_existing) and (key in self.method_kwargs):
                 print(
-                    f"{key} already exists, using existing value: "
-                    f"\n\t{self.method_kwargs[key]}"
+                    f"{key} already exists, using existing value: \n\t{self.method_kwargs[key]}",
                 )
             else:
                 self.method_kwargs[key] = value
 
+
 class AGModelOuterExperiment(Experiment):
-    """
-    Simplified Experiment class
+    """Simplified Experiment class
     for fitting a single model using AutoGluon without doing a train/val split,
     simply passing all data as X, y into `model_cls.fit`.
 
     This can be useful to benchmark methods that don't perform fine-tuning,
     such as TabPFNv2 and TabICL, where they instead want to use all the data for training.
     """
+
     def __init__(
         self,
         name: str,
-        model_cls: Type[AbstractModel],
+        model_cls: type[AbstractModel],
         model_hyperparameters: dict,
         *,
-        method_kwargs: dict = None,
-        experiment_kwargs: dict = None,
+        method_kwargs: dict | None = None,
+        experiment_kwargs: dict | None = None,
     ):
         if method_kwargs is None:
             method_kwargs = {}
@@ -379,16 +378,14 @@ class AGModelOuterExperiment(Experiment):
         )
 
         # Evaluate all values in ag_args_fit
-        if "model_hyperparameters" in kwargs:
-            if "ag_args_fit" in kwargs["model_hyperparameters"]:
-                for key, value in kwargs["model_hyperparameters"]["ag_args_fit"].items():
-                    if isinstance(value, str):
-                        try:
-                            kwargs["model_hyperparameters"]["ag_args_fit"][key] = eval(value, _context)
-                        except NameError:
-                            pass  # If eval fails, keep the original string value
-        obj = cls(model_cls=model_cls, **kwargs)
-        return obj
+        if "model_hyperparameters" in kwargs and "ag_args_fit" in kwargs["model_hyperparameters"]:
+            for key, value in kwargs["model_hyperparameters"]["ag_args_fit"].items():
+                if isinstance(value, str):
+                    try:
+                        kwargs["model_hyperparameters"]["ag_args_fit"][key] = eval(value, _context)  # noqa: S307
+                    except NameError:
+                        pass  # If eval fails, keep the original string value
+        return cls(model_cls=model_cls, **kwargs)
 
 
 class AGExperiment(Experiment):
@@ -430,14 +427,13 @@ class AGExperiment(Experiment):
         locals = copy.deepcopy(locals)
         items = list(locals.items())
         for k, v in items:
-            if k == "fit_kwargs":
-                if "hyperparameters" in v and isinstance(v["hyperparameters"], dict):
-                    hyperparameters = v["hyperparameters"]
-                    keys = list(hyperparameters.keys())
-                    for model in keys:
-                        if inspect.isclass(model):
-                            val = locals["fit_kwargs"]["hyperparameters"].pop(model)
-                            locals["fit_kwargs"]["hyperparameters"][model.ag_key] = val
+            if k == "fit_kwargs" and "hyperparameters" in v and isinstance(v["hyperparameters"], dict):
+                hyperparameters = v["hyperparameters"]
+                keys = list(hyperparameters.keys())
+                for model in keys:
+                    if inspect.isclass(model):
+                        val = locals["fit_kwargs"]["hyperparameters"].pop(model)
+                        locals["fit_kwargs"]["hyperparameters"][model.ag_key] = val
         return locals
 
     @classmethod
@@ -445,30 +441,28 @@ class AGExperiment(Experiment):
         if _context is None:
             _context = globals()
         from tabarena.benchmark.models.model_registry import tabarena_model_registry
+
         tabarena_model_keys = tabarena_model_registry.keys
 
         if "experiment_cls" in kwargs:
-            kwargs["experiment_cls"] = eval(kwargs["experiment_cls"], _context)
-        if "fit_kwargs" in kwargs:
-            if "hyperparameters" in kwargs["fit_kwargs"]:
-                if isinstance(kwargs["fit_kwargs"]["hyperparameters"], dict):
-                    hyperparameters = kwargs["fit_kwargs"]["hyperparameters"]
-                    keys = list(hyperparameters.keys())
-                    for model in keys:
-                        if model in tabarena_model_keys:
-                            val = kwargs["fit_kwargs"]["hyperparameters"].pop(model)
-                            kwargs["fit_kwargs"]["hyperparameters"][tabarena_model_registry.key_to_cls(model)] = val
-        obj = cls(**kwargs)
-        return obj
+            kwargs["experiment_cls"] = eval(kwargs["experiment_cls"], _context)  # noqa: S307
+        if "fit_kwargs" in kwargs and "hyperparameters" in kwargs["fit_kwargs"]:
+            if isinstance(kwargs["fit_kwargs"]["hyperparameters"], dict):
+                hyperparameters = kwargs["fit_kwargs"]["hyperparameters"]
+                keys = list(hyperparameters.keys())
+                for model in keys:
+                    if model in tabarena_model_keys:
+                        val = kwargs["fit_kwargs"]["hyperparameters"].pop(model)
+                        kwargs["fit_kwargs"]["hyperparameters"][tabarena_model_registry.key_to_cls(model)] = val
+        return cls(**kwargs)
 
 
 # convenience wrapper
 class AGModelExperiment(Experiment):
-    """
-    Simplified Experiment class specifically for fitting a single model using AutoGluon.
+    """Simplified Experiment class specifically for fitting a single model using AutoGluon.
     The following arguments are fixed:
         method_cls = AGSingleWrapper
-        experiment_cls = OOFExperimentRunner
+        experiment_cls = OOFExperimentRunner.
 
     Parameters
     ----------
@@ -492,19 +486,20 @@ class AGModelExperiment(Experiment):
     experiment_kwargs: dict, optional
         The kwargs passed to the init of `experiment_cls`.
     """
+
     _method_cls = AGSingleWrapper
     _experiment_cls = OOFExperimentRunner
 
     def __init__(
         self,
         name: str,
-        model_cls: Type[AbstractModel],
+        model_cls: type[AbstractModel],
         model_hyperparameters: dict,
         *,
         time_limit: float | None = None,
         raise_on_model_failure: bool = True,
-        method_kwargs: dict = None,
-        experiment_kwargs: dict = None,
+        method_kwargs: dict | None = None,
+        experiment_kwargs: dict | None = None,
         time_limit_with_preprocessing: bool = False,
         preprocessing_pipeline: str | None = None,
         dynamic_tabarena_validation_protocol: bool = False,
@@ -516,8 +511,9 @@ class AGModelExperiment(Experiment):
             assert isinstance(time_limit, (float, int))
             assert time_limit > 0
         if "fit_kwargs" in method_kwargs:
-            assert "time_limit" not in method_kwargs["fit_kwargs"], \
+            assert "time_limit" not in method_kwargs["fit_kwargs"], (
                 f"Set `time_limit` directly in {self.__class__.__name__} rather than in `fit_kwargs`"
+            )
         assert isinstance(model_hyperparameters, dict)
         if "fit_kwargs" not in method_kwargs:
             method_kwargs["fit_kwargs"] = {}
@@ -525,9 +521,12 @@ class AGModelExperiment(Experiment):
             if time_limit_with_preprocessing:
                 method_kwargs["fit_kwargs"]["time_limit"] = time_limit
             else:
-                model_hyperparameters = self._insert_time_limit(model_hyperparameters=model_hyperparameters, time_limit=time_limit, method_kwargs=method_kwargs)
-        assert "raise_on_model_failure" not in method_kwargs["fit_kwargs"], \
+                model_hyperparameters = self._insert_time_limit(
+                    model_hyperparameters=model_hyperparameters, time_limit=time_limit, method_kwargs=method_kwargs
+                )
+        assert "raise_on_model_failure" not in method_kwargs["fit_kwargs"], (
             f"Set `raise_on_model_failure` directly in {self.__class__.__name__} rather than in `fit_kwargs`"
+        )
         method_kwargs["fit_kwargs"]["raise_on_model_failure"] = raise_on_model_failure
         super().__init__(
             name=name,
@@ -544,8 +543,7 @@ class AGModelExperiment(Experiment):
         )
 
     def _to_yaml_dict(self, locals: dict) -> dict:
-        """
-        Serialize model_cls as an import path so custom/unregistered classes can
+        """Serialize model_cls as an import path so custom/unregistered classes can
         be loaded without requiring TabArena registry registration.
         """
         locals = copy.deepcopy(locals)
@@ -563,16 +561,14 @@ class AGModelExperiment(Experiment):
         )
 
         # Evaluate all values in ag_args_fit
-        if "model_hyperparameters" in kwargs:
-            if "ag_args_fit" in kwargs["model_hyperparameters"]:
-                for key, value in kwargs["model_hyperparameters"]["ag_args_fit"].items():
-                    if isinstance(value, str):
-                        try:
-                            kwargs["model_hyperparameters"]["ag_args_fit"][key] = eval(value, _context)
-                        except NameError:
-                            pass  # If eval fails, keep the original string value
-        obj = cls(model_cls=model_cls, **kwargs)
-        return obj
+        if "model_hyperparameters" in kwargs and "ag_args_fit" in kwargs["model_hyperparameters"]:
+            for key, value in kwargs["model_hyperparameters"]["ag_args_fit"].items():
+                if isinstance(value, str):
+                    try:
+                        kwargs["model_hyperparameters"]["ag_args_fit"][key] = eval(value, _context)  # noqa: S307
+                    except NameError:
+                        pass  # If eval fails, keep the original string value
+        return cls(model_cls=model_cls, **kwargs)
 
     def _insert_time_limit(self, model_hyperparameters: dict, time_limit: float | None, method_kwargs: dict) -> dict:
         is_bag = False
@@ -582,25 +578,26 @@ class AGModelExperiment(Experiment):
         model_hyperparameters = copy.deepcopy(model_hyperparameters)
         if is_bag:
             if "ag_args_ensemble" in model_hyperparameters:
-                assert "ag.max_time_limit" not in model_hyperparameters["ag_args_ensemble"], \
+                assert "ag.max_time_limit" not in model_hyperparameters["ag_args_ensemble"], (
                     f"Set `time_limit` directly in {self.__class__.__name__} rather than in `ag_args_ensemble`"
+                )
             else:
                 model_hyperparameters["ag_args_ensemble"] = {}
             model_hyperparameters["ag_args_ensemble"]["ag.max_time_limit"] = time_limit
         else:
-            assert "ag.max_time_limit" not in model_hyperparameters, \
+            assert "ag.max_time_limit" not in model_hyperparameters, (
                 f"Set `time_limit` directly in {self.__class__.__name__} rather than in `model_hyperparameters`"
+            )
             model_hyperparameters["ag.max_time_limit"] = time_limit
         return model_hyperparameters
 
 
 # convenience wrapper
 class AGModelBagExperiment(AGModelExperiment):
-    """
-    Simplified Experiment class specifically for fitting a single bagged model using AutoGluon.
+    """Simplified Experiment class specifically for fitting a single bagged model using AutoGluon.
     The following arguments are fixed:
         method_cls = AGSingleWrapper
-        experiment_cls = OOFExperimentRunner
+        experiment_cls = OOFExperimentRunner.
 
     All models fit this way will generate out-of-fold predictions on the entire training set,
     and will be compatible with ensemble simulations in TabArena.
@@ -625,22 +622,23 @@ class AGModelBagExperiment(AGModelExperiment):
     time_limit_with_preprocessing: bool, default False
             If True, time limit also captures the time it takes for preprocessing.
     """
+
     _method_cls = AGSingleBagWrapper
 
     def __init__(
         self,
         name: str,
-        model_cls: Type[AbstractModel],
+        model_cls: type[AbstractModel],
         model_hyperparameters: dict,
         *,
         time_limit: float | None = None,
         num_bag_folds: int = 8,
         num_bag_sets: int = 1,
         raise_on_model_failure: bool = True,
-        method_kwargs: dict = None,
-        experiment_kwargs: dict = None,
+        method_kwargs: dict | None = None,
+        experiment_kwargs: dict | None = None,
         time_limit_with_preprocessing: bool = False,
-        extra_model_hyperparameters: dict = None,
+        extra_model_hyperparameters: dict | None = None,
         preprocessing_pipeline: str | None = None,
         dynamic_tabarena_validation_protocol: bool = False,
     ):
@@ -654,22 +652,30 @@ class AGModelBagExperiment(AGModelExperiment):
             else:
                 extra_model_hyperparameters = {}
         else:
-            assert "extra_model_hyperparameters" not in method_kwargs, "Set only one of `extra_model_hyperparameters` and `method_kwargs['extra_model_hyperparameters']`"
+            assert "extra_model_hyperparameters" not in method_kwargs, (
+                "Set only one of `extra_model_hyperparameters` and `method_kwargs['extra_model_hyperparameters']`"
+            )
         assert isinstance(num_bag_folds, int)
         assert isinstance(num_bag_sets, int)
         assert isinstance(method_kwargs, dict)
         assert num_bag_folds >= 2
         assert num_bag_sets >= 1
         if "fit_kwargs" in method_kwargs:
-            assert "num_bag_folds" not in method_kwargs["fit_kwargs"], f"Set `num_bag_folds` directly in {self.__class__.__name__} rather than in `fit_kwargs`"
-            assert "num_bag_sets" not in method_kwargs["fit_kwargs"], f"Set `num_bag_sets` directly in {self.__class__.__name__} rather than in `fit_kwargs`"
+            assert "num_bag_folds" not in method_kwargs["fit_kwargs"], (
+                f"Set `num_bag_folds` directly in {self.__class__.__name__} rather than in `fit_kwargs`"
+            )
+            assert "num_bag_sets" not in method_kwargs["fit_kwargs"], (
+                f"Set `num_bag_sets` directly in {self.__class__.__name__} rather than in `fit_kwargs`"
+            )
             method_kwargs["fit_kwargs"] = copy.deepcopy(method_kwargs["fit_kwargs"])
         else:
             method_kwargs["fit_kwargs"] = {}
         method_kwargs["fit_kwargs"]["num_bag_folds"] = num_bag_folds
         method_kwargs["fit_kwargs"]["num_bag_sets"] = num_bag_sets
         if "model_hyperparameters" in method_kwargs:
-            assert "model_hyperparameters" in method_kwargs["model_hyperparameters"], f"model_hyperparameters should be passed directly to AGModelBagExperiment rather than in method_kwargs"
+            assert "model_hyperparameters" in method_kwargs["model_hyperparameters"], (
+                "model_hyperparameters should be passed directly to AGModelBagExperiment rather than in method_kwargs"
+            )
             model_hyperparameters = copy.deepcopy(model_hyperparameters)
             del method_kwargs["model_hyperparameters"]
         if extra_model_hyperparameters is not None:
@@ -700,8 +706,7 @@ class AGModelBagExperiment(AGModelExperiment):
 class YamlSingleExperimentSerializer:
     @classmethod
     def parse_method(cls, method_config: dict, context=None) -> Experiment:
-        """
-        Parse a method configuration dictionary and return an instance of the method class.
+        """Parse a method configuration dictionary and return an instance of the method class.
         This function evaluates the 'type' field in the method_config to determine the class to instantiate.
         It also evaluates any string values in the configuration that are meant to be Python expressions.
         """
@@ -714,27 +719,24 @@ class YamlSingleExperimentSerializer:
         method_type_raw = method_config.pop("type")
         method_type = resolve_class(method_type_raw, context=context)
 
-        method_obj = method_type.from_yaml(**method_config, _context=context)
-        return method_obj
+        return method_type.from_yaml(**method_config, _context=context)
 
     @classmethod
     def from_yaml(cls, path: str, context=None) -> Experiment:
         yaml_out = cls.load_yaml(path=path)
-        experiment = cls.parse_method(yaml_out, context=context)
-        return experiment
+        return cls.parse_method(yaml_out, context=context)
 
     @classmethod
     def load_yaml(cls, path: str) -> dict:
         assert path.endswith(".yaml")
-        with open(path, 'r') as file:
-            yaml_out = yaml.safe_load(file)
-        return yaml_out
+        with open(path) as file:
+            return yaml.safe_load(file)
 
     @classmethod
     def to_yaml(cls, experiment: Experiment, path: str):
         assert path.endswith(".yaml")
         yaml_out = cls._to_yaml_format(experiment=experiment)
-        with open(path, 'w') as outfile:
+        with open(path, "w") as outfile:
             yaml.dump(yaml_out, outfile, default_flow_style=False)
 
     @classmethod
@@ -764,16 +766,16 @@ class YamlExperimentSerializer:
                 continue
             experiments.append(
                 YamlSingleExperimentSerializer.parse_method(
-                    experiment, context=context
-                )
+                    experiment,
+                    context=context,
+                ),
             )
 
         return experiments
 
     @classmethod
     def from_yaml_str(cls, yaml_str: str, context=None) -> list[Experiment]:
-        """
-        Parse a YAML string containing multiple experiment definitions
+        """Parse a YAML string containing multiple experiment definitions
         and return a list of Experiment instances.
         """
         yaml_out = yaml.safe_load(yaml_str)
@@ -783,8 +785,9 @@ class YamlExperimentSerializer:
         for experiment in methods:
             experiments.append(
                 YamlSingleExperimentSerializer.parse_method(
-                    experiment, context=context
-                )
+                    experiment,
+                    context=context,
+                ),
             )
 
         return experiments
@@ -793,7 +796,7 @@ class YamlExperimentSerializer:
     def load_yaml(cls, path: str) -> list[dict]:
         assert path.endswith(".yaml")
 
-        with open(path, 'r') as file:
+        with open(path) as file:
             yaml_out = yaml.safe_load(file)
         return yaml_out["methods"]
 
@@ -801,7 +804,7 @@ class YamlExperimentSerializer:
     def to_yaml(cls, experiments: list[Experiment], path: str):
         assert path.endswith(".yaml")
         yaml_out = cls._to_yaml_format(experiments=experiments)
-        with open(path, 'w') as outfile:
+        with open(path, "w") as outfile:
             yaml.dump(yaml_out, outfile, default_flow_style=False)
 
     @classmethod
@@ -818,10 +821,9 @@ class YamlExperimentSerializer:
 
 
 def class_to_path(cls: type) -> str:
-    """
-    Serialize a class to a stable import path.
+    """Serialize a class to a stable import path.
 
-    Example
+    Example:
     -------
     autogluon.tabular.models.TabPFNv3preModel
     """
@@ -829,10 +831,9 @@ def class_to_path(cls: type) -> str:
 
 
 def import_class(path: str) -> type:
-    """
-    Import a class from a fully qualified import path.
+    """Import a class from a fully qualified import path.
 
-    Example
+    Example:
     -------
     autogluon.tabular.models.TabPFNv3preModel
     """
@@ -858,12 +859,11 @@ def resolve_class(
     context: dict | None = None,
     registry_resolver=None,
 ) -> type:
-    """
-    Resolve a class from:
+    """Resolve a class from:
     1. an already-materialized class
     2. context/globals
     3. registry resolver, such as infer_model_cls
-    4. fully qualified import path
+    4. fully qualified import path.
     """
     if inspect.isclass(value):
         return value
@@ -879,7 +879,7 @@ def resolve_class(
     if registry_resolver is not None:
         try:
             return registry_resolver(value)
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
     return import_class(value)

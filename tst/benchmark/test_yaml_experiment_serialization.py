@@ -37,12 +37,11 @@ def _init_memory_fs(monkeypatch):
 
             buf.close = _close_and_persist  # type: ignore[assignment]
             return buf
-        elif "r" in mode:
+        if "r" in mode:
             if path not in fs:
                 raise FileNotFoundError(path)
             return io.StringIO(fs[path])
-        else:
-            raise ValueError(f"Unsupported mode: {mode}")
+        raise ValueError(f"Unsupported mode: {mode}")
 
     # Patch builtins.open and os.path.exists so the serializers think the file is there.
     monkeypatch.setattr("builtins.open", mem_open, raising=True)
@@ -50,9 +49,7 @@ def _init_memory_fs(monkeypatch):
 
 
 def test_yaml_experiment_serialization(monkeypatch):
-    """
-    Verify that saving and loading experiments to/from yaml results in no changes to the object.
-    """
+    """Verify that saving and loading experiments to/from yaml results in no changes to the object."""
     # patch so no file is created on disk
     _init_memory_fs(monkeypatch=monkeypatch)
 
@@ -73,6 +70,6 @@ def test_yaml_experiment_serialization(monkeypatch):
     YamlExperimentSerializer.to_yaml(experiments=[experiment_default], path=yaml_path)
     experiments_loaded = YamlExperimentSerializer.from_yaml(path=yaml_path)
 
-    for cur_exp, cur_exp_loaded in zip(experiments_realmlp, experiments_loaded):
+    for cur_exp, cur_exp_loaded in zip(experiments_realmlp, experiments_loaded, strict=False):
         assert cur_exp.__class__ == cur_exp_loaded.__class__
         assert cur_exp.__dict__ == cur_exp_loaded.__dict__

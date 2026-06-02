@@ -82,7 +82,7 @@ def load_tabarena_v0_1_task_metadata(curated_metadata: pd.DataFrame) -> list[Tab
                         num_classes_test=num_classes,
                         num_features_train=num_features,
                         num_features_test=num_features,
-                    )
+                    ),
                 }
 
                 task_metadata.append(
@@ -117,7 +117,7 @@ def load_tabarena_v0_1_task_metadata(curated_metadata: pd.DataFrame) -> list[Tab
                         domain=domain,
                         dataset_year=dataset_year,
                         source=data_source,
-                    )
+                    ),
                 )
     return task_metadata
 

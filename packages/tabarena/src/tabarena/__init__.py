@@ -1,4 +1,6 @@
-from .repository.evaluation_repository import EvaluationRepository
-from .repository.evaluation_repository_collection import EvaluationRepositoryCollection
+from __future__ import annotations
+
 from .evaluation.evaluator import Evaluator
 from .nips2025_utils.tabarena_context import TabArenaContext
+from .repository.evaluation_repository import EvaluationRepository
+from .repository.evaluation_repository_collection import EvaluationRepositoryCollection

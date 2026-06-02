@@ -108,5 +108,6 @@ def get_configs_for_custom_rf(*, num_random_configs: int = 1):
         search_space=search_space,
     )
     return gen_custom_rf.generate_all_bag_experiments(
-        num_random_configs=num_random_configs, fold_fitting_strategy="sequential_local"
+        num_random_configs=num_random_configs,
+        fold_fitting_strategy="sequential_local",
     )

@@ -3,9 +3,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
-
+from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories
 
 if __name__ == "__main__":
     download_results: bool | str = "auto"  # results must be downloaded for the script to work
@@ -25,7 +24,7 @@ if __name__ == "__main__":
     configs_hyperparameters = tabarena_context.load_configs_hyperparameters(download=download_results)
 
     tabarena_context_all = TabArenaContext(
-        methods=tabarena_context.method_metadata_collection.method_metadata_lst
+        methods=tabarena_context.method_metadata_collection.method_metadata_lst,
     )
 
     if plot_n_configs:
@@ -52,9 +51,10 @@ if __name__ == "__main__":
     zip_results = True
     upload_to_s3 = False
     if zip_results:
-        file_prefix = f"tabarena51_paper_results"
+        file_prefix = "tabarena51_paper_results"
         file_name = f"{file_prefix}.zip"
         shutil.make_archive(file_prefix, "zip", root_dir=save_path)
         if upload_to_s3:
             from autogluon.common.utils.s3_utils import upload_file
+
             upload_file(file_name=file_name, bucket="tabarena", prefix=save_path)

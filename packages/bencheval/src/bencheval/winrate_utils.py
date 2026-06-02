@@ -12,8 +12,7 @@ def compute_winrate_matrix(
     seed_col: str | None = None,
     tie_decimals: int | None = None,
 ) -> pd.DataFrame:
-    """
-    Pairwise win-rate matrix with optional seeding.
+    """Pairwise win-rate matrix with optional seeding.
 
     - If seed_col is provided:
         * Compare methods only within the same (task, seed).
@@ -26,7 +25,7 @@ def compute_winrate_matrix(
           noise in the last few bits) still count as tied. Default None
           preserves the original exact-equality behavior.
 
-    Returns
+    Returns:
     -------
     pd.DataFrame
         Square DataFrame [methods x methods], (i,j) = win-rate of i vs j.
@@ -50,7 +49,7 @@ def compute_winrate_matrix(
     matches_global = np.zeros((n, n), dtype=np.float32)
 
     # Group by task
-    for task, df_task in results_per_task.groupby(task_col, sort=False):
+    for _task, df_task in results_per_task.groupby(task_col, sort=False):
         wins_task = np.zeros((n, n), dtype=np.float32)
         matches_task = np.zeros((n, n), dtype=np.float32)
 
@@ -97,8 +96,7 @@ def compute_winrate_matrix(
     order = np.argsort(-avg_wr)
 
     win_rates_df = pd.DataFrame(win_rates, index=methods, columns=methods)
-    win_rates_df = win_rates_df.iloc[order, order]
-    return win_rates_df
+    return win_rates_df.iloc[order, order]
 
 
 def compute_winrate(
@@ -110,8 +108,7 @@ def compute_winrate(
     sort_desc: bool = True,
     tie_decimals: int | None = None,
 ) -> pd.Series:
-    """
-    Average win-rate per method.
+    """Average win-rate per method.
 
     This calls `compute_winrate_matrix` and then averages across opponents.
     Keeps identical behavior with respect to seeding and task weighting.
@@ -132,7 +129,7 @@ def compute_winrate(
     sort_desc : bool, default=True
         If True, return methods sorted from highest to lowest avg win-rate.
 
-    Returns
+    Returns:
     -------
     pd.Series
         Index = methods, Values = average win-rate.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
 from tabarena.benchmark.preprocessing import text_cache as tc
 from tabarena.loaders import set_tabarena_cache_root
 
@@ -100,8 +101,13 @@ def test_use_cache_loads_and_restores(cache_root):
 
 
 def test_require_raises_when_missing_for_text_task(cache_root):
-    with pytest.raises(FileNotFoundError, match="Text cache not found"), tc.use_text_cache_for_task(
-        _UT(), has_text=True, mode="require"
+    with (
+        pytest.raises(FileNotFoundError, match="Text cache not found"),
+        tc.use_text_cache_for_task(
+            _UT(),
+            has_text=True,
+            mode="require",
+        ),
     ):
         pass
 

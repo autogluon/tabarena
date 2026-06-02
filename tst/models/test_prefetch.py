@@ -10,6 +10,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+
 import tabarena.models.prefetch as pf
 
 
@@ -37,7 +38,7 @@ def test_declared_prefetcher_called_once(monkeypatch):
 
 def test_shared_prefetcher_deduplicated(monkeypatch):
     calls: list[str] = []
-    shared = lambda: calls.append("tabpfn")  # noqa: E731 — two variants share one prefetcher
+    shared = lambda: calls.append("tabpfn")
     _patch_registry(
         monkeypatch,
         {"TabPFN-3": _fake_info("TabPFN-3", shared), "TabPFN-2.6": _fake_info("TabPFN-v2.6", shared)},

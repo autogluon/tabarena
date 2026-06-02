@@ -1,25 +1,32 @@
+from __future__ import annotations
+
 import copy
-from typing import Dict, List
+from typing import TYPE_CHECKING
 
-import numpy as np
+from .tabular_predictions import TabularPredictionsDict, TabularPredictionsInMemory
+from .task_predictions import ConfigPredictionsDict, TaskModelPredictionsOpt
 
-from .task_predictions import TaskModelPredictionsOpt, ConfigPredictionsDict
-from .tabular_predictions import TabularPredictionsInMemory, TabularPredictionsDict
+if TYPE_CHECKING:
+    import numpy as np
 
 
 class TabularPredictionsInMemoryOpt(TabularPredictionsInMemory):
-    """
-    A model predictions data representation optimized for `ray.put(self)` operations to minimize overhead.
+    """A model predictions data representation optimized for `ray.put(self)` operations to minimize overhead.
     Ray has a large overhead when using a shared object with many numpy arrays (such as 500,000).
     This class converts many smaller numpy arrays into fewer larger numpy arrays,
     eliminating the vast majority of the overhead.
     """
-    def __init__(self, pred_dict_opt: Dict[str, Dict[int, Dict[str, TaskModelPredictionsOpt]]], datasets: List[str] = None):
+
+    def __init__(
+        self, pred_dict_opt: dict[str, dict[int, dict[str, TaskModelPredictionsOpt]]], datasets: list[str] | None = None
+    ):
         super().__init__(pred_dict=pred_dict_opt, datasets=datasets)
         self.pred_dict = pred_dict_opt
 
     @classmethod
-    def from_dict(cls, pred_dict: TabularPredictionsDict, output_dir: str = None, datasets: List[str] = None):
+    def from_dict(
+        cls, pred_dict: TabularPredictionsDict, output_dir: str | None = None, datasets: list[str] | None = None
+    ):
         pred_dict_opt = cls._stack_pred_dict(pred_dict=pred_dict)
         return cls(pred_dict_opt=pred_dict_opt, datasets=datasets)
 
@@ -33,12 +40,14 @@ class TabularPredictionsInMemoryOpt(TabularPredictionsInMemory):
                     },
                     "pred_proba_dict_test": {
                         model: self.predict_test(dataset, fold, [model]).squeeze() for model in models
-                    }
-                } for fold, models in fold_dict.items()
-            } for dataset, fold_dict in model_available_dict.items()
+                    },
+                }
+                for fold, models in fold_dict.items()
+            }
+            for dataset, fold_dict in model_available_dict.items()
         }
 
-    def restrict_models(self, models: List[str]):
+    def restrict_models(self, models: list[str]):
         task_names = self.datasets
         for t in task_names:
             available_folds = list(self.pred_dict[t].keys())
@@ -55,7 +64,9 @@ class TabularPredictionsInMemoryOpt(TabularPredictionsInMemory):
                 self.pred_dict.pop(t)
 
     @classmethod
-    def _stack_pred_dict(cls, pred_dict: TabularPredictionsDict) -> Dict[str, Dict[int, Dict[str, TaskModelPredictionsOpt]]]:
+    def _stack_pred_dict(
+        cls, pred_dict: TabularPredictionsDict
+    ) -> dict[str, dict[int, dict[str, TaskModelPredictionsOpt]]]:
         pred_dict = copy.deepcopy(pred_dict)  # TODO: Avoid the deep copy, create from scratch to min mem usage
         datasets = list(pred_dict.keys())
         for dataset in datasets:
@@ -65,17 +76,15 @@ class TabularPredictionsInMemoryOpt(TabularPredictionsInMemory):
                 for split in splits:
                     model_pred_probas: ConfigPredictionsDict = pred_dict[dataset][fold][split]
                     pred_dict[dataset][fold][split] = TaskModelPredictionsOpt.from_config_predictions(
-                        config_predictions=model_pred_probas
+                        config_predictions=model_pred_probas,
                     )
         return pred_dict
 
     def _get_model_results(self, model: str, model_pred_probas: TaskModelPredictionsOpt) -> np.array:
         return model_pred_probas.get_model_predictions(model=model)
 
-    def _model_available_dict(self) -> Dict[str, Dict[int, List[str]]]:
+    def _model_available_dict(self) -> dict[str, dict[int, list[str]]]:
         return {
-            dataset: {
-                fold: list(fold_info['pred_proba_dict_val'].models) for fold, fold_info in fold_dict.items()
-            }
+            dataset: {fold: list(fold_info["pred_proba_dict_val"].models) for fold, fold_info in fold_dict.items()}
             for dataset, fold_dict in self.pred_dict.items()
         }

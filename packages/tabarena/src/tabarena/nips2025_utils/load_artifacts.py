@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import io
-from pathlib import Path
 import pickle
+from typing import TYPE_CHECKING
 
 from tabarena.benchmark.result import AGBagResult, BaselineResult
 from tabarena.utils.parallel_for import parallel_for
 from tabarena.utils.pickle_utils import read_pickle_bytes
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 # TODO: This is a hack to ensure old result artifacts still load properly after renaming tabrepo to tabarena.
@@ -25,7 +28,7 @@ def _rename_load(file_obj):
         raise e from Exception(
             f"Failed to load artifact {file_obj}. This may be due to a corrupted file or"
             " an incompatible format. Please ensure the file is a valid artifact and"
-            " try again."
+            " try again.",
         )
 
 
@@ -51,7 +54,7 @@ def load_all_artifacts(
             {
                 "path": str(file_path),
                 "convert_to_holdout": convert_to_holdout,
-            }
+            },
         )
 
     results_lst: list[BaselineResult] = parallel_for(
@@ -59,7 +62,7 @@ def load_all_artifacts(
         inputs=file_paths_lst,
         engine=engine,
         progress_bar=progress_bar,
-        desc=f"Loading raw artifacts"
+        desc="Loading raw artifacts",
     )
     return results_lst
 

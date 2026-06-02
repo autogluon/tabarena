@@ -169,7 +169,7 @@ class DataFoundryAdapter:
         return metadata_df
 
 
-def convert_curated_container_to_user_task(  # noqa: C901 — linear problem-type validation
+def convert_curated_container_to_user_task(
     *,
     container: CuratedContainer,
     evaluation_metrics: dict[str, list[str]] | None = None,

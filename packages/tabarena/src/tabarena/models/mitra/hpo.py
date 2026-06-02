@@ -4,7 +4,6 @@ from autogluon.tabular.models import MitraModel
 
 from tabarena.utils.config_utils import ConfigGenerator
 
-
 gen_mitra = ConfigGenerator(
     model_cls=MitraModel,
     manual_configs=[{}],

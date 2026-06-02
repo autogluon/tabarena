@@ -332,7 +332,7 @@ class TabArenaExperimentBundle:
                     preprocessing_pipeline=preprocessing_pipeline,
                     time_limit=time_limit,
                     time_limit_with_preprocessing=time_limit_with_preprocessing,
-                )
+                ),
             )
         return experiments
 
@@ -409,7 +409,7 @@ class TabArenaExperimentBundle:
             n_configs = self.n_random_configs
         elif not isinstance(n_configs, int):
             raise ValueError(
-                f"Invalid number of configurations for model {model_name}: {n_configs}. Must be an integer or 'all'."
+                f"Invalid number of configurations for model {model_name}: {n_configs}. Must be an integer or 'all'.",
             )
         if isinstance(model_name, str):
             config_generator = get_configs_generator_from_name(model_name)
@@ -427,6 +427,7 @@ class TabArenaExperimentBundle:
             dynamic_tabarena_validation_protocol=self.dynamic_tabarena_validation_protocol,
         )
 
+
 @dataclass(kw_only=True)
 class TabArenaV0pt1ExperimentBundle(TabArenaExperimentBundle):
     """The original TabArena-v0.1 experiment bundle, for backward compatibility."""
@@ -441,6 +442,7 @@ class TabArenaV0pt1ExperimentBundle(TabArenaExperimentBundle):
     """Use AutoGluon default preprocessing only."""
     adapt_num_folds_to_n_classes: bool = False
     """TabArena-v0.1 did not adapt the number of folds to the number of classes."""
+
 
 @dataclass(kw_only=True)
 class BeyondArenaExperimentBundle(TabArenaExperimentBundle):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 
 import pytest
+
 from tabarena.models.utils import get_configs_generator_from_name
 
 # Maps every previously-hard-coded friendly name to the (module, generator)

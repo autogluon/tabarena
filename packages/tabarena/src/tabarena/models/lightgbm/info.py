@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from autogluon.tabular.models import LGBModel
 
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.lightgbm.hpo import gen_lightgbm
-from tabarena.models._method_metadata import MethodMetadata
-
 
 lightgbm_method_metadata = MethodMetadata(
     method="LightGBM",

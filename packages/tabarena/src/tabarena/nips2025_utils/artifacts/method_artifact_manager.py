@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing_extensions import Self
 
-from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.nips2025_utils.artifacts.download_utils import download_and_extract_zip
 from tabarena.nips2025_utils.end_to_end import EndToEndSingle
@@ -13,14 +12,15 @@ from tabarena.nips2025_utils.end_to_end import EndToEndSingle
 @dataclass(slots=True)
 class MethodArtifactManager:
     """Orchestrates download → local cache → upload-to-S3 for a single method."""
-    name: str               # method name, e.g., "xRFM_GPU" <- Method identifier. (name, artifact_name) must be unique.
-    model_key: str          # e.g., "XRFM_GPU" <- Model key to use for differentiating model families.
-    artifact_name: str      # e.g., "tabarena-2025-09-03" <- Differentiates methods with the same name by origin.
-    path_suffix: Path       # e.g., Path("leaderboard_submissions/data_xRFM_11092025.zip")
-    download_prefix: str    # e.g., "https://data.lennart-purucker.com/tabarena/"
-    local_prefix: Path      # e.g., Path("local_data") <- Local dir to download raw files. Can delete after cache.
-    s3_bucket: str | None   # e.g., "my-bucket"
-    s3_prefix: str | None   # e.g., "cache"
+
+    name: str  # method name, e.g., "xRFM_GPU" <- Method identifier. (name, artifact_name) must be unique.
+    model_key: str  # e.g., "XRFM_GPU" <- Model key to use for differentiating model families.
+    artifact_name: str  # e.g., "tabarena-2025-09-03" <- Differentiates methods with the same name by origin.
+    path_suffix: Path  # e.g., Path("leaderboard_submissions/data_xRFM_11092025.zip")
+    download_prefix: str  # e.g., "https://data.lennart-purucker.com/tabarena/"
+    local_prefix: Path  # e.g., Path("local_data") <- Local dir to download raw files. Can delete after cache.
+    s3_bucket: str | None  # e.g., "my-bucket"
+    s3_prefix: str | None  # e.g., "cache"
     upload_as_public: bool = False  # Whether the s3 upload will make files public readable
     method_metadata: MethodMetadata | None = None
 

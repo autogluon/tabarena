@@ -1,8 +1,9 @@
-from typing import List, Dict, Tuple, Optional
+from __future__ import annotations
+
 import numpy as np
 
 # dictionary mapping the config name to predictions for a given dataset fold split
-ConfigPredictionsDict = Dict[str, np.array]
+ConfigPredictionsDict = dict[str, np.array]
 
 
 class AbstractTaskModelPredictions:
@@ -10,39 +11,37 @@ class AbstractTaskModelPredictions:
         raise NotImplementedError
 
     @property
-    def models(self) -> List[str]:
+    def models(self) -> list[str]:
         raise NotImplementedError
 
-    def subset(self, models: List[str], inplace: bool = False):
+    def subset(self, models: list[str], inplace: bool = False):
         raise NotImplementedError
 
 
 class TaskModelPredictionsEmpty(AbstractTaskModelPredictions):
-    """
-    Empty task with no models
-    """
+    """Empty task with no models."""
+
     def get_model_predictions(self, model: str) -> np.array:
         raise AssertionError(f'Cannot get predictions from an empty task... (model="{model}")')
 
     @property
-    def models(self) -> List[str]:
+    def models(self) -> list[str]:
         return []
 
-    def subset(self, models: List[str], inplace: bool = False):
+    def subset(self, models: list[str], inplace: bool = False):
         if len(models) != 0:
-            raise AssertionError(f'Trying to subset an empty task to models: {models}')
+            raise AssertionError(f"Trying to subset an empty task to models: {models}")
         if inplace:
             return self
-        else:
-            return self.__class__()
+        return self.__class__()
 
 
 class TaskModelPredictionsOpt(AbstractTaskModelPredictions):
-    """
-    Optimized logic to store predictions for a given task for many models.
+    """Optimized logic to store predictions for a given task for many models.
     This combines all model predictions into a single numpy array, eliminating overheads when working with Ray.
     """
-    def __init__(self, config_predictions_opt: np.array, model_index: Dict[str, int]):
+
+    def __init__(self, config_predictions_opt: np.array, model_index: dict[str, int]):
         self.config_predictions_opt = config_predictions_opt
         self.model_index = model_index
 
@@ -52,16 +51,15 @@ class TaskModelPredictionsOpt(AbstractTaskModelPredictions):
         return cls(config_predictions_opt=config_predictions_opt, model_index=model_index)
 
     @property
-    def models(self) -> List[str]:
+    def models(self) -> list[str]:
         return list(self.model_index.keys())
 
     def get_model_predictions(self, model: str) -> np.array:
         index = self.model_index[model]
         return self.config_predictions_opt[index]
 
-    def subset(self, models: List[str], inplace: bool = False):
-        """
-        Subset available models to `models`.
+    def subset(self, models: list[str], inplace: bool = False):
+        """Subset available models to `models`.
         If `inplace=True`, alters and returns self, otherwise returns a new TaskModelPredictionsOpt object.
         Raises an AssertionError if a model in `models` is missing from `self.models`.
         """
@@ -83,13 +81,12 @@ class TaskModelPredictionsOpt(AbstractTaskModelPredictions):
             self.config_predictions_opt = config_predictions_opt
             self.model_index = model_index
             return self
-        else:
-            return self.__class__(config_predictions_opt=config_predictions_opt, model_index=model_index)
+        return self.__class__(config_predictions_opt=config_predictions_opt, model_index=model_index)
 
     @classmethod
-    def _stack_pred_w_index(cls,
-                           model_pred_probas: Dict[str, np.array],
-                           models: Optional[List[str]] = None) -> Tuple[np.array, Dict[str, int]]:
+    def _stack_pred_w_index(
+        cls, model_pred_probas: dict[str, np.array], models: list[str] | None = None
+    ) -> tuple[np.array, dict[str, int]]:
         if models is None:
             models = list(model_pred_probas.keys())
         res = cls._stack_pred(model_pred_probas=model_pred_probas, models=models)
@@ -97,18 +94,16 @@ class TaskModelPredictionsOpt(AbstractTaskModelPredictions):
         return res, model_index_dict
 
     @staticmethod
-    def _stack_pred(model_pred_probas: Dict[str, np.array], models: Optional[List[str]] = None) -> np.array:
-        """
-        :param fold_dict: dictionary mapping fold to split to config name to predictions
+    def _stack_pred(model_pred_probas: dict[str, np.array], models: list[str] | None = None) -> np.array:
+        """:param fold_dict: dictionary mapping fold to split to config name to predictions
         :return:
         """
         if models is None:
             models = list(model_pred_probas.keys())
         num_samples = len(model_pred_probas[models[0]])
-        output_dims = set(
-            config_evals.shape[1] if config_evals.ndim > 1 else None
-            for config_evals in model_pred_probas.values()
-        )
+        output_dims = {
+            config_evals.shape[1] if config_evals.ndim > 1 else None for config_evals in model_pred_probas.values()
+        }
         assert len(output_dims) == 1
         output_dim = next(iter(output_dims))
         n_models = len(models)
@@ -126,5 +121,5 @@ class TaskModelPredictionsOpt(AbstractTaskModelPredictions):
         return res
 
     @staticmethod
-    def _models_to_index_dict(models: List[str]) -> Dict[str, int]:
+    def _models_to_index_dict(models: list[str]) -> dict[str, int]:
         return {m: i for i, m in enumerate(models)}

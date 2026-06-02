@@ -36,7 +36,7 @@ if __name__ == "__main__":
             config_generator.generate_all_bag_experiments(
                 num_random_configs=num_random_configs,
                 fold_fitting_strategy="sequential_local",
-            )
+            ),
         )
 
     results_lst = run_experiments_new(
@@ -85,5 +85,3 @@ if __name__ == "__main__":
     plt.xlim(0.5)
     plt.tight_layout()
     plt.show()
-
-

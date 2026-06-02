@@ -5,6 +5,7 @@ import importlib.util
 import numpy as np
 import pandas as pd
 import pytest
+
 from tabarena.benchmark.models.wrapper.validation_utils import (
     TabArenaValidationProtocolExecMixin,
     split_time_index_into_intervals,
@@ -286,8 +287,11 @@ def test_resolve_validation_splits_group_on_with_num_repeats_none():
         group_on="grp",
         group_labels=GroupLabelTypes.PER_SAMPLE,
     )
-    custom_splits, folds, repeats = v.resolve_validation_splits(
-        X=X, y=y, num_folds=8, num_repeats=None,
+    custom_splits, _folds, repeats = v.resolve_validation_splits(
+        X=X,
+        y=y,
+        num_folds=8,
+        num_repeats=None,
     )
     assert custom_splits is not None
     assert repeats == 1
@@ -388,18 +392,16 @@ def test_temporal_ordering_invariant_with_unsorted_input():
     time_vals = rng.integers(1, 15, size=n)  # values drawn from 1..14
     time_data = pd.Series(time_vals)
     intervals, _ = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=5)
-    for _t1, _i1, _t2, _i2 in zip(time_data, intervals, time_data, intervals):
+    for _t1, _i1, _t2, _i2 in zip(time_data, intervals, time_data, intervals, strict=False):
         pass  # just verifying iteration works; real check below
 
     # Build sorted-by-time view and assert monotonicity
-    sorted_pairs = sorted(zip(time_data.tolist(), intervals.tolist()))
+    sorted_pairs = sorted(zip(time_data.tolist(), intervals.tolist(), strict=False))
     for idx in range(len(sorted_pairs) - 1):
         t_a, lbl_a = sorted_pairs[idx]
         t_b, lbl_b = sorted_pairs[idx + 1]
         if t_a < t_b:
-            assert lbl_a <= lbl_b, (
-                f"Temporal ordering violated: time {t_a} → label {lbl_a}, " f"time {t_b} → label {lbl_b}"
-            )
+            assert lbl_a <= lbl_b, f"Temporal ordering violated: time {t_a} → label {lbl_a}, time {t_b} → label {lbl_b}"
 
 
 def test_all_rows_covered_by_valid_label():
@@ -447,7 +449,9 @@ def test_balance_on_rows_vs_unique_produce_different_partitions_for_skewed_data(
 
     intervals_rows, n_rows = split_time_index_into_intervals(time_data=time_data, goal_n_intervals=2, balance_on="rows")
     intervals_unique, n_unique = split_time_index_into_intervals(
-        time_data=time_data, goal_n_intervals=2, balance_on="unique"
+        time_data=time_data,
+        goal_n_intervals=2,
+        balance_on="unique",
     )
 
     assert n_rows == n_unique == 2
@@ -482,7 +486,7 @@ def test_unsorted_input_labels_are_consistent_with_time_order():
     assert n == 3
     assert list(intervals) == [2, 1, 0, 2, 0]
     # Confirm the mapping is monotone: t=1,2 → 0; t=3 → 1; t=4,5 → 2
-    mapping = dict(zip(time_data.tolist(), intervals.tolist()))
+    mapping = dict(zip(time_data.tolist(), intervals.tolist(), strict=False))
     assert mapping[1] == mapping[2] == 0
     assert mapping[3] == 1
     assert mapping[4] == mapping[5] == 2
@@ -698,7 +702,7 @@ def test_time_on_to_groups_data_unsorted_input_gives_monotonic_output():
     X = pd.DataFrame({"time": [5, 3, 1, 4, 2]})
     groups, n = _Validation.time_on_to_groups_data(X=X, time_on="time", num_folds=3)
     assert n == 3
-    pairs = sorted(zip(X["time"].tolist(), groups.tolist()))
+    pairs = sorted(zip(X["time"].tolist(), groups.tolist(), strict=False))
     for i in range(len(pairs) - 1):
         t_a, lbl_a = pairs[i]
         t_b, lbl_b = pairs[i + 1]
@@ -818,7 +822,7 @@ def test_resolve_validation_splits_group_on_returns_custom_splits(monkeypatch):
         {
             "feature": np.arange(n, dtype=float),
             "group": [f"g{i % 20}" for i in range(n)],  # 20 unique groups
-        }
+        },
     )
     y = pd.Series(np.zeros(n))
     _patch_group_splits(v, monkeypatch, n)
@@ -843,7 +847,7 @@ def test_resolve_validation_splits_group_on_indices_do_not_overlap(monkeypatch):
         {
             "feature": np.arange(n, dtype=float),
             "group": [f"g{i % 20}" for i in range(n)],
-        }
+        },
     )
     y = pd.Series(np.zeros(n))
     _patch_group_splits(v, monkeypatch, n)
@@ -865,7 +869,7 @@ def test_resolve_validation_splits_group_on_tiny_data_uses_tiny_folds(monkeypatc
         {
             "feature": np.arange(n, dtype=float),
             "group": [f"g{i % 5}" for i in range(n)],
-        }
+        },
     )
     y = pd.Series(np.zeros(n))
     captured: dict = {}
@@ -920,7 +924,7 @@ def test_resolve_validation_splits_time_on_folds_capped_at_unique_values(monkeyp
         {
             "feature": np.arange(n, dtype=float),
             "time": [i % 4 for i in range(n)],
-        }
+        },
     )
     y = pd.Series(np.zeros(n))
     _patch_group_splits(v, monkeypatch, n)

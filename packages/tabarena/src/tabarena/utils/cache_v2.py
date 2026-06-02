@@ -3,24 +3,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from autogluon.common import TabularDataset
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 T = TypeVar("T")
 
 
 class CacheMode(str, Enum):
     """How to interact with the on-disk cache."""
-    USE_IF_EXISTS = "use_if_exists"        # load if exists else compute+save
-    OVERWRITE = "overwrite"                # always compute+save (ignore existing)
-    LOAD_ONLY = "load_only"                # require cache; error if missing
+
+    USE_IF_EXISTS = "use_if_exists"  # load if exists else compute+save
+    OVERWRITE = "overwrite"  # always compute+save (ignore existing)
+    LOAD_ONLY = "load_only"  # require cache; error if missing
 
 
 @dataclass(frozen=True)
 class DiskCache(Generic[T]):
-    """
-    Generic on-disk cache for a single artifact.
+    """Generic on-disk cache for a single artifact.
 
     Parameters
     ----------
@@ -31,6 +34,7 @@ class DiskCache(Generic[T]):
     save_fn
         Callable that saves `obj` to `path`.
     """
+
     path: Path
     load_fn: Callable[[Path], T]
     save_fn: Callable[[Path, T], None]
@@ -42,9 +46,7 @@ class DiskCache(Generic[T]):
         *,
         mkdir: bool = True,
     ) -> T:
-        """
-        Load from cache or compute + save, depending on `mode`.
-        """
+        """Load from cache or compute + save, depending on `mode`."""
         path = Path(self.path)
 
         if mode == CacheMode.LOAD_ONLY:
@@ -65,6 +67,7 @@ class DiskCache(Generic[T]):
 
 
 # ---- Optional: convenience helper if you don't want to instantiate DiskCache each time ----
+
 
 def cached(
     *,

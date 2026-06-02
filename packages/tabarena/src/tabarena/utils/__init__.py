@@ -1,11 +1,12 @@
-from typing import Tuple
+from __future__ import annotations
 
 from contextlib import contextmanager
 from time import perf_counter
+from typing import Tuple
 
 
 @contextmanager
-def catchtime(name: str, logger = None) -> float:
+def catchtime(name: str, logger=None) -> float:
     start = perf_counter()
     print_fun = print if logger is None else logger.info
     try:
@@ -23,7 +24,7 @@ def task_to_fold(task: str) -> int:
     return int(task.rsplit("_", 1)[1])
 
 
-def task_to_tid_fold(task: str) -> Tuple[int, int]:
+def task_to_tid_fold(task: str) -> tuple[int, int]:
     dataset_fold = task.rsplit("_", 1)
     tid = int(dataset_fold[0])
     fold = int(dataset_fold[1])

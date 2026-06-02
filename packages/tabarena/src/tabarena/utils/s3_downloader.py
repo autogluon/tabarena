@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-import os
 import fnmatch
 import logging
-from pathlib import Path
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Sequence, Tuple, Dict, List
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import boto3
-from botocore.config import Config
 from boto3.s3.transfer import TransferConfig
+from botocore.config import Config
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -21,10 +24,7 @@ def _should_exclude(key: str, exclude_globs: Sequence[str]) -> bool:
     if not exclude_globs:
         return False
     base = key.rsplit("/", 1)[-1]
-    for pat in exclude_globs:
-        if fnmatch.fnmatch(key, pat) or fnmatch.fnmatch(base, pat):
-            return True
-    return False
+    return any(fnmatch.fnmatch(key, pat) or fnmatch.fnmatch(base, pat) for pat in exclude_globs)
 
 
 def _safe_mkdirs(p: Path) -> None:
@@ -50,10 +50,8 @@ def copy_s3_prefix_to_local(
     connect_timeout_s: int = 10,
     read_timeout_s: int = 180,
     dry_run: bool = False,
-) -> Dict[str, List[str]]:
-    """
-    Recursively copy all objects under an S3 prefix to a local directory with progress tracking.
-    """
+) -> dict[str, list[str]]:
+    """Recursively copy all objects under an S3 prefix to a local directory with progress tracking."""
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -80,9 +78,9 @@ def copy_s3_prefix_to_local(
 
     paginator = s3.get_paginator("list_objects_v2")
 
-    to_download: List[Tuple[str, int, Path]] = []
-    excluded: List[str] = []
-    skipped: List[str] = []
+    to_download: list[tuple[str, int, Path]] = []
+    excluded: list[str] = []
+    skipped: list[str] = []
 
     logger.info("Listing s3://%s/%s ...", bucket, norm_prefix or "")
 
@@ -93,30 +91,33 @@ def copy_s3_prefix_to_local(
             size: int = obj["Size"]
             if key.endswith("/") and size == 0:
                 continue
-            if _should_exclude(key[len(norm_prefix):], exclude):
+            if _should_exclude(key[len(norm_prefix) :], exclude):
                 excluded.append(key)
                 continue
-            rel_key = key[len(norm_prefix):]
+            rel_key = key[len(norm_prefix) :]
             local_path = dest_dir / rel_key
             if _skip_because_same_size(local_path, size):
                 skipped.append(key)
             else:
                 to_download.append((key, size, local_path))
 
-    logger.log(30,
+    logger.log(
+        30,
         "Found %d objects: %d to download, %d skipped, %d excluded.",
         len(to_download) + len(skipped) + len(excluded),
-        len(to_download), len(skipped), len(excluded),
+        len(to_download),
+        len(skipped),
+        len(excluded),
     )
 
-    downloaded: List[str] = []
-    failed: List[str] = []
+    downloaded: list[str] = []
+    failed: list[str] = []
 
     if dry_run:
         logger.info("[DRY RUN] Would download %d files.", len(to_download))
         return {"downloaded": [], "skipped": skipped, "excluded": excluded, "failed": []}
 
-    def _download_one(item: Tuple[str, int, Path]) -> Tuple[str, bool, str | None]:
+    def _download_one(item: tuple[str, int, Path]) -> tuple[str, bool, str | None]:
         key, _size, local_path = item
         tmp_path = local_path.with_suffix(local_path.suffix + ".part")
         try:
@@ -133,18 +134,21 @@ def copy_s3_prefix_to_local(
             try:
                 if tmp_path.exists():
                     tmp_path.unlink()
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
             return key, False, str(e)
 
     if to_download:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor, tqdm(
-            total=len(to_download),
-            desc="Downloading files",
-            unit="file",
-            ncols=100,
-            dynamic_ncols=True,
-        ) as pbar:
+        with (
+            ThreadPoolExecutor(max_workers=max_workers) as executor,
+            tqdm(
+                total=len(to_download),
+                desc="Downloading files",
+                unit="file",
+                ncols=100,
+                dynamic_ncols=True,
+            ) as pbar,
+        ):
             futures = {executor.submit(_download_one, item): item[0] for item in to_download}
             for fut in as_completed(futures):
                 key = futures[fut]
@@ -161,7 +165,10 @@ def copy_s3_prefix_to_local(
 
     logger.info(
         "Download complete. %d succeeded, %d failed, %d skipped, %d excluded.",
-        len(downloaded), len(failed), len(skipped), len(excluded),
+        len(downloaded),
+        len(failed),
+        len(skipped),
+        len(excluded),
     )
 
     return {

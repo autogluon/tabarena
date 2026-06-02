@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import copy
 import itertools
-from typing import Literal, Tuple, Type
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 
+from tabarena.simulation.ensemble_selection_config_scorer import (
+    EnsembleScorer,
+    EnsembleScorerMaxModels,
+    EnsembleSelectionConfigScorer,
+)
+from tabarena.utils.aux_metric import get_aux_metric_map
+from tabarena.utils.parallel_for import parallel_for
+
 from .time_utils import filter_configs_by_runtime, get_runtime
-from ..simulation.ensemble_selection_config_scorer import EnsembleScorer, EnsembleScorerMaxModels, EnsembleSelectionConfigScorer
-from ..utils.aux_metric import get_aux_metric_map
-from ..utils.parallel_for import parallel_for
 
 
 # FIXME: Type hints for AbstractRepository, how to do? Protocol?
@@ -23,19 +28,18 @@ class EnsembleMixin:
         self,
         dataset: str,
         fold: int,
-        configs: list[str] = None,
+        configs: list[str] | None = None,
         *,
-        time_limit: float = None,
-        ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
-        ensemble_kwargs: dict = None,
+        time_limit: float | None = None,
+        ensemble_cls: type[EnsembleScorer] = EnsembleScorerMaxModels,
+        ensemble_kwargs: dict | None = None,
         ensemble_size: int = 100,
         rank: bool = False,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
         patience_callback: list | None = None,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Evaluates an ensemble of a list of configs on a given task (dataset, fold).
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Evaluates an ensemble of a list of configs on a given task (dataset, fold).
 
         Parameters
         ----------
@@ -63,7 +67,7 @@ class EnsembleMixin:
         seed: int, default = 0
             The random seed used to shuffle `configs` if `fit_order="random"`.
 
-        Returns
+        Returns:
         -------
         result: pd.DataFrame
             A single-row multi-index (dataset, fold) DataFrame with the following columns:
@@ -94,7 +98,7 @@ class EnsembleMixin:
             set_index=False,
         )
 
-        configs_all = sorted(list(config_metrics["framework"].unique()))
+        configs_all = sorted(config_metrics["framework"].unique())
         if configs is None:
             configs = configs_all
 
@@ -125,6 +129,7 @@ class EnsembleMixin:
             dataset_metadata = self.task_metadata[self.task_metadata["dataset"] == dataset].iloc[0]
             num_samples_train = dataset_metadata["n_samples_train_per_fold"]
             from autogluon.core.callbacks._smooth_count import max_models_from_num_samples_val
+
             max_models = max_models_from_num_samples_val(
                 num_samples_val=num_samples_train,
                 points=patience_callback,
@@ -139,10 +144,9 @@ class EnsembleMixin:
                 if len(configs_fit_order) > 0:
                     raise AssertionError(
                         f"Can't fit an ensemble with no configs when self._config_fallback is None "
-                        f"(No configs are trainable in the provided time_limit={time_limit}.)"
+                        f"(No configs are trainable in the provided time_limit={time_limit}.)",
                     )
-                else:
-                    raise AssertionError(f"Can't fit an ensemble with no configs when self._config_fallback is None.")
+                raise AssertionError("Can't fit an ensemble with no configs when self._config_fallback is None.")
             configs_to_use = [self._config_fallback]
             config_metrics = self.metrics(
                 tasks=[task_tuple],
@@ -192,15 +196,13 @@ class EnsembleMixin:
             fold=fold,
             config_names=configs_to_use,
             config_metrics=config_metrics,
-            runtime_col='time_train_s',
+            runtime_col="time_train_s",
             fail_if_missing=fail_if_missing,
         )
         time_train_s = sum(runtimes.values())
 
         # compute the ensemble time_infer_s by summing all considered config's time_infer_s that have non-zero weight
-        config_selected_ensemble = [
-            config for i, config in enumerate(configs_to_use) if ensemble_weights[i] != 0
-        ]
+        config_selected_ensemble = [config for i, config in enumerate(configs_to_use) if ensemble_weights[i] != 0]
 
         config_metrics_inference = config_metrics[config_metrics["framework"].isin(config_selected_ensemble)]
 
@@ -210,7 +212,7 @@ class EnsembleMixin:
             fold=fold,
             config_names=config_selected_ensemble,
             config_metrics=config_metrics_inference,
-            runtime_col='time_infer_s',
+            runtime_col="time_infer_s",
             fail_if_missing=fail_if_missing,
         )
         time_infer_s = sum(latencies.values())
@@ -243,23 +245,22 @@ class EnsembleMixin:
 
     def evaluate_ensembles(
         self,
-        datasets: list[str] = None,
-        folds: list[int] = None,
-        configs: list[str] = None,
+        datasets: list[str] | None = None,
+        folds: list[int] | None = None,
+        configs: list[str] | None = None,
         *,
-        ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
-        ensemble_kwargs: dict = None,
+        ensemble_cls: type[EnsembleScorer] = EnsembleScorerMaxModels,
+        ensemble_kwargs: dict | None = None,
         ensemble_size: int = 100,
         patience_callback: list | None = None,
-        time_limit: float = None,
+        time_limit: float | None = None,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
         rank: bool = False,
         backend_group_folds: bool = False,
         backend: Literal["ray", "native"] = "ray",
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Evaluates an ensemble of a list of configs on a given set of tasks (datasets x folds).
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Evaluates an ensemble of a list of configs on a given set of tasks (datasets x folds).
 
         Identical to calling `evaluate_ensemble` once for each task and then concatenating the results,
         however this method will be much faster due to parallelization.
@@ -294,7 +295,7 @@ class EnsembleMixin:
         backend: Literal["ray", "native"], default = "ray"
             The backend to use when running the list of tasks.
 
-        Returns
+        Returns:
         -------
         result: pd.DataFrame
             A multi-index (dataset, fold) DataFrame where each row corresponds to a task, with the following columns:
@@ -366,7 +367,9 @@ class EnsembleMixin:
         )
 
         df_out = pd.concat([l[0] for l in list_rows], axis=0)
-        df_ensemble_weights = pd.concat([l[1] for l in list_rows], axis=0)  # FIXME: Is this guaranteed same columns in each?
+        df_ensemble_weights = pd.concat(
+            [l[1] for l in list_rows], axis=0
+        )  # FIXME: Is this guaranteed same columns in each?
 
         return df_out, df_ensemble_weights
 
@@ -374,18 +377,17 @@ class EnsembleMixin:
         self,
         df_info: pd.DataFrame | list[dict[str]],
         *,
-        ensemble_cls: Type[EnsembleScorer] = EnsembleScorerMaxModels,
-        ensemble_kwargs: dict = None,
+        ensemble_cls: type[EnsembleScorer] = EnsembleScorerMaxModels,
+        ensemble_kwargs: dict | None = None,
         ensemble_size: int = 100,
-        time_limit: float = None,
+        time_limit: float | None = None,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
         rank: bool = False,
         backend_group_folds: bool = True,
         backend: Literal["ray", "native"] = "ray",
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Identical to calling `evaluate_ensemble` once for each row in df_info,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Identical to calling `evaluate_ensemble` once for each row in df_info,
         however this method will be much faster due to parallelization.
 
         Parameters
@@ -411,7 +413,7 @@ class EnsembleMixin:
         backend: Literal["ray", "native"], default = "ray"
             The backend to use when running the list of tasks.
 
-        Returns
+        Returns:
         -------
         result: pd.DataFrame
             A multi-index (dataset, fold) DataFrame where each row corresponds to a task, with the following columns:
@@ -460,7 +462,7 @@ class EnsembleMixin:
                 if dataset not in inputs_dict:
                     inputs_dict[dataset] = []
                 inputs_dict[dataset].append(input_dict)
-            inputs = [{"df_info": inputs_dict[dataset]} for dataset in inputs_dict.keys()]
+            inputs = [{"df_info": inputs_dict[dataset]} for dataset in inputs_dict]
             context.update({"backend": "native", "backend_group_folds": False})
             par_func = self.__class__.evaluate_ensembles_per
         else:
@@ -472,25 +474,25 @@ class EnsembleMixin:
             context=context,
             engine=backend,
             # To reduce log spam in outer parallel mode.
-            progress_bar=backend != "sequential"
+            progress_bar=backend != "sequential",
         )
 
         df_out = pd.concat([l[0] for l in list_rows], axis=0)
-        df_ensemble_weights = pd.concat([l[1] for l in list_rows],
-                                        axis=0)  # FIXME: Is this guaranteed same columns in each?
+        df_ensemble_weights = pd.concat(
+            [l[1] for l in list_rows], axis=0
+        )  # FIXME: Is this guaranteed same columns in each?
 
         return df_out, df_ensemble_weights
 
     def _construct_ensemble_selection_config_scorer(
         self,
         ensemble_size: int = 10,
-        backend: str = 'ray',
-        **kwargs
+        backend: str = "ray",
+        **kwargs,
     ) -> EnsembleSelectionConfigScorer:
-        config_scorer = EnsembleSelectionConfigScorer.from_repo(
+        return EnsembleSelectionConfigScorer.from_repo(
             repo=self,
             ensemble_size=ensemble_size,  # 100 is better, but 10 allows to simulate 10x faster
             backend=backend,
             **kwargs,
         )
-        return config_scorer

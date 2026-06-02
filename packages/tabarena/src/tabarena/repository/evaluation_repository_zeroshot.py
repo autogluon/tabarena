@@ -1,23 +1,29 @@
-from typing import List, Optional, Union
+from __future__ import annotations
 
-import numpy as np
-import pandas as pd
+from typing import TYPE_CHECKING
+
+from tabarena.simulation.sim_output import SimulationOutputGenerator
+from tabarena.simulation.sim_runner import run_zs_simulation
 
 from .evaluation_repository import EvaluationRepository
-from ..portfolio import Portfolio, PortfolioCV
-from ..simulation.sim_output import SimulationOutputGenerator
-from ..simulation.sim_runner import run_zs_simulation
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from tabarena.portfolio import Portfolio, PortfolioCV
 
 
 class EvaluationRepositoryZeroshot(EvaluationRepository):
     """An extension of EvaluationRepository that includes zeroshot simulation methods."""
-    def generate_output_from_portfolio_cv(self,
-                                          portfolio_cv: PortfolioCV,
-                                          name: str,
-                                          config_scorer_type: str = 'ensemble',
-                                          config_scorer_kwargs: dict = None) -> pd.DataFrame:
-        """
-        Generates an AutoGluon-Benchmark compatible pandas DataFrame output that can be used to compare
+
+    def generate_output_from_portfolio_cv(
+        self,
+        portfolio_cv: PortfolioCV,
+        name: str,
+        config_scorer_type: str = "ensemble",
+        config_scorer_kwargs: dict | None = None,
+    ) -> pd.DataFrame:
+        """Generates an AutoGluon-Benchmark compatible pandas DataFrame output that can be used to compare
         with existing baselines and other simulation results.
 
         The input portfolios for this method are cross-validated simulation portfolios, where each task may have
@@ -49,19 +55,19 @@ class EvaluationRepositoryZeroshot(EvaluationRepository):
                 problem_type        binary
                 tid                   3593
         """
-        sog = SimulationOutputGenerator(repo=self,
-                                        config_scorer_type=config_scorer_type,
-                                        config_scorer_kwargs=config_scorer_kwargs)
-        df_result = sog.from_portfolio_cv(portfolio_cv=portfolio_cv, name=name)
-        return df_result
+        sog = SimulationOutputGenerator(
+            repo=self, config_scorer_type=config_scorer_type, config_scorer_kwargs=config_scorer_kwargs
+        )
+        return sog.from_portfolio_cv(portfolio_cv=portfolio_cv, name=name)
 
-    def generate_output_from_portfolio(self,
-                                       portfolio: Union[Portfolio, List[str]],
-                                       name: str,
-                                       config_scorer_type: str = 'ensemble',
-                                       config_scorer_kwargs: dict = None) -> pd.DataFrame:
-        """
-        Generates an AutoGluon-Benchmark compatible pandas DataFrame output that can be used to compare
+    def generate_output_from_portfolio(
+        self,
+        portfolio: Portfolio | list[str],
+        name: str,
+        config_scorer_type: str = "ensemble",
+        config_scorer_kwargs: dict | None = None,
+    ) -> pd.DataFrame:
+        """Generates an AutoGluon-Benchmark compatible pandas DataFrame output that can be used to compare
         with existing baselines and other simulation results.
 
         The input for this method is a single portfolio used for all valid tasks.
@@ -84,21 +90,21 @@ class EvaluationRepositoryZeroshot(EvaluationRepository):
         :return: A pandas DataFrame with identical format to the output of `self.generate_output_from_portfolio_cv`.
             Refer to `self.generate_output_from_portfolio_cv` for details.
         """
-        sog = SimulationOutputGenerator(repo=self,
-                                        config_scorer_type=config_scorer_type,
-                                        config_scorer_kwargs=config_scorer_kwargs)
-        df_result = sog.from_portfolio(portfolio=portfolio, name=name)
-        return df_result
+        sog = SimulationOutputGenerator(
+            repo=self, config_scorer_type=config_scorer_type, config_scorer_kwargs=config_scorer_kwargs
+        )
+        return sog.from_portfolio(portfolio=portfolio, name=name)
 
     # TODO: add simulate_zeroshot_debug
-    def simulate_zeroshot(self,
-                          num_zeroshot: int = 10,
-                          n_splits: int = 2,
-                          backend: str = 'ray',
-                          config_scorer_type: str = 'ensemble',
-                          config_scorer_kwargs: dict = None) -> PortfolioCV:
-        """
-        Perform greedy-forward selection zeroshot simulation.
+    def simulate_zeroshot(
+        self,
+        num_zeroshot: int = 10,
+        n_splits: int = 2,
+        backend: str = "ray",
+        config_scorer_type: str = "ensemble",
+        config_scorer_kwargs: dict | None = None,
+    ) -> PortfolioCV:
+        """Perform greedy-forward selection zeroshot simulation.
 
         :param num_zeroshot: The number of models in the portfolio to select.
         :param n_splits: The number of splits to perform in cross-validation.
@@ -116,17 +122,17 @@ class EvaluationRepositoryZeroshot(EvaluationRepository):
         """
         if config_scorer_kwargs is None:
             config_scorer_kwargs = {}
-        if config_scorer_type == 'ensemble':
+        if config_scorer_type == "ensemble":
             config_scorer = self._construct_ensemble_selection_config_scorer(**config_scorer_kwargs)
-        elif config_scorer_type == 'single':
+        elif config_scorer_type == "single":
             config_scorer = self._construct_single_best_config_scorer(**config_scorer_kwargs)
         else:
-            raise ValueError(f'Unknown config_scorer_type: {config_scorer_type}')
+            raise ValueError(f"Unknown config_scorer_type: {config_scorer_type}")
         results_cv: PortfolioCV = run_zs_simulation(
             zsc=self._zeroshot_context,
             config_scorer=config_scorer,
             n_splits=n_splits,
-            config_generator_kwargs={'num_zeroshot': num_zeroshot},
+            config_generator_kwargs={"num_zeroshot": num_zeroshot},
             backend=backend,
         )
         return results_cv

@@ -1,14 +1,19 @@
-import math
-from pathlib import Path
-import warnings
+from __future__ import annotations
 
-import pandas as pd
+import math
+import warnings
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import matplotlib
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 
-from tabarena.repository import EvaluationRepository
 from tabarena.plot.plot_utils import figure_path, save_latex_table
+
+if TYPE_CHECKING:
+    from tabarena.repository import EvaluationRepository
 
 
 def order_clustermap(df, allow_nan=True):
@@ -26,8 +31,7 @@ def index(name):
     config_number = name.split("-")[-1]
     if "c" in config_number:
         return None
-    else:
-        return int(config_number)
+    return int(config_number)
 
 
 def generate_dataset_info_latex(repo: EvaluationRepository, expname_outdir: str):
@@ -35,65 +39,70 @@ def generate_dataset_info_latex(repo: EvaluationRepository, expname_outdir: str)
     assert len(metadata) == len(repo.datasets())
 
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore')
-        metadata['problem_type'] = ''
-        metadata['problem_type'][metadata['NumberOfClasses'] == 2] = 'binary'
-        metadata['problem_type'][metadata['NumberOfClasses'] > 2] = 'multiclass'
-        metadata['problem_type'][metadata['NumberOfClasses'] == 0] = 'regression'
+        warnings.filterwarnings("ignore")
+        metadata["problem_type"] = ""
+        metadata["problem_type"][metadata["NumberOfClasses"] == 2] = "binary"
+        metadata["problem_type"][metadata["NumberOfClasses"] > 2] = "multiclass"
+        metadata["problem_type"][metadata["NumberOfClasses"] == 0] = "regression"
 
-    metadata_min = metadata[["tid", "name", "NumberOfInstances", "NumberOfFeatures", "NumberOfClasses", 'problem_type']]
+    metadata_min = metadata[["tid", "name", "NumberOfInstances", "NumberOfFeatures", "NumberOfClasses", "problem_type"]]
     metadata_min_sorted = metadata_min.sort_values(by=["name"])
     metadata_latex = metadata_min_sorted.copy()
 
     max_name_length = 20
 
-    metadata_latex.columns = ['Task ID', 'name', 'n', 'f', 'C', 'Problem Type']
-    metadata_latex['Task ID'] = metadata_latex['Task ID'].astype(str)
-    metadata_latex['n'] = metadata_latex['n'].astype(int)
-    metadata_latex['f'] = metadata_latex['f'].astype(int)
-    metadata_latex['f'] = metadata_latex['f'] - 1  # Original counts the label column, remove to get the feature count
-    metadata_latex['C'] = metadata_latex['C'].astype(int)
+    metadata_latex.columns = ["Task ID", "name", "n", "f", "C", "Problem Type"]
+    metadata_latex["Task ID"] = metadata_latex["Task ID"].astype(str)
+    metadata_latex["n"] = metadata_latex["n"].astype(int)
+    metadata_latex["f"] = metadata_latex["f"].astype(int)
+    metadata_latex["f"] = metadata_latex["f"] - 1  # Original counts the label column, remove to get the feature count
+    metadata_latex["C"] = metadata_latex["C"].astype(int)
 
-    datasets_statistics = metadata_latex.describe(percentiles=[.05, .1, .25, .5, .75, .9, .95])
-    datasets_statistics = datasets_statistics.drop(columns='C')
-    datasets_statistics = datasets_statistics.drop(index='count')
+    datasets_statistics = metadata_latex.describe(percentiles=[0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95])
+    datasets_statistics = datasets_statistics.drop(columns="C")
+    datasets_statistics = datasets_statistics.drop(index="count")
     datasets_statistics = datasets_statistics.round()
     datasets_statistics = datasets_statistics.astype(int)
 
-    save_latex_table(df=datasets_statistics, title=f"datasets_statistics", show_table=True, save_prefix=expname_outdir)
+    save_latex_table(df=datasets_statistics, title="datasets_statistics", show_table=True, save_prefix=expname_outdir)
 
-    metadata_latex['name'] = metadata_latex['name'].apply(lambda x: x[:max_name_length])
+    metadata_latex["name"] = metadata_latex["name"].apply(lambda x: x[:max_name_length])
 
-    problem_types = ['binary', 'multiclass', 'regression']
+    problem_types = ["binary", "multiclass", "regression"]
     latex_kwargs = dict(
         index=False,
     )
 
     # Separate by problem types and into batches to ensure each table fits on one page
     for p in problem_types:
-        metadata_latex_p = metadata_latex[metadata_latex['Problem Type'] == p]
+        metadata_latex_p = metadata_latex[metadata_latex["Problem Type"] == p]
         num_datasets = len(metadata_latex_p)
 
-        metadata_latex_v2 = metadata_latex_p.drop(columns='Problem Type')
+        metadata_latex_v2 = metadata_latex_p.drop(columns="Problem Type")
 
         vertical = math.ceil(num_datasets / 2)
         metadata_left = metadata_latex_v2.iloc[:vertical].reset_index(drop=True)
         metadata_right = metadata_latex_v2.iloc[vertical:].reset_index(drop=True)
-        metadata_left['n'] = metadata_left['n'].astype(str)
-        metadata_left['f'] = metadata_left['f'].astype(str)
-        metadata_left['C'] = metadata_left['C'].astype(str)
+        metadata_left["n"] = metadata_left["n"].astype(str)
+        metadata_left["f"] = metadata_left["f"].astype(str)
+        metadata_left["C"] = metadata_left["C"].astype(str)
 
-        metadata_right['n'] = metadata_right['n'].astype(str)
-        metadata_right['f'] = metadata_right['f'].astype(str)
-        metadata_right['C'] = metadata_right['C'].astype(str)
-        if p == 'regression':
-            metadata_left = metadata_left.drop(columns='C')
-            metadata_right = metadata_right.drop(columns='C')
+        metadata_right["n"] = metadata_right["n"].astype(str)
+        metadata_right["f"] = metadata_right["f"].astype(str)
+        metadata_right["C"] = metadata_right["C"].astype(str)
+        if p == "regression":
+            metadata_left = metadata_left.drop(columns="C")
+            metadata_right = metadata_right.drop(columns="C")
 
         metadata_combined = pd.concat([metadata_left, metadata_right], axis=1)
-        metadata_combined = metadata_combined.fillna('')
-        save_latex_table(df=metadata_combined, title=f"datasets_{p}", show_table=True,
-                         latex_kwargs=latex_kwargs, save_prefix=expname_outdir)
+        metadata_combined = metadata_combined.fillna("")
+        save_latex_table(
+            df=metadata_combined,
+            title=f"datasets_{p}",
+            show_table=True,
+            latex_kwargs=latex_kwargs,
+            save_prefix=expname_outdir,
+        )
 
 
 def generate_dataset_analysis(repo, expname_outdir: str):
@@ -113,7 +122,9 @@ def generate_dataset_analysis(repo, expname_outdir: str):
 
     metric = "metric_error"
     df_pivot = df.pivot_table(
-        index="framework", columns="tid", values=metric
+        index="framework",
+        columns="tid",
+        values=metric,
     )
     df_rank = df_pivot.rank() / len(df_pivot)
     df_rank.index = [x.replace("_BAG_L1", "").replace("_r", "_").replace("_", "-") for x in df_rank.index]
@@ -126,57 +137,65 @@ def generate_dataset_analysis(repo, expname_outdir: str):
     df_rank.columns.name = "dataset"
 
     # task-model rank
-    fig, axes = plt.subplots(1, 3, figsize=figsize, dpi=300)
+    _fig, axes = plt.subplots(1, 3, figsize=figsize, dpi=300)
     ax = axes[0]
-    cmap = matplotlib.colormaps.get_cmap('RdYlGn_r')
+    cmap = matplotlib.colormaps.get_cmap("RdYlGn_r")
     cmap.set_bad("black")
     sns.heatmap(
-        df_rank, cmap=cmap, vmin=0, vmax=1, ax=ax,
+        df_rank,
+        cmap=cmap,
+        vmin=0,
+        vmax=1,
+        ax=ax,
     )
     ax.set_xticks([])
-    ax.set_xlabel("Datasets", fontdict={'size': title_size})
-    ax.set_title("Ranks of models per dataset", fontdict={'size': title_size})
+    ax.set_xlabel("Datasets", fontdict={"size": title_size})
+    ax.set_title("Ranks of models per dataset", fontdict={"size": title_size})
 
     # model-model correlation
     ax = axes[1]
     sns.heatmap(
-        df_rank.T.corr(), cmap="vlag", vmin=-1, vmax=1, ax=ax,
+        df_rank.T.corr(),
+        cmap="vlag",
+        vmin=-1,
+        vmax=1,
+        ax=ax,
     )
-    ax.set_title("Model rank correlation", fontdict={'size': title_size})
+    ax.set_title("Model rank correlation", fontdict={"size": title_size})
 
     # runtime figure
     df = zsc.df_configs_ranked
     ax = axes[2]
-    df['method'] = df.apply(lambda x: x["framework"].split("_")[0], axis=1)
-    df['method'] = df['method'].map({"NeuralNetTorch": "MLP"}).fillna(df["method"])
+    df["method"] = df.apply(lambda x: x["framework"].split("_")[0], axis=1)
+    df["method"] = df["method"].map({"NeuralNetTorch": "MLP"}).fillna(df["method"])
     df_grouped = df[["method", "tid", "time_train_s"]].groupby(["method", "tid"]).max()["time_train_s"].sort_values()
     df_grouped = df_grouped.reset_index(drop=False)
     df_grouped["group_index"] = df_grouped.groupby("method")["time_train_s"].cumcount()
     df_grouped["group_index"] += 1
 
     palette = [
-        '#1f77b4',  # blue
-        '#ff7f0e',  # orange
-        '#2ca02c',  # green
-        '#d62728',  # red
-        '#9467bd',  # purple
-        '#8c564b',  # brown
-        '#e377c2',  # pink
-        '#7f7f7f',  # gray
-        '#bcbd22',  # yellow-green
-        '#17becf',  # cyan
-        '#aec7e8',  # light blue
-        '#ffbb78',  # light orange
-        '#98df8a',  # light green
-        '#ff9896',  # light red
-        '#c5b0d5',  # light purple
-        '#c49c94',  # light brown
-        '#f7b6d2',  # light pink
-        '#c7c7c7',  # light gray
-        '#dbdb8d',  # light yellow-green
-        '#9edae5',  # light cyan
+        "#1f77b4",  # blue
+        "#ff7f0e",  # orange
+        "#2ca02c",  # green
+        "#d62728",  # red
+        "#9467bd",  # purple
+        "#8c564b",  # brown
+        "#e377c2",  # pink
+        "#7f7f7f",  # gray
+        "#bcbd22",  # yellow-green
+        "#17becf",  # cyan
+        "#aec7e8",  # light blue
+        "#ffbb78",  # light orange
+        "#98df8a",  # light green
+        "#ff9896",  # light red
+        "#c5b0d5",  # light purple
+        "#c49c94",  # light brown
+        "#f7b6d2",  # light pink
+        "#c7c7c7",  # light gray
+        "#dbdb8d",  # light yellow-green
+        "#9edae5",  # light cyan
     ]
-    hue_order = sorted(list(df_grouped["method"].unique()))
+    hue_order = sorted(df_grouped["method"].unique())
     n_colors = len(hue_order)
 
     sns.lineplot(
@@ -189,15 +208,15 @@ def generate_dataset_analysis(repo, expname_outdir: str):
         palette=palette[:n_colors],
         ax=ax,
     )
-    ax.set_yscale('log')
+    ax.set_yscale("log")
     ax.grid()
     ax.legend()
-    ax.set_xlabel("Datasets", fontdict={'size': title_size})
-    ax.set_ylabel("Training runtime (s)", fontdict={'size': title_size})
-    ax.set_title("Training runtime distribution", fontdict={'size': title_size})
+    ax.set_xlabel("Datasets", fontdict={"size": title_size})
+    ax.set_ylabel("Training runtime (s)", fontdict={"size": title_size})
+    ax.set_title("Training runtime distribution", fontdict={"size": title_size})
 
     plt.tight_layout()
-    fig_save_path = figure_path(path=expname_outdir) / f"data-analysis.pdf"
+    fig_save_path = figure_path(path=expname_outdir) / "data-analysis.pdf"
     plt.savefig(fig_save_path)
     plt.show()
 
@@ -221,18 +240,18 @@ def plot_train_time_deep_dive(
         fig, axes = plt.subplots(1, 2, figsize=figsize, dpi=300)
     else:
         figsize = (26, 7)
-        fig, axes = plt.subplots(1, 4, figsize=figsize, dpi=300)
+        _fig, axes = plt.subplots(1, 4, figsize=figsize, dpi=300)
 
     # runtime max stats
     index_above_time_limit = df["time_train_s"] >= time_limit_soft
     proportion_of_models_reaching_time_limit = index_above_time_limit.mean()
     num_models_reaching_time_limit = index_above_time_limit.sum()
     models_by_family_reaching_time_limit = df.loc[index_above_time_limit].value_counts(family_col)
-    models_by_config_reaching_time_limit = df.loc[index_above_time_limit].value_counts(method_col)
+    df.loc[index_above_time_limit].value_counts(method_col)
     datasets_reaching_time_limit = df.loc[index_above_time_limit].value_counts("dataset")
     datasets_type_reaching_time_limit = df.loc[index_above_time_limit].value_counts(["dataset", family_col])
 
-    latex_kwargs = dict(
+    dict(
         index=False,
     )
 
@@ -276,7 +295,9 @@ def plot_train_time_deep_dive(
     # Span each family across [0, 1]: divide cumcount (0..n-1) by (n-1) so the
     # final config lands at 1.0 instead of (n-1)/n. Clip avoids div-by-zero for
     # single-config families (their lone point sits at 0).
-    df_sorted_by_time["group_index"] = df_sorted_by_time["group_index"] / (df_sorted_by_time["group_index_max"] - 1).clip(lower=1)
+    df_sorted_by_time["group_index"] = df_sorted_by_time["group_index"] / (
+        df_sorted_by_time["group_index_max"] - 1
+    ).clip(lower=1)
 
     cur_idx = 0
     if not only_per_method:
@@ -289,13 +310,20 @@ def plot_train_time_deep_dive(
             linewidth=3,
             ax=ax,
         )
-        ax.set_yscale('log')
+        ax.set_yscale("log")
         ax.grid()
-        ax.hlines(time_limit_hard, xmin=0, xmax=df_sorted_by_time["index"].max(), color="black", label=f"{int(time_limit_hard)} Seconds", ls="--")
+        ax.hlines(
+            time_limit_hard,
+            xmin=0,
+            xmax=df_sorted_by_time["index"].max(),
+            color="black",
+            label=f"{int(time_limit_hard)} Seconds",
+            ls="--",
+        )
         ax.legend()
-        ax.set_xlabel("Configs (Proportion)", fontdict={'size': title_size})
-        ax.set_ylabel("Training runtime (s)", fontdict={'size': title_size})
-        ax.set_title("Config runtime distribution", fontdict={'size': title_size})
+        ax.set_xlabel("Configs (Proportion)", fontdict={"size": title_size})
+        ax.set_ylabel("Training runtime (s)", fontdict={"size": title_size})
+        ax.set_title("Config runtime distribution", fontdict={"size": title_size})
         plt.tight_layout()
 
     ax = axes[cur_idx]
@@ -321,13 +349,20 @@ def plot_train_time_deep_dive(
         palette=palette[:n_colors],
         ax=ax,
     )
-    ax.set_yscale('log')
+    ax.set_yscale("log")
     ax.grid()
-    ax.hlines(time_limit_hard, xmin=0, xmax=df_sorted_by_time["group_index"].max(), color="black", label=f"{int(time_limit_hard)} Seconds", ls="--")
+    ax.hlines(
+        time_limit_hard,
+        xmin=0,
+        xmax=df_sorted_by_time["group_index"].max(),
+        color="black",
+        label=f"{int(time_limit_hard)} Seconds",
+        ls="--",
+    )
     ax.legend(loc="upper left")
-    ax.set_xlabel("Proportion of Model Configurations", fontdict={'size': title_size})
-    ax.set_ylabel("Training runtime (s)", fontdict={'size': title_size})
-    ax.set_title("Model runtime distribution", fontdict={'size': title_size})
+    ax.set_xlabel("Proportion of Model Configurations", fontdict={"size": title_size})
+    ax.set_ylabel("Training runtime (s)", fontdict={"size": title_size})
+    ax.set_title("Model runtime distribution", fontdict={"size": title_size})
     plt.tight_layout()
 
     if not only_per_method:
@@ -340,18 +375,18 @@ def plot_train_time_deep_dive(
             linewidth=3,
             ax=ax,
         )
-        ax.set_yscale('log')
+        ax.set_yscale("log")
         ax.grid()
-        ax.set_xlabel("Configs (Proportion)", fontdict={'size': title_size})
-        ax.set_ylabel("Cumulative training runtime (s)", fontdict={'size': title_size})
-        ax.set_title("Cumulative config runtime distribution", fontdict={'size': title_size})
+        ax.set_xlabel("Configs (Proportion)", fontdict={"size": title_size})
+        ax.set_ylabel("Cumulative training runtime (s)", fontdict={"size": title_size})
+        ax.set_title("Cumulative config runtime distribution", fontdict={"size": title_size})
         plt.tight_layout()
 
     ax = axes[cur_idx]
     cur_idx += 1
 
     n_colors = len(hue_order)
-    
+
     sns.lineplot(
         data=df_sorted_by_time,
         x="group_index",
@@ -363,11 +398,11 @@ def plot_train_time_deep_dive(
         ax=ax,
         legend=False,
     )
-    ax.set_yscale('log')
+    ax.set_yscale("log")
     ax.grid()
-    ax.set_xlabel("Proportion of Model Configurations", fontdict={'size': title_size})
-    ax.set_ylabel("Cumulative training runtime (s)", fontdict={'size': title_size})
-    ax.set_title("Cumulative model runtime distribution", fontdict={'size': title_size})
+    ax.set_xlabel("Proportion of Model Configurations", fontdict={"size": title_size})
+    ax.set_ylabel("Cumulative training runtime (s)", fontdict={"size": title_size})
+    ax.set_title("Cumulative model runtime distribution", fontdict={"size": title_size})
     plt.tight_layout()
 
     fig_name = "data-analysis-runtime"

@@ -80,7 +80,7 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
                     group_col=group_cols,
                     generate_index_features=group_labels == GroupLabelTypes.PER_GROUP,
                     group_time_on=group_time_on,
-                )
+                ),
             )
 
         if len(custom_feature_generators) == 0:
@@ -113,7 +113,11 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
         )
 
     def fit_transform(
-        self, X: pd.DataFrame, y: pd.Series | None = None, feature_metadata_in: FeatureMetadata = None, **kwargs
+        self,
+        X: pd.DataFrame,
+        y: pd.Series | None = None,
+        feature_metadata_in: FeatureMetadata = None,
+        **kwargs,
     ) -> pd.DataFrame:
         """Rename columns with '.' before AutoGluon stores feature metadata.
 
@@ -156,7 +160,7 @@ class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
                     S_TEXT,
                     S_TEXT_SPECIAL,
                 ],
-            }
+            },
         )
 
 

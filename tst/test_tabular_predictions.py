@@ -1,14 +1,22 @@
+from __future__ import annotations
+
 import copy
-import os
 import tempfile
-from typing import List
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 
-from tabarena.predictions import TabularModelPredictions, TabularPredictionsMemmap, TabularPredictionsInMemory, TabularPredictionsInMemoryOpt
-from tabarena.predictions.tabular_predictions import TabularPredictionsDict
+from tabarena.predictions import (
+    TabularModelPredictions,
+    TabularPredictionsInMemory,
+    TabularPredictionsInMemoryOpt,
+    TabularPredictionsMemmap,
+)
 from tabarena.utils.test_utils import generate_artificial_dict, generate_dummy
+
+if TYPE_CHECKING:
+    from tabarena.predictions.tabular_predictions import TabularPredictionsDict
 
 num_models = 13
 num_folds = 3
@@ -23,13 +31,15 @@ pred_dict = generate_artificial_dict(num_folds, models, dataset_shapes)
 
 def _assert_equivalent_pred_dict(pred_dict_1: TabularPredictionsDict, pred_dict_2: TabularPredictionsDict):
     assert sorted(pred_dict_1.keys()) == sorted(pred_dict_2.keys())
-    for dataset in pred_dict_1.keys():
+    for dataset in pred_dict_1:
         assert sorted(pred_dict_1[dataset].keys()) == sorted(pred_dict_2[dataset].keys())
         for fold, fold_dict in pred_dict_1[dataset].items():
             assert sorted(pred_dict_1[dataset][fold].keys()) == sorted(pred_dict_2[dataset][fold].keys())
             for split, model_dict in fold_dict.items():
-                for model, model_value in model_dict.items():
-                    assert np.allclose(pred_dict_1[dataset][fold][split][model], pred_dict_2[dataset][fold][split][model])
+                for model, _model_value in model_dict.items():
+                    assert np.allclose(
+                        pred_dict_1[dataset][fold][split][model], pred_dict_2[dataset][fold][split][model]
+                    )
 
 
 def _assert_equivalent_preds(preds_1: TabularModelPredictions, preds_2: TabularModelPredictions):
@@ -68,11 +78,14 @@ def _assert_equivalent_preds(preds_1: TabularModelPredictions, preds_2: TabularM
     _assert_equivalent_pred_dict(preds_1.to_dict(), preds_2.to_dict())
 
 
-@pytest.mark.parametrize("cls", [
-    TabularPredictionsMemmap,
-    TabularPredictionsInMemory,
-    TabularPredictionsInMemoryOpt,
-])
+@pytest.mark.parametrize(
+    "cls",
+    [
+        TabularPredictionsMemmap,
+        TabularPredictionsInMemory,
+        TabularPredictionsInMemoryOpt,
+    ],
+)
 def test_predictions_shape(cls):
     with tempfile.TemporaryDirectory() as tmpdirname:
         preds: TabularModelPredictions = cls.from_dict(pred_dict, output_dir=tmpdirname)
@@ -86,18 +99,21 @@ def test_predictions_shape(cls):
             for dataset, (val_shape, test_shape) in dataset_shapes.items():
                 val_pred_proba = preds.predict_val(dataset=dataset, fold=2, models=test_models)
                 test_pred_proba = preds.predict_test(dataset=dataset, fold=2, models=test_models)
-                assert val_pred_proba.shape == tuple([len(test_models)] + list(val_shape))
-                assert test_pred_proba.shape == tuple([len(test_models)] + list(test_shape))
+                assert val_pred_proba.shape == (len(test_models), *list(val_shape))
+                assert test_pred_proba.shape == (len(test_models), *list(test_shape))
                 for i, model in enumerate(test_models):
                     assert np.allclose(val_pred_proba[i], generate_dummy(val_shape, test_models)[model])
                     assert np.allclose(test_pred_proba[i], generate_dummy(test_shape, test_models)[model])
 
 
-@pytest.mark.parametrize("cls", [
-    TabularPredictionsMemmap,
-    TabularPredictionsInMemory,
-    TabularPredictionsInMemoryOpt
-])
+@pytest.mark.parametrize(
+    "cls",
+    [
+        TabularPredictionsMemmap,
+        TabularPredictionsInMemory,
+        TabularPredictionsInMemoryOpt,
+    ],
+)
 def test_restrict_datasets(cls):
     with tempfile.TemporaryDirectory() as tmpdirname:
         preds: TabularModelPredictions = cls.from_dict(pred_dict, output_dir=tmpdirname)
@@ -110,11 +126,14 @@ def test_restrict_datasets(cls):
         assert sorted(preds.folds) == []
 
 
-@pytest.mark.parametrize("cls", [
-    TabularPredictionsMemmap,
-    TabularPredictionsInMemory,
-    TabularPredictionsInMemoryOpt,
-])
+@pytest.mark.parametrize(
+    "cls",
+    [
+        TabularPredictionsMemmap,
+        TabularPredictionsInMemory,
+        TabularPredictionsInMemoryOpt,
+    ],
+)
 def test_restrict_models(cls):
     with tempfile.TemporaryDirectory() as tmpdirname:
         preds: TabularModelPredictions = cls.from_dict(pred_dict, output_dir=tmpdirname)
@@ -127,11 +146,14 @@ def test_restrict_models(cls):
         assert sorted(preds.folds) == []
 
 
-@pytest.mark.parametrize("cls", [
-    TabularPredictionsMemmap,
-    TabularPredictionsInMemory,
-    TabularPredictionsInMemoryOpt,
-])
+@pytest.mark.parametrize(
+    "cls",
+    [
+        TabularPredictionsMemmap,
+        TabularPredictionsInMemory,
+        TabularPredictionsInMemoryOpt,
+    ],
+)
 def test_restrict_folds(cls):
     with tempfile.TemporaryDirectory() as tmpdirname:
         preds: TabularModelPredictions = cls.from_dict(pred_dict, output_dir=tmpdirname)
@@ -144,11 +166,14 @@ def test_restrict_folds(cls):
         assert sorted(preds.folds) == []
 
 
-@pytest.mark.parametrize("cls", [
-    TabularPredictionsMemmap,
-    TabularPredictionsInMemory,
-    TabularPredictionsInMemoryOpt,
-])
+@pytest.mark.parametrize(
+    "cls",
+    [
+        TabularPredictionsMemmap,
+        TabularPredictionsInMemory,
+        TabularPredictionsInMemoryOpt,
+    ],
+)
 def test_to_dict(cls):
     # Checks that to_dict returns the same dictionary as the original input
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -156,11 +181,14 @@ def test_to_dict(cls):
         _assert_equivalent_pred_dict(pred_dict_1=pred_dict, pred_dict_2=preds.to_dict())
 
 
-@pytest.mark.parametrize("cls", [
-    TabularPredictionsMemmap,
-    TabularPredictionsInMemory,
-    TabularPredictionsInMemoryOpt,
-])
+@pytest.mark.parametrize(
+    "cls",
+    [
+        TabularPredictionsMemmap,
+        TabularPredictionsInMemory,
+        TabularPredictionsInMemoryOpt,
+    ],
+)
 def test_to_data_dir(cls):
     # Checks that to_dict returns the same dictionary as the original input
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -169,13 +197,15 @@ def test_to_data_dir(cls):
             preds.to_data_dir(data_dir=new_data_dir)
             pred_dict2 = cls.from_data_dir(data_dir=new_data_dir).to_dict()
             assert sorted(pred_dict.keys()) == sorted(pred_dict2.keys())
-            for dataset in pred_dict.keys():
+            for dataset in pred_dict:
                 assert sorted(pred_dict[dataset].keys()) == sorted(pred_dict2[dataset].keys())
                 for fold, fold_dict in pred_dict[dataset].items():
                     assert sorted(pred_dict[dataset][fold].keys()) == sorted(pred_dict2[dataset][fold].keys())
                     for split, model_dict in fold_dict.items():
-                        for model, model_value in model_dict.items():
-                            assert np.allclose(pred_dict[dataset][fold][split][model], pred_dict2[dataset][fold][split][model])
+                        for model, _model_value in model_dict.items():
+                            assert np.allclose(
+                                pred_dict[dataset][fold][split][model], pred_dict2[dataset][fold][split][model]
+                            )
 
 
 def test_predictions_after_restrict():
@@ -187,7 +217,9 @@ def test_predictions_after_restrict():
     ]
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        preds_list: List[TabularModelPredictions] = [c.from_dict(pred_dict, output_dir=tmpdirname) for c in preds_cls_list]
+        preds_list: list[TabularModelPredictions] = [
+            c.from_dict(pred_dict, output_dir=tmpdirname) for c in preds_cls_list
+        ]
 
         cur_datasets = copy.deepcopy(preds_list[0].datasets)
         cur_models = copy.deepcopy(preds_list[0].models)

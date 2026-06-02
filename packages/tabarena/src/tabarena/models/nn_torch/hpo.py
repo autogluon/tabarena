@@ -5,7 +5,6 @@ from autogluon.tabular.models import TabularNeuralNetTorchModel
 
 from tabarena.utils.config_utils import ConfigGenerator
 
-
 search_space = {
     "learning_rate": Real(1e-4, 3e-2, default=3e-4, log=True),
     "weight_decay": Real(1e-12, 0.1, default=1e-6, log=True),

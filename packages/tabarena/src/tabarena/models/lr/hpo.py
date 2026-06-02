@@ -5,7 +5,6 @@ from autogluon.tabular.models import LinearModel
 
 from tabarena.utils.config_utils import ConfigGenerator
 
-
 search_space = {
     "C": Real(lower=0.1, upper=1e3, default=1, log=True),  # FIXME: log=True?
     "proc.skew_threshold": Categorical(0.99, 0.9, 0.999, None),
@@ -23,6 +22,8 @@ gen_linear = ConfigGenerator(
 
 def generate_configs_lr(num_random_configs=200):
     config_generator = ConfigGenerator(
-        name="LinearModel", manual_configs=[{}], search_space=search_space
+        name="LinearModel",
+        manual_configs=[{}],
+        search_space=search_space,
     )
     return config_generator.generate_all_configs(num_random_configs=num_random_configs)

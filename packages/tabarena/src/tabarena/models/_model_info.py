@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tabarena.models._method_metadata import MethodMetadata
 
 
@@ -42,6 +43,6 @@ class ModelInfo:
 
     model_cls: type
     search_space: Callable
-    method_metadata: "MethodMetadata"
+    method_metadata: MethodMetadata
     pip_extra: tuple[str, ...] = field(default_factory=tuple)
     prefetch_weights: Callable[[], None] | None = None

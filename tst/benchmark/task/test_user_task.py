@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 from openml.tasks import OpenMLClassificationTask, OpenMLRegressionTask, TaskType
 from openml.tasks.split import OpenMLSplit
+
 from tabarena.benchmark.task import UserTask
 from tabarena.benchmark.task.metadata import (
     GroupLabelTypes,
@@ -37,7 +38,7 @@ def _make_dataset(problem_type: str, *, n: int = 10) -> tuple[pd.DataFrame, str,
         {
             "num": np.arange(n, dtype="int64"),
             "cat": pd.Series(["A", "B"] * (n // 2), dtype="category"),
-        }
+        },
     )
     if problem_type == "classification":
         dataset["target"] = ["neg", "pos"] * (n // 2)
@@ -298,7 +299,8 @@ def test_slug_is_readable_first_segment_plus_shorthash():
     ut = UserTask(task_name="blood_transfusion/019d7366-d9d0-777d-b0ae-e7a5175f7f09")
     readable, _, shorthash = ut.slug.rpartition("-")
     assert readable == "blood_transfusion"  # first /-segment
-    assert len(shorthash) == 12 and shorthash == ut._task_name_hash[:12]
+    assert len(shorthash) == 12
+    assert shorthash == ut._task_name_hash[:12]
 
 
 def test_slug_is_deterministic_and_unique():
@@ -554,14 +556,16 @@ def test_task_metadata_from_row_backward_compat_missing_optional_fields():
     df = meta.to_dataframe()
     row = df.iloc[0]
     # Simulate an old CSV that doesn't have the new columns
-    row = row.drop([
-        "has_datetime",
-        "has_text",
-        "has_categorical",
-        "has_numerical",
-        "has_binary",
-        "has_high_cardinality_categorical",
-    ])
+    row = row.drop(
+        [
+            "has_datetime",
+            "has_text",
+            "has_categorical",
+            "has_numerical",
+            "has_binary",
+            "has_high_cardinality_categorical",
+        ]
+    )
     reconstructed = TabArenaTaskMetadata.from_row(row)
     assert reconstructed.dataset_name == meta.dataset_name
     # New fields default to None when absent
@@ -672,7 +676,9 @@ def test_get_num_instance_groups_no_group():
 def test_get_num_instance_groups_per_sample_label():
     X = pd.DataFrame({"a": [1, 2, 3], "group": ["x", "x", "y"]})
     n = TabArenaTaskMetadataMixin.get_num_instance_groups(
-        X=X, group_on="group", group_labels=GroupLabelTypes.PER_SAMPLE
+        X=X,
+        group_on="group",
+        group_labels=GroupLabelTypes.PER_SAMPLE,
     )
     # PER_SAMPLE → returns len(X) regardless of groups
     assert n == 3
@@ -687,7 +693,9 @@ def test_get_num_instance_groups_per_group_label():
 def test_get_num_instance_groups_multi_column_group():
     X = pd.DataFrame({"g1": ["a", "a", "b"], "g2": [1, 2, 1]})
     n = TabArenaTaskMetadataMixin.get_num_instance_groups(
-        X=X, group_on=["g1", "g2"], group_labels=GroupLabelTypes.PER_GROUP
+        X=X,
+        group_on=["g1", "g2"],
+        group_labels=GroupLabelTypes.PER_GROUP,
     )
     # (a,1), (a,2), (b,1) → 3 unique groups
     assert n == 3
@@ -707,7 +715,7 @@ def _make_multiclass_dataset(n_per_class: int = 4) -> tuple[pd.DataFrame, str]:
             "num": np.arange(n, dtype="int64"),
             "cat": pd.Categorical(["A", "B"] * (n // 2)),
             "target": pd.Categorical(labels),
-        }
+        },
     )
     return df, "target"
 
@@ -721,7 +729,7 @@ def _make_4class_dataset(n_per_class: int = 3) -> tuple[pd.DataFrame, str]:
             "num": np.arange(n, dtype="int64"),
             "cat": pd.Categorical(["A", "B"] * (n // 2)),
             "target": pd.Categorical(labels),
-        }
+        },
     )
     return df, "target"
 
@@ -756,7 +764,9 @@ def test_get_dataset_stats_regression_basic(tmp_path):
     df, target, _, _ = _make_dataset("regression", n=10)
     task, _ = _task_from_user_task(df, target, "regression", {0: {0: (list(range(8)), [8, 9])}}, tmp_path, "ds-reg")
     n_inst, n_feat, n_cls, n_groups = task._get_dataset_stats(
-        oml_dataset=df, is_classification=False, target_name=target
+        oml_dataset=df,
+        is_classification=False,
+        target_name=target,
     )
     assert n_inst == 10
     assert n_feat == 2  # "num" and "cat"
@@ -789,7 +799,7 @@ def test_get_dataset_stats_num_features_excludes_target(tmp_path):
             "f3": range(n),
             "f4": range(n),
             "target": [0, 1] * (n // 2),
-        }
+        },
     )
     task, _ = _task_from_user_task(
         df,
@@ -938,7 +948,7 @@ def test_compute_metadata_dtype_flags_with_text_and_datetime(tmp_path):
             "txt": pd.array(["hello"] * 10, dtype="string"),
             "dt": pd.date_range("2020-01-01", periods=10, freq="D"),
             "target": [0, 1] * 5,
-        }
+        },
     )
     task, _ = _task_from_user_task(
         df,
@@ -976,7 +986,7 @@ def test_compute_metadata_dtype_flags_independent_columns(tmp_path):
             # Binary categorical
             "cat_b": pd.Series(["A", "B"] * (n // 2), dtype="category"),
             "target": pd.Series(["neg", "pos"] * (n // 2), dtype="category"),
-        }
+        },
     )
     task, _ = _task_from_user_task(
         df,
@@ -1066,7 +1076,7 @@ def test_compute_metadata_multi_fold_split_indices(tmp_path):
         0: {
             0: (list(range(15)), list(range(15, 20))),
             1: (list(range(5, 20)), list(range(5))),
-        }
+        },
     }
     task, _ = _task_from_user_task(df, target, "classification", splits, tmp_path, "cm-mf")
     meta = task.compute_metadata()
@@ -1081,7 +1091,7 @@ def test_compute_metadata_multi_fold_per_split_counts(tmp_path):
         0: {
             0: (list(range(15)), list(range(15, 20))),
             1: (list(range(5, 20)), list(range(5))),
-        }
+        },
     }
     task, _ = _task_from_user_task(df, target, "classification", splits, tmp_path, "cm-mf-cnt")
     meta = task.compute_metadata()
@@ -1208,7 +1218,7 @@ def test_create_local_openml_task_unsupported_arff_dtype_does_not_raise(col_name
             "num": np.arange(n, dtype="int64"),
             col_name: col_values,
             "target": np.linspace(0.0, 1.0, num=n),
-        }
+        },
     )
     assert df[col_name].dtype == dtype
 
@@ -1251,7 +1261,7 @@ def test_create_local_openml_task_non_string_categorical_does_not_raise(cat_valu
             "num": np.arange(n, dtype="int64"),
             "cat_col": cat_values,
             "target": np.linspace(0.0, 1.0, num=n),
-        }
+        },
     )
     assert df["cat_col"].dtype.name == "category"
     assert df["cat_col"].cat.categories.dtype == cat_dtype

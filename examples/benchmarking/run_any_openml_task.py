@@ -9,10 +9,11 @@ from tabarena.benchmark.experiment import AGModelBagExperiment, ExperimentBatchR
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.method_processor import generate_task_metadata
 
-
 # Example code for running any TabArena model on any OpenML task (even those not part of TabArena's original datasets)
-if __name__ == '__main__':
-    expname = str(Path(__file__).parent / "experiments" / "quickstart_any_openml_task")  # folder location to save all experiment artifacts
+if __name__ == "__main__":
+    expname = str(
+        Path(__file__).parent / "experiments" / "quickstart_any_openml_task"
+    )  # folder location to save all experiment artifacts
     eval_dir = Path(__file__).parent / "eval" / "quickstart_any_openml_task"
     ignore_cache = False  # set to True to overwrite existing caches and re-run experiments from scratch
 
@@ -42,7 +43,6 @@ if __name__ == '__main__':
         AGModelBagExperiment(  # Wrapper for fitting a single bagged model via AutoGluon
             # The name you want the config to have
             name="LightGBM_c1_BAG_L1_Reproduced",
-
             # The class of the model. Can also be a string if AutoGluon recognizes it, such as `"GBM"`
             # Supports any model that inherits from `autogluon.core.models.AbstractModel`
             model_cls=LGBModel,

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from tabarena.models.orionmsp.model import OrionMSPModel, prefetch_weights
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.orionmsp.hpo import gen_orionmsp
-from tabarena.models._method_metadata import MethodMetadata
-
+from tabarena.models.orionmsp.model import OrionMSPModel, prefetch_weights
 
 orionmsp_method_metadata = MethodMetadata(
     method="OrionMSP",

@@ -39,25 +39,18 @@ class XRFMImplementation:
 
         # preprocessing
         self.cat_cols_ = X.select_dtypes(
-            include=["category", "string", "object"]
+            include=["category", "string", "object"],
         ).columns.tolist()
         self.num_cols_ = X.select_dtypes(
-            exclude=["category", "string", "object"]
+            exclude=["category", "string", "object"],
         ).columns.tolist()
 
         # Initialize encoders
-        self.ohe_ = (
-            OneHotEncoder(handle_unknown="ignore", sparse_output=False)
-            if self.cat_cols_
-            else None
-        )
+        self.ohe_ = OneHotEncoder(handle_unknown="ignore", sparse_output=False) if self.cat_cols_ else None
         self.scaler_ = StandardScaler()
 
         # Encode categorical variables
-        if self.cat_cols_:
-            x_cat_enc = self.ohe_.fit_transform(X.loc[:, self.cat_cols_])
-        else:
-            x_cat_enc = np.empty((len(X), 0))
+        x_cat_enc = self.ohe_.fit_transform(X.loc[:, self.cat_cols_]) if self.cat_cols_ else np.empty((len(X), 0))
 
         x_num_enc = X.loc[:, self.num_cols_].to_numpy().astype(np.float32)
 
@@ -119,13 +112,11 @@ class XRFMImplementation:
                     categorical_indices.append(cat_idxs)
                     if self.kwargs.get("standardize_cats", False):
                         cat_vectors = np.asarray(self.scaler_.scale_)[
-                            None, cat_idxs.numpy()
-                        ] * (
-                            np.eye(cat_len)
-                            - np.asarray(self.scaler_.mean_)[None, cat_idxs.numpy()]
-                        )
+                            None,
+                            cat_idxs.numpy(),
+                        ] * (np.eye(cat_len) - np.asarray(self.scaler_.mean_)[None, cat_idxs.numpy()])
                         categorical_vectors.append(
-                            torch.tensor(cat_vectors, dtype=torch.float32)
+                            torch.tensor(cat_vectors, dtype=torch.float32),
                         )
                     else:
                         categorical_vectors.append(torch.eye(cat_len))
@@ -137,7 +128,7 @@ class XRFMImplementation:
             numerical_block = idx + torch.arange(x_num_enc.shape[1])
             if len(numerical_indices_parts) > 0:
                 numerical_indices = torch.cat(
-                    [*numerical_indices_parts, numerical_block]
+                    [*numerical_indices_parts, numerical_block],
                 )
             else:
                 numerical_indices = numerical_block
@@ -159,10 +150,7 @@ class XRFMImplementation:
     def preprocess_transform(self, X):
         # Encode categorical variables using the same strategy as in fit
 
-        if self.cat_cols_:
-            x_cat_enc = self.ohe_.transform(X.loc[:, self.cat_cols_])
-        else:
-            x_cat_enc = np.empty((len(X), 0))
+        x_cat_enc = self.ohe_.transform(X.loc[:, self.cat_cols_]) if self.cat_cols_ else np.empty((len(X), 0))
 
         x_num_enc = X.loc[:, self.num_cols_].to_numpy().astype(np.float32)
 
@@ -252,7 +240,8 @@ class XRFMModel(AbstractModel):
 
         init_kwargs["standardize_cats"] = init_kwargs.get("standardize_cats", False)
         init_kwargs["classification_mode"] = init_kwargs.get(
-            "classification_mode", "prevalence"
+            "classification_mode",
+            "prevalence",
         )
 
         solver = init_kwargs.get("solver", "solve")
@@ -295,7 +284,11 @@ class XRFMModel(AbstractModel):
         # todo: do we already need to move stuff to the correct device?
 
         X = self.preprocess(
-            X, y=y, is_train=True, bool_to_cat=bool_to_cat, impute_bool=impute_bool
+            X,
+            y=y,
+            is_train=True,
+            bool_to_cat=bool_to_cat,
+            impute_bool=impute_bool,
         )
 
         if X_val is not None:
@@ -305,9 +298,7 @@ class XRFMModel(AbstractModel):
             problem_type=self.problem_type,
             n_threads=num_cpus if num_gpus == 0 else 1,  # avoid VRAM leak
             device=device,
-            time_limit_s=time_limit - (time.time() - start_time)
-            if time_limit is not None
-            else None,
+            time_limit_s=time_limit - (time.time() - start_time) if time_limit is not None else None,
             **init_kwargs,
         )
 
@@ -341,43 +332,40 @@ class XRFMModel(AbstractModel):
         if is_train:
             self._bool_to_cat = bool_to_cat
             self._features_bool = self._feature_metadata.get_features(
-                required_special_types=["bool"]
+                required_special_types=["bool"],
             )
             if impute_bool:  # Technically this should do nothing useful because bools will never have NaN
                 self._features_to_impute = self._feature_metadata.get_features(
-                    valid_raw_types=["int", "float"]
+                    valid_raw_types=["int", "float"],
                 )
                 self._features_to_keep = self._feature_metadata.get_features(
-                    invalid_raw_types=["int", "float"]
+                    invalid_raw_types=["int", "float"],
                 )
             else:
                 self._features_to_impute = self._feature_metadata.get_features(
-                    valid_raw_types=["int", "float"], invalid_special_types=["bool"]
+                    valid_raw_types=["int", "float"],
+                    invalid_special_types=["bool"],
                 )
                 self._features_to_keep = [
-                    f
-                    for f in self._feature_metadata.get_features()
-                    if f not in self._features_to_impute
+                    f for f in self._feature_metadata.get_features() if f not in self._features_to_impute
                 ]
             if self._features_to_impute:
                 self._imputer = SimpleImputer(strategy="mean", add_indicator=True)
                 self._imputer.fit(X=X[self._features_to_impute])
                 self._indicator_columns = [
-                    c
-                    for c in self._imputer.get_feature_names_out()
-                    if c not in self._features_to_impute
+                    c for c in self._imputer.get_feature_names_out() if c not in self._features_to_impute
                 ]
         if self._imputer is not None:
             X_impute = self._imputer.transform(X=X[self._features_to_impute])
             X_impute = pd.DataFrame(
-                X_impute, index=X.index, columns=self._imputer.get_feature_names_out()
+                X_impute,
+                index=X.index,
+                columns=self._imputer.get_feature_names_out(),
             )
             if self._indicator_columns:
                 # FIXME: Use CategoryFeatureGenerator? Or tell the model which is category
                 # TODO: Add to features_bool?
-                X_impute[self._indicator_columns] = X_impute[
-                    self._indicator_columns
-                ].astype("category")
+                X_impute[self._indicator_columns] = X_impute[self._indicator_columns].astype("category")
             X = pd.concat([X[self._features_to_keep], X_impute], axis=1)
         if self._bool_to_cat and self._features_bool:
             # FIXME: Use CategoryFeatureGenerator? Or tell the model which is category
@@ -416,7 +404,8 @@ class XRFMModel(AbstractModel):
         **kwargs,
     ) -> tuple[int | None, int | None]:
         return super()._validate_fit_memory_usage(
-            mem_error_threshold=mem_error_threshold, **kwargs
+            mem_error_threshold=mem_error_threshold,
+            **kwargs,
         )
 
     def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
@@ -449,20 +438,16 @@ class XRFMModel(AbstractModel):
 
         # taken from pytabkit
         columns_mem_est = (
-            6e4 * num_samples
-            + 2e6 * num_features
-            + 30.0 * num_samples**2
-            + 30.0 * num_samples * num_features
+            6e4 * num_samples + 2e6 * num_features + 30.0 * num_samples**2 + 30.0 * num_samples * num_features
         )
 
-        dataset_size_mem_est = (
-            5 * get_approximate_df_mem_usage(X).sum()
-        )  # roughly 5x DataFrame memory size
+        dataset_size_mem_est = 5 * get_approximate_df_mem_usage(X).sum()  # roughly 5x DataFrame memory size
         baseline_overhead_mem_est = 2e8  # 200 MB generic overhead
 
         model_mem_estimate = columns_mem_est + baseline_overhead_mem_est
         model_mem_estimate = min(
-            model_mem_estimate, 3.8e10
+            model_mem_estimate,
+            3.8e10,
         )  # using the tree strategy caps at <40 GB
         return model_mem_estimate + dataset_size_mem_est
 

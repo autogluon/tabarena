@@ -352,7 +352,7 @@ class ModernNCAModel(AbstractModel):
         if X_val is not None:
             X_val = self.preprocess(X_val)
 
-        save_path = self.path + "/tmp_model"
+        save_path = self.path + "/tmp_model"  # noqa: S108
         self.model = ModernNCAImplementation(
             n_threads=num_cpus,
             device=device,

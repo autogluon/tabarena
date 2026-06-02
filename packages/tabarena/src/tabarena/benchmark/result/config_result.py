@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import copy
-from typing import Any
-from typing_extensions import Self
+from typing import Any, Self
 
 import numpy as np
 import pandas as pd
@@ -39,9 +38,16 @@ class ConfigResult(BaselineResult):
     def ag_key(self) -> str:
         return self.result["method_metadata"].get("ag_key", self.model_type)
 
-    def update_name(self, name: str | None = None, name_prefix: str | None = None, name_suffix: str | None = None, keep_suffix: bool = True):
-        assert name is not None or name_prefix is not None or name_suffix is not None, \
+    def update_name(
+        self,
+        name: str | None = None,
+        name_prefix: str | None = None,
+        name_suffix: str | None = None,
+        keep_suffix: bool = True,
+    ):
+        assert name is not None or name_prefix is not None or name_suffix is not None, (
             "Must specify one of `name`, `name_prefix`, `name_suffix`."
+        )
         assert name is None or name_prefix is None, "Must only specify one of `name`, `name_prefix`."
         assert name is None or name_suffix is None, "Must only specify one of `name`, `name_suffix`."
         if name is not None:
@@ -74,9 +80,12 @@ class ConfigResult(BaselineResult):
             self.result["method_metadata"]["name_prefix"] = new_name_prefix
             self.result["framework"] = new_name
 
-    def update_model_type(self, name: str | None = None, name_prefix: str | None = None, name_suffix: str | None = None):
-        assert name is not None or name_prefix is not None or name_suffix is not None, \
+    def update_model_type(
+        self, name: str | None = None, name_prefix: str | None = None, name_suffix: str | None = None
+    ):
+        assert name is not None or name_prefix is not None or name_suffix is not None, (
             "Must specify one of `name`, `name_prefix`, `name_suffix`."
+        )
         assert name is None or name_prefix is None, "Must only specify one of `name`, `name_prefix`."
         assert name is None or name_suffix is None, "Must only specify one of `name`, `name_suffix`."
         if "ag_key" not in self.result["method_metadata"]:
@@ -185,7 +194,9 @@ class ConfigResult(BaselineResult):
 
         if self.problem_type == "binary":
             if len(self.result["simulation_artifacts"]["pred_test"].shape) > 1:
-                self.result["simulation_artifacts"]["pred_test"] = self.result["simulation_artifacts"]["pred_test"][:, 1]
+                self.result["simulation_artifacts"]["pred_test"] = self.result["simulation_artifacts"]["pred_test"][
+                    :, 1
+                ]
             if len(self.result["simulation_artifacts"]["pred_val"].shape) > 1:
                 self.result["simulation_artifacts"]["pred_val"] = self.result["simulation_artifacts"]["pred_val"][:, 1]
 
@@ -243,9 +254,13 @@ class ConfigResult(BaselineResult):
         if len(self.bag_info["pred_val_per_child"][0].shape) == 1:
             pred_val = np.zeros(dtype=np.float64, shape=num_samples_val)
         else:
-            pred_val = np.zeros(dtype=np.float64, shape=(num_samples_val, self.bag_info["pred_val_per_child"][0].shape[1]))
+            pred_val = np.zeros(
+                dtype=np.float64, shape=(num_samples_val, self.bag_info["pred_val_per_child"][0].shape[1])
+            )
         val_child_count = np.zeros(dtype=int, shape=num_samples_val)
-        for val_idx_child, pred_val_child in zip(self.bag_info["val_idx_per_child"], self.bag_info["pred_val_per_child"]):
+        for val_idx_child, pred_val_child in zip(
+            self.bag_info["val_idx_per_child"], self.bag_info["pred_val_per_child"], strict=False
+        ):
             val_child_count[val_idx_child] += 1
             pred_val[val_idx_child] += pred_val_child
         pred_val = pred_val / val_child_count[:, None]
@@ -256,7 +271,9 @@ class ConfigResult(BaselineResult):
         if len(self.bag_info["pred_val_per_child"][0].shape) == 1:
             pred_test = np.zeros(dtype=np.float64, shape=num_samples_test)
         else:
-            pred_test = np.zeros(dtype=np.float64, shape=(num_samples_test, self.bag_info["pred_test_per_child"][0].shape[1]))
+            pred_test = np.zeros(
+                dtype=np.float64, shape=(num_samples_test, self.bag_info["pred_test_per_child"][0].shape[1])
+            )
         num_children = len(self.bag_info["pred_test_per_child"])
         for pred_test_child in self.bag_info["pred_test_per_child"]:
             pred_test += pred_test_child
@@ -274,6 +291,7 @@ class ConfigResult(BaselineResult):
             TemperatureScalingCalibrator,
             TemperatureScalingCalibratorFixed,
         )
+
         if method == "v1":
             calibrator = AutoGluonTemperatureScalingCalibrator(init_val=init_val, max_iter=max_iter, lr=lr)
         elif method == "v2":
@@ -292,6 +310,7 @@ class ConfigResult(BaselineResult):
         sim_artifact = result["simulation_artifacts"]
         metric = result["metric"]
         from autogluon.core.metrics import get_metric
+
         problem_type = result["problem_type"]
         ag_metric = get_metric(metric=metric, problem_type=problem_type)
         y_test = sim_artifact["y_test"]
@@ -337,9 +356,12 @@ class ConfigResult(BaselineResult):
         df_result["aux_metric_error_val"] = aux_metric_error_val
         return df_result
 
-    def compute_metric_test(self, metric, decision_threshold: float | str = 0.5, as_sklearn: bool = False, calibrate: bool = False):
+    def compute_metric_test(
+        self, metric, decision_threshold: float | str = 0.5, as_sklearn: bool = False, calibrate: bool = False
+    ):
         from autogluon.core.metrics import get_metric
         from autogluon.core.utils.utils import get_pred_from_proba
+
         ag_metric = get_metric(metric=metric, problem_type=self.problem_type)
         y_test = self.simulation_artifacts["y_test"]
         y_val = self.simulation_artifacts["y_val"]
@@ -355,6 +377,7 @@ class ConfigResult(BaselineResult):
             if decision_threshold == "auto":
                 if self.problem_type == "binary":
                     from autogluon.core.calibrate import calibrate_decision_threshold
+
                     decision_threshold = calibrate_decision_threshold(
                         y=y_val,
                         y_pred_proba=y_pred_proba_val,
@@ -363,16 +386,25 @@ class ConfigResult(BaselineResult):
                 else:
                     decision_threshold = 0.5
 
-            y_pred_val = get_pred_from_proba(y_pred_proba=y_pred_proba_val, problem_type=self.problem_type, decision_threshold=decision_threshold)
-            y_pred_test = get_pred_from_proba(y_pred_proba=y_pred_proba_test, problem_type=self.problem_type, decision_threshold=decision_threshold)
+            y_pred_val = get_pred_from_proba(
+                y_pred_proba=y_pred_proba_val, problem_type=self.problem_type, decision_threshold=decision_threshold
+            )
+            y_pred_test = get_pred_from_proba(
+                y_pred_proba=y_pred_proba_test, problem_type=self.problem_type, decision_threshold=decision_threshold
+            )
             metric_error_val = ag_metric.error(y_val, y_pred_val)
             metric_error_test = ag_metric.error(y_test, y_pred_test)
         else:
             if calibrate:
                 from autogluon.core.data.label_cleaner import LabelCleanerMulticlassToBinary
+
                 if self.problem_type == "binary":
-                    y_pred_proba_val = LabelCleanerMulticlassToBinary.convert_binary_proba_to_multiclass_proba(y_pred_proba_val)
-                    y_pred_proba_test = LabelCleanerMulticlassToBinary.convert_binary_proba_to_multiclass_proba(y_pred_proba_test)
+                    y_pred_proba_val = LabelCleanerMulticlassToBinary.convert_binary_proba_to_multiclass_proba(
+                        y_pred_proba_val
+                    )
+                    y_pred_proba_test = LabelCleanerMulticlassToBinary.convert_binary_proba_to_multiclass_proba(
+                        y_pred_proba_test
+                    )
                 calibrator = self.temp_scale(y_val=y_val, y_pred_proba_val=y_pred_proba_val)
                 y_pred_proba_val = calibrator.predict_proba(y_pred_proba_val)
                 y_pred_proba_test = calibrator.predict_proba(y_pred_proba_test)
@@ -384,8 +416,12 @@ class ConfigResult(BaselineResult):
 
         # print(f"{ag_metric.name}\ttest: {metric_error_test:.4f}\tval: {metric_error_val:.4f}\t{self.problem_type}")
         if as_sklearn:
-            metric_score_test = ag_metric.convert_score_to_original(score=ag_metric.convert_error_to_score(error=metric_error_test))
-            metric_score_val = ag_metric.convert_score_to_original(score=ag_metric.convert_error_to_score(error=metric_error_val))
+            metric_score_test = ag_metric.convert_score_to_original(
+                score=ag_metric.convert_error_to_score(error=metric_error_test)
+            )
+            metric_score_val = ag_metric.convert_score_to_original(
+                score=ag_metric.convert_error_to_score(error=metric_error_val)
+            )
             return metric_score_test, metric_score_val
         return metric_error_test, metric_error_val
 

@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+
 from tabarena.benchmark.task.metadata import (
     BeyondArenaMetadataBundle,
     SplitMetadata,
     TabArenaTaskMetadata,
 )
 from tabarena.benchmark.task.user_task import UserTask
-
 
 # ---------------------------------------------------------------------------
 # UserTask: portable (path-free) vs explicit-path task_id_str
@@ -121,7 +121,7 @@ def patched_data_foundry(monkeypatch):
 
     materialized: list[str] = []
 
-    def _fake_materialize(*, collection, task_id_str, data_foundry_uri, **_):  # noqa: ARG001
+    def _fake_materialize(*, collection, task_id_str, data_foundry_uri, **_):
         materialized.append(data_foundry_uri)
         return f"materialized::{data_foundry_uri}"
 

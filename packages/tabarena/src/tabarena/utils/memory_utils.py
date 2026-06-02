@@ -1,15 +1,15 @@
+from __future__ import annotations
+
 import os
-import time
 import threading
-from typing import Optional
+import time
 
 import psutil
 import torch
 
 
 class CpuMemoryTracker:
-    """
-    Tracks min and peak CPU RAM (RSS) for the current process, optionally
+    """Tracks min and peak CPU RAM (RSS) for the current process, optionally
     including all child processes (e.g., Ray workers) on the same node.
 
     Attributes (bytes, set after context finishes):
@@ -18,8 +18,7 @@ class CpuMemoryTracker:
     """
 
     def __init__(self, interval: float = 0.05, include_children: bool = True):
-        """
-        Parameters
+        """Parameters
         ----------
         interval : float, default=0.05
             Sampling interval in seconds.
@@ -32,15 +31,14 @@ class CpuMemoryTracker:
 
         self._proc = psutil.Process(os.getpid())
         self._stop_flag = False
-        self._sampler_thread: Optional[threading.Thread] = None
+        self._sampler_thread: threading.Thread | None = None
 
         # Public stats
-        self.min_rss: Optional[int] = None
+        self.min_rss: int | None = None
         self.peak_rss: int = 0
 
     def _get_current_rss(self) -> int:
-        """
-        Return current total RSS in bytes for this process (and optionally
+        """Return current total RSS in bytes for this process (and optionally
         all descendant processes).
         """
         total_rss = 0
@@ -69,8 +67,7 @@ class CpuMemoryTracker:
             rss = self._get_current_rss()
             if self.min_rss is None or rss < self.min_rss:
                 self.min_rss = rss
-            if rss > self.peak_rss:
-                self.peak_rss = rss
+            self.peak_rss = max(self.peak_rss, rss)
             time.sleep(self.interval)
 
     def __enter__(self):
@@ -96,13 +93,10 @@ class CpuMemoryTracker:
 
 
 class GpuMemoryTracker:
-    """
-    GPU memory tracker that automatically disables itself when CUDA is not available.
-    """
+    """GPU memory tracker that automatically disables itself when CUDA is not available."""
 
     def __init__(self, device=0, interval: float = 0.05):
-        """
-        Parameters
+        """Parameters
         ----------
         device : int or torch.device
             CUDA device index or device object. Ignored if CUDA unavailable.
@@ -130,13 +124,13 @@ class GpuMemoryTracker:
 
         # For sampling thread
         self._stop_flag = False
-        self._sampler_thread: Optional[threading.Thread] = None
+        self._sampler_thread: threading.Thread | None = None
 
         # Public stats (bytes)
-        self.min_allocated: Optional[int] = None
-        self.peak_allocated: Optional[int] = None
-        self.min_reserved: Optional[int] = None
-        self.peak_reserved: Optional[int] = None
+        self.min_allocated: int | None = None
+        self.peak_allocated: int | None = None
+        self.min_reserved: int | None = None
+        self.peak_reserved: int | None = None
 
     # ----------------------------
     # Helpers

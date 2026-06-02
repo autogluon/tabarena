@@ -3,36 +3,36 @@ from __future__ import annotations
 import copy
 import os
 from pathlib import Path
-from typing import Any, List, Literal
-
-import numpy as np
-import pandas as pd
-from typing_extensions import Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 from .abstract_repository import AbstractRepository
 from .ensemble_mixin import EnsembleMixin
 from .ground_truth_mixin import GroundTruthMixin
-from .. import repository
-from ..predictions.tabular_predictions import TabularModelPredictions
-from ..simulation.configuration_list_scorer import ConfigurationListScorer
-from ..simulation.ground_truth import GroundTruth
-from ..simulation.simulation_context import ZeroshotSimulatorContext
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+
+    from tabarena import repository
+    from tabarena.predictions.tabular_predictions import TabularModelPredictions
+    from tabarena.simulation.configuration_list_scorer import ConfigurationListScorer
+    from tabarena.simulation.ground_truth import GroundTruth
+    from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
 
 
 class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
-    """
-    Simple Repository class that implements core functionality related to
+    """Simple Repository class that implements core functionality related to
     fetching model predictions, available datasets, folds, etc.
     """
+
     def __init__(
-            self,
-            zeroshot_context: ZeroshotSimulatorContext,
-            tabular_predictions: TabularModelPredictions,
-            ground_truth: GroundTruth,
-            config_fallback: str = None,
+        self,
+        zeroshot_context: ZeroshotSimulatorContext,
+        tabular_predictions: TabularModelPredictions,
+        ground_truth: GroundTruth,
+        config_fallback: str | None = None,
     ):
-        """
-        :param zeroshot_context:
+        """:param zeroshot_context:
         :param tabular_predictions:
         :param ground_truth:
         :param config_fallback: if specified, used to replace the result of a configuration that is missing, if not
@@ -43,15 +43,18 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         self._tabular_predictions: TabularModelPredictions = tabular_predictions
         self._ground_truth = ground_truth
         if self._tabular_predictions is not None:
-            assert all(self._zeroshot_context.dataset_to_tid_dict[x] in self._tid_to_dataset_dict for x in self._tabular_predictions.datasets)
+            assert all(
+                self._zeroshot_context.dataset_to_tid_dict[x] in self._tid_to_dataset_dict
+                for x in self._tabular_predictions.datasets
+            )
 
     def to_zeroshot(self) -> repository.EvaluationRepositoryZeroshot:
-        """
-        Returns a version of the repository as an EvaluationRepositoryZeroshot object.
+        """Returns a version of the repository as an EvaluationRepositoryZeroshot object.
 
         :return: EvaluationRepositoryZeroshot object
         """
         from .evaluation_repository_zeroshot import EvaluationRepositoryZeroshot
+
         self_zeroshot = copy.copy(self)  # Shallow copy so that the class update does not alter self
         self_zeroshot.__class__ = EvaluationRepositoryZeroshot
         return self_zeroshot
@@ -71,8 +74,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
             self._ground_truth.restrict_datasets(datasets=datasets)
 
     def force_to_dense(self, inplace: bool = False, verbose: bool = True) -> Self:
-        """
-        Method to force the repository to a dense representation inplace.
+        """Method to force the repository to a dense representation inplace.
 
         The following operations will be applied in order:
         1. subset to only datasets that contain at least one result for all folds (self.n_folds())
@@ -91,7 +93,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         verbose: bool, default = True
             Whether to log verbose details about the force to dense operation.
 
-        Returns
+        Returns:
         -------
         Return dense repo if inplace=False or self after inplace updates in this call.
         """
@@ -99,6 +101,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
             return copy.deepcopy(self).force_to_dense(inplace=True, verbose=verbose)
 
         from tabarena.simulation.dense_utils import intersect_folds_and_datasets, prune_zeroshot_gt
+
         # keep only dataset whose folds are all present
         intersect_folds_and_datasets(self._zeroshot_context, self._tabular_predictions, self._ground_truth)
 
@@ -108,22 +111,23 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         self.subset(datasets=datasets, inplace=inplace, force_to_dense=False)
 
         self._tabular_predictions.restrict_models(self.configs())
-        self._ground_truth = prune_zeroshot_gt(zeroshot_pred_proba=self._tabular_predictions,
-                                               zeroshot_gt=self._ground_truth,
-                                               dataset_to_tid_dict=self._dataset_to_tid_dict,
-                                               verbose=verbose, )
+        self._ground_truth = prune_zeroshot_gt(
+            zeroshot_pred_proba=self._tabular_predictions,
+            zeroshot_gt=self._ground_truth,
+            dataset_to_tid_dict=self._dataset_to_tid_dict,
+            verbose=verbose,
+        )
         return self
 
     def predict_test_multi(
         self,
         dataset: str,
         fold: int,
-        configs: List[str] = None,
+        configs: list[str] | None = None,
         binary_as_multiclass: bool = False,
         enforce_binary_1d: bool = False,
     ) -> np.ndarray:
-        """
-        Returns the predictions on the test set for a given list of configurations on a given dataset and fold
+        """Returns the predictions on the test set for a given list of configurations on a given dataset and fold.
 
         Parameters
         ----------
@@ -144,7 +148,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
             The internal representation is of form (n_configs, n_rows) as it requires less memory,
             so there is a conversion overhead introduced when `binary_as_multiclass=True`.
 
-        Returns
+        Returns:
         -------
         The model predictions with shape (n_configs, n_rows, n_classes) for multiclass or (n_configs, n_rows) in case of regression.
         For binary, shape depends on `binary_as_multiclass` value.
@@ -157,7 +161,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
             model_fallback=self._config_fallback,
         )
         if enforce_binary_1d:
-            assert not binary_as_multiclass, f"Cannot set both `enforce_binary_1d` and `binary_as_multiclass` to True"
+            assert not binary_as_multiclass, "Cannot set both `enforce_binary_1d` and `binary_as_multiclass` to True"
             predictions = self._convert_binary_to_1d_multi(predictions=predictions, dataset=dataset)
         elif binary_as_multiclass:
             predictions = self._convert_binary_to_multiclass(dataset=dataset, predictions=predictions)
@@ -167,12 +171,11 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         self,
         dataset: str,
         fold: int,
-        configs: List[str] = None,
+        configs: list[str] | None = None,
         binary_as_multiclass: bool = False,
         enforce_binary_1d: bool = False,
     ) -> np.ndarray:
-        """
-        Returns the predictions on the validation set for a given list of configurations on a given dataset and fold
+        """Returns the predictions on the validation set for a given list of configurations on a given dataset and fold.
 
         Parameters
         ----------
@@ -193,7 +196,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
             The internal representation is of form (n_configs, n_rows) as it requires less memory,
             so there is a conversion overhead introduced when `binary_as_multiclass=True`.
 
-        Returns
+        Returns:
         -------
         The model predictions with shape (n_configs, n_rows, n_classes) for multiclass or (n_configs, n_rows) in case of regression.
         For binary, shape depends on `binary_as_multiclass` value.
@@ -206,21 +209,20 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
             model_fallback=self._config_fallback,
         )
         if enforce_binary_1d:
-            assert not binary_as_multiclass, f"Cannot set both `enforce_binary_1d` and `binary_as_multiclass` to True"
+            assert not binary_as_multiclass, "Cannot set both `enforce_binary_1d` and `binary_as_multiclass` to True"
             predictions = self._convert_binary_to_1d_multi(predictions=predictions, dataset=dataset)
         elif binary_as_multiclass:
             predictions = self._convert_binary_to_multiclass(dataset=dataset, predictions=predictions)
         return predictions
 
-    def _construct_config_scorer(self,
-                                 config_scorer_type: str = 'ensemble',
-                                 **config_scorer_kwargs) -> ConfigurationListScorer:
-        if config_scorer_type == 'ensemble':
+    def _construct_config_scorer(
+        self, config_scorer_type: str = "ensemble", **config_scorer_kwargs
+    ) -> ConfigurationListScorer:
+        if config_scorer_type == "ensemble":
             return self._construct_ensemble_selection_config_scorer(**config_scorer_kwargs)
-        elif config_scorer_type == 'single':
+        if config_scorer_type == "single":
             return self._construct_single_best_config_scorer(**config_scorer_kwargs)
-        else:
-            raise ValueError(f'Invalid config_scorer_type: {config_scorer_type}')
+        raise ValueError(f"Invalid config_scorer_type: {config_scorer_type}")
 
     # TODO: 1. Cleanup results_lst_simulation_artifacts, 2. Make context work with tasks instead of datasets x folds
     # TODO: Get raw data from repo method (X, y)
@@ -236,14 +238,15 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         results_lst_simulation_artifacts: list[dict[str, dict[int, dict]]],
         df_baselines: pd.DataFrame = None,
         task_metadata: pd.DataFrame = None,
-        configs_hyperparameters: dict[str, dict[str, Any]] = None,
+        configs_hyperparameters: dict[str, dict[str, Any]] | None = None,
         pct: bool = False,
         score_against_only_baselines: bool = False,
     ) -> Self:
+        from autogluon.common.utils.simulation_utils import convert_simulation_artifacts_to_tabular_predictions_dict
+
         from tabarena.predictions import TabularPredictionsInMemory
         from tabarena.simulation.ground_truth import GroundTruth
         from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
-        from autogluon.common.utils.simulation_utils import convert_simulation_artifacts_to_tabular_predictions_dict
 
         required_columns = [
             "dataset",
@@ -259,12 +262,18 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         if df_configs is not None:
             for column in required_columns:
                 if column not in df_configs:
-                    raise AssertionError(f"Missing required column in df_configs: {column}\ndf_configs columns: {list(df_configs.columns)}")
+                    raise AssertionError(
+                        f"Missing required column in df_configs: {column}\ndf_configs columns: {list(df_configs.columns)}"
+                    )
 
         if results_lst_simulation_artifacts is not None:
-            simulation_artifacts_full = cls._convert_sim_artifacts(results_lst_simulation_artifacts=results_lst_simulation_artifacts)
+            simulation_artifacts_full = cls._convert_sim_artifacts(
+                results_lst_simulation_artifacts=results_lst_simulation_artifacts
+            )
 
-            zeroshot_pp, zeroshot_gt = convert_simulation_artifacts_to_tabular_predictions_dict(simulation_artifacts=simulation_artifacts_full)
+            zeroshot_pp, zeroshot_gt = convert_simulation_artifacts_to_tabular_predictions_dict(
+                simulation_artifacts=simulation_artifacts_full
+            )
 
             predictions = TabularPredictionsInMemory.from_dict(zeroshot_pp)
             ground_truth = GroundTruth.from_dict(zeroshot_gt)
@@ -281,13 +290,11 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
             score_against_only_baselines=score_against_only_baselines,
         )
 
-        repo = cls(
+        return cls(
             zeroshot_context=zeroshot_context,
             tabular_predictions=predictions,
             ground_truth=ground_truth,
         )
-
-        return repo
 
     def to_dir(self, path: str | Path):
         from tabarena.contexts.context import BenchmarkContext, construct_context
@@ -348,15 +355,16 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         if update_relative_path:
             context.benchmark_paths.relative_path = str(Path(path))
 
-        repo = context.load_repo(prediction_format=prediction_format, verbose=verbose)
-        return repo
+        return context.load_repo(prediction_format=prediction_format, verbose=verbose)
 
     @classmethod
-    def _convert_sim_artifacts(cls, results_lst_simulation_artifacts: list[dict[str, dict[int, dict[str, Any]]]]) -> dict[str, dict[int, dict[str, Any]]]:
+    def _convert_sim_artifacts(
+        cls, results_lst_simulation_artifacts: list[dict[str, dict[int, dict[str, Any]]]]
+    ) -> dict[str, dict[int, dict[str, Any]]]:
         # FIXME: Don't require all results in memory at once
         simulation_artifacts_full = {}
         for simulation_artifacts in results_lst_simulation_artifacts:
-            for k in simulation_artifacts.keys():
+            for k in simulation_artifacts:
                 if k not in simulation_artifacts_full:
                     simulation_artifacts_full[k] = {}
                 for f in simulation_artifacts[k]:
@@ -366,9 +374,10 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
                         for method in simulation_artifacts[k][f]["pred_proba_dict_val"]:
                             if method in simulation_artifacts_full[k][f]["pred_proba_dict_val"]:
                                 raise AssertionError(f"Two results exist for dataset {k}, fold {f}, method {method}!")
-                            else:
-                                simulation_artifacts_full[k][f]["pred_proba_dict_val"][method] = simulation_artifacts[k][f]["pred_proba_dict_val"][method]
-                                simulation_artifacts_full[k][f]["pred_proba_dict_test"][method] = simulation_artifacts[k][f]["pred_proba_dict_test"][method]
+                            simulation_artifacts_full[k][f]["pred_proba_dict_val"][method] = simulation_artifacts[k][f][
+                                "pred_proba_dict_val"
+                            ][method]
+                            simulation_artifacts_full[k][f]["pred_proba_dict_test"][method] = simulation_artifacts[k][
+                                f
+                            ]["pred_proba_dict_test"][method]
         return simulation_artifacts_full
-
-

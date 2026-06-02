@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from tabarena.models.xrfm.model import XRFMModel
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.xrfm.hpo import gen_xrfm
-from tabarena.models._method_metadata import MethodMetadata
-
+from tabarena.models.xrfm.model import XRFMModel
 
 xrfm_method_metadata = MethodMetadata(
     method="xRFM_GPU",

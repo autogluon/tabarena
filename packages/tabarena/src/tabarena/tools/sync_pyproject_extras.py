@@ -36,10 +36,7 @@ def _expected_extras() -> dict[str, list[str]]:
         # TabICLv2 into the "tabicl" extra.
         module = info.model_cls.__module__
         parts = module.split(".")
-        if "ag" in parts:
-            folder = parts[parts.index("ag") + 1]
-        else:
-            folder = parts[-2] if len(parts) >= 2 else parts[-1]
+        folder = parts[parts.index("ag") + 1] if "ag" in parts else parts[-2] if len(parts) >= 2 else parts[-1]
         for spec in info.pip_extra:
             extras[folder].add(spec)
     return {k: sorted(v) for k, v in extras.items() if v}
@@ -52,11 +49,13 @@ def _pyproject_extras(pyproject_path: Path) -> dict[str, list[str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true",
-                        help="Exit non-zero on drift.")
-    parser.add_argument("--pyproject", type=Path,
-                        default=Path(__file__).resolve().parents[3] / "pyproject.toml",
-                        help="Path to pyproject.toml (default: packages/tabarena/pyproject.toml).")
+    parser.add_argument("--check", action="store_true", help="Exit non-zero on drift.")
+    parser.add_argument(
+        "--pyproject",
+        type=Path,
+        default=Path(__file__).resolve().parents[3] / "pyproject.toml",
+        help="Path to pyproject.toml (default: packages/tabarena/pyproject.toml).",
+    )
     args = parser.parse_args()
 
     expected = _expected_extras()

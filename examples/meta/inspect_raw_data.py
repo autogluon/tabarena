@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-import numpy as np
+from typing import TYPE_CHECKING
+
 from numpy.testing import assert_array_equal
 
 from tabarena.benchmark.result import AGBagResult
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
+
+if TYPE_CHECKING:
+    import numpy as np
 
 """
 TabArena → OpenML Split Verification Script
@@ -76,7 +80,7 @@ if __name__ == "__main__":
             f"dataset={task_result.dataset}, "
             f"fold={fold}, "
             f"repeat={repeat}, "
-            f"sample={sample}"
+            f"sample={sample}",
         )
 
         # OpenML task id associated with this run's dataset/splits.

@@ -1,27 +1,29 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Literal
-from typing_extensions import Self
+from typing import TYPE_CHECKING, Literal, Self
 
 import pandas as pd
 
-from tabarena.benchmark.result import BaselineResult
+from bencheval.tabarena import TabArena
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.nips2025_utils.compare import compare, compare_on_tabarena
 from tabarena.nips2025_utils.end_to_end_single import (
     EndToEndResultsSingle,
     EndToEndSingle,
 )
+from tabarena.nips2025_utils.load_metadata_from_raw import load_from_raw_all_metadata
 from tabarena.nips2025_utils.method_processor import (
     generate_task_metadata,
     load_all_artifacts,
 )
-from tabarena.nips2025_utils.load_metadata_from_raw import load_from_raw_all_metadata
-from bencheval.tabarena import TabArena
 from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.utils.ray_utils import ray_map_list
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from tabarena.benchmark.result import BaselineResult
 
 
 class EndToEnd:
@@ -32,9 +34,7 @@ class EndToEnd:
         self.end_to_end_lst = end_to_end_lst
 
     def configs_hyperparameters(self) -> dict[str, dict | None]:
-        configs_hyperparameters_per_method = [
-            e2e.configs_hyperparameters() for e2e in self.end_to_end_lst
-        ]
+        configs_hyperparameters_per_method = [e2e.configs_hyperparameters() for e2e in self.end_to_end_lst]
         configs_hyperparameters = {}
         for d in configs_hyperparameters_per_method:
             for k, v in d.items():
@@ -63,7 +63,7 @@ class EndToEnd:
 
         # raw
         results_lst: list[BaselineResult] = EndToEndSingle.clean_raw(
-            results_lst=results_lst
+            results_lst=results_lst,
         )
 
         if task_metadata is None:
@@ -81,7 +81,7 @@ class EndToEnd:
         unique_types = list(result_types_dict.keys())
 
         log(
-            f"Constructing EndToEnd from raw results... Found {len(unique_types)} unique methods: {unique_types}"
+            f"Constructing EndToEnd from raw results... Found {len(unique_types)} unique methods: {unique_types}",
         )
         end_to_end_lst = []
         for cur_type in unique_types:
@@ -123,12 +123,13 @@ class EndToEnd:
 
         engine = "ray" if backend == "ray" else "sequential"
         file_paths = fetch_all_pickles(
-            dir_path=path_raw, suffix="results.pkl"
+            dir_path=path_raw,
+            suffix="results.pkl",
         )
         results_metadata = load_from_raw_all_metadata(file_paths=file_paths, engine=engine)
         unique_types_dict = dict()
         unique_tids = set()
-        for r, file_path in zip(results_metadata, file_paths):
+        for r, file_path in zip(results_metadata, file_paths, strict=False):
             r_type = r[0].method
             r_tid = r[1]["tid"]
             if r_type not in unique_types_dict:
@@ -141,7 +142,7 @@ class EndToEnd:
             task_metadata = EndToEndSingle.fetch_task_metadata(tids=list(unique_tids), verbose=verbose)
 
         log(
-            f"Constructing EndToEnd from raw results... Found {len(unique_types)} unique methods: {unique_types}"
+            f"Constructing EndToEnd from raw results... Found {len(unique_types)} unique methods: {unique_types}",
         )
         end_to_end_lst = []
         for cur_type in unique_types:
@@ -172,7 +173,8 @@ class EndToEnd:
             else:
                 artifact_name = None
             end_to_end_single = EndToEndSingle.from_cache(
-                method=method, artifact_name=artifact_name
+                method=method,
+                artifact_name=artifact_name,
             )
             end_to_end_lst.append(end_to_end_single)
         return cls(end_to_end_lst=end_to_end_lst)
@@ -190,8 +192,7 @@ class EndToEnd:
         num_cpus: int | None = None,
         verbose: bool = True,
     ) -> EndToEndResults:
-        """
-        Create and cache end-to-end results for all methods in the given directory.
+        """Create and cache end-to-end results for all methods in the given directory.
         Will not cache raw or processed data. To cache all artifacts, call `from_path_raw` instead.
         This is ~10x+ faster than calling `from_path_raw` for large artifacts, but will not cache raw or processed data.
 
@@ -238,7 +239,8 @@ class EndToEnd:
 
         print("Get results paths...")
         file_paths = fetch_all_pickles(
-            dir_path=path_raw, suffix="results.pkl"
+            dir_path=path_raw,
+            suffix="results.pkl",
         )
 
         all_file_paths_method = {}
@@ -288,15 +290,13 @@ class EndToEnd:
         e2e_results = EndToEndResults(end_to_end_results_lst=e2e_single_lst)
 
         if cache:
-            print(f"Caching metadata and results...")
+            print("Caching metadata and results...")
             e2e_results.cache()
         return e2e_results
 
     def to_results(self) -> EndToEndResults:
         return EndToEndResults(
-            end_to_end_results_lst=[
-                end_to_end.to_results() for end_to_end in self.end_to_end_lst
-            ],
+            end_to_end_results_lst=[end_to_end.to_results() for end_to_end in self.end_to_end_lst],
         )
 
 
@@ -310,11 +310,7 @@ class EndToEndResults:
     @property
     def model_results(self) -> pd.DataFrame | None:
         model_results_lst = [e2e.model_results for e2e in self.end_to_end_results_lst]
-        model_results_lst = [
-            model_results
-            for model_results in model_results_lst
-            if model_results is not None
-        ]
+        model_results_lst = [model_results for model_results in model_results_lst if model_results is not None]
         if not model_results_lst:
             return None
 
@@ -323,9 +319,7 @@ class EndToEndResults:
     @property
     def hpo_results(self) -> pd.DataFrame | None:
         hpo_results_lst = [e2e.hpo_results for e2e in self.end_to_end_results_lst]
-        hpo_results_lst = [
-            hpo_results for hpo_results in hpo_results_lst if hpo_results is not None
-        ]
+        hpo_results_lst = [hpo_results for hpo_results in hpo_results_lst if hpo_results is not None]
         if not hpo_results_lst:
             return None
 
@@ -335,7 +329,6 @@ class EndToEndResults:
     def leaderboard(
         self,
     ) -> pd.DataFrame:
-        from bencheval.tabarena import TabArena
         results = self.get_results(
             # new_result_prefix=new_result_prefix,
             # use_artifact_name_in_prefix=use_artifact_name_in_prefix,
@@ -368,11 +361,10 @@ class EndToEndResults:
         # leaderboard_kwargs.setdefault("elo_kwargs", elo_kwargs)
         # leaderboard_kwargs.setdefault("average_seeds", average_seeds)
 
-        leaderboard = tabarena.leaderboard(
+        return tabarena.leaderboard(
             data=results,
             **leaderboard_kwargs,
         )
-        return leaderboard
 
     def compare(
         self,
@@ -474,13 +466,14 @@ class EndToEndResults:
                     use_artifact_name_in_prefix=use_artifact_name_in_prefix,
                     use_model_results=use_model_results,
                     fillna=fillna,
-                )
+                ),
             )
-        df_results = pd.concat(df_results_lst, ignore_index=True)
-        return df_results
+        return pd.concat(df_results_lst, ignore_index=True)
 
     @classmethod
-    def from_cache(cls, methods: list[str | MethodMetadata | tuple[str, str]], *, default_artifact_name: None | str = None) -> Self:
+    def from_cache(
+        cls, methods: list[str | MethodMetadata | tuple[str, str]], *, default_artifact_name: None | str = None
+    ) -> Self:
         end_to_end_results_lst = []
         for method in methods:
             if isinstance(method, tuple):
@@ -488,7 +481,8 @@ class EndToEndResults:
             else:
                 artifact_name = default_artifact_name
             end_to_end_results = EndToEndResultsSingle.from_cache(
-                method=method, artifact_name=artifact_name
+                method=method,
+                artifact_name=artifact_name,
             )
             end_to_end_results_lst.append(end_to_end_results)
         return cls(end_to_end_results_lst=end_to_end_results_lst)
@@ -502,14 +496,16 @@ def _process_result_list(
     *,
     file_paths_method: list[Path],
     task_metadata: pd.DataFrame,
-    name: str = None,
-    name_prefix: str = None,
-    name_suffix: str = None,
-    model_key: str = None,
+    name: str | None = None,
+    name_prefix: str | None = None,
+    name_suffix: str | None = None,
+    model_key: str | None = None,
     artifact_name: str | None = None,
 ) -> EndToEndResults:
     results_lst = load_all_artifacts(
-        file_paths=file_paths_method, engine="sequential", progress_bar=False
+        file_paths=file_paths_method,
+        engine="sequential",
+        progress_bar=False,
     )
 
     e2e = EndToEnd.from_raw(
@@ -525,6 +521,4 @@ def _process_result_list(
         backend="native",
         verbose=False,
     )
-    e2e_results = e2e.to_results()
-
-    return e2e_results
+    return e2e.to_results()

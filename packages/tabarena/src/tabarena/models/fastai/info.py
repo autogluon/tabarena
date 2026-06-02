@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from autogluon.tabular.models import NNFastAiTabularModel
 
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.fastai.hpo import gen_fastai
-from tabarena.models._method_metadata import MethodMetadata
-
 
 fastai_method_metadata = MethodMetadata(
     method="NeuralNetFastAI",

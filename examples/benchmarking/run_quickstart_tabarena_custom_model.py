@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 
-from tabarena.benchmark.experiment import ExperimentBatchRunner, Experiment
+from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
 from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
@@ -20,10 +20,11 @@ class SimpleLightGBM(AbstractExecModel):
 
     def get_model_cls(self):
         from lightgbm import LGBMClassifier, LGBMRegressor
-        is_classification = self.problem_type in ['binary', 'multiclass']
+
+        is_classification = self.problem_type in ["binary", "multiclass"]
         if is_classification:
             model_cls = LGBMClassifier
-        elif self.problem_type == 'regression':
+        elif self.problem_type == "regression":
             model_cls = LGBMRegressor
         else:
             raise AssertionError(f"LightGBM does not recognize the problem_type='{self.problem_type}'")
@@ -34,7 +35,7 @@ class SimpleLightGBM(AbstractExecModel):
         self.model = model_cls(**self.hyperparameters)
         self.model.fit(
             X=X,
-            y=y
+            y=y,
         )
         return self
 
@@ -47,9 +48,13 @@ class SimpleLightGBM(AbstractExecModel):
         return pd.DataFrame(y_pred_proba, columns=self.model.classes_, index=X.index)
 
 
-if __name__ == '__main__':
-    expname = str(Path(__file__).parent / "experiments" / "quickstart_custom_model")  # folder location to save all experiment artifacts
-    leaderboard_dir = str(Path(__file__).parent / "leaderboards" / "quickstart_custom_model")  # folder location to store tables, plots and figures
+if __name__ == "__main__":
+    expname = str(
+        Path(__file__).parent / "experiments" / "quickstart_custom_model"
+    )  # folder location to save all experiment artifacts
+    leaderboard_dir = str(
+        Path(__file__).parent / "leaderboards" / "quickstart_custom_model"
+    )  # folder location to store tables, plots and figures
     ignore_cache = False  # set to True to overwrite existing caches and re-run experiments from scratch
 
     ta_context = TabArenaContext()
@@ -66,8 +71,8 @@ if __name__ == '__main__':
             method_kwargs={
                 "hyperparameters": dict(
                     n_estimators=10,
-                )
-            }
+                ),
+            },
         ),
     ]
 
@@ -96,6 +101,6 @@ if __name__ == '__main__':
     )
     leaderboard_website = ta_context.leaderboard_to_website_format(leaderboard=leaderboard)
 
-    print(f"Leaderboard:")
+    print("Leaderboard:")
     print(leaderboard_website.to_markdown(index=False))
     print(f"View saved figures in {leaderboard_dir}")

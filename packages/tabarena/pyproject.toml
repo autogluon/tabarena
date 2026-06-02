@@ -134,8 +134,10 @@ Homepage = "https://github.com/autogluon/tabarena"
 
 # PEP 735 dependency groups: dev-only tools, not shipped in the wheel.
 # Install with: `uv sync --group dev`  (or `--group lint`, `--group test`).
+# NOTE: keep the ruff pin in sync with .github/workflows/pytest-pytest.yml and
+# .pre-commit-config.yaml so local, pre-commit, and CI all agree.
 [dependency-groups]
-lint = ["ruff>=0.6"]
+lint = ["ruff==0.14.0"]
 test = ["pytest>=7"]
 dev = [{ include-group = "lint" }, { include-group = "test" }]
 

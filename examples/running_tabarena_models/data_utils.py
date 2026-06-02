@@ -11,7 +11,8 @@ if TYPE_CHECKING:
 
 
 def get_example_data_for_task_type(
-    *, task_type: str
+    *,
+    task_type: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     """Return example data for a given task type."""
     if task_type == "binary":
@@ -24,13 +25,19 @@ def get_example_data_for_task_type(
     else:
         raise ValueError("Invalid task type")
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.5, random_state=42
+        X,
+        y,
+        test_size=0.5,
+        random_state=42,
     )
     return X_train, X_test, y_train, y_test
 
 
 def score_for_task_type(
-    y_test: pd.Series, y_pred: pd.Series | pd.DataFrame, *, task_type: str
+    y_test: pd.Series,
+    y_pred: pd.Series | pd.DataFrame,
+    *,
+    task_type: str,
 ) -> float:
     """Score (higher is better) the predictions for a given task type."""
     if task_type in ["binary", "multiclass"]:

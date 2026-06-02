@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import tempfile
 
 import numpy as np
@@ -17,21 +19,22 @@ dataset_shapes = {
 }
 models = [f"{i}" for i in range(num_models)]
 
+
 def test_keep_only_models_in_both_validation_and_test():
     pred_dict = generate_artificial_dict(num_folds, models, dataset_shapes)
-    pred_dict["d2"][1]['pred_proba_dict_val'].pop("2")
+    pred_dict["d2"][1]["pred_proba_dict_val"].pop("2")
     TabularModelPredictions._keep_only_models_in_both_validation_and_test(pred_dict)
 
     # check that the intersection works as expected, model "2" should not be present in the test split as it was
     # absent from the validation split
-    assert "2" not in pred_dict["d2"][1]['pred_proba_dict_test']
+    assert "2" not in pred_dict["d2"][1]["pred_proba_dict_test"]
 
 
 def test_tabular_predictions():
     pred_dict = generate_artificial_dict(num_folds, models, dataset_shapes)
 
     # remove the second model from the second dataset and the second fold
-    pred_dict["d2"][1]['pred_proba_dict_val'].pop("2")
+    pred_dict["d2"][1]["pred_proba_dict_val"].pop("2")
     # pred_dict["d2"][1]['pred_proba_dict_test'].pop("2")
 
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -42,12 +45,12 @@ def test_tabular_predictions():
 
 
 def test_repository():
-    zsc, configs_full, pred_proba, zeroshot_gt = load_context_artificial()
+    zsc, _configs_full, pred_proba, zeroshot_gt = load_context_artificial()
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         # remove NeuralNetFastAI_r1 from fold 1 of abalone...
         pred_dict = pred_proba.pred_dict
-        pred_dict["abalone"][1]['pred_proba_dict_val'].pop("NeuralNetFastAI_r1")
+        pred_dict["abalone"][1]["pred_proba_dict_val"].pop("NeuralNetFastAI_r1")
         repo = EvaluationRepository(
             zeroshot_context=zsc,
             tabular_predictions=TabularPredictionsMemmap.from_dict(pred_dict, tmpdirname),

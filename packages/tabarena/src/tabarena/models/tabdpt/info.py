@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from tabarena.models.tabdpt.model import TabDPTModel, prefetch_weights
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabdpt.hpo import gen_tabdpt
-from tabarena.models._method_metadata import MethodMetadata
-
+from tabarena.models.tabdpt.model import TabDPTModel, prefetch_weights
 
 tabdpt_method_metadata = MethodMetadata(
     method="TabDPT_GPU",

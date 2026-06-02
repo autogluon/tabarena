@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import zipfile
-from pathlib import Path
 from multiprocessing import Pool, cpu_count
+from pathlib import Path
 
 
 def process_png(png_path_str: str) -> None:

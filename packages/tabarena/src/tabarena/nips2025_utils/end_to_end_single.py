@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import copy
 import os
-from pathlib import Path
-from typing import Literal, TYPE_CHECKING
-from typing_extensions import Self
+from typing import TYPE_CHECKING, Literal, Self
 
 import pandas as pd
 from autogluon.common.savers import save_pd
@@ -23,12 +21,13 @@ from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.utils.ray_utils import ray_map_list
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from tabarena.repository import EvaluationRepository
 
 
 class EndToEndSingle:
-    """
-    End-to-end pipeline for processing and evaluating a **single** method's results.
+    """End-to-end pipeline for processing and evaluating a **single** method's results.
 
     This class orchestrates:
       1. Inferring method metadata from raw per-task results.
@@ -55,7 +54,7 @@ class EndToEndSingle:
         TabArena HPO simulation results (one row per (task, config, seed)).
         ``None`` if not yet computed.
 
-    Attributes
+    Attributes:
     ----------
     method_metadata : MethodMetadata
         Method identity and on-disk artifact layout (e.g., ``path``, ``path_raw``).
@@ -68,7 +67,7 @@ class EndToEndSingle:
     task_metadata : pd.DataFrame
         (Property) Task-level metadata table provided by the repository.
 
-    Notes
+    Notes:
     -----
     **Caching & Side Effects**
     - The factory constructors (:meth:`from_raw`, :meth:`from_path_raw`) can
@@ -80,7 +79,7 @@ class EndToEndSingle:
       for consistency. If a unique name cannot be assigned (e.g., multiple
       distinct configs while forcing a single ``name``), underlying helpers may raise.
 
-    See Also
+    See Also:
     --------
     EndToEnd
         Multi-method manager that constructs and coordinates multiple
@@ -92,7 +91,7 @@ class EndToEndSingle:
     TabArenaContext
         Simulator used internally for HPO/model selection under TabArena.
 
-    Examples
+    Examples:
     --------
     Basic usage from raw objects::
 
@@ -112,6 +111,7 @@ class EndToEndSingle:
         res = e2e.to_results()
 
     """
+
     def __init__(
         self,
         method_metadata: MethodMetadata,
@@ -154,15 +154,14 @@ class EndToEndSingle:
         backend: Literal["ray", "native"] = "ray",
         verbose: bool = True,
     ) -> Self:
-        """
-        Run logic end-to-end and cache all results:
+        """Run logic end-to-end and cache all results:
         1. (only if using `from_path_raw`) load raw artifacts
             path_raw should be a directory containing `results.pkl` files for each run.
             In the current code, we require `path_raw` to contain the results of only 1 type of method.
         2. infer method_metadata
         3. infer task_metadata
         4. generate repo (processed data)
-        5. generate results (per-task metric scores, train time, infer time, etc.)
+        5. generate results (per-task metric scores, train time, infer time, etc.).
 
         Parameters
         ----------
@@ -215,7 +214,7 @@ class EndToEndSingle:
         verbose : bool = True
             If True will log info about the data processing and simulation.
 
-        Returns
+        Returns:
         -------
         EndToEndSingle
             An initialized EndToEndSingle class based on the provided raw results_lst.
@@ -224,9 +223,8 @@ class EndToEndSingle:
 
         # raw
         results_lst: list[BaselineResult] = cls.clean_raw(results_lst=results_lst)
-        if method_metadata is not None:
-            if model_key is None:
-                model_key = method_metadata.model_key
+        if method_metadata is not None and model_key is None:
+            model_key = method_metadata.model_key
         results_lst = cls._rename(
             results_lst=results_lst,
             name=name,
@@ -243,7 +241,7 @@ class EndToEndSingle:
 
         log(
             f"{method_metadata.method}: Creating EndToEndSingle from raw results... "
-            f"(cache={cache}, cache_raw={cache_raw})"
+            f"(cache={cache}, cache_raw={cache_raw})",
         )
 
         if cache or cache_raw:
@@ -259,7 +257,7 @@ class EndToEndSingle:
             tids = list({r.task_metadata["tid"] for r in results_lst})
             task_metadata = cls.fetch_task_metadata(tids=tids, verbose=verbose)
 
-        log(f"\tConverting raw results into an EvaluationRepository...")
+        log("\tConverting raw results into an EvaluationRepository...")
         # processed
         repo: EvaluationRepository = method_metadata.generate_repo(
             results_lst=results_lst,
@@ -271,7 +269,7 @@ class EndToEndSingle:
             # reload into mem-map mode, otherwise can be very slow for large datasets
             repo = method_metadata.load_processed()
 
-        log(f"\tSimulating HPO...")
+        log("\tSimulating HPO...")
         hpo_results, model_results = method_metadata.generate_results(
             repo=repo,
             cache=cache,
@@ -280,7 +278,7 @@ class EndToEndSingle:
         )
 
         if cache_holdout and method_metadata.is_bag:
-            log(f"\tConverting raw (holdout) results into an EvaluationRepository...")
+            log("\tConverting raw (holdout) results into an EvaluationRepository...")
             repo_holdout: EvaluationRepository = method_metadata.generate_repo_holdout(
                 results_lst=results_lst,
                 task_metadata=task_metadata,
@@ -288,8 +286,8 @@ class EndToEndSingle:
             )
             repo_holdout = method_metadata.load_processed(as_holdout=True)
 
-            log(f"\tSimulating HPO (holdout)...")
-            hpo_results_holdout, model_results_holdout = method_metadata.generate_results(
+            log("\tSimulating HPO (holdout)...")
+            _hpo_results_holdout, _model_results_holdout = method_metadata.generate_results(
                 repo=repo_holdout,
                 cache=cache,
                 as_holdout=True,
@@ -298,7 +296,7 @@ class EndToEndSingle:
 
         if cache_hpo_trajectories:
             if method_metadata.method_type == "config":
-                log(f"\tGenerating and caching HPO trajectories...")
+                log("\tGenerating and caching HPO trajectories...")
                 method_metadata.generate_hpo_trajectories(
                     repo=repo,
                     backend=backend,
@@ -306,11 +304,10 @@ class EndToEndSingle:
                 )
             else:
                 log(
-                    f"\tSkipping HPO trajectories (method_type="
-                    f"{method_metadata.method_type!r}, requires 'config')"
+                    f"\tSkipping HPO trajectories (method_type={method_metadata.method_type!r}, requires 'config')",
                 )
 
-        log(f"\tComplete!")
+        log("\tComplete!")
         return cls(
             method_metadata=method_metadata,
             repo=repo,
@@ -339,8 +336,7 @@ class EndToEndSingle:
         num_cpus: int | None = None,
         verbose: bool = True,
     ) -> Self:
-        """
-        Create and cache all artifacts for the method in the given directory.
+        """Create and cache all artifacts for the method in the given directory.
 
         Parameters
         ----------
@@ -359,7 +355,7 @@ class EndToEndSingle:
         backend
         verbose
 
-        Returns
+        Returns:
         -------
 
         """
@@ -395,11 +391,11 @@ class EndToEndSingle:
     def _rename(
         cls,
         results_lst: list[BaselineResult],
-        name: str = None,
-        name_prefix: str = None,
-        name_suffix: str = None,
-        model_key: str = None,
-        inplace: bool = True
+        name: str | None = None,
+        name_prefix: str | None = None,
+        name_suffix: str | None = None,
+        model_key: str | None = None,
+        inplace: bool = True,
     ) -> list[BaselineResult]:
         if not inplace:
             results_lst = copy.deepcopy(results_lst)
@@ -421,7 +417,8 @@ class EndToEndSingle:
             if artifact_name is None:
                 artifact_name = method
             method_metadata = MethodMetadata.from_yaml(
-                method=method, artifact_name=artifact_name,
+                method=method,
+                artifact_name=artifact_name,
             )
         repo = method_metadata.load_processed()
         end_to_end_results_single = EndToEndResultsSingle(method_metadata=method_metadata)
@@ -448,7 +445,7 @@ class EndToEndSingle:
         tids_missing = [tid for tid in tids if tid not in tids_cached]
         if tids_missing:
             log(f"Note: Missing {len(tids_missing)} tasks in the cached task_metadata...")
-            log(f"\tFetching task_metadata from OpenML... (this may take ~1 minute)")
+            log("\tFetching task_metadata from OpenML... (this may take ~1 minute)")
             task_metadata = generate_task_metadata(tids=tids)
         return task_metadata
 
@@ -468,8 +465,7 @@ class EndToEndSingle:
         name_prefix_raw: str | None = None,
         verbose: bool = True,
     ) -> EndToEndResultsSingle:
-        """
-        Create and cache end-to-end results for the method in the given directory.
+        """Create and cache end-to-end results for the method in the given directory.
         Will not cache raw or processed data. To cache all artifacts, call `from_path_raw` instead.
         This is ~10x+ faster than calling `from_path_raw` for large artifacts, but will not cache raw or processed data.
 
@@ -518,7 +514,10 @@ class EndToEndSingle:
 
         print("Get results paths...")
         file_paths = fetch_all_pickles(
-            dir_path=path_raw, suffix="results.pkl", name_pattern=name_prefix_raw, num_workers=num_cpus,
+            dir_path=path_raw,
+            suffix="results.pkl",
+            name_pattern=name_prefix_raw,
+            num_workers=num_cpus,
         )
         if len(file_paths) == 0:
             raise ValueError(f"No results.pkl files found in {path_raw} with name prefix {name_prefix_raw}!")
@@ -539,6 +538,7 @@ class EndToEndSingle:
         all_file_paths_method = _filter_file_paths_by_task_metadata(all_file_paths_method, task_metadata)
 
         import ray
+
         if not ray.is_initialized():
             ray.init(num_cpus=num_cpus)
 
@@ -599,7 +599,8 @@ class EndToEndResultsSingle:
             if artifact_name is None:
                 artifact_name = method
             method_metadata = MethodMetadata.from_yaml(
-                method=method, artifact_name=artifact_name
+                method=method,
+                artifact_name=artifact_name,
             )
         return cls(method_metadata=method_metadata, holdout=holdout)
 
@@ -616,7 +617,7 @@ class EndToEndResultsSingle:
         average_seeds: bool = False,
         leaderboard_kwargs: dict | None = None,
         extra_results: pd.DataFrame = None,
-        tabarena_context_kwargs: dict = None,
+        tabarena_context_kwargs: dict | None = None,
         remove_imputed: bool = False,
     ) -> pd.DataFrame:
         """Compare results on TabArena leaderboard.
@@ -661,19 +662,16 @@ class EndToEndResultsSingle:
         use_model_results: bool = False,
         fillna: bool = False,
     ) -> pd.DataFrame:
-        """
-        Get data to compare results on TabArena leaderboard.
-            Args:
+        """Get data to compare results on TabArena leaderboard.
+
+        Args:
                 new_result_prefix (str | None): If not None, add a prefix to the new
                     results to distinguish new results from the original TabArena results.
                     Use this, for example, if you re-run a model from TabArena.
         """
         use_model_results = self.method_metadata.method_type != "config" or use_model_results
 
-        if use_model_results:
-            df_results = copy.deepcopy(self.model_results)
-        else:
-            df_results = copy.deepcopy(self.hpo_results)
+        df_results = copy.deepcopy(self.model_results) if use_model_results else copy.deepcopy(self.hpo_results)
 
         if use_artifact_name_in_prefix is None:
             use_artifact_name_in_prefix = self.method_metadata.use_artifact_name_in_prefix
@@ -751,13 +749,9 @@ class EndToEndResultsSingle:
                     for k, v in method_metadata.__dict__.items()
                     if v != method_metadata_other.__dict__.get(k)
                 }
-                diff_str = "\n".join(
-                    f"  {k}: {v1!r} != {v2!r}"
-                    for k, (v1, v2) in diffs.items()
-                )
+                diff_str = "\n".join(f"  {k}: {v1!r} != {v2!r}" for k, (v1, v2) in diffs.items())
                 raise ValueError(
-                    "Method metadata mismatch! The following fields differ:\n"
-                    f"{diff_str}"
+                    f"Method metadata mismatch! The following fields differ:\n{diff_str}",
                 )
 
             # merge results
@@ -817,7 +811,9 @@ def _process_result_list(
     artifact_name: str | None = None,
 ) -> EndToEndResultsSingle:
     results_lst = load_all_artifacts(
-        file_paths=file_paths_method, engine="sequential", progress_bar=False
+        file_paths=file_paths_method,
+        engine="sequential",
+        progress_bar=False,
     )
 
     e2e = EndToEndSingle.from_raw(
@@ -835,6 +831,4 @@ def _process_result_list(
         backend="native",
         verbose=False,
     )
-    e2e_results = e2e.to_results()
-
-    return e2e_results
+    return e2e.to_results()

@@ -4,14 +4,13 @@ import copy
 import gc
 import inspect
 import shutil
-from typing import Type
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel, _apply_inv_perm, _make_perm
 
-from loguru import logger
 
 class AGWrapper(AbstractExecModel):
     can_get_error_val = True
@@ -27,7 +26,9 @@ class AGWrapper(AbstractExecModel):
         persist: bool = False,
         **kwargs,
     ):
-        super().__init__(preprocess_data=preprocess_data, preprocess_label=preprocess_label, target_name=target_name, **kwargs)
+        super().__init__(
+            preprocess_data=preprocess_data, preprocess_label=preprocess_label, target_name=target_name, **kwargs
+        )
         if init_kwargs is None:
             init_kwargs = {}
         if fit_kwargs is None:
@@ -58,7 +59,7 @@ class AGWrapper(AbstractExecModel):
             X=X.reset_index(drop=True),
             y=y.reset_index(drop=True),
             num_folds=num_folds,
-            num_repeats=num_repeats
+            num_repeats=num_repeats,
         )
 
         if num_folds is not None:
@@ -104,14 +105,13 @@ class AGWrapper(AbstractExecModel):
 
         return train_data, init_kwargs, fit_kwargs
 
-
     def _fit(
-            self,
-            X: pd.DataFrame,
-            y: pd.Series,
-            X_val: pd.DataFrame = None,
-            y_val: pd.Series = None,
-            **kwargs
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        X_val: pd.DataFrame = None,
+        y_val: pd.Series = None,
+        **kwargs,
     ):
         from autogluon.tabular import TabularPredictor
 
@@ -127,23 +127,21 @@ class AGWrapper(AbstractExecModel):
             label=self.label,
             problem_type=self.problem_type,
             eval_metric=self.eval_metric,
-            **init_kwargs
+            **init_kwargs,
         )
         self.predictor.fit(
             train_data=train_data,
-            **fit_kwargs
+            **fit_kwargs,
         )
 
         # FIXME: persist
         return self
 
     def _predict(self, X: pd.DataFrame) -> pd.Series:
-        y_pred = self.predictor.predict(X)
-        return y_pred
+        return self.predictor.predict(X)
 
     def _predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
-        y_pred_proba = self.predictor.predict_proba(X)
-        return y_pred_proba
+        return self.predictor.predict_proba(X)
 
     def pre_predict(self):
         if self.persist:
@@ -156,7 +154,9 @@ class AGWrapper(AbstractExecModel):
     def get_oof(self):
         # TODO: Rename method
         simulation_artifact = self.predictor.simulation_artifact()
-        simulation_artifact["pred_proba_dict_val"] = simulation_artifact["pred_proba_dict_val"][self.predictor.model_best]
+        simulation_artifact["pred_proba_dict_val"] = simulation_artifact["pred_proba_dict_val"][
+            self.predictor.model_best
+        ]
         return simulation_artifact
 
     def get_metric_error_val(self) -> float:
@@ -175,14 +175,12 @@ class AGWrapper(AbstractExecModel):
         except ImportError:
             pass
         else:
-            import torch
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
 
 class AGSingleWrapper(AGWrapper):
-    """
-    Wrapper for a single model being fit in AutoGluon
+    """Wrapper for a single model being fit in AutoGluon.
 
     Parameters
     ----------
@@ -198,9 +196,10 @@ class AGSingleWrapper(AGWrapper):
     kwargs
 
     """
+
     def __init__(
         self,
-        model_cls: str | Type["AbstractModel"],
+        model_cls: str | type[AbstractModel],  # noqa: F821
         model_hyperparameters: dict,
         calibrate: bool | str = False,
         init_kwargs: dict | None = None,
@@ -210,7 +209,8 @@ class AGSingleWrapper(AGWrapper):
         **kwargs,
     ):
         from autogluon.tabular.models import AbstractModel
-        assert (isinstance(model_cls, str) or issubclass(model_cls, AbstractModel))
+
+        assert isinstance(model_cls, str) or issubclass(model_cls, AbstractModel)
         assert isinstance(model_hyperparameters, dict)
 
         if fit_kwargs is None:
@@ -218,13 +218,19 @@ class AGSingleWrapper(AGWrapper):
         if init_kwargs is None:
             init_kwargs = {}
 
-        assert "hyperparameters" not in fit_kwargs, f"Must not specify `hyperparameters` in AGSingleWrapper."
-        assert "num_stack_levels" not in fit_kwargs, f"num_stack_levels is not allowed for `AGSingleWrapper"
-        assert "presets" not in fit_kwargs, f"AGSingleWrapper does not support `presets`"
-        assert "fit_weighted_ensemble" not in fit_kwargs, f"Must not specify `fit_weighted_ensemble` in AGSingleWrapper... It is always set to False."
-        assert "calibrate" not in fit_kwargs, f"Specify calibrate directly rather than in `fit_kwargs`"
-        assert "ag_args_fit" not in fit_kwargs, f"ag_args_fit must be specified in `model_hyperparameters`, not in `fit_kwargs` for `AGSingleWrapper"
-        assert "ag_args_ensemble" not in fit_kwargs, f"ag_args_ensemble must be specified in `model_hyperparameters`, not in `fit_kwargs` for `AGSingleWrapper"
+        assert "hyperparameters" not in fit_kwargs, "Must not specify `hyperparameters` in AGSingleWrapper."
+        assert "num_stack_levels" not in fit_kwargs, "num_stack_levels is not allowed for `AGSingleWrapper"
+        assert "presets" not in fit_kwargs, "AGSingleWrapper does not support `presets`"
+        assert "fit_weighted_ensemble" not in fit_kwargs, (
+            "Must not specify `fit_weighted_ensemble` in AGSingleWrapper... It is always set to False."
+        )
+        assert "calibrate" not in fit_kwargs, "Specify calibrate directly rather than in `fit_kwargs`"
+        assert "ag_args_fit" not in fit_kwargs, (
+            "ag_args_fit must be specified in `model_hyperparameters`, not in `fit_kwargs` for `AGSingleWrapper"
+        )
+        assert "ag_args_ensemble" not in fit_kwargs, (
+            "ag_args_ensemble must be specified in `model_hyperparameters`, not in `fit_kwargs` for `AGSingleWrapper"
+        )
 
         self.init_kwargs_extra = init_kwargs
 
@@ -239,22 +245,30 @@ class AGSingleWrapper(AGWrapper):
         self._model_cls = model_cls
         self.model_hyperparameters = model_hyperparameters
 
-        super().__init__(init_kwargs=init_kwargs, fit_kwargs=fit_kwargs, preprocess_data=preprocess_data, preprocess_label=preprocess_label, **kwargs)
+        super().__init__(
+            init_kwargs=init_kwargs,
+            fit_kwargs=fit_kwargs,
+            preprocess_data=preprocess_data,
+            preprocess_label=preprocess_label,
+            **kwargs,
+        )
 
     def post_fit(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame):
         self.failure_artifact = self.get_metadata_failure()
 
     def get_hyperparameters(self):
-        hyperparameters = self.predictor.model_hyperparameters(model=self.predictor.model_best, output_format="user")
-        return hyperparameters
+        return self.predictor.model_hyperparameters(model=self.predictor.model_best, output_format="user")
 
     @property
-    def model_cls(self) -> Type["AbstractModel"]:
+    def model_cls(self) -> type[AbstractModel]:  # noqa: F821
         if not isinstance(self._model_cls, str):
             model_cls = self._model_cls
         else:
             # TODO: Get it from predictor instead? What if we allow passing custom model registry?
-            from autogluon.tabular.registry import ag_model_registry  # If this raises an exception, you need to update to latest mainline AutoGluon
+            from autogluon.tabular.registry import (
+                ag_model_registry,  # If this raises an exception, you need to update to latest mainline AutoGluon
+            )
+
             model_cls = ag_model_registry.key_to_cls(key=self._model_cls)
         return model_cls
 
@@ -293,10 +307,9 @@ class AGSingleWrapper(AGWrapper):
         return metadata
 
     def get_metadata_failure(self) -> dict:
-        metadata = {
-            "model_failures": self.predictor.model_failures()
+        return {
+            "model_failures": self.predictor.model_failures(),
         }
-        return metadata
 
     def get_metadata(self) -> dict:
         metadata = self.get_metadata_init()
@@ -328,11 +341,11 @@ class AGSingleBagWrapper(AGSingleWrapper):
         else:
             for n_repeat, k in enumerate(model._k_per_n_repeat):
                 kfolds = model._cv_splitters[n_repeat].split(X=X, y=y)
-                cur_kfolds = kfolds[n_repeat * k: (n_repeat + 1) * k]
+                cur_kfolds = kfolds[n_repeat * k : (n_repeat + 1) * k]
                 all_kfolds += cur_kfolds
 
         val_idx_per_child = []
-        for fold_idx, (train_idx, val_idx) in enumerate(all_kfolds):
+        for _fold_idx, (_train_idx, val_idx) in enumerate(all_kfolds):
             val_idx = pd.to_numeric(val_idx, downcast="integer")  # memory opt
             val_idx_per_child.append(val_idx)
 
@@ -361,7 +374,8 @@ class AGSingleBagWrapper(AGSingleWrapper):
 
         if self.shuffle_test:
             # Inverse-permute outputs back to original X_test order
-            per_child_test_preds = [_apply_inv_perm(y_pred, inv_perm, index=original_index) for y_pred in per_child_test_preds]
+            per_child_test_preds = [
+                _apply_inv_perm(y_pred, inv_perm, index=original_index) for y_pred in per_child_test_preds
+            ]
 
-        per_child_test_preds = [preds_child.astype(np.float32) for preds_child in per_child_test_preds]  # memory opt
-        return per_child_test_preds
+        return [preds_child.astype(np.float32) for preds_child in per_child_test_preds]  # memory opt

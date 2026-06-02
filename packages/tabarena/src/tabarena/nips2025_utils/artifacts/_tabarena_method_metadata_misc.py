@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from tabarena.models._method_metadata import MethodMetadata
 
-
 # LightGBM w/ custom preprocessing pipeline (only first 3 repeats)
 # s3 cache = "cache_aio"
 gbm_aio_0808_metadata = MethodMetadata(

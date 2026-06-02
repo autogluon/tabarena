@@ -6,6 +6,7 @@ import pytest
 def test_tabpfn26():
     try:
         from autogluon.tabular.testing import FitHelper
+
         from tabarena.models.tabpfnv2_5.model import (
             TabPFNv26Model,
         )
@@ -19,7 +20,7 @@ def test_tabpfn26():
         )
     except ImportError as err:
         pytest.skip(
-            f"Import Error, skipping test... Ensure you have the proper dependencies installed to run this test:\n{err}"
+            f"Import Error, skipping test... Ensure you have the proper dependencies installed to run this test:\n{err}",
         )
 
 
@@ -32,6 +33,7 @@ def test_tabpfnv26_many_class(tmp_path):
         from autogluon.features.generators import AutoMLPipelineFeatureGenerator
         from sklearn.datasets import make_classification
         from sklearn.model_selection import train_test_split
+
         from tabarena.models.tabpfnv2_5.model import (
             TabPFNv26Model,
         )
@@ -85,5 +87,5 @@ def test_tabpfnv26_many_class(tmp_path):
         np.testing.assert_allclose(row_sums, 1.0, atol=1e-5)
     except ImportError as err:
         pytest.skip(
-            f"Import Error, skipping test... Ensure you have the proper dependencies installed to run this test:\n{err}"
+            f"Import Error, skipping test... Ensure you have the proper dependencies installed to run this test:\n{err}",
         )

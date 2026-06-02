@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+
 from tabarena.benchmark.experiment.experiment_runner_api import (
     _build_cache_prefix,
     _clean_repetitions_mode_args_for_matrix,
@@ -92,7 +93,10 @@ class _RecordingCache(AbstractCacheFunction):
     ],
 )
 def test_parse_repetitions_mode_and_args(
-    repetitions_mode, repetitions_mode_args, tasks, expected_output
+    repetitions_mode,
+    repetitions_mode_args,
+    tasks,
+    expected_output,
 ):
     if isinstance(expected_output, type) and issubclass(expected_output, BaseException):
         with pytest.raises(expected_output):
@@ -205,6 +209,7 @@ class TestCleanRepetitionsModeArgsForMatrix:
 
 def _make_minimal_experiment(name: str = "lgbm_test"):
     from autogluon.tabular.models import LGBModel
+
     from tabarena.benchmark.experiment import AGModelBagExperiment
 
     return AGModelBagExperiment(
@@ -428,7 +433,7 @@ class TestResolveTaskDisplayName:
 
     def test_task_id_preferred_over_tid(self):
         meta = pd.DataFrame(
-            {"task_id": [360], "tid": [999], "dataset": ["from_task_id"], "name": ["from_name"]}
+            {"task_id": [360], "tid": [999], "dataset": ["from_task_id"], "name": ["from_name"]},
         )
         # task_id is matched and dataset is the chosen name column
         assert _resolve_task_display_name(360, meta) == "from_task_id"
@@ -504,7 +509,9 @@ class TestExperimentBatchRunnerDelegation:
 
         task_metadata = pd.DataFrame({"tid": [0, 1], "dataset": ["d0", "d1"]})
         return ExperimentBatchRunner(
-            expname=str(tmp_path), task_metadata=task_metadata, **kwargs
+            expname=str(tmp_path),
+            task_metadata=task_metadata,
+            **kwargs,
         )
 
     def test_only_cache_no_cache_returns_empty(self, tmp_path):

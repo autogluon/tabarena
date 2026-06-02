@@ -6,14 +6,12 @@ import time
 from contextlib import contextmanager
 from typing import Literal
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 from autogluon.common.utils.resource_utils import ResourceManager
+from autogluon.tabular import __version__
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 from sklearn.impute import SimpleImputer
-
-from autogluon.tabular import __version__
-
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +66,7 @@ class RealMLPModel(AbstractTorchModel):
 
         assert default_hyperparameters in ["td", "td_s"]
         if self.problem_type in ["binary", "multiclass"]:
-            if default_hyperparameters == "td":
-                model_cls = RealMLP_TD_Classifier
-            else:
-                model_cls = RealMLP_TD_S_Classifier
+            model_cls = RealMLP_TD_Classifier if default_hyperparameters == "td" else RealMLP_TD_S_Classifier
         elif default_hyperparameters == "td":
             model_cls = RealMLP_TD_Regressor
         else:
@@ -99,7 +94,7 @@ class RealMLPModel(AbstractTorchModel):
         start_time = time.time()
 
         try:
-            import pytabkit
+            import pytabkit  # noqa: F401
             import torch
         except ImportError as err:
             logger.log(
@@ -150,11 +145,7 @@ class RealMLPModel(AbstractTorchModel):
             init_kwargs["val_metric_name"] = val_metric_name
 
         # TODO: Make this smarter? Maybe use `eval_metric.needs_pred`
-        if (
-            hyp["use_ls"] is not None
-            and isinstance(hyp["use_ls"], str)
-            and hyp["use_ls"] == "auto"
-        ):
+        if hyp["use_ls"] is not None and isinstance(hyp["use_ls"], str) and hyp["use_ls"] == "auto":
             if val_metric_name is None or val_metric_name in [
                 "cross_entropy",
                 "1-auc_ovr_alt",
@@ -172,7 +163,7 @@ class RealMLPModel(AbstractTorchModel):
         name_categories = hyp.pop("name_categories", True)
 
         hyp = self._set_predict_batch_size(hyp=hyp, n_features=len(X.columns))
-        hpy = self._hp_override_large_features(hyp=hyp, n_features=len(X.columns))
+        self._hp_override_large_features(hyp=hyp, n_features=len(X.columns))
         self.model = model_cls(
             n_threads=num_cpus,
             device=device,
@@ -181,7 +172,11 @@ class RealMLPModel(AbstractTorchModel):
         )
 
         X = self.preprocess(
-            X, y=y, is_train=True, bool_to_cat=bool_to_cat, impute_bool=impute_bool
+            X,
+            y=y,
+            is_train=True,
+            bool_to_cat=bool_to_cat,
+            impute_bool=impute_bool,
         )
 
         # FIXME: In rare cases can cause exceptions if name_categories=False, unknown why
@@ -198,9 +193,7 @@ class RealMLPModel(AbstractTorchModel):
                 y=y,
                 X_val=X_val,
                 y_val=y_val,
-                time_to_fit_in_seconds=time_limit - (time.time() - start_time)
-                if time_limit is not None
-                else None,
+                time_to_fit_in_seconds=time_limit - (time.time() - start_time) if time_limit is not None else None,
                 **extra_fit_kwargs,
             )
 
@@ -251,43 +244,40 @@ class RealMLPModel(AbstractTorchModel):
         if is_train:
             self._bool_to_cat = bool_to_cat
             self._features_bool = self._feature_metadata.get_features(
-                required_special_types=["bool"]
+                required_special_types=["bool"],
             )
             if impute_bool:  # Technically this should do nothing useful because bools will never have NaN
                 self._features_to_impute = self._feature_metadata.get_features(
-                    valid_raw_types=["int", "float"]
+                    valid_raw_types=["int", "float"],
                 )
                 self._features_to_keep = self._feature_metadata.get_features(
-                    invalid_raw_types=["int", "float"]
+                    invalid_raw_types=["int", "float"],
                 )
             else:
                 self._features_to_impute = self._feature_metadata.get_features(
-                    valid_raw_types=["int", "float"], invalid_special_types=["bool"]
+                    valid_raw_types=["int", "float"],
+                    invalid_special_types=["bool"],
                 )
                 self._features_to_keep = [
-                    f
-                    for f in self._feature_metadata.get_features()
-                    if f not in self._features_to_impute
+                    f for f in self._feature_metadata.get_features() if f not in self._features_to_impute
                 ]
             if self._features_to_impute:
                 self._imputer = SimpleImputer(strategy="mean", add_indicator=True)
                 self._imputer.fit(X=X[self._features_to_impute])
                 self._indicator_columns = [
-                    c
-                    for c in self._imputer.get_feature_names_out()
-                    if c not in self._features_to_impute
+                    c for c in self._imputer.get_feature_names_out() if c not in self._features_to_impute
                 ]
         if self._imputer is not None:
             X_impute = self._imputer.transform(X=X[self._features_to_impute])
             X_impute = pd.DataFrame(
-                X_impute, index=X.index, columns=self._imputer.get_feature_names_out()
+                X_impute,
+                index=X.index,
+                columns=self._imputer.get_feature_names_out(),
             )
             if self._indicator_columns:
                 # FIXME: Use CategoryFeatureGenerator? Or tell the model which is category
                 # TODO: Add to features_bool?
-                X_impute[self._indicator_columns] = X_impute[
-                    self._indicator_columns
-                ].astype("category")
+                X_impute[self._indicator_columns] = X_impute[self._indicator_columns].astype("category")
             X = pd.concat([X[self._features_to_keep], X_impute], axis=1)
         if self._bool_to_cat and self._features_bool:
             # FIXME: Use CategoryFeatureGenerator? Or tell the model which is category
@@ -383,9 +373,7 @@ class RealMLPModel(AbstractTorchModel):
         if num_classes is None:
             num_classes = 1
         params = copy.copy(
-            DefaultParams.RealMLP_TD_CLASS
-            if num_classes > 1
-            else DefaultParams.RealMLP_TD_REG
+            DefaultParams.RealMLP_TD_CLASS if num_classes > 1 else DefaultParams.RealMLP_TD_REG,
         )
         params.update(hyperparameters)
         params = RealMLPModel._set_predict_batch_size(hyp=params, n_features=X.shape[1])
@@ -393,13 +381,7 @@ class RealMLPModel(AbstractTorchModel):
 
         n_samples = X.shape[0]
         n_numerical = X.select_dtypes(include=["int", "float"]).shape[1]
-        cat_sizes = (
-            X.select_dtypes(include=["category", "object"])
-            .nunique(dropna=False)
-            .add(1)
-            .astype(int)
-            .tolist()
-        )
+        cat_sizes = X.select_dtypes(include=["category", "object"]).nunique(dropna=False).add(1).astype(int).tolist()
 
         ds = DictDataset(
             tensors=None,
@@ -414,16 +396,21 @@ class RealMLPModel(AbstractTorchModel):
 
         alg_interface = NNAlgInterface(**params)
         res = alg_interface.get_required_resources(
-            ds, n_cv=1, n_refit=0, n_splits=1, split_seeds=[0], n_train=n_samples
+            ds,
+            n_cv=1,
+            n_refit=0,
+            n_splits=1,
+            split_seeds=[0],
+            n_train=n_samples,
         )
 
         est = int(res.gpu_ram_gb * 1e9)
 
         if n_samples > 50_000:
             # Default overhead that somehow exists for large data as it seems
-            est += (12 * 1e9)
+            est += 12 * 1e9
         if X.shape[1] > 5_000:
-            est /= 2.5 # Avoid features are not counted correctly.
+            est /= 2.5  # Avoid features are not counted correctly.
 
         logger.log(
             40,
@@ -433,7 +420,8 @@ class RealMLPModel(AbstractTorchModel):
 
     def _validate_fit_memory_usage(self, mem_error_threshold: float = 1, **kwargs):
         return super()._validate_fit_memory_usage(
-            mem_error_threshold=mem_error_threshold, **kwargs
+            mem_error_threshold=mem_error_threshold,
+            **kwargs,
         )
 
     @classmethod

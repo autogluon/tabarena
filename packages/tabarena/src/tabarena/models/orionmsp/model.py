@@ -172,7 +172,7 @@ def _resolve_checkpoint(filename: str, allow_auto_download: bool = True) -> str:
                 f"Checkpoint '{filename}' not cached locally and "
                 f"allow_auto_download=False. Pre-download it via "
                 f"`prefetch_weights(filename='{filename}')` or set "
-                f"allow_auto_download=True."
+                f"allow_auto_download=True.",
             ) from None
         logger.info(
             "Orion-MSP checkpoint '%s' not cached; downloading from %s.",
@@ -204,7 +204,7 @@ def _orionmsp_fixed_pos_emb(self, embeddings, feature_indices=None):
     if self.feature_pos_emb is None or embeddings.dim() != 4:
         return embeddings
 
-    B, HC, T, E = embeddings.shape
+    _B, HC, _T, _E = embeddings.shape
     H = HC - self.reserve_cls_tokens
     if H <= 0:
         return embeddings

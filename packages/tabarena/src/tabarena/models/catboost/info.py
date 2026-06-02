@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from autogluon.tabular.models import CatBoostModel
 
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.catboost.hpo import gen_catboost
-from tabarena.models._method_metadata import MethodMetadata
-
 
 catboost_method_metadata = MethodMetadata(
     method="CatBoost",

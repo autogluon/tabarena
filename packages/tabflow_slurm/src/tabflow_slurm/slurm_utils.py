@@ -63,7 +63,7 @@ def setup_slurm_job(
             print(
                 "WARNING: /dev/shm is full, switching to /tmp usage! "
                 f"Available shared memory size: {dev_shm_size} GB, "
-                f"Required minimum for Ray plasma store: {min_plasma_storage_size} GB."
+                f"Required minimum for Ray plasma store: {min_plasma_storage_size} GB.",
             )
             # Likely slower but runs at least.
             _plasma_directory = ray_dir
@@ -87,7 +87,7 @@ def setup_slurm_job(
                 runtime_env={
                     "env_vars": {
                         "LOKY_START_METHOD": "forkserver",
-                    }
+                    },
                 },
             )
     return ray_dir

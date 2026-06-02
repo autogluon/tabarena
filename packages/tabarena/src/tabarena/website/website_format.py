@@ -6,6 +6,7 @@ import pandas as pd
 
 from tabarena.models._method_metadata import MethodMetadata
 
+
 class Constants:
     col_name: str = "method_type"
     tree: str = "Tree-based"
@@ -34,8 +35,7 @@ def strict_merge(
     how: str = "left",
     validate: str | None = None,
 ) -> pd.DataFrame:
-    """
-    Merge two DataFrames, but if they share non-key columns, require that the
+    """Merge two DataFrames, but if they share non-key columns, require that the
     shared columns have identical values (for matching keys) and raise if not.
     Prevents creating _x/_y columns by dropping shared columns from `right`
     after the check.
@@ -111,7 +111,7 @@ def get_model_family(model_name: str) -> str:
 
 
 def get_rename_map() -> dict[str, str]:
-    _rename_map = {
+    return {
         "TABM": "TabM",
         "REALMLP": "RealMLP",
         "GBM": "LightGBM",
@@ -136,7 +136,6 @@ def get_rename_map() -> dict[str, str]:
         "REALTABPFN-V2.5": "RealTabPFN-v2.5",
         "SAP-RPT-OSS": "SAP-RPT-OSS",
     }
-    return _rename_map
 
 
 def rename_method(model_name: str, rename_map: dict[str, str]) -> str:
@@ -162,7 +161,7 @@ def add_metadata(
                 "Hardware": "Missing",
                 "Verified": "Missing",
                 "ReferenceURL": None,
-            }
+            },
         )
     metadata = metadata_df.loc[method]
     config_type = metadata["config_type"]
@@ -186,14 +185,8 @@ def add_metadata(
     if include_url and metadata.get("reference_url", None) is not None:
         display_name = add_url(display_name, metadata["reference_url"])
 
-    if pd.isna(metadata["verified"]):
-        verified = "Unknown"
-    else:
-        verified = "✔️" if metadata["verified"] else "➖"
-    if pd.isna(metadata["compute"]):
-        hardware = "Unknown"
-    else:
-        hardware = metadata["compute"].upper()
+    verified = "Unknown" if pd.isna(metadata["verified"]) else "✔️" if metadata["verified"] else "➖"
+    hardware = "Unknown" if pd.isna(metadata["compute"]) else metadata["compute"].upper()
 
     return pd.Series(
         {
@@ -201,7 +194,7 @@ def add_metadata(
             "Hardware": hardware,
             "Verified": verified,
             **out_dict,
-        }
+        },
     )
 
 
@@ -218,15 +211,15 @@ def legacy_formatting(df_leaderboard: pd.DataFrame) -> pd.DataFrame:
 
     # Add Model Family Information
     df_leaderboard["Type"] = df_leaderboard.loc[:, "method"].apply(
-        lambda s: model_type_emoji[get_model_family(s)]
+        lambda s: model_type_emoji[get_model_family(s)],
     )
     df_leaderboard["TypeName"] = df_leaderboard.loc[:, "method"].apply(
-        lambda s: get_model_family(s)
+        lambda s: get_model_family(s),
     )
 
     _rename_map = get_rename_map()
     df_leaderboard["method"] = df_leaderboard["method"].apply(
-        lambda method: rename_method(model_name=method, rename_map=_rename_map)
+        lambda method: rename_method(model_name=method, rename_map=_rename_map),
     )
     return df_leaderboard
 
@@ -246,7 +239,9 @@ def format_leaderboard(
     if method_metadata_info is None:
         df_leaderboard = legacy_formatting(df_leaderboard=df_leaderboard)
     else:
-        method_info_map = strict_merge(df_leaderboard, method_metadata_info.drop(columns=["method_type"]), on=["ta_name", "ta_suite"])
+        method_info_map = strict_merge(
+            df_leaderboard, method_metadata_info.drop(columns=["method_type"]), on=["ta_name", "ta_suite"]
+        )
         method_info_map = method_info_map.set_index("method")
         df_leaderboard[["method", "Hardware", "Verified", "Type", "TypeName"]] = df_leaderboard.apply(
             partial(add_metadata, metadata_df=method_info_map, include_url=include_url),
@@ -277,7 +272,8 @@ def format_leaderboard(
         df_leaderboard.loc[imputed_mask, "imputed_bool"] = True
         if include_imputed_in_name:
             df_leaderboard.loc[imputed_mask, "method"] = df_leaderboard.loc[
-                imputed_mask, ["method", "imputed"]
+                imputed_mask,
+                ["method", "imputed"],
             ].apply(lambda row: row["method"] + f" [{row['imputed']:.2f}% IMPUTED]", axis=1)
     else:
         df_leaderboard["imputed_bool"] = None
@@ -285,7 +281,8 @@ def format_leaderboard(
 
     # FIXME: move to lb generation!
     df_leaderboard["method"] = df_leaderboard["method"].str.replace(
-        "(tuned + ensemble)", "(tuned + ensembled)"
+        "(tuned + ensemble)",
+        "(tuned + ensembled)",
     )
 
     df_leaderboard = df_leaderboard.loc[
@@ -311,14 +308,12 @@ def format_leaderboard(
 
     # round for better display
     df_leaderboard[["elo", "Elo 95% CI"]] = df_leaderboard[["elo", "Elo 95% CI"]].round(
-        0
+        0,
     )
     df_leaderboard[["median_time_train_s_per_1K", "rank", "hmr"]] = df_leaderboard[
         ["median_time_train_s_per_1K", "rank", "hmr"]
     ].round(2)
-    df_leaderboard[
-        ["normalized-score", "median_time_infer_s_per_1K", "improvability"]
-    ] = df_leaderboard[
+    df_leaderboard[["normalized-score", "median_time_infer_s_per_1K", "improvability"]] = df_leaderboard[
         ["normalized-score", "median_time_infer_s_per_1K", "improvability"]
     ].round(3)
 
@@ -330,13 +325,15 @@ def format_leaderboard(
         df_leaderboard = df_leaderboard.drop(columns=["Type", "TypeName"])
 
     if compact:
-        df_leaderboard = df_leaderboard[[
-            "method",
-            "elo",
-            "improvability",
-            "median_time_train_s_per_1K",
-            "median_time_infer_s_per_1K",
-        ]]
+        df_leaderboard = df_leaderboard[
+            [
+                "method",
+                "elo",
+                "improvability",
+                "median_time_train_s_per_1K",
+                "median_time_infer_s_per_1K",
+            ]
+        ]
 
         return df_leaderboard.rename(
             columns={
@@ -345,7 +342,7 @@ def format_leaderboard(
                 "method": "Model",
                 "elo": "Elo",
                 "improvability": "Impro%",
-            }
+            },
         )
 
     # rename some columns
@@ -361,5 +358,5 @@ def format_leaderboard(
             "improvability": "Improvability (%) [⬇️]",
             "imputed": "Imputed (%) [⬇️]",
             "imputed_bool": "Imputed",
-        }
+        },
     )

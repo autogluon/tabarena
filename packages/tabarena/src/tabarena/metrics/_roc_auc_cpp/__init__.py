@@ -16,16 +16,17 @@ class CppAuc:
     """
 
     def __init__(self):
-
         if not self.plugin_path().exists():
             self._compile()
-            assert self.plugin_path().exists(), "Missing cpp_auc.so compiled file... " \
-                                          "You must first compile the C++ code to use this metric. "
+            assert self.plugin_path().exists(), (
+                "Missing cpp_auc.so compiled file... You must first compile the C++ code to use this metric. "
+            )
         self._handle = ctypes.CDLL(self.plugin_path())
-        self._handle.cpp_auc_ext.argtypes = [ndpointer(ctypes.c_float, flags="C_CONTIGUOUS"),
-                                             ndpointer(ctypes.c_bool, flags="C_CONTIGUOUS"),
-                                             ctypes.c_size_t
-                                             ]
+        self._handle.cpp_auc_ext.argtypes = [
+            ndpointer(ctypes.c_float, flags="C_CONTIGUOUS"),
+            ndpointer(ctypes.c_bool, flags="C_CONTIGUOUS"),
+            ctypes.c_size_t,
+        ]
         self._handle.cpp_auc_ext.restype = ctypes.c_double
 
     def roc_auc_score(self, y_true: np.array, y_score: np.array) -> float:
@@ -56,7 +57,7 @@ class CppAuc:
         # filesystems (e.g. Singularity containers) with OSError(EROFS). g++ emits its
         # diagnostics on stderr, which we leave attached to the parent so genuine compile
         # errors remain visible.
-        proc = subprocess.Popen(
+        proc = subprocess.Popen(  # noqa: S603
             compile_command.split(" "),
             shell=False,
             stdout=subprocess.DEVNULL,

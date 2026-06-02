@@ -20,7 +20,7 @@ def _get_model_path_zip(model_cls):
     n_reg_models = len(reg_models)
     for i in range(max(n_clf_models, n_reg_models)):
         zip_model_paths.append(
-            [clf_models[min(i, n_clf_models - 1)], reg_models[min(i, n_reg_models - 1)]]
+            [clf_models[min(i, n_clf_models - 1)], reg_models[min(i, n_reg_models - 1)]],
         )
 
     return zip_model_paths
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     print(
         YamlExperimentSerializer.to_yaml_str(
             experiments=gen_realtabpfnv25.generate_all_bag_experiments(
-                num_random_configs=200
+                num_random_configs=200,
             ),
-        )
+        ),
     )

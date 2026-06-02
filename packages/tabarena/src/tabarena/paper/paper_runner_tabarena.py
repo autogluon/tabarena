@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .paper_runner import PaperRun
 from bencheval.tabarena import TabArena
+
+from .paper_runner import PaperRun
 
 
 class PaperRunTabArena(PaperRun):
@@ -11,8 +12,8 @@ class PaperRunTabArena(PaperRun):
     def run_portfolio_search(
         self,
         result_baselines: pd.DataFrame,
-        model_types: list[str] = None,
-        selected_types: list[str] = None,
+        model_types: list[str] | None = None,
+        selected_types: list[str] | None = None,
         n_portfolio: int = 25,
         n_ensemble: int = 40,
         time_limit: float | None = 14400,
@@ -27,11 +28,11 @@ class PaperRunTabArena(PaperRun):
 
         if selected_types is None:
             selected_types = []
-        for i in range(n_types):
+        for _i in range(n_types):
             model_types_avail = [model_type for model_type in model_types if model_type not in selected_types]
             results_dict_cur_round = {}
             for model_type in model_types_avail:
-                candidate_selected_types = selected_types + [model_type]
+                candidate_selected_types = [*selected_types, model_type]
                 print(candidate_selected_types)
                 candidate_configs = self.repo.configs(config_types=candidate_selected_types)
                 cur_result = self.run_zs(
@@ -44,7 +45,7 @@ class PaperRunTabArena(PaperRun):
                 cur_result["method"] = model_type
                 results_dict_cur_round[model_type] = cur_result
 
-            combined_data_cur_round = pd.concat([v for v in results_dict_cur_round.values()], ignore_index=True)
+            combined_data_cur_round = pd.concat(list(results_dict_cur_round.values()), ignore_index=True)
             combined_data = pd.concat([result_baselines, combined_data_cur_round], ignore_index=True)
 
             arena = TabArena(
@@ -60,7 +61,7 @@ class PaperRunTabArena(PaperRun):
                     calibration_framework=calibration_framework,
                     calibration_elo=1000,
                     BOOTSTRAP_ROUNDS=elo_bootstrap_rounds,
-                )
+                ),
             ).reset_index(drop=False)
             leaderboard_cur_round = leaderboard[leaderboard["method"].isin(results_dict_cur_round.keys())]
             print(leaderboard[["method", "elo", "improvability"]].to_markdown(index=False))
@@ -77,7 +78,7 @@ class PaperRunTabArena(PaperRun):
         configs_default = [c for c in configs if "_c1_" in c or c.endswith("_c1")]
         if len(configs_default) == 1:
             return configs_default[0]
-        elif len(configs_default) == 0:
+        if len(configs_default) == 0:
             configs_default = [c for c in configs if "_r1_" in c or c.endswith("_r1")]
             if len(configs_default) == 0:
                 if (len(configs) > 0) and use_first_if_missing:
@@ -85,39 +86,36 @@ class PaperRunTabArena(PaperRun):
                 if return_none_if_missing:
                     return None
                 raise ValueError(
-                    f"Could not find any default config for config_type='{config_type}'"
-                    f"\n\tconfigs={configs}"
-                )
-            else:
-                return configs_default[0]
-        else:  # >1
-            remaining = [c for c in configs_default if c.endswith("_c1")]
-            if len(remaining) == 1:
-                return remaining[0]
-            elif len(remaining) > 1:
-                configs_default = remaining
-            else:
-                len_suffix = [len(c.rsplit("_c1_", maxsplit=1)[-1]) for c in configs_default]
-                min_suffix = min(len_suffix)
-                configs_default = [c for i, c in enumerate(configs_default) if len_suffix[i] == min_suffix]
-            configs_default = sorted(configs_default)
-            if len(configs_default) > 1:
-                print(
-                    f"Found {len(configs_default)} potential default configs for config_type='{config_type}', but only one should exist."
-                    f"\n\tpotential defaults: {configs_default}"
-                    f"\n\tconfigs={configs}"
-                    f"\nSelecting {configs_default[0]} as default via string sort."
+                    f"Could not find any default config for config_type='{config_type}'\n\tconfigs={configs}",
                 )
             return configs_default[0]
+        # >1
+        remaining = [c for c in configs_default if c.endswith("_c1")]
+        if len(remaining) == 1:
+            return remaining[0]
+        if len(remaining) > 1:
+            configs_default = remaining
+        else:
+            len_suffix = [len(c.rsplit("_c1_", maxsplit=1)[-1]) for c in configs_default]
+            min_suffix = min(len_suffix)
+            configs_default = [c for i, c in enumerate(configs_default) if len_suffix[i] == min_suffix]
+        configs_default = sorted(configs_default)
+        if len(configs_default) > 1:
+            print(
+                f"Found {len(configs_default)} potential default configs for config_type='{config_type}', but only one should exist."
+                f"\n\tpotential defaults: {configs_default}"
+                f"\n\tconfigs={configs}"
+                f"\nSelecting {configs_default[0]} as default via string sort.",
+            )
+        return configs_default[0]
 
     def run_config(self, config: str) -> pd.DataFrame:
         configs = [config]
-        df_results_config = self.evaluator.compare_metrics(
+        return self.evaluator.compare_metrics(
             configs=configs,
             baselines=[],
             include_metric_error_val=True,
         ).reset_index()
-        return df_results_config
 
     def run_config_default(self, model_type: str) -> pd.DataFrame:
         config_default = self._config_default(config_type=model_type, use_first_if_missing=True)
@@ -130,10 +128,9 @@ class PaperRunTabArena(PaperRun):
         return df_results_config
 
     def run_minimal_single(self, model_type: str, tune: bool = True) -> pd.DataFrame:
-        """
-        Run logic that isn't impacted by other methods or other datasets
+        """Run logic that isn't impacted by other methods or other datasets.
 
-        Returns
+        Returns:
         -------
 
         """
@@ -144,12 +141,7 @@ class PaperRunTabArena(PaperRun):
         else:
             df_results_config_default = None
 
-        if tune:
-            df_results_hpo = self.run_hpo_by_family(
-                model_types=[model_type],
-            )
-        else:
-            df_results_hpo = None
+        df_results_hpo = self.run_hpo_by_family(model_types=[model_type]) if tune else None
 
         to_concat_lst = [
             df_results_config_default,
@@ -157,9 +149,7 @@ class PaperRunTabArena(PaperRun):
         ]
         to_concat_lst = [df for df in to_concat_lst if df is not None]
 
-        df_results_all = pd.concat(to_concat_lst, ignore_index=True)
-
-        return df_results_all
+        return pd.concat(to_concat_lst, ignore_index=True)
 
     @classmethod
     def compute_normalized_error_dynamic(cls, df_results: pd.DataFrame) -> pd.DataFrame:
@@ -170,8 +160,9 @@ class PaperRunTabArena(PaperRun):
 
         method_col = "framework"
 
-        df_results_per_dataset = df_results.groupby([method_col, "dataset"])["metric_error"].mean().reset_index(
-            drop=False)
+        df_results_per_dataset = (
+            df_results.groupby([method_col, "dataset"])["metric_error"].mean().reset_index(drop=False)
+        )
 
         from tabarena.utils.normalized_scorer import NormalizedScorer
 
@@ -196,18 +187,23 @@ class PaperRunTabArena(PaperRun):
             framework_col=method_col,
         )
 
-        df_results["normalized-error-task"] = [normalized_scorer_task.rank(task=(dataset, fold), error=error) for
-                                               (dataset, fold, error) in
-                                               zip(df_results["dataset"], df_results["fold"],
-                                                   df_results["metric_error"])]
+        df_results["normalized-error-task"] = [
+            normalized_scorer_task.rank(task=(dataset, fold), error=error)
+            for (dataset, fold, error) in zip(
+                df_results["dataset"], df_results["fold"], df_results["metric_error"], strict=False
+            )
+        ]
 
         df_results_per_dataset["normalized-error-dataset"] = [
-            normalized_scorer_dataset.rank(task=dataset, error=error) for (dataset, error) in
-            zip(df_results_per_dataset["dataset"], df_results_per_dataset["metric_error"])
+            normalized_scorer_dataset.rank(task=dataset, error=error)
+            for (dataset, error) in zip(
+                df_results_per_dataset["dataset"], df_results_per_dataset["metric_error"], strict=False
+            )
         ]
 
         df_results_per_dataset = df_results_per_dataset.set_index(["dataset", method_col], drop=True)[
-            "normalized-error-dataset"]
+            "normalized-error-dataset"
+        ]
         df_results = df_results.merge(df_results_per_dataset, left_on=["dataset", method_col], right_index=True)
 
         df_results_og["normalized-error-dataset"] = df_results["normalized-error-dataset"]

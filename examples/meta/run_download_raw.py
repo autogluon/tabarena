@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from tabarena.models._method_metadata import MethodMetadata
+from typing import TYPE_CHECKING
+
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+
+if TYPE_CHECKING:
+    from tabarena.models._method_metadata import MethodMetadata
 
 """
 This is an example script showcasing how to access the different types of artifacts in TabArena.

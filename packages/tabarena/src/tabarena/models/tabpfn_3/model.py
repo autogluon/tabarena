@@ -103,7 +103,7 @@ class TabPFN3Model(AbstractTorchModel):
         default_auxiliary_params.update(
             {
                 "max_classes": 160,
-            }
+            },
         )
         return default_auxiliary_params
 

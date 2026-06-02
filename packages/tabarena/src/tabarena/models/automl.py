@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 from tabarena.benchmark.experiment.experiment_constructor import AGExperiment
 
 
 def generate_autogluon_experiments():
-    methods = [
+    return [
         AGExperiment(
             name="AutoGluon_v140_bq_4h8c",
             fit_kwargs=dict(
@@ -55,12 +57,10 @@ def generate_autogluon_experiments():
             ),
         ),
     ]
-    return methods
-
 
 
 def generate_autogluon_extreme_experiments():
-    methods = [
+    return [
         AGExperiment(
             name="AutoGluon_v140_eq_4h8c",
             fit_kwargs=dict(
@@ -83,4 +83,3 @@ def generate_autogluon_extreme_experiments():
             ),
         ),
     ]
-    return methods

@@ -14,10 +14,11 @@ class SimpleLightGBM(AbstractExecModel):
 
     def get_model_cls(self):
         from lightgbm import LGBMClassifier, LGBMRegressor
-        is_classification = self.problem_type in ['binary', 'multiclass']
+
+        is_classification = self.problem_type in ["binary", "multiclass"]
         if is_classification:
             model_cls = LGBMClassifier
-        elif self.problem_type == 'regression':
+        elif self.problem_type == "regression":
             model_cls = LGBMRegressor
         else:
             raise AssertionError(f"LightGBM does not recognize the problem_type='{self.problem_type}'")
@@ -28,7 +29,7 @@ class SimpleLightGBM(AbstractExecModel):
         self.model = model_cls(**self.hyperparameters)
         self.model.fit(
             X=X,
-            y=y
+            y=y,
         )
         return self
 

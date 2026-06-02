@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pandas as pd
-import numpy as np
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 def zeroshot_configs(
@@ -9,8 +13,7 @@ def zeroshot_configs(
     output_size: int,
     weights: list[int] | None = None,
 ) -> list[int]:
-    """
-    :param val_scores: a tensor with shape (n_task, n_configs) that contains evaluations to consider
+    """:param val_scores: a tensor with shape (n_task, n_configs) that contains evaluations to consider
     :param output_size: number of configurations to return, in some case where no configuration helps anymore,
     the portfolio can have smaller length.
     :return: a list of index configuration for the portfolio where all indices are in [0, `n_configs` - 1]
@@ -41,8 +44,8 @@ def zeroshot_configs(
         best_mean = cur_best_mean
 
         # Update ranks for choosing each configuration considering the previously chosen ones
-        ranks.clip(upper=ranks[best_idx], axis=0, inplace=True)
+        ranks = ranks.clip(upper=ranks[best_idx], axis=0)
         # Drop the chosen configuration as a future candidate
-        df_val_scores.drop(columns=best_idx, inplace=True)
+        df_val_scores = df_val_scores.drop(columns=best_idx)
         res.append(best_idx)
     return res

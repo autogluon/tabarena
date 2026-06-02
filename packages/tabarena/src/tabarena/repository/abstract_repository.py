@@ -2,58 +2,61 @@ from __future__ import annotations
 
 import copy
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import TYPE_CHECKING, Self
 
 import numpy as np
 import pandas as pd
-from typing_extensions import Self
 
-from ..benchmark.task.openml import OpenMLTaskWrapper
-from ..simulation.simulation_context import ZeroshotSimulatorContext
-from ..simulation.single_best_config_scorer import SingleBestConfigScorer
-from ..utils.cache import SaveLoadMixin
+from tabarena.benchmark.task.openml import OpenMLTaskWrapper
+from tabarena.simulation.single_best_config_scorer import SingleBestConfigScorer
+from tabarena.utils.cache import SaveLoadMixin
+
+if TYPE_CHECKING:
+    from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
 
 
 class AbstractRepository(ABC, SaveLoadMixin):
     def __init__(
         self,
         zeroshot_context: ZeroshotSimulatorContext,
-        config_fallback: str | None = None
+        config_fallback: str | None = None,
     ):
         self._zeroshot_context = zeroshot_context
         self._config_fallback = None
         self.set_config_fallback(config_fallback)
 
-    def set_config_fallback(self, config_fallback: str = None):
+    def set_config_fallback(self, config_fallback: str | None = None):
         if config_fallback:
-            assert config_fallback in self.configs(), f"Missing config_fallback={config_fallback!r} in configs: {self.configs()}"
+            assert config_fallback in self.configs(), (
+                f"Missing config_fallback={config_fallback!r} in configs: {self.configs()}"
+            )
         self._config_fallback = config_fallback
 
     def print_info(self):
         self._zeroshot_context.print_info()
 
     @property
-    def _dataset_to_tid_dict(self) -> Dict[str, int]:
+    def _dataset_to_tid_dict(self) -> dict[str, int]:
         return self._zeroshot_context.dataset_to_tid_dict
 
     @property
-    def _tid_to_dataset_dict(self) -> Dict[int, str]:
+    def _tid_to_dataset_dict(self) -> dict[int, str]:
         return {v: k for k, v in self._dataset_to_tid_dict.items()}
 
     # TODO: tasks
-    def subset(self,
-               *,
-               datasets: List[str] = None,
-               folds: List[int] = None,
-               configs: List[str] = None,
-               baselines: List[str] = None,
-               problem_types: List[str] = None,
-               force_to_dense: bool = False,
-               inplace: bool = False,
-               verbose: bool = True,
-               ) -> Self:
-        """
-        Method to subset the repository object and force to a dense representation.
+    def subset(
+        self,
+        *,
+        datasets: list[str] | None = None,
+        folds: list[int] | None = None,
+        configs: list[str] | None = None,
+        baselines: list[str] | None = None,
+        problem_types: list[str] | None = None,
+        force_to_dense: bool = False,
+        inplace: bool = False,
+        verbose: bool = True,
+    ) -> Self:
+        """Method to subset the repository object and force to a dense representation.
 
         :param datasets: The list of datasets to subset. Ignored if unspecified.
         :param folds: The list of folds to subset. Ignored if unspecified.
@@ -99,8 +102,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
 
     @abstractmethod
     def force_to_dense(self, inplace: bool = False, verbose: bool = True) -> Self:
-        """
-        Method to force the repository to a dense representation inplace.
+        """Method to force the repository to a dense representation inplace.
 
         The following operations will be applied in order:
         1. subset to only datasets that contain at least one result for all folds (self.n_folds())
@@ -119,7 +121,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
         verbose: bool, default = True
             Whether to log verbose details about the force to dense operation.
 
-        Returns
+        Returns:
         -------
         Return dense repo if inplace=False or self after inplace updates in this call.
         """
@@ -133,15 +135,16 @@ class AbstractRepository(ABC, SaveLoadMixin):
     def task_metadata(self) -> pd.DataFrame:
         return self._df_metadata
 
-    def tids(self, problem_type: str = None) -> List[int]:
-        """
-        Note: returns the taskid of the datasets rather than the string name.
+    def tids(self, problem_type: str | None = None) -> list[int]:
+        """Note: returns the taskid of the datasets rather than the string name.
 
         :param problem_type: If specified, only datasets with the given problem_type are returned.
         """
         return self._zeroshot_context.get_tids(problem_type=problem_type)
 
-    def datasets(self, *, configs: list[str] = None, problem_type: str | list[str] = None, union: bool = True) -> list[str]:
+    def datasets(
+        self, *, configs: list[str] | None = None, problem_type: str | list[str] | None = None, union: bool = True
+    ) -> list[str]:
         """repo_subset2.datasets()
         Return all valid datasets.
         By default, will return all datasets that appear in any config at least once.
@@ -154,26 +157,24 @@ class AbstractRepository(ABC, SaveLoadMixin):
             If True, will return the union of datasets present in each config.
             If False, will return the intersection of datasets present in each config.
 
-        Returns
+        Returns:
         -------
         A list of dataset names satisfying the above conditions.
         """
         return self._zeroshot_context.get_datasets(configs=configs, problem_type=problem_type, union=union)
 
     def tasks(self) -> list[tuple[str, int]]:
-        dataset_folds = self._zeroshot_context.get_tasks(as_dataset_fold=True)
-        return dataset_folds
+        return self._zeroshot_context.get_tasks(as_dataset_fold=True)
 
     def configs(
         self,
         *,
-        datasets: list[str] = None,
-        tasks: list[tuple[str, int]] = None,
-        config_types: list[str] = None,
+        datasets: list[str] | None = None,
+        tasks: list[tuple[str, int]] | None = None,
+        config_types: list[str] | None = None,
         union: bool = True,
     ) -> list[str]:
-        """
-        Return all valid configs.
+        """Return all valid configs.
         By default, will return all configs that appear in any task at least once.
 
         Parameters
@@ -190,16 +191,19 @@ class AbstractRepository(ABC, SaveLoadMixin):
             If True, will return the union of configs present in each task.
             If False, will return the intersection of configs present in each task.
 
-        Returns
+        Returns:
         -------
         A list of config names satisfying the above conditions.
         """
-        return self._zeroshot_context.get_configs(datasets=datasets, tasks=tasks, config_types=config_types, union=union)
+        return self._zeroshot_context.get_configs(
+            datasets=datasets, tasks=tasks, config_types=config_types, union=union
+        )
 
     # TODO: unit test
-    def baselines(self, *, datasets: list[str] = None, tasks: list[tuple[str, int]] = None, union: bool = True) -> list[str]:
-        """
-        Return all valid baselines.
+    def baselines(
+        self, *, datasets: list[str] | None = None, tasks: list[tuple[str, int]] | None = None, union: bool = True
+    ) -> list[str]:
+        """Return all valid baselines.
         By default, will return all baselines that appear in any task at least once.
 
         Parameters
@@ -214,7 +218,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
             If True, will return the union of baselines present in each task.
             If False, will return the intersection of baselines present in each task.
 
-        Returns
+        Returns:
         -------
         A list of baseline names satisfying the above conditions.
         """
@@ -223,7 +227,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
     def dataset_to_tid(self, dataset: str) -> int:
         return self._dataset_to_tid_dict[dataset]
 
-    def datasets_to_tids(self, datasets: list[str] = None) -> pd.Series:
+    def datasets_to_tids(self, datasets: list[str] | None = None) -> pd.Series:
         if datasets is None:
             datasets = self.datasets()
         return pd.Series({dataset: self._dataset_to_tid_dict[dataset] for dataset in datasets}, name="tid")
@@ -233,14 +237,13 @@ class AbstractRepository(ABC, SaveLoadMixin):
 
     def metrics(
         self,
-        datasets: List[str] = None,
-        folds: List[int] = None,
-        tasks: list[tuple[str, int]] = None,
-        configs: List[str] = None,
+        datasets: list[str] | None = None,
+        folds: list[int] | None = None,
+        tasks: list[tuple[str, int]] | None = None,
+        configs: list[str] | None = None,
         set_index: bool = True,
     ) -> pd.DataFrame:
-        """
-        :param datasets:
+        """:param datasets:
         :param folds:
         :param configs: list of configs to query metrics
         :return: pd.DataFrame of metrics for each dataset-fold-framework combination.
@@ -277,9 +280,10 @@ class AbstractRepository(ABC, SaveLoadMixin):
 
         return df
 
-    def dataset_fold_config_pairs(self, datasets: List[str] = None, folds: List[int] = None, configs: List[str] = None) -> list:
-        """
-        Returns a list of all (dataset, fold, config) tuples available in the repo.
+    def dataset_fold_config_pairs(
+        self, datasets: list[str] | None = None, folds: list[int] | None = None, configs: list[str] | None = None
+    ) -> list:
+        """Returns a list of all (dataset, fold, config) tuples available in the repo.
 
         Parameters
         ----------
@@ -293,8 +297,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
         return self.metrics(datasets=datasets, folds=folds, configs=configs).index.tolist()
 
     def predict_test(self, dataset: str, fold: int, config: str, binary_as_multiclass: bool = False) -> np.ndarray:
-        """
-        Returns the predictions on the test set for a given configuration on a given dataset and fold
+        """Returns the predictions on the test set for a given configuration on a given dataset and fold.
 
         Parameters
         ----------
@@ -314,16 +317,17 @@ class AbstractRepository(ABC, SaveLoadMixin):
             The internal representation is of form (n_rows) as it requires less memory,
             so there is a conversion overhead introduced when `binary_as_multiclass=True`.
 
-        Returns
+        Returns:
         -------
         The model predictions on the test set with shape (n_rows, n_classes) for multiclass or (n_rows) in case of regression.
         For binary, shape depends on `binary_as_multiclass` value.
         """
-        return self.predict_test_multi(dataset=dataset, fold=fold, configs=[config], binary_as_multiclass=binary_as_multiclass).squeeze()
+        return self.predict_test_multi(
+            dataset=dataset, fold=fold, configs=[config], binary_as_multiclass=binary_as_multiclass
+        ).squeeze()
 
     def predict_val(self, dataset: str, fold: int, config: str, binary_as_multiclass: bool = False) -> np.ndarray:
-        """
-        Parameters
+        """Parameters
         ----------
         dataset: str
             The dataset to get predictions from. Must be a value in `self.datasets()`.
@@ -341,17 +345,25 @@ class AbstractRepository(ABC, SaveLoadMixin):
             The internal representation is of form (n_rows) as it requires less memory,
             so there is a conversion overhead introduced when `binary_as_multiclass=True`.
 
-        Returns
+        Returns:
         -------
         The model predictions on the validation set with shape (n_rows, n_classes) for multiclass or (n_rows) in case of regression.
         For binary, shape depends on `binary_as_multiclass` value.
         """
-        return self.predict_val_multi(dataset=dataset, fold=fold, configs=[config], binary_as_multiclass=binary_as_multiclass).squeeze()
+        return self.predict_val_multi(
+            dataset=dataset, fold=fold, configs=[config], binary_as_multiclass=binary_as_multiclass
+        ).squeeze()
 
     @abstractmethod
-    def predict_test_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False, enforce_binary_1d: bool = False) -> np.ndarray:
-        """
-        Returns the predictions on the test set for a given list of configurations on a given dataset and fold
+    def predict_test_multi(
+        self,
+        dataset: str,
+        fold: int,
+        configs: list[str] | None = None,
+        binary_as_multiclass: bool = False,
+        enforce_binary_1d: bool = False,
+    ) -> np.ndarray:
+        """Returns the predictions on the test set for a given list of configurations on a given dataset and fold.
 
         Parameters
         ----------
@@ -372,7 +384,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
             The internal representation is of form (n_configs, n_rows) as it requires less memory,
             so there is a conversion overhead introduced when `binary_as_multiclass=True`.
 
-        Returns
+        Returns:
         -------
         The model predictions with shape (n_configs, n_rows, n_classes) for multiclass or (n_configs, n_rows) in case of regression.
         For binary, shape depends on `binary_as_multiclass` value.
@@ -381,9 +393,15 @@ class AbstractRepository(ABC, SaveLoadMixin):
         raise NotImplementedError
 
     @abstractmethod
-    def predict_val_multi(self, dataset: str, fold: int, configs: List[str] = None, binary_as_multiclass: bool = False, enforce_binary_1d: bool = False) -> np.ndarray:
-        """
-        Returns the predictions on the validation set for a given list of configurations on a given dataset and fold
+    def predict_val_multi(
+        self,
+        dataset: str,
+        fold: int,
+        configs: list[str] | None = None,
+        binary_as_multiclass: bool = False,
+        enforce_binary_1d: bool = False,
+    ) -> np.ndarray:
+        """Returns the predictions on the validation set for a given list of configurations on a given dataset and fold.
 
         Parameters
         ----------
@@ -404,7 +422,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
             The internal representation is of form (n_configs, n_rows) as it requires less memory,
             so there is a conversion overhead introduced when `binary_as_multiclass=True`.
 
-        Returns
+        Returns:
         -------
         The model predictions with shape (n_configs, n_rows, n_classes) for multiclass or (n_configs, n_rows) in case of regression.
         For binary, shape depends on `binary_as_multiclass` value.
@@ -414,15 +432,14 @@ class AbstractRepository(ABC, SaveLoadMixin):
 
     def dataset_metadata(self, dataset: str) -> dict:
         metadata = self._df_metadata[self._df_metadata["dataset"] == dataset]
-        return dict(zip(metadata.columns, metadata.values[0]))
+        return dict(zip(metadata.columns, metadata.values[0], strict=False))
 
     def dataset_info(self, dataset: str) -> dict:
-        """
-        Parameters
+        """Parameters
         ----------
         dataset: str
 
-        Returns
+        Returns:
         -------
         Dictionary with two keys:
             "metric": The evaluation metric name used for scoring on the dataset
@@ -430,14 +447,13 @@ class AbstractRepository(ABC, SaveLoadMixin):
         """
         return self._zeroshot_context.df_metrics.loc[dataset].to_dict()
 
-    def datasets_info(self, datasets: list[str] = None) -> pd.DataFrame:
-        """
-        Parameters
+    def datasets_info(self, datasets: list[str] | None = None) -> pd.DataFrame:
+        """Parameters
         ----------
         datasets: list[str]. default = None
             If None, uses all datasets
 
-        Returns
+        Returns:
         -------
         Pandas DataFrame with index "dataset" and two columns:
             "metric": The evaluation metric name used for scoring on the dataset
@@ -448,45 +464,44 @@ class AbstractRepository(ABC, SaveLoadMixin):
         return self._zeroshot_context.df_metrics.loc[datasets]
 
     @property
-    def folds(self) -> List[int]:
-        """Folds with any result"""
+    def folds(self) -> list[int]:
+        """Folds with any result."""
         return sorted(self._zeroshot_context.folds)
 
     def n_folds(self) -> int:
-        """Number of folds with any result"""
+        """Number of folds with any result."""
         return len(self.folds)
 
     def n_datasets(self) -> int:
-        """Number of datasets with any result"""
+        """Number of datasets with any result."""
         return len(self.datasets())
 
     def n_configs(self) -> int:
-        """Number of configs with any result"""
+        """Number of configs with any result."""
         return len(self.configs())
 
     def task_name_from_tid(self, tid: int, fold: int) -> str:
-        """Returns the task associated with a (tid, fold)"""
+        """Returns the task associated with a (tid, fold)."""
         return self._zeroshot_context.task_name_from_tid(tid=tid, fold=fold)
 
     def task_name(self, dataset: str, fold: int) -> str:
-        """Returns the task associated with a (dataset, fold)"""
+        """Returns the task associated with a (dataset, fold)."""
         return self.task_name_from_tid(tid=self.dataset_to_tid(dataset), fold=fold)
 
     def task_to_dataset(self, task: str) -> str:
-        """Returns the dataset associated with a task"""
+        """Returns the dataset associated with a task."""
         return self._zeroshot_context.task_to_dataset_dict[task]
 
     def task_to_fold(self, task: str) -> int:
-        """Returns the fold associated with a task"""
+        """Returns the fold associated with a task."""
         return self._zeroshot_context.task_to_fold(task=task)
 
     def dataset_to_folds(self, dataset: str) -> list[int]:
         return self._zeroshot_context.dataset_to_folds(dataset=dataset)
 
     def config_hyperparameters(self, config: str, include_ag_args: bool = True) -> dict | None:
-        """
-        Returns config hyperparameters as defined in AutoGluon
-        If no hyperparameters exist for the config, return None
+        """Returns config hyperparameters as defined in AutoGluon
+        If no hyperparameters exist for the config, return None.
 
         Parameters
         ----------
@@ -495,15 +510,18 @@ class AbstractRepository(ABC, SaveLoadMixin):
         include_ag_args: bool, default = True
             If True, includes the `ag_args` hyperparameter which is used in determining the name of the model in AutoGluon
         """
-        config_hyperparameters = self._zeroshot_context.get_config_hyperparameters(config=config, include_ag_args=include_ag_args)
+        config_hyperparameters = self._zeroshot_context.get_config_hyperparameters(
+            config=config, include_ag_args=include_ag_args
+        )
         if config_hyperparameters is not None:
             return config_hyperparameters["hyperparameters"]
         return None
 
-    def configs_hyperparameters(self, configs: list[str] | None = None, include_ag_args: bool = True) -> dict[str, dict | None]:
-        """
-        Returns a dictionary mapping of config names to hyperparameters as defined in AutoGluon
-        If no hyperparameters exist for a config, its value will be None
+    def configs_hyperparameters(
+        self, configs: list[str] | None = None, include_ag_args: bool = True
+    ) -> dict[str, dict | None]:
+        """Returns a dictionary mapping of config names to hyperparameters as defined in AutoGluon
+        If no hyperparameters exist for a config, its value will be None.
 
         Note that this is not the same as the `hyperparameters` argument to AutoGluon's `TabularPredictor.fit()`.
         To get this, refer to `self.autogluon_hyperparameters_dict()`.
@@ -516,14 +534,14 @@ class AbstractRepository(ABC, SaveLoadMixin):
         include_ag_args: bool, default = True
             If True, includes the `ag_args` hyperparameter which is used in determining the name of the model in AutoGluon
         """
-        configs_hyperparameters = self._zeroshot_context.get_configs_hyperparameters(configs=configs, include_ag_args=include_ag_args)
-        configs_hyperparameters = {k: v["hyperparameters"] if v is not None else v for k, v in configs_hyperparameters.items()}
-        return configs_hyperparameters
+        configs_hyperparameters = self._zeroshot_context.get_configs_hyperparameters(
+            configs=configs, include_ag_args=include_ag_args
+        )
+        return {k: v["hyperparameters"] if v is not None else v for k, v in configs_hyperparameters.items()}
 
     def config_type(self, config: str) -> str | None:
-        """
-        Returns the AutoGluon `hyperparameters` type string for a given config.
-        If no type string exists, the value will be None
+        """Returns the AutoGluon `hyperparameters` type string for a given config.
+        If no type string exists, the value will be None.
 
         For example:
             "LightGBM_c1_BAG_L1" -> "GBM"
@@ -532,9 +550,8 @@ class AbstractRepository(ABC, SaveLoadMixin):
         return self.configs_type(configs=[config])[config]
 
     def configs_type(self, configs: list[str] | None = None) -> dict[str, str | None]:
-        """
-        Returns the AutoGluon `hyperparameters` type strings for a given config list, returned as a dict of config -> type
-        If no type string exists, the value will be None
+        """Returns the AutoGluon `hyperparameters` type strings for a given config list, returned as a dict of config -> type
+        If no type string exists, the value will be None.
 
         For example:
             "LightGBM_c1_BAG_L1" -> "GBM"
@@ -546,8 +563,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
         return configs_type
 
     def config_types(self, configs: list[str] | None = None) -> list[str | None]:
-        """
-        Returns the AutoGluon `hyperparameters` type strings for a given config list, returned as a list of config types.
+        """Returns the AutoGluon `hyperparameters` type strings for a given config list, returned as a list of config types.
 
         Parameters
         ----------
@@ -555,7 +571,7 @@ class AbstractRepository(ABC, SaveLoadMixin):
             If specified, will return the types of configs present in the list.
             Otherwise, will consider all configs.
 
-        Returns
+        Returns:
         -------
         config_types: list[str | None]
             The list of config types present in `configs`.
@@ -568,9 +584,10 @@ class AbstractRepository(ABC, SaveLoadMixin):
                 config_types.add(config_type)
         return list(config_types)
 
-    def autogluon_hyperparameters_dict(self, configs: list[str], ordered: bool = True, include_ag_args: bool = True) -> dict[str, list[dict]]:
-        """
-        Returns the AutoGluon hyperparameters dict to fit the given list of configs in AutoGluon.
+    def autogluon_hyperparameters_dict(
+        self, configs: list[str], ordered: bool = True, include_ag_args: bool = True
+    ) -> dict[str, list[dict]]:
+        """Returns the AutoGluon hyperparameters dict to fit the given list of configs in AutoGluon.
 
         The output `hyperparameters` would be passed to AutoGluon via:
 
@@ -589,7 +606,9 @@ class AbstractRepository(ABC, SaveLoadMixin):
         configs_hyperparameters = self.configs_hyperparameters(configs=configs, include_ag_args=include_ag_args)
         configs_type = self.configs_type(configs=configs)
 
-        self._verify_autogluon_hyperparameters(configs=configs, configs_hyperparameters=configs_hyperparameters, configs_type=configs_type)
+        self._verify_autogluon_hyperparameters(
+            configs=configs, configs_hyperparameters=configs_hyperparameters, configs_type=configs_type
+        )
 
         ordered_priority = -1
         hyperparameters = {}
@@ -621,15 +640,14 @@ class AbstractRepository(ABC, SaveLoadMixin):
                 f"Cannot create AutoGluon hyperparameters dict using {len(configs)} configs={configs}...\n"
                 f"Found {len(invalid_configs)} invalid configs: {invalid_configs}\n"
                 f"These configs either have no hyperparameters or no type specified:\n"
-                f"{invalid_str}"
+                f"{invalid_str}",
             )
 
     def _construct_single_best_config_scorer(self, **kwargs) -> SingleBestConfigScorer:
         return SingleBestConfigScorer.from_repo(repo=self, **kwargs)
 
     def _convert_binary_to_multiclass(self, predictions: np.ndarray, dataset: str) -> np.ndarray:
-        """
-        Converts binary predictions in (n_rows) format to (n_rows, n_classes) format.
+        """Converts binary predictions in (n_rows) format to (n_rows, n_classes) format.
         Converts binary predictions in (n_configs, n_rows) format to (n_configs, n_rows, n_classes) format.
         Skips conversion if dataset's problem_type != "binary".
 
@@ -640,25 +658,22 @@ class AbstractRepository(ABC, SaveLoadMixin):
         dataset: str
             The dataset the predictions originate from.
 
-        Returns
+        Returns:
         -------
         Returns converted predictions if binary, else returns original predictions.
         """
         if self.dataset_info(dataset)["problem_type"] == "binary":
             return np.stack([1 - predictions, predictions], axis=predictions.ndim)
-        else:
-            return predictions
+        return predictions
 
     def _convert_binary_to_1d_multi(self, predictions: np.ndarray, dataset: str) -> np.ndarray:
-        if self.dataset_info(dataset)["problem_type"] == "binary":
-            if len(predictions.shape) == 3:
-                predictions = predictions[:, :, 1]
+        if self.dataset_info(dataset)["problem_type"] == "binary" and len(predictions.shape) == 3:
+            predictions = predictions[:, :, 1]
         return predictions
 
     # TODO: repo.reproduce(config, dataset, fold)
     def get_openml_task(self, dataset: str) -> OpenMLTaskWrapper:
-        """
-        Fetch an OpenML task given a dataset name
+        """Fetch an OpenML task given a dataset name.
 
         Parameters
         ----------
@@ -666,10 +681,9 @@ class AbstractRepository(ABC, SaveLoadMixin):
             The dataset name used to fetch the OpenML task.
             Must be part of `repo.datasets`
 
-        Returns
+        Returns:
         -------
         OpenMLTaskWrapper object
         """
         tid = self.dataset_to_tid(dataset=dataset)
-        task = OpenMLTaskWrapper.from_task_id(task_id=tid)
-        return task
+        return OpenMLTaskWrapper.from_task_id(task_id=tid)

@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import datetime
-from typing import Literal, Type
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
+from autogluon.core.data.label_cleaner import LabelCleaner, LabelCleanerDummy
+from autogluon.core.metrics import Scorer, get_metric
 from pandas.api.types import is_integer_dtype
 
-from autogluon.core.data.label_cleaner import LabelCleaner, LabelCleanerDummy
-from autogluon.core.metrics import get_metric, Scorer
-from tabarena.benchmark.task.openml import OpenMLTaskWrapper
-from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy, CacheFunctionDF
-from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel
+from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDF, CacheFunctionDummy
+
+if TYPE_CHECKING:
+    from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel
+    from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 
 
 # TODO: make a dataclass so type hinter is happy with subclasses?
@@ -19,7 +21,7 @@ class ExperimentRunner:
     def __init__(
         self,
         *,
-        method_cls: Type[AbstractExecModel],
+        method_cls: type[AbstractExecModel],
         task: OpenMLTaskWrapper,
         fold: int,
         task_name: str,
@@ -33,9 +35,7 @@ class ExperimentRunner:
         debug_mode: bool = True,
         eval_metric_name: str | None = None,
     ):
-        """
-
-        Parameters
+        """Parameters
         ----------
         method_cls
         task
@@ -72,9 +72,9 @@ class ExperimentRunner:
         if eval_metric_name is None:
             # FIXME: Don't hardcode eval metric
             ag_eval_metric_map = {
-                'binary': 'roc_auc',
-                'multiclass': 'log_loss',
-                'regression': 'rmse',
+                "binary": "roc_auc",
+                "multiclass": "log_loss",
+                "regression": "rmse",
             }
             self.eval_metric_name = ag_eval_metric_map[self.task.problem_type]
         else:
@@ -88,7 +88,9 @@ class ExperimentRunner:
             self.X, self.y, self.X_test, self.y_test = None, None, None, None
             _, y, _, _ = self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
         else:
-            self.X, self.y, self.X_test, self.y_test = self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
+            self.X, self.y, self.X_test, self.y_test = self.task.get_train_test_split(
+                fold=self.fold, repeat=self.repeat, sample=self.sample
+            )
             y = self.y
 
         if input_format == "csv":
@@ -101,12 +103,11 @@ class ExperimentRunner:
         self.debug_mode = debug_mode
 
     def init_method(self) -> AbstractExecModel:
-        model = self.method_cls(
+        return self.method_cls(
             problem_type=self.task.problem_type,
             eval_metric=self.eval_metric,
             **self.fit_args,
         )
-        return model
 
     @property
     def split_seed(self):
@@ -117,7 +118,6 @@ class ExperimentRunner:
         X, y, X_test, _ = self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
         return X, y, X_test
 
-
     def run_model_fit(self) -> dict:
         if self.task.lazy_load_data:
             lazy_load_function = self._lazy_load_for_run_model_fit
@@ -125,7 +125,9 @@ class ExperimentRunner:
         else:
             lazy_load_function = None
             X, y, X_test = self.X, self.y, self.X_test
-        return self.model.fit_custom(X=X, y=y, X_test=X_test, split_seed=self.split_seed, lazy_load_function=lazy_load_function)
+        return self.model.fit_custom(
+            X=X, y=y, X_test=X_test, split_seed=self.split_seed, lazy_load_function=lazy_load_function
+        )
 
     def run(self) -> dict:
         out = self._run()
@@ -136,12 +138,12 @@ class ExperimentRunner:
     @classmethod
     def init_and_run(
         cls,
-        method_cls: Type[AbstractExecModel],
+        method_cls: type[AbstractExecModel],
         task: OpenMLTaskWrapper,
         fold: int,
         task_name: str,
         method: str,
-        fit_args: dict = None,
+        fit_args: dict | None = None,
         cleanup: bool = True,
         input_format: Literal["openml", "csv"] = "openml",
         cacher: AbstractCacheFunction | None = None,
@@ -164,8 +166,8 @@ class ExperimentRunner:
         return obj.run()
 
     def _run(self) -> dict:
-        utc_time = datetime.datetime.now(datetime.timezone.utc)
-        time_start_str = utc_time.strftime('%Y-%m-%d %H:%M:%S')
+        utc_time = datetime.datetime.now(datetime.UTC)
+        time_start_str = utc_time.strftime("%Y-%m-%d %H:%M:%S")
         time_start = utc_time.timestamp()
         self.model = self.init_method()
         try:
@@ -191,8 +193,7 @@ class ExperimentRunner:
 
         out = self.post_evaluate(out=out)
         out["experiment_metadata"] = self._experiment_metadata(time_start=time_start, time_start_str=time_start_str)
-        out = self.convert_to_output(out=out)
-        return out
+        return self.convert_to_output(out=out)
 
     def handle_failure(self, exc: Exception):
         # TODO: This is autogluon specific, make a subclass AGExperimentRunner?
@@ -202,7 +203,7 @@ class ExperimentRunner:
         if failures is None:
             try:
                 failures = self.model.get_metadata_failure()
-            except:
+            except Exception:
                 return
         if failures is None:
             return
@@ -239,7 +240,7 @@ class ExperimentRunner:
         metadata = {}
         metadata["experiment_cls"] = self.__class__.__name__
         metadata["method_cls"] = self.method_cls.__name__
-        time_end = datetime.datetime.now(datetime.timezone.utc).timestamp()
+        time_end = datetime.datetime.now(datetime.UTC).timestamp()
         metadata["time_start"] = time_start
         metadata["time_end"] = time_end
         metadata["total_duration"] = time_end - time_start
@@ -291,7 +292,9 @@ class OOFExperimentRunner(ExperimentRunner):
             if self.task.problem_type == "regression":
                 simulation_artifact["pred_proba_dict_test"] = self.label_cleaner.transform(out["predictions"])
             else:
-                simulation_artifact["pred_proba_dict_test"] = self.label_cleaner.transform_proba(out["probabilities"], as_pandas=True)
+                simulation_artifact["pred_proba_dict_test"] = self.label_cleaner.transform_proba(
+                    out["probabilities"], as_pandas=True
+                )
                 if self.task.problem_type == "binary":
                     simulation_artifact["pred_proba_dict_test"] = simulation_artifact["pred_proba_dict_test"].iloc[:, 1]
 
@@ -303,8 +306,12 @@ class OOFExperimentRunner(ExperimentRunner):
 
             if self.optimize_simulation_artifacts_memory:
                 # optimize memory
-                simulation_artifact["y_test"].index = pd.to_numeric(simulation_artifact["y_test"].index, downcast="integer")
-                simulation_artifact["y_val"].index = pd.to_numeric(simulation_artifact["y_val"].index, downcast="integer")
+                simulation_artifact["y_test"].index = pd.to_numeric(
+                    simulation_artifact["y_test"].index, downcast="integer"
+                )
+                simulation_artifact["y_val"].index = pd.to_numeric(
+                    simulation_artifact["y_val"].index, downcast="integer"
+                )
 
                 simulation_artifact["y_test_idx"] = simulation_artifact["y_test"].index.values
                 simulation_artifact["y_val_idx"] = simulation_artifact["y_val"].index.values
@@ -316,8 +323,12 @@ class OOFExperimentRunner(ExperimentRunner):
                 if is_integer_dtype(simulation_artifact["y_val"]):
                     simulation_artifact["y_val"] = pd.to_numeric(simulation_artifact["y_val"], downcast="integer")
 
-                simulation_artifact["pred_proba_dict_test"] = simulation_artifact["pred_proba_dict_test"].astype(np.float32)
-                simulation_artifact["pred_proba_dict_val"] = simulation_artifact["pred_proba_dict_val"].astype(np.float32)
+                simulation_artifact["pred_proba_dict_test"] = simulation_artifact["pred_proba_dict_test"].astype(
+                    np.float32
+                )
+                simulation_artifact["pred_proba_dict_val"] = simulation_artifact["pred_proba_dict_val"].astype(
+                    np.float32
+                )
 
                 simulation_artifact["pred_proba_dict_test"] = simulation_artifact["pred_proba_dict_test"].values
                 simulation_artifact["pred_proba_dict_val"] = simulation_artifact["pred_proba_dict_val"].values
@@ -327,12 +338,13 @@ class OOFExperimentRunner(ExperimentRunner):
 
             if self.compute_bag_info and (self.model.can_get_per_child_oof and self.model.can_get_per_child_val_idx):
                 if self.task.lazy_load_data:
-                    _, _, X_test, _ = self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
+                    _, _, X_test, _ = self.task.get_train_test_split(
+                        fold=self.fold, repeat=self.repeat, sample=self.sample
+                    )
                 else:
                     X_test = self.X_test
 
                 simulation_artifact["bag_info"] = self.model.bag_artifact(X_test=X_test)
-
 
             simulation_artifact["pred_proba_dict_val"] = {self.method: simulation_artifact["pred_proba_dict_val"]}
             simulation_artifact["pred_proba_dict_test"] = {self.method: simulation_artifact["pred_proba_dict_test"]}
@@ -342,7 +354,14 @@ class OOFExperimentRunner(ExperimentRunner):
         return out
 
 
-def evaluate(y_true: pd.Series, y_pred: pd.Series, y_pred_proba: pd.DataFrame, scorer: Scorer, problem_type: str, label_cleaner: LabelCleaner = None) -> float:
+def evaluate(
+    y_true: pd.Series,
+    y_pred: pd.Series,
+    y_pred_proba: pd.DataFrame,
+    scorer: Scorer,
+    problem_type: str,
+    label_cleaner: LabelCleaner = None,
+) -> float:
     if label_cleaner is None:
         label_cleaner = LabelCleanerDummy(problem_type=problem_type)
     y_true = label_cleaner.transform(y_true)

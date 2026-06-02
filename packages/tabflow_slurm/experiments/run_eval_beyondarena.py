@@ -24,7 +24,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from tabarena.evaluation import BenchmarkRun, BeyondArenaEvalConfig, run_beyond_arena_eval
-
 from tabflow_slurm import PathSetup
 
 # Full BeyondArena baseline suite (matches the legacy run_eval.py model list).

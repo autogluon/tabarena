@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from tabarena.models.tabm.model import TabMModel
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabm.hpo import gen_tabm
-from tabarena.models._method_metadata import MethodMetadata
-
+from tabarena.models.tabm.model import TabMModel
 
 tabm_method_metadata = MethodMetadata(
     method="TabM",

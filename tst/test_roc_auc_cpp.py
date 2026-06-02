@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import numpy as np
+
 from tabarena.metrics._roc_auc_cpp import CppAuc
 
 
@@ -15,5 +18,5 @@ def test_cpp_auc_compilation():
             y_true=np.array([i % 2 == 0 for i in range(n_samples)]),
             y_score=np.arange(n_samples) / n_samples + 1,
         ),
-        0.5
+        0.5,
     )

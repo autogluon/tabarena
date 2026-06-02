@@ -82,4 +82,4 @@ _EAGER_EXPORTS = (
 # above still needs static `from … import …` lines so IDEs and static
 # analysers can resolve lazy names — that's the one duplication we can't
 # fold away.
-__all__ = sorted({*_LAZY_CLASSES, *_EAGER_EXPORTS})
+__all__ = sorted({*_LAZY_CLASSES, *_EAGER_EXPORTS})  # noqa: PLE0605  # sorted() returns a valid list for __all__

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-
-import pandas as pd
+from typing import TYPE_CHECKING
 
 from autogluon.common.loaders import load_pd
+
 import tabarena
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def _get_n_repeats(n_instances: int, tabarena_lite: bool = False) -> int:
@@ -16,7 +19,7 @@ def _get_n_repeats(n_instances: int, tabarena_lite: bool = False) -> int:
     n_instances: int
         Important: these are the number of training samples!
 
-    Returns
+    Returns:
     -------
     n_repeats: int
     """
@@ -35,17 +38,15 @@ def _get_n_repeats(n_instances: int, tabarena_lite: bool = False) -> int:
 def _get_problem_type_from_n_classes(n_classes: int) -> str:
     if n_classes == 0:
         return "regression"
-    elif n_classes == 2:
+    if n_classes == 2:
         return "binary"
-    elif n_classes > 2:
+    if n_classes > 2:
         return "multiclass"
-    else:
-        raise ValueError(f"Invalid n_classes: {n_classes}")
+    raise ValueError(f"Invalid n_classes: {n_classes}")
 
 
-def load_task_metadata(paper: bool = True, subset: str = None, path: str = None) -> pd.DataFrame:
-    """
-    Load the task metadata for all datasets in the TabArena benchmark.
+def load_task_metadata(paper: bool = True, subset: str | None = None, path: str | None = None) -> pd.DataFrame:
+    """Load the task metadata for all datasets in the TabArena benchmark.
 
     Parameters
     ----------
@@ -61,7 +62,7 @@ def load_task_metadata(paper: bool = True, subset: str = None, path: str = None)
             <=100k samples, <=500 features, classification
             36/51 datasets
 
-    Returns
+    Returns:
     -------
     task_metadata: pd.DataFrame
         Metadata about each dataset in the benchmark.
@@ -72,25 +73,24 @@ def load_task_metadata(paper: bool = True, subset: str = None, path: str = None)
         if paper:
             path = f"{tabrepo_root}/tabarena/nips2025_utils/metadata/task_metadata_tabarena51.csv"
         else:
-            raise ValueError(f"paper == True is required")
+            raise ValueError("paper == True is required")
     task_metadata = load_pd.load(path=path)
 
     task_metadata["n_folds"] = 3
     task_metadata["n_repeats"] = task_metadata["NumberOfInstances"].apply(_get_n_repeats)
-    task_metadata["n_samples_test_per_fold"] = (
-        task_metadata["NumberOfInstances"] / task_metadata["n_folds"]
-    ).astype(int)
+    task_metadata["n_samples_test_per_fold"] = (task_metadata["NumberOfInstances"] / task_metadata["n_folds"]).astype(
+        int
+    )
     task_metadata["n_samples_train_per_fold"] = (
         task_metadata["NumberOfInstances"] - task_metadata["n_samples_test_per_fold"]
     ).astype(int)
 
     task_metadata = add_extra_task_metadata_info(task_metadata=task_metadata)
 
-    task_metadata = subset_task_metadata(task_metadata=task_metadata, subset=subset)
-    return task_metadata
+    return subset_task_metadata(task_metadata=task_metadata, subset=subset)
 
 
-def subset_task_metadata(task_metadata, subset: str = None) -> pd.DataFrame:
+def subset_task_metadata(task_metadata, subset: str | None = None) -> pd.DataFrame:
     if subset is None:
         pass
     elif subset == "TabPFNv2":
@@ -143,5 +143,3 @@ def load_curated_task_metadata() -> pd.DataFrame:
     path = str(Path(__file__).parent.resolve() / "metadata" / "curated_tabarena_dataset_metadata.csv")
 
     return load_pd.load(path=path)
-
-

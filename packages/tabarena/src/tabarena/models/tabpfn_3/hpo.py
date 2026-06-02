@@ -3,7 +3,6 @@ from __future__ import annotations
 from tabarena.models.tabpfn_3.model import TabPFN3Model
 from tabarena.utils.config_utils import ConfigGenerator
 
-
 gen_tabpfn_3 = ConfigGenerator(
     model_cls=TabPFN3Model,
     search_space={},

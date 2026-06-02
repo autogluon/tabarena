@@ -78,7 +78,11 @@ class TabArenaTaskMetadataMixin:
         return X.groupby(group_on, dropna=False, observed=True).ngroups
 
     def _get_dataset_stats(
-        self, *, oml_dataset: pd.DataFrame, is_classification: bool, target_name: str
+        self,
+        *,
+        oml_dataset: pd.DataFrame,
+        is_classification: bool,
+        target_name: str,
     ) -> tuple[int, int, int, int]:
         num_instance = len(oml_dataset)
         num_features = oml_dataset.shape[1] - 1  # -1 for target
@@ -210,7 +214,7 @@ class TabArenaTaskMetadataMixin:
         # FIXME: make this less strict?
         if len(feature_df.select_dtypes(include=["object"]).columns) > 0:
             raise ValueError(
-                "Object dtype columns are not supported. Please convert them to string dtype or categorical dtype!"
+                "Object dtype columns are not supported. Please convert them to string dtype or categorical dtype!",
             )
 
         # Independent dtype flags
@@ -229,8 +233,7 @@ class TabArenaTaskMetadataMixin:
         non_binary_categorical_cols = [c for c in categorical_cols if c not in binary_cols]
         has_categorical = len(non_binary_categorical_cols) > 0
         has_high_cardinality_categorical = any(
-            feature_df[c].nunique(dropna=True) > 50
-            for c in non_binary_categorical_cols
+            feature_df[c].nunique(dropna=True) > 50 for c in non_binary_categorical_cols
         )
 
         # Warehouse-level counts (consistent with the Data Foundry warehouse computation,
@@ -240,7 +243,7 @@ class TabArenaTaskMetadataMixin:
         num_text_cols = len(text_cols)
         num_datetime_cols = len(datetime_cols)
         num_high_cardinality_cats = int(
-            sum(feature_df[c].nunique(dropna=True) > 50 for c in category_only_cols)
+            sum(feature_df[c].nunique(dropna=True) > 50 for c in category_only_cols),
         )
         num_cols_after_preprocessing = (
             sum(c not in binary_cols for c in numerical_cols)
@@ -249,9 +252,7 @@ class TabArenaTaskMetadataMixin:
             + len(binary_cols)
             + num_datetime_cols * 10
         )
-        missing_value_fraction = (
-            float(feature_df.isna().to_numpy().sum() / feature_df.size) if feature_df.size else 0.0
-        )
+        missing_value_fraction = float(feature_df.isna().to_numpy().sum() / feature_df.size) if feature_df.size else 0.0
 
         self._task_metadata = TabArenaTaskMetadata(
             dataset_name=dataset_name,

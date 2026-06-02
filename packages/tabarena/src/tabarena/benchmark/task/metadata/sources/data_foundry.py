@@ -112,7 +112,7 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
 
         print(
             f"Materializing {len(splits_by_uri)} {self.collection.name} dataset(s) "
-            f"across {len(to_materialize)} split(s) (datasets + text caches)..."
+            f"across {len(to_materialize)} split(s) (datasets + text caches)...",
         )
         bar = tqdm(splits_by_uri.items(), desc=f"Materializing {self.collection.name}", unit="dataset")
         try:

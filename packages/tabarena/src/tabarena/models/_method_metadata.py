@@ -5,8 +5,7 @@ import json
 import os
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
-from typing_extensions import Self
+from typing import TYPE_CHECKING, Literal, Self
 
 import pandas as pd
 import yaml
@@ -204,7 +203,6 @@ class MethodMetadata:
             has_results=True,
         )
 
-
     @classmethod
     def compute_method_name(
         cls,
@@ -232,8 +230,7 @@ class MethodMetadata:
         name_suffix = None
         if method_type in ["config", "hpo"]:
             assert method_subtype in subtype_to_suffix_map, (
-                f"Unknown {method_subtype=}. "
-                f"Valid values: {list(subtype_to_suffix_map.keys())}"
+                f"Unknown {method_subtype=}. Valid values: {list(subtype_to_suffix_map.keys())}"
             )
             name_suffix = subtype_to_suffix_map[method_subtype]
         if name_suffix:
@@ -256,13 +253,16 @@ class MethodMetadata:
         assert method_type == "config"
 
         unique_model_types = result_df["model_type"].unique()
-        assert len(unique_model_types) == 1, f"MethodMetadata requires exactly 1 model type, found: {unique_model_types}"
+        assert len(unique_model_types) == 1, (
+            f"MethodMetadata requires exactly 1 model type, found: {unique_model_types}"
+        )
 
         unique_num_gpus = result_df["num_gpus"].unique()
         if len(unique_num_gpus) != 1:
             warnings.warn(
                 f"MethodMetadata found more than one unique num_gpus value, found: {unique_num_gpus}. "
-                "Using max number of groups as official compute value.", stacklevel=2
+                "Using max number of groups as official compute value.",
+                stacklevel=2,
             )
         num_gpus = unique_num_gpus.max()
 
@@ -308,7 +308,6 @@ class MethodMetadata:
             has_processed=True,
             has_results=True,
         )
-
 
     @property
     def has_s3_cache(self) -> bool:
@@ -404,11 +403,12 @@ class MethodMetadata:
                 f"but s3_bucket and/or s3_prefix were not specified!"
                 f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
                 f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
-                f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact download."
+                f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact download.",
             )
 
         if cache_type == "r2":
             from tabarena.models._artifacts.downloader_public_r2 import MethodDownloaderPublicR2
+
             return MethodDownloaderPublicR2(
                 method_metadata=self,
                 base_url="https://data.tabarena.ai/",
@@ -418,6 +418,7 @@ class MethodMetadata:
             )
         if cache_type == "s3":
             from tabarena.models._artifacts.downloader_s3 import MethodDownloaderS3
+
             return MethodDownloaderS3(
                 method_metadata=self,
                 s3_bucket=self.s3_bucket,
@@ -436,7 +437,7 @@ class MethodMetadata:
                 f"but s3_bucket and/or s3_prefix were not specified!"
                 f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
                 f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
-                f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact upload."
+                f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact upload.",
             )
 
         if cache_type == "r2":
@@ -459,7 +460,7 @@ class MethodMetadata:
                     f"Write) and bucket scope, then submit. Cloudflare displays both the Access "
                     f"Key ID and the Secret Access Key on the success page; the secret is shown "
                     f"only once, so copy it immediately. If you've lost an existing secret, "
-                    f"create a new token (or roll the existing one) from the same page."
+                    f"create a new token (or roll the existing one) from the same page.",
                 )
 
             return MethodUploaderR2(
@@ -472,6 +473,7 @@ class MethodMetadata:
             )
         if cache_type == "s3":
             from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
+
             return MethodUploaderS3(
                 method_metadata=self,
                 s3_bucket=self.s3_bucket,
@@ -511,7 +513,7 @@ class MethodMetadata:
             except FileNotFoundError:
                 print(
                     f"Cache miss detected for configs_hyperparameters.json "
-                    f"(method={self.method}), attempting download..."
+                    f"(method={self.method}), attempting download...",
                 )
                 out = self.load_configs_hyperparameters(holdout=holdout, download=True)
                 print("\tDownload successful")
@@ -570,6 +572,7 @@ class MethodMetadata:
         if repo is None:
             repo = self.load_processed()
         from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
+
         if self.config_type is None:
             config_types = repo.config_types()
             assert len(config_types) == 1
@@ -650,7 +653,9 @@ class MethodMetadata:
             hpo_results = simulator.run_minimal_single(model_type=model_type, tune=self.can_hpo)
             hpo_results["ta_name"] = self.method
             hpo_results["ta_suite"] = self.artifact_name
-            hpo_results = hpo_results.rename(columns={"framework": "method"})  # FIXME: Don't do this, make it method by default
+            hpo_results = hpo_results.rename(
+                columns={"framework": "method"}
+            )  # FIXME: Don't do this, make it method by default
             if cache:
                 save_pd.save(path=save_file, df=hpo_results)
             config_results = simulator.run_config_family(config_type=model_type)
@@ -666,7 +671,9 @@ class MethodMetadata:
 
         model_results["ta_name"] = self.method
         model_results["ta_suite"] = self.artifact_name
-        model_results = model_results.rename(columns={"framework": "method"})  # FIXME: Don't do this, make it method by default
+        model_results = model_results.rename(
+            columns={"framework": "method"}
+        )  # FIXME: Don't do this, make it method by default
         if cache:
             save_pd.save(path=save_file_model, df=model_results)
 
@@ -704,9 +711,11 @@ class MethodMetadata:
             seed=seed,
             **kwargs,
         )
-        df_results_hpo = df_results_hpo.rename(columns={
-            "framework": "method",
-        })
+        df_results_hpo = df_results_hpo.rename(
+            columns={
+                "framework": "method",
+            }
+        )
         df_results_hpo["method"] = f"HPO-N{n_configs}-{config_type}"
         df_results_hpo["n_configs"] = n_configs
         df_results_hpo["n_iterations"] = n_iterations
@@ -900,7 +909,7 @@ class MethodMetadata:
             print(
                 f"Failed to fetch MethodMetadata yaml file from s3! Maybe it doesn't exist or is not public?"
                 f'\n\t(method="{method}", artifact_name="{artifact_name}", '
-                f's3_bucket="{s3_bucket}", s3_prefix="{s3_prefix}")'
+                f's3_bucket="{s3_bucket}", s3_prefix="{s3_prefix}")',
             )
             raise e
 
@@ -928,6 +937,7 @@ class MethodMetadata:
         model_results = self.load_model_results()
         hpo_results = self.load_hpo_results()
         from tabarena.nips2025_utils.end_to_end_single import EndToEndResultsSingle
+
         return EndToEndResultsSingle(
             method_metadata=self,
             model_results=model_results,
@@ -940,11 +950,11 @@ class MethodMetadata:
     def path_results_files(self, holdout: bool = False) -> list[Path]:
         if self.method_type == "portfolio":
             file_names = [
-                self.path_results_portfolio(holdout=holdout)
+                self.path_results_portfolio(holdout=holdout),
             ]
         else:
             file_names = [
-                self.path_results_model(holdout=holdout)
+                self.path_results_model(holdout=holdout),
             ]
 
         if self.method_type == "config":

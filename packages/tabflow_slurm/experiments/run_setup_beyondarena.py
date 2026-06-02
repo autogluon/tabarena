@@ -27,8 +27,8 @@ benchmark_plan = TabArenaBenchmarkPlan(
             name="gpu",
             resources={
                 "num_gpus": 1,
-                "fake_memory_for_estimates": 80, # we have 80 GB VRAM CPU.
-            }
+                "fake_memory_for_estimates": 80,  # we have 80 GB VRAM CPU.
+            },
         ),
     ],
     tasks_to_run_setup=BeyondArenaMetadataBundle(),

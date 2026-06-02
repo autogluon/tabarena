@@ -26,7 +26,7 @@ def generate_single_config_realmlp(rng):
         "lr": np.exp(rng.uniform(np.log(2e-2), np.log(3e-1))),
         "wd": np.exp(rng.uniform(np.log(1e-3), np.log(5e-2))),
         "use_ls": rng.choice(
-            [False, True]  # changed "auto" to False, to have it equal for all metrics
+            [False, True],  # changed "auto" to False, to have it equal for all metrics
         ),  # use label smoothing (will be ignored for regression)
         "max_one_hot_cat_size": np.floor(np.exp(rng.uniform(np.log(4.0), np.log(33.0)))).item(),
         "embedding_size": rng.choice([4, 8, 16]),
@@ -75,7 +75,9 @@ if __name__ == "__main__":
         name_id_prefix="c",
     )
     experiments_random = generate_bag_experiments(
-        model_cls=RealMLPModel, configs=configs, time_limit=3600
+        model_cls=RealMLPModel,
+        configs=configs,
+        time_limit=3600,
     )
     YamlExperimentSerializer.to_yaml(
         experiments=experiments_default + experiments_random,

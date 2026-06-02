@@ -51,8 +51,36 @@ jobs:
           uv pip install --system --prerelease=allow -e ./packages/tabarena
 
           # Optional tools
-          uv pip install --system flake8 pytest
+          uv pip install --system pytest
 
       - name: Test with pytest
         run: |
           pytest
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          uv --version
+
+      # Keep this version in sync with .pre-commit-config.yaml and the `lint`
+      # dependency group in packages/tabarena/pyproject.toml.
+      - name: Install ruff
+        run: uv pip install --system "ruff==0.14.0"
+
+      - name: "Ruff lint (config: ruff.toml)"
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .

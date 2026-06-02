@@ -77,8 +77,7 @@ class TabPFNWideModel(AbstractTorchModel):
 
         if self.problem_type not in ["binary", "multiclass"]:
             raise AssertionError(
-                f"Unsupported problem_type: {self.problem_type}. "
-                "TabPFN-Wide supports only classification."
+                f"Unsupported problem_type: {self.problem_type}. TabPFN-Wide supports only classification.",
             )
 
         hps = self._get_model_params()
@@ -148,6 +147,6 @@ class TabPFNWideModel(AbstractTorchModel):
             {
                 "max_rows": 10_000,
                 "max_classes": 10,
-            }
+            },
         )
         return default_auxiliary_params

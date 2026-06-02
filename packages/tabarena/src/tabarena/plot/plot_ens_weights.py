@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 import seaborn as sns
 
 
@@ -9,9 +9,14 @@ import seaborn as sns
 # TODO: Title?
 # TODO: return type, don't return `plt`
 # TODO: Auto calculate required figsize based on # of rows and # of cols
-def create_heatmap(df: pd.DataFrame, xlabel: str = "Config", ylabel: str = "Task", figsize: tuple[float, float] = (12, 10), include_mean: bool = False):
-    """
-    Creates a heatmap visualizing the ensemble weights across a suite of tasks and configs.
+def create_heatmap(
+    df: pd.DataFrame,
+    xlabel: str = "Config",
+    ylabel: str = "Task",
+    figsize: tuple[float, float] = (12, 10),
+    include_mean: bool = False,
+):
+    """Creates a heatmap visualizing the ensemble weights across a suite of tasks and configs.
 
     Parameters
     ----------
@@ -27,7 +32,7 @@ def create_heatmap(df: pd.DataFrame, xlabel: str = "Config", ylabel: str = "Task
         If True, will add a row at the bottom with label "mean" representing the mean of the config weights across all tasks.
         NaN values are considered 0 for the purposes of calculating the mean.
 
-    Returns
+    Returns:
     -------
     plt
 
@@ -49,20 +54,20 @@ def create_heatmap(df: pd.DataFrame, xlabel: str = "Config", ylabel: str = "Task
         vmax=1,
         center=0.5,
         annot=True,
-        annot_kws={'size': 20},
-        fmt='.2f',
+        annot_kws={"size": 20},
+        fmt=".2f",
     )
 
     # Hide text for zero values (but still colored, otherwise fully white)
     for text in heatmap.texts:
         x, y = text.get_position()
         if mask.iloc[int(y), int(x)]:
-            text.set_text('')
+            text.set_text("")
 
             # Customize the colorbar
     cbar = heatmap.collections[0].colorbar
-    cbar.set_ticks([0, 0.5, 1, ])
-    cbar.set_ticklabels(['0', '0.5', '1'])
+    cbar.set_ticks([0, 0.5, 1])
+    cbar.set_ticklabels(["0", "0.5", "1"])
 
     # Set labels with specific font sizes
     plt.xlabel(xlabel, fontsize=20)

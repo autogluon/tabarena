@@ -1,6 +1,11 @@
 from __future__ import annotations
-import pandas as pd
+
+from typing import TYPE_CHECKING
+
 import numpy as np
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def compute_weighted_mean_by_task(
@@ -12,8 +17,7 @@ def compute_weighted_mean_by_task(
     weight_col: str | None = None,
     sort_asc: bool = True,
 ) -> pd.Series:
-    """
-    Compute the equal-task-weighted mean of a column for each method.
+    """Compute the equal-task-weighted mean of a column for each method.
 
     - If seed_col is provided:
         * Aggregate values per (task, seed, method) first.
@@ -38,7 +42,7 @@ def compute_weighted_mean_by_task(
     sort_asc : bool, default=True
         Whether to sort output in ascending order (True) or descending order (False)
 
-    Returns
+    Returns:
     -------
     pd.Series
         Index = methods, Values = equal-task-weighted mean of `value_col`.
@@ -49,10 +53,7 @@ def compute_weighted_mean_by_task(
         task_col = [task_col]
 
     group_task = [*task_col, method_col]
-    if seed_col is not None:
-        group_task_seed = group_task + [seed_col]
-    else:
-        group_task_seed = group_task
+    group_task_seed = [*group_task, seed_col] if seed_col is not None else group_task
 
     # Step 1: Aggregate to per-(task, seed, method)
     if weight_col is not None:
@@ -62,16 +63,10 @@ def compute_weighted_mean_by_task(
             .reset_index(name=value_col)
         )
     else:
-        agg_df = (
-            df.groupby(group_task_seed, sort=False)[value_col]
-            .mean()
-            .reset_index()
-        )
+        agg_df = df.groupby(group_task_seed, sort=False)[value_col].mean().reset_index()
 
     # Step 2: Average over seeds within each (task, method)
     task_avg = agg_df.groupby(group_task, sort=False)[value_col].mean().reset_index()
 
     # Step 3: Average across tasks equally per method
-    mean_per_method = task_avg.groupby(method_col, sort=False)[value_col].mean().sort_values(ascending=sort_asc)
-
-    return mean_per_method
+    return task_avg.groupby(method_col, sort=False)[value_col].mean().sort_values(ascending=sort_asc)

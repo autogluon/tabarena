@@ -4,7 +4,6 @@ import copy
 
 from autogluon.tabular.registry import ModelRegistry, ag_model_registry
 
-
 # `tabarena_model_registry` and `_models_to_add` are built lazily on first
 # access so that this module finishes loading before `get_model_registry()`
 # (which transitively triggers `experiment_constructor` → `model_registry`)
@@ -28,10 +27,13 @@ def _build_tabarena_model_registry() -> tuple[ModelRegistry, list[type]]:
     # MODEL_REGISTRY for their MethodMetadata, but the underlying class
     # is the AG one — re-adding it would only trigger a "duplicate key"
     # warning and reinsert the same class.
-    models_to_add: list[type] = list({
-        info.model_cls for info in get_model_registry().values()
-        if info.model_cls.ag_key not in ag_model_registry.keys
-    })
+    models_to_add: list[type] = list(
+        {
+            info.model_cls
+            for info in get_model_registry().values()
+            if info.model_cls.ag_key not in ag_model_registry.keys
+        }
+    )
 
     for model_cls in models_to_add:
         new_key = model_cls.ag_key
@@ -40,7 +42,7 @@ def _build_tabarena_model_registry() -> tuple[ModelRegistry, list[type]]:
             print(
                 f"WARNING: Multiple models exist with the ag_key '{new_key}'..."
                 f"\n\tOnly keeping the TabArena version..."
-                f"\n\tThis can cause subtle bugs and should be resolved ASAP."
+                f"\n\tThis can cause subtle bugs and should be resolved ASAP.",
             )
             registry.remove(model_cls=existing_model_cls)
         registry.add(model_cls)
@@ -60,7 +62,7 @@ def __getattr__(name: str):
 
 def infer_model_cls(model_cls: str, model_register: ModelRegistry = None):
     if model_register is None:
-        model_register = tabarena_model_registry
+        model_register = tabarena_model_registry  # noqa: F821
     if isinstance(model_cls, str):
         if model_cls in model_register.key_to_cls_map():
             model_cls = model_register.key_to_cls(key=model_cls)
@@ -69,10 +71,7 @@ def infer_model_cls(model_cls: str, model_register: ModelRegistry = None):
                 if real_model_cls.ag_name == model_cls:
                     model_cls = real_model_cls
                     break
-        elif model_cls in [
-            str(real_model_cls.__name__)
-            for real_model_cls in model_register.model_cls_list
-        ]:
+        elif model_cls in [str(real_model_cls.__name__) for real_model_cls in model_register.model_cls_list]:
             for real_model_cls in model_register.model_cls_list:
                 if model_cls == str(real_model_cls.__name__):
                     model_cls = real_model_cls

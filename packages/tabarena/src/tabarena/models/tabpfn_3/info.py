@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from tabarena.models.tabpfn_3.model import TabPFN3Model, prefetch_weights
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabpfn_3.hpo import gen_tabpfn_3
-from tabarena.models._method_metadata import MethodMetadata
-
+from tabarena.models.tabpfn_3.model import TabPFN3Model, prefetch_weights
 
 tabpfn_3_method_metadata = MethodMetadata(
     method="TabPFN-3",

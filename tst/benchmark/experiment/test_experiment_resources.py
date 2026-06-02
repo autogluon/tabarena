@@ -38,8 +38,10 @@ def test_autodetect_resources_fills_none_without_mutating_original():
     out = Experiment._autodetect_resources(mk)
 
     assert out is not mk  # a copy is returned
-    assert isinstance(out["fit_kwargs"]["num_cpus"], int) and out["fit_kwargs"]["num_cpus"] > 0
-    assert isinstance(out["fit_kwargs"]["memory_limit"], int) and out["fit_kwargs"]["memory_limit"] > 0
+    assert isinstance(out["fit_kwargs"]["num_cpus"], int)
+    assert out["fit_kwargs"]["num_cpus"] > 0
+    assert isinstance(out["fit_kwargs"]["memory_limit"], int)
+    assert out["fit_kwargs"]["memory_limit"] > 0
     assert out["fit_kwargs"]["num_gpus"] == 0
     # original left untouched (still requests auto-detection)
     assert mk["fit_kwargs"]["num_cpus"] is None

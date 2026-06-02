@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import tempfile
-
-import pandas as pd
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class GroundTruth:
-    def __init__(self, label_val_dict: dict[str, dict[int, pd.Series]], label_test_dict: dict[str, dict[int, pd.Series]]):
-        """
-
-        :param label_val_dict: dictionary from tid to fold to labels series where the index are openml rows and
+    def __init__(
+        self, label_val_dict: dict[str, dict[int, pd.Series]], label_test_dict: dict[str, dict[int, pd.Series]]
+    ):
+        """:param label_val_dict: dictionary from tid to fold to labels series where the index are openml rows and
         values are the labels
         :param label_test_dict: same as `label_val_dict`
         """
@@ -20,10 +22,10 @@ class GroundTruth:
 
     @property
     def datasets(self) -> list[str]:
-        return sorted(list(self._label_val_dict.keys()))
+        return sorted(self._label_val_dict.keys())
 
     def dataset_folds(self, dataset: str) -> list[int]:
-        return sorted(list(self._label_val_dict[dataset].keys()))
+        return sorted(self._label_val_dict[dataset].keys())
 
     def dataset_fold_lst(self) -> list[tuple[str, int]]:
         datasets = self.datasets
@@ -66,10 +68,10 @@ class GroundTruth:
     def from_dict(cls, label_dict):
         label_val_dict = dict()
         label_test_dict = dict()
-        for dataset in label_dict.keys():
+        for dataset in label_dict:
             label_val_dict[dataset] = dict()
             label_test_dict[dataset] = dict()
-            for fold in label_dict[dataset].keys():
+            for fold in label_dict[dataset]:
                 labels_val = label_dict[dataset][fold]["y_val"]
                 labels_test = label_dict[dataset][fold]["y_test"]
                 label_val_dict[dataset][fold] = labels_val
@@ -79,7 +81,8 @@ class GroundTruth:
     # TODO: Unit test
     def to_data_dir(self, data_dir: str):
         if data_dir[:2] == "s3":
-            from autogluon.common.utils.s3_utils import is_s3_url, upload_s3_folder, s3_path_to_bucket_prefix
+            from autogluon.common.utils.s3_utils import is_s3_url, s3_path_to_bucket_prefix, upload_s3_folder
+
             if is_s3_url(str(data_dir)):
                 s3_bucket, s3_prefix = s3_path_to_bucket_prefix(data_dir)
                 with tempfile.TemporaryDirectory() as temp_dir:

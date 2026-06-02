@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 
@@ -7,15 +9,16 @@ dataset_col = "dataset"
 metric_col = "metric"
 framework_col = "framework"
 
-df_results_by_dataset = pd.DataFrame([
-    ["task1", "xgboost1", 1.0],
-    ["task1", "xgboost3", 3.0],
-    ["task1", "xgboost2", 2.0],
-    ["task2", "xgboost1", 10.0],
-    ["task2", "xgboost3", 30.0],
-    ["task2", "xgboost2", 20.0],
-],
-    columns=[dataset_col, framework_col, metric_col]
+df_results_by_dataset = pd.DataFrame(
+    [
+        ["task1", "xgboost1", 1.0],
+        ["task1", "xgboost3", 3.0],
+        ["task1", "xgboost2", 2.0],
+        ["task2", "xgboost1", 10.0],
+        ["task2", "xgboost3", 30.0],
+        ["task2", "xgboost2", 20.0],
+    ],
+    columns=[dataset_col, framework_col, metric_col],
 )
 
 
@@ -108,9 +111,9 @@ def test_rank_scorer_pct_ties_win():
         (0.0, 0.0),
         (0.8, 0.0),
         (1.0, 0.0),
-        (1.5, 1/3),
-        (2.0, 1/3),
-        (3.0, 2/3),
+        (1.5, 1 / 3),
+        (2.0, 1 / 3),
+        (3.0, 2 / 3),
         (4.0, 1.0),
         (8.0, 1.0),
     ]
@@ -156,11 +159,11 @@ def test_rank_scorer_pct_not_partial():
     query_expected = [
         (0.0, 0.0),
         (0.8, 0.0),
-        (1.0, 1/6),
-        (1.5, 1/3),
-        (2.0, 1/2),
-        (2.5, 2/3),
-        (3.0, 5/6),
+        (1.0, 1 / 6),
+        (1.5, 1 / 3),
+        (2.0, 1 / 2),
+        (2.5, 2 / 3),
+        (3.0, 5 / 6),
         (4.0, 1.0),
         (8.0, 1.0),
     ]

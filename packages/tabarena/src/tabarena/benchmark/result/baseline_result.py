@@ -74,7 +74,8 @@ class BaselineResult(AbstractResult):
                 sim_artifacts = sim_artifacts[dataset][split_idx]
             if "metric_error_val" not in result:
                 metric_error_val = cls._compute_metric_error_val(
-                    result=result, sim_artifacts=sim_artifacts,
+                    result=result,
+                    sim_artifacts=sim_artifacts,
                 )
                 if metric_error_val is not None:
                     result["metric_error_val"] = metric_error_val
@@ -97,15 +98,16 @@ class BaselineResult(AbstractResult):
             return None
         from autogluon.core.metrics import get_metric
         from autogluon.core.utils.utils import get_pred_from_proba
+
         ag_metric = get_metric(metric=result["metric"], problem_type=result["problem_type"])
         if ag_metric.needs_class:
             y_pred_val = get_pred_from_proba(
-                y_pred_proba=pred_proba_val, problem_type=result["problem_type"],
+                y_pred_proba=pred_proba_val,
+                problem_type=result["problem_type"],
             )
             return ag_metric.error(y_val, y_pred_val)
-        if result["problem_type"] == "binary":
-            if len(pred_proba_val.shape) != 1:
-                pred_proba_val = pred_proba_val[:, 1]
+        if result["problem_type"] == "binary" and len(pred_proba_val.shape) != 1:
+            pred_proba_val = pred_proba_val[:, 1]
         return ag_metric.error(y_val, pred_proba_val)
 
     @classmethod
@@ -114,8 +116,9 @@ class BaselineResult(AbstractResult):
         return cls.from_dict(result=result)
 
     def update_name(self, name: str | None = None, name_prefix: str | None = None, name_suffix: str | None = None):
-        assert name is not None or name_prefix is not None or name_suffix is not None, \
+        assert name is not None or name_prefix is not None or name_suffix is not None, (
             "Must specify one of `name`, `name_prefix`, `name_suffix`."
+        )
         assert name is None or name_prefix is None, "Must only specify one of `name`, `name_prefix`."
         assert name is None or name_suffix is None, "Must only specify one of `name`, `name_suffix`."
         if name is not None:
@@ -233,7 +236,6 @@ class BaselineResult(AbstractResult):
                     data.update({col: method_metadata[col]})
 
         return pd.DataFrame([data])
-
 
     def to_dir(self, path: str | Path):
         suffix = Path(f"{self.framework}")

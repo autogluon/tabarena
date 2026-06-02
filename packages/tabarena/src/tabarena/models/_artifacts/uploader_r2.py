@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -9,6 +8,8 @@ from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 from tabarena.models._artifacts.uploader_utils import zip_in_memory
 
 if TYPE_CHECKING:
+    import io
+
     from tabarena.models._method_metadata import MethodMetadata
 
 

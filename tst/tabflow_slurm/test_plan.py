@@ -8,21 +8,22 @@ task metadata).
 from __future__ import annotations
 
 import pytest
+
 from tabarena.benchmark.experiment import TabArenaExperimentBundle
 from tabarena.benchmark.task.metadata import TabArenaMetadataBundle
 
 # Import a real submodule (see test_setup.py for why a bare namespace won't skip).
 pytest.importorskip("tabflow_slurm.setup", reason="tabflow_slurm is not installed")
 
-from tabflow_slurm.setup.paths import PathSetup  # noqa: E402
-from tabflow_slurm.setup.plan import (  # noqa: E402
+from tabflow_slurm.setup.paths import PathSetup
+from tabflow_slurm.setup.plan import (
     ModelJob,
     SingleModel,
     TabArenaBenchmarkPlan,
     _apply_overrides,
 )
-from tabflow_slurm.setup.resources import ResourcesSetup  # noqa: E402
-from tabflow_slurm.setup.scheduler import SlurmSetup  # noqa: E402
+from tabflow_slurm.setup.resources import ResourcesSetup
+from tabflow_slurm.setup.scheduler import SlurmSetup
 
 
 def _slurm(**kw) -> SlurmSetup:
@@ -140,7 +141,7 @@ class TestBuildSetups:
             [
                 ModelJob(models=("A", "all")),
                 ModelJob(models=("B", 0), resources={"num_gpus": 1}),
-            ]
+            ],
         )
         setups = plan.build_setups()
         assert len(setups) == 2
@@ -178,7 +179,7 @@ class TestBuildSetups:
             [
                 ModelJob(models=("A", 0)),
                 ModelJob(models=("B", 0), resources={"num_gpus": 1}),
-            ]
+            ],
         )
         names = [s.parallel_safe_benchmark_name for s in plan.build_setups()]
         assert names == ["my_bench_group0", "my_bench_group1"]
@@ -207,7 +208,7 @@ class TestBuildSetups:
             [
                 ModelJob(models=("A", 0)),
                 ModelJob(models=("B", 0), ignore_cache=True),
-            ]
+            ],
         )
         setups = plan.build_setups()
         assert len(setups) == 2

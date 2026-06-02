@@ -11,7 +11,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from tabarena.evaluation import EvalMethod, TabArenaEvalConfig, run_eval
-
 from tabflow_slurm import PathSetup
 
 BENCHMARK_NAME = "example_tabarena_v0pt1_29052026"

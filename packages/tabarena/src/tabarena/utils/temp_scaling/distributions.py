@@ -1,13 +1,15 @@
-"""
-Original code from https://github.com/dholzmueller/probmetrics
-Credit to David Holzmüller
+"""Original code from https://github.com/dholzmueller/probmetrics
+Credit to David Holzmüller.
 """
 
-from pathlib import Path
-from typing import Union, Optional, List
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import torch
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # problem: should a distribution object store the tensor which it does computations on?
 # In favor:
@@ -20,9 +22,9 @@ import torch
 # but maybe the "constructor function" can just be the class itself.
 # or the heads just need to be implemented so that they know how to construct the distribution
 
+
 def to_one_hot(y: torch.Tensor, n_classes: int, label_smoothing_eps: float = 0.0) -> torch.Tensor:
-    """
-    Creates a one-hot representation of y.
+    """Creates a one-hot representation of y.
     :param y: Labels, shape (n_samples,).
     :param n_classes: Number of classes (needs to be specified because it might be larger than max(y)+1).
     :param label_smoothing_eps: Epsilon parameter for label smoothing.
@@ -33,31 +35,30 @@ def to_one_hot(y: torch.Tensor, n_classes: int, label_smoothing_eps: float = 0.0
         low = label_smoothing_eps / n_classes
         high = 1.0 - label_smoothing_eps + low
         return low + (high - low) * one_hot
-    else:
-        return one_hot
+    return one_hot
 
 
 class Distribution:
-    pass  # abstract base class
+    # abstract base class
 
     # maybe have get_metrics() and save() function
 
-    def get_metric_names(self) -> List[str]:
+    def get_metric_names(self) -> list[str]:
         pass  # indicate which metrics are applicable
 
-    def save(self, folder: Union[str, Path]):
+    def save(self, folder: str | Path):
         # todo: implement
         pass  # need a way to serialize the distribution (for storing predictions). Typically just name and tensor?
 
     @staticmethod
-    def load(folder: Union[str, Path]) -> 'Distribution':
+    def load(folder: str | Path) -> Distribution:
         # todo: implement
         pass
 
     def get_n_samples(self) -> int:
         pass
 
-    def __getitem__(self, *args) -> 'Distribution':
+    def __getitem__(self, *args) -> Distribution:
         raise NotImplementedError()
 
 
@@ -82,15 +83,14 @@ class CategoricalDistribution(Distribution):
     def is_dirac(self) -> bool:
         raise NotImplementedError()
 
-    def __getitem__(self, *args) -> 'CategoricalDistribution':
+    def __getitem__(self, *args) -> CategoricalDistribution:
         raise NotImplementedError()
 
-    def get_metric_names(self) -> List[str]:
+    def get_metric_names(self) -> list[str]:
         pass  # todo: implement
 
     @staticmethod
-    def from_labels(labels: torch.Tensor, n_classes: Optional[int] = None,
-                    ls_eps: float = 0.0) -> 'CategoricalDistribution':
+    def from_labels(labels: torch.Tensor, n_classes: int | None = None, ls_eps: float = 0.0) -> CategoricalDistribution:
         if ls_eps == 0.0:
             return CategoricalDirac(labels=labels, n_classes=n_classes)
 
@@ -99,10 +99,11 @@ class CategoricalDistribution(Distribution):
         return CategoricalProbs(probs=to_one_hot(labels, n_classes=n_classes, label_smoothing_eps=ls_eps))
 
     @staticmethod
-    def from_mixture(distributions: List['CategoricalDistribution'], weights: List[float]) -> 'CategoricalDistribution':
+    def from_mixture(distributions: list[CategoricalDistribution], weights: list[float]) -> CategoricalDistribution:
         assert len(distributions) >= 1
         return CategoricalProbs(
-            probs=sum([weight * dist.get_probs() for weight, dist in zip(weights, distributions)]))
+            probs=sum([weight * dist.get_probs() for weight, dist in zip(weights, distributions, strict=False)])
+        )
 
 
 class CategoricalLogits(CategoricalDistribution):
@@ -136,7 +137,7 @@ class CategoricalLogits(CategoricalDistribution):
     def is_dirac(self) -> bool:
         return False
 
-    def __getitem__(self, *args) -> 'CategoricalDistribution':
+    def __getitem__(self, *args) -> CategoricalDistribution:
         return CategoricalLogits(self.logits.__getitem__(*args))
 
 
@@ -171,14 +172,13 @@ class CategoricalProbs(CategoricalDistribution):
     def is_dirac(self) -> bool:
         return False
 
-    def __getitem__(self, *args) -> 'CategoricalDistribution':
+    def __getitem__(self, *args) -> CategoricalDistribution:
         return CategoricalProbs(self.probs.__getitem__(*args))
 
 
 class CategoricalDirac(CategoricalDistribution):
-    def __init__(self, labels: torch.Tensor, n_classes: Optional[int]):
-        """
-        labels should have shape (n_samples,)
+    def __init__(self, labels: torch.Tensor, n_classes: int | None):
+        """Labels should have shape (n_samples,)
         :param labels:
         :param n_classes:
         """
@@ -213,5 +213,5 @@ class CategoricalDirac(CategoricalDistribution):
     def get_n_samples(self) -> int:
         return self.labels.shape[0]
 
-    def __getitem__(self, *args) -> 'CategoricalDirac':
+    def __getitem__(self, *args) -> CategoricalDirac:
         return CategoricalDirac(labels=self.labels.__getitem__(*args), n_classes=self.get_n_classes())

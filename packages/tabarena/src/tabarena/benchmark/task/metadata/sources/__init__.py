@@ -9,12 +9,8 @@ that knows about all built-in loaders, so bundles never special-case a suite.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pandas as pd
-
-from tabarena.benchmark.task.metadata.schema import TabArenaTaskMetadata
 from tabarena.benchmark.task.metadata.sources.base import (
     InMemoryTaskMetadataSource,
     TaskMetadataSource,
@@ -26,6 +22,14 @@ from tabarena.benchmark.task.metadata.sources.tabarena_v0pt1 import (
     TabArenaV0pt1TaskMetadataSource,
     load_tabarena_v0_1_task_metadata,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
+    import pandas as pd
+
+    from tabarena.benchmark.task.metadata.schema import TabArenaTaskMetadata
 
 
 def _beyond_arena_source() -> TaskMetadataSource:

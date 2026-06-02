@@ -4,7 +4,6 @@ from pathlib import Path
 
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
-
 if __name__ == "__main__":
     save_path = "output_leaderboard"  # folder to save all figures and tables
 
@@ -17,12 +16,14 @@ if __name__ == "__main__":
 
     tabarena_context_unverified = TabArenaContext(include_unverified=True)
     leaderboard_unverified = tabarena_context_unverified.compare(output_dir=output_path_unverified)
-    leaderboard_website_unverified = tabarena_context_unverified.leaderboard_to_website_format(leaderboard=leaderboard_unverified)
+    leaderboard_website_unverified = tabarena_context_unverified.leaderboard_to_website_format(
+        leaderboard=leaderboard_unverified
+    )
 
-    print(f"Verified Leaderboard:")
+    print("Verified Leaderboard:")
     print(leaderboard_website_verified.to_markdown(index=False))
     print("")
 
-    print(f"Unverified Leaderboard:")
+    print("Unverified Leaderboard:")
     print(leaderboard_website_unverified.to_markdown(index=False))
     print("")

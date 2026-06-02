@@ -108,7 +108,7 @@ class TabArenaValidationProtocolExecMixin:
         if (num_folds is None) or (num_folds <= 1):
             logger.info(
                 "\nnum_folds is None or <= 1, skipping validation splitting logic."
-                "\n\t The model is configured to do not validation at all!"
+                "\n\t The model is configured to do not validation at all!",
             )
             return custom_splits, num_folds, num_repeats
 
@@ -122,7 +122,7 @@ class TabArenaValidationProtocolExecMixin:
             f"\n\tGroup_time_on: {self.group_time_on}"
             f"\n\tGroup_labels: {self.group_labels}"
             f"\n\tSplit_time_horizon: {self.split_time_horizon}"
-            f"\n\tSplit_time_horizon_unit: {self.split_time_horizon_unit}"
+            f"\n\tSplit_time_horizon_unit: {self.split_time_horizon_unit}",
         )
 
         num_folds, num_repeats = self._resolve_number_of_splits(
@@ -146,7 +146,7 @@ class TabArenaValidationProtocolExecMixin:
             groups_data, num_folds_new = self.time_on_to_groups_data(X=X, time_on=self.time_on, num_folds=num_folds)
             num_repeats = 1
             logger.info(
-                f"\n\tFolds time-based grouping: before={num_folds}; after={num_folds_new}\n\tnum_repeats set to 1!"
+                f"\n\tFolds time-based grouping: before={num_folds}; after={num_folds_new}\n\tnum_repeats set to 1!",
             )
             num_folds = num_folds_new
             # Set group labels as needed for time split
@@ -165,7 +165,7 @@ class TabArenaValidationProtocolExecMixin:
                 logger.info(
                     f"Number of unique groups in the data ({n_groups}) is less than the "
                     f"number of folds ({num_folds})! Adjusting the number of folds to be equal to the number of "
-                    f"unique groups, and setting num_repeats to 1."
+                    f"unique groups, and setting num_repeats to 1.",
                 )
                 num_folds = n_groups
                 num_repeats = 1
@@ -176,7 +176,7 @@ class TabArenaValidationProtocolExecMixin:
                     logger.warning(
                         f"Number of samples in minority class for stratification ({n_samples_minority_class}) is less "
                         f"than the number of folds ({num_folds})! We set num_folds to be equal to the number of samples"
-                        " in the minority class, and num_repeats to 1."
+                        " in the minority class, and num_repeats to 1.",
                     )
                     num_folds = n_samples_minority_class
                     num_repeats = 1
@@ -193,7 +193,6 @@ class TabArenaValidationProtocolExecMixin:
         # Sanity checks for custom splits
         if custom_splits is not None:
             for train_idx, test_idx in custom_splits:
-
                 assert len(train_idx) > 0, "Train split is empty!"
                 assert len(test_idx) > 0, "Test split is empty!"
 
@@ -223,7 +222,7 @@ class TabArenaValidationProtocolExecMixin:
                                 "Stratification values in train and test splits do not match!"
                                 f"\n\tOverall stratification values: {stratify_values}"
                                 f"\n\tTrain stratification values: {train_stratify_values}"
-                                f"\n\tTest stratification values: {test_stratify_values}"
+                                f"\n\tTest stratification values: {test_stratify_values}",
                             )
 
                         # For multi-stratify values, we do not allow missing a stratify value in the test split
@@ -233,13 +232,17 @@ class TabArenaValidationProtocolExecMixin:
                             "This means the validation data is likely missing some classes."
                             f"\n\tOverall stratification values: {stratify_values}"
                             f"\n\tTrain stratification values: {train_stratify_values}"
-                            f"\n\tTest stratification values: {test_stratify_values}"
+                            f"\n\tTest stratification values: {test_stratify_values}",
                         )
 
         return custom_splits, num_folds, num_repeats
 
     def _resolve_number_of_splits(
-        self, *, num_folds: int, num_repeats: int | None, num_group_instances: int
+        self,
+        *,
+        num_folds: int,
+        num_repeats: int | None,
+        num_group_instances: int,
     ) -> tuple[int, int | None]:
         """Determine the number of splits we want to use.
 
@@ -266,15 +269,13 @@ class TabArenaValidationProtocolExecMixin:
 
         if new_num_folds is not None:
             logger.info(
-                f"\nUpdating num_bag_folds from {num_folds} to {new_num_folds} "
-                f"because: {new_num_folds_reason}"
+                f"\nUpdating num_bag_folds from {num_folds} to {new_num_folds} because: {new_num_folds_reason}",
             )
             num_folds = new_num_folds
 
         if new_num_repeats is not None:
             logger.info(
-                f"\nUpdating new_num_repeats from {num_repeats} to {new_num_repeats} "
-                f"because: {new_num_repeats_reason}"
+                f"\nUpdating new_num_repeats from {num_repeats} to {new_num_repeats} because: {new_num_repeats_reason}",
             )
             num_repeats = new_num_repeats
 

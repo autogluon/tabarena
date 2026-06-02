@@ -2,19 +2,20 @@ from __future__ import annotations
 
 import io
 import logging
-import math
-import numpy as np
+from typing import TYPE_CHECKING, Self
+
 import pandas as pd
-
-from openml.tasks.task import OpenMLSupervisedTask
-from typing_extensions import Self
-
-from autogluon.common.savers import save_pd, save_json
+from autogluon.common.savers import save_json, save_pd
 from autogluon.core.utils import generate_train_test_split
+from openml.tasks.task import OpenMLSupervisedTask
 
-from .task_utils import get_task_data, get_ag_problem_type, get_task_with_retry
-from ..utils import get_split_idx, get_split_vals_from_split_idx
-from ....utils.s3_utils import download_task_from_s3, upload_task_to_s3
+from tabarena.benchmark.task.utils import get_split_idx, get_split_vals_from_split_idx
+from tabarena.utils.s3_utils import download_task_from_s3, upload_task_to_s3
+
+from .task_utils import get_ag_problem_type, get_task_data, get_task_with_retry
+
+if TYPE_CHECKING:
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ class OpenMLTaskWrapper:
     def compute_error(self, y_true, y_pred) -> float:
         eval_metric = self.eval_metric
         from autogluon.core.metrics import get_metric
+
         scorer = get_metric(metric=eval_metric, problem_type=self.problem_type)
         return scorer.error(y_true, y_pred)
 
@@ -89,7 +91,7 @@ class OpenMLTaskWrapper:
             X, y = self.X, self.y
         return pd.concat([X, y.to_frame(name=self.label)], axis=1)
 
-    def save_data(self, path: str, file_type='.csv', train_indices=None, test_indices=None):
+    def save_data(self, path: str, file_type=".csv", train_indices=None, test_indices=None):
         data = self.combine_X_y()
         if train_indices is not None and test_indices is not None:
             train_data = data.loc[train_indices]
@@ -143,8 +145,8 @@ class OpenMLTaskWrapper:
         sample: int = 0,
         train_indices: np.ndarray = None,
         test_indices: np.ndarray = None,
-        train_size: int | float = None,
-        test_size: int | float = None,
+        train_size: int | float | None = None,
+        test_size: int | float | None = None,
         random_state: int = 0,
     ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
         if train_indices is None or test_indices is None:
@@ -173,9 +175,7 @@ class OpenMLTaskWrapper:
 
     @classmethod
     def to_csv_format(cls, X: pd.DataFrame) -> pd.DataFrame:
-        """
-        Converts X to the dtypes that it would have if it were saved to a CSV and then loaded.
-        """
+        """Converts X to the dtypes that it would have if it were saved to a CSV and then loaded."""
         s_buf = io.StringIO()
         X_index = X.index
         X.to_csv(s_buf, index=False)
@@ -196,7 +196,11 @@ class OpenMLTaskWrapper:
         if isinstance(size, float) and size >= 1:
             return X, y
         X, _, y, _ = generate_train_test_split(
-            X=X, y=y, problem_type=self.problem_type, train_size=size, random_state=random_state
+            X=X,
+            y=y,
+            problem_type=self.problem_type,
+            train_size=size,
+            random_state=random_state,
         )
         return X, y
 
@@ -207,8 +211,8 @@ class OpenMLTaskWrapper:
         sample: int = 0,
         train_indices: np.ndarray = None,
         test_indices: np.ndarray = None,
-        train_size: int | float = None,
-        test_size: int | float = None,
+        train_size: int | float | None = None,
+        test_size: int | float | None = None,
         random_state: int = 0,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         X_train, y_train, X_test, y_test = self.get_train_test_split(
@@ -238,11 +242,9 @@ class OpenMLTaskWrapper:
         """Extra splits kwargs from the TabArenaOpenMLSupervisedTask task,
         or fallback to defaults.
         """
-        from openml.tasks import OpenMLSupervisedTask
-
         from tabarena.benchmark.task.openml.metadata_mixin import TabArenaOpenMLSupervisedTask
 
-        oml_task: TabArenaOpenMLSupervisedTask | OpenMLSupervisedTask  = self.task
+        oml_task: TabArenaOpenMLSupervisedTask | OpenMLSupervisedTask = self.task
 
         if isinstance(oml_task, TabArenaOpenMLSupervisedTask):
             stratify_on = oml_task.stratify_on
@@ -260,12 +262,10 @@ class OpenMLTaskWrapper:
                 group_time_on,
                 group_labels,
                 split_time_horizon,
-                split_time_horizon_unit
-            )= None, None, None, None, None, None, None
+                split_time_horizon_unit,
+            ) = None, None, None, None, None, None, None
 
-
-
-        return dict(  # noqa: C408
+        return dict(
             target_name=oml_task.target_name,
             stratify_on=stratify_on,
             group_on=group_on,
@@ -277,11 +277,9 @@ class OpenMLTaskWrapper:
         )
 
 
-
 class OpenMLS3TaskWrapper(OpenMLTaskWrapper):
-    """
-    Class which uses S3 cache to download task splits.
-    """
+    """Class which uses S3 cache to download task splits."""
+
     @classmethod
     def from_task_id(cls, task_id: int, s3_dataset_cache: str) -> Self:
         assert s3_dataset_cache is not None

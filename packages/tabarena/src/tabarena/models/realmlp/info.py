@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from tabarena.models.realmlp.model import RealMLPModel
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.realmlp.hpo import gen_realmlp
-from tabarena.models._method_metadata import MethodMetadata
-
+from tabarena.models.realmlp.model import RealMLPModel
 
 realmlp_method_metadata = MethodMetadata(
     method="RealMLP_GPU",
