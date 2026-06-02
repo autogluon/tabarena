@@ -12,18 +12,21 @@ This repo is a **uv workspace** (root `pyproject.toml`). Its installable package
 
 - `packages/tabarena/` — Core package. Repository pattern for benchmark data, model wrappers, simulation, evaluation, plotting. Depends on AutoGluon and `bencheval`.
 - `packages/bencheval/` — Standalone lightweight metrics/leaderboard package (ELO, win-rates, ranks, improvability). Computes leaderboards from results DataFrames. No dependency on `tabarena`.
-- `packages/tabflow/` — AWS SageMaker workflow orchestration. CLI entry points: `tabflow` (launch jobs) and `tabflow-download` (download results). Depends on `tabarena`.
-- `packages/tabflow_slurm/` — Package (own `pyproject.toml`, a uv-workspace member) for running experiments on SLURM clusters. See `packages/tabflow_slurm/README.md` and `packages/tabflow_slurm/AGENTS.md`.
+- `packages/tabflow_slurm/` — Package (own `pyproject.toml`, a uv-workspace member) for running experiments on SLURM clusters. Depends on `tabarena`. See `packages/tabflow_slurm/README.md` and `packages/tabflow_slurm/AGENTS.md`.
 - `examples/` — Usage examples for benchmarking, plotting, meta-learning, custom models.
 - `tst/` — Tests (note: `tst/`, **not** `tests/`).
 
 ## Setup Commands
 
-Requires Python 3.11–3.13 and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.11–3.13 and [uv](https://docs.astral.sh/uv/). This is a uv *virtual workspace*
+(the root `pyproject.toml` has no `[project]` table), so install the `tabarena` package directly
+from `packages/tabarena` rather than running `uv sync` at the root. `--prerelease=allow` is required
+for the pre-release AutoGluon dependency. From the repo root, after creating/activating a venv
+(`uv venv --seed --python 3.12 && source .venv/bin/activate`):
 
 ```bash
-uv sync                    # Evaluation-only install (leaderboard/metrics)
-uv sync --extra benchmark  # Full install including model fitting
+uv pip install --prerelease=allow -e "./packages/tabarena"               # Evaluation-only (leaderboard/metrics)
+uv pip install --prerelease=allow -e "./packages/tabarena[benchmark]"    # Full install including model fitting
 ```
 
 For editable AutoGluon development (one directory up):

@@ -21,7 +21,6 @@ from tabarena.benchmark.experiment.experiment_runner import (
 )
 from tabarena.benchmark.experiment.experiment_utils import (
     ExperimentBatchRunner,
-    run_experiments,
 )
 from tabarena.benchmark.experiment.experiment_runner_api import run_experiments_new
 
@@ -40,6 +39,5 @@ __all__ = [
     "TabArenaExperimentBundle",
     "TabArenaV0pt1ExperimentBundle",
     "YamlExperimentSerializer",
-    "run_experiments",
     "run_experiments_new",
 ]

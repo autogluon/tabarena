@@ -2,13 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Literal, Type
 
-import json
 import pandas as pd
 from pathlib import Path
-import traceback
 
 from tabarena.benchmark.result import BaselineResult, ExperimentResults
-from tabarena.benchmark.task.openml import OpenMLTaskWrapper, OpenMLS3TaskWrapper
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle, CacheFunctionDummy
 from tabarena.repository import EvaluationRepository
 from tabarena.benchmark.experiment.experiment_constructor import Experiment
@@ -149,24 +146,56 @@ class ExperimentBatchRunner:
         self._validate_folds(folds=folds)
         self._validate_repeats(repeats=repeats)
 
-        tids = [self._dataset_to_tid_dict[dataset] for dataset in datasets]
-        return run_experiments(
-            expname=self.expname,
-            tids=tids,
-            folds=folds,
-            repeats=repeats,
-            methods=methods,
-            task_metadata=self.task_metadata,
-            ignore_cache=ignore_cache,
+        # Lazy import to avoid a circular import (experiment_runner_api imports this module).
+        from tabarena.benchmark.experiment.experiment_runner_api import run_experiments_new
+
+        tids = [int(self._dataset_to_tid_dict[dataset]) for dataset in datasets]
+
+        # Translate folds/repeats into explicit (fold, repeat) pairs run for every task.
+        if repeats is None:
+            # Legacy single-repeat layout: run repeat 0 and cache under `{fold}` (no repeat
+            # in the path), matching the cache files written before this delegation.
+            fold_repeat_pairs = [(fold, 0) for fold in folds]
+            include_repeat_in_cache_name = False
+        else:
+            fold_repeat_pairs = [(fold, repeat) for repeat in repeats for fold in folds]
+            include_repeat_in_cache_name = True
+
+        if self.only_cache:
+            cache_mode = "only"
+        elif ignore_cache:
+            cache_mode = "ignore"
+        else:
+            cache_mode = "default"
+
+        if self.mode == "aws":
+            s3_kwargs = {"bucket": self.s3_bucket}
+            if self.s3_dataset_cache is not None:
+                s3_kwargs["dataset_cache"] = self.s3_dataset_cache
+        else:
+            s3_kwargs = None
+
+        return run_experiments_new(
+            output_dir=self.expname,
+            model_experiments=methods,
+            tasks=tids,
+            tasks_metadata=self.task_metadata,
+            # Legacy behavior: the results `dataset` key comes from the metadata.
+            use_metadata_task_name=True,
+            repetitions_mode="individual",
+            repetitions_mode_args=fold_repeat_pairs,
+            run_mode=self.mode,
+            cache_mode=cache_mode,
+            cache_path_format=self.cache_path_format,
+            include_repeat_in_cache_name=include_repeat_in_cache_name,
+            # Forward the configured cache backend. The default `cache_cls_kwargs`
+            # carries `include_self_in_call=True`, preserving the legacy
+            # `model_failures` artifact on failure.
             cache_cls=self.cache_cls,
             cache_cls_kwargs=self.cache_cls_kwargs,
-            cache_path_format=self.cache_path_format,
-            mode=self.mode,
-            s3_bucket=self.s3_bucket,
-            only_cache=self.only_cache,
+            s3_kwargs=s3_kwargs,
             raise_on_failure=raise_on_failure,
             debug_mode=self.debug_mode,
-            s3_dataset_cache=self.s3_dataset_cache
         )
 
     def load_results(
@@ -338,213 +367,3 @@ def check_cache_hit(
         Path(cacher.cache_file).unlink(missing_ok=True)
 
     return cacher.exists
-
-
-def run_experiments(
-    expname: str,
-    tids: list[int],
-    folds: list[int] | None,
-    methods: list[Experiment],
-    task_metadata: pd.DataFrame | dict,
-    ignore_cache: bool,
-    repeats: list[int] | None = None,
-    cache_cls: Type[AbstractCacheFunction] | None = CacheFunctionPickle,
-    cache_cls_kwargs: dict = None,
-    cache_path_format: Literal["name_first", "task_first"] = "name_first",
-    mode: str = "local",
-    s3_bucket: str | None = None,
-    only_cache: bool = False,
-    raise_on_failure: bool = True,
-    debug_mode: bool = True,
-    s3_dataset_cache: str | None = None,
-    repeat_fold_pairs: list[tuple[int | None, int]] | None = None,
-) -> list[dict]:
-    """
-
-    Parameters
-    ----------
-    expname: str, Name of the experiment given by the user
-    tids: list[int], List of OpenML task IDs given by the user
-    folds: list[int], Number of folds present for the given task
-    repeats: list[int] | None, Number of repeats present for the given task. If None, defaults to [0]
-    methods: list[Experiment], Models used for fit() and predict() in this experiment
-    task_metadata: pd.DataFrame or None, OpenML task metadata
-         If dict, it is a map from TID to task name. As only task name is used here.
-    ignore_cache: bool, whether to use cached results (if present)
-    cache_cls: WIP
-    cache_cls_kwargs: WIP
-    cache_path_format: {"name_first", "task_first"}, default "name_first"
-    mode: {"local", "aws"}, default "local"
-    s3_bucket: str, default None
-        Required when mode="aws". The S3 bucket where artifacts will be stored.
-    raise_on_failure: bool, default True
-        If True, will raise exceptions that occur during experiments, stopping all runs.
-        If False, will ignore exceptions and continue fitting queued experiments. Experiments with exceptions will not be included in the output list.
-    s3_dataset_cache: str, default None
-        Full S3 URI to the openml dataset cache (format: s3://bucket/prefix)
-        If None, skip S3 download attempt
-    repeat_fold_pairs: list[tuple[int | None, int]] | None, default None
-        alternative to `repeats` and `folds` parameters to specify the repeat and fold pairs to run.
-
-    Returns
-    -------
-    result_lst: list[dict], containing all metrics from fit() and predict() of all the given OpenML tasks
-    """
-    if mode == "aws" and (s3_bucket is None or s3_bucket == ""):
-        raise ValueError(f"s3_bucket parameter is required when mode is 'aws', got {s3_bucket}")
-
-    if cache_cls is None:
-        cache_cls = CacheFunctionDummy
-    if cache_cls_kwargs is None:
-        cache_cls_kwargs = {}
-
-    if folds is None:
-        assert repeat_fold_pairs is not None, "If folds is None, repeat_fold_pairs must be provided"
-
-    # Modify cache path based on mode
-    if mode == "local":
-        base_cache_path = expname
-    else:
-        base_cache_path = f"s3://{s3_bucket}/{expname}"
-
-    methods_og = methods
-    methods = []
-    for method in methods_og:
-        # TODO: remove tuple input option, doing it to keep old scripts working
-        if not isinstance(method, Experiment):
-            method = Experiment(name=method[0], method_cls=method[1], method_kwargs=method[2])
-        methods.append(method)
-
-    unique_names = set()
-    for method in methods:
-        if method.name in unique_names:
-            raise AssertionError(f"Duplicate experiment name found. All names must be unique. name: {method.name}")
-        unique_names.add(method.name)
-
-    # FIXME: dataset or name? Where does `dataset` come from, why can it be different from `name`?
-    #  Using dataset for now because for some datasets like "GAMETES", the name is slightly different with `.` in `name` being replaced with `_` in `dataset`.
-    #  This is probably because `.` isn't a valid name in a file in s3.
-    #  TODO: What if `dataset` doesn't exist as a column? Maybe fallback to `name`? Or do the `name` -> `dataset` conversion, or use tid.
-    dataset_name_column = "dataset"
-    if isinstance(task_metadata, dict):
-        dataset_names = [task_metadata[tid] for tid in tids]
-    else:
-        dataset_names = [task_metadata[task_metadata["tid"] == tid][dataset_name_column].iloc[0] for tid in tids]
-
-    if repeat_fold_pairs is None:
-        n_splits = len(folds)
-        if repeats is not None:
-            n_splits *= len(repeats)
-    else:
-        n_splits = len(repeat_fold_pairs)
-    if repeat_fold_pairs is None:
-        if repeats is not None:
-            repeat_fold_pairs = [(r, f) for r in repeats for f in folds]
-        else:
-            repeat_fold_pairs = [(None, f) for f in folds]
-    print(
-        f"Running Experiments for expname: '{expname}'..."
-        f"\n\tFitting {len(tids)} datasets and {n_splits} repeat-fold splits for a total of {len(tids) * n_splits} tasks"
-        f"\n\tFitting {len(methods)} methods on {len(tids) *n_splits} tasks for a total of {len(tids) * n_splits * len(methods)} jobs..."
-        f"\n\tTIDs    : {tids}"
-        f"\n\tDatasets: {dataset_names}"
-        f"\n\tFolds   : {folds}"
-        f"\n\tRepeats : {repeats}"
-        f"\n\tRepeat-Fold-Pairs: {repeat_fold_pairs}"
-        f"\n\tMethods : {[method.name for method in methods]}"
-    )
-    result_lst = []
-    num_datasets = len(tids)
-    missing_tasks = []
-    cur_experiment_idx = -1
-    experiment_success_count = 0
-    experiment_fail_count = 0
-    experiment_missing_count = 0
-    experiment_cache_exists_count = 0
-    experiment_count_total = len(tids) * len(methods) * n_splits
-    for i, tid in enumerate(tids):
-        task = None  # lazy task loading
-        if isinstance(task_metadata, dict):
-            task_name = task_metadata[tid]
-        else:
-            task_name = task_metadata[task_metadata["tid"] == tid][dataset_name_column].iloc[0]
-        print(f"Starting Dataset {i+1}/{num_datasets}...")
-        for repeat, fold in repeat_fold_pairs:
-            subtask_cache_name = ExperimentBatchRunner._subtask_name(fold=fold, repeat=repeat)
-            for method in methods:
-                cur_experiment_idx += 1
-                if cache_path_format == "name_first":
-                    cache_prefix = f"data/{method.name}/{tid}/{subtask_cache_name}"
-                    cache_name = "results"
-                elif cache_path_format == "task_first":
-                    # Legacy format from early prototyping
-                    cache_prefix = f"data/tasks/{tid}/{subtask_cache_name}/{method.name}"
-                    cache_name = "results"
-                else:
-                    raise ValueError(f"Invalid cache_path_format: {cache_path_format}")
-                print(
-                    f"\t"
-                    f"{cur_experiment_idx}/{experiment_count_total} ran | "
-                    f"{experiment_success_count} success | "
-                    f"{experiment_fail_count} fail | "
-                    f"{experiment_cache_exists_count} cache_exists | "
-                    f"{experiment_missing_count} missing | "
-                    f"Fitting {task_name} on repeat {repeat}, fold {fold} for method {method.name}"
-                )
-                cache_path = f"{base_cache_path}/{cache_prefix}"
-
-                cacher = cache_cls(cache_name=cache_name, cache_path=cache_path, **cache_cls_kwargs)
-
-                cache_exists = cacher.exists
-                if cache_exists and not ignore_cache:
-                    experiment_cache_exists_count += 1
-
-                if only_cache:
-                    if not cache_exists:
-                        missing_tasks.append(cache_name)
-                        experiment_missing_count += 1
-                        continue
-                    else:
-                        out = cacher.load_cache()
-                else:
-                    if task is None:
-                        if ignore_cache or not cache_exists:
-                            if s3_dataset_cache:
-                                task = OpenMLS3TaskWrapper.from_task_id(task_id=tid, s3_dataset_cache=s3_dataset_cache)
-                            else:
-                                task = OpenMLTaskWrapper.from_task_id(task_id=tid)
-
-                    if repeat is not None:
-                        run_kwargs = {
-                            "repeat": repeat,
-                        }
-                    else:
-                        run_kwargs = {}
-
-                    try:
-                        out = method.run(
-                            task=task,
-                            fold=fold,
-                            task_name=task_name,
-                            cacher=cacher,
-                            ignore_cache=ignore_cache,
-                            debug_mode=debug_mode,
-                            **run_kwargs,
-                        )
-                    except Exception as exc:
-                        error_cacher = cache_cls(cache_name="error", cache_path=cache_path, **cache_cls_kwargs)
-                        exception_info = json.dumps({"error": str(exc), "traceback": traceback.format_exc()})
-                        error_cacher.save_cache(exception_info)
-                        if raise_on_failure:
-                            raise
-                        print(exc.__class__)
-                        print(f"Exception Info:")
-                        print(exception_info)
-                        out = None
-                if out is not None:
-                    experiment_success_count += 1
-                    result_lst.append(out)
-                else:
-                    experiment_fail_count += 1
-
-    return result_lst

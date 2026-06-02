@@ -7,9 +7,8 @@ Repo-wide guidance: [`../../AGENTS.md`](../../AGENTS.md).
 
 A package that generates and launches **SLURM** array jobs for TabArena benchmarks. The user
 composes a `TabArenaBenchmarkPlan`, calls `setup_jobs()`, and gets `sbatch` command(s); each array
-task fits one `(task, fold, repeat, config)` item at a time and caches the result. It is the SLURM
-counterpart to `../tabflow` (SageMaker) and mirrors its batching design, but only depends on
-`tabarena`.
+task fits one `(task, fold, repeat, config)` item at a time and caches the result. It is
+self-contained and only depends on `tabarena`.
 
 > It **is** a package (`pyproject.toml`, `tabflow_slurm/__init__.py`) and a uv-workspace member,
 > installed editable from `packages/tabflow_slurm/`.

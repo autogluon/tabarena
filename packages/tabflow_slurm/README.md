@@ -15,8 +15,7 @@ ready-to-run `sbatch` commands. You compose a **plan** from a few typed building
 Each array task then runs one bundled item at a time via a small runner script, caching results
 into the workspace where the evaluation code can pick them up.
 
-It is the SLURM counterpart to [`tabflow`](../tabflow) (the AWS SageMaker orchestrator) and shares
-its batching design, but is self-contained and only depends on `tabarena`.
+It is self-contained and only depends on `tabarena`.
 
 ---
 

@@ -23,6 +23,7 @@ from tabarena.benchmark.task.metadata import TabArenaMetadataBundle
 pytest.importorskip("tabflow_slurm.setup", reason="tabflow_slurm is not installed")
 
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup  # noqa: E402
+from tabflow_slurm.setup.candidates import JobCandidate  # noqa: E402
 from tabflow_slurm.setup.paths import PathSetup  # noqa: E402
 from tabflow_slurm.setup.resources import ResourcesSetup  # noqa: E402
 from tabflow_slurm.setup.scheduler import SlurmSetup  # noqa: E402
@@ -151,6 +152,73 @@ class TestSlurmSetup:
         assert ss.exclusive_node is True
         assert ss.time_limit_overhead == 2
         assert ss.bundle_size == 10
+
+
+# ---------------------------------------------------------------------------
+# SchedulerSetup bundling (bundle_size + large-dataset auto-rule)
+# ---------------------------------------------------------------------------
+
+
+def _candidate(*, dataset_name="d", n_features=10, n_samples_train_per_fold=1000) -> JobCandidate:
+    return JobCandidate(
+        task_id="1",
+        dataset_name=dataset_name,
+        fold=0,
+        repeat=0,
+        config_index=0,
+        config={"name": "cfg"},
+        n_features=n_features,
+        n_classes=2,
+        n_samples_train_per_fold=n_samples_train_per_fold,
+        problem_type="binary",
+    )
+
+
+class TestEffectiveBundleSize:
+    def test_default_large_thresholds(self):
+        ss = _slurm()
+        assert ss.large_dataset_n_features == 5_000
+        assert ss.large_dataset_n_samples == 100_000
+
+    def test_small_dataset_uses_bundle_size(self):
+        ss = _slurm(bundle_size=5)
+        assert ss._effective_bundle_size(_candidate(n_features=10, n_samples_train_per_fold=1000)) == 5
+
+    def test_wide_dataset_collapses_to_one(self):
+        ss = _slurm(bundle_size=5)
+        assert ss._effective_bundle_size(_candidate(n_features=5001)) == 1
+
+    def test_large_sample_dataset_collapses_to_one(self):
+        ss = _slurm(bundle_size=5)
+        assert ss._effective_bundle_size(_candidate(n_samples_train_per_fold=100_001)) == 1
+
+    def test_at_threshold_is_not_large(self):
+        ss = _slurm(bundle_size=5)
+        assert ss._effective_bundle_size(_candidate(n_features=5000, n_samples_train_per_fold=100_000)) == 5
+
+    def test_per_dataset_override_wins_over_auto_rule(self):
+        ss = _slurm(bundle_size=5, bundle_size_per_dataset={"big": 3})
+        assert ss._effective_bundle_size(_candidate(dataset_name="big", n_features=5001)) == 3
+
+    def test_feature_check_disabled(self):
+        ss = _slurm(bundle_size=5, large_dataset_n_features=None)
+        assert ss._effective_bundle_size(_candidate(n_features=5001)) == 5
+
+    def test_sample_check_disabled(self):
+        ss = _slurm(bundle_size=5, large_dataset_n_samples=None)
+        assert ss._effective_bundle_size(_candidate(n_samples_train_per_fold=100_001)) == 5
+
+
+class TestBundleItems:
+    def test_large_datasets_get_singleton_bundles(self):
+        ss = _slurm(bundle_size=5)
+        small = [_candidate(dataset_name="small") for _ in range(3)]
+        wide = [_candidate(dataset_name="wide", n_features=6000) for _ in range(2)]
+        jobs, max_configs = ss.bundle_items([*small, *wide])
+        sizes = sorted(len(j["items"]) for j in jobs)
+        # 3 small batched into one bundle, 2 wide as singletons.
+        assert sizes == [1, 1, 3]
+        assert max_configs == 3
 
 
 # ---------------------------------------------------------------------------
