@@ -494,6 +494,22 @@ class TestExperimentBatchRunnerRunAll:
         with pytest.raises(AssertionError, match="n_folds"):
             runner.run_all(methods=[_make_minimal_experiment()])
 
+    def test_only_strict_raises_on_missing_cache(self, tmp_path):
+        # cache_mode="only_strict": no cache exists, so every requested experiment is
+        # missing and the run raises (rather than silently returning []).
+        runner = self._runner(tmp_path, cache_mode="only_strict")
+        with pytest.raises(AssertionError, match="only_strict"):
+            runner.run(methods=[_make_minimal_experiment()], datasets=["d0", "d1"], folds=[0])
+
+    def test_only_strict_generalizes_to_run_all(self, tmp_path):
+        # only_strict works through run_all too (same canonical cache path).
+        task_metadata = pd.DataFrame(
+            {"tid": [0, 1], "dataset": ["d0", "d1"], "n_folds": [1, 1], "n_repeats": [1, 1]},
+        )
+        runner = self._runner(tmp_path, task_metadata=task_metadata, cache_mode="only_strict")
+        with pytest.raises(AssertionError, match="only_strict"):
+            runner.run_all(methods=[_make_minimal_experiment()])
+
 
 class TestRunExperimentsNewCacheCls:
     def test_custom_cache_cls_used(self, tmp_path):
