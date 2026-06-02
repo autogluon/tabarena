@@ -23,6 +23,7 @@ from tabarena.website.website_format import format_leaderboard
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from tabarena.benchmark.experiment import ExperimentBatchRunner
     from tabarena.benchmark.result import BaselineResult
     from tabarena.repository.abstract_repository import AbstractRepository
 
@@ -876,6 +877,72 @@ class TabArenaContext:
                 predicates=self.subset_predicates,
             )
         return df_results
+
+    def make_experiment_batch_runner(
+        self,
+        expname: str,
+        *,
+        subset: str | list[str] | None = None,
+        **kwargs,
+    ) -> ExperimentBatchRunner:
+        """Create an `ExperimentBatchRunner` over this context's `task_metadata`.
+
+        If `subset` is provided, restrict the (dataset, fold, repeat) triplets that the
+        runner's `run_all` executes to those whose split (``n_folds * repeat + fold``)
+        passes the subset predicate expressions — the same predicates used by `compare`
+        (e.g. ``"lite"``, ``"small"``, ``"binary"``, ``"!tiny"``). If None, `run_all`
+        runs the full ``n_folds`` x ``n_repeats`` grid from `task_metadata`.
+
+        Extra keyword arguments (``cache_mode``, ``debug_mode``, ...) are forwarded to
+        `ExperimentBatchRunner`.
+        """
+        from tabarena.benchmark.experiment import ExperimentBatchRunner
+
+        dataset_fold_repeats = None
+        if subset is not None:
+            dataset_fold_repeats = self._subset_dataset_fold_repeats(subset=subset)
+        return ExperimentBatchRunner(
+            expname=expname,
+            task_metadata=self.task_metadata,
+            dataset_fold_repeats=dataset_fold_repeats,
+            **kwargs,
+        )
+
+    def _subset_dataset_fold_repeats(self, subset: str | list[str]) -> list[tuple[str, int, int]]:
+        """Expand `task_metadata` into (dataset, fold, repeat) triplets kept by `subset`.
+
+        Builds the full per-dataset grid (``split = n_folds * repeat + fold``), then
+        filters it with the same predicate machinery as `compare`. The subset predicates
+        treat the split index as the ``fold`` column, so e.g. ``"lite"`` keeps
+        ``split == 0`` (i.e. ``(fold 0, repeat 0)``).
+        """
+        from tabarena.nips2025_utils.compare import subset_tasks
+
+        if isinstance(subset, str):
+            subset = [subset]
+
+        metadata = self.task_metadata.drop_duplicates(subset="dataset")
+        rows = []
+        for dataset, n_folds, n_repeats in zip(
+            metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
+        ):
+            n_folds, n_repeats = int(n_folds), int(n_repeats)
+            for repeat in range(n_repeats):
+                for fold in range(n_folds):
+                    # `subset_tasks` treats the "fold" column as the split index.
+                    rows.append((dataset, fold, repeat, n_folds * repeat + fold))
+        grid = pd.DataFrame(rows, columns=["dataset", "_fold", "_repeat", "fold"])
+
+        filtered = subset_tasks(
+            df_results=grid,
+            subset=subset,
+            task_metadata_og=self.task_metadata,
+            predicates=self.subset_predicates,
+        )
+        return [
+            (dataset, int(fold), int(repeat))
+            for dataset, fold, repeat in zip(filtered["dataset"], filtered["_fold"], filtered["_repeat"], strict=False)
+        ]
 
     def load_configs_hyperparameters(
         self,

@@ -18,6 +18,7 @@ class ExperimentBatchRunner:
         self,
         expname: str,
         task_metadata: pd.DataFrame,
+        dataset_fold_repeats: list[tuple[str, int, int]] | None = None,
         cache_cls: type[AbstractCacheFunction] | None = CacheFunctionPickle,
         cache_cls_kwargs: dict | None = None,
         cache_mode: Literal["default", "ignore", "only", "only_strict"] = "default",
@@ -27,6 +28,11 @@ class ExperimentBatchRunner:
         """Parameters
         ----------
         expname
+        dataset_fold_repeats: list[tuple[str, int, int]] | None, default None
+            The allowed (dataset, fold, repeat) triplets that `run_all` executes. If
+            None, `run_all` uses the full grid implied by the `n_folds` and `n_repeats`
+            columns of `task_metadata`. Each triplet is validated against `task_metadata`
+            (dataset must be present; fold < n_folds; repeat < n_repeats).
         cache_cls
         cache_cls_kwargs
         cache_mode: {"default", "ignore", "only", "only_strict"}, default "default"
@@ -65,6 +71,9 @@ class ExperimentBatchRunner:
         )
         self.debug_mode = debug_mode
         self.raise_on_failure = raise_on_failure
+        if dataset_fold_repeats is not None:
+            self._validate_dataset_fold_repeats(dataset_fold_repeats)
+        self._dataset_fold_repeats = dataset_fold_repeats
 
     @property
     def datasets(self) -> list[str]:
@@ -161,9 +170,10 @@ class ExperimentBatchRunner:
         self,
         methods: list[Experiment],
     ) -> list[dict[str, Any]]:
-        """Run every (dataset, fold, repeat) dictated by `task_metadata`.
+        """Run the configured (dataset, fold, repeat) triplets.
 
-        For each dataset, runs all folds in `range(n_folds)` x repeats in
+        If `dataset_fold_repeats` was passed at init, runs exactly those triplets.
+        Otherwise, for each dataset runs all folds in `range(n_folds)` x repeats in
         `range(n_repeats)`, taken from the `n_folds` and `n_repeats` columns of
         `task_metadata`. Delegates to `run_dataset_fold_repeats`.
 
@@ -179,18 +189,20 @@ class ExperimentBatchRunner:
             Can pass into `exp_bach_runner.repo_from_results(results_lst=results_lst)` to generate an EvaluationRepository.
 
         """
-        for col in ("dataset", "n_folds", "n_repeats"):
-            if col not in self.task_metadata.columns:
-                raise AssertionError(f"`task_metadata` must contain the column '{col}' to use `run_all`.")
+        dataset_fold_repeats = self._dataset_fold_repeats
+        if dataset_fold_repeats is None:
+            for col in ("dataset", "n_folds", "n_repeats"):
+                if col not in self.task_metadata.columns:
+                    raise AssertionError(f"`task_metadata` must contain the column '{col}' to use `run_all`.")
 
-        metadata = self.task_metadata.drop_duplicates(subset="dataset")
-        dataset_fold_repeats: list[tuple[str, int, int]] = []
-        for dataset, n_folds, n_repeats in zip(
-            metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
-        ):
-            for repeat in range(int(n_repeats)):
-                for fold in range(int(n_folds)):
-                    dataset_fold_repeats.append((dataset, fold, repeat))
+            metadata = self.task_metadata.drop_duplicates(subset="dataset")
+            dataset_fold_repeats = []
+            for dataset, n_folds, n_repeats in zip(
+                metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
+            ):
+                for repeat in range(int(n_repeats)):
+                    for fold in range(int(n_folds)):
+                        dataset_fold_repeats.append((dataset, fold, repeat))
 
         return self.run_dataset_fold_repeats(
             methods=methods,
@@ -256,6 +268,36 @@ class ExperimentBatchRunner:
             return
         if len(repeats) != len(set(repeats)):
             raise AssertionError("Duplicate repeats present! Ensure all repeats are unique.")
+
+    def _validate_dataset_fold_repeats(self, dataset_fold_repeats: list[tuple[str, int, int]]):
+        """Verify each (dataset, fold, repeat) is possible according to `task_metadata`.
+
+        Checks the dataset is present, and (when the `n_folds`/`n_repeats` columns exist)
+        that `0 <= fold < n_folds` and `0 <= repeat < n_repeats` for that dataset.
+        """
+        has_counts = {"n_folds", "n_repeats"}.issubset(self.task_metadata.columns)
+        counts: dict[str, tuple[int, int]] = {}
+        if has_counts:
+            metadata = self.task_metadata.drop_duplicates(subset="dataset")
+            counts = {
+                dataset: (int(n_folds), int(n_repeats))
+                for dataset, n_folds, n_repeats in zip(
+                    metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
+                )
+            }
+        invalid = []
+        for dataset, fold, repeat in dataset_fold_repeats:
+            if dataset not in self._dataset_to_tid_dict:
+                invalid.append((dataset, fold, repeat, "unknown dataset"))
+            elif has_counts:
+                n_folds, n_repeats = counts[dataset]
+                if not (0 <= fold < n_folds) or not (0 <= repeat < n_repeats):
+                    invalid.append((dataset, fold, repeat, f"out of range (n_folds={n_folds}, n_repeats={n_repeats})"))
+        if invalid:
+            invalid_str = "\n\t".join(str(x) for x in invalid)
+            raise AssertionError(
+                f"`dataset_fold_repeats` contains {len(invalid)} entry(ies) not valid for `task_metadata`:\n\t{invalid_str}",
+            )
 
 
 def check_cache_hit(
