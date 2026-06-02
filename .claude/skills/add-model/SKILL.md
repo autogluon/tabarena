@@ -9,7 +9,7 @@ user-invocable: true
 
 This skill integrates a new tabular ML model into the TabArena benchmark.
 
-Every model lives in **one folder** at `tabarena/tabarena/models/<ModelKey>/`. That folder contains the wrapper, the HPO generator, and the metadata — and is auto-discovered by `tabarena.models._registry.discover_models()`. There is no separate `benchmark/models/ag/` layout anymore.
+Every model lives in **one folder** at `packages/tabarena/tabarena/models/<ModelKey>/`. That folder contains the wrapper, the HPO generator, and the metadata — and is auto-discovered by `tabarena.models._registry.discover_models()`. There is no separate `benchmark/models/ag/` layout anymore.
 
 Per model, you create up to 5 source files plus one test file, then edit two existing files.
 
@@ -47,9 +47,9 @@ Choose the most similar existing model to read for detailed inspiration:
 
 | Model type | Base class | Read this reference model |
 |---|---|---|
-| Foundation / pre-trained / GPU (e.g. TabPFN, SAP-RPT-OSS, TabSTAR) | `AbstractTorchModel` | `tabarena/tabarena/models/sap_rpt_oss/model.py` |
-| Torch NN trained from scratch (e.g. TabM, RealMLP) | `AbstractTorchModel` | `tabarena/tabarena/models/tabm/model.py` |
-| CPU / sklearn-like (e.g. KNN) | `AbstractModel` | `tabarena/tabarena/models/knn/model.py` |
+| Foundation / pre-trained / GPU (e.g. TabPFN, SAP-RPT-OSS, TabSTAR) | `AbstractTorchModel` | `packages/tabarena/tabarena/models/sap_rpt_oss/model.py` |
+| Torch NN trained from scratch (e.g. TabM, RealMLP) | `AbstractTorchModel` | `packages/tabarena/tabarena/models/tabm/model.py` |
+| CPU / sklearn-like (e.g. KNN) | `AbstractModel` | `packages/tabarena/tabarena/models/knn/model.py` |
 
 Read the reference model file now (use the Read tool). Use it as a structural guide — you will adapt rather than copy.
 
@@ -59,7 +59,7 @@ Also read the annotated patterns in `references/model_patterns.md` — it contai
 
 Create these files (paths relative to the repo root):
 
-### 3a. `tabarena/tabarena/models/{ModelKey}/__init__.py`
+### 3a. `packages/tabarena/tabarena/models/{ModelKey}/__init__.py`
 Re-export the public symbols so `from tabarena.models.{ModelKey} import ...` works:
 ```python
 from __future__ import annotations
@@ -70,7 +70,7 @@ from tabarena.models.{ModelKey}.info import {ModelKey}_info, {ModelKey}_method_m
 __all__ = ["gen_{ModelKey}", "{ModelKey}_info", "{ModelKey}_method_metadata"]
 ```
 
-### 3b. `tabarena/tabarena/models/{ModelKey}/model.py`
+### 3b. `packages/tabarena/tabarena/models/{ModelKey}/model.py`
 
 The AutoGluon wrapper class. Use the template in `references/model_patterns.md` section "Model wrapper template". Key points:
 - Start with `from __future__ import annotations`
@@ -81,17 +81,17 @@ The AutoGluon wrapper class. Use the template in `references/model_patterns.md` 
 - Docstring must include: description, paper title, authors, codebase URL, license
 - Keep optional third-party imports (the wrapped library itself) inside `_fit` / per-method scope so importing this module never requires the optional dep at top-level
 
-### 3c. `tabarena/tabarena/models/{ModelKey}/hpo.py`
+### 3c. `packages/tabarena/tabarena/models/{ModelKey}/hpo.py`
 
 The search-space generator. By default use an **empty search space** (like TabPFN-2.6) — only add hyperparameters if the user explicitly asks or if the model has obvious tunable knobs. See template in `references/model_patterns.md` section "hpo.py template".
 
-### 3d. `tabarena/tabarena/models/{ModelKey}/info.py`
+### 3d. `packages/tabarena/tabarena/models/{ModelKey}/info.py`
 
 Defines `{ModelKey}_method_metadata: MethodMetadata` and `{ModelKey}_info: ModelInfo`. `info.py` is the single source the auto-discovery registry walks — populating it correctly is how the model becomes visible to `discover_models()`. See template in `references/model_patterns.md` section "info.py template".
 
 ### 3e. Multi-file support code (optional)
 
-If the wrapper needs helper modules (preprocessors, vendored upstream code, large internal classes), put them in a private subfolder of `tabarena/tabarena/models/{ModelKey}/`:
+If the wrapper needs helper modules (preprocessors, vendored upstream code, large internal classes), put them in a private subfolder of `packages/tabarena/tabarena/models/{ModelKey}/`:
 
 - `_internal/` — for hand-written helpers (preprocessors, internal classes, adapters)
 - `_vendor/` — only for code copied verbatim from an upstream project; keep the original layout/license alongside
@@ -106,7 +106,7 @@ See template in `references/model_patterns.md` section "Test template". Include 
 
 Edit both locations **in a single pass** (read each file first, then edit):
 
-### 4a. `tabarena/tabarena/models/__init__.py`
+### 4a. `packages/tabarena/tabarena/models/__init__.py`
 
 Add a lazy entry for the new class so `from tabarena.models import {ClassName}Model` works:
 ```python
@@ -118,14 +118,14 @@ _LAZY_CLASSES = {
 ```
 Also add `"{ClassName}Model"` to `__all__` and (under `TYPE_CHECKING`) to the static `from tabarena.models.{ModelKey}.model import {ClassName}Model` block, both kept alphabetised.
 
-### 4b. `tabarena/tabarena/models/utils.py`
+### 4b. `packages/tabarena/tabarena/models/utils.py`
 
 Add to the `name_to_import_map` dict in `get_configs_generator_from_name()`. The key is the friendly model name (often the same as `ModelName`):
 ```python
 "{ModelName}": lambda: importlib.import_module("tabarena.models.{ModelKey}.hpo").gen_{ModelKey},
 ```
 
-### 4c. `tabarena/pyproject.toml`
+### 4c. `packages/tabarena/pyproject.toml`
 
 The `pyproject.toml` defines a per-model extra for every supported model, plus three union extras built via **self-references** (`"tabarena[<name>]"`):
 
@@ -156,20 +156,20 @@ After this, users can install the model alone (`uv sync --extra benchmark --extr
 python -m tabarena.tools.sync_pyproject_extras
 ```
 
-`tabarena/tabarena/tools/sync_pyproject_extras.py` aggregates every `ModelInfo.pip_extra` from the registry and compares it against `[project.optional-dependencies]` in `tabarena/pyproject.toml`, printing per-folder `OK`/`DRIFT`. Add `--check` to make it exit non-zero on drift (CI mode). Run it after editing either side so the two stay in sync.
+`packages/tabarena/tabarena/tools/sync_pyproject_extras.py` aggregates every `ModelInfo.pip_extra` from the registry and compares it against `[project.optional-dependencies]` in `packages/tabarena/pyproject.toml`, printing per-folder `OK`/`DRIFT`. Add `--check` to make it exit non-zero on drift (CI mode). Run it after editing either side so the two stay in sync.
 
 ## Step 5: Auto-derived registries (no manual edit)
 
 These pieces pick up the new model automatically once Step 3 lands — do not edit them by hand:
 
-- `tabarena/tabarena/models/_registry.py` — `discover_models()` walks `tabarena/models/*/info.py` and collects every `ModelInfo` found. As long as `info.py` exports a top-level `ModelInfo` instance, the model joins `MODEL_REGISTRY`.
-- `tabarena/tabarena/benchmark/models/model_registry.py` — auto-derives `tabarena_model_registry` from `get_model_registry()`, so the new class becomes available through the AG registry on the next import.
+- `packages/tabarena/tabarena/models/_registry.py` — `discover_models()` walks `tabarena/models/*/info.py` and collects every `ModelInfo` found. As long as `info.py` exports a top-level `ModelInfo` instance, the model joins `MODEL_REGISTRY`.
+- `packages/tabarena/tabarena/benchmark/models/model_registry.py` — auto-derives `tabarena_model_registry` from `get_model_registry()`, so the new class becomes available through the AG registry on the next import.
 
 ## Step 6: Lint
 
 Run ruff on the new files:
 ```bash
-ruff check --fix tabarena/tabarena/models/{ModelKey}/ tst/models/test_{ModelKey}.py
+ruff check --fix packages/tabarena/tabarena/models/{ModelKey}/ tst/models/test_{ModelKey}.py
 ```
 
 Fix any reported issues.
@@ -179,7 +179,7 @@ Fix any reported issues.
 If the model already has benchmark results to register in TabArena's artifact system, add a metadata entry to the dated batch file:
 
 ```
-tabarena/tabarena/nips2025_utils/artifacts/_tabarena_method_metadata_YYYY_MM_DD.py
+packages/tabarena/tabarena/nips2025_utils/artifacts/_tabarena_method_metadata_YYYY_MM_DD.py
 ```
 
 Either add to the latest file or create a new dated file if the benchmarking run is new.

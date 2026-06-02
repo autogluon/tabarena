@@ -132,10 +132,10 @@ git clone https://github.com/autogluon/autogluon.git
 ./autogluon/full_install.sh
 
 git clone https://github.com/autogluon/tabarena.git
-uv pip install --prerelease=allow -e "./tabarena/tabarena[benchmark]"
+uv pip install --prerelease=allow -e "./tabarena/packages/tabarena[benchmark]"
 ```
 
-> In PyCharm, mark `tabarena/` and each `autogluon/src/` subdirectory as **Sources Root** so imports resolve.
+> In PyCharm, mark `packages/tabarena/` and each `autogluon/src/` subdirectory as **Sources Root** so imports resolve.
 
 </details>
 
@@ -145,7 +145,7 @@ uv pip install --prerelease=allow -e "./tabarena/tabarena[benchmark]"
 Add the following to your project's dependencies:
 
 ```toml
-"tabarena @ git+https://github.com/autogluon/tabarena.git#subdirectory=tabarena"
+"tabarena @ git+https://github.com/autogluon/tabarena.git#subdirectory=packages/tabarena"
 ```
 
 # 📦 TabArena Artifacts

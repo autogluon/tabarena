@@ -35,7 +35,7 @@ jobs:
       - name: Install tabarena[benchmark]
         run: |
           uv pip install --system --upgrade setuptools wheel
-          uv pip install --system --prerelease=allow -e "./tabarena[benchmark]"
+          uv pip install --system --prerelease=allow -e "./packages/tabarena[benchmark]"
 
       - name: Verify import
         run: |

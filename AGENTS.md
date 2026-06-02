@@ -8,12 +8,12 @@ TabArena is a living benchmark for tabular machine learning. It evaluates ML met
 
 ## Repository Layout
 
-This repo is a **uv workspace** (root `pyproject.toml`; workspace members `tabarena` + `bencheval`) plus two more installable packages and supporting dirs:
+This repo is a **uv workspace** (root `pyproject.toml`). Its installable packages live under `packages/` (workspace members `tabarena`, `bencheval`, `tabflow_slurm`), alongside supporting dirs:
 
-- `tabarena/` — Core package. Repository pattern for benchmark data, model wrappers, simulation, evaluation, plotting. Depends on AutoGluon and `bencheval`.
-- `bencheval/` — Standalone lightweight metrics/leaderboard package (ELO, win-rates, ranks, improvability). Computes leaderboards from results DataFrames. No dependency on `tabarena`.
-- `tabflow/` — AWS SageMaker workflow orchestration. CLI entry points: `tabflow` (launch jobs) and `tabflow-download` (download results). Depends on `tabarena`.
-- `tabflow_slurm/` — Package (own `pyproject.toml`, not a uv-workspace member) for running experiments on SLURM clusters. See `tabflow_slurm/README.md` and `tabflow_slurm/AGENTS.md`.
+- `packages/tabarena/` — Core package. Repository pattern for benchmark data, model wrappers, simulation, evaluation, plotting. Depends on AutoGluon and `bencheval`.
+- `packages/bencheval/` — Standalone lightweight metrics/leaderboard package (ELO, win-rates, ranks, improvability). Computes leaderboards from results DataFrames. No dependency on `tabarena`.
+- `packages/tabflow/` — AWS SageMaker workflow orchestration. CLI entry points: `tabflow` (launch jobs) and `tabflow-download` (download results). Depends on `tabarena`.
+- `packages/tabflow_slurm/` — Package (own `pyproject.toml`, a uv-workspace member) for running experiments on SLURM clusters. See `packages/tabflow_slurm/README.md` and `packages/tabflow_slurm/AGENTS.md`.
 - `examples/` — Usage examples for benchmarking, plotting, meta-learning, custom models.
 - `tst/` — Tests (note: `tst/`, **not** `tests/`).
 
@@ -30,7 +30,7 @@ For editable AutoGluon development (one directory up):
 
 ```bash
 ../autogluon/full_install.sh
-uv pip install --prerelease=allow -e "./tabarena[benchmark]"
+uv pip install --prerelease=allow -e "./packages/tabarena[benchmark]"
 ```
 
 ## Lint & Format
@@ -50,7 +50,7 @@ pytest tst/test_metrics.py                # Single file
 pytest tst/test_metrics.py::test_name -x  # Single test, stop on failure
 ```
 
-CI (`.github/workflows/`) runs `pytest` on Python 3.11 against an editable install of `./tabarena`.
+CI (`.github/workflows/`) runs `pytest` on Python 3.11 against an editable install of `./packages/tabarena`.
 
 ## Architecture
 
@@ -62,12 +62,12 @@ Raw predictions → EvaluationRepository → Simulation/Portfolio → Results Da
 
 ### Key abstractions
 
-- **`EvaluationRepository`** (`tabarena/tabarena/repository/evaluation_repository.py`) — Central class combining config metadata/rankings (`ZeroshotSimulatorContext`), cached val/test predictions (`TabularModelPredictions`), and `GroundTruth`. Supports subsetting by datasets/folds/configs/problem_types and ensemble selection via mixins.
-- **`TabularModelPredictions`** (`tabarena/tabarena/predictions/`) — Abstract base for prediction storage. Implementations: `TabularPredictionsInMemory` (dict-based) and `TabularPredictionsMemmap` (disk-based memory-mapped for large benchmarks). Structure: `{dataset: {fold: {val/test: {config: predictions}}}}`.
-- **`AbstractExecModel`** (`tabarena/tabarena/benchmark/models/wrapper/abstract_class.py`) — Base for the benchmark *execution* wrappers. New benchmarked models live in one folder per model at `tabarena/tabarena/models/<model>/` (`model.py` = AutoGluon wrapper subclassing AG's `AbstractModel`/`AbstractTorchModel`, `hpo.py` = search-space generator, `info.py` = `ModelInfo`/`MethodMetadata` registry entry), auto-discovered by `tabarena/tabarena/models/_registry.py::discover_models()` (which `tabarena/tabarena/benchmark/models/model_registry.py` then derives the AG registry from). Use the **`add-model` skill** — there is no `benchmark/models/ag/<model>/` layout for new models.
-- **`ExperimentRunner` / `ExperimentBatchRunner`** (`tabarena/tabarena/benchmark/experiment/`) — Execute model fitting across tasks. Configured via YAML (`experiment_constructor.py`).
-- **`ZeroshotSimulatorContext`** (`tabarena/tabarena/simulation/`) — Manages config rankings for HPO simulation and portfolio generation.
-- **`TabArena`** (`bencheval/bencheval/tabarena.py`) — Leaderboard computation from results DataFrames. Independent of the core `tabarena` package.
+- **`EvaluationRepository`** (`packages/tabarena/tabarena/repository/evaluation_repository.py`) — Central class combining config metadata/rankings (`ZeroshotSimulatorContext`), cached val/test predictions (`TabularModelPredictions`), and `GroundTruth`. Supports subsetting by datasets/folds/configs/problem_types and ensemble selection via mixins.
+- **`TabularModelPredictions`** (`packages/tabarena/tabarena/predictions/`) — Abstract base for prediction storage. Implementations: `TabularPredictionsInMemory` (dict-based) and `TabularPredictionsMemmap` (disk-based memory-mapped for large benchmarks). Structure: `{dataset: {fold: {val/test: {config: predictions}}}}`.
+- **`AbstractExecModel`** (`packages/tabarena/tabarena/benchmark/models/wrapper/abstract_class.py`) — Base for the benchmark *execution* wrappers. New benchmarked models live in one folder per model at `packages/tabarena/tabarena/models/<model>/` (`model.py` = AutoGluon wrapper subclassing AG's `AbstractModel`/`AbstractTorchModel`, `hpo.py` = search-space generator, `info.py` = `ModelInfo`/`MethodMetadata` registry entry), auto-discovered by `packages/tabarena/tabarena/models/_registry.py::discover_models()` (which `packages/tabarena/tabarena/benchmark/models/model_registry.py` then derives the AG registry from). Use the **`add-model` skill** — there is no `benchmark/models/ag/<model>/` layout for new models.
+- **`ExperimentRunner` / `ExperimentBatchRunner`** (`packages/tabarena/tabarena/benchmark/experiment/`) — Execute model fitting across tasks. Configured via YAML (`experiment_constructor.py`).
+- **`ZeroshotSimulatorContext`** (`packages/tabarena/tabarena/simulation/`) — Manages config rankings for HPO simulation and portfolio generation.
+- **`TabArena`** (`packages/bencheval/bencheval/tabarena.py`) — Leaderboard computation from results DataFrames. Independent of the core `tabarena` package.
 
 ### Data caching
 
@@ -75,9 +75,9 @@ Artifacts download to `~/.cache/tabarena/` by default; override with `TABARENA_C
 
 ## Conventions
 
-- **Add a new model**: create one folder `tabarena/tabarena/models/<model>/` (`model.py`, `hpo.py`, `info.py`, `__init__.py`), then edit `models/__init__.py` (lazy class entry), `models/utils.py` (name→generator map), and `tabarena/pyproject.toml` (a per-model extra), plus a `tst/models/test_<model>.py`. The registry auto-discovers the model from its `info.py` — no manual registry edit. **Use the `add-model` skill**, which encodes this and points to reference implementations (foundation / torch / sklearn).
+- **Add a new model**: create one folder `packages/tabarena/tabarena/models/<model>/` (`model.py`, `hpo.py`, `info.py`, `__init__.py`), then edit `models/__init__.py` (lazy class entry), `models/utils.py` (name→generator map), and `packages/tabarena/pyproject.toml` (a per-model extra), plus a `tst/models/test_<model>.py`. The registry auto-discovers the model from its `info.py` — no manual registry edit. **Use the `add-model` skill**, which encodes this and points to reference implementations (foundation / torch / sklearn).
 - **Imports**: `from __future__ import annotations` must be the first import in every `.py` file. Use absolute imports rooted at the package (e.g., `from tabarena.repository import EvaluationRepository`).
-- **Optional dependencies**: each model has its own pyproject extra under `tabarena/pyproject.toml`; the `benchmark` extra is the union. Heavy/optional libs must never be imported at module top-level in core paths — import inside the model wrapper.
+- **Optional dependencies**: each model has its own pyproject extra under `packages/tabarena/pyproject.toml`; the `benchmark` extra is the union. Heavy/optional libs must never be imported at module top-level in core paths — import inside the model wrapper.
 - **No new top-level docs files** unless the user asks. Edit existing files in place.
 
 ## PR & Commit Guidance

@@ -1,7 +1,7 @@
 # AGENTS.md — tabflow_slurm
 
-Guidance for coding agents working in `tabflow_slurm/`. Human-facing docs: [`README.md`](README.md).
-Repo-wide guidance: [`../AGENTS.md`](../AGENTS.md).
+Guidance for coding agents working in `packages/tabflow_slurm/`. Human-facing docs: [`README.md`](README.md).
+Repo-wide guidance: [`../../AGENTS.md`](../../AGENTS.md).
 
 ## What this is
 
@@ -11,8 +11,8 @@ task fits one `(task, fold, repeat, config)` item at a time and caches the resul
 counterpart to `../tabflow` (SageMaker) and mirrors its batching design, but only depends on
 `tabarena`.
 
-> The repo-root `AGENTS.md` still calls this "standalone scripts (not a package)" — that's stale.
-> It **is** a package now (`pyproject.toml`, `tabflow_slurm/__init__.py`, installed editable).
+> It **is** a package (`pyproject.toml`, `tabflow_slurm/__init__.py`) and a uv-workspace member,
+> installed editable from `packages/tabflow_slurm/`.
 
 ## Layout
 

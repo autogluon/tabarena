@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["tabarena", "bencheval"]
+members = ["packages/tabarena", "packages/bencheval", "packages/tabflow_slurm"]
 
 [tool.uv.sources]
 tabarena = { workspace = true }
