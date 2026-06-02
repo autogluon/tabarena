@@ -46,3 +46,32 @@ class TestMakeExperimentBatchRunner:
     def test_no_subset_leaves_full_grid(self, tmp_path):
         runner = _ctx().make_experiment_batch_runner(expname=str(tmp_path))
         assert runner._dataset_fold_repeats is None
+
+    def test_datasets_filter(self, tmp_path):
+        runner = _ctx().make_experiment_batch_runner(expname=str(tmp_path), datasets=["small_ds"])
+        assert runner._dataset_fold_repeats == [("small_ds", 0, 0), ("small_ds", 1, 0)]
+
+    def test_dataset_fold_repeats_used_as_is_without_subset(self, tmp_path):
+        runner = _ctx().make_experiment_batch_runner(
+            expname=str(tmp_path),
+            dataset_fold_repeats=[("big_ds", 1, 0)],
+        )
+        assert runner._dataset_fold_repeats == [("big_ds", 1, 0)]
+
+    def test_dataset_fold_repeats_intersected_with_subset(self, tmp_path):
+        # "lite" keeps split 0 only -> (small_ds,1,0) is dropped.
+        runner = _ctx().make_experiment_batch_runner(
+            expname=str(tmp_path),
+            subset="lite",
+            dataset_fold_repeats=[("small_ds", 0, 0), ("small_ds", 1, 0), ("big_ds", 0, 0)],
+        )
+        assert runner._dataset_fold_repeats == [("small_ds", 0, 0), ("big_ds", 0, 0)]
+
+    def test_dataset_fold_repeats_intersected_with_datasets(self, tmp_path):
+        # datasets=["small_ds"] -> (big_ds,0,0) is dropped.
+        runner = _ctx().make_experiment_batch_runner(
+            expname=str(tmp_path),
+            datasets=["small_ds"],
+            dataset_fold_repeats=[("small_ds", 1, 0), ("big_ds", 0, 0)],
+        )
+        assert runner._dataset_fold_repeats == [("small_ds", 1, 0)]

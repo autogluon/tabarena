@@ -883,24 +883,42 @@ class TabArenaContext:
         expname: str,
         *,
         subset: str | list[str] | None = None,
+        datasets: list[str] | None = None,
+        dataset_fold_repeats: list[tuple[str, int, int]] | None = None,
         **kwargs,
     ) -> ExperimentBatchRunner:
         """Create an `ExperimentBatchRunner` over this context's `task_metadata`.
 
-        If `subset` is provided, restrict the (dataset, fold, repeat) triplets that the
-        runner's `run_all` executes to those whose split (``n_folds * repeat + fold``)
-        passes the subset predicate expressions — the same predicates used by `compare`
-        (e.g. ``"lite"``, ``"small"``, ``"binary"``, ``"!tiny"``). If None, `run_all`
-        runs the full ``n_folds`` x ``n_repeats`` grid from `task_metadata`.
+        The (dataset, fold, repeat) triplets the runner's `run_all` executes are
+        determined by `subset`, `datasets`, and `dataset_fold_repeats`:
 
-        Extra keyword arguments (``cache_mode``, ``debug_mode``, ...) are forwarded to
-        `ExperimentBatchRunner`.
+        - `subset`: predicate expressions (the same as `compare`, e.g. ``"lite"``,
+          ``"small"``, ``"binary"``, ``"!tiny"``) applied to the full per-dataset grid,
+          where the predicates treat the split (``n_folds * repeat + fold``) as the
+          ``fold`` column (so ``"lite"`` keeps ``split == 0`` == ``(fold 0, repeat 0)``).
+        - `datasets`: restrict to these dataset names.
+        - `dataset_fold_repeats`: an explicit list of triplets. When given, the result is
+          the **intersection** of these and the triplets derived from `subset`/`datasets`
+          (so user triplets that fall outside the subset/datasets selection are dropped).
+
+        If none of the three are given, `run_all` runs the full ``n_folds`` x
+        ``n_repeats`` grid from `task_metadata`. Extra keyword arguments (``cache_mode``,
+        ``debug_mode``, ...) are forwarded to `ExperimentBatchRunner`.
         """
         from tabarena.benchmark.experiment import ExperimentBatchRunner
 
-        dataset_fold_repeats = None
-        if subset is not None:
-            dataset_fold_repeats = self._subset_dataset_fold_repeats(subset=subset)
+        derived = None
+        if subset is not None or datasets is not None:
+            derived = self._subset_dataset_fold_repeats(subset=subset, datasets=datasets)
+
+        if dataset_fold_repeats is not None:
+            if derived is not None:
+                allowed = set(derived)
+                dataset_fold_repeats = [t for t in dataset_fold_repeats if t in allowed]
+            # else: no subset/datasets constraint -> use the user's triplets as-is.
+        else:
+            dataset_fold_repeats = derived
+
         return ExperimentBatchRunner(
             expname=expname,
             task_metadata=self.task_metadata,
@@ -908,13 +926,18 @@ class TabArenaContext:
             **kwargs,
         )
 
-    def _subset_dataset_fold_repeats(self, subset: str | list[str]) -> list[tuple[str, int, int]]:
-        """Expand `task_metadata` into (dataset, fold, repeat) triplets kept by `subset`.
+    def _subset_dataset_fold_repeats(
+        self,
+        subset: str | list[str] | None = None,
+        datasets: list[str] | None = None,
+    ) -> list[tuple[str, int, int]]:
+        """Expand `task_metadata` into (dataset, fold, repeat) triplets kept by the filters.
 
         Builds the full per-dataset grid (``split = n_folds * repeat + fold``), then
-        filters it with the same predicate machinery as `compare`. The subset predicates
-        treat the split index as the ``fold`` column, so e.g. ``"lite"`` keeps
-        ``split == 0`` (i.e. ``(fold 0, repeat 0)``).
+        filters it with the same machinery as `compare` (`subset` predicate expressions
+        and/or an explicit `datasets` list). The subset predicates treat the split index
+        as the ``fold`` column, so e.g. ``"lite"`` keeps ``split == 0`` (i.e.
+        ``(fold 0, repeat 0)``).
         """
         from tabarena.nips2025_utils.compare import subset_tasks
 
@@ -936,6 +959,7 @@ class TabArenaContext:
         filtered = subset_tasks(
             df_results=grid,
             subset=subset,
+            datasets=datasets,
             task_metadata_og=self.task_metadata,
             predicates=self.subset_predicates,
         )
