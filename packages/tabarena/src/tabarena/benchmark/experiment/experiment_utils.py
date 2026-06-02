@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from tabarena.benchmark.experiment.experiment_constructor import Experiment
 from tabarena.benchmark.result import BaselineResult, ExperimentResults
@@ -137,14 +137,12 @@ class ExperimentBatchRunner:
         tids = [int(self._dataset_to_tid_dict[dataset]) for dataset in datasets]
 
         # Translate folds/repeats into explicit (fold, repeat) pairs run for every task.
+        # When `repeats` is unspecified, default to repeat 0. The cache path always
+        # includes the repeat (`{repeat}_{fold}`).
         if repeats is None:
-            # Legacy single-repeat layout: run repeat 0 and cache under `{fold}` (no repeat
-            # in the path), matching the cache files written before this delegation.
             fold_repeat_pairs = [(fold, 0) for fold in folds]
-            include_repeat_in_cache_name = False
         else:
             fold_repeat_pairs = [(fold, repeat) for repeat in repeats for fold in folds]
-            include_repeat_in_cache_name = True
 
         if self.only_cache:
             cache_mode = "only"
@@ -163,7 +161,6 @@ class ExperimentBatchRunner:
             repetitions_mode="individual",
             repetitions_mode_args=fold_repeat_pairs,
             cache_mode=cache_mode,
-            include_repeat_in_cache_name=include_repeat_in_cache_name,
             # Forward the configured cache backend. The default `cache_cls_kwargs`
             # carries `include_self_in_call=True`, preserving the legacy
             # `model_failures` artifact on failure.
@@ -301,12 +298,10 @@ def check_cache_hit(
     repeat: int | None,
     cache_cls: type[AbstractCacheFunction] | None,
     cache_cls_kwargs: dict | None = None,
-    mode: Literal["local", "s3"],
-    s3_bucket: str | None = None,
     delete_cache: bool = False,
 ) -> bool:
     """Returns true if cache exists for the given experiment."""
-    base_cache_path = result_dir if mode == "local" else f"s3://{s3_bucket}/{result_dir}"
+    base_cache_path = result_dir
 
     subtask_cache_name = ExperimentBatchRunner._subtask_name(fold=fold, repeat=repeat)
 

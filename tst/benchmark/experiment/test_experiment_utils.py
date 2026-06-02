@@ -413,19 +413,8 @@ class TestBuildCachePrefix:
             cache_task_key=360,
             fold=2,
             repeat=1,
-            include_repeat_in_cache_name=True,
         )
         assert prefix == "data/m/360/1_2"
-
-    def test_name_first_without_repeat_is_legacy_layout(self):
-        prefix = _build_cache_prefix(
-            method_name="m",
-            cache_task_key=360,
-            fold=2,
-            repeat=1,
-            include_repeat_in_cache_name=False,
-        )
-        assert prefix == "data/m/360/2"
 
 
 class TestExperimentBatchRunnerDelegation:

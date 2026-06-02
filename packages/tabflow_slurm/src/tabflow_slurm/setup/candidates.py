@@ -106,5 +106,4 @@ def should_run_job(
         repeat=candidate.repeat,
         cache_cls=CacheFunctionPickle,
         cache_cls_kwargs={"include_self_in_call": True},
-        mode="local",
     )

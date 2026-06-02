@@ -195,18 +195,12 @@ def _build_cache_prefix(
     cache_task_key: int | str,
     fold: int,
     repeat: int,
-    include_repeat_in_cache_name: bool,
 ) -> str:
     """Build the cache directory prefix (relative to the base cache path).
 
-    ``include_repeat_in_cache_name`` toggles the legacy single-repeat subtask
-    name (``{fold}`` instead of ``{repeat}_{fold}``) so caches written by the
-    legacy ``run_experiments``/``ExperimentBatchRunner`` remain discoverable.
+    The subtask component is always ``{repeat}_{fold}``.
     """
-    subtask_cache_name = ExperimentBatchRunner._subtask_name(
-        fold=fold,
-        repeat=repeat if include_repeat_in_cache_name else None,
-    )
+    subtask_cache_name = ExperimentBatchRunner._subtask_name(fold=fold, repeat=repeat)
     return f"data/{method_name}/{cache_task_key}/{subtask_cache_name}"
 
 
@@ -220,7 +214,6 @@ def run_experiments_new(
     use_metadata_task_name: bool = False,
     repetitions_mode_args: tuple | list | None = None,
     cache_mode: Literal["default", "ignore", "only"] = "default",
-    include_repeat_in_cache_name: bool = True,
     cache_cls: type[AbstractCacheFunction] = CacheFunctionPickle,
     cache_cls_kwargs: dict | None = None,
     raise_on_failure: bool = True,
@@ -324,14 +317,6 @@ def run_experiments_new(
                 overwrite the cache file upon completion.
             - "only": Only load results from cache. This does not run the experiment
                 if cache does not exist.
-    include_repeat_in_cache_name: bool, default True
-        Determines the `{subtask}` component of the cache path:
-            - True: `{repeat}_{fold}` (e.g. `0_0`).
-            - False: `{fold}` (e.g. `0`), the legacy single-repeat layout used by
-                `ExperimentBatchRunner` when called without `repeats`. Set to False
-                to keep such legacy caches discoverable. Note that the repeat is then
-                absent from the path, so distinct repeats of the same fold collide;
-                only use this for single-repeat runs.
     cache_cls: type[AbstractCacheFunction], default CacheFunctionPickle
         The cache class used to read/write each experiment's `results`. Must accept
         `cache_name` and `cache_path` constructor arguments (e.g. `CacheFunctionPickle`
@@ -434,7 +419,6 @@ def run_experiments_new(
                     cache_task_key=cache_task_key,
                     fold=fold,
                     repeat=repeat,
-                    include_repeat_in_cache_name=include_repeat_in_cache_name,
                 )
                 cache_path = f"{base_cache_path}/{cache_prefix}"
                 # `include_self_in_call` passes the cacher into the runner so a failed fit
