@@ -562,5 +562,5 @@ class TestRunExperimentsNewCacheCls:
             cache_cls=_RecordingCache,
             cache_cls_kwargs={"include_self_in_call": True},
         )
-        # Explicit cache_cls_kwargs wins over the write_model_failures default (False).
+        # Explicit cache_cls_kwargs wins over the include_self_in_call default (False).
         assert all(kw.get("include_self_in_call") is True for *_, kw in _RecordingCache.instances)

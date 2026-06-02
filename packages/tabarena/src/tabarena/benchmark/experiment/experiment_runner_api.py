@@ -222,7 +222,6 @@ def run_experiments_new(
     run_mode: str = "local",
     cache_mode: Literal["default", "ignore", "only"] = "default",
     include_repeat_in_cache_name: bool = True,
-    write_model_failures: bool = False,
     cache_cls: type[AbstractCacheFunction] = CacheFunctionPickle,
     cache_cls_kwargs: dict | None = None,
     s3_kwargs: dict | None = None,
@@ -343,13 +342,6 @@ def run_experiments_new(
                 to keep such legacy caches discoverable. Note that the repeat is then
                 absent from the path, so distinct repeats of the same fold collide;
                 only use this for single-repeat runs.
-    write_model_failures: bool, default False
-        If True, a failed fit in benchmark mode (`debug_mode=False`) additionally
-        writes a `model_failures` artifact next to the `results` cache (matching the
-        legacy `ExperimentBatchRunner` behavior). This does not affect the `results`
-        cache file itself (path, format, or hit logic). Implemented via the cacher's
-        `include_self_in_call`; an explicit `cache_cls_kwargs["include_self_in_call"]`
-        takes precedence.
     cache_cls: type[AbstractCacheFunction], default CacheFunctionPickle
         The cache class used to read/write each experiment's `results`. Must accept
         `cache_name` and `cache_path` constructor arguments (e.g. `CacheFunctionPickle`
@@ -475,13 +467,14 @@ def run_experiments_new(
                 cache_path = f"{base_cache_path}/{cache_prefix}"
                 # `include_self_in_call` passes the cacher into the runner so a failed fit
                 # (in benchmark mode) can drop a `model_failures` artifact next to the
-                # results (see `write_model_failures`). It does not affect the `results`
-                # cache file's path, format, or hit logic. An explicit `cache_cls_kwargs`
-                # entry takes precedence over the `write_model_failures` default.
+                # results. It defaults to False (no such artifact) and does not affect the
+                # `results` cache file's path, format, or hit logic. An explicit
+                # `cache_cls_kwargs["include_self_in_call"]` takes precedence (e.g.
+                # `ExperimentBatchRunner` sets it True to keep the legacy artifact).
                 cacher = cache_cls(
                     cache_name=cache_name,
                     cache_path=cache_path,
-                    **{"include_self_in_call": write_model_failures, **(cache_cls_kwargs or {})},
+                    **{"include_self_in_call": False, **(cache_cls_kwargs or {})},
                 )
                 cache_exists = cacher.exists
 
