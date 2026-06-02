@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._model_info import ModelInfo
+from tabarena.models.tabicl.hpo import gen_tabicl, gen_tabiclv2
 from tabarena.models.tabicl.model import (
     TabICLModel,
     TabICLv2Model,
 )
-from tabarena.models._model_info import ModelInfo
-from tabarena.models.tabicl.hpo import gen_tabicl, gen_tabiclv2
-from tabarena.models._method_metadata import MethodMetadata
-
 
 tabicl_method_metadata = MethodMetadata(
     method="TabICL_GPU",
@@ -16,7 +15,7 @@ tabicl_method_metadata = MethodMetadata(
     compute="gpu",
     date="2025-06-12",
     ag_key="TABICL",
-    model_key="TABICL_GPU",
+    model_key="TABICL",
     config_default="TabICL_GPU_c1_BAG_L1",
     can_hpo=False,
     is_bag=False,
