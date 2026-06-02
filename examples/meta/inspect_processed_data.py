@@ -117,7 +117,7 @@ if __name__ == "__main__":
 
     config_types = repo.config_types()
     assert len(config_types) == 1, (
-        "There should be exactly 1 config_type for method {method_metadata.method}: {config_types}"
+        f"There should be exactly 1 config_type for method {method_metadata.method}: {config_types}"
     )
     repo_config_type = config_types[0]
     if repo_config_type != method_metadata.config_type:
