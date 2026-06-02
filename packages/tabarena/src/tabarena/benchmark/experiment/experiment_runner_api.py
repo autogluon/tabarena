@@ -211,7 +211,6 @@ def run_experiments_new(
     tasks: list[int | UserTask],
     repetitions_mode: Literal["TabArena-Lite", "TabArena", "matrix", "individual"],
     tasks_metadata: pd.DataFrame | None = None,
-    use_metadata_task_name: bool = False,
     repetitions_mode_args: tuple | list | None = None,
     cache_mode: Literal["default", "ignore", "only"] = "default",
     cache_cls: type[AbstractCacheFunction] = CacheFunctionPickle,
@@ -246,7 +245,6 @@ def run_experiments_new(
                 See `repetitions_mode_args`.
     tasks_metadata: pd.DataFrame | None, default None
         Metadata about each task in `tasks`. Required if `repetitions_mode="TabArena"`.
-        Also consumed for the display name when `use_metadata_task_name=True`.
 
         If None, we assume that the `tasks` contain tasks from the official curated
         TabArena benchmark and load the metadata internally. If it contains tasks
@@ -262,13 +260,6 @@ def run_experiments_new(
                 See tabarena.nips2025_utils.fetch_metadata._get_n_repeats for details.
             "num_folds": int
                 The number of folds for the task.
-    use_metadata_task_name: bool, default False
-        If True, each task's display name (the results `dataset` key) is taken from
-        `tasks_metadata`: a name column (`dataset` or `name`) keyed by a task-id
-        column (`task_id` or `tid`). Enable this to make results join cleanly with
-        custom metadata (the legacy `ExperimentBatchRunner` behavior). If False
-        (default), the name is derived from the task object (OpenML dataset name)
-        or the `UserTask` slug.
     repetitions_mode_args: list | tuple | None, default None
         Determine how many repetitions of the experiments to run per task, i.e., how
         many folds and repeats to run for each task. Note, all tasks come with
@@ -385,12 +376,9 @@ def run_experiments_new(
     experiment_count_total = n_splits * len(model_experiments)
     for dataset_index, task_id_or_object in enumerate(tasks):
         task, eval_metric_name = None, None
-        # Display name used as the results `dataset` key. Only resolved from
-        # `tasks_metadata` when explicitly requested; otherwise it is derived from the
-        # task object (OpenML name) / UserTask slug when the task is loaded below.
-        tabarena_task_name = (
-            _resolve_task_display_name(task_id_or_object, tasks_metadata) if use_metadata_task_name else None
-        )
+        # Display name used as the results `dataset` key. Derived from the task object
+        # (OpenML name) / UserTask slug when the task is loaded below.
+        tabarena_task_name = None
         print(f"Starting Dataset {dataset_index + 1}/{len(tasks)}...")
 
         for split_index, (fold, repeat) in enumerate(fold_repeat_pairs_per_task[dataset_index], start=1):
