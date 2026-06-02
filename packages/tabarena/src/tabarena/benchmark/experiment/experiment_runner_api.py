@@ -186,7 +186,7 @@ def run_experiments_new(
     repetitions_mode: Literal["TabArena-Lite", "TabArena", "matrix", "individual"],
     tasks_metadata: pd.DataFrame | None = None,
     repetitions_mode_args: tuple | list | None = None,
-    cache_mode: Literal["default", "ignore", "only"] = "default",
+    cache_mode: Literal["default", "ignore", "only", "only_strict"] = "default",
     cache_cls: type[AbstractCacheFunction] = CacheFunctionPickle,
     cache_cls_kwargs: dict | None = None,
     raise_on_failure: bool = True,
@@ -275,13 +275,15 @@ def run_experiments_new(
                 above format, that specifies the repeat and fold pairs to run for
                 each task. We assume the list is ordered the same as the tasks, so the
                 first tuple corresponds to the first task, and so on.
-    cache_mode: Literal["default", "ignore", "only"], default "default"
+    cache_mode: Literal["default", "ignore", "only", "only_strict"], default "default"
         Determines how to handle the cache:
             - "default": Skip experiment if cache exists, otherwise run the experiment.
             - "ignore": Ignore the cache and always run the experiment. This will
                 overwrite the cache file upon completion.
             - "only": Only load results from cache. This does not run the experiment
-                if cache does not exist.
+                if cache does not exist; missing experiments are silently skipped.
+            - "only_strict": Like "only", but raise if any requested experiment is
+                missing from the cache (after listing all of the missing experiments).
     cache_cls: type[AbstractCacheFunction], default CacheFunctionPickle
         The cache class used to read/write each experiment's `results`. Must accept
         `cache_name` and `cache_path` constructor arguments (e.g. `CacheFunctionPickle`
@@ -347,6 +349,9 @@ def run_experiments_new(
     result_lst = []
     cur_experiment_idx, experiment_success_count, experiment_fail_count = -1, 0, 0
     experiment_missing_count, experiment_cache_exists_count = 0, 0
+    # (method, task, fold, repeat) tuples that were requested but absent from the cache,
+    # collected only for `cache_mode="only_strict"` to raise after the full sweep.
+    missing_cached_experiments: list[tuple] = []
     experiment_count_total = n_splits * len(model_experiments)
     for dataset_index, task_id_or_object in enumerate(tasks):
         task, eval_metric_name = None, None
@@ -395,15 +400,18 @@ def run_experiments_new(
                     **{"include_self_in_call": False, **(cache_cls_kwargs or {})},
                 )
                 cache_exists = cacher.exists
+                load_only = cache_mode in ("only", "only_strict")
 
                 # Check cache state
                 if cache_exists and (cache_mode != "ignore"):
                     experiment_cache_exists_count += 1
-                elif (not cache_exists) and (cache_mode == "only"):
+                elif (not cache_exists) and load_only:
                     experiment_missing_count += 1
+                    if cache_mode == "only_strict":
+                        missing_cached_experiments.append((model_experiment.name, cache_task_key, fold, repeat))
                     continue
 
-                if cache_mode == "only":
+                if load_only:
                     out = cacher.load_cache()
                 else:
                     if (task is None) and ((cache_mode == "ignore") or (not cache_exists)):
@@ -512,5 +520,13 @@ def run_experiments_new(
                     result_lst.append(out)
                 else:
                     experiment_fail_count += 1
+
+    if cache_mode == "only_strict" and missing_cached_experiments:
+        missing_str = "\n\t".join(str(m) for m in missing_cached_experiments)
+        raise AssertionError(
+            f"cache_mode='only_strict': missing cached results for "
+            f"{len(missing_cached_experiments)}/{experiment_count_total} experiment(s).\n"
+            f"Missing (method, task, fold, repeat):\n\t{missing_str}",
+        )
 
     return result_lst

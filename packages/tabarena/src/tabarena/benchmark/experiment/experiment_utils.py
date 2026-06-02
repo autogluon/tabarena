@@ -3,11 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from tabarena.benchmark.experiment.experiment_constructor import Experiment
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy, CacheFunctionPickle
 
 if TYPE_CHECKING:
     import pandas as pd
+
+    from tabarena.benchmark.experiment.experiment_constructor import Experiment
 
 
 # TODO: Inspect artifact folder to load all results without needing to specify them explicitly
@@ -19,7 +20,7 @@ class ExperimentBatchRunner:
         task_metadata: pd.DataFrame,
         cache_cls: type[AbstractCacheFunction] | None = CacheFunctionPickle,
         cache_cls_kwargs: dict | None = None,
-        cache_mode: Literal["default", "ignore", "only"] = "default",
+        cache_mode: Literal["default", "ignore", "only", "only_strict"] = "default",
         debug_mode: bool = True,
         raise_on_failure: bool = True,
     ):
@@ -28,11 +29,14 @@ class ExperimentBatchRunner:
         expname
         cache_cls
         cache_cls_kwargs
-        cache_mode: {"default", "ignore", "only"}, default "default"
+        cache_mode: {"default", "ignore", "only", "only_strict"}, default "default"
             How to handle the experiment cache:
                 - "default": skip an experiment if its cache exists, otherwise run it.
                 - "ignore": always run the experiment, overwriting any existing cache.
-                - "only": only load results from cache; never run an experiment.
+                - "only": only load results from cache; never run an experiment, and
+                    silently skip experiments whose cache is missing.
+                - "only_strict": like "only", but raise if any requested experiment is
+                    missing from the cache.
         debug_mode: bool, default True
             If True, will operate in a manner best suited for local model development.
             This mode will be friendly to local debuggers and will avoid subprocesses/threads
@@ -225,86 +229,9 @@ class ExperimentBatchRunner:
             debug_mode=self.debug_mode,
         )
 
-    def load_results(
-        self,
-        methods: list[Experiment | str],
-        datasets: list[str],
-        folds: list[int],
-        repeats: list[int] | None = None,
-        require_all: bool = True,
-    ) -> list[dict[str, Any]]:
-        """Load results from the cache.
-
-        Parameters
-        ----------
-
-        Methods:
-        datasets
-        folds
-        repeats
-        require_all: bool, default True
-            If True, will raise an exception if not all methods x datasets x folds have a cached result to load.
-            If False, will return only the list of results with a cached result. This can be an empty list if no cached results exist.
-
-        Returns:
-        -------
-        results_lst
-            The same output format returned by `self.run`
-
-        """
-        results_lst = []
-        results_lst_exists = []
-        results_lst_missing = []
-        if repeats is not None:
-            repeat_fold_pairs = [(r, f) for r in repeats for f in folds]
-        else:
-            repeat_fold_pairs = [(None, f) for f in folds]
-        for method in methods:
-            method_name = method.name if isinstance(method, Experiment) else method
-            for dataset in datasets:
-                for repeat, fold in repeat_fold_pairs:
-                    cache_exists = self._cache_exists(method_name=method_name, dataset=dataset, fold=fold)
-                    cache_args = (method_name, dataset, fold, repeat)
-                    if cache_exists:
-                        results_lst_exists.append(cache_args)
-                        print(method.name, dataset, fold)
-                        print(f"\t{cache_exists}")
-                    else:
-                        results_lst_missing.append(cache_args)
-        if require_all and results_lst_missing:
-            raise AssertionError(
-                f"Missing cached results for {len(results_lst_missing)}/{len(results_lst_exists) + len(results_lst_missing)} experiments! "
-                f"\nTo load only the {len(results_lst_exists)} existing experiments, set `require_all=False`, "
-                f"or call `exp_batch_runner.run(methods=methods, datasets=datasets, folds=folds)` to run the missing experiments."
-                f"\nMissing experiments:\n\t{results_lst_missing}",
-            )
-        for method_name, dataset, fold, repeat in results_lst_exists:
-            results_lst.append(self._load_result(method_name=method_name, dataset=dataset, fold=fold, repeat=repeat))
-        return results_lst
-
     @classmethod
     def _subtask_name(cls, fold: int, repeat: int | None = None) -> str:
         return f"{fold}" if repeat is None else f"{repeat}_{fold}"
-
-    def _cache_name(self, method_name: str, dataset: str, fold: int, repeat: int | None = None) -> str:
-        subtask_name = self._subtask_name(fold=fold, repeat=repeat)
-        # TODO: Windows? Use Path?
-        tid = self._dataset_to_tid_dict[dataset]
-        return f"data/{method_name}/{tid}/{subtask_name}/results"
-
-    def _cache_exists(self, method_name: str, dataset: str, fold: int, repeat: int | None = None) -> bool:
-        cacher = self._get_cacher(method_name=method_name, dataset=dataset, fold=fold, repeat=repeat)
-        return cacher.exists
-
-    def _load_result(self, method_name: str, dataset: str, fold: int, repeat: int | None = None) -> dict[str, Any]:
-        cacher = self._get_cacher(method_name=method_name, dataset=dataset, fold=fold, repeat=repeat)
-        return cacher.load_cache()
-
-    def _get_cacher(
-        self, method_name: str, dataset: str, fold: int, repeat: int | None = None
-    ) -> AbstractCacheFunction:
-        cache_name = self._cache_name(method_name=method_name, dataset=dataset, fold=fold, repeat=repeat)
-        return self.cache_cls(cache_name=cache_name, cache_path=self.expname, **self.cache_cls_kwargs)
 
     def _validate_datasets(self, datasets: list[str]):
         unknown_datasets = []
