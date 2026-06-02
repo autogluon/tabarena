@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from ConfigSpace import Categorical, ConfigurationSpace, Float
-
 from tabarena.models.iltm.model import ILTMModel
 from tabarena.models.utils import convert_numpy_dtypes
 from tabarena.utils.config_utils import CustomAGConfigGenerator
 
 
 def generate_configs_iltm(num_random_configs: int = 200) -> list[dict]:
+    from ConfigSpace import Categorical, ConfigurationSpace, Float
+
     # Mirrors iLTM's recommended search space (iltm/hyperparameter_search_space.py),
     # including its `probs=...` weights. Constants matching iLTM defaults are
     # omitted; `device` is omitted because the wrapper passes it explicitly to
