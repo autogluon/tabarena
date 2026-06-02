@@ -225,19 +225,6 @@ class ExperimentBatchRunner:
             results_lst.append(self._load_result(method_name=method_name, dataset=dataset, fold=fold, repeat=repeat))
         return results_lst
 
-    def repo_from_results(
-        self,
-        results_lst: list[dict[str, Any] | BaselineResult],
-        calibrate: bool = False,
-        include_holdout: bool = False,
-    ) -> EvaluationRepository:
-        experiment_results = ExperimentResults(task_metadata=self.task_metadata)
-        return experiment_results.repo_from_results(
-            results_lst=results_lst,
-            calibrate=calibrate,
-            include_holdout=include_holdout,
-        )
-
     @classmethod
     def _subtask_name(cls, fold: int, repeat: int | None = None) -> str:
         return f"{fold}" if repeat is None else f"{repeat}_{fold}"
