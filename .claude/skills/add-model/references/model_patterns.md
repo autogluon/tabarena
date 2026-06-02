@@ -2,7 +2,7 @@
 
 Reference patterns for the `add-model` skill. These are annotated templates based on real implementations in the codebase.
 
-Every model lives in a single folder at `packages/tabarena/tabarena/models/{ModelKey}/` with this layout:
+Every model lives in a single folder at `packages/tabarena/src/tabarena/models/{ModelKey}/` with this layout:
 
 ```
 tabarena/models/{ModelKey}/
@@ -303,7 +303,7 @@ __all__ = ["gen_{ModelKey}", "{ModelKey}_info", "{ModelKey}_method_metadata"]
 
 ## Test template
 
-Tests for `packages/tabarena/tabarena/models/{ModelKey}/model.py` live at `tst/models/test_{ModelKey}.py`.
+Tests for `packages/tabarena/src/tabarena/models/{ModelKey}/model.py` live at `tst/models/test_{ModelKey}.py`.
 
 ```python
 from __future__ import annotations
@@ -331,7 +331,7 @@ def test_{ModelKey}():
 
 ## Registry update snippets
 
-### `packages/tabarena/tabarena/models/__init__.py` — lazy class entry
+### `packages/tabarena/src/tabarena/models/__init__.py` — lazy class entry
 
 ```python
 # Add to _LAZY_CLASSES (keep alphabetised by class name):
@@ -354,7 +354,7 @@ if TYPE_CHECKING:
     from tabarena.models.{ModelKey}.model import {ClassName}Model
 ```
 
-### `packages/tabarena/tabarena/models/utils.py` — `name_to_import_map` entry
+### `packages/tabarena/src/tabarena/models/utils.py` — `name_to_import_map` entry
 
 Used by `get_configs_generator_from_name()`. The key is the friendly model name (typically same as `ModelName`):
 
@@ -379,7 +379,7 @@ extended = [
 
 ## Multi-file models (optional)
 
-If the wrapper needs supporting modules, organise them under a private subfolder of `packages/tabarena/tabarena/models/{ModelKey}/`:
+If the wrapper needs supporting modules, organise them under a private subfolder of `packages/tabarena/src/tabarena/models/{ModelKey}/`:
 
 ```
 tabarena/models/modernnca/        # example of a multi-file model
@@ -420,7 +420,7 @@ Conventions:
 
 `info.py` is now the single source of truth for `MethodMetadata`. There's no separate "add a metadata entry" step when first introducing a model.
 
-If/when the model has been benchmarked and the results are ready to be registered in TabArena's downstream artifact-aggregation files, also import the metadata you defined in `info.py` into the dated batch file under `packages/tabarena/tabarena/nips2025_utils/artifacts/_tabarena_method_metadata_YYYY_MM_DD.py`. That step is for downstream artifact handling only — it is not required for the model to work in the registry.
+If/when the model has been benchmarked and the results are ready to be registered in TabArena's downstream artifact-aggregation files, also import the metadata you defined in `info.py` into the dated batch file under `packages/tabarena/src/tabarena/nips2025_utils/artifacts/_tabarena_method_metadata_YYYY_MM_DD.py`. That step is for downstream artifact handling only — it is not required for the model to work in the registry.
 
 ---
 

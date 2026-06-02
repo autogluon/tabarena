@@ -14,7 +14,7 @@ dependencies = [
 tabarena = { workspace = true }
 
 [tool.setuptools]
-package-dir = {}
+package-dir = { "" = "src" }
 packages = ["tabflow_slurm", "tabflow_slurm.setup"]
 
 [tool.setuptools.package-data]

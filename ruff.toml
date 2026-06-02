@@ -2,7 +2,7 @@
 target-version = "py39"
 line-length = 120
 output-format = "full"
-src = ["examples", "packages/tabflow_slurm"]
+src = ["examples", "packages/tabflow_slurm/src"]
 
 [lint]
 # Extend what ruff is allowed to fix, even it it may break

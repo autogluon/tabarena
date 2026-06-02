@@ -135,7 +135,7 @@ git clone https://github.com/autogluon/tabarena.git
 uv pip install --prerelease=allow -e "./tabarena/packages/tabarena[benchmark]"
 ```
 
-> In PyCharm, mark `packages/tabarena/` and each `autogluon/src/` subdirectory as **Sources Root** so imports resolve.
+> In PyCharm, mark `packages/tabarena/src/` and each `autogluon/src/` subdirectory as **Sources Root** so imports resolve.
 
 </details>
 
