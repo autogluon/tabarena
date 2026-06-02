@@ -56,47 +56,6 @@ class ExperimentBatchRunner:
     def datasets(self) -> list[str]:
         return list(self._dataset_to_tid_dict.keys())
 
-    def run_w_folds_per_dataset(
-        self,
-        methods: list[Experiment],
-        dataset_folds_repeats_lst: list[tuple[str, list[int], list[int] | None]],
-        ignore_cache: bool = False,
-        raise_on_failure: bool = True,
-    ) -> list[dict[str, Any]]:
-        """Similar to `run` but with the ability to specify folds and repeats on a per-dataset basis.
-
-        Parameters
-        ----------
-
-        Methods:
-        dataset_folds_repeats_lst
-        ignore_cache: bool, default False
-            If True, will run the experiments regardless if the cache exists already, and will overwrite the cache file upon completion.
-            If False, will load the cache result if it exists for a given experiment, rather than running the experiment again.
-        raise_on_failure
-
-        Returns:
-        -------
-        results_lst: list[dict[str, Any]]
-            A list of experiment run metadata dictionaries.
-            Can pass into `exp_bach_runner.repo_from_results(results_lst=results_lst)` to generate an EvaluationRepository.
-
-        """
-        results_lst = []
-        len_datasets = len(dataset_folds_repeats_lst)
-        for i, (dataset, folds, repeats) in enumerate(dataset_folds_repeats_lst):
-            print(f"Fitting dataset {i + 1}/{len_datasets}... (dataset={dataset}, folds={folds}, repeats={repeats})")
-            results_lst_cur = self.run(
-                methods=methods,
-                datasets=[dataset],
-                folds=folds,
-                repeats=repeats,
-                ignore_cache=ignore_cache,
-                raise_on_failure=raise_on_failure,
-            )
-            results_lst += results_lst_cur
-        return results_lst
-
     def run(
         self,
         methods: list[Experiment],
