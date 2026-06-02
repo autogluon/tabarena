@@ -148,6 +148,8 @@ Add the following to your project's dependencies:
 "tabarena @ git+https://github.com/autogluon/tabarena.git#subdirectory=packages/tabarena"
 ```
 
+</details>
+
 # 📦 TabArena Artifacts
 
 TabArena caches predictions, results, and leaderboards as downloadable artifacts so you can reproduce or extend any analysis without re-running the benchmark.

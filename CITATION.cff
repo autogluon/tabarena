@@ -1,0 +1,53 @@
+cff-version: 1.2.0
+message: "If you use TabArena in a scientific publication, please cite our paper."
+title: "TabArena: A Living Benchmark for Machine Learning on Tabular Data"
+abstract: "TabArena is a living benchmark for machine learning on tabular data."
+type: software
+url: "https://tabarena.ai"
+repository-code: "https://github.com/autogluon/tabarena"
+license: Apache-2.0
+authors:
+  - given-names: Nick
+    family-names: Erickson
+  - given-names: Lennart
+    family-names: Purucker
+  - given-names: Andrej
+    family-names: Tschalzev
+  - given-names: David
+    family-names: Holzmüller
+  - given-names: Prateek
+    family-names: Mutalik Desai
+  - given-names: David
+    family-names: Salinas
+  - given-names: Frank
+    family-names: Hutter
+preferred-citation:
+  type: article
+  title: "TabArena: A Living Benchmark for Machine Learning on Tabular Data"
+  authors:
+    - given-names: Nick
+      family-names: Erickson
+    - given-names: Lennart
+      family-names: Purucker
+    - given-names: Andrej
+      family-names: Tschalzev
+    - given-names: David
+      family-names: Holzmüller
+    - given-names: Prateek
+      family-names: Mutalik Desai
+    - given-names: David
+      family-names: Salinas
+    - given-names: Frank
+      family-names: Hutter
+  journal: "Advances in Neural Information Processing Systems"
+  notes: "NeurIPS 2025, Datasets and Benchmarks Track (Spotlight). The entry uses year 2026 because the NeurIPS'25 proceedings are published in 2026."
+  volume: 38
+  year: 2026
+  url: "https://arxiv.org/abs/2506.16791"
+  identifiers:
+    - type: other
+      value: "arXiv:2506.16791"
+      description: arXiv preprint
+    - type: url
+      value: "https://neurips.cc/virtual/2025/loc/san-diego/poster/121499"
+      description: NeurIPS 2025 poster page
