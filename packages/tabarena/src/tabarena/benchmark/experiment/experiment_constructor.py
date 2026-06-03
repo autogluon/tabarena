@@ -14,6 +14,8 @@ from tabarena.benchmark.models.wrapper.AutoGluon_class import AGSingleBagWrapper
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy
 
 if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
+
     from autogluon.core.models import AbstractModel
 
     from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel
@@ -333,6 +335,77 @@ class Experiment:
                 )
             else:
                 self.method_kwargs[key] = value
+
+    def prepare_for_task(
+        self,
+        *,
+        task: OpenMLTaskWrapper | None,
+        cache_task_key: int | str,
+    ) -> AbstractContextManager:
+        """Configure this experiment for ``task`` and return its task-specific cache scope.
+
+        Bundles the (experimental) ``dynamic_tabarena_validation_protocol`` setup into a
+        single call: it adapts this experiment's validation-split metadata to the task
+        (eagerly, when called) and returns a context manager that loads the task's
+        semantic-text embedding cache for the duration of the fit, restoring the prior
+        state on exit. When the protocol is disabled or no task object is available
+        (e.g. a pure cache load), configuration is skipped and a null context is returned.
+
+        Configuration runs eagerly here (rather than on ``__enter__``) so a misconfigured
+        task/experiment surfaces immediately at the call site; only the returned scope is
+        meant to wrap the ``run(...)`` call.
+
+        Parameters
+        ----------
+        task: OpenMLTaskWrapper | None
+            The loaded task to adapt to, or ``None`` when no task object is available.
+        cache_task_key: int | str
+            The canonical task identifier used to key the task-specific text-embedding
+            cache (OpenML task id, or ``UserTask.slug``). This is the same key used for
+            the results cache path. Only the loader (not generation) is needed here, so
+            the key alone suffices — the original task handle is not required.
+
+        Returns:
+        -------
+        A context manager to wrap this experiment's ``run(...)`` call.
+        """
+        from contextlib import nullcontext
+
+        if (task is None) or (not self.dynamic_tabarena_validation_protocol):
+            return nullcontext()
+
+        from tabarena.benchmark.task.openml import TabArenaOpenMLSupervisedTask
+
+        if not isinstance(task.task, TabArenaOpenMLSupervisedTask):
+            raise ValueError(
+                "`dynamic_tabarena_validation_protocol` is only "
+                "implemented for `TabArenaOpenMLSupervisedTask`!",
+            )
+
+        if not isinstance(self, AGModelBagExperiment):
+            # TODO: add support
+            raise NotImplementedError(
+                "Validation split kwargs only implemented for "
+                f"AGModelBagExperiment for now, got {type(self)}",
+            )
+
+        # Add info about group and time for the pipeline to handle.
+        self.load_validation_split_metadata(
+            use_task_specific_validation=True,
+            **task.get_validation_split_kwargs(),
+        )
+
+        # Load this task's semantic-text embedding cache for the duration of the fit
+        # (slug-keyed + encoder-versioned; restored afterwards). Default ``require``: a
+        # text task with no cache fails fast — warm it first via the prefetch/download
+        # path or pre-generation.
+        from tabarena.benchmark.preprocessing.text_cache import use_text_cache_for_task
+
+        return use_text_cache_for_task(
+            cache_task_key,
+            has_text=task._has_text,
+            mode="require",
+        )
 
 
 class AGModelOuterExperiment(Experiment):

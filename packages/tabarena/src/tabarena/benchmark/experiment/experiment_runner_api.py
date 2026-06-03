@@ -163,6 +163,19 @@ def _parse_repetitions_mode_and_args(
     raise ValueError(f"Unknown `repetitions_mode` str: {repetitions_mode}")
 
 
+def _task_cache_key(task: int | UserTask) -> int | str:
+    """Canonical, filesystem-safe identifier for a task, used to key its cache.
+
+    Returns the OpenML task id for an integer task, or the ``UserTask.slug`` for a
+    local task. This is the per-task component of the results cache path (see
+    ``_build_cache_prefix``) and the same key under which the task's text-embedding
+    cache is stored (mirrors
+    ``tabarena.benchmark.preprocessing.text_cache.text_cache_key``), so a task's
+    results and text caches stay consistently keyed off one identifier.
+    """
+    return task if isinstance(task, int) else task.slug
+
+
 def _build_cache_prefix(
     *,
     method_name: str,
@@ -176,6 +189,45 @@ def _build_cache_prefix(
     """
     subtask_cache_name = ExperimentBatchRunner._subtask_name(fold=fold, repeat=repeat)
     return f"data/{method_name}/{cache_task_key}/{subtask_cache_name}"
+
+
+def _build_results_cacher(
+    *,
+    cache_cls: type[AbstractCacheFunction],
+    cache_cls_kwargs: dict | None,
+    base_cache_path: str,
+    method_name: str,
+    cache_task_key: int | str,
+    fold: int,
+    repeat: int,
+) -> AbstractCacheFunction:
+    """Construct the cacher for a single (method, task, fold, repeat) ``results`` artifact.
+
+    Centralizes the results cache layout so the run loop never assembles cache paths by
+    hand: the artifact is named ``results`` and lives at
+    ``{base_cache_path}/data/{method_name}/{cache_task_key}/{repeat}_{fold}``. Note the
+    task identity enters only as the pre-derived ``cache_task_key`` (see
+    ``_task_cache_key``); the cache class itself stays task-agnostic and reusable.
+
+    ``include_self_in_call`` passes the cacher into the runner so a failed fit (in
+    benchmark mode) can drop a ``model_failures`` artifact next to the results. It
+    defaults to False (no such artifact) and does not affect the ``results`` cache
+    file's path, format, or hit logic. An explicit
+    ``cache_cls_kwargs["include_self_in_call"]`` takes precedence (e.g.
+    ``ExperimentBatchRunner`` sets it True to keep the legacy artifact).
+    """
+    cache_prefix = _build_cache_prefix(
+        method_name=method_name,
+        cache_task_key=cache_task_key,
+        fold=fold,
+        repeat=repeat,
+    )
+    cache_path = f"{base_cache_path}/{cache_prefix}"
+    return cache_cls(
+        cache_name="results",
+        cache_path=cache_path,
+        **{"include_self_in_call": False, **(cache_cls_kwargs or {})},
+    )
 
 
 def run_experiments_new(
@@ -367,7 +419,7 @@ def run_experiments_new(
 
             for me_index, model_experiment in enumerate(model_experiments, start=1):
                 cur_experiment_idx += 1
-                cache_task_key = task_id_or_object if isinstance(task_id_or_object, int) else task_id_or_object.slug
+                cache_task_key = _task_cache_key(task_id_or_object)
                 print(
                     f"Starting Model {me_index}/{len(model_experiments)}..."
                     f"\n\t"
@@ -379,25 +431,15 @@ def run_experiments_new(
                     f"Fitting {cache_task_key} on repeat {repeat}, fold {fold} for method {model_experiment.name}",
                 )
 
-                # Setup Cache
-                cache_name = "results"
-                cache_prefix = _build_cache_prefix(
+                # Setup Cache for this (method, task, fold, repeat) `results` artifact.
+                cacher = _build_results_cacher(
+                    cache_cls=cache_cls,
+                    cache_cls_kwargs=cache_cls_kwargs,
+                    base_cache_path=base_cache_path,
                     method_name=model_experiment.name,
                     cache_task_key=cache_task_key,
                     fold=fold,
                     repeat=repeat,
-                )
-                cache_path = f"{base_cache_path}/{cache_prefix}"
-                # `include_self_in_call` passes the cacher into the runner so a failed fit
-                # (in benchmark mode) can drop a `model_failures` artifact next to the
-                # results. It defaults to False (no such artifact) and does not affect the
-                # `results` cache file's path, format, or hit logic. An explicit
-                # `cache_cls_kwargs["include_self_in_call"]` takes precedence (e.g.
-                # `ExperimentBatchRunner` sets it True to keep the legacy artifact).
-                cacher = cache_cls(
-                    cache_name=cache_name,
-                    cache_path=cache_path,
-                    **{"include_self_in_call": False, **(cache_cls_kwargs or {})},
                 )
                 cache_exists = cacher.exists
                 load_only = cache_mode in ("only", "only_strict")
@@ -431,49 +473,13 @@ def run_experiments_new(
                         eval_metric_name = task.eval_metric
                         print(f"Using eval metric: {eval_metric_name}")
 
-                    # EXPERIMENTAL: update validation split metadata logic
-                    from contextlib import nullcontext
-
-                    text_cache_cm = nullcontext()
-                    if (task is not None) and model_experiment.dynamic_tabarena_validation_protocol:
-                        from tabarena.benchmark.experiment.experiment_constructor import (
-                            AGModelBagExperiment,
-                        )
-                        from tabarena.benchmark.task.openml import TabArenaOpenMLSupervisedTask
-
-                        if not isinstance(task.task, TabArenaOpenMLSupervisedTask):
-                            raise ValueError(
-                                "`dynamic_tabarena_validation_protocol` is only "
-                                "implemented for `TabArenaOpenMLSupervisedTask`!",
-                            )
-
-                        if not isinstance(model_experiment, AGModelBagExperiment):
-                            # TODO: add support
-                            raise NotImplementedError(
-                                "Validation split kwargs only implemented for "
-                                f"AGModelBagExperiment for now, got {type(model_experiment)}",
-                            )
-
-                        # Add info about group and time for the pipeline to handle
-                        model_experiment.load_validation_split_metadata(
-                            use_task_specific_validation=True,
-                            **task.get_validation_split_kwargs(),
-                        )
-
-                        # Load this task's semantic-text embedding cache for the duration of the
-                        # fit (slug-keyed + encoder-versioned; restored afterwards). Default
-                        # ``require``: a text task with no cache fails fast — warm it first via the
-                        # prefetch/download path or pre-generation.
-                        from tabarena.benchmark.preprocessing.text_cache import use_text_cache_for_task
-
-                        text_cache_cm = use_text_cache_for_task(
-                            task_id_or_object,
-                            has_text=task._has_text,
-                            mode="require",
-                        )
+                    task_cache_cm = model_experiment.prepare_for_task(
+                        task=task,
+                        cache_task_key=cache_task_key,
+                    )
 
                     try:
-                        with text_cache_cm:
+                        with task_cache_cm:
                             out = model_experiment.run(
                                 task=task,
                                 fold=fold,
