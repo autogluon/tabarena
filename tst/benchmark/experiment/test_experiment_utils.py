@@ -510,6 +510,26 @@ class TestExperimentBatchRunnerRunAll:
         with pytest.raises(AssertionError, match="only_strict"):
             runner.run_all(methods=[_make_minimal_experiment()])
 
+    def test_run_all_uses_dataset_fold_repeats_init_arg(self, tmp_path):
+        # When dataset_fold_repeats is set at init, run_all runs exactly those triplets
+        # (not the full n_folds x n_repeats grid).
+        _RecordingCache.instances.clear()
+        runner = self._runner(
+            tmp_path,
+            cache_mode="only",
+            cache_cls=_RecordingCache,
+            dataset_fold_repeats=[("d0", 0, 0), ("d1", 2, 1)],
+        )
+        result = runner.run_all(methods=[_make_minimal_experiment("m")])
+        assert result == []
+        assert self._cache_suffixes() == ["m/0/0_0", "m/1/1_2"]
+
+    def test_invalid_dataset_fold_repeats_raises(self, tmp_path):
+        # repeat=5 is out of range for n_repeats=1 -> rejected at construction.
+        task_metadata = pd.DataFrame({"tid": [0], "dataset": ["d0"], "n_folds": [2], "n_repeats": [1]})
+        with pytest.raises(AssertionError, match="not valid for"):
+            self._runner(tmp_path, task_metadata=task_metadata, dataset_fold_repeats=[("d0", 0, 5)])
+
 
 class TestRunExperimentsNewCacheCls:
     def test_custom_cache_cls_used(self, tmp_path):

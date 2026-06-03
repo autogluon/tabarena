@@ -262,8 +262,6 @@ class TabArena:
                 f"\n\tUnused columns ({len(unused_columns)}): {unused_columns}"
                 f"\n\tIndex names ({len(index_names)}): {index_names}",
             )
-        if unused_columns:
-            print(f"Unused columns: {unused_columns}")
 
         for c in self.groupby_columns:
             assert data[c].isnull().sum() == 0, f"groupby column {c!r} contains NaN!"

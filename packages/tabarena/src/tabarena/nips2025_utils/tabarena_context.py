@@ -23,6 +23,7 @@ from tabarena.website.website_format import format_leaderboard
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from tabarena.benchmark.experiment import ExperimentBatchRunner
     from tabarena.benchmark.result import BaselineResult
     from tabarena.repository.abstract_repository import AbstractRepository
 
@@ -876,6 +877,126 @@ class TabArenaContext:
                 predicates=self.subset_predicates,
             )
         return df_results
+
+    def make_experiment_batch_runner(
+        self,
+        expname: str,
+        *,
+        subset: str | list[str] | None = None,
+        datasets: list[str] | None = None,
+        splits: list[int] | None = None,
+        folds: list[int] | None = None,
+        repeats: list[int] | None = None,
+        dataset_fold_repeats: list[tuple[str, int, int]] | None = None,
+        **kwargs,
+    ) -> ExperimentBatchRunner:
+        """Create an `ExperimentBatchRunner` over this context's `task_metadata`.
+
+        The (dataset, fold, repeat) triplets the runner's `run_all` executes are
+        determined by the following filters (all default None):
+
+        - `subset`: predicate expressions (the same as `compare`, e.g. ``"lite"``,
+          ``"small"``, ``"binary"``, ``"!tiny"``) applied to the full per-dataset grid,
+          where the predicates treat the split (``n_folds * repeat + fold``) as the
+          ``fold`` column (so ``"lite"`` keeps ``split == 0`` == ``(fold 0, repeat 0)``).
+        - `datasets`: restrict to these dataset names.
+        - `splits`: restrict to these split indices (``n_folds * repeat + fold``).
+        - `folds` / `repeats`: restrict to these fold / repeat indices.
+        - `dataset_fold_repeats`: an explicit list of triplets. When given, the result is
+          the **intersection** of these and the triplets derived from `subset`/`datasets`
+          (so user triplets that fall outside the subset/datasets selection are dropped).
+
+        `subset`, `datasets`, and the split/fold/repeat filters compose (AND). Two
+        combinations are disallowed: `splits` together with `folds`/`repeats`, and
+        `dataset_fold_repeats` together with any of `splits`/`folds`/`repeats`.
+
+        If no filters are given, `run_all` runs the full ``n_folds`` x ``n_repeats`` grid
+        from `task_metadata`. Extra keyword arguments (``cache_mode``, ``debug_mode``, ...)
+        are forwarded to `ExperimentBatchRunner`.
+        """
+        from tabarena.benchmark.experiment import ExperimentBatchRunner
+
+        if splits is not None and (folds is not None or repeats is not None):
+            raise ValueError("Cannot specify `splits` together with `folds`/`repeats`.")
+        if dataset_fold_repeats is not None and any(x is not None for x in (splits, folds, repeats)):
+            raise ValueError("Cannot specify `dataset_fold_repeats` together with `splits`/`folds`/`repeats`.")
+
+        derived = None
+        if any(x is not None for x in (subset, datasets, splits, folds, repeats)):
+            derived = self._subset_dataset_fold_repeats(
+                subset=subset,
+                datasets=datasets,
+                splits=splits,
+                folds=folds,
+                repeats=repeats,
+            )
+
+        if dataset_fold_repeats is not None:
+            if derived is not None:
+                allowed = set(derived)
+                dataset_fold_repeats = [t for t in dataset_fold_repeats if t in allowed]
+            # else: no subset/datasets constraint -> use the user's triplets as-is.
+        else:
+            dataset_fold_repeats = derived
+
+        return ExperimentBatchRunner(
+            expname=expname,
+            task_metadata=self.task_metadata,
+            dataset_fold_repeats=dataset_fold_repeats,
+            **kwargs,
+        )
+
+    def _subset_dataset_fold_repeats(
+        self,
+        subset: str | list[str] | None = None,
+        datasets: list[str] | None = None,
+        splits: list[int] | None = None,
+        folds: list[int] | None = None,
+        repeats: list[int] | None = None,
+    ) -> list[tuple[str, int, int]]:
+        """Expand `task_metadata` into (dataset, fold, repeat) triplets kept by the filters.
+
+        Builds the full per-dataset grid (``split = n_folds * repeat + fold``), then
+        filters it (AND) by: the `subset` predicate expressions and/or an explicit
+        `datasets` list (via the same machinery as `compare`), and then by the
+        `splits`/`folds`/`repeats` index lists. The subset predicates treat the split
+        index as the ``fold`` column, so e.g. ``"lite"`` keeps ``split == 0`` (i.e.
+        ``(fold 0, repeat 0)``).
+        """
+        from tabarena.nips2025_utils.compare import subset_tasks
+
+        if isinstance(subset, str):
+            subset = [subset]
+
+        metadata = self.task_metadata.drop_duplicates(subset="dataset")
+        rows = []
+        for dataset, n_folds, n_repeats in zip(
+            metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
+        ):
+            n_folds, n_repeats = int(n_folds), int(n_repeats)
+            for repeat in range(n_repeats):
+                for fold in range(n_folds):
+                    # `subset_tasks` treats the "fold" column as the split index.
+                    rows.append((dataset, fold, repeat, n_folds * repeat + fold))
+        grid = pd.DataFrame(rows, columns=["dataset", "_fold", "_repeat", "fold"])
+
+        filtered = subset_tasks(
+            df_results=grid,
+            subset=subset,
+            datasets=datasets,
+            task_metadata_og=self.task_metadata,
+            predicates=self.subset_predicates,
+        )
+        if splits is not None:
+            filtered = filtered[filtered["fold"].isin(splits)]  # "fold" column holds the split index
+        if folds is not None:
+            filtered = filtered[filtered["_fold"].isin(folds)]
+        if repeats is not None:
+            filtered = filtered[filtered["_repeat"].isin(repeats)]
+        return [
+            (dataset, int(fold), int(repeat))
+            for dataset, fold, repeat in zip(filtered["dataset"], filtered["_fold"], filtered["_repeat"], strict=False)
+        ]
 
     def load_configs_hyperparameters(
         self,

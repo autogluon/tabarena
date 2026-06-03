@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 
-from tabarena.benchmark.experiment import AGModelBagExperiment, ExperimentBatchRunner
+from tabarena.benchmark.experiment import AGModelBagExperiment
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
@@ -21,12 +21,9 @@ if __name__ == "__main__":
 
     # Sample for a quick demo
     datasets = ["anneal", "credit-g", "diabetes"]  # datasets = list(task_metadata["name"])
-    folds = [0]
 
     # import your model classes
     from autogluon.tabular.models import LGBModel
-
-    from tabarena.models import RealMLPModel
 
     # This list of methods will be fit sequentially on each task (dataset x fold)
     methods = [
@@ -34,7 +31,6 @@ if __name__ == "__main__":
         AGModelBagExperiment(  # Wrapper for fitting a single bagged model via AutoGluon
             # The name you want the config to have
             name="LightGBM_c1_BAG_L1_Reproduced",
-            # The class of the model. Can also be a string if AutoGluon recognizes it, such as `"GBM"`
             # Supports any model that inherits from `autogluon.core.models.AbstractModel`
             model_cls=LGBModel,
             model_hyperparameters={
@@ -43,28 +39,22 @@ if __name__ == "__main__":
             num_bag_folds=8,  # num_bag_folds=8 was used in the TabArena 2025 paper
             time_limit=3600,  # time_limit=3600 was used in the TabArena 2025 paper
         ),
-        AGModelBagExperiment(
-            name="TA-RealMLP_c1_BAG_L1_Reproduced",
-            model_cls=RealMLPModel,
-            model_hyperparameters={},
-            num_bag_folds=8,
-            time_limit=3600,
-        ),
     ]
 
-    exp_batch_runner = ExperimentBatchRunner(
+    # Build a runner scoped to the demo tasks via the TabArenaContext factory: the 3
+    # datasets above at fold 0 / repeat 0. The "lite" subset keeps split 0
+    # (== fold 0, repeat 0; split = n_folds * repeat + fold), and `datasets` restricts to
+    # the demo datasets. `make_experiment_batch_runner` resolves these into the exact
+    # (dataset, fold, repeat) triplets that `run_all` executes.
+    exp_batch_runner = tabarena_context.make_experiment_batch_runner(
         expname=expname,
-        task_metadata=task_metadata,
+        datasets=datasets,
+        subset="lite",
         cache_mode="ignore" if ignore_cache else "default",
     )
 
-    # Get the run artifacts.
-    # Fits each method on each task (datasets * folds)
-    results_lst: list[dict[str, Any]] = exp_batch_runner.run(
-        datasets=datasets,
-        folds=folds,
-        methods=methods,
-    )
+    # Get the run artifacts. Fits each method on each configured task.
+    results_lst: list[dict[str, Any]] = exp_batch_runner.run_all(methods=methods)
 
     # compute results
     end_to_end = EndToEnd.from_raw(results_lst=results_lst, task_metadata=task_metadata, cache=False, cache_raw=False)
