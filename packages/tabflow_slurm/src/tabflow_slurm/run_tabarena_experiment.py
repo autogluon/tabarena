@@ -21,6 +21,13 @@ def _parse_task_id(task_id_str: str) -> int | object:
     int | openml.tasks.OpenMLTask
         The parsed task id, either as an int (for OpenML task IDs) or as
     """
+    # Strip matching surrounding quotes that can survive when the command is built as a
+    # string and passed through an extra (e.g. SLURM submission) layer without unquoting.
+    # The task id itself never contains leading/trailing quotes, so this is always safe.
+    task_id_str = task_id_str.strip()
+    if len(task_id_str) >= 2 and task_id_str[0] == task_id_str[-1] and task_id_str[0] in ("'", '"'):
+        task_id_str = task_id_str[1:-1]
+
     try:
         task_id_or_object = int(task_id_str)
     except ValueError:
