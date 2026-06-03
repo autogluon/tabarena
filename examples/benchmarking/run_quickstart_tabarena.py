@@ -31,7 +31,6 @@ if __name__ == "__main__":
         AGModelBagExperiment(  # Wrapper for fitting a single bagged model via AutoGluon
             # The name you want the config to have
             name="LightGBM_c1_BAG_L1_Reproduced",
-            # The class of the model. Can also be a string if AutoGluon recognizes it, such as `"GBM"`
             # Supports any model that inherits from `autogluon.core.models.AbstractModel`
             model_cls=LGBModel,
             model_hyperparameters={
@@ -40,13 +39,6 @@ if __name__ == "__main__":
             num_bag_folds=8,  # num_bag_folds=8 was used in the TabArena 2025 paper
             time_limit=3600,  # time_limit=3600 was used in the TabArena 2025 paper
         ),
-        # AGModelBagExperiment(
-        #     name="TA-RealMLP_c1_BAG_L1_Reproduced",
-        #     model_cls=RealMLPModel,
-        #     model_hyperparameters={},
-        #     num_bag_folds=8,
-        #     time_limit=3600,
-        # ),
     ]
 
     # Build a runner scoped to the demo tasks via the TabArenaContext factory: the 3

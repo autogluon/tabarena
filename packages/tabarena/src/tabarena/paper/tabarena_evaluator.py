@@ -654,6 +654,8 @@ class TabArenaEvaluator:
 
         if imputed_names is None:
             imputed_names = self.get_imputed_names(df_results=df_results)
+        if verbose:
+            print(f"Model for which results were imputed: {imputed_names}")
 
         self.assert_no_duplicates(df_results=df_results)
         self.assert_no_nan_methods(df_results=df_results)
@@ -1364,7 +1366,6 @@ class TabArenaEvaluator:
         imputed_names = [n.split(" (")[0] for n in imputed_names]
         imputed_names = [method_rename_map.get(n, n) for n in imputed_names]
         imputed_names = list(set(imputed_names))
-        print(f"Model for which results were imputed: {imputed_names}")
         return imputed_names
 
     def plot_portfolio_ensemble_weights_barplot(self, df_ensemble_weights: pd.DataFrame):

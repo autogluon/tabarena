@@ -58,9 +58,9 @@ def compare_on_tabarena(
     df_results = pd.concat([ta_results, new_results], ignore_index=True) if new_results is not None else ta_results
 
     kwargs = kwargs.copy()
-    if isinstance(only_valid_tasks, set):
+    if isinstance(only_valid_tasks, (tuple, np.ndarray)):
         only_valid_tasks = list(only_valid_tasks)
-    if isinstance(only_valid_tasks, (str, list, tuple, np.ndarray)):
+    if isinstance(only_valid_tasks, (str, list)):
         kwargs["only_valid_tasks"] = only_valid_tasks
     elif only_valid_tasks and new_results is not None:
         df_results = filter_to_valid_tasks(
