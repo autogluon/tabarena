@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from tabarena.utils.ray_utils import to_batch_list
 
@@ -155,9 +155,10 @@ class LocalSequentialSetup(SchedulerSetup):
     array commands, it writes the same job JSON and returns a single command that
     invokes the bundled local runner (`run_local.py`). That runner flattens every
     bundled `(task, fold, repeat, config)` item and executes
-    `run_tabarena_experiment.py` once per item, sequentially — each item in its
-    own subprocess, exactly like a single SLURM array task, so model fits stay
-    isolated from one another.
+    `run_tabarena_experiment.py` once per item, sequentially. By default each item
+    runs in its own subprocess, exactly like a single SLURM array task, so model
+    fits stay isolated from one another; set `execution_mode="in_process"` to run
+    them all in one Python process instead.
 
     It subclasses the base `SchedulerSetup` (not `SlurmSetup`), so it has no
     partitions, gres, or time budget — those concepts don't apply locally. The
@@ -170,6 +171,16 @@ class LocalSequentialSetup(SchedulerSetup):
     """If True, a failing item is logged and the runner keeps going; otherwise
     the runner stops at the first failure. Either way the runner exits non-zero
     if any item failed."""
+
+    execution_mode: Literal["subprocess", "in_process"] = "subprocess"
+    """How the local runner executes each item:
+        - "subprocess" (default): one fresh subprocess per item — isolates each
+          fit's memory / Ray / GPU state, exactly like a SLURM array task. Robust
+          for long or heavy sweeps.
+        - "in_process": run every item in the runner's own Python process. Faster
+          (no per-item interpreter startup / library re-import) and debugger
+          friendly, but fits share global state and a hard crash (segfault / OOM
+          kill) aborts the whole run instead of a single item."""
 
     def get_extra_default_args(self) -> dict:
         """Pin the SLURM shared-resources Ray hint off for local runs.
@@ -217,6 +228,8 @@ class LocalSequentialSetup(SchedulerSetup):
         command = f"{jobs_dict['defaults']['python']} -m tabflow_slurm.run_local {json_path}"
         if self.continue_on_error:
             command += " --continue_on_error True"
+        if self.execution_mode != "subprocess":
+            command += f" --execution_mode {self.execution_mode}"
         run_commands = [command]
 
         if print_summary:

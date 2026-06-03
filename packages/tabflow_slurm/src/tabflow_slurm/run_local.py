@@ -3,13 +3,21 @@
 The non-cluster counterpart to ``submit_template.sh``. Where the SLURM submit
 script runs one array task (``jobs[SLURM_ARRAY_TASK_ID]``) and loops over that
 task's bundled items, this runner flattens *all* jobs and *all* items into a
-single sequential loop and invokes ``run_tabarena_experiment.py`` once per item
-as its own subprocess — so each model fit stays isolated (fresh memory / Ray /
-GPU context), exactly like an independent SLURM array task.
+single sequential loop and runs ``run_tabarena_experiment``'s per-item logic
+once per item.
+
+Two execution modes (``--execution_mode``):
+    - ``subprocess`` (default): each item runs in its own fresh subprocess via
+      ``run_tabarena_experiment.py`` — so every model fit stays isolated (fresh
+      memory / Ray / GPU context), exactly like an independent SLURM array task.
+    - ``in_process``: each item runs in this runner's own Python process by
+      calling ``run_experiment`` directly. Faster and debugger friendly, but
+      fits share global state and a hard crash aborts the whole run.
 
 Invoke it via the command emitted by ``LocalSequentialSetup.get_run_commands``:
 
     <python> -m tabflow_slurm.run_local <job.json> [--continue_on_error True]
+                                                   [--execution_mode in_process]
 
 The job JSON has the same ``{"defaults": {...}, "jobs": [{"items": [...]}, ...]}``
 shape produced by ``TabArenaBenchmarkSetup.get_jobs_dict`` — every runtime arg the
@@ -77,20 +85,76 @@ def _build_item_command(defaults: dict, item: dict) -> list[str]:
     ]
 
 
-def run(json_path: str, *, continue_on_error: bool) -> int:
-    """Run every item in `json_path` sequentially; return 0 iff all succeeded."""
+def _run_item_subprocess(defaults: dict, item: dict, env: dict) -> int:
+    """Run one item in its own subprocess; return its exit code (0 == success)."""
+    return subprocess.run(_build_item_command(defaults, item), env=env, check=False).returncode  # noqa: S603
+
+
+def _setup_in_process(defaults: dict) -> None:
+    """One-time setup for `in_process` mode: OpenML cache + telemetry env.
+
+    Subprocess mode does this per child via ``run_tabarena_experiment``'s
+    ``__main__``; in-process we must do it once before the first fit. We reuse
+    ``setup_slurm_job`` with the SLURM shared-resources Ray setup disabled, so it
+    only points the OpenML cache (its numeric args are unused in that branch).
+    """
+    from tabflow_slurm.slurm_utils import setup_slurm_job
+
+    os.environ.setdefault("TABPFN_DISABLE_TELEMETRY", "1")
+    setup_slurm_job(
+        openml_cache_dir=str(defaults["openml_cache_dir"]),
+        num_cpus=defaults["num_cpus"],
+        num_gpus=defaults["num_gpus"],
+        memory_limit=defaults["memory_limit"],
+        setup_ray_for_slurm_shared_resources_environment=False,
+    )
+
+
+def _run_item_in_process(defaults: dict, item: dict) -> int:
+    """Run one item in this process via `run_experiment`; return 0 on success, 1 on error.
+
+    Only catches Python exceptions — a hard crash (segfault / OOM kill) still
+    takes down the whole runner, which is the core trade-off of in-process mode.
+    """
+    from tabflow_slurm.run_tabarena_experiment import run_experiment
+
+    try:
+        run_experiment(
+            task_id=str(item["task_id"]),
+            fold=item["fold"],
+            repeat=item["repeat"],
+            configs_yaml_file=str(defaults["configs_yaml_file"]),
+            config_index=[item["config_index"]],
+            output_dir=str(defaults["output_dir"]),
+            ignore_cache=bool(defaults["ignore_cache"]),
+        )
+    except Exception as exc:
+        print(f"  in-process item raised: {exc!r}", flush=True)
+        return 1
+    return 0
+
+
+def run(json_path: str, *, continue_on_error: bool, execution_mode: str = "subprocess") -> int:
+    """Run every item in `json_path` sequentially; return 0 iff all succeeded.
+
+    `execution_mode` is "subprocess" (one fresh process per item, isolated) or
+    "in_process" (run every item in this process; faster but no isolation).
+    """
     with Path(json_path).open() as f:
         jobs_dict = json.load(f)
 
     defaults = jobs_dict["defaults"]
     items = [item for job in jobs_dict["jobs"] for item in job["items"]]
     total = len(items)
-    print(f"Running {total} item(s) sequentially from {json_path}", flush=True)
+    print(f"Running {total} item(s) sequentially from {json_path} (mode={execution_mode})", flush=True)
 
-    # Match the env the SLURM submit template exports to each job.
+    # Subprocess mode: match the env the SLURM submit template exports to each job.
     env = os.environ.copy()
     env["TABPFN_DISABLE_TELEMETRY"] = "1"
     env["PYTHONUNBUFFERED"] = "1"
+
+    if execution_mode == "in_process":
+        _setup_in_process(defaults)
 
     failures: list[tuple[int, dict, int]] = []
     completed = 0
@@ -100,16 +164,19 @@ def run(json_path: str, *, continue_on_error: bool) -> int:
             f"repeat={item['repeat']} config_index={item['config_index']} =====",
             flush=True,
         )
-        result = subprocess.run(_build_item_command(defaults, item), env=env, check=False)  # noqa: S603
+        if execution_mode == "in_process":
+            code = _run_item_in_process(defaults, item)
+        else:
+            code = _run_item_subprocess(defaults, item, env)
         completed = idx
-        if result.returncode != 0:
+        if code != 0:
             print(
-                f"##### Item [{idx}/{total}] FAILED (exit {result.returncode}): "
+                f"##### Item [{idx}/{total}] FAILED (exit {code}): "
                 f"task_id={item['task_id']} fold={item['fold']} "
                 f"repeat={item['repeat']} config_index={item['config_index']}",
                 flush=True,
             )
-            failures.append((idx, item, result.returncode))
+            failures.append((idx, item, code))
             if not continue_on_error:
                 print("Stopping (continue_on_error=False).", flush=True)
                 break
@@ -137,5 +204,12 @@ if __name__ == "__main__":
         default=False,
         help="If True, keep running after a failing item instead of stopping at the first failure.",
     )
+    parser.add_argument(
+        "--execution_mode",
+        choices=["subprocess", "in_process"],
+        default="subprocess",
+        help="'subprocess' (default): one isolated process per item. "
+        "'in_process': run every item in this process (faster, no isolation).",
+    )
     args = parser.parse_args()
-    sys.exit(run(args.json_path, continue_on_error=args.continue_on_error))
+    sys.exit(run(args.json_path, continue_on_error=args.continue_on_error, execution_mode=args.execution_mode))
