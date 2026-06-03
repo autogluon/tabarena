@@ -13,7 +13,7 @@ if __name__ == "__main__":
     expname = str(
         Path(__file__).parent / "experiments" / "quickstart"
     )  # folder location to save all experiment artifacts
-    eval_dir = Path(__file__).parent / "eval" / "quickstart"
+    eval_dir = Path(__file__).parent / "eval" / "quickstart_tabiclv2"
 
     context = TabArenaContext()
 
