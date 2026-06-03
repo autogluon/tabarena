@@ -148,6 +148,87 @@ class SchedulerSetup:
 
 
 @dataclass(kw_only=True)
+class LocalSequentialSetup(SchedulerSetup):
+    """Run the benchmark on the local machine, one item at a time.
+
+    The non-cluster counterpart to `SlurmSetup`: instead of emitting `sbatch`
+    array commands, it writes the same job JSON and returns a single command that
+    invokes the bundled local runner (`run_local.py`). That runner flattens every
+    bundled `(task, fold, repeat, config)` item and executes
+    `run_tabarena_experiment.py` once per item, sequentially — each item in its
+    own subprocess, exactly like a single SLURM array task, so model fits stay
+    isolated from one another.
+
+    It subclasses the base `SchedulerSetup` (not `SlurmSetup`), so it has no
+    partitions, gres, or time budget — those concepts don't apply locally. The
+    inherited `bundle_items` still applies, but since everything runs
+    sequentially the bundling is purely cosmetic (the runner iterates items
+    regardless of how they are grouped).
+    """
+
+    continue_on_error: bool = False
+    """If True, a failing item is logged and the runner keeps going; otherwise
+    the runner stops at the first failure. Either way the runner exits non-zero
+    if any item failed."""
+
+    def get_extra_default_args(self) -> dict:
+        """Pin the SLURM shared-resources Ray hint off for local runs.
+
+        Keeps the per-job `defaults` dict the same shape as the SLURM path while
+        ensuring the runner never performs the shared-filesystem Ray temp-dir
+        setup (`setup_slurm_job` skips it when this is False).
+        """
+        return {"setup_ray_for_slurm_shared_resources_environment": False}
+
+    def get_run_commands(
+        self,
+        *,
+        jobs_dict: dict,
+        path_setup: PathSetup,
+        benchmark_name: str,
+        parallel_safe_benchmark_name: str,
+        resources_setup: ResourcesSetup,
+        print_summary: bool = True,
+    ) -> list[str] | None:
+        """Persist `jobs_dict` to one JSON file and return the local-runner command.
+
+        `resources_setup` is unused (no partition/time budget locally). Returns a
+        single-element command list invoking `python -m tabflow_slurm.run_local
+        <json>`, or `None` when there are no jobs (in which case the JSON is also
+        removed, mirroring `SlurmSetup`).
+        """
+        # Reuse the SLURM job-JSON path; the `slurm_run_data_*` filename is
+        # cosmetic — the file just holds `{"defaults": ..., "jobs": ...}`.
+        json_path = path_setup.get_slurm_job_json_path(
+            benchmark_name=benchmark_name,
+            safe_benchmark_name=parallel_safe_benchmark_name,
+        )
+
+        all_jobs = jobs_dict["jobs"]
+        if not all_jobs:
+            if print_summary:
+                print("No jobs to run.")
+            Path(json_path).unlink(missing_ok=True)
+            return None
+
+        with Path(json_path).open("w") as f:
+            json.dump({"defaults": jobs_dict["defaults"], "jobs": all_jobs}, f)
+
+        command = f"{jobs_dict['defaults']['python']} -m tabflow_slurm.run_local {json_path}"
+        if self.continue_on_error:
+            command += " --continue_on_error True"
+        run_commands = [command]
+
+        if print_summary:
+            print(
+                "##### Setup Jobs"
+                "\nRun the following command(s) to start the jobs locally:"
+                "\n" + "\n".join(run_commands) + "\n",
+            )
+        return run_commands
+
+
+@dataclass(kw_only=True)
 class SlurmSetup(SchedulerSetup):
     """Setup for SLURM jobs. Adjust as needed for your cluster setup."""
 
