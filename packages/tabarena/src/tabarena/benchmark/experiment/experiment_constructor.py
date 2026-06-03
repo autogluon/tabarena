@@ -378,15 +378,13 @@ class Experiment:
 
         if not isinstance(task.task, TabArenaOpenMLSupervisedTask):
             raise ValueError(
-                "`dynamic_tabarena_validation_protocol` is only "
-                "implemented for `TabArenaOpenMLSupervisedTask`!",
+                "`dynamic_tabarena_validation_protocol` is only implemented for `TabArenaOpenMLSupervisedTask`!",
             )
 
         if not isinstance(self, AGModelBagExperiment):
             # TODO: add support
             raise NotImplementedError(
-                "Validation split kwargs only implemented for "
-                f"AGModelBagExperiment for now, got {type(self)}",
+                f"Validation split kwargs only implemented for AGModelBagExperiment for now, got {type(self)}",
             )
 
         # Add info about group and time for the pipeline to handle.
