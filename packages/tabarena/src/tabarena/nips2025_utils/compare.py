@@ -58,7 +58,9 @@ def compare_on_tabarena(
     df_results = pd.concat([ta_results, new_results], ignore_index=True) if new_results is not None else ta_results
 
     kwargs = kwargs.copy()
-    if isinstance(only_valid_tasks, (str, list)):
+    if isinstance(only_valid_tasks, set):
+        only_valid_tasks = list(only_valid_tasks)
+    if isinstance(only_valid_tasks, (str, list, tuple, np.ndarray)):
         kwargs["only_valid_tasks"] = only_valid_tasks
     elif only_valid_tasks and new_results is not None:
         df_results = filter_to_valid_tasks(
@@ -196,23 +198,6 @@ def prepare_data(
 ) -> pd.DataFrame:
     df_results = df_results.copy()
 
-    if isinstance(only_valid_tasks, str):
-        only_valid_tasks = [only_valid_tasks]
-    if isinstance(only_valid_tasks, list):
-        for filter_method in only_valid_tasks:
-            # Filter to tasks present in a specific method
-            df_filter = df_results[df_results["method"] == filter_method]
-            if "imputed" in df_filter.columns:
-                df_filter = df_filter[not df_filter["imputed"]]
-            assert len(df_filter) != 0, (
-                f"No method named '{filter_method}' remains to filter to!\n"
-                f"Available tasks: {list(df_results['method'].unique())}"
-            )
-            df_results = filter_to_valid_tasks(
-                df_to_filter=df_results,
-                df_filter=df_filter,
-            )
-
     if "method_type" not in df_results.columns:
         df_results["method_type"] = "baseline"
     if "method_subtype" not in df_results.columns:
@@ -221,6 +206,25 @@ def prepare_data(
         df_results["config_type"] = np.nan
     if "imputed" not in df_results.columns:
         df_results["imputed"] = False
+
+    df_results["imputed"] = df_results["imputed"].fillna(0).astype(bool)
+
+    if isinstance(only_valid_tasks, str):
+        only_valid_tasks = [only_valid_tasks]
+    if isinstance(only_valid_tasks, list):
+        for filter_method in only_valid_tasks:
+            # Filter to tasks present in a specific method
+            df_filter = df_results[df_results["method"] == filter_method]
+            if "imputed" in df_filter.columns:
+                df_filter = df_filter[~df_filter["imputed"]]
+            assert len(df_filter) != 0, (
+                f"No method named '{filter_method}' remains to filter to!\n"
+                f"Available tasks: {list(df_results['method'].unique())}"
+            )
+            df_results = filter_to_valid_tasks(
+                df_to_filter=df_results,
+                df_filter=df_filter,
+            )
 
     if isinstance(fillna, str):
         fillna = df_results[df_results["method"] == fillna]
