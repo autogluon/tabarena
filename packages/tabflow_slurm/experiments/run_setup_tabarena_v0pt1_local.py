@@ -40,7 +40,7 @@ benchmark_plan = TabArenaBenchmarkPlan(
     benchmark_name=BENCHMARK_NAME,
     model_jobs=[
         # CPU-only baselines, same `name` so they share one run (one command).
-        ModelJob(models=("RandomForest", 2), name="cpu"),  # default config only
+        ModelJob(models=("RandomForest", 0), name="cpu"),  # default config only
         ModelJob(models=("Linear", 1), name="cpu"),  # default + 1 random config
         # To add a GPU model (needs a local GPU + the `tabpfn` extra), give it a
         # GPU resource override so it becomes its own sequential run:
