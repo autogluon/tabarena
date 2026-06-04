@@ -125,11 +125,11 @@ uv pip install --prerelease=allow -e "./packages/tabarena[benchmark,xrfm]"
 <details>
 <summary><b>🛠️ Developer</b> — editable AutoGluon + editable TabArena</summary>
 
-Create a virtual environment:
+Create a virtual environment in your workspace directory (it spans both repos cloned below, so `.venv` lives at the workspace root rather than inside either repo):
 
 ```bash
-uv venv --seed --python 3.12 ~/.venvs/tabarena
-source ~/.venvs/tabarena/bin/activate
+uv venv --seed --python 3.12 .venv
+source .venv/bin/activate
 ```
 
 Install editable AutoGluon and TabArena:
