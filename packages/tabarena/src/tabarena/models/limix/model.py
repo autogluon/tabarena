@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import functools
 import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-import torch
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.constants import (
     BINARY,
@@ -14,7 +14,6 @@ from autogluon.core.constants import (
 )
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
-from torch import nn
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -174,11 +173,12 @@ class LimiXModel(AbstractTorchModel):
         # `_vendor/inference/inference_method.py:309` still hits the NaN guard.
         from tabarena.models.limix._vendor.inference.inference_method import InferenceAttentionMap
 
-        self.model.model.encoder_x = _NaNCleanEncoder(self.model.model.encoder_x)
+        nan_clean_encoder_cls = _nan_clean_encoder_cls()
+        self.model.model.encoder_x = nan_clean_encoder_cls(self.model.model.encoder_x)
         for pipeline in self.model.preprocess_pipelines:
             for step in pipeline:
                 if isinstance(step, InferenceAttentionMap):
-                    step.model.encoder_x = _NaNCleanEncoder(step.model.encoder_x)
+                    step.model.encoder_x = nan_clean_encoder_cls(step.model.encoder_x)
         # Save into model so pickling works better
         self.model._X_train = X_np
         self.model._y_train = y_fit
@@ -308,38 +308,49 @@ def _download_default_checkpoint() -> str:
     return LimiXModel.prefetch_weights()
 
 
-class _NaNCleanEncoder(nn.Module):
-    """Wrap LimiX's ``encoder_x`` so any NaN/inf it emits is sanitized to 0.
+@functools.cache
+def _nan_clean_encoder_cls() -> type:
+    """Build (once) the ``nn.Module`` that sanitizes LimiX's ``encoder_x`` output.
 
-    Why: the bundled LimiX 16M checkpoint's preprocess pipeline starts with a
-    ``NanEncoder`` (`_vendor/model/encoders.py:361`) that replaces NaN cells in
+    Defined inside a cached factory rather than at module scope so importing this
+    module does not import ``torch``. That keeps the LimiX model off the import path
+    of light-weight consumers (e.g. ``TabArenaContext`` pulls in every model's
+    ``info.py``, which would otherwise transitively import ``torch``). ``functools.cache``
+    gives a stable class identity across calls, which the idempotency check relies on.
+
+    The wrapper itself: LimiX's bundled 16M checkpoint starts its preprocess pipeline
+    with a ``NanEncoder`` (`_vendor/model/encoders.py:361`) that replaces NaN cells in
     ``x`` with the per-column mean computed over the *train portion only*
-    (``calc_mean(x[:, :eval_pos, :], dim=1)``). LimiX's retrieval + clustering
-    path (`_vendor/inference/inference_method.py`) shards inference into small
-    train clusters per test group, and on datasets with heavy missingness the
-    selected train rows for a given cluster can end up entirely NaN on some
-    column. The per-column "mean" is then itself NaN, the imputation step
-    substitutes NaN for NaN, and the NaN propagates through ``process_4_x`` and
-    ``encoder_x`` until ``transformer.py:194`` raises:
+    (``calc_mean(x[:, :eval_pos, :], dim=1)``). LimiX's retrieval + clustering path
+    (`_vendor/inference/inference_method.py`) shards inference into small train clusters
+    per test group, and on datasets with heavy missingness the selected train rows for a
+    given cluster can end up entirely NaN on some column. The per-column "mean" is then
+    itself NaN, the imputation step substitutes NaN for NaN, and the NaN propagates
+    through ``process_4_x`` and ``encoder_x`` until ``transformer.py:194`` raises:
 
         ValueError: embedded_all contains NaN values; please add a NanEncoder
         in the encoder
 
-    Sanitizing here is the most surgical place — it catches NaN regardless of
-    which upstream stage produced it, without modifying vendor code and without
-    blanket-imputing the raw input (the model handles NaN correctly on most
-    datasets and we don't want to overwrite that behavior).
+    Sanitizing here is the most surgical place — it catches NaN regardless of which
+    upstream stage produced it, without modifying vendor code and without blanket-imputing
+    the raw input (the model handles NaN correctly on most datasets and we don't want to
+    overwrite that behavior).
     """
+    import torch
+    from torch import nn
 
-    def __init__(self, inner: nn.Module):
-        super().__init__()
-        # Idempotent: collapse nested wraps so re-applying is safe.
-        if isinstance(inner, _NaNCleanEncoder):
-            inner = inner.inner
-        self.inner = inner
+    class _NaNCleanEncoder(nn.Module):
+        def __init__(self, inner: nn.Module):
+            super().__init__()
+            # Idempotent: collapse nested wraps so re-applying is safe.
+            if isinstance(inner, _NaNCleanEncoder):
+                inner = inner.inner
+            self.inner = inner
 
-    def forward(self, x):
-        out = self.inner(x)
-        if isinstance(out, dict) and isinstance(out.get("data"), torch.Tensor):
-            out["data"] = torch.nan_to_num(out["data"], nan=0.0, posinf=0.0, neginf=0.0)
-        return out
+        def forward(self, x):
+            out = self.inner(x)
+            if isinstance(out, dict) and isinstance(out.get("data"), torch.Tensor):
+                out["data"] = torch.nan_to_num(out["data"], nan=0.0, posinf=0.0, neginf=0.0)
+            return out
+
+    return _NaNCleanEncoder

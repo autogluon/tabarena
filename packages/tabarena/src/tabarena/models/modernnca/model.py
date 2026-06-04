@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
-import torch
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.models import AbstractModel
@@ -20,6 +19,7 @@ from sklearn.utils.validation import check_is_fitted
 
 if TYPE_CHECKING:
     import pandas as pd
+    import torch
     from autogluon.core.metrics import Scorer
 
 TaskType = Literal["regression", "binclass", "multiclass"]
@@ -108,6 +108,8 @@ class ModernNCAImplementation:
         cat_col_names: list[Any],
         time_to_fit_in_seconds: float | None = None,
     ):
+        import torch
+
         from tabarena.models.modernnca._internal.modernnca_method import ModernNCAMethod
 
         seed: int | None = self.config.get("random_state", None)
@@ -294,6 +296,8 @@ class ModernNCAImplementation:
         return y_pred.argmax(dim=-1).numpy()
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+        import torch
+
         probas = torch.softmax(self.predict_raw(X), dim=-1).numpy()
         if probas.shape[1] == 2:
             probas = probas[:, 1]
@@ -326,6 +330,8 @@ class ModernNCAModel(AbstractModel):
         num_gpus: float = 0,
         **kwargs,
     ):
+        import torch
+
         device = "cpu" if num_gpus == 0 else "cuda"
         if (device == "cuda") and (not torch.cuda.is_available()):
             raise AssertionError(
@@ -420,6 +426,8 @@ class ModernNCAModel(AbstractModel):
         return self.eval_metric
 
     def _get_default_resources(self) -> tuple[int, int]:
+        import torch
+
         # logical=False is faster in training
         num_cpus = ResourceManager.get_cpu_count_psutil(logical=False)
         num_gpus = 1 if torch.cuda.is_available() else 0
