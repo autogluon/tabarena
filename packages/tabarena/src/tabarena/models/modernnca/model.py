@@ -359,22 +359,28 @@ class ModernNCAModel(AbstractModel):
             X_val = self.preprocess(X_val)
 
         save_path = self.path + "/tmp_model"  # noqa: S108
-        self.model = ModernNCAImplementation(
-            n_threads=num_cpus,
-            device=device,
-            problem_type=self.problem_type,
-            early_stopping_metric=self.stopping_metric,
-            save_path=save_path,
-            **hyp,
-        )
-        self.model.fit(
-            X_train=X,
-            y_train=y,
-            X_val=X_val,
-            y_val=y_val,
-            cat_col_names=self._cat_features if self._cat_features is not None else [],
-            time_to_fit_in_seconds=time_limit,
-        )
+        # The inner fit calls torch.set_num_threads(num_cpus); AutoGluon expects a model's
+        # fit to leave global torch state unchanged, so restore the thread count afterwards.
+        original_num_threads = torch.get_num_threads()
+        try:
+            self.model = ModernNCAImplementation(
+                n_threads=num_cpus,
+                device=device,
+                problem_type=self.problem_type,
+                early_stopping_metric=self.stopping_metric,
+                save_path=save_path,
+                **hyp,
+            )
+            self.model.fit(
+                X_train=X,
+                y_train=y,
+                X_val=X_val,
+                y_val=y_val,
+                cat_col_names=self._cat_features if self._cat_features is not None else [],
+                time_to_fit_in_seconds=time_limit,
+            )
+        finally:
+            torch.set_num_threads(original_num_threads)
         # Clean up tmp model folder
         shutil.rmtree(save_path, ignore_errors=True)
 
