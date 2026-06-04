@@ -19,12 +19,13 @@ from tabflow_slurm.setup.candidates import JobCandidate, should_run_job, should_
 from tabflow_slurm.setup.paths import PathSetup, get_run_script_path, get_submit_script_path
 from tabflow_slurm.setup.plan import ModelJob, SingleModel, TabArenaBenchmarkPlan
 from tabflow_slurm.setup.resources import BeyondArenaResourcesSetup, ResourcesSetup, TabArenaV0pt1ResourcesSetup
-from tabflow_slurm.setup.scheduler import GCPSlurmSetup, SchedulerSetup, SlurmSetup
+from tabflow_slurm.setup.scheduler import GCPSlurmSetup, LocalSequentialSetup, SchedulerSetup, SlurmSetup
 
 __all__ = [
     "BeyondArenaResourcesSetup",
     "GCPSlurmSetup",
     "JobCandidate",
+    "LocalSequentialSetup",
     "ModelJob",
     "PathSetup",
     "ResourcesSetup",
