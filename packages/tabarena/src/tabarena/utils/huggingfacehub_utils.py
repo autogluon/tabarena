@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from huggingface_hub import HfApi
 from tqdm import tqdm
 
 from tabarena.utils.result_utils import results_path
@@ -29,6 +28,8 @@ def upload_hugging_face(
     Returns:
         None
     """
+    from huggingface_hub import HfApi
+
     commit_message = "Upload tabrepo new version"
     local_dir = str(results_path()) if local_dir is None else str(local_dir)
 
@@ -102,6 +103,8 @@ def download_from_huggingface(
     :return:
     """
     # https://huggingface.co/datasets/Tabrepo/tabrepo/tree/main/2023_11_14/model_predictions
+    from huggingface_hub import HfApi
+
     api = HfApi()
     local_dir = str(results_path()) if local_dir is None else str(local_dir)
     print(f"Going to download tabrepo files to {local_dir}.")
