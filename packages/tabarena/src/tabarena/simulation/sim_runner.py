@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 import boto3
-import matplotlib.pyplot as plt
 from autogluon.common.savers import save_pkl
 
 from tabarena.utils import catchtime
@@ -98,6 +97,8 @@ def plot_results_multi(
     save_to_s3: bool = True,
     x_axis_col: str = "step",
 ):
+    import matplotlib.pyplot as plt
+
     if title is None:
         title = "Overfitting Delta"
     fig = plt.figure(dpi=300)

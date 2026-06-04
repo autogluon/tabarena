@@ -5,10 +5,7 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import matplotlib
-import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
 
 from tabarena.plot.plot_utils import figure_path, save_latex_table
 
@@ -17,6 +14,9 @@ if TYPE_CHECKING:
 
 
 def order_clustermap(df, allow_nan=True):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
     # TODO we could just call scipy
     if allow_nan:
         df = df.fillna(1)
@@ -106,6 +106,10 @@ def generate_dataset_info_latex(repo: EvaluationRepository, expname_outdir: str)
 
 
 def generate_dataset_analysis(repo, expname_outdir: str):
+    import matplotlib
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
     num_models_to_plot = 20
     title_size = 20
     figsize = (20, 7)
@@ -233,6 +237,9 @@ def plot_train_time_deep_dive(
     time_limit_soft: float = 2800,
     time_limit_hard: float = 3600,
 ):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
     df = df.copy(deep=True)
     title_size = 20
     if only_per_method:

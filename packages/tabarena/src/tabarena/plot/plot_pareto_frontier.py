@@ -4,20 +4,9 @@ import io
 import os
 from contextlib import redirect_stdout
 
-import matplotlib.patheffects as PathEffects
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
-from matplotlib.lines import Line2D
 from pandas.api.types import is_numeric_dtype
-
-try:
-    from adjustText import adjust_text
-
-    HAS_ADJUST_TEXT = True
-except ImportError:
-    HAS_ADJUST_TEXT = False
 
 
 def aggregate_stats(df, on: str, groupby="method", method=None):
@@ -142,6 +131,18 @@ def plot_pareto(
     y_percent_format: bool = False,
     legend_first: list[str] | None = None,
 ):
+    import matplotlib.patheffects as PathEffects
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from matplotlib.lines import Line2D
+
+    try:
+        from adjustText import adjust_text
+
+        HAS_ADJUST_TEXT = True
+    except ImportError:
+        HAS_ADJUST_TEXT = False
+
     fig_size_ratio = 0.45
     fig_height = 10 * fig_size_ratio
 
