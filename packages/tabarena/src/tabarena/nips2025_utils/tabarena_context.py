@@ -966,9 +966,14 @@ class TabArenaContext:
         else:
             dataset_fold_repeats = derived
 
+        # Pass the native collection when we have one, so the runner derives its tid map /
+        # grid / validation natively; fall back to the legacy df for a raw-DataFrame context.
+        runner_task_metadata = (
+            self.task_metadata_collection if self.task_metadata_collection is not None else self.task_metadata
+        )
         return ExperimentBatchRunner(
             expname=expname,
-            task_metadata=self.task_metadata,
+            task_metadata=runner_task_metadata,
             dataset_fold_repeats=dataset_fold_repeats,
             **kwargs,
         )
