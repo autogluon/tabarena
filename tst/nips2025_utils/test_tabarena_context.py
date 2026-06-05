@@ -188,3 +188,51 @@ class TestNativeTaskMetadata:
         ctx = TabArenaContext(methods=[], task_metadata=df)
         assert ctx.task_metadata_collection is None
         assert list(ctx.task_metadata.columns) == list(df.columns)
+
+
+def _ctx_collection() -> TabArenaContext:
+    """Context backed by a native TaskMetadataCollection (2 datasets, 2 folds x 1 repeat)."""
+    df = pd.DataFrame(
+        {
+            "tid": [0, 1],
+            "dataset": ["small_ds", "big_ds"],
+            "name": ["small_ds", "big_ds"],
+            "problem_type": ["binary", "regression"],
+            "n_folds": [2, 2],
+            "n_repeats": [1, 1],
+            "n_features": [10, 10],
+            "n_classes": [2, 0],
+            "NumberOfInstances": [150, 75_000],
+            "n_samples_train_per_fold": [100, 50_000],
+            "n_samples_test_per_fold": [50, 25_000],
+            "target_feature": ["t", "t"],
+        },
+    )
+    return TabArenaContext(methods=[], task_metadata=TaskMetadataCollection.from_legacy_df(df))
+
+
+class TestNativeGridSubset:
+    """`_subset_dataset_fold_repeats` builds the grid natively from the collection's splits."""
+
+    def test_full_grid_from_collection(self):
+        ctx = _ctx_collection()
+        assert ctx.task_metadata_collection is not None
+        assert set(ctx._subset_dataset_fold_repeats()) == {
+            ("small_ds", 0, 0),
+            ("small_ds", 1, 0),
+            ("big_ds", 0, 0),
+            ("big_ds", 1, 0),
+        }
+
+    def test_lite_keeps_split_zero(self):
+        assert set(_ctx_collection()._subset_dataset_fold_repeats("lite")) == {
+            ("small_ds", 0, 0),
+            ("big_ds", 0, 0),
+        }
+
+    def test_small_predicate_keeps_small_dataset_full_grid(self):
+        # "small" == max_train_rows <= 10000 -> only small_ds (n_train=100), both folds.
+        assert set(_ctx_collection()._subset_dataset_fold_repeats("small")) == {
+            ("small_ds", 0, 0),
+            ("small_ds", 1, 0),
+        }

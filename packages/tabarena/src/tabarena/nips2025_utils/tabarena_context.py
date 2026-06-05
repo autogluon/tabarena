@@ -973,6 +973,38 @@ class TabArenaContext:
             **kwargs,
         )
 
+    def _full_grid_rows(self) -> list[tuple[str, int, int, int]]:
+        """Full ``(dataset, fold, repeat, split_index)`` grid for subset expansion.
+
+        Native when a ``TaskMetadataCollection`` is held: built from the actual splits in each
+        task's ``splits_metadata`` (so a non-rectangular set of splits is respected), instead
+        of a rectangular ``n_folds`` x ``n_repeats`` product. Falls back to the legacy
+        ``task_metadata`` columns for a raw-DataFrame context.
+
+        ``split_index = n_folds * repeat + fold`` is the column the subset predicates treat as
+        ``"fold"`` (so ``"lite"`` keeps ``split_index == 0`` == ``(fold 0, repeat 0)``).
+        """
+        coll = self.task_metadata_collection
+        if coll is not None:
+            triplets = coll.dataset_fold_repeats()
+            n_folds_by_dataset: dict[str, int] = {}
+            for dataset, fold, _repeat in triplets:
+                n_folds_by_dataset[dataset] = max(n_folds_by_dataset.get(dataset, 0), fold + 1)
+            return [
+                (dataset, fold, repeat, n_folds_by_dataset[dataset] * repeat + fold)
+                for dataset, fold, repeat in triplets
+            ]
+        metadata = self.task_metadata.drop_duplicates(subset="dataset")
+        rows = []
+        for dataset, n_folds, n_repeats in zip(
+            metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
+        ):
+            n_folds, n_repeats = int(n_folds), int(n_repeats)
+            for repeat in range(n_repeats):
+                for fold in range(n_folds):
+                    rows.append((dataset, fold, repeat, n_folds * repeat + fold))
+        return rows
+
     def _subset_dataset_fold_repeats(
         self,
         subset: str | list[str] | None = None,
@@ -995,17 +1027,7 @@ class TabArenaContext:
         if isinstance(subset, str):
             subset = [subset]
 
-        metadata = self.task_metadata.drop_duplicates(subset="dataset")
-        rows = []
-        for dataset, n_folds, n_repeats in zip(
-            metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
-        ):
-            n_folds, n_repeats = int(n_folds), int(n_repeats)
-            for repeat in range(n_repeats):
-                for fold in range(n_folds):
-                    # `subset_tasks` treats the "fold" column as the split index.
-                    rows.append((dataset, fold, repeat, n_folds * repeat + fold))
-        grid = pd.DataFrame(rows, columns=["dataset", "_fold", "_repeat", "fold"])
+        grid = pd.DataFrame(self._full_grid_rows(), columns=["dataset", "_fold", "_repeat", "fold"])
 
         filtered = subset_tasks(
             df_results=grid,
