@@ -86,6 +86,10 @@ class TabArenaMetadataBundle:
     sources it is a no-op. Set False to inspect / filter metadata without any
     downloads.
     """
+    verbose: bool = False
+    """Whether to print the task filter history (how many tasks survived each filter step)
+    when loading task metadata. Off by default so metadata loading is quiet; set True to log it.
+    """
 
     def load_task_metadata(self) -> list[TabArenaTaskMetadata]:
         """Load, filter, and (optionally) materialize the task metadata to run."""
@@ -112,7 +116,8 @@ class TabArenaMetadataBundle:
             source.materialize(task_metadata)
 
         self._sanity_check_task_ids(task_metadata)
-        self._print_filter_history(filter_history)
+        if self.verbose:
+            self._print_filter_history(filter_history)
         return task_metadata
 
     def load_collection(self) -> TaskMetadataCollection:
