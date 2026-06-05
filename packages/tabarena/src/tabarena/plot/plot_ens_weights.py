@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
 
 
 # TODO: NaN color as black?
@@ -37,6 +35,9 @@ def create_heatmap(
     plt
 
     """
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
     plt.figure(figsize=figsize)
 
     if include_mean:

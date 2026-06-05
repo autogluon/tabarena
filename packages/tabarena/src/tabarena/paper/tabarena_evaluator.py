@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import functools
 import itertools
 import json
 import math
@@ -9,17 +10,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import matplotlib
-import matplotlib.colors as mcolors
-import matplotlib.patheffects as PathEffects
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 from autogluon.common.savers import save_pd
-from matplotlib import ticker
-from matplotlib.patches import Patch
-from tueplots import bundles, fonts, fontsizes
 
 from bencheval.tabarena import TabArena
 from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
@@ -59,15 +52,28 @@ class TuneMethodOverride:
     promote_from_baselines: bool = False  # move `methods` out of `baselines` into `framework_types`
 
 
-matplotlib.rcParams.update(fontsizes.neurips2024())
-matplotlib.rcParams.update(
-    {
-        "text.latex.preamble": r"\usepackage{times} \usepackage{amsmath} \usepackage{amsfonts} \usepackage{amssymb} \usepackage{xcolor}",
-    }
-)
+@functools.cache
+def _init_global_rcparams() -> None:
+    """Apply TabArena's global matplotlib style (once).
+
+    Cached + lazy so that importing this module does not import ``matplotlib``/``tueplots``
+    — this keeps the plotting stack off the ``TabArenaContext`` import path. Called from
+    ``TabArenaEvaluator.__init__`` (previously ran at module import time).
+    """
+    import matplotlib
+    from tueplots import fontsizes
+
+    matplotlib.rcParams.update(fontsizes.neurips2024())
+    matplotlib.rcParams.update(
+        {
+            "text.latex.preamble": r"\usepackage{times} \usepackage{amsmath} \usepackage{amsfonts} \usepackage{amssymb} \usepackage{xcolor}",
+        }
+    )
 
 
 def darken_color(color_str, amount=0.5):
+    import matplotlib.colors as mcolors
+
     # Convert color string to RGB tuple (values between 0 and 1)
     rgb = mcolors.to_rgb(color_str)
     # Interpolate with black (0, 0, 0)
@@ -138,8 +144,12 @@ class TabArenaEvaluator:
         self.banned_model_types = banned_model_types
         self.keep_best = keep_best
 
+        _init_global_rcparams()
         self.use_latex = use_latex
         if self.use_latex:
+            import matplotlib
+            from tueplots import bundles, fonts, fontsizes
+
             matplotlib.rcParams.update(bundles.neurips2024())
             matplotlib.rcParams.update(fonts.neurips2024_tex())
             self.rc_context_params = {
@@ -1591,6 +1601,11 @@ class TabArenaEvaluator:
         title: str | None = None,
         tune_method_overrides: list[TuneMethodOverride] | None = None,
     ):
+        import matplotlib.patheffects as PathEffects
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        from matplotlib.patches import Patch
+
         if method_style_map is None:
             method_style_map = {}
         if default_method_style is None:
@@ -2219,6 +2234,10 @@ class TabArenaEvaluator:
                 plt.close()
 
     def plot_tabarena_times(self, df: pd.DataFrame, output_dir: Path | str, show: bool = True):
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        from matplotlib import ticker
+
         df = df.copy()
 
         datasets_impute_freq = df.groupby("dataset")["imputed"].mean()
