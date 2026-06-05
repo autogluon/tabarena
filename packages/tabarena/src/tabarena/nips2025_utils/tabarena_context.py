@@ -1256,7 +1256,7 @@ class TabArenaContext:
         get_per_dataset_tables(
             df_results=df_results,
             save_path=Path(save_path),
-            task_metadata=self.task_metadata,
+            task_metadata=self.task_metadata_collection,
             per_dataset_dir=Path(per_dataset_dir) if per_dataset_dir is not None else None,
             method_order=method_order,
         )

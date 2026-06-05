@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+
 warnings.filterwarnings("ignore", category=UserWarning, module="scipy")
 
 
@@ -205,14 +207,21 @@ def get_significance(best_results, curr_model_results, method="wilcoxon", alpha=
     return p_value
 
 
-def _build_dataset_name_map(task_metadata: pd.DataFrame | None) -> dict[str, str]:
+def _build_dataset_name_map(task_metadata: pd.DataFrame | TaskMetadataCollection | None) -> dict[str, str]:
     """Map internal ``dataset`` id (e.g. ``Task-7163328506``) to a human-readable
     label drawn from ``task_metadata``.
 
-    Prefers ``dataset_name`` (BeyondArena), falls back to ``name`` (default
-    TabArena), and finally to identity if neither column is available.
+    A native ``TaskMetadataCollection`` maps each task's ``tabarena_task_name`` (the
+    ``dataset`` key used in ``df_results``) to its ``dataset_name`` — built directly
+    from the tasks, no legacy conversion. For a legacy DataFrame, prefers a
+    ``dataset_name`` column (BeyondArena), falls back to ``name`` (default TabArena),
+    and finally to identity if neither column is available.
     """
-    if task_metadata is None or "dataset" not in task_metadata.columns:
+    if task_metadata is None:
+        return {}
+    if isinstance(task_metadata, TaskMetadataCollection):
+        return {t.tabarena_task_name: str(t.dataset_name) for t in task_metadata}
+    if "dataset" not in task_metadata.columns:
         return {}
     if "dataset_name" in task_metadata.columns:
         return task_metadata.set_index("dataset")["dataset_name"].astype(str).to_dict()
@@ -288,7 +297,7 @@ def _is_significance_best(
 def get_per_dataset_tables(
     df_results: pd.DataFrame,
     save_path: Path,
-    task_metadata: pd.DataFrame | None = None,
+    task_metadata: pd.DataFrame | TaskMetadataCollection | None = None,
     per_dataset_dir: str | Path | None = None,
     method_order: list[str] | None = None,
 ):
@@ -302,9 +311,9 @@ def get_per_dataset_tables(
     save_path :
         Directory to write the combined ``per_dataset_tables.tex`` into.
     task_metadata :
-        Optional task-metadata frame providing a ``dataset_name`` (or ``name``)
-        column to render human-readable dataset labels in captions. If
-        omitted, the internal ``dataset`` id is used as the label.
+        Optional ``TaskMetadataCollection`` or legacy task-metadata frame providing
+        a ``dataset_name`` (or ``name``) to render human-readable dataset labels in
+        captions. If omitted, the internal ``dataset`` id is used as the label.
     per_dataset_dir :
         Optional directory; when set, also writes one self-contained
         ``<dataset_id>.tex`` per dataset (a bare ``tabular`` block + label
