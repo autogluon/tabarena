@@ -11,6 +11,7 @@ tabdpt_method_metadata = MethodMetadata(
     display_name="TabDPT",
     compute="gpu",
     date="2025-10-20",
+    date_introduced="2024-10",
     ag_key="TABDPT",
     model_key="TABDPT_GPU",
     config_default="TabDPT_GPU_c1_BAG_L1",

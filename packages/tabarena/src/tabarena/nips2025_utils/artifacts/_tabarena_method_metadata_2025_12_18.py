@@ -19,6 +19,7 @@ _common_kwargs = dict(
 
 _gpu_kwargs = dict(
     compute="gpu",
+    date_introduced="2025-12",  # AutoGluon 1.5 "extreme" preset
     **_common_kwargs,
 )
 

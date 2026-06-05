@@ -12,6 +12,7 @@ lightgbm_method_metadata = MethodMetadata(
     display_name="LightGBM",
     compute="cpu",
     date="2025-06-12",
+    date_introduced="2016-09",
     ag_key="GBM",
     config_default="LightGBM_c1_BAG_L1",
     can_hpo=True,

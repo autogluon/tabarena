@@ -12,6 +12,7 @@ ebm_method_metadata = MethodMetadata(
     display_name="EBM",
     compute="cpu",
     date="2025-09-03",
+    date_introduced="2019-09",
     ag_key="EBM",
     config_default="ExplainableBM_c1_BAG_L1",
     can_hpo=True,

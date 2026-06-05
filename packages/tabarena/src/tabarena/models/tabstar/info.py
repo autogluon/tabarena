@@ -11,6 +11,7 @@ tabstar_method_metadata = MethodMetadata(
     display_name="TabSTAR",
     compute="gpu",
     date="2026-03-02",
+    date_introduced="2025-05",
     ag_key="TABSTAR",
     model_key="TABSTAR",
     config_default="TabSTAR_c1_BAG_L1",

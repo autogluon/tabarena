@@ -11,6 +11,7 @@ xrfm_method_metadata = MethodMetadata(
     display_name="xRFM",
     compute="gpu",
     date="2025-09-03",
+    date_introduced="2025-08",
     ag_key="XRFM",
     model_key="XRFM_GPU",
     config_default="xRFM_GPU_c1_BAG_L1",

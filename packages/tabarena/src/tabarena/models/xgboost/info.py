@@ -12,6 +12,7 @@ xgboost_method_metadata = MethodMetadata(
     display_name="XGBoost",
     compute="cpu",
     date="2025-06-12",
+    date_introduced="2014-03",
     ag_key="XGB",
     config_default="XGBoost_c1_BAG_L1",
     can_hpo=True,

@@ -18,6 +18,7 @@ tabpfn_3_method_metadata = MethodMetadata(
     has_processed=True,
     has_results=True,
     date="2026-05-13",
+    date_introduced="2026-05",
     reference_url="https://arxiv.org/abs/2605.13986",
     cache_type="r2",
     artifact_name="tabarena-2026-05-13",

@@ -11,6 +11,7 @@ limix_method_metadata = MethodMetadata(
     display_name="LimiX",
     compute="gpu",
     date="2026-05-13",
+    date_introduced="2025-09",
     ag_key="TA-LIMIX",
     config_default="LimiX_c1_BAG_L1",
     can_hpo=False,

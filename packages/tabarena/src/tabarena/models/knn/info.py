@@ -11,6 +11,7 @@ knn_method_metadata = MethodMetadata(
     display_name="KNN",
     compute="cpu",
     date="2025-10-20",
+    date_introduced="1951",
     ag_key="KNN",
     config_default="KNeighbors_c1_BAG_L1",
     can_hpo=True,

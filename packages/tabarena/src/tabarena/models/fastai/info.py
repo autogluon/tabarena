@@ -12,6 +12,7 @@ fastai_method_metadata = MethodMetadata(
     display_name="FastaiMLP",
     compute="cpu",
     date="2025-06-12",
+    date_introduced="2017-09",
     ag_key="FASTAI",
     config_default="NeuralNetFastAI_c1_BAG_L1",
     can_hpo=True,
