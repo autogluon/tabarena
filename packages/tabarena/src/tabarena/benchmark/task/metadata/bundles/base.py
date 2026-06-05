@@ -94,7 +94,7 @@ class TabArenaMetadataBundle:
     def load_task_metadata(self) -> list[TabArenaTaskMetadata]:
         """Load, filter, and (optionally) materialize the task metadata to run."""
         source = resolve_source(self.task_metadata)
-        task_metadata = source.load()
+        task_metadata = source.load(verbose=self.verbose)
 
         # Unify format to be unrolled (one entry per split).
         task_metadata = [single_ttm for ttm in task_metadata for single_ttm in ttm.unroll_splits()]

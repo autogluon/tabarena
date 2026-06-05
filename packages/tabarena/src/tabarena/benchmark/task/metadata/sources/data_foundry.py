@@ -61,7 +61,7 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
         self.evaluation_metrics = evaluation_metrics
         self.verbose = verbose
 
-    def load(self) -> list[TabArenaTaskMetadata]:
+    def load(self, *, verbose: bool = False) -> list[TabArenaTaskMetadata]:
         """Load the collection's reference metadata (no dataset downloads)."""
         from tabarena.benchmark.task.data_foundry import load_reference_metadata
 
@@ -69,6 +69,7 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
             collection=self.collection,
             cache_dir=self.cache_dir,
             force_regenerate=self.force_regenerate,
+            verbose=verbose,
         )
         return [TabArenaTaskMetadata.from_row(row) for _, row in metadata_df.iterrows()]
 

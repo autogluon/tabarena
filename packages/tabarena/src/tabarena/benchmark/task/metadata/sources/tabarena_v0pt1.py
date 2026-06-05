@@ -167,11 +167,12 @@ class TabArenaV0pt1TaskMetadataSource(OpenMLTaskMetadataSource):
     since every v0.1 task is identified by an integer OpenML task id.
     """
 
-    def load(self) -> list[TabArenaTaskMetadata]:
+    def load(self, *, verbose: bool = False) -> list[TabArenaTaskMetadata]:
         """Load v0.1 task metadata from the committed CSV (or rebuild as a fallback)."""
         path = committed_metadata_path()
         if path.exists():
-            print(f"Loading committed TabArena v0.1 reference metadata from {path}.")
+            if verbose:
+                print(f"Loading committed TabArena v0.1 reference metadata from {path}.")
             metadata_df = pd.read_csv(path)
             return [TabArenaTaskMetadata.from_row(row) for _, row in metadata_df.iterrows()]
 
