@@ -83,6 +83,54 @@ class TaskMetadataCollection:
             frame["dataset"] = list(rows.keys())
         return frame
 
+    def task_grid(self) -> pd.DataFrame:
+        """One row per ``(dataset, fold, repeat, split)`` carrying the subset-predicate metadata.
+
+        This is the frame the subset predicates evaluate against (see
+        :attr:`~tabarena.nips2025_utils.tabarena_context.TabArenaContext.SUBSET_PREDICATES`): a
+        task-level view enumerated natively from each task's ``splits_metadata``, joined with the
+        dataset-level predicate columns.
+
+        Columns:
+
+        * ``dataset`` / ``fold`` / ``repeat`` — task identity (raw fold/repeat).
+        * ``split`` — ``n_folds * repeat + fold`` (``n_folds`` = max fold + 1 per dataset); this is
+          what ``"lite"`` keys on (``split == 0``) and what a results frame's ``fold`` column maps
+          to when subsetting.
+        * predicate columns, using the predicate-facing names: ``max_train_rows`` (mean per-fold
+          train size over the dataset's splits — matches :meth:`to_legacy_df`'s
+          ``n_samples_train_per_fold``), ``n_features`` (``num_features``), ``n_classes``
+          (``num_classes``), ``problem_type``.
+        """
+        cols = ["dataset", "fold", "repeat", "split", "max_train_rows", "n_features", "n_classes", "problem_type"]
+        n_folds_by_dataset: dict[str, int] = {}
+        train_sizes: dict[str, list[float]] = {}
+        meta: dict[str, dict] = {}
+        for t in self._tasks:
+            ds = t.tabarena_task_name
+            meta.setdefault(
+                ds,
+                {"n_features": t.num_features, "n_classes": t.num_classes, "problem_type": t.problem_type},
+            )
+            for split in t.splits_metadata.values():
+                n_folds_by_dataset[ds] = max(n_folds_by_dataset.get(ds, 0), split.fold + 1)
+                train_sizes.setdefault(ds, []).append(split.num_instances_train)
+        mean_train = {ds: (sum(sizes) / len(sizes)) for ds, sizes in train_sizes.items()}
+        rows = [
+            {
+                "dataset": ds,
+                "fold": fold,
+                "repeat": repeat,
+                "split": n_folds_by_dataset[ds] * repeat + fold,
+                "max_train_rows": mean_train[ds],
+                "n_features": meta[ds]["n_features"],
+                "n_classes": meta[ds]["n_classes"],
+                "problem_type": meta[ds]["problem_type"],
+            }
+            for ds, fold, repeat in self.dataset_fold_repeats()
+        ]
+        return pd.DataFrame(rows, columns=cols)
+
     # ------------------------------------------------------------------ legacy boundary
     @classmethod
     def from_legacy_df(cls, task_metadata: pd.DataFrame) -> TaskMetadataCollection:

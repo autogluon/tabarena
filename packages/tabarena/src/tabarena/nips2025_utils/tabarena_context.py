@@ -85,8 +85,10 @@ class TabArenaContext:
         # foundation-model compatibility (operates on tabarena task_metadata columns)
         "tabpfn": lambda df: (df["max_train_rows"] <= 10_000) & (df["n_features"] <= 500) & (df["n_classes"] <= 10),
         "tabicl": lambda df: (df["max_train_rows"] <= 100_000) & (df["n_features"] <= 500) & (df["n_classes"] > 0),
-        # row-level filter (requires a "fold" column; only meaningful when applied to df_results)
-        "lite": lambda df: df["fold"] == 0,
+        # split-level filter: keeps split 0 == (fold 0, repeat 0). Evaluated on the task grid's
+        # "split" column (see TaskMetadataCollection.task_grid); a results frame's "fold" is the
+        # split, so this maps to fold == 0 there.
+        "lite": lambda df: df["split"] == 0,
     }
 
     @property
@@ -908,7 +910,7 @@ class TabArenaContext:
                 tasks=tasks,
                 datasets=datasets,
                 folds=folds,
-                task_metadata_og=self.task_metadata,
+                task_metadata_og=self.task_metadata_collection,
                 predicates=self.subset_predicates,
             )
         return df_results
@@ -931,9 +933,9 @@ class TabArenaContext:
         determined by the following filters (all default None):
 
         - `subset`: predicate expressions (the same as `compare`, e.g. ``"lite"``,
-          ``"small"``, ``"binary"``, ``"!tiny"``) applied to the full per-dataset grid,
-          where the predicates treat the split (``n_folds * repeat + fold``) as the
-          ``fold`` column (so ``"lite"`` keeps ``split == 0`` == ``(fold 0, repeat 0)``).
+          ``"small"``, ``"binary"``, ``"!tiny"``) applied to the task grid, which carries an
+          explicit ``split`` column (``n_folds * repeat + fold``); ``"lite"`` keeps
+          ``split == 0`` == ``(fold 0, repeat 0)``.
         - `datasets`: restrict to these dataset names.
         - `splits`: restrict to these split indices (``n_folds * repeat + fold``).
         - `folds` / `repeats`: restrict to these fold / repeat indices.
@@ -982,24 +984,6 @@ class TabArenaContext:
             **kwargs,
         )
 
-    def _full_grid_rows(self) -> list[tuple[str, int, int, int]]:
-        """Full ``(dataset, fold, repeat, split_index)`` grid for subset expansion.
-
-        Built natively from the actual splits in each task's ``splits_metadata`` (so a
-        non-rectangular set of splits is respected), instead of a rectangular
-        ``n_folds`` x ``n_repeats`` product.
-
-        ``split_index = n_folds * repeat + fold`` is the column the subset predicates treat as
-        ``"fold"`` (so ``"lite"`` keeps ``split_index == 0`` == ``(fold 0, repeat 0)``).
-        """
-        triplets = self.task_metadata_collection.dataset_fold_repeats()
-        n_folds_by_dataset: dict[str, int] = {}
-        for dataset, fold, _repeat in triplets:
-            n_folds_by_dataset[dataset] = max(n_folds_by_dataset.get(dataset, 0), fold + 1)
-        return [
-            (dataset, fold, repeat, n_folds_by_dataset[dataset] * repeat + fold) for dataset, fold, repeat in triplets
-        ]
-
     def _subset_dataset_fold_repeats(
         self,
         subset: str | list[str] | None = None,
@@ -1008,38 +992,35 @@ class TabArenaContext:
         folds: list[int] | None = None,
         repeats: list[int] | None = None,
     ) -> list[tuple[str, int, int]]:
-        """Expand `task_metadata` into (dataset, fold, repeat) triplets kept by the filters.
+        """Expand the task grid into (dataset, fold, repeat) triplets kept by the filters.
 
-        Builds the full per-dataset grid (``split = n_folds * repeat + fold``), then
-        filters it (AND) by: the `subset` predicate expressions and/or an explicit
-        `datasets` list (via the same machinery as `compare`), and then by the
-        `splits`/`folds`/`repeats` index lists. The subset predicates treat the split
-        index as the ``fold`` column, so e.g. ``"lite"`` keeps ``split == 0`` (i.e.
+        Evaluates the `subset` predicate expressions on the native task grid
+        (:meth:`TaskMetadataCollection.task_grid` — one row per ``(dataset, fold, repeat, split)``),
+        then filters (AND) by an explicit `datasets` list and the `splits`/`folds`/`repeats` index
+        lists. ``"lite"`` keys on the grid's ``split`` column, so it keeps ``split == 0`` (i.e.
         ``(fold 0, repeat 0)``).
         """
-        from tabarena.nips2025_utils.compare import subset_tasks
+        from tabarena.nips2025_utils.compare import _evaluate_subset_expression
 
         if isinstance(subset, str):
             subset = [subset]
 
-        grid = pd.DataFrame(self._full_grid_rows(), columns=["dataset", "_fold", "_repeat", "fold"])
-
-        filtered = subset_tasks(
-            df_results=grid,
-            subset=subset,
-            datasets=datasets,
-            task_metadata_og=self.task_metadata,
-            predicates=self.subset_predicates,
-        )
+        grid = self.task_metadata_collection.task_grid()
+        if subset:
+            for expression in subset:
+                mask = _evaluate_subset_expression(expression, grid, predicates=self.subset_predicates)
+                grid = grid[mask.values]
+        if datasets is not None:
+            grid = grid[grid["dataset"].isin(datasets)]
         if splits is not None:
-            filtered = filtered[filtered["fold"].isin(splits)]  # "fold" column holds the split index
+            grid = grid[grid["split"].isin(splits)]
         if folds is not None:
-            filtered = filtered[filtered["_fold"].isin(folds)]
+            grid = grid[grid["fold"].isin(folds)]
         if repeats is not None:
-            filtered = filtered[filtered["_repeat"].isin(repeats)]
+            grid = grid[grid["repeat"].isin(repeats)]
         return [
             (dataset, int(fold), int(repeat))
-            for dataset, fold, repeat in zip(filtered["dataset"], filtered["_fold"], filtered["_repeat"], strict=False)
+            for dataset, fold, repeat in zip(grid["dataset"], grid["fold"], grid["repeat"], strict=False)
         ]
 
     def load_configs_hyperparameters(

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 
@@ -304,25 +305,47 @@ def _evaluate_subset_expression(
     return mask
 
 
-def _join_results_with_metadata(
-    df_results: pd.DataFrame,
-    task_metadata: pd.DataFrame,
-) -> pd.DataFrame:
-    """Build a per-row view of ``df_results`` enriched with ``task_metadata`` columns.
-
-    Aliases tabarena-style ``n_samples_train_per_fold`` to ``max_train_rows`` so the
-    shared size predicates (see :attr:`TabArenaContext.SUBSET_PREDICATES`) work
-    uniformly across tabarena task_metadata and data-foundry metadata.
+def _task_grid_from_legacy_df(task_metadata: pd.DataFrame) -> pd.DataFrame:
+    """Task-level grid (``dataset``/``fold``/``repeat``/``split`` + predicate columns) built from a
+    legacy ``task_metadata`` DataFrame, by expanding the rectangular ``n_folds`` x ``n_repeats``
+    grid per dataset. Mirrors :meth:`TaskMetadataCollection.task_grid` for the legacy input path
+    (requires ``dataset``/``n_folds``/``n_repeats``; aliases ``n_samples_train_per_fold`` to
+    ``max_train_rows``).
     """
-    md = task_metadata.copy()
+    md = task_metadata.drop_duplicates("dataset").copy()
     if "max_train_rows" not in md.columns and "n_samples_train_per_fold" in md.columns:
         md["max_train_rows"] = md["n_samples_train_per_fold"]
-    # Avoid clobbering columns already on df_results (e.g. problem_type from the run row).
-    keep_cols = ["dataset"] + [c for c in md.columns if c != "dataset" and c not in df_results.columns]
-    md = md[keep_cols]
-    joined = df_results.merge(md, on="dataset", how="left")
-    joined.index = df_results.index
-    return joined
+    rows = []
+    for r in md.to_dict("records"):
+        n_folds, n_repeats = int(r["n_folds"]), int(r["n_repeats"])
+        for repeat in range(n_repeats):
+            for fold in range(n_folds):
+                rows.append(
+                    {
+                        "dataset": r["dataset"],
+                        "fold": fold,
+                        "repeat": repeat,
+                        "split": n_folds * repeat + fold,
+                        "max_train_rows": r.get("max_train_rows"),
+                        "n_features": r.get("n_features"),
+                        "n_classes": r.get("n_classes"),
+                        "problem_type": r.get("problem_type"),
+                    },
+                )
+    return pd.DataFrame(
+        rows,
+        columns=["dataset", "fold", "repeat", "split", "max_train_rows", "n_features", "n_classes", "problem_type"],
+    )
+
+
+def _task_grid(task_metadata: pd.DataFrame | TaskMetadataCollection) -> pd.DataFrame:
+    """The task-level grid the subset predicates evaluate against — native from a
+    ``TaskMetadataCollection`` (:meth:`TaskMetadataCollection.task_grid`) or expanded from a
+    legacy DataFrame (:func:`_task_grid_from_legacy_df`).
+    """
+    if isinstance(task_metadata, TaskMetadataCollection):
+        return task_metadata.task_grid()
+    return _task_grid_from_legacy_df(task_metadata)
 
 
 def subset_tasks(
@@ -331,10 +354,16 @@ def subset_tasks(
     tasks: list[tuple[str, int]] | None = None,
     folds: list[int] | None = None,
     datasets: list[str] | None = None,
-    task_metadata_og: pd.DataFrame | None = None,
+    task_metadata_og: pd.DataFrame | TaskMetadataCollection | None = None,
     predicates: dict[str, Callable[[pd.DataFrame], pd.Series]] | None = None,
 ) -> pd.DataFrame:
     """Subset ``df_results`` by named predicates.
+
+    The predicates are evaluated on the **task-level grid** derived from ``task_metadata_og``
+    (one row per ``(dataset, fold, repeat, split)`` carrying the predicate metadata), never on
+    ``df_results`` itself. The surviving ``(dataset, split)`` tasks are then used to filter
+    ``df_results`` by a semi-join on ``(dataset, fold == split)`` (a results frame's ``fold`` is
+    the split identifier). ``"lite"`` keys on the grid's ``split`` column.
 
     Each entry in ``subset`` is an expression. Items in the list are AND-ed together;
     within an item, ``|`` is a union (OR) and a leading ``!`` negates an atom. Examples:
@@ -359,11 +388,16 @@ def subset_tasks(
 
     df_results = df_results.copy(deep=True)
     if subset:
-        joined = _join_results_with_metadata(df_results, task_metadata_og)
+        grid = _task_grid(task_metadata_og)
         for expression in subset:
-            mask = _evaluate_subset_expression(expression, joined, predicates=predicates)
-            df_results = df_results[mask.values]
-            joined = joined[mask.values]
+            mask = _evaluate_subset_expression(expression, grid, predicates=predicates)
+            grid = grid[mask.values]
+        surviving = {(dataset, int(split)) for dataset, split in zip(grid["dataset"], grid["split"], strict=False)}
+        keep = [
+            (dataset, int(fold)) in surviving
+            for dataset, fold in zip(df_results["dataset"], df_results["fold"], strict=False)
+        ]
+        df_results = df_results[pd.Series(keep, index=df_results.index)]
 
     if tasks is not None:
         task_index = pd.MultiIndex.from_tuples(tasks, names=["dataset", "fold"])
@@ -383,7 +417,7 @@ def get_subsets_per_dataset(
     (from ``predicates``) whose predicate the dataset satisfies.
 
     Predicates that reference columns not present in ``data_foundry_metadata``
-    (e.g. ``"lite"`` needs a ``"fold"`` column, ``"tabpfn"``/``"tabicl"`` need
+    (e.g. ``"lite"`` needs a ``"split"`` column, ``"tabpfn"``/``"tabicl"`` need
     ``"n_features"``/``"n_classes"``) are skipped silently.
 
     Parameters

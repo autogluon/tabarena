@@ -345,7 +345,8 @@ def to_legacy_task_metadata(task_metadata: list[TabArenaTaskMetadata]) -> pd.Dat
       the (dataset, fold, repeat) grid.
     * ``problem_type``, ``n_features``, ``n_classes``, ``n_samples_train_per_fold`` — the
       columns the subset predicates reference. ``n_samples_train_per_fold`` is aliased to
-      ``max_train_rows`` by ``compare._join_results_with_metadata`` for the size buckets.
+      ``max_train_rows`` when the legacy frame is expanded into the subset task grid
+      (``compare._task_grid_from_legacy_df``) for the size buckets.
 
     Two things make this a non-trivial mapping (see :func:`TabArenaTaskMetadata.to_dataframe`):
 
