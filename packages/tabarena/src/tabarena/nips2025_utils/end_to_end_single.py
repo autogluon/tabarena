@@ -8,6 +8,7 @@ import pandas as pd
 from autogluon.common.savers import save_pd
 
 from tabarena.benchmark.result import BaselineResult, ConfigResult
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.nips2025_utils.compare import compare_on_tabarena
 from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
@@ -126,6 +127,9 @@ class EndToEndSingle:
 
     @property
     def task_metadata(self) -> pd.DataFrame:
+        """The legacy task-metadata frame the repo was built from (tabrepo stores a DataFrame,
+        regardless of whether a collection or a DataFrame was passed to construction).
+        """
         return self.repo.task_metadata
 
     def configs_hyperparameters(self) -> dict[str, dict | None]:
@@ -140,7 +144,7 @@ class EndToEndSingle:
         cls,
         results_lst: list[BaselineResult | dict],
         method_metadata: MethodMetadata | None = None,
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: pd.DataFrame | TaskMetadataCollection | None = None,
         cache: bool = True,
         cache_raw: bool = True,
         cache_holdout: bool = False,
@@ -320,7 +324,7 @@ class EndToEndSingle:
         cls,
         path_raw: str | Path | list[str | Path],
         method_metadata: MethodMetadata | None = None,
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: pd.DataFrame | TaskMetadataCollection | None = None,
         cache: bool = True,
         cache_raw: bool = True,
         cache_holdout: bool = False,
@@ -453,7 +457,7 @@ class EndToEndSingle:
     def from_path_raw_to_results(
         path_raw: str | Path | list[str | Path],
         method_metadata: MethodMetadata | None = None,
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: pd.DataFrame | TaskMetadataCollection | None = None,
         cache: bool = True,
         name: str | None = None,
         name_prefix: str | None = None,
@@ -780,17 +784,22 @@ def _task_dir(file_path_key: str) -> str:
 
 def _filter_file_paths_by_task_metadata(
     all_file_paths_method: dict[str, list[Path]],
-    task_metadata: pd.DataFrame,
+    task_metadata: pd.DataFrame | TaskMetadataCollection,
 ) -> dict[str, list[Path]]:
     """Drop grouped file paths whose task is absent from ``task_metadata``.
 
     Matches each task directory against both the integer ``tid`` and the slug
     ``tabarena_task_name`` so local/user tasks (whose directories are slugs, not
-    integers) are not erroneously removed.
+    integers) are not erroneously removed. A native ``TaskMetadataCollection`` supplies
+    both via its ``dataset_to_tid()`` map and ``dataset_names()`` (the slugs).
     """
-    valid_task_keys = {str(t) for t in task_metadata["tid"].unique()}
-    if "tabarena_task_name" in task_metadata.columns:
-        valid_task_keys |= {str(n) for n in task_metadata["tabarena_task_name"].unique()}
+    if isinstance(task_metadata, TaskMetadataCollection):
+        valid_task_keys = {str(t) for t in task_metadata.dataset_to_tid().values()}
+        valid_task_keys |= {str(n) for n in task_metadata.dataset_names()}
+    else:
+        valid_task_keys = {str(t) for t in task_metadata["tid"].unique()}
+        if "tabarena_task_name" in task_metadata.columns:
+            valid_task_keys |= {str(n) for n in task_metadata["tabarena_task_name"].unique()}
 
     removed = [k for k in all_file_paths_method if _task_dir(k) not in valid_task_keys]
     for task_key in sorted({_task_dir(k) for k in removed}):
@@ -802,7 +811,7 @@ def _process_result_list(
     *,
     file_paths_method: list[Path],
     method_metadata: MethodMetadata | None = None,
-    task_metadata: pd.DataFrame,
+    task_metadata: pd.DataFrame | TaskMetadataCollection,
     name: str | None = None,
     name_prefix: str | None = None,
     name_suffix: str | None = None,

@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from tabarena.benchmark.result import BaselineResult
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
 
 
 class EndToEnd:
@@ -47,7 +48,7 @@ class EndToEnd:
     def from_raw(
         cls,
         results_lst: list[BaselineResult | dict],
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: pd.DataFrame | TaskMetadataCollection | None = None,
         cache: bool = True,
         cache_raw: bool = True,
         cache_hpo_trajectories: bool = False,
@@ -107,7 +108,7 @@ class EndToEnd:
     def from_path_raw(
         cls,
         path_raw: str | Path | list[str | Path],
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: pd.DataFrame | TaskMetadataCollection | None = None,
         cache: bool = True,
         cache_raw: bool = True,
         cache_hpo_trajectories: bool = False,
@@ -182,7 +183,7 @@ class EndToEnd:
     @staticmethod
     def from_path_raw_to_results(
         path_raw: str | Path | list[str | Path],
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: pd.DataFrame | TaskMetadataCollection | None = None,
         cache: bool = True,
         name: str | None = None,
         name_prefix: str | None = None,
@@ -495,7 +496,7 @@ class EndToEndResults:
 def _process_result_list(
     *,
     file_paths_method: list[Path],
-    task_metadata: pd.DataFrame,
+    task_metadata: pd.DataFrame | TaskMetadataCollection,
     name: str | None = None,
     name_prefix: str | None = None,
     name_suffix: str | None = None,
