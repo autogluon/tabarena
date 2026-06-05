@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+from tabarena.benchmark.task.metadata import default_task_metadata_collection
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
@@ -40,7 +41,7 @@ def compare_on_tabarena(
         if tabarena_context_kwargs is None:
             tabarena_context_kwargs = {}
         tabarena_context = TabArenaContext(**tabarena_context_kwargs)
-    task_metadata = tabarena_context.task_metadata
+    task_metadata = tabarena_context.task_metadata_collection
 
     # TODO: only methods that exist in runs
     #  Pair with (method, artifact_name)
@@ -92,7 +93,7 @@ def compare_on_tabarena(
 def compare(
     df_results: pd.DataFrame,
     output_dir: str | Path,
-    task_metadata: pd.DataFrame = None,
+    task_metadata: TaskMetadataCollection | None = None,
     only_valid_tasks: str | list[str] | None = None,
     tasks: list[tuple[str, int]] | None = None,
     datasets: list[str] | None = None,
@@ -111,6 +112,8 @@ def compare(
     elo_ymin: float | None = None,
     **kwargs,
 ):
+    if task_metadata is None:
+        task_metadata = default_task_metadata_collection()
     if subset is not None or folds is not None or datasets is not None or tasks is not None:
         if subset is None:
             subset = []

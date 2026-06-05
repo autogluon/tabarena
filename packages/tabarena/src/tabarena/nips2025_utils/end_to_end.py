@@ -373,7 +373,7 @@ class EndToEndResults:
     def compare(
         self,
         output_dir: str | Path,
-        task_metadata: pd.DataFrame,
+        task_metadata: TaskMetadataCollection | None = None,
         *,
         fillna: str | None = None,
         only_valid_tasks: str | list[str] | None = None,

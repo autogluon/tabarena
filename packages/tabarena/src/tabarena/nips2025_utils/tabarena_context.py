@@ -1199,7 +1199,7 @@ class TabArenaContext:
 
         deep_dive_kwargs = dict(kwargs.pop("deep_dive_kwargs", None) or {})
 
-        evaluator = TabArenaEvaluator(output_dir=save_path)
+        evaluator = TabArenaEvaluator(output_dir=save_path, task_metadata=self.task_metadata_collection)
         evaluator.generate_runtime_plot(
             df_results=df_results_configs,
             deep_dive_kwargs=deep_dive_kwargs,

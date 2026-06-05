@@ -215,6 +215,7 @@ def evaluate_single(
 
     plotter = TabArenaEvaluator(
         output_dir=eval_save_path / folder_name,
+        task_metadata=tabarena_context.task_metadata_collection,
         elo_bootstrap_rounds=elo_bootstrap_rounds,
         tabarena_context=tabarena_context,
         method_rename_map=method_rename_map,
