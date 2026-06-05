@@ -3,9 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
-from tabarena.nips2025_utils.end_to_end_single import _filter_file_paths_by_task_metadata
+from tabarena.nips2025_utils.end_to_end_single import (
+    EndToEndSingle,
+    _filter_file_paths_by_task_metadata,
+    _reject_legacy_task_metadata,
+)
 
 
 def _legacy_df() -> pd.DataFrame:
@@ -34,22 +39,31 @@ def _grouped_paths(*task_dirs: str) -> dict[str, list[Path]]:
 
 
 class TestFilterFilePathsByTaskMetadata:
-    def test_collection_keeps_matching_tid_drops_others(self):
+    def test_keeps_matching_tid_drops_others(self):
         coll = TaskMetadataCollection.from_legacy_df(_legacy_df())  # tid 7, slug "d1"
-        grouped = _grouped_paths("7", "999")  # 7 in-suite, 999 not
-        kept = _filter_file_paths_by_task_metadata(grouped, coll)
+        kept = _filter_file_paths_by_task_metadata(_grouped_paths("7", "999"), coll)
         assert set(kept) == {"7/0"}
 
-    def test_collection_keeps_slug_task_dir(self):
+    def test_keeps_slug_task_dir(self):
         # User/local tasks use the tabarena_task_name slug as the directory, not the int tid.
         coll = TaskMetadataCollection.from_legacy_df(_legacy_df())  # slug "d1"
-        grouped = _grouped_paths("d1", "other_slug")
-        kept = _filter_file_paths_by_task_metadata(grouped, coll)
+        kept = _filter_file_paths_by_task_metadata(_grouped_paths("d1", "other_slug"), coll)
         assert set(kept) == {"d1/0"}
 
-    def test_collection_matches_legacy_df_behavior(self):
-        coll = TaskMetadataCollection.from_legacy_df(_legacy_df())
-        grouped = _grouped_paths("7", "d1", "999")
-        kept_coll = _filter_file_paths_by_task_metadata(grouped, coll)
-        kept_df = _filter_file_paths_by_task_metadata(grouped, coll.to_legacy_df())
-        assert set(kept_coll) == set(kept_df) == {"7/0", "d1/0"}
+
+class TestRejectLegacyTaskMetadata:
+    def test_dataframe_rejected(self):
+        with pytest.raises(TypeError, match="no longer accept a legacy"):
+            _reject_legacy_task_metadata(_legacy_df())
+
+    def test_none_and_collection_ok(self):
+        _reject_legacy_task_metadata(None)  # auto-infer sentinel
+        _reject_legacy_task_metadata(TaskMetadataCollection.from_legacy_df(_legacy_df()))
+
+
+class TestFetchTaskMetadata:
+    def test_returns_collection_from_cache(self):
+        # tids=[] -> no missing tids -> uses the committed cached metadata (offline), wrapped.
+        coll = EndToEndSingle.fetch_task_metadata(tids=[], verbose=False)
+        assert isinstance(coll, TaskMetadataCollection)
+        assert len(coll) > 0

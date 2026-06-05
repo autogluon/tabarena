@@ -75,17 +75,7 @@ def load_task_metadata(paper: bool = True, subset: str | None = None, path: str 
         else:
             raise ValueError("paper == True is required")
     task_metadata = load_pd.load(path=path)
-
-    task_metadata["n_folds"] = 3
-    task_metadata["n_repeats"] = task_metadata["NumberOfInstances"].apply(_get_n_repeats)
-    task_metadata["n_samples_test_per_fold"] = (task_metadata["NumberOfInstances"] / task_metadata["n_folds"]).astype(
-        int
-    )
-    task_metadata["n_samples_train_per_fold"] = (
-        task_metadata["NumberOfInstances"] - task_metadata["n_samples_test_per_fold"]
-    ).astype(int)
-
-    task_metadata = add_extra_task_metadata_info(task_metadata=task_metadata)
+    task_metadata = enrich_legacy_task_metadata(task_metadata)
 
     return subset_task_metadata(task_metadata=task_metadata, subset=subset)
 
@@ -114,6 +104,25 @@ def add_extra_task_metadata_info(task_metadata: pd.DataFrame) -> pd.DataFrame:
 
     task_metadata["dataset"] = task_metadata["name"]
     return task_metadata
+
+
+def enrich_legacy_task_metadata(task_metadata: pd.DataFrame) -> pd.DataFrame:
+    """Add the TabArena split columns (``n_folds``/``n_repeats``/``n_samples_*_per_fold``) and the
+    derived schema columns (``n_features``/``n_classes``/``problem_type``/``dataset``) that the
+    legacy ``task_metadata`` format — and :meth:`TaskMetadataCollection.from_legacy_df` — expect,
+    starting from a raw OpenML-style frame (needs ``NumberOfInstances``/``NumberOfFeatures``/
+    ``NumberOfClasses``/``name``). Used by :func:`load_task_metadata` and to make the OpenML
+    ``generate_task_metadata`` fallback convertible to a ``TaskMetadataCollection``.
+    """
+    task_metadata["n_folds"] = 3
+    task_metadata["n_repeats"] = task_metadata["NumberOfInstances"].apply(_get_n_repeats)
+    task_metadata["n_samples_test_per_fold"] = (task_metadata["NumberOfInstances"] / task_metadata["n_folds"]).astype(
+        int
+    )
+    task_metadata["n_samples_train_per_fold"] = (
+        task_metadata["NumberOfInstances"] - task_metadata["n_samples_test_per_fold"]
+    ).astype(int)
+    return add_extra_task_metadata_info(task_metadata=task_metadata)
 
 
 def load_curated_task_metadata() -> pd.DataFrame:
