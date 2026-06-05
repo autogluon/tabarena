@@ -119,14 +119,14 @@ class TestToLegacyTaskMetadata:
         assert result.iloc[0]["n_folds"] == 3
         assert result.iloc[0]["n_repeats"] == 2
 
-    def test_train_samples_is_max_across_folds(self):
-        # max_train_rows semantics => the largest per-fold train size wins.
+    def test_train_samples_is_mean_across_folds(self):
+        # n_samples_train_per_fold is the mean per-fold train size (float), not the max.
         splits = [
             _split_meta(repeat=0, fold=0, num_instances_train=80),
             _split_meta(repeat=0, fold=1, num_instances_train=95),
         ]
         result = to_legacy_task_metadata([_task_meta(splits=splits)])
-        assert result.iloc[0]["n_samples_train_per_fold"] == 95
+        assert result.iloc[0]["n_samples_train_per_fold"] == 87.5
 
     def test_columns_renamed_to_predicate_names(self):
         result = to_legacy_task_metadata([_task_meta(num_features=7, num_classes=3)])

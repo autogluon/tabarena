@@ -176,7 +176,7 @@ class TestFromLegacyDf:
         t = TaskMetadataCollection.from_legacy_df(df).tasks[0]
         assert t.eval_metric == "rmse"
         assert t.is_classification is False
-        assert t.num_classes == 0  # legacy encoding preserved (not schema's -1)
+        assert t.num_classes == -1  # regression normalized to the schema's -1 (from legacy 0)
 
     def test_lossy_fields_are_none(self):
         t = TaskMetadataCollection.from_legacy_df(pd.DataFrame([_legacy_row()])).tasks[0]

@@ -96,9 +96,10 @@ class TaskMetadataCollection:
         lacks most rich fields, so the rebuilt tasks are structurally valid but sparse:
 
         * derived: ``eval_metric`` (from ``problem_type``), ``is_classification``, and the
-          ``splits_metadata`` grid (per-split sizes from ``n_samples_train/test_per_fold``).
-        * preserved as-is: ``num_classes`` keeps the legacy encoding (``0`` for regression),
-          not the schema's documented ``-1``.
+          ``splits_metadata`` grid (per-split sizes from ``n_samples_train/test_per_fold``,
+          kept as floats so they round-trip through :meth:`to_legacy_df` without truncation).
+        * normalized: ``num_classes`` is set to the schema's ``-1`` for regression (rather than
+          the legacy ``0``), so the rebuilt collection matches the native convention.
         * unavailable -> ``None``: dtype flags, domain/year/source, group/time split fields,
           multiclass min/max, class-consistency.
 
@@ -127,11 +128,16 @@ class TaskMetadataCollection:
         for row in task_metadata.to_dict("records"):
             dataset = row.get("dataset") or row.get("name")
             problem_type = row["problem_type"]
-            n_classes = int(row["n_classes"])
+            # Normalize to the schema's regression convention (-1) rather than preserving the
+            # legacy 0, so the rebuilt collection matches the native bundle.
+            n_classes = -1 if problem_type == "regression" else int(row["n_classes"])
             num_features = int(row["n_features"])
             num_instances = int(row["NumberOfInstances"])
-            n_train = int(row["n_samples_train_per_fold"])
-            n_test = int(row["n_samples_test_per_fold"])
+            # Kept as floats: the legacy frame stores a (possibly fractional) per-fold average,
+            # so int() would truncate it. to_legacy_df recovers it via a float mean, so the
+            # value round-trips exactly.
+            n_train = float(row["n_samples_train_per_fold"])
+            n_test = float(row["n_samples_test_per_fold"])
             n_folds, n_repeats = int(row["n_folds"]), int(row["n_repeats"])
             target_name = row.get("target_feature")
             if target_name is not None and pd.isna(target_name):

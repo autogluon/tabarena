@@ -369,12 +369,15 @@ def to_legacy_task_metadata(task_metadata: list[TabArenaTaskMetadata]) -> pd.Dat
     )
 
     # Aggregate the split grain up to the dataset grain the legacy format expects.
-    # max_train_rows semantics => the largest per-fold train size for the dataset.
+    # n_samples_*_per_fold is the mean per-fold size, kept as a float: it matches the curated
+    # per-fold average and is the exact inverse of from_legacy_df (which stamps one per-fold
+    # value onto every split), so the conversion round-trips without max()/int() loss.
+    # (NB: the subset predicates alias n_samples_train_per_fold to ``max_train_rows``.)
     aggregates = per_split.groupby("dataset", sort=False).agg(
         n_folds=("fold", "nunique"),
         n_repeats=("repeat", "nunique"),
-        n_samples_train_per_fold=("num_instances_train", "max"),
-        n_samples_test_per_fold=("num_instances_test", "max"),
+        n_samples_train_per_fold=("num_instances_train", "mean"),
+        n_samples_test_per_fold=("num_instances_test", "mean"),
     )
 
     # Keep one (dataset-constant) static row per dataset, drop the now-meaningless
