@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
     import pandas as pd
 
+    from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+
 
 @dataclass
 class TabArenaMetadataBundle:
@@ -112,6 +114,13 @@ class TabArenaMetadataBundle:
         self._sanity_check_task_ids(task_metadata)
         self._print_filter_history(filter_history)
         return task_metadata
+
+    def load_collection(self) -> TaskMetadataCollection:
+        """Load the task metadata as a :class:`TaskMetadataCollection` (list + derived views)."""
+        # Local import to keep the bundles package import-light and avoid import cycles.
+        from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+
+        return TaskMetadataCollection(self.load_task_metadata())
 
     def _filter_by_problem_types(self, task_metadata: list[TabArenaTaskMetadata]) -> list[TabArenaTaskMetadata]:
         return [ttm for ttm in task_metadata if ttm.problem_type in self.problem_types_to_run]

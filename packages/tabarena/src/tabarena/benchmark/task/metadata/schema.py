@@ -331,3 +331,62 @@ class SplitMetadata:
         res = asdict(self)
         res["split_index"] = self.split_index
         return res
+
+
+def to_legacy_task_metadata(task_metadata: list[TabArenaTaskMetadata]) -> pd.DataFrame:
+    """Convert a list of :class:`TabArenaTaskMetadata` into the legacy ``task_metadata``
+    DataFrame consumed by ``TabArenaContext`` and ``ExperimentBatchRunner``.
+
+    The legacy format is **one row per dataset** with the columns those consumers read:
+
+    * ``dataset`` / ``tid`` — dataset identity (``ExperimentBatchRunner`` builds its
+      dataset→tid map from these; both consumers ``drop_duplicates(subset="dataset")``).
+    * ``n_folds`` / ``n_repeats`` — *aggregate* per-dataset split counts, used to expand
+      the (dataset, fold, repeat) grid.
+    * ``problem_type``, ``n_features``, ``n_classes``, ``n_samples_train_per_fold`` — the
+      columns the subset predicates reference. ``n_samples_train_per_fold`` is aliased to
+      ``max_train_rows`` by ``compare._join_results_with_metadata`` for the size buckets.
+
+    Two things make this a non-trivial mapping (see :func:`TabArenaTaskMetadata.to_dataframe`):
+
+    * ``to_dataframe`` emits one row *per split* and never the aggregate ``n_folds`` /
+      ``n_repeats``, so we group by dataset and count distinct folds/repeats. Collapsing to
+      one row per dataset is required: ``subset_results`` merges this on ``"dataset"``, and
+      a multi-row-per-dataset frame would fan that merge out.
+    * the predicate columns ``n_features`` / ``n_classes`` are named ``num_features`` /
+      ``num_classes`` on the schema and must be renamed (the predicates raise ``KeyError``
+      on missing columns rather than skipping them).
+
+    Requires each task to carry a parseable ``task_id_str`` (enforced upstream by
+    :class:`TabArenaMetadataBundle`); an empty list yields an empty DataFrame.
+    """
+    if not task_metadata:
+        return pd.DataFrame()
+
+    per_split = pd.concat(
+        [ttm.to_dataframe(add_old_minimal_metadata=True) for ttm in task_metadata],
+        ignore_index=True,
+    )
+
+    # Aggregate the split grain up to the dataset grain the legacy format expects.
+    # max_train_rows semantics => the largest per-fold train size for the dataset.
+    aggregates = per_split.groupby("dataset", sort=False).agg(
+        n_folds=("fold", "nunique"),
+        n_repeats=("repeat", "nunique"),
+        n_samples_train_per_fold=("num_instances_train", "max"),
+        n_samples_test_per_fold=("num_instances_test", "max"),
+    )
+
+    # Keep one (dataset-constant) static row per dataset, drop the now-meaningless
+    # split-grain columns, and splice the dataset-level aggregates back in.
+    split_cols = {f.name for f in fields(SplitMetadata)} | {"split_index"}
+    static = (
+        per_split.drop_duplicates(subset="dataset")
+        .set_index("dataset")
+        .drop(columns=list(split_cols | set(aggregates.columns)), errors="ignore")
+    )
+
+    legacy = static.join(aggregates).rename(
+        columns={"num_features": "n_features", "num_classes": "n_classes"},
+    )
+    return legacy.reset_index()

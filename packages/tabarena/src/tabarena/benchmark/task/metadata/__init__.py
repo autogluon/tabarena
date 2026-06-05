@@ -9,6 +9,7 @@ from tabarena.benchmark.task.metadata.bundles import (
     TabArenaV0pt1LiteMetadataBundle,
     TabArenaV0pt1MetadataBundle,
 )
+from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 from tabarena.benchmark.task.metadata.schema import (
     GroupLabelTypes,
     SplitIndex,
@@ -16,6 +17,7 @@ from tabarena.benchmark.task.metadata.schema import (
     SplitTimeHorizonTypes,
     SplitTimeHorizonUnitTypes,
     TabArenaTaskMetadata,
+    to_legacy_task_metadata,
 )
 from tabarena.benchmark.task.metadata.sources import (
     DataFoundryTaskMetadataSource,
@@ -42,6 +44,8 @@ __all__ = [
     "TabArenaV0pt1LiteMetadataBundle",
     "TabArenaV0pt1MetadataBundle",
     "TabArenaV0pt1TaskMetadataSource",
+    "TaskMetadataCollection",
     "TaskMetadataSource",
     "resolve_source",
+    "to_legacy_task_metadata",
 ]
