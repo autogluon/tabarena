@@ -396,7 +396,7 @@ class TabArenaContext:
         metadata = self.method_metadata(method=method)
         metadata.generate_repo(
             results_lst=None,
-            task_metadata=self.task_metadata,
+            task_metadata=self.task_metadata_collection,
             cache=True,
             engine=self.engine,
         )
@@ -413,7 +413,7 @@ class TabArenaContext:
         file_paths_method = fetch_all_pickles(dir_path=path_raw, suffix="results.pkl")
         repo: EvaluationRepository = generate_repo_from_paths(
             result_paths=file_paths_method,
-            task_metadata=self.task_metadata,
+            task_metadata=self.task_metadata_collection,
             engine=self.engine,
             name_suffix=name_suffix,
             as_holdout=True,

@@ -5,6 +5,8 @@ import pandas as pd
 import pytest
 
 from tabarena.benchmark.result import AGBagResult, BaselineResult, ConfigResult, ExperimentResults
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.nips2025_utils.generate_repo import generate_repo_from_results_lst
 
 task_metadata = pd.DataFrame(
     {
@@ -201,3 +203,45 @@ def test_result_ag_bag_calibrate():
         )
     result_obj_calibrated = result_obj.generate_calibrated()
     assert result_obj_calibrated.framework == "m1_CAL"
+
+
+def _legacy_df_d1() -> pd.DataFrame:
+    """A complete legacy frame for dataset d1 / tid 0 (all columns from_legacy_df needs)."""
+    return pd.DataFrame(
+        {
+            "dataset": ["d1"],
+            "name": ["d1"],
+            "tid": [0],
+            "problem_type": ["multiclass"],
+            "n_folds": [1],
+            "n_repeats": [1],
+            "n_features": [3],
+            "n_classes": [3],
+            "NumberOfInstances": [10],
+            "n_samples_train_per_fold": [6],
+            "n_samples_test_per_fold": [4],
+            "target_feature": ["t"],
+        }
+    )
+
+
+def _baseline_result_on_tid(tid: int) -> BaselineResult:
+    result = _make_result_baseline()
+    result["task_metadata"]["tid"] = tid
+    return BaselineResult(result=result)
+
+
+def test_generate_repo_from_results_lst_accepts_collection():
+    # A native TaskMetadataCollection produces the same repo as passing its own legacy view.
+    coll = TaskMetadataCollection.from_legacy_df(_legacy_df_d1())
+    repo_coll = generate_repo_from_results_lst([_baseline_result_on_tid(0)], task_metadata=coll)
+    repo_df = generate_repo_from_results_lst([_baseline_result_on_tid(0)], task_metadata=coll.to_legacy_df())
+    assert repo_coll.baselines() == repo_df.baselines() == ["m1"]
+    assert list(repo_coll.datasets()) == list(repo_df.datasets()) == ["d1"]
+
+
+def test_generate_repo_from_results_lst_collection_tid_filter_drops_unknown():
+    # The tid filter derived from the collection's dataset->tid map drops out-of-suite results.
+    coll = TaskMetadataCollection.from_legacy_df(_legacy_df_d1())  # tid 0 only
+    with pytest.raises(ValueError, match="No results found after filtering"):
+        generate_repo_from_results_lst([_baseline_result_on_tid(999)], task_metadata=coll)

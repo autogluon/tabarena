@@ -22,6 +22,7 @@ from tabarena.utils.s3_utils import s3_get_object
 
 if TYPE_CHECKING:
     from tabarena.benchmark.result import BaselineResult
+    from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
     from tabarena.models._artifacts.downloader_s3 import MethodDownloaderS3
     from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
 
@@ -590,7 +591,7 @@ class MethodMetadata:
     def generate_repo(
         self,
         results_lst: list[BaselineResult] | None = None,
-        task_metadata: pd.DataFrame = None,
+        task_metadata: pd.DataFrame | TaskMetadataCollection = None,
         cache: bool = False,
         engine: str = "ray",
     ) -> EvaluationRepository:
@@ -615,7 +616,7 @@ class MethodMetadata:
     def generate_repo_holdout(
         self,
         results_lst: list[BaselineResult] | None = None,
-        task_metadata: pd.DataFrame = None,
+        task_metadata: pd.DataFrame | TaskMetadataCollection = None,
         cache: bool = False,
         engine: str = "ray",
     ) -> EvaluationRepository:
