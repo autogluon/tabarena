@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 
@@ -132,3 +133,58 @@ class TestSplitsFoldsRepeats:
     def test_dataset_fold_repeats_with_splits_raises(self, tmp_path):
         with pytest.raises(ValueError, match="`dataset_fold_repeats` together"):
             self._dfr(tmp_path, dataset_fold_repeats=[("a", 0, 0)], splits=[0])
+
+
+def _complete_legacy_df() -> pd.DataFrame:
+    """A complete legacy frame (all columns `from_legacy_df` requires)."""
+    return pd.DataFrame(
+        {
+            "tid": [363612],
+            "dataset": ["ds"],
+            "name": ["ds"],
+            "problem_type": ["binary"],
+            "n_folds": [3],
+            "n_repeats": [1],
+            "n_features": [7],
+            "n_classes": [2],
+            "NumberOfInstances": [100],
+            "n_samples_train_per_fold": [66],
+            "n_samples_test_per_fold": [34],
+            "target_feature": ["target"],
+        },
+    )
+
+
+class TestNativeTaskMetadata:
+    """TabArenaContext holds a TaskMetadataCollection for native inputs; df stays passthrough."""
+
+    def test_collection_input_is_held_and_derives_legacy_df(self):
+        coll = TaskMetadataCollection.from_legacy_df(_complete_legacy_df())
+        ctx = TabArenaContext(methods=[], task_metadata=coll)
+        assert ctx.task_metadata_collection is coll
+        assert isinstance(ctx.task_metadata, pd.DataFrame)  # derived legacy view
+        assert sorted(ctx.task_metadata["dataset"]) == ["ds"]
+
+    def test_list_input_builds_collection(self):
+        tasks = TaskMetadataCollection.from_legacy_df(_complete_legacy_df()).tasks
+        ctx = TabArenaContext(methods=[], task_metadata=tasks)
+        assert isinstance(ctx.task_metadata_collection, TaskMetadataCollection)
+        assert ctx.task_metadata_collection.dataset_names() == ["ds"]
+
+    def test_partial_dataframe_is_legacy_passthrough(self):
+        # A *partial* legacy frame (no NumberOfInstances) is accepted as-is, no conversion.
+        df = pd.DataFrame(
+            {
+                "tid": [0],
+                "dataset": ["ds"],
+                "n_folds": [2],
+                "n_repeats": [1],
+                "n_samples_train_per_fold": [100],
+                "problem_type": ["binary"],
+                "n_features": [10],
+                "n_classes": [2],
+            },
+        )
+        ctx = TabArenaContext(methods=[], task_metadata=df)
+        assert ctx.task_metadata_collection is None
+        assert list(ctx.task_metadata.columns) == list(df.columns)

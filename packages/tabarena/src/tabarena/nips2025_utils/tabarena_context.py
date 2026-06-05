@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 import pandas as pd
 
+from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
 from tabarena.nips2025_utils.eval_all import evaluate_all
-from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_paths
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
 from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
     from tabarena.benchmark.experiment import ExperimentBatchRunner
     from tabarena.benchmark.result import BaselineResult
+    from tabarena.benchmark.task.metadata import TabArenaTaskMetadata
     from tabarena.repository.abstract_repository import AbstractRepository
 
 _methods_paper = [
@@ -98,7 +99,7 @@ class TabArenaContext:
     def __init__(
         self,
         methods: list[MethodMetadata] | str = "tabarena",
-        task_metadata: str | pd.DataFrame = "tabarena",
+        task_metadata: str | pd.DataFrame | list[TabArenaTaskMetadata] | TaskMetadataCollection = "tabarena",
         *,
         extra_methods: list[MethodMetadata] | None = None,
         include_unverified: bool = False,
@@ -106,11 +107,15 @@ class TabArenaContext:
         fillna_method: str | None = "RF (default)",
         calibration_method: str | None = "RF (default)",
     ):
-        if isinstance(task_metadata, str):
-            assert task_metadata == "tabarena"
-            task_metadata = load_task_metadata(paper=True)
-        assert isinstance(task_metadata, pd.DataFrame)
-        self.task_metadata = task_metadata
+        # Native source of truth: a TaskMetadataCollection. A raw DataFrame stays a legacy
+        # passthrough (it may be a partial frame), so it carries no native collection; the
+        # legacy `task_metadata` df is then derived from the collection when there is one.
+        self.task_metadata_collection = self._resolve_task_metadata_collection(task_metadata)
+        if self.task_metadata_collection is not None:
+            self.task_metadata = self.task_metadata_collection.to_legacy_df()
+        else:
+            assert isinstance(task_metadata, pd.DataFrame)
+            self.task_metadata = task_metadata
         self.fillna_method = fillna_method
         self.calibration_method = calibration_method
         assert backend in ["ray", "native"]
@@ -147,6 +152,28 @@ class TabArenaContext:
                 method_metadata_lst.append(method_metadata)
 
         self.method_metadata_collection: MethodMetadataCollection = MethodMetadataCollection(method_metadata_lst)
+
+    @staticmethod
+    def _resolve_task_metadata_collection(
+        task_metadata: str | pd.DataFrame | list[TabArenaTaskMetadata] | TaskMetadataCollection,
+    ) -> TaskMetadataCollection | None:
+        """Normalize the constructor input to a native ``TaskMetadataCollection``.
+
+        Returns ``None`` for a raw DataFrame, which is kept as a legacy passthrough (callers
+        may hand over a *partial* legacy frame). To convert a complete legacy frame to the
+        native representation, use :meth:`TaskMetadataCollection.from_legacy_df` explicitly.
+        """
+        if isinstance(task_metadata, TaskMetadataCollection):
+            return task_metadata
+        if isinstance(task_metadata, str):
+            assert task_metadata == "tabarena"
+            # Native default: the committed TabArena v0.1 suite (metadata only, no downloads).
+            from tabarena.benchmark.task.metadata import TabArenaV0pt1MetadataBundle
+
+            return TabArenaV0pt1MetadataBundle(materialize=False).load_collection()
+        if isinstance(task_metadata, list):
+            return TaskMetadataCollection(task_metadata)
+        return None
 
     @property
     def _default_subsets(self):
@@ -1121,8 +1148,10 @@ class TabArenaContext:
         from tabarena.plot.png_to_grid import make_png_grid
 
         if not datasets:
-            task_metadata = self.task_metadata
-            datasets = sorted(task_metadata["dataset"].unique())
+            if self.task_metadata_collection is not None:
+                datasets = sorted(self.task_metadata_collection.dataset_names())
+            else:
+                datasets = sorted(self.task_metadata["dataset"].unique())
 
         n_datasets = len(datasets)
         n_rows = (n_datasets + n_cols - 1) // n_cols
