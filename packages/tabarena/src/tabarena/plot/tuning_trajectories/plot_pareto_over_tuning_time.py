@@ -611,7 +611,7 @@ def compute_tuning_trajectories_leaderboard(
             df_results=combined_data,
             subset=subset,
             folds=folds,
-            task_metadata_og=tabarena_context.task_metadata,
+            task_metadata_og=tabarena_context.task_metadata_collection,
             predicates=tabarena_context.subset_predicates,
         )
 
@@ -964,7 +964,7 @@ def plot_tuning_trajectories_per_dataset(
         include_baselines=include_baselines,
     )
 
-    datasets = sorted(tabarena_context.task_metadata["dataset"].unique())
+    datasets = sorted(tabarena_context.task_metadata_collection.dataset_names())
 
     use_imputation = False
     problem_type = "all"
@@ -980,36 +980,27 @@ def plot_tuning_trajectories_per_dataset(
     if lite:
         subset_list.append("lite")
 
+    # Native per-dataset metadata frame (one row per dataset, native column names),
+    # used for the figure title, the y-axis metric label, and the dataset legend block.
+    _pdf = tabarena_context.task_metadata_collection.per_dataset_frame()
+
     # Build a one-shot dataset_id -> human-readable label map so the figure
     # title reads e.g. "airfoil_self_noise" rather than "Task-7163328506".
-    # Prefers ``dataset_name`` (BeyondArena), falls back to ``name``
-    # (default TabArena), finally to identity.
-    _tm = tabarena_context.task_metadata
-    if "dataset_name" in _tm.columns:
-        _name_map = _tm.set_index("dataset")["dataset_name"].astype(str).to_dict()
-    elif "name" in _tm.columns:
-        _name_map = _tm.set_index("dataset")["name"].astype(str).to_dict()
+    if "dataset_name" in _pdf.columns:
+        _name_map = _pdf.set_index("dataset")["dataset_name"].astype(str).to_dict()
     else:
         _name_map = {}
 
     # Per-dataset eval metric, used to fill in the y-axis label of the
-    # ``pareto_n_configs_err_*`` plots as ``Test Error (<metric>)``. Each
-    # dataset has exactly one ``eval_metric`` (verified via groupby), but
-    # ``drop_duplicates`` keeps us robust to duplicated rows.
-    if "eval_metric" in _tm.columns:
-        _metric_map = (
-            _tm[["dataset", "eval_metric"]]
-            .drop_duplicates(subset="dataset")
-            .set_index("dataset")["eval_metric"]
-            .astype(str)
-            .to_dict()
-        )
+    # ``pareto_n_configs_err_*`` plots as ``Test Error (<metric>)``.
+    if "eval_metric" in _pdf.columns:
+        _metric_map = _pdf.set_index("dataset")["eval_metric"].astype(str).to_dict()
     else:
         _metric_map = {}
 
     # Per-dataset metadata block rendered as a second legend on each Pareto
     # plot (rows / cols / problem type / splits / IID-vs-grouped-vs-temporal).
-    _metadata_map = _build_dataset_metadata_map(_tm)
+    _metadata_map = _build_dataset_metadata_map(_pdf)
 
     inputs = []
     for dataset in datasets:
@@ -1163,8 +1154,17 @@ def _prepare_tuning_trajectories_data(
     combined_data = pd.concat([result_baselines, results_hpo], ignore_index=True)
 
     # ----- add times per 1K samples -----
-    dataset_to_n_samples_train = tabarena_context.task_metadata.set_index("name")["n_samples_train_per_fold"].to_dict()
-    dataset_to_n_samples_test = tabarena_context.task_metadata.set_index("name")["n_samples_test_per_fold"].to_dict()
+    # Per-dataset mean per-fold train/test sizes, derived natively from the collection's splits
+    # (keyed by dataset == tabarena_task_name, matching combined_data["dataset"]).
+    _train_sizes: dict[str, list[float]] = {}
+    _test_sizes: dict[str, list[float]] = {}
+    for ttm in tabarena_context.task_metadata_collection:
+        ds = ttm.tabarena_task_name
+        for split in ttm.splits_metadata.values():
+            _train_sizes.setdefault(ds, []).append(split.num_instances_train)
+            _test_sizes.setdefault(ds, []).append(split.num_instances_test)
+    dataset_to_n_samples_train = {ds: sum(v) / len(v) for ds, v in _train_sizes.items()}
+    dataset_to_n_samples_test = {ds: sum(v) / len(v) for ds, v in _test_sizes.items()}
 
     combined_data["time_train_s_per_1K"] = (
         combined_data["time_train_s"] * 1000 / combined_data["dataset"].map(dataset_to_n_samples_train)
@@ -1264,7 +1264,7 @@ def _plot_tuning_trajectories_from_prepared(
                 df_results=combined_data,
                 subset=subset,
                 folds=folds,
-                task_metadata_og=tabarena_context.task_metadata,
+                task_metadata_og=tabarena_context.task_metadata_collection,
                 predicates=tabarena_context.subset_predicates,
             )
 
