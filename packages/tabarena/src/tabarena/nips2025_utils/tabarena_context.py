@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import functools
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -108,14 +109,13 @@ class TabArenaContext:
         calibration_method: str | None = "RF (default)",
     ):
         # Native source of truth: a TaskMetadataCollection. A raw DataFrame stays a legacy
-        # passthrough (it may be a partial frame), so it carries no native collection; the
-        # legacy `task_metadata` df is then derived from the collection when there is one.
+        # passthrough (it may be a partial frame), so it carries no native collection and is
+        # kept verbatim; the legacy `task_metadata` view is otherwise derived from the
+        # collection on demand (see the `task_metadata` cached_property).
         self.task_metadata_collection = self._resolve_task_metadata_collection(task_metadata)
-        if self.task_metadata_collection is not None:
-            self.task_metadata = self.task_metadata_collection.to_legacy_df()
-        else:
+        if self.task_metadata_collection is None:
             assert isinstance(task_metadata, pd.DataFrame)
-            self.task_metadata = task_metadata
+            self._task_metadata_legacy = task_metadata
         self.fillna_method = fillna_method
         self.calibration_method = calibration_method
         assert backend in ["ray", "native"]
@@ -174,6 +174,19 @@ class TabArenaContext:
         if isinstance(task_metadata, list):
             return TaskMetadataCollection(task_metadata)
         return None
+
+    @functools.cached_property
+    def task_metadata(self) -> pd.DataFrame:
+        """Legacy one-row-per-dataset ``task_metadata`` DataFrame.
+
+        Derived from :attr:`task_metadata_collection` via ``to_legacy_df()`` when a native
+        collection is held (the collection is the source of truth); for a raw-DataFrame context
+        it is the verbatim passthrough frame. Cached because it is effectively immutable
+        post-init.
+        """
+        if self.task_metadata_collection is not None:
+            return self.task_metadata_collection.to_legacy_df()
+        return self._task_metadata_legacy
 
     @property
     def _default_subsets(self):
