@@ -250,6 +250,16 @@ class TestTabArenaV0pt1Conversion:
         result = load_tabarena_v0_1_task_metadata(_fake_curated_metadata())
         assert all(r.task_id_str == "999" for r in result)
 
+    def test_num_features_excludes_target(self):
+        """Curated num_features counts the target column; the conversion must drop it."""
+        # _fake_curated_metadata default has num_features=5 -> 4 real features.
+        result = load_tabarena_v0_1_task_metadata(_fake_curated_metadata())
+        ttm = result[0]
+        assert ttm.num_features == 4
+        split = ttm.splits_metadata[ttm.split_index]
+        assert split.num_features_train == 4
+        assert split.num_features_test == 4
+
     def test_problem_type_filter_applied_via_bundle(self):
         curated = _fake_curated_metadata(
             [

@@ -121,6 +121,12 @@ def load_curated_task_metadata() -> pd.DataFrame:
 
     Original file (and future version), can be found here: https://github.com/TabArena/tabarena_dataset_curation/tree/main/dataset_creation_scripts/metadata
 
+    TODO: align the ``num_features`` convention with the schema upstream in
+    ``tabarena_dataset_curation`` (define it to exclude the target, or rename it to e.g.
+    ``num_columns``) so consumers don't each have to drop the target column. Until then,
+    the conversion to ``TabArenaTaskMetadata`` happens at the boundary in
+    ``benchmark.task.metadata.sources.tabarena_v0pt1.load_tabarena_v0_1_task_metadata``.
+
     The metadata requires the following columns per task (per row) to schedule tasks:
         "tabarena_num_repeats": int
             The number of repeats for the task based on the protocol from TabArena.
@@ -133,7 +139,9 @@ def load_curated_task_metadata() -> pd.DataFrame:
         "num_instances": int
             The number of instances/samples in the dataset.
         "num_features" : int
-            The number of features in the dataset.
+            The number of features in the dataset, **including the target column**
+            (OpenML ``NumberOfFeatures`` convention). Subtract 1 for the true feature
+            count; ``TabArenaTaskMetadata.num_features`` excludes the target.
         "num_classes": int
             The number of classes in the dataset. For regression tasks, this value is
             ignored.

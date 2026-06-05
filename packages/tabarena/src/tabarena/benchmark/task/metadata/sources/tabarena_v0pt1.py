@@ -53,7 +53,11 @@ def load_tabarena_v0_1_task_metadata(curated_metadata: pd.DataFrame) -> list[Tab
     for row in curated_metadata.itertuples():
         num_classes = row.num_classes
         num_instances = row.num_instances
-        num_features = row.num_features
+        # Curated `num_features` is OpenML's NumberOfFeatures, which counts the target
+        # column and loads as float. TabArenaTaskMetadata.num_features is an int feature
+        # count excluding the target (matching legacy `n_features = NumberOfFeatures - 1`),
+        # so cast to int and drop the target here.
+        num_features = int(row.num_features) - 1
 
         n_repeats = row.tabarena_num_repeats
         n_folds = row.num_folds
