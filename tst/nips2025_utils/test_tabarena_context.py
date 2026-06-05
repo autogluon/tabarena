@@ -16,12 +16,14 @@ def _ctx() -> TabArenaContext:
             "n_folds": [2, 2],
             "n_repeats": [1, 1],
             "n_samples_train_per_fold": [100, 50_000],
+            "n_samples_test_per_fold": [50, 25_000],
+            "NumberOfInstances": [150, 75_000],
             "problem_type": ["binary", "regression"],
             "n_features": [10, 10],
             "n_classes": [2, 0],
         },
     )
-    return TabArenaContext(methods=[], task_metadata=task_metadata)
+    return TabArenaContext(methods=[], task_metadata=TaskMetadataCollection.from_legacy_df(task_metadata))
 
 
 class TestSubsetDatasetFoldRepeats:
@@ -88,12 +90,14 @@ def _ctx_multi() -> TabArenaContext:
             "n_folds": [3, 2],
             "n_repeats": [2, 1],
             "n_samples_train_per_fold": [100, 100],
+            "n_samples_test_per_fold": [50, 50],
+            "NumberOfInstances": [150, 150],
             "problem_type": ["binary", "binary"],
             "n_features": [10, 10],
             "n_classes": [2, 2],
         },
     )
-    return TabArenaContext(methods=[], task_metadata=task_metadata)
+    return TabArenaContext(methods=[], task_metadata=TaskMetadataCollection.from_legacy_df(task_metadata))
 
 
 class TestSplitsFoldsRepeats:
@@ -156,7 +160,11 @@ def _complete_legacy_df() -> pd.DataFrame:
 
 
 class TestNativeTaskMetadata:
-    """TabArenaContext holds a TaskMetadataCollection for native inputs; df stays passthrough."""
+    """TabArenaContext takes only the "tabarena" preset or a TaskMetadataCollection.
+
+    DataFrame / list inputs are rejected — the caller must wrap them explicitly so the
+    (lossy) legacy conversion is opt-in.
+    """
 
     def test_collection_input_is_held_and_derives_legacy_df(self):
         coll = TaskMetadataCollection.from_legacy_df(_complete_legacy_df())
@@ -165,29 +173,16 @@ class TestNativeTaskMetadata:
         assert isinstance(ctx.task_metadata, pd.DataFrame)  # derived legacy view
         assert sorted(ctx.task_metadata["dataset"]) == ["ds"]
 
-    def test_list_input_builds_collection(self):
+    def test_list_input_rejected(self):
+        # list[TabArenaTaskMetadata] is no longer accepted; wrap in TaskMetadataCollection(...).
         tasks = TaskMetadataCollection.from_legacy_df(_complete_legacy_df()).tasks
-        ctx = TabArenaContext(methods=[], task_metadata=tasks)
-        assert isinstance(ctx.task_metadata_collection, TaskMetadataCollection)
-        assert ctx.task_metadata_collection.dataset_names() == ["ds"]
+        with pytest.raises(TypeError, match="TaskMetadataCollection"):
+            TabArenaContext(methods=[], task_metadata=tasks)
 
-    def test_partial_dataframe_is_legacy_passthrough(self):
-        # A *partial* legacy frame (no NumberOfInstances) is accepted as-is, no conversion.
-        df = pd.DataFrame(
-            {
-                "tid": [0],
-                "dataset": ["ds"],
-                "n_folds": [2],
-                "n_repeats": [1],
-                "n_samples_train_per_fold": [100],
-                "problem_type": ["binary"],
-                "n_features": [10],
-                "n_classes": [2],
-            },
-        )
-        ctx = TabArenaContext(methods=[], task_metadata=df)
-        assert ctx.task_metadata_collection is None
-        assert list(ctx.task_metadata.columns) == list(df.columns)
+    def test_dataframe_input_rejected(self):
+        # A legacy DataFrame is no longer accepted; wrap with from_legacy_df.
+        with pytest.raises(TypeError, match="from_legacy_df"):
+            TabArenaContext(methods=[], task_metadata=_complete_legacy_df())
 
 
 def _ctx_collection() -> TabArenaContext:

@@ -26,7 +26,6 @@ if TYPE_CHECKING:
 
     from tabarena.benchmark.experiment import ExperimentBatchRunner
     from tabarena.benchmark.result import BaselineResult
-    from tabarena.benchmark.task.metadata import TabArenaTaskMetadata
     from tabarena.repository.abstract_repository import AbstractRepository
 
 _methods_paper = [
@@ -100,7 +99,7 @@ class TabArenaContext:
     def __init__(
         self,
         methods: list[MethodMetadata] | str = "tabarena",
-        task_metadata: str | pd.DataFrame | list[TabArenaTaskMetadata] | TaskMetadataCollection = "tabarena",
+        task_metadata: str | TaskMetadataCollection = "tabarena",
         *,
         extra_methods: list[MethodMetadata] | None = None,
         include_unverified: bool = False,
@@ -108,14 +107,9 @@ class TabArenaContext:
         fillna_method: str | None = "RF (default)",
         calibration_method: str | None = "RF (default)",
     ):
-        # Native source of truth: a TaskMetadataCollection. A raw DataFrame stays a legacy
-        # passthrough (it may be a partial frame), so it carries no native collection and is
-        # kept verbatim; the legacy `task_metadata` view is otherwise derived from the
-        # collection on demand (see the `task_metadata` cached_property).
+        # A TaskMetadataCollection is the single source of truth; the legacy `task_metadata`
+        # DataFrame view is derived from it on demand (see the `task_metadata` cached_property).
         self.task_metadata_collection = self._resolve_task_metadata_collection(task_metadata)
-        if self.task_metadata_collection is None:
-            assert isinstance(task_metadata, pd.DataFrame)
-            self._task_metadata_legacy = task_metadata
         self.fillna_method = fillna_method
         self.calibration_method = calibration_method
         assert backend in ["ray", "native"]
@@ -155,38 +149,39 @@ class TabArenaContext:
 
     @staticmethod
     def _resolve_task_metadata_collection(
-        task_metadata: str | pd.DataFrame | list[TabArenaTaskMetadata] | TaskMetadataCollection,
-    ) -> TaskMetadataCollection | None:
+        task_metadata: str | TaskMetadataCollection,
+    ) -> TaskMetadataCollection:
         """Normalize the constructor input to a native ``TaskMetadataCollection``.
 
-        Returns ``None`` for a raw DataFrame, which is kept as a legacy passthrough (callers
-        may hand over a *partial* legacy frame). To convert a complete legacy frame to the
-        native representation, use :meth:`TaskMetadataCollection.from_legacy_df` explicitly.
+        Accepts the ``"tabarena"`` preset or an explicit ``TaskMetadataCollection``. A legacy
+        DataFrame or a ``list[TabArenaTaskMetadata]`` is no longer accepted directly — wrap it
+        before constructing the context (``TaskMetadataCollection.from_legacy_df(df)`` /
+        ``TaskMetadataCollection(tasks)``) so the (lossy) legacy conversion stays an explicit,
+        opt-in step at the call site.
         """
         if isinstance(task_metadata, TaskMetadataCollection):
             return task_metadata
         if isinstance(task_metadata, str):
-            assert task_metadata == "tabarena"
+            if task_metadata != "tabarena":
+                raise ValueError(f"Unknown task_metadata preset {task_metadata!r}; expected 'tabarena'.")
             # Native default: the committed TabArena v0.1 suite (metadata only, no downloads).
             from tabarena.benchmark.task.metadata import TabArenaV0pt1MetadataBundle
 
             return TabArenaV0pt1MetadataBundle(materialize=False).load_collection()
-        if isinstance(task_metadata, list):
-            return TaskMetadataCollection(task_metadata)
-        return None
+        raise TypeError(
+            f"task_metadata must be 'tabarena' or a TaskMetadataCollection, got "
+            f"{type(task_metadata).__name__}. Wrap a legacy DataFrame with "
+            f"TaskMetadataCollection.from_legacy_df(df) or a list with TaskMetadataCollection(tasks).",
+        )
 
     @functools.cached_property
     def task_metadata(self) -> pd.DataFrame:
         """Legacy one-row-per-dataset ``task_metadata`` DataFrame.
 
-        Derived from :attr:`task_metadata_collection` via ``to_legacy_df()`` when a native
-        collection is held (the collection is the source of truth); for a raw-DataFrame context
-        it is the verbatim passthrough frame. Cached because it is effectively immutable
-        post-init.
+        Derived from :attr:`task_metadata_collection` via ``to_legacy_df()`` — the collection
+        is the single source of truth. Cached because it is effectively immutable post-init.
         """
-        if self.task_metadata_collection is not None:
-            return self.task_metadata_collection.to_legacy_df()
-        return self._task_metadata_legacy
+        return self.task_metadata_collection.to_legacy_df()
 
     @property
     def _default_subsets(self):
@@ -979,14 +974,10 @@ class TabArenaContext:
         else:
             dataset_fold_repeats = derived
 
-        # Pass the native collection when we have one, so the runner derives its tid map /
-        # grid / validation natively; fall back to the legacy df for a raw-DataFrame context.
-        runner_task_metadata = (
-            self.task_metadata_collection if self.task_metadata_collection is not None else self.task_metadata
-        )
+        # Pass the native collection so the runner derives its tid map / grid / validation natively.
         return ExperimentBatchRunner(
             expname=expname,
-            task_metadata=runner_task_metadata,
+            task_metadata=self.task_metadata_collection,
             dataset_fold_repeats=dataset_fold_repeats,
             **kwargs,
         )
@@ -994,34 +985,20 @@ class TabArenaContext:
     def _full_grid_rows(self) -> list[tuple[str, int, int, int]]:
         """Full ``(dataset, fold, repeat, split_index)`` grid for subset expansion.
 
-        Native when a ``TaskMetadataCollection`` is held: built from the actual splits in each
-        task's ``splits_metadata`` (so a non-rectangular set of splits is respected), instead
-        of a rectangular ``n_folds`` x ``n_repeats`` product. Falls back to the legacy
-        ``task_metadata`` columns for a raw-DataFrame context.
+        Built natively from the actual splits in each task's ``splits_metadata`` (so a
+        non-rectangular set of splits is respected), instead of a rectangular
+        ``n_folds`` x ``n_repeats`` product.
 
         ``split_index = n_folds * repeat + fold`` is the column the subset predicates treat as
         ``"fold"`` (so ``"lite"`` keeps ``split_index == 0`` == ``(fold 0, repeat 0)``).
         """
-        coll = self.task_metadata_collection
-        if coll is not None:
-            triplets = coll.dataset_fold_repeats()
-            n_folds_by_dataset: dict[str, int] = {}
-            for dataset, fold, _repeat in triplets:
-                n_folds_by_dataset[dataset] = max(n_folds_by_dataset.get(dataset, 0), fold + 1)
-            return [
-                (dataset, fold, repeat, n_folds_by_dataset[dataset] * repeat + fold)
-                for dataset, fold, repeat in triplets
-            ]
-        metadata = self.task_metadata.drop_duplicates(subset="dataset")
-        rows = []
-        for dataset, n_folds, n_repeats in zip(
-            metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
-        ):
-            n_folds, n_repeats = int(n_folds), int(n_repeats)
-            for repeat in range(n_repeats):
-                for fold in range(n_folds):
-                    rows.append((dataset, fold, repeat, n_folds * repeat + fold))
-        return rows
+        triplets = self.task_metadata_collection.dataset_fold_repeats()
+        n_folds_by_dataset: dict[str, int] = {}
+        for dataset, fold, _repeat in triplets:
+            n_folds_by_dataset[dataset] = max(n_folds_by_dataset.get(dataset, 0), fold + 1)
+        return [
+            (dataset, fold, repeat, n_folds_by_dataset[dataset] * repeat + fold) for dataset, fold, repeat in triplets
+        ]
 
     def _subset_dataset_fold_repeats(
         self,
@@ -1188,10 +1165,7 @@ class TabArenaContext:
         from tabarena.plot.png_to_grid import make_png_grid
 
         if not datasets:
-            if self.task_metadata_collection is not None:
-                datasets = sorted(self.task_metadata_collection.dataset_names())
-            else:
-                datasets = sorted(self.task_metadata["dataset"].unique())
+            datasets = sorted(self.task_metadata_collection.dataset_names())
 
         n_datasets = len(datasets)
         n_rows = (n_datasets + n_cols - 1) // n_cols
