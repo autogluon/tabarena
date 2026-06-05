@@ -260,6 +260,35 @@ class TestTabArenaV0pt1Conversion:
         assert split.num_features_train == 4
         assert split.num_features_test == 4
 
+    def test_num_classes_regression_is_minus_one(self):
+        """Regression tasks use the schema's -1 num_classes convention."""
+        curated = _fake_curated_metadata(
+            [
+                {
+                    "dataset_name": "reg_ds",
+                    "problem_type": "regression",
+                    "is_classification": False,
+                    "target_feature": "t",
+                    "task_id": "4",
+                    "num_instances": 150,
+                    "num_features": 8,
+                    "num_classes": 0,  # curated leaves regression unset; conversion -> -1
+                    "tabarena_num_repeats": 1,
+                    "num_folds": 1,
+                },
+            ],
+        )
+        ttm = load_tabarena_v0_1_task_metadata(curated)[0]
+        assert ttm.num_classes == -1
+        split = ttm.splits_metadata[ttm.split_index]
+        assert split.num_classes_train == -1
+        assert split.num_classes_test == -1
+
+    def test_num_classes_classification_is_int(self):
+        ttm = load_tabarena_v0_1_task_metadata(_fake_curated_metadata())[0]  # binary, num_classes=2
+        assert ttm.num_classes == 2
+        assert isinstance(ttm.num_classes, int)
+
     def test_problem_type_filter_applied_via_bundle(self):
         curated = _fake_curated_metadata(
             [

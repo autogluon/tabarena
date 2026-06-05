@@ -51,7 +51,10 @@ def load_tabarena_v0_1_task_metadata(curated_metadata: pd.DataFrame) -> list[Tab
 
     task_metadata: list[TabArenaTaskMetadata] = []
     for row in curated_metadata.itertuples():
-        num_classes = row.num_classes
+        # Regression uses the schema's -1 convention (the curated table leaves num_classes
+        # unset for regression); classification keeps the curated class count, cast to int
+        # (it loads as float). Drives both the static field and the per-split counts.
+        num_classes = -1 if row.problem_type == "regression" else int(row.num_classes)
         num_instances = row.num_instances
         # Curated `num_features` is OpenML's NumberOfFeatures, which counts the target
         # column and loads as float. TabArenaTaskMetadata.num_features is an int feature
