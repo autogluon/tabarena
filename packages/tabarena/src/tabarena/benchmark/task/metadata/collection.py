@@ -8,6 +8,7 @@ from tabarena.benchmark.task.metadata.schema import (
     SplitMetadata,
     TabArenaTaskMetadata,
     derive_task_type,
+    tid_from_task_id_str,
     to_legacy_task_metadata,
 )
 
@@ -247,8 +248,10 @@ class TaskMetadataCollection:
         return to_legacy_task_metadata(self._tasks)
 
     def dataset_to_tid(self) -> dict[str, int]:
-        """Map dataset name -> integer OpenML ``tid`` (parsed from ``task_id_str``)."""
-        if not self._tasks:
-            return {}
-        legacy = self.to_legacy_df()
-        return legacy.drop_duplicates("dataset").set_index("dataset")["tid"].astype(int).to_dict()
+        """Map dataset name -> integer OpenML ``tid``, parsed natively from each task's
+        ``task_id_str`` (first task per dataset wins; no legacy-frame round-trip).
+        """
+        out: dict[str, int] = {}
+        for t in self._tasks:
+            out.setdefault(t.tabarena_task_name, tid_from_task_id_str(t.task_id_str))
+        return out

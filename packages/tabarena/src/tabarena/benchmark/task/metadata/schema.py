@@ -30,6 +30,16 @@ def derive_task_type(*, time_on: str | None, group_on: str | list[str] | None) -
     return "random"
 
 
+def tid_from_task_id_str(task_id_str: str | int) -> int:
+    """Parse the legacy integer OpenML ``tid`` from a ``task_id_str``.
+
+    Handles the UserTask hash form (``UserTask|<id>|...`` -> ``<id>``) for local tasks and a
+    plain OpenML integer task id (str or int) otherwise.
+    """
+    s = str(task_id_str)
+    return int(s.split("|")[1]) if s.startswith("UserTask|") else int(s)
+
+
 @dataclass
 class TabArenaTaskMetadata:
     """Metadata about the task to run.
@@ -224,8 +234,7 @@ class TabArenaTaskMetadata:
             # Add old minimal metadata for backward compatibility with old eval code
             # Integer task id: the UserTask hash id (``UserTask|<id>|...``) for local
             # tasks, or the plain OpenML integer task id otherwise (handles str or int).
-            task_id_str = str(self.task_id_str)
-            df["tid"] = int(task_id_str.split("|")[1]) if task_id_str.startswith("UserTask|") else int(task_id_str)
+            df["tid"] = tid_from_task_id_str(self.task_id_str)
             df["name"] = df["tabarena_task_name"]
             df["dataset"] = df["tabarena_task_name"]
             df["n_samples_train_per_fold"] = df["num_instances_train"]
