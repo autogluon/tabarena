@@ -1182,9 +1182,42 @@ class LeaderboardReporter:
                 textcoords="offset points",
                 fontsize=7,
             )
+
+        # Pareto front: the running-best Elo over time — a method is on the front when no
+        # earlier (or same-date) method has a >= Elo. Drawn as a step line, so each record
+        # holds until the next method beats it (the SOTA-over-time frontier).
+        front = df.sort_values(["_date", "elo"], ascending=[True, False])
+        on_front, best_elo = [], -np.inf
+        for elo in front["elo"]:
+            keep = elo > best_elo
+            on_front.append(keep)
+            if keep:
+                best_elo = elo
+        front = front[on_front]
+        ax.step(
+            front["_date"],
+            front["elo"],
+            where="post",
+            color="#dd6b20",
+            linewidth=2,
+            zorder=2,
+            label="Pareto front (best Elo over time)",
+        )
+        ax.scatter(
+            front["_date"],
+            front["elo"],
+            s=80,
+            facecolors="none",
+            edgecolors="#dd6b20",
+            linewidths=1.6,
+            zorder=4,
+        )
+        ax.legend(loc="lower right", fontsize=8)
+
         ax.set_xlabel("Date introduced")
         ax.set_ylabel("Elo")
         ax.set_title("TabArena: Elo vs. method introduction date")
+        ax.set_xlim(left=pd.Timestamp("2013-01-01"))
         ax.grid(visible=True, alpha=0.3, zorder=0)
         fig.autofmt_xdate()
         fig.tight_layout()
