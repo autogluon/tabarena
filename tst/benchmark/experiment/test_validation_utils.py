@@ -6,8 +6,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tabarena.benchmark.exec_models.time_split import split_time_index_into_intervals
-from tabarena.benchmark.exec_models.validation import TabArenaValidationProtocolExecMixin
+from tabarena.benchmark.exec_models.utils import (
+    TabArenaValidationProtocolExecMixin,
+    split_time_index_into_intervals,
+)
 from tabarena.benchmark.task.metadata import GroupLabelTypes
 
 _DATA_FOUNDRY_AVAILABLE = importlib.util.find_spec("data_foundry") is not None

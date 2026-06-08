@@ -9,8 +9,12 @@ from typing import TYPE_CHECKING, Any, Self
 import numpy as np
 import yaml
 
-from tabarena.benchmark.exec_models.ag_single_model import AGModelWrapper
-from tabarena.benchmark.exec_models.autogluon import AGSingleBagWrapper, AGSingleWrapper, AGWrapper
+from tabarena.benchmark.exec_models.autogluon import (
+    AGModelWrapper,
+    AGSingleBagWrapper,
+    AGSingleWrapper,
+    AGWrapper,
+)
 from tabarena.benchmark.exec_models.registry import infer_model_cls
 from tabarena.benchmark.experiment.experiment_runner import ExperimentRunner, OOFExperimentRunner
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy

@@ -7,10 +7,12 @@ import shutil
 
 import numpy as np
 import pandas as pd
+from autogluon.core.data.label_cleaner import LabelCleanerMulticlassToBinary
+from autogluon.core.models import AbstractModel
 from loguru import logger
 
-from tabarena.benchmark.exec_models._shuffle import _apply_inv_perm, _make_perm
 from tabarena.benchmark.exec_models.base import AbstractExecModel
+from tabarena.benchmark.exec_models.utils import _apply_inv_perm, _make_perm
 
 
 class AGWrapper(AbstractExecModel):
@@ -200,7 +202,7 @@ class AGSingleWrapper(AGWrapper):
 
     def __init__(
         self,
-        model_cls: str | type[AbstractModel],  # noqa: F821
+        model_cls: str | type[AbstractModel],
         model_hyperparameters: dict,
         calibrate: bool | str = False,
         init_kwargs: dict | None = None,
@@ -209,8 +211,6 @@ class AGSingleWrapper(AGWrapper):
         preprocess_label: bool = False,
         **kwargs,
     ):
-        from autogluon.tabular.models import AbstractModel
-
         assert isinstance(model_cls, str) or issubclass(model_cls, AbstractModel)
         assert isinstance(model_hyperparameters, dict)
 
@@ -261,7 +261,7 @@ class AGSingleWrapper(AGWrapper):
         return self.predictor.model_hyperparameters(model=self.predictor.model_best, output_format="user")
 
     @property
-    def model_cls(self) -> type[AbstractModel]:  # noqa: F821
+    def model_cls(self) -> type[AbstractModel]:
         if not isinstance(self._model_cls, str):
             model_cls = self._model_cls
         else:
@@ -380,3 +380,37 @@ class AGSingleBagWrapper(AGSingleWrapper):
             ]
 
         return [preds_child.astype(np.float32) for preds_child in per_child_test_preds]  # memory opt
+
+
+class AGModelWrapper(AbstractExecModel):
+    def __init__(self, model_cls: type[AbstractModel], hyperparameters: dict | None = None, **kwargs):
+        super().__init__(**kwargs)
+        assert issubclass(model_cls, AbstractModel)
+        self.model_cls = model_cls
+        if hyperparameters is None:
+            hyperparameters = {}
+        self.hyperparameters = hyperparameters
+
+    def _fit(self, X: pd.DataFrame, y: pd.Series, **kwargs):
+        self.model = self.model_cls(
+            path="",
+            name=self.model_cls.__name__,
+            problem_type=self.problem_type,
+            eval_metric=self.eval_metric,
+            hyperparameters=self.hyperparameters,
+        )
+        self.model.fit(
+            X=X,
+            y=y,
+        )
+        return self
+
+    def _predict(self, X: pd.DataFrame) -> pd.Series:
+        y_pred = self.model.predict(X)
+        return pd.Series(y_pred, index=X.index)
+
+    def _predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
+        y_pred_proba = self.model.predict_proba(X)
+        if self.problem_type == "binary":
+            y_pred_proba = LabelCleanerMulticlassToBinary.convert_binary_proba_to_multiclass_proba(y_pred_proba)
+        return pd.DataFrame(y_pred_proba, index=X.index)

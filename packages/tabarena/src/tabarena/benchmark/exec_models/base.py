@@ -7,8 +7,11 @@ import pandas as pd
 from autogluon.core.data.label_cleaner import LabelCleaner, LabelCleanerDummy
 from autogluon.features import AutoMLPipelineFeatureGenerator
 
-from tabarena.benchmark.exec_models._shuffle import _apply_inv_perm, _make_perm
-from tabarena.benchmark.exec_models.validation import TabArenaValidationProtocolExecMixin
+from tabarena.benchmark.exec_models.utils import (
+    TabArenaValidationProtocolExecMixin,
+    _apply_inv_perm,
+    _make_perm,
+)
 from tabarena.utils.time_utils import Timer
 
 if TYPE_CHECKING:

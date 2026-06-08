@@ -12,8 +12,12 @@ Import it from that submodule directly to preserve the lazy import behavior.
 
 from __future__ import annotations
 
-from tabarena.benchmark.exec_models.ag_single_model import AGModelWrapper
-from tabarena.benchmark.exec_models.autogluon import AGSingleBagWrapper, AGSingleWrapper, AGWrapper
+from tabarena.benchmark.exec_models.autogluon import (
+    AGModelWrapper,
+    AGSingleBagWrapper,
+    AGSingleWrapper,
+    AGWrapper,
+)
 from tabarena.benchmark.exec_models.base import AbstractExecModel
 from tabarena.benchmark.exec_models.registry import infer_model_cls
 
