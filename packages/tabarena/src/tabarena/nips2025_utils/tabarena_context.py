@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import copy
+import functools
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
 
+from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
 from tabarena.nips2025_utils.eval_all import evaluate_all
-from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_paths
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
 from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
@@ -84,8 +85,10 @@ class TabArenaContext:
         # foundation-model compatibility (operates on tabarena task_metadata columns)
         "tabpfn": lambda df: (df["max_train_rows"] <= 10_000) & (df["n_features"] <= 500) & (df["n_classes"] <= 10),
         "tabicl": lambda df: (df["max_train_rows"] <= 100_000) & (df["n_features"] <= 500) & (df["n_classes"] > 0),
-        # row-level filter (requires a "fold" column; only meaningful when applied to df_results)
-        "lite": lambda df: df["fold"] == 0,
+        # split-level filter: keeps split 0 == (fold 0, repeat 0). Evaluated on the task grid's
+        # "split" column (see TaskMetadataCollection.task_grid); a results frame's "fold" is the
+        # split, so this maps to fold == 0 there.
+        "lite": lambda df: df["split"] == 0,
     }
 
     @property
@@ -98,7 +101,7 @@ class TabArenaContext:
     def __init__(
         self,
         methods: list[MethodMetadata] | str = "tabarena",
-        task_metadata: str | pd.DataFrame = "tabarena",
+        task_metadata: str | TaskMetadataCollection = "tabarena",
         *,
         extra_methods: list[MethodMetadata] | None = None,
         include_unverified: bool = False,
@@ -106,11 +109,9 @@ class TabArenaContext:
         fillna_method: str | None = "RF (default)",
         calibration_method: str | None = "RF (default)",
     ):
-        if isinstance(task_metadata, str):
-            assert task_metadata == "tabarena"
-            task_metadata = load_task_metadata(paper=True)
-        assert isinstance(task_metadata, pd.DataFrame)
-        self.task_metadata = task_metadata
+        # A TaskMetadataCollection is the single source of truth; the legacy `task_metadata`
+        # DataFrame view is derived from it on demand (see the `task_metadata` cached_property).
+        self.task_metadata_collection = self._resolve_task_metadata_collection(task_metadata)
         self.fillna_method = fillna_method
         self.calibration_method = calibration_method
         assert backend in ["ray", "native"]
@@ -147,6 +148,42 @@ class TabArenaContext:
                 method_metadata_lst.append(method_metadata)
 
         self.method_metadata_collection: MethodMetadataCollection = MethodMetadataCollection(method_metadata_lst)
+
+    @staticmethod
+    def _resolve_task_metadata_collection(
+        task_metadata: str | TaskMetadataCollection,
+    ) -> TaskMetadataCollection:
+        """Normalize the constructor input to a native ``TaskMetadataCollection``.
+
+        Accepts the ``"tabarena"`` preset or an explicit ``TaskMetadataCollection``. A legacy
+        DataFrame or a ``list[TabArenaTaskMetadata]`` is no longer accepted directly — wrap it
+        before constructing the context (``TaskMetadataCollection.from_legacy_df(df)`` /
+        ``TaskMetadataCollection(tasks)``) so the (lossy) legacy conversion stays an explicit,
+        opt-in step at the call site.
+        """
+        if isinstance(task_metadata, TaskMetadataCollection):
+            return task_metadata
+        if isinstance(task_metadata, str):
+            if task_metadata != "tabarena":
+                raise ValueError(f"Unknown task_metadata preset {task_metadata!r}; expected 'tabarena'.")
+            # Native default: the committed TabArena v0.1 suite (metadata only, no downloads).
+            from tabarena.benchmark.task.metadata import TabArenaV0pt1MetadataBundle
+
+            return TabArenaV0pt1MetadataBundle(materialize=False).load_collection()
+        raise TypeError(
+            f"task_metadata must be 'tabarena' or a TaskMetadataCollection, got "
+            f"{type(task_metadata).__name__}. Wrap a legacy DataFrame with "
+            f"TaskMetadataCollection.from_legacy_df(df) or a list with TaskMetadataCollection(tasks).",
+        )
+
+    @functools.cached_property
+    def task_metadata(self) -> pd.DataFrame:
+        """Legacy one-row-per-dataset ``task_metadata`` DataFrame.
+
+        Derived from :attr:`task_metadata_collection` via ``to_legacy_df()`` — the collection
+        is the single source of truth. Cached because it is effectively immutable post-init.
+        """
+        return self.task_metadata_collection.to_legacy_df()
 
     @property
     def _default_subsets(self):
@@ -361,7 +398,7 @@ class TabArenaContext:
         metadata = self.method_metadata(method=method)
         metadata.generate_repo(
             results_lst=None,
-            task_metadata=self.task_metadata,
+            task_metadata=self.task_metadata_collection,
             cache=True,
             engine=self.engine,
         )
@@ -378,7 +415,7 @@ class TabArenaContext:
         file_paths_method = fetch_all_pickles(dir_path=path_raw, suffix="results.pkl")
         repo: EvaluationRepository = generate_repo_from_paths(
             result_paths=file_paths_method,
-            task_metadata=self.task_metadata,
+            task_metadata=self.task_metadata_collection,
             engine=self.engine,
             name_suffix=name_suffix,
             as_holdout=True,
@@ -873,7 +910,7 @@ class TabArenaContext:
                 tasks=tasks,
                 datasets=datasets,
                 folds=folds,
-                task_metadata_og=self.task_metadata,
+                task_metadata_og=self.task_metadata_collection,
                 predicates=self.subset_predicates,
             )
         return df_results
@@ -896,9 +933,9 @@ class TabArenaContext:
         determined by the following filters (all default None):
 
         - `subset`: predicate expressions (the same as `compare`, e.g. ``"lite"``,
-          ``"small"``, ``"binary"``, ``"!tiny"``) applied to the full per-dataset grid,
-          where the predicates treat the split (``n_folds * repeat + fold``) as the
-          ``fold`` column (so ``"lite"`` keeps ``split == 0`` == ``(fold 0, repeat 0)``).
+          ``"small"``, ``"binary"``, ``"!tiny"``) applied to the task grid, which carries an
+          explicit ``split`` column (``n_folds * repeat + fold``); ``"lite"`` keeps
+          ``split == 0`` == ``(fold 0, repeat 0)``.
         - `datasets`: restrict to these dataset names.
         - `splits`: restrict to these split indices (``n_folds * repeat + fold``).
         - `folds` / `repeats`: restrict to these fold / repeat indices.
@@ -939,9 +976,10 @@ class TabArenaContext:
         else:
             dataset_fold_repeats = derived
 
+        # Pass the native collection so the runner derives its tid map / grid / validation natively.
         return ExperimentBatchRunner(
             expname=expname,
-            task_metadata=self.task_metadata,
+            task_metadata=self.task_metadata_collection,
             dataset_fold_repeats=dataset_fold_repeats,
             **kwargs,
         )
@@ -954,48 +992,35 @@ class TabArenaContext:
         folds: list[int] | None = None,
         repeats: list[int] | None = None,
     ) -> list[tuple[str, int, int]]:
-        """Expand `task_metadata` into (dataset, fold, repeat) triplets kept by the filters.
+        """Expand the task grid into (dataset, fold, repeat) triplets kept by the filters.
 
-        Builds the full per-dataset grid (``split = n_folds * repeat + fold``), then
-        filters it (AND) by: the `subset` predicate expressions and/or an explicit
-        `datasets` list (via the same machinery as `compare`), and then by the
-        `splits`/`folds`/`repeats` index lists. The subset predicates treat the split
-        index as the ``fold`` column, so e.g. ``"lite"`` keeps ``split == 0`` (i.e.
+        Evaluates the `subset` predicate expressions on the native task grid
+        (:meth:`TaskMetadataCollection.task_grid` — one row per ``(dataset, fold, repeat, split)``),
+        then filters (AND) by an explicit `datasets` list and the `splits`/`folds`/`repeats` index
+        lists. ``"lite"`` keys on the grid's ``split`` column, so it keeps ``split == 0`` (i.e.
         ``(fold 0, repeat 0)``).
         """
-        from tabarena.nips2025_utils.compare import subset_tasks
+        from tabarena.nips2025_utils.compare import _evaluate_subset_expression
 
         if isinstance(subset, str):
             subset = [subset]
 
-        metadata = self.task_metadata.drop_duplicates(subset="dataset")
-        rows = []
-        for dataset, n_folds, n_repeats in zip(
-            metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
-        ):
-            n_folds, n_repeats = int(n_folds), int(n_repeats)
-            for repeat in range(n_repeats):
-                for fold in range(n_folds):
-                    # `subset_tasks` treats the "fold" column as the split index.
-                    rows.append((dataset, fold, repeat, n_folds * repeat + fold))
-        grid = pd.DataFrame(rows, columns=["dataset", "_fold", "_repeat", "fold"])
-
-        filtered = subset_tasks(
-            df_results=grid,
-            subset=subset,
-            datasets=datasets,
-            task_metadata_og=self.task_metadata,
-            predicates=self.subset_predicates,
-        )
+        grid = self.task_metadata_collection.task_grid()
+        if subset:
+            for expression in subset:
+                mask = _evaluate_subset_expression(expression, grid, predicates=self.subset_predicates)
+                grid = grid[mask.values]
+        if datasets is not None:
+            grid = grid[grid["dataset"].isin(datasets)]
         if splits is not None:
-            filtered = filtered[filtered["fold"].isin(splits)]  # "fold" column holds the split index
+            grid = grid[grid["split"].isin(splits)]
         if folds is not None:
-            filtered = filtered[filtered["_fold"].isin(folds)]
+            grid = grid[grid["fold"].isin(folds)]
         if repeats is not None:
-            filtered = filtered[filtered["_repeat"].isin(repeats)]
+            grid = grid[grid["repeat"].isin(repeats)]
         return [
             (dataset, int(fold), int(repeat))
-            for dataset, fold, repeat in zip(filtered["dataset"], filtered["_fold"], filtered["_repeat"], strict=False)
+            for dataset, fold, repeat in zip(grid["dataset"], grid["fold"], grid["repeat"], strict=False)
         ]
 
     def load_configs_hyperparameters(
@@ -1121,8 +1146,7 @@ class TabArenaContext:
         from tabarena.plot.png_to_grid import make_png_grid
 
         if not datasets:
-            task_metadata = self.task_metadata
-            datasets = sorted(task_metadata["dataset"].unique())
+            datasets = sorted(self.task_metadata_collection.dataset_names())
 
         n_datasets = len(datasets)
         n_rows = (n_datasets + n_cols - 1) // n_cols
@@ -1175,7 +1199,7 @@ class TabArenaContext:
 
         deep_dive_kwargs = dict(kwargs.pop("deep_dive_kwargs", None) or {})
 
-        evaluator = TabArenaEvaluator(output_dir=save_path)
+        evaluator = TabArenaEvaluator(output_dir=save_path, task_metadata=self.task_metadata_collection)
         evaluator.generate_runtime_plot(
             df_results=df_results_configs,
             deep_dive_kwargs=deep_dive_kwargs,
@@ -1213,7 +1237,7 @@ class TabArenaContext:
         get_per_dataset_tables(
             df_results=df_results,
             save_path=Path(save_path),
-            task_metadata=self.task_metadata,
+            task_metadata=self.task_metadata_collection,
             per_dataset_dir=Path(per_dataset_dir) if per_dataset_dir is not None else None,
             method_order=method_order,
         )

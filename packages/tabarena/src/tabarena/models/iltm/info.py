@@ -7,6 +7,7 @@ from tabarena.models.iltm.model import ILTMModel
 
 iltm_method_metadata = MethodMetadata(
     method="iLTM",
+    date="2026-05-29",
     artifact_name="tabarena-2026-05-13",
     method_type="config",
     display_name="iLTM",

@@ -560,3 +560,61 @@ class TestRunExperimentsNewCacheCls:
         )
         # Explicit cache_cls_kwargs wins over the include_self_in_call default (False).
         assert all(kw.get("include_self_in_call") is True for *_, kw in _RecordingCache.instances)
+
+
+class TestExperimentBatchRunnerNativeCollection:
+    """ExperimentBatchRunner accepts a TaskMetadataCollection and derives tid map / grid natively."""
+
+    @staticmethod
+    def _collection():
+        from tabarena.benchmark.task.metadata import TaskMetadataCollection
+
+        df = pd.DataFrame(
+            {
+                "tid": [10, 11],
+                "dataset": ["d0", "d1"],
+                "name": ["d0", "d1"],
+                "problem_type": ["binary", "binary"],
+                "n_folds": [2, 1],
+                "n_repeats": [1, 2],
+                "n_features": [5, 5],
+                "n_classes": [2, 2],
+                "NumberOfInstances": [100, 100],
+                "n_samples_train_per_fold": [66, 66],
+                "n_samples_test_per_fold": [34, 34],
+                "target_feature": ["t", "t"],
+            },
+        )
+        return TaskMetadataCollection.from_legacy_df(df)
+
+    def _runner(self, tmp_path, **kwargs):
+        from tabarena.benchmark.experiment import ExperimentBatchRunner
+
+        return ExperimentBatchRunner(expname=str(tmp_path), task_metadata=self._collection(), **kwargs)
+
+    @staticmethod
+    def _cache_suffixes() -> list[str]:
+        return sorted(cache_path.rsplit("/data/", 1)[1] for _, cache_path, _ in _RecordingCache.instances)
+
+    def test_tid_map_from_collection(self, tmp_path):
+        runner = self._runner(tmp_path, cache_mode="only")
+        assert runner.task_metadata_collection is not None
+        assert runner._dataset_to_tid_dict == {"d0": 10, "d1": 11}
+        assert sorted(runner.datasets) == ["d0", "d1"]
+
+    def test_run_all_expands_from_collection_splits(self, tmp_path):
+        _RecordingCache.instances.clear()
+        runner = self._runner(tmp_path, cache_mode="only", cache_cls=_RecordingCache)
+        result = runner.run_all(methods=[_make_minimal_experiment("m")])
+        assert result == []
+        # d0 (tid 10): 2 folds x 1 repeat; d1 (tid 11): 1 fold x 2 repeats.
+        assert self._cache_suffixes() == ["m/10/0_0", "m/10/0_1", "m/11/0_0", "m/11/1_0"]
+
+    def test_invalid_split_rejected_against_actual_splits(self, tmp_path):
+        # d1 has 1 fold x 2 repeats, so (d1, fold 1, repeat 0) is not a real split.
+        with pytest.raises(AssertionError, match="not valid for"):
+            self._runner(tmp_path, dataset_fold_repeats=[("d1", 1, 0)])
+
+    def test_unknown_dataset_rejected(self, tmp_path):
+        with pytest.raises(AssertionError, match="not valid for"):
+            self._runner(tmp_path, dataset_fold_repeats=[("nope", 0, 0)])

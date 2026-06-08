@@ -15,7 +15,7 @@ import pandas as pd
 from autogluon.common.savers import save_pd
 
 from bencheval.tabarena import TabArena
-from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
+from tabarena.benchmark.task.metadata import TaskMetadataCollection, default_task_metadata_collection
 from tabarena.paper.paper_utils import get_f_map_suffix_plots, get_framework_type_method_names, get_method_rename_map
 from tabarena.plot.dataset_analysis import plot_train_time_deep_dive
 from tabarena.plot.plot_ens_weights import create_heatmap
@@ -86,7 +86,7 @@ class TabArenaEvaluator:
         self,
         *,
         output_dir: str | Path,
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: TaskMetadataCollection | None = None,
         config_types: dict[str, str] | None = None,
         method_col: str = "method",
         error_col: str = "metric_error",
@@ -121,7 +121,7 @@ class TabArenaEvaluator:
         kwargs
         """
         if task_metadata is None:
-            task_metadata = load_task_metadata()
+            task_metadata = default_task_metadata_collection()
         if banned_pareto_methods is None:
             banned_pareto_methods = []
         if method_rename_map is None:
@@ -704,19 +704,17 @@ class TabArenaEvaluator:
         save_pd.save(path=self.output_dir / "results_per_split.csv", df=df_results_rank_compare)
 
         # ----- add times per 1K samples -----
-        # FIXME: Hack to work in cases where this is not available
-        if (
-            "n_samples_train_per_fold" not in self.task_metadata.columns
-            or "n_samples_test_per_fold" not in self.task_metadata.columns
-        ):
-            print(
-                "WARNING: Missing n_samples_train_per_fold and/or n_samples_test_per_fold in task_metadata. Using dummy values..."
-            )
-            dataset_to_n_samples_train = self.task_metadata.set_index("name")["NumberOfInstances"].to_dict()
-            dataset_to_n_samples_test = self.task_metadata.set_index("name")["NumberOfInstances"].to_dict()
-        else:
-            dataset_to_n_samples_train = self.task_metadata.set_index("name")["n_samples_train_per_fold"].to_dict()
-            dataset_to_n_samples_test = self.task_metadata.set_index("name")["n_samples_test_per_fold"].to_dict()
+        # Per-dataset mean per-fold train/test sizes, derived natively from the collection's
+        # splits (keyed by dataset == tabarena_task_name, matching df_results["dataset"]).
+        train_sizes: dict[str, list[float]] = {}
+        test_sizes: dict[str, list[float]] = {}
+        for ttm in self.task_metadata:
+            ds = ttm.tabarena_task_name
+            for split in ttm.splits_metadata.values():
+                train_sizes.setdefault(ds, []).append(split.num_instances_train)
+                test_sizes.setdefault(ds, []).append(split.num_instances_test)
+        dataset_to_n_samples_train = {ds: sum(v) / len(v) for ds, v in train_sizes.items()}
+        dataset_to_n_samples_test = {ds: sum(v) / len(v) for ds, v in test_sizes.items()}
 
         df_results_rank_compare["time_train_s_per_1K"] = (
             df_results_rank_compare["time_train_s"]

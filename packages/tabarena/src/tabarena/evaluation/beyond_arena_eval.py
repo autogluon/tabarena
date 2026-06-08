@@ -201,6 +201,8 @@ def evaluate_beyond_subsets(
     """
     import json
 
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
+    from tabarena.benchmark.task.metadata.sources.base import InMemoryTaskMetadataSource
     from tabarena.evaluation._eval_common import save_leaderboard, subset_label
     from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
     from tabarena.nips2025_utils.compare import compare, get_subsets_per_dataset, subset_tasks_data_foundry
@@ -211,6 +213,12 @@ def evaluate_beyond_subsets(
         data_foundry_metadata = task_metadata
     if predicates is None:
         predicates = BeyondArenaContext.SUBSET_PREDICATES
+
+    # The evaluator/`compare` take a native collection; the self-contained metadata frame is
+    # one (native-schema) row per task, so rebuild a collection from it (used only by the
+    # evaluator's per-1K-sample sizing). The `data_foundry_metadata` frame above still drives
+    # the BeyondArena subset filtering.
+    task_metadata_collection = TaskMetadataCollection(InMemoryTaskMetadataSource(task_metadata).load())
     if method_rename_map is None:
         method_rename_map = TabArenaContext(include_unverified=True).get_method_rename_map()
         method_rename_map = {**method_rename_map, **DEFAULT_METHOD_RENAME_MAP, **(method_rename_map_extra or {})}
@@ -246,7 +254,7 @@ def evaluate_beyond_subsets(
                 predicates=predicates,
             ),
             output_dir=figure_output_dir / "subsets" / label,
-            task_metadata=task_metadata,
+            task_metadata=task_metadata_collection,
             fillna=fillna,
             calibration_framework=calibration_framework,
             remove_imputed=False,

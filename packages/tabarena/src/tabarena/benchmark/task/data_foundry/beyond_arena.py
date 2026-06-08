@@ -69,6 +69,7 @@ def load_reference_metadata(
     collection: DatasetCollection | None = None,
     cache_dir: str | None = None,
     force_regenerate: bool = False,
+    verbose: bool = False,
 ) -> pd.DataFrame:
     """Return the reference task-metadata DataFrame for ``collection``.
 
@@ -83,6 +84,7 @@ def load_reference_metadata(
         collection: Collection to describe. Defaults to ``BeyondArena``.
         cache_dir: Optional data_foundry cache override used only when regenerating.
         force_regenerate: Skip both caches and rebuild from the source collection.
+        verbose: Print which committed/regenerated CSV is being loaded. Off by default.
 
     Returns:
         One row per ``(task, split)`` with all :class:`TabArenaTaskMetadata`
@@ -95,12 +97,14 @@ def load_reference_metadata(
     if not force_regenerate:
         committed = reference_metadata_package_path(collection.name)
         if committed.exists():
-            print(f"Loading committed {collection.name} reference metadata from {committed}.")
+            if verbose:
+                print(f"Loading committed {collection.name} reference metadata from {committed}.")
             return pd.read_csv(committed)
 
         cached = _generated_metadata_cache_path(collection.name)
         if cached.exists():
-            print(f"Loading regenerated {collection.name} reference metadata from {cached}.")
+            if verbose:
+                print(f"Loading regenerated {collection.name} reference metadata from {cached}.")
             return pd.read_csv(cached)
 
     out_path = generate_reference_metadata(

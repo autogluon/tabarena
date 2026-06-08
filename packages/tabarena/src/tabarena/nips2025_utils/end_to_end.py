@@ -11,10 +11,10 @@ from tabarena.nips2025_utils.compare import compare, compare_on_tabarena
 from tabarena.nips2025_utils.end_to_end_single import (
     EndToEndResultsSingle,
     EndToEndSingle,
+    _reject_legacy_task_metadata,
 )
 from tabarena.nips2025_utils.load_metadata_from_raw import load_from_raw_all_metadata
 from tabarena.nips2025_utils.method_processor import (
-    generate_task_metadata,
     load_all_artifacts,
 )
 from tabarena.utils.pickle_utils import fetch_all_pickles
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from tabarena.benchmark.result import BaselineResult
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
 
 
 class EndToEnd:
@@ -47,7 +48,7 @@ class EndToEnd:
     def from_raw(
         cls,
         results_lst: list[BaselineResult | dict],
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: TaskMetadataCollection | None = None,
         cache: bool = True,
         cache_raw: bool = True,
         cache_hpo_trajectories: bool = False,
@@ -59,6 +60,7 @@ class EndToEnd:
         backend: Literal["ray", "native"] = "ray",
         verbose: bool = True,
     ) -> Self:
+        _reject_legacy_task_metadata(task_metadata)
         log = print if verbose else (lambda *a, **k: None)
 
         # raw
@@ -68,7 +70,7 @@ class EndToEnd:
 
         if task_metadata is None:
             tids = list({r.task_metadata["tid"] for r in results_lst})
-            task_metadata = generate_task_metadata(tids=tids)
+            task_metadata = EndToEndSingle.fetch_task_metadata(tids=tids, verbose=verbose)
 
         result_types_dict = {}
         for r in results_lst:
@@ -107,7 +109,7 @@ class EndToEnd:
     def from_path_raw(
         cls,
         path_raw: str | Path | list[str | Path],
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: TaskMetadataCollection | None = None,
         cache: bool = True,
         cache_raw: bool = True,
         cache_hpo_trajectories: bool = False,
@@ -119,6 +121,7 @@ class EndToEnd:
         backend: Literal["ray", "native"] = "ray",
         verbose: bool = True,
     ) -> Self:
+        _reject_legacy_task_metadata(task_metadata)
         log = print if verbose else (lambda *a, **k: None)
 
         engine = "ray" if backend == "ray" else "sequential"
@@ -182,7 +185,7 @@ class EndToEnd:
     @staticmethod
     def from_path_raw_to_results(
         path_raw: str | Path | list[str | Path],
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: TaskMetadataCollection | None = None,
         cache: bool = True,
         name: str | None = None,
         name_prefix: str | None = None,
@@ -234,6 +237,7 @@ class EndToEnd:
             Number of CPUs to use for parallel processing.
             If None, it will use all available CPUs.
         """
+        _reject_legacy_task_metadata(task_metadata)
         if num_cpus is None:
             num_cpus = len(os.sched_getaffinity(0))
 
@@ -369,7 +373,7 @@ class EndToEndResults:
     def compare(
         self,
         output_dir: str | Path,
-        task_metadata: pd.DataFrame,
+        task_metadata: TaskMetadataCollection | None = None,
         *,
         fillna: str | None = None,
         only_valid_tasks: str | list[str] | None = None,
@@ -495,7 +499,7 @@ class EndToEndResults:
 def _process_result_list(
     *,
     file_paths_method: list[Path],
-    task_metadata: pd.DataFrame,
+    task_metadata: TaskMetadataCollection,
     name: str | None = None,
     name_prefix: str | None = None,
     name_suffix: str | None = None,

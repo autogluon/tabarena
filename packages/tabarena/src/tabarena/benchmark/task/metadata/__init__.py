@@ -9,6 +9,7 @@ from tabarena.benchmark.task.metadata.bundles import (
     TabArenaV0pt1LiteMetadataBundle,
     TabArenaV0pt1MetadataBundle,
 )
+from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 from tabarena.benchmark.task.metadata.schema import (
     GroupLabelTypes,
     SplitIndex,
@@ -16,6 +17,7 @@ from tabarena.benchmark.task.metadata.schema import (
     SplitTimeHorizonTypes,
     SplitTimeHorizonUnitTypes,
     TabArenaTaskMetadata,
+    to_legacy_task_metadata,
 )
 from tabarena.benchmark.task.metadata.sources import (
     DataFoundryTaskMetadataSource,
@@ -25,6 +27,16 @@ from tabarena.benchmark.task.metadata.sources import (
     TaskMetadataSource,
     resolve_source,
 )
+
+
+def default_task_metadata_collection() -> TaskMetadataCollection:
+    """The default native TabArena v0.1 task metadata collection (metadata only, no downloads).
+
+    Matches what ``TabArenaContext(task_metadata="tabarena")`` loads — used as the ``None`` default
+    for task metadata across the evaluator / ``compare`` paths.
+    """
+    return TabArenaV0pt1MetadataBundle(materialize=False).load_collection()
+
 
 __all__ = [
     "BeyondArenaLiteMetadataBundle",
@@ -42,6 +54,9 @@ __all__ = [
     "TabArenaV0pt1LiteMetadataBundle",
     "TabArenaV0pt1MetadataBundle",
     "TabArenaV0pt1TaskMetadataSource",
+    "TaskMetadataCollection",
     "TaskMetadataSource",
+    "default_task_metadata_collection",
     "resolve_source",
+    "to_legacy_task_metadata",
 ]

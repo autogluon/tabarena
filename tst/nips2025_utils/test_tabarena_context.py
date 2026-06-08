@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 
@@ -15,12 +16,14 @@ def _ctx() -> TabArenaContext:
             "n_folds": [2, 2],
             "n_repeats": [1, 1],
             "n_samples_train_per_fold": [100, 50_000],
+            "n_samples_test_per_fold": [50, 25_000],
+            "NumberOfInstances": [150, 75_000],
             "problem_type": ["binary", "regression"],
             "n_features": [10, 10],
             "n_classes": [2, 0],
         },
     )
-    return TabArenaContext(methods=[], task_metadata=task_metadata)
+    return TabArenaContext(methods=[], task_metadata=TaskMetadataCollection.from_legacy_df(task_metadata))
 
 
 class TestSubsetDatasetFoldRepeats:
@@ -87,12 +90,14 @@ def _ctx_multi() -> TabArenaContext:
             "n_folds": [3, 2],
             "n_repeats": [2, 1],
             "n_samples_train_per_fold": [100, 100],
+            "n_samples_test_per_fold": [50, 50],
+            "NumberOfInstances": [150, 150],
             "problem_type": ["binary", "binary"],
             "n_features": [10, 10],
             "n_classes": [2, 2],
         },
     )
-    return TabArenaContext(methods=[], task_metadata=task_metadata)
+    return TabArenaContext(methods=[], task_metadata=TaskMetadataCollection.from_legacy_df(task_metadata))
 
 
 class TestSplitsFoldsRepeats:
@@ -132,3 +137,97 @@ class TestSplitsFoldsRepeats:
     def test_dataset_fold_repeats_with_splits_raises(self, tmp_path):
         with pytest.raises(ValueError, match="`dataset_fold_repeats` together"):
             self._dfr(tmp_path, dataset_fold_repeats=[("a", 0, 0)], splits=[0])
+
+
+def _complete_legacy_df() -> pd.DataFrame:
+    """A complete legacy frame (all columns `from_legacy_df` requires)."""
+    return pd.DataFrame(
+        {
+            "tid": [363612],
+            "dataset": ["ds"],
+            "name": ["ds"],
+            "problem_type": ["binary"],
+            "n_folds": [3],
+            "n_repeats": [1],
+            "n_features": [7],
+            "n_classes": [2],
+            "NumberOfInstances": [100],
+            "n_samples_train_per_fold": [66],
+            "n_samples_test_per_fold": [34],
+            "target_feature": ["target"],
+        },
+    )
+
+
+class TestNativeTaskMetadata:
+    """TabArenaContext takes only the "tabarena" preset or a TaskMetadataCollection.
+
+    DataFrame / list inputs are rejected — the caller must wrap them explicitly so the
+    (lossy) legacy conversion is opt-in.
+    """
+
+    def test_collection_input_is_held_and_derives_legacy_df(self):
+        coll = TaskMetadataCollection.from_legacy_df(_complete_legacy_df())
+        ctx = TabArenaContext(methods=[], task_metadata=coll)
+        assert ctx.task_metadata_collection is coll
+        assert isinstance(ctx.task_metadata, pd.DataFrame)  # derived legacy view
+        assert sorted(ctx.task_metadata["dataset"]) == ["ds"]
+
+    def test_list_input_rejected(self):
+        # list[TabArenaTaskMetadata] is no longer accepted; wrap in TaskMetadataCollection(...).
+        tasks = TaskMetadataCollection.from_legacy_df(_complete_legacy_df()).tasks
+        with pytest.raises(TypeError, match="TaskMetadataCollection"):
+            TabArenaContext(methods=[], task_metadata=tasks)
+
+    def test_dataframe_input_rejected(self):
+        # A legacy DataFrame is no longer accepted; wrap with from_legacy_df.
+        with pytest.raises(TypeError, match="from_legacy_df"):
+            TabArenaContext(methods=[], task_metadata=_complete_legacy_df())
+
+
+def _ctx_collection() -> TabArenaContext:
+    """Context backed by a native TaskMetadataCollection (2 datasets, 2 folds x 1 repeat)."""
+    df = pd.DataFrame(
+        {
+            "tid": [0, 1],
+            "dataset": ["small_ds", "big_ds"],
+            "name": ["small_ds", "big_ds"],
+            "problem_type": ["binary", "regression"],
+            "n_folds": [2, 2],
+            "n_repeats": [1, 1],
+            "n_features": [10, 10],
+            "n_classes": [2, 0],
+            "NumberOfInstances": [150, 75_000],
+            "n_samples_train_per_fold": [100, 50_000],
+            "n_samples_test_per_fold": [50, 25_000],
+            "target_feature": ["t", "t"],
+        },
+    )
+    return TabArenaContext(methods=[], task_metadata=TaskMetadataCollection.from_legacy_df(df))
+
+
+class TestNativeGridSubset:
+    """`_subset_dataset_fold_repeats` builds the grid natively from the collection's splits."""
+
+    def test_full_grid_from_collection(self):
+        ctx = _ctx_collection()
+        assert ctx.task_metadata_collection is not None
+        assert set(ctx._subset_dataset_fold_repeats()) == {
+            ("small_ds", 0, 0),
+            ("small_ds", 1, 0),
+            ("big_ds", 0, 0),
+            ("big_ds", 1, 0),
+        }
+
+    def test_lite_keeps_split_zero(self):
+        assert set(_ctx_collection()._subset_dataset_fold_repeats("lite")) == {
+            ("small_ds", 0, 0),
+            ("big_ds", 0, 0),
+        }
+
+    def test_small_predicate_keeps_small_dataset_full_grid(self):
+        # "small" == max_train_rows <= 10000 -> only small_ds (n_train=100), both folds.
+        assert set(_ctx_collection()._subset_dataset_fold_repeats("small")) == {
+            ("small_ds", 0, 0),
+            ("small_ds", 1, 0),
+        }

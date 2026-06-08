@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
     import pandas as pd
 
+    from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+
 
 @dataclass
 class TabArenaMetadataBundle:
@@ -84,11 +86,15 @@ class TabArenaMetadataBundle:
     sources it is a no-op. Set False to inspect / filter metadata without any
     downloads.
     """
+    verbose: bool = False
+    """Whether to print the task filter history (how many tasks survived each filter step)
+    when loading task metadata. Off by default so metadata loading is quiet; set True to log it.
+    """
 
     def load_task_metadata(self) -> list[TabArenaTaskMetadata]:
         """Load, filter, and (optionally) materialize the task metadata to run."""
         source = resolve_source(self.task_metadata)
-        task_metadata = source.load()
+        task_metadata = source.load(verbose=self.verbose)
 
         # Unify format to be unrolled (one entry per split).
         task_metadata = [single_ttm for ttm in task_metadata for single_ttm in ttm.unroll_splits()]
@@ -110,8 +116,16 @@ class TabArenaMetadataBundle:
             source.materialize(task_metadata)
 
         self._sanity_check_task_ids(task_metadata)
-        self._print_filter_history(filter_history)
+        if self.verbose:
+            self._print_filter_history(filter_history)
         return task_metadata
+
+    def load_collection(self) -> TaskMetadataCollection:
+        """Load the task metadata as a :class:`TaskMetadataCollection` (list + derived views)."""
+        # Local import to keep the bundles package import-light and avoid import cycles.
+        from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+
+        return TaskMetadataCollection(self.load_task_metadata())
 
     def _filter_by_problem_types(self, task_metadata: list[TabArenaTaskMetadata]) -> list[TabArenaTaskMetadata]:
         return [ttm for ttm in task_metadata if ttm.problem_type in self.problem_types_to_run]

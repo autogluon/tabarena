@@ -8,9 +8,10 @@ import pandas as pd
 from autogluon.common.savers import save_pd
 
 from tabarena.benchmark.result import BaselineResult, ConfigResult
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.nips2025_utils.compare import compare_on_tabarena
-from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
+from tabarena.nips2025_utils.fetch_metadata import enrich_legacy_task_metadata, load_task_metadata
 from tabarena.nips2025_utils.method_processor import (
     generate_task_metadata,
     load_all_artifacts,
@@ -24,6 +25,19 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from tabarena.repository import EvaluationRepository
+
+
+_LEGACY_TASK_METADATA_REJECTED = (
+    "EndToEnd/EndToEndSingle no longer accept a legacy task_metadata DataFrame. Pass a "
+    "TaskMetadataCollection (e.g. TaskMetadataCollection.from_legacy_df(df)) or None to "
+    "auto-infer from OpenML."
+)
+
+
+def _reject_legacy_task_metadata(task_metadata: TaskMetadataCollection | None) -> None:
+    """Raise if a legacy DataFrame is passed; ``None`` (auto-infer) and a collection are OK."""
+    if task_metadata is not None and not isinstance(task_metadata, TaskMetadataCollection):
+        raise TypeError(_LEGACY_TASK_METADATA_REJECTED)
 
 
 class EndToEndSingle:
@@ -126,6 +140,9 @@ class EndToEndSingle:
 
     @property
     def task_metadata(self) -> pd.DataFrame:
+        """The legacy task-metadata frame the repo was built from (tabrepo stores a DataFrame,
+        regardless of whether a collection or a DataFrame was passed to construction).
+        """
         return self.repo.task_metadata
 
     def configs_hyperparameters(self) -> dict[str, dict | None]:
@@ -140,7 +157,7 @@ class EndToEndSingle:
         cls,
         results_lst: list[BaselineResult | dict],
         method_metadata: MethodMetadata | None = None,
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: TaskMetadataCollection | None = None,
         cache: bool = True,
         cache_raw: bool = True,
         cache_holdout: bool = False,
@@ -219,6 +236,7 @@ class EndToEndSingle:
         EndToEndSingle
             An initialized EndToEndSingle class based on the provided raw results_lst.
         """
+        _reject_legacy_task_metadata(task_metadata)
         log = print if verbose else (lambda *a, **k: None)
 
         # raw
@@ -320,7 +338,7 @@ class EndToEndSingle:
         cls,
         path_raw: str | Path | list[str | Path],
         method_metadata: MethodMetadata | None = None,
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: TaskMetadataCollection | None = None,
         cache: bool = True,
         cache_raw: bool = True,
         cache_holdout: bool = False,
@@ -359,6 +377,7 @@ class EndToEndSingle:
         -------
 
         """
+        _reject_legacy_task_metadata(task_metadata)
         if num_cpus is None:
             num_cpus = len(os.sched_getaffinity(0))
 
@@ -437,7 +456,14 @@ class EndToEndSingle:
         )
 
     @staticmethod
-    def fetch_task_metadata(tids: list[int], verbose: bool = True):
+    def fetch_task_metadata(tids: list[int], verbose: bool = True) -> TaskMetadataCollection:
+        """Auto-infer task metadata for ``tids`` as a (lossy) ``TaskMetadataCollection``.
+
+        Prefers the cached committed metadata; falls back to live OpenML for any missing tids
+        (enriched to the legacy schema first). The legacy frame is wrapped via
+        ``TaskMetadataCollection.from_legacy_df`` — lossy (rich fields become ``None``,
+        per-fold sizes are the recorded averages), which is acceptable for this path.
+        """
         log = print if verbose else (lambda *a, **k: None)
         task_metadata = load_task_metadata()
         tids_cached = set(task_metadata["tid"].unique())
@@ -446,14 +472,14 @@ class EndToEndSingle:
         if tids_missing:
             log(f"Note: Missing {len(tids_missing)} tasks in the cached task_metadata...")
             log("\tFetching task_metadata from OpenML... (this may take ~1 minute)")
-            task_metadata = generate_task_metadata(tids=tids)
-        return task_metadata
+            task_metadata = enrich_legacy_task_metadata(generate_task_metadata(tids=tids))
+        return TaskMetadataCollection.from_legacy_df(task_metadata)
 
     @staticmethod
     def from_path_raw_to_results(
         path_raw: str | Path | list[str | Path],
         method_metadata: MethodMetadata | None = None,
-        task_metadata: pd.DataFrame | None = None,
+        task_metadata: TaskMetadataCollection | None = None,
         cache: bool = True,
         name: str | None = None,
         name_prefix: str | None = None,
@@ -509,6 +535,7 @@ class EndToEndSingle:
             Useful when `path_raw` contains results for multiple methods. This should be the
             `ag_name` of the method's AbstractModel class.
         """
+        _reject_legacy_task_metadata(task_metadata)
         if num_cpus is None:
             num_cpus = len(os.sched_getaffinity(0))
 
@@ -780,17 +807,16 @@ def _task_dir(file_path_key: str) -> str:
 
 def _filter_file_paths_by_task_metadata(
     all_file_paths_method: dict[str, list[Path]],
-    task_metadata: pd.DataFrame,
+    task_metadata: TaskMetadataCollection,
 ) -> dict[str, list[Path]]:
     """Drop grouped file paths whose task is absent from ``task_metadata``.
 
-    Matches each task directory against both the integer ``tid`` and the slug
-    ``tabarena_task_name`` so local/user tasks (whose directories are slugs, not
-    integers) are not erroneously removed.
+    Matches each task directory against both the integer ``tid`` (from ``dataset_to_tid()``)
+    and the slug ``tabarena_task_name`` (from ``dataset_names()``) so local/user tasks (whose
+    directories are slugs, not integers) are not erroneously removed.
     """
-    valid_task_keys = {str(t) for t in task_metadata["tid"].unique()}
-    if "tabarena_task_name" in task_metadata.columns:
-        valid_task_keys |= {str(n) for n in task_metadata["tabarena_task_name"].unique()}
+    valid_task_keys = {str(t) for t in task_metadata.dataset_to_tid().values()}
+    valid_task_keys |= {str(n) for n in task_metadata.dataset_names()}
 
     removed = [k for k in all_file_paths_method if _task_dir(k) not in valid_task_keys]
     for task_key in sorted({_task_dir(k) for k in removed}):
@@ -802,7 +828,7 @@ def _process_result_list(
     *,
     file_paths_method: list[Path],
     method_metadata: MethodMetadata | None = None,
-    task_metadata: pd.DataFrame,
+    task_metadata: TaskMetadataCollection,
     name: str | None = None,
     name_prefix: str | None = None,
     name_suffix: str | None = None,

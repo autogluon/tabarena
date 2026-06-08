@@ -47,12 +47,15 @@ class TaskMetadataSource(ABC):
     """Produces (and optionally materializes) task metadata for a bundle."""
 
     @abstractmethod
-    def load(self) -> list[TabArenaTaskMetadata]:
+    def load(self, *, verbose: bool = False) -> list[TabArenaTaskMetadata]:
         """Return the (unfiltered) task metadata this source describes.
 
         Implementations must not download dataset contents here when it can be
         avoided — loading should be cheap so bundles can filter before any
         expensive materialization (see :meth:`materialize`).
+
+        ``verbose`` toggles load-path logging (e.g. "Loading … reference metadata
+        from <path>"); off by default so loading is quiet.
         """
 
     def materialize(self, task_metadata: list[TabArenaTaskMetadata]) -> None:
@@ -79,11 +82,12 @@ class InMemoryTaskMetadataSource(TaskMetadataSource):
         """Store the already-available metadata (list, DataFrame, or CSV path)."""
         self.data = data
 
-    def load(self) -> list[TabArenaTaskMetadata]:
+    def load(self, *, verbose: bool = False) -> list[TabArenaTaskMetadata]:
         """Parse the wrapped data into a list of TabArenaTaskMetadata."""
         data = self.data
         if isinstance(data, (str, Path)):
-            print(f"Loading task metadata from {data}...")
+            if verbose:
+                print(f"Loading task metadata from {data}...")
             data = pd.read_csv(data, index_col=False)
         if isinstance(data, pd.DataFrame):
             data = [TabArenaTaskMetadata.from_row(row) for _, row in data.iterrows()]
