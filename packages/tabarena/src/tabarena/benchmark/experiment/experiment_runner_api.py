@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
-
-import numpy as np
 
 from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
@@ -10,42 +9,99 @@ from tabarena.benchmark.task.user_task import UserTask
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
+
     import pandas as pd
+
+
+def _as_int_list(value: object) -> list[int]:
+    """Validate one matrix axis is a non-empty list of ints and return it unchanged."""
+    assert isinstance(value, list) and len(value) > 0 and all(isinstance(x, int) for x in value), (  # noqa: PT018
+        f"`repetitions_mode_args` for 'matrix' must be two ints or two non-empty int lists; got {value!r}."
+    )
+    return value
 
 
 def _clean_repetitions_mode_args_for_matrix(
     repetitions_mode_args: tuple,
 ) -> tuple[list[int], list[int]]:
-    # Ensure input is a tuple of two elements
-    assert isinstance(repetitions_mode_args, tuple), "Input must be tuple!"
-    assert len(repetitions_mode_args) == 2, (
-        "If `repetitions_mode_args` for 'matrix' is a tuple, it must contain two elements: (folds, repeats)"
+    """Normalize a matrix ``(folds, repeats)`` spec into ``(list[int], list[int])``.
+
+    Both elements must be the same kind: either ints ``n`` (expanded to ``range(n)``) or
+    non-empty lists of ints.
+    """
+    assert isinstance(repetitions_mode_args, tuple) and len(repetitions_mode_args) == 2, (  # noqa: PT018
+        "`repetitions_mode_args` for 'matrix' must be a tuple of two elements: (folds, repeats)."
     )
+    folds, repeats = repetitions_mode_args
+    if isinstance(folds, int) and isinstance(repeats, int):
+        return list(range(folds)), list(range(repeats))
+    # Mixed int/list is rejected here too: `_as_int_list` fails on the int element.
+    return _as_int_list(folds), _as_int_list(repeats)
 
-    a, b = repetitions_mode_args
 
-    # If both are ints -> convert to ranges
-    if isinstance(a, int) and isinstance(b, int):
-        return (list(range(a)), list(range(b)))
-
-    # If one is int and other not, error
-    if isinstance(a, int) or isinstance(b, int):
-        raise AssertionError(
-            "If `repetitions_mode_args` for 'matrix' is a tuple with integers, both elements must be integers.",
+def _assert_fold_repeat_pairs(pairs: object) -> None:
+    """Assert ``pairs`` is a non-empty list of ``(fold_index, repeat_index)`` int tuples."""
+    assert isinstance(pairs, list) and len(pairs) > 0, (  # noqa: PT018
+        "Each 'individual' repetition list must be a non-empty list of (fold, repeat) tuples."
+    )
+    for rep in pairs:
+        assert isinstance(rep, tuple) and len(rep) == 2 and all(isinstance(i, int) for i in rep), (  # noqa: PT018
+            "Each 'individual' repetition must be a (fold_index, repeat_index) tuple of two ints."
         )
 
-    # Now both must be lists of ints
-    assert isinstance(a, list) and isinstance(b, list), (  # noqa: PT018
-        "If `repetitions_mode_args` for 'matrix' is a tuple with lists, both elements must be a list."
-    )
-    assert (len(a) > 0) and all(isinstance(x, int) for x in a), (  # noqa: PT018
-        "If `repetitions_mode_args` for 'matrix' is a tuple with lists, the first list must contain at least one integer for folds."
-    )
-    assert (len(b) > 0) and all(isinstance(x, int) for x in b), (  # noqa: PT018
-        "If `repetitions_mode_args` for 'matrix' is a tuple with lists, the second list must contain at least one integer for repeats."
+
+def _parse_tabarena_mode(
+    *,
+    tasks: list[int | UserTask],
+    tasks_metadata: pd.DataFrame | None,
+) -> list[list[tuple[int, int]]]:
+    """Expand each task's ``num_folds`` x ``tabarena_num_repeats`` from `tasks_metadata`."""
+    if tasks_metadata is None:
+        from tabarena.nips2025_utils.fetch_metadata import load_curated_task_metadata
+
+        tasks_metadata = load_curated_task_metadata()
+    else:
+        for col in ("tabarena_num_repeats", "num_folds", "task_id"):
+            assert col in tasks_metadata.columns, (
+                f"`tasks_metadata` must contain the column '{col}' when `repetitions_mode` is 'TabArena'."
+            )
+
+    metadata_task_ids = tasks_metadata["task_id"].astype(str)
+    metadata_task_id_set = set(metadata_task_ids)
+
+    fold_repeat_pairs_per_task = []
+    for task in tasks:
+        t_id = task.task_id_str if isinstance(task, UserTask) else str(task)
+        assert t_id in metadata_task_id_set, f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`."
+        task_meta = tasks_metadata[metadata_task_ids == t_id].iloc[0]
+        n_folds, n_repeats = int(task_meta["num_folds"]), int(task_meta["tabarena_num_repeats"])
+        fold_repeat_pairs_per_task.append([(f, r) for r in range(n_repeats) for f in range(n_folds)])
+    return fold_repeat_pairs_per_task
+
+
+def _parse_individual_mode(
+    *,
+    repetitions_mode_args: tuple | list | None,
+    n_tasks: int,
+) -> list[list[tuple[int, int]]]:
+    """Parse 'individual' args into a per-task list of (fold, repeat) pairs."""
+    assert isinstance(repetitions_mode_args, list) and len(repetitions_mode_args) > 0, (  # noqa: PT018
+        "`repetitions_mode_args` for 'individual' must be a non-empty list."
     )
 
-    return (a, b)
+    # A flat list of (fold, repeat) pairs is broadcast to every task.
+    if isinstance(repetitions_mode_args[0], tuple):
+        _assert_fold_repeat_pairs(repetitions_mode_args)
+        return [repetitions_mode_args] * n_tasks
+
+    # Otherwise: one list of (fold, repeat) pairs per task, aligned with `tasks`.
+    assert len(repetitions_mode_args) == n_tasks, (
+        "`repetitions_mode_args` for 'individual' (a list of per-task lists) must match the number of tasks."
+    )
+    for pairs in repetitions_mode_args:
+        _assert_fold_repeat_pairs(pairs)
+    return repetitions_mode_args
 
 
 def _parse_repetitions_mode_and_args(
@@ -55,110 +111,36 @@ def _parse_repetitions_mode_and_args(
     tasks: list[int | UserTask],
     tasks_metadata: pd.DataFrame | None = None,
 ) -> list[list[tuple[int, int]]]:
-    """Parse the `repetitions_mode` and `repetitions_mode_args` parameters to determine
-    which folds and repeats to run per dataset.
+    """Resolve `repetitions_mode`/`repetitions_mode_args` into the folds/repeats per task.
 
-    Returns a standardized format: a list of elements, where each element corresponds
-    to the repetitions to run for the task; where each element is a list of tuples,
-    each tuple represents a fold-repeat pair; and where each tuple contains two
-    integers, the first one is the fold index second one is the repeat index.
+    Returns one element per task, each a list of ``(fold_index, repeat_index)`` tuples.
     """
-    if repetitions_mode == "TabArena":
-        if tasks_metadata is None:
-            from tabarena.nips2025_utils.fetch_metadata import (
-                load_curated_task_metadata,
-            )
-
-            tasks_metadata = load_curated_task_metadata()
-        else:
-            # Verify user metadata
-            req_columns = [
-                "tabarena_num_repeats",
-                "num_folds",
-                "task_id",
-            ]
-            for col in req_columns:
-                assert col in tasks_metadata.columns, (
-                    f"`tasks_metadata` must contain the column '{col}' when `repetitions_mode` is 'TabArena'"
-                )
-        fold_repeat_pairs_per_task = []
-        metadata_task_ids = tasks_metadata["task_id"].astype(str)
-        metadata_task_id_set = set(metadata_task_ids.tolist())
-        for task in tasks:
-            t_id = task.task_id_str if isinstance(task, UserTask) else str(task)
-            assert t_id in metadata_task_id_set, f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`"
-
-            task_meta = tasks_metadata[metadata_task_ids == t_id].iloc[0]
-            n_folds = int(task_meta["num_folds"])
-            n_repeats = int(task_meta["tabarena_num_repeats"])
-            fold_repeat_pairs = [(f, r) for r in range(n_repeats) for f in range(n_folds)]
-            fold_repeat_pairs_per_task.append(fold_repeat_pairs)
-        return fold_repeat_pairs_per_task
+    n_tasks = len(tasks)
 
     if repetitions_mode == "TabArena-Lite":
-        # Run only the first fold of the first repeat for each task
-        return [[(0, 0)] for _ in range(len(tasks))]
+        # First fold of the first repeat for each task.
+        return [[(0, 0)] for _ in range(n_tasks)]
+
+    if repetitions_mode == "TabArena":
+        return _parse_tabarena_mode(tasks=tasks, tasks_metadata=tasks_metadata)
 
     if repetitions_mode == "matrix":
-        assert repetitions_mode_args is not None, (
-            "If `repetitions_mode` is 'matrix', `repetitions_mode_args` must be provided"
-        )
-        if isinstance(repetitions_mode_args, list):
-            assert len(repetitions_mode_args) == len(tasks), (
-                "If `repetitions_mode_args` for 'matrix' is a list, it must have the same length as `tasks`"
-            )
-            assert all(isinstance(rep, tuple) for rep in repetitions_mode_args), (
-                "If `repetitions_mode_args` for 'matrix' is a list, all elements must be tuples"
-            )
-            repetitions_mode_args = [_clean_repetitions_mode_args_for_matrix(rep) for rep in repetitions_mode_args]
+        assert repetitions_mode_args is not None, "`repetitions_mode_args` is required for 'matrix'."
+        if isinstance(repetitions_mode_args, tuple):
+            specs = [repetitions_mode_args] * n_tasks
         else:
-            assert isinstance(repetitions_mode_args, tuple), (
-                "If `repetitions_mode_args` for 'matrix' is not a list, it must be a tuple"
+            assert isinstance(repetitions_mode_args, list), (
+                "`repetitions_mode_args` for 'matrix' must be a tuple or a list of per-task tuples."
             )
-            repetitions_mode_args = [_clean_repetitions_mode_args_for_matrix(repetitions_mode_args)] * len(tasks)
-        return [[(f, r) for f in e[0] for r in e[1]] for e in repetitions_mode_args]
+            assert len(repetitions_mode_args) == n_tasks, (
+                "`repetitions_mode_args` list for 'matrix' must match the number of tasks."
+            )
+            specs = repetitions_mode_args
+        cleaned = [_clean_repetitions_mode_args_for_matrix(spec) for spec in specs]
+        return [[(f, r) for f in folds for r in repeats] for folds, repeats in cleaned]
 
     if repetitions_mode == "individual":
-        assert repetitions_mode_args is not None, (
-            "If `repetitions_mode` is 'individual', `repetitions_mode_args` must be provided"
-        )
-        assert isinstance(repetitions_mode_args, list), (
-            "If `repetitions_mode` is 'individual', `repetitions_mode_args` must be a list"
-        )
-        assert len(repetitions_mode_args) > 0, "`repetitions_mode_args` for 'individual' must not be empty"
-
-        if isinstance(repetitions_mode_args[0], tuple):
-            assert all(
-                isinstance(rep, tuple) and (len(rep) == 2) and all(isinstance(i, int) for i in rep)
-                for rep in repetitions_mode_args
-            ), (
-                "If `repetitions_mode_args` for 'individual' is a list of tuples, all elements must be tuples of integers of (fold_index, repeat_index) pairs"
-            )
-            repetitions_mode_args = [repetitions_mode_args] * len(tasks)
-
-        # At this point, repetitions_mode_args must be list of lists
-        assert len(repetitions_mode_args) == len(tasks), (
-            "If `repetitions_mode_args` for 'individual' is a list, it must have the same length as `tasks`"
-        )
-        assert isinstance(repetitions_mode_args[0], list), (
-            "Elements of `repetitions_mode_args` for 'individual' must be a list"
-        )
-        assert all(isinstance(rep, list) for rep in repetitions_mode_args), (
-            "If `repetitions_mode_args` for 'individual' is a list, all elements must be lists"
-        )
-        for e in repetitions_mode_args:
-            assert len(e) > 0, (
-                "In `repetitions_mode_args`, each task's repetition list must contain at least one (fold, repeat) tuple."
-            )
-            for rep in e:
-                assert isinstance(rep, tuple) and len(rep) == 2, (  # noqa: PT018
-                    "In `repetitions_mode_args`, each repetition entry must be a tuple of (fold_index, repeat_index)."
-                )
-                assert all(isinstance(i, int) for i in rep), (
-                    "In `repetitions_mode_args`, each element of a repetition tuple must be an integer."
-                )
-
-        return repetitions_mode_args
+        return _parse_individual_mode(repetitions_mode_args=repetitions_mode_args, n_tasks=n_tasks)
 
     raise ValueError(f"Unknown `repetitions_mode` str: {repetitions_mode}")
 
@@ -230,6 +212,233 @@ def _build_results_cacher(
     )
 
 
+@dataclass
+class _RunStats:
+    """Running tallies for a `run_experiments_new` sweep, plus its progress line.
+
+    Centralizes the counters that were previously a handful of loose ints so the run
+    loop only does ``stats.<field> += 1`` and asks for a formatted progress line.
+    """
+
+    total: int
+    started: int = 0
+    success: int = 0
+    fail: int = 0
+    cache_exists: int = 0
+    missing: int = 0
+
+    def progress_line(self, *, cache_task_key: int | str, repeat: int, fold: int, method_name: str) -> str:
+        return (
+            f"\t{self.started}/{self.total} ran | "
+            f"{self.success} success | "
+            f"{self.fail} fail | "
+            f"{self.cache_exists} cache_exists | "
+            f"{self.missing} missing | "
+            f"Fitting {cache_task_key} on repeat {repeat}, fold {fold} for method {method_name}"
+        )
+
+
+class _LazyTask:
+    """Materialize a task (OpenML download / local load) at most once, on demand.
+
+    `run_experiments_new` only needs the heavy `OpenMLTaskWrapper` when it actually
+    fits a model; fully-cached (method, fold, repeat) jobs load straight from disk. This
+    wrapper defers and memoizes that load, and exposes whatever has been loaded so far
+    via `current` so a default-mode cache hit reuses a prior load without forcing one
+    (mirroring the original loop's per-dataset `task is None` reuse).
+    """
+
+    def __init__(self, task_id_or_object: int | UserTask) -> None:
+        self._spec = task_id_or_object
+        self._loaded = False
+        self._task: OpenMLTaskWrapper | None = None
+        self._eval_metric_name: str | None = None
+        self._task_name: str | None = None
+
+    @property
+    def current(self) -> tuple[OpenMLTaskWrapper | None, str | None, str | None]:
+        """The `(task, eval_metric_name, task_name)` loaded so far (`None`s if never)."""
+        return self._task, self._eval_metric_name, self._task_name
+
+    def materialize(self) -> tuple[OpenMLTaskWrapper, str, str]:
+        """Load the task on first call (memoized), returning `(task, eval_metric, name)`."""
+        if not self._loaded:
+            spec = self._spec
+            if isinstance(spec, int):
+                task = OpenMLTaskWrapper.from_task_id(task_id=spec)
+                task_name = task.task.get_dataset().name
+            else:
+                task_name = spec.tabarena_task_name
+                task = OpenMLTaskWrapper(
+                    task=spec.load_local_openml_task(),
+                    use_task_eval_metric=True,
+                    lazy_load_data=True,
+                )
+            self._task = task
+            self._eval_metric_name = task.eval_metric
+            self._task_name = task_name
+            self._loaded = True
+            print(f"Using eval metric: {self._eval_metric_name}")
+        return self._task, self._eval_metric_name, self._task_name
+
+
+@dataclass
+class _Job:
+    """One (method, task, fold, repeat) unit of work, with its results cacher resolved.
+
+    The shared scaffold (`_iter_jobs`) builds these; the load and run sweeps consume them.
+    `cache_existed` is sampled once at build time so neither sweep re-stats the cache.
+    """
+
+    model_experiment: Experiment
+    lazy_task: _LazyTask
+    cache_task_key: int | str
+    fold: int
+    repeat: int
+    cacher: AbstractCacheFunction
+    cache_existed: bool
+
+
+def _iter_jobs(
+    *,
+    tasks: list[int | UserTask],
+    fold_repeat_pairs_per_task: list[list[tuple[int, int]]],
+    model_experiments: list[Experiment],
+    stats: _RunStats,
+    base_cache_path: str,
+    cache_cls: type[AbstractCacheFunction],
+    cache_cls_kwargs: dict | None,
+) -> Iterator[_Job]:
+    """Yield every (task, fold, repeat, method) job — the scaffold shared by both sweeps.
+
+    Owns everything common to loading and running: per-dataset task laziness, the nested
+    task/split/method ordering, the progress prints + `stats.started` bump, and building
+    each job's results cacher. The load-vs-run split happens in the consumer, not here.
+    """
+    for dataset_index, task_id_or_object in enumerate(tasks):
+        lazy_task = _LazyTask(task_id_or_object)
+        cache_task_key = _task_cache_key(task_id_or_object)
+        print(f"Starting Dataset {dataset_index + 1}/{len(tasks)}...")
+
+        fold_repeat_pairs = fold_repeat_pairs_per_task[dataset_index]
+        for split_index, (fold, repeat) in enumerate(fold_repeat_pairs, start=1):
+            print(f"Starting Split {split_index}/{len(fold_repeat_pairs)} (Fold {fold}, Repeat {repeat})...")
+
+            for me_index, model_experiment in enumerate(model_experiments, start=1):
+                stats.started += 1
+                print(
+                    f"Starting Model {me_index}/{len(model_experiments)}...\n"
+                    + stats.progress_line(
+                        cache_task_key=cache_task_key,
+                        repeat=repeat,
+                        fold=fold,
+                        method_name=model_experiment.name,
+                    ),
+                )
+                cacher = _build_results_cacher(
+                    cache_cls=cache_cls,
+                    cache_cls_kwargs=cache_cls_kwargs,
+                    base_cache_path=base_cache_path,
+                    method_name=model_experiment.name,
+                    cache_task_key=cache_task_key,
+                    fold=fold,
+                    repeat=repeat,
+                )
+                yield _Job(
+                    model_experiment=model_experiment,
+                    lazy_task=lazy_task,
+                    cache_task_key=cache_task_key,
+                    fold=fold,
+                    repeat=repeat,
+                    cacher=cacher,
+                    cache_existed=cacher.exists,
+                )
+
+
+def _load_sweep(
+    jobs: Iterable[_Job],
+    *,
+    stats: _RunStats,
+    strict: bool,
+) -> list[dict]:
+    """Load-only workflow: read each job's cached `results`, never fitting a model.
+
+    Only the loading path lives here. A missing cache file is counted (and, when
+    `strict`, collected and raised after the full sweep); a present one is loaded and
+    counted as a success. The non-finite-metric guard is a fit-time concern (see
+    `_run_sweep`) — cached results were already validated when written, so this path
+    just reads them back.
+    """
+    results: list[dict] = []
+    missing: list[tuple] = []
+    for job in jobs:
+        if not job.cache_existed:
+            stats.missing += 1
+            if strict:
+                missing.append((job.model_experiment.name, job.cache_task_key, job.fold, job.repeat))
+            continue
+
+        stats.cache_exists += 1
+        stats.success += 1
+        results.append(job.cacher.load_cache())
+
+    if strict and missing:
+        missing_str = "\n\t".join(str(m) for m in missing)
+        raise AssertionError(
+            f"cache_mode='only_strict': missing cached results for "
+            f"{len(missing)}/{stats.total} experiment(s).\n"
+            f"Missing (method, task, fold, repeat):\n\t{missing_str}",
+        )
+    return results
+
+
+def _run_sweep(
+    jobs: Iterable[_Job],
+    *,
+    stats: _RunStats,
+    ignore_cache: bool,
+    debug_mode: bool,
+    raise_on_failure: bool,
+) -> list[dict]:
+    """Run workflow: fit each job, reusing a cached result when one is already present.
+
+    Only the running path lives here, and it is thin: each job's full fit lifecycle —
+    task configuration, the failure guard, and the non-finite-metric guard — is owned by
+    `Experiment.run`. This sweep just decides whether the (heavy) task needs materializing
+    (only on a forced re-run via `ignore_cache` or a cache miss; on a default-mode hit
+    `Experiment.run` short-circuits to the cached `results`, so an already-loaded task, if
+    any, is reused), hands off to `run`, and tracks success/fail + (non-`ignore`) hits.
+    """
+    results: list[dict] = []
+    for job in jobs:
+        if ignore_cache or not job.cache_existed:
+            task, eval_metric_name, task_name = job.lazy_task.materialize()
+        else:
+            task, eval_metric_name, task_name = job.lazy_task.current
+
+        out = job.model_experiment.run(
+            task=task,
+            fold=job.fold,
+            task_name=task_name,
+            cache_task_key=job.cache_task_key,
+            repeat=job.repeat,
+            cacher=job.cacher,
+            ignore_cache=ignore_cache,
+            raise_on_failure=raise_on_failure,
+            debug_mode=debug_mode,
+            eval_metric_name=eval_metric_name,
+        )
+
+        if job.cache_existed and not ignore_cache:
+            stats.cache_exists += 1
+        if out is not None:
+            stats.success += 1
+            results.append(out)
+        else:
+            stats.fail += 1
+    return results
+
+
 def run_experiments_new(
     *,
     output_dir: str,
@@ -243,7 +452,6 @@ def run_experiments_new(
     cache_cls_kwargs: dict | None = None,
     raise_on_failure: bool = True,
     debug_mode: bool = False,
-    failure_on_non_finite_metric_error: bool = False,
 ) -> list[dict]:
     """Run model experiments for a set of tasks.
 
@@ -354,11 +562,6 @@ def run_experiments_new(
             - If False, operates in a manner best suited for large-scale benchmarking.
                 This mode tries to record information when method's fail and might not
                 work well with local debuggers.
-    failure_on_non_finite_metric_error: bool, default False
-        If True, we count a non-finite final metric error as a failure and delete
-        the cache file produced for the run. This is useful to ensure that such
-        errors resulting from models running into overflows are not ignored silently.
-        Moreover, if `raise_on_failure` is also True, the exception will be raised.
 
     Each experiment carries its own `dynamic_tabarena_validation_protocol` flag
     (see `Experiment`): when True, that experiment's validation split is
@@ -398,141 +601,30 @@ def run_experiments_new(
         f"\n\tMethods : {[method.name for method in model_experiments]}",
     )
 
-    result_lst = []
-    cur_experiment_idx, experiment_success_count, experiment_fail_count = -1, 0, 0
-    experiment_missing_count, experiment_cache_exists_count = 0, 0
-    # (method, task, fold, repeat) tuples that were requested but absent from the cache,
-    # collected only for `cache_mode="only_strict"` to raise after the full sweep.
-    missing_cached_experiments: list[tuple] = []
-    experiment_count_total = n_splits * len(model_experiments)
-    for dataset_index, task_id_or_object in enumerate(tasks):
-        task, eval_metric_name = None, None
-        # Display name used as the results `dataset` key. Derived from the task object
-        # (OpenML name) / UserTask slug when the task is loaded below.
-        tabarena_task_name = None
-        print(f"Starting Dataset {dataset_index + 1}/{len(tasks)}...")
+    stats = _RunStats(total=n_splits * len(model_experiments))
+    jobs = _iter_jobs(
+        tasks=tasks,
+        fold_repeat_pairs_per_task=fold_repeat_pairs_per_task,
+        model_experiments=model_experiments,
+        stats=stats,
+        base_cache_path=base_cache_path,
+        cache_cls=cache_cls,
+        cache_cls_kwargs=cache_cls_kwargs,
+    )
 
-        for split_index, (fold, repeat) in enumerate(fold_repeat_pairs_per_task[dataset_index], start=1):
-            print(
-                f"Starting Split {split_index}/{len(fold_repeat_pairs_per_task[dataset_index])} (Fold {fold}, Repeat {repeat})...",
-            )
-
-            for me_index, model_experiment in enumerate(model_experiments, start=1):
-                cur_experiment_idx += 1
-                cache_task_key = _task_cache_key(task_id_or_object)
-                print(
-                    f"Starting Model {me_index}/{len(model_experiments)}..."
-                    f"\n\t"
-                    f"{cur_experiment_idx}/{experiment_count_total} ran | "
-                    f"{experiment_success_count} success | "
-                    f"{experiment_fail_count} fail | "
-                    f"{experiment_cache_exists_count} cache_exists | "
-                    f"{experiment_missing_count} missing | "
-                    f"Fitting {cache_task_key} on repeat {repeat}, fold {fold} for method {model_experiment.name}",
-                )
-
-                # Setup Cache for this (method, task, fold, repeat) `results` artifact.
-                cacher = _build_results_cacher(
-                    cache_cls=cache_cls,
-                    cache_cls_kwargs=cache_cls_kwargs,
-                    base_cache_path=base_cache_path,
-                    method_name=model_experiment.name,
-                    cache_task_key=cache_task_key,
-                    fold=fold,
-                    repeat=repeat,
-                )
-                cache_exists = cacher.exists
-                load_only = cache_mode in ("only", "only_strict")
-
-                # Check cache state
-                if cache_exists and (cache_mode != "ignore"):
-                    experiment_cache_exists_count += 1
-                elif (not cache_exists) and load_only:
-                    experiment_missing_count += 1
-                    if cache_mode == "only_strict":
-                        missing_cached_experiments.append((model_experiment.name, cache_task_key, fold, repeat))
-                    continue
-
-                if load_only:
-                    out = cacher.load_cache()
-                else:
-                    if (task is None) and ((cache_mode == "ignore") or (not cache_exists)):
-                        if isinstance(task_id_or_object, int):
-                            task = OpenMLTaskWrapper.from_task_id(task_id=task_id_or_object)
-                            if tabarena_task_name is None:
-                                tabarena_task_name = task.task.get_dataset().name
-                        else:
-                            if tabarena_task_name is None:
-                                tabarena_task_name = task_id_or_object.tabarena_task_name
-                            task = OpenMLTaskWrapper(
-                                task=task_id_or_object.load_local_openml_task(),
-                                use_task_eval_metric=True,
-                                lazy_load_data=True,
-                            )
-
-                        eval_metric_name = task.eval_metric
-                        print(f"Using eval metric: {eval_metric_name}")
-
-                    task_cache_cm = model_experiment.prepare_for_task(
-                        task=task,
-                        cache_task_key=cache_task_key,
-                    )
-
-                    try:
-                        with task_cache_cm:
-                            out = model_experiment.run(
-                                task=task,
-                                fold=fold,
-                                cacher=cacher,
-                                ignore_cache=cache_mode == "ignore",
-                                debug_mode=debug_mode,
-                                repeat=repeat,
-                                # TODO: remove task_name as required parameter in .run()
-                                #   - also unclear how this is used in only cache case,
-                                #     where we don't have the task object.
-                                task_name=tabarena_task_name,  # used in eval as name later.
-                                eval_metric_name=eval_metric_name,
-                            )
-                    except Exception as exc:
-                        if raise_on_failure:
-                            raise
-                        print(exc.__class__)
-                        out = None
-
-                # Safety check for results with non-finite metric errors
-                if out is not None:
-                    for metric_error_key in ["metric_error", "metric_error_val"]:
-                        if metric_error_key not in out:
-                            continue
-
-                        if not np.isfinite(out[metric_error_key]):
-                            print(
-                                "Non-finite final metric error detected: "
-                                f"\t{metric_error_key}={out[metric_error_key]}. ",
-                            )
-                            if failure_on_non_finite_metric_error:
-                                print("\tDeleting cache file and counting as failure.")
-                                # TODO: fix for s3
-                                cacher.delete_cache()
-                                out = None
-                                if raise_on_failure:
-                                    raise RuntimeError(
-                                        f"Non-finite metric error detected for key {metric_error_key!r}.",
-                                    )
-                            break
-
-                if out is not None:
-                    experiment_success_count += 1
-                    result_lst.append(out)
-                else:
-                    experiment_fail_count += 1
-
-    if cache_mode == "only_strict" and missing_cached_experiments:
-        missing_str = "\n\t".join(str(m) for m in missing_cached_experiments)
-        raise AssertionError(
-            f"cache_mode='only_strict': missing cached results for "
-            f"{len(missing_cached_experiments)}/{experiment_count_total} experiment(s).\n"
-            f"Missing (method, task, fold, repeat):\n\t{missing_str}",
+    # Split point: a load-only sweep never fits a model and only reads the cache; every
+    # other mode runs (with `Experiment.run` short-circuiting a default-mode cache hit).
+    # Below here the loading and running paths — and their result tracking — are disjoint.
+    if cache_mode in ("only", "only_strict"):
+        return _load_sweep(
+            jobs,
+            stats=stats,
+            strict=cache_mode == "only_strict",
         )
-
-    return result_lst
+    return _run_sweep(
+        jobs,
+        stats=stats,
+        ignore_cache=cache_mode == "ignore",
+        debug_mode=debug_mode,
+        raise_on_failure=raise_on_failure,
+    )

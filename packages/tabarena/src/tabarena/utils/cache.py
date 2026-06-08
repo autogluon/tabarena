@@ -99,6 +99,9 @@ class AbstractCacheFunction(Generic[T]):
     def save_cache(self, data: T) -> None:
         raise NotImplementedError
 
+    def delete_cache(self) -> None:
+        raise NotImplementedError
+
     def load_cache(self) -> T:
         raise NotImplementedError
 
@@ -116,6 +119,12 @@ class CacheFunctionDummy(AbstractCacheFunction[object]):
     @property
     def exists(self) -> bool:
         return False
+
+    def delete_cache(self) -> None:
+        return None
+
+    def save_cache(self, data: T) -> None:
+        return None
 
     @property
     def cache_file(self):
@@ -193,8 +202,6 @@ class CacheFunctionPickle(AbstractCacheFunction[object]):
                 f.write(cache)
 
     def delete_cache(self):
-        if self.is_s3:
-            raise NotImplementedError("Deleting S3 cache not implemented yet.")
         Path(self.cache_file).unlink(missing_ok=True)
 
     def load_cache(self) -> object:
