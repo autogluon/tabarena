@@ -295,15 +295,16 @@ class SlurmSetup(SchedulerSetup):
     ) -> list[str] | None:
         """Persist `jobs_dict` to one or more JSON files and return matching sbatch commands.
 
-        If `jobs_dict["jobs"]` exceeds `max_array_size`, the jobs are split across
-        multiple array-job batches; each batch gets its own `_batch{i}.json`
-        file and its own sbatch command (the single-batch case keeps the base
-        path). All SLURM-specific paths (job JSON, log dir, submit script) are
-        derived from `path_setup` + the two benchmark name flavors.
-
-        The time-budget computation needs to know the worst-case number of
-        configs handled by a single array task; this is read from
-        `jobs_dict["max_configs_per_job"]` (populated by the caller).
+        Array tasks are first grouped by their bundle size (number of configs
+        per task) so each SLURM array gets a `--time` budgeted for the work its
+        tasks actually do — singleton large-dataset tasks must not inherit the
+        time limit of the larger bundles they happen to be enumerated alongside.
+        Within a size group, jobs exceeding `max_array_size` are further split
+        into multiple array-job batches. Each emitted array gets its own JSON
+        file (suffixed with its size and/or batch index when more than one) and
+        its own sbatch command. All SLURM-specific paths (job JSON, log dir,
+        submit script) are derived from `path_setup` + the two benchmark name
+        flavors.
 
         Returns the list of sbatch commands to run, or `None` if there are
         no jobs (in which case the base JSON file is also removed if it exists).
@@ -320,24 +321,20 @@ class SlurmSetup(SchedulerSetup):
             Path(base_json_path).unlink(missing_ok=True)
             return None
 
-        base_command = self._build_sbatch_prefix(
-            resources_setup=resources_setup,
-            configs_per_job=jobs_dict["max_configs_per_job"],
-            slurm_log_output=path_setup.get_slurm_log_output_path(benchmark_name),
-            slurm_script_path=path_setup.submit_script_path,
-        )
-
         run_commands = self._write_job_batches_and_build_commands(
             all_jobs=all_jobs,
             defaults=jobs_dict["defaults"],
             base_json_path=base_json_path,
-            base_command=base_command,
+            resources_setup=resources_setup,
+            slurm_log_output=path_setup.get_slurm_log_output_path(benchmark_name),
+            slurm_script_path=path_setup.submit_script_path,
         )
 
         if print_summary:
             n_batches = len(run_commands)
             batch_info = (
-                f"\nSplit into {n_batches} array job batches (max {self.max_array_size} per batch)."
+                f"\nSplit into {n_batches} SLURM arrays (one per bundle size, "
+                f"each capped at {self.max_array_size} tasks)."
                 if n_batches > 1
                 else ""
             )
@@ -355,27 +352,45 @@ class SlurmSetup(SchedulerSetup):
         all_jobs: list,
         defaults: dict,
         base_json_path: str,
-        base_command: str,
+        resources_setup: ResourcesSetup,
+        slurm_log_output: str,
+        slurm_script_path: str,
     ) -> list[str]:
-        """Split `all_jobs` into `max_array_size`-sized batches, persist each as JSON,
-        and return the matching `sbatch --array=...` commands.
+        """Group `all_jobs` by bundle size, split each group into `max_array_size`
+        batches, persist each batch as JSON, and return the matching
+        `sbatch --array=...` commands.
 
-        With one batch the JSON is written to `base_json_path`; with multiple
-        batches the path is suffixed with `_batch{i}` so each batch has its own
-        file.
+        Each size group gets its own sbatch prefix whose `--time` is budgeted for
+        that group's number of configs per task (so singleton large-dataset
+        arrays don't inherit a larger bundle's time limit). With a single array
+        the JSON is written to `base_json_path`; otherwise the path is suffixed
+        with `_size{n}` and/or `_batch{i}` so each array has its own file.
         """
-        job_batches = [list(b) for b in to_batch_list(all_jobs, self.max_array_size)]
-        multi_batch = len(job_batches) > 1
+        jobs_by_size: dict[int, list] = {}
+        for job in all_jobs:
+            jobs_by_size.setdefault(len(job["items"]), []).append(job)
+        multi_size = len(jobs_by_size) > 1
 
         run_commands: list[str] = []
-        for batch_idx, batch_jobs in enumerate(job_batches):
-            json_path = base_json_path.replace(".json", f"_batch{batch_idx}.json") if multi_batch else base_json_path
-            with Path(json_path).open("w") as f:
-                json.dump({"defaults": defaults, "jobs": batch_jobs}, f)
-
-            run_commands.append(
-                f"sbatch --array=0-{len(batch_jobs) - 1}%{self.array_job_limit} {base_command} {json_path}",
+        for size in sorted(jobs_by_size):
+            base_command = self._build_sbatch_prefix(
+                resources_setup=resources_setup,
+                configs_per_job=size,
+                slurm_log_output=slurm_log_output,
+                slurm_script_path=slurm_script_path,
             )
+            job_batches = [list(b) for b in to_batch_list(jobs_by_size[size], self.max_array_size)]
+            multi_batch = len(job_batches) > 1
+
+            for batch_idx, batch_jobs in enumerate(job_batches):
+                suffix = f"{f'_size{size}' if multi_size else ''}{f'_batch{batch_idx}' if multi_batch else ''}"
+                json_path = base_json_path.replace(".json", f"{suffix}.json") if suffix else base_json_path
+                with Path(json_path).open("w") as f:
+                    json.dump({"defaults": defaults, "jobs": batch_jobs}, f)
+
+                run_commands.append(
+                    f"sbatch --array=0-{len(batch_jobs) - 1}%{self.array_job_limit} {base_command} {json_path}",
+                )
         return run_commands
 
     def _build_sbatch_prefix(

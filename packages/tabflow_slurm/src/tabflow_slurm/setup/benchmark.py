@@ -171,8 +171,9 @@ class TabArenaBenchmarkSetup:
         Contains three pieces of state:
             - `defaults`: per-job runtime arguments shared across all array tasks.
             - `jobs`: list of `{"items": [...]}` array-task bundles.
-            - `max_configs_per_job`: worst-case bundle size; used by the
-              scheduler to budget the per-task time limit.
+            - `max_configs_per_job`: worst-case bundle size (informational; the
+              scheduler now budgets each array's time limit per its own bundle
+              size, see `SlurmSetup._write_job_batches_and_build_commands`).
         """
         jobs, max_configs_per_job = self.get_jobs_to_run()
         return {

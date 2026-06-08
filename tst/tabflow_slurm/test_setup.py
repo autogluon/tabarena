@@ -13,6 +13,8 @@ The task-metadata loading/filtering moved into `TabArenaMetadataBundle`
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from tabarena.benchmark.experiment import TabArenaExperimentBundle
@@ -390,6 +392,63 @@ class TestBuildSbatchPrefix:
 
     def test_mem_per_handle_gpu_uses_mem_per_gpu(self):
         assert "--mem-per-gpu=20G" in _prefix(num_gpus=2, mem_per_handle=True, memory_limit=40)
+
+
+# ---------------------------------------------------------------------------
+# SlurmSetup._write_job_batches_and_build_commands (per-bundle-size time budget)
+# ---------------------------------------------------------------------------
+
+
+def _job(size: int) -> dict:
+    """An array-task bundle with `size` (placeholder) items."""
+    return {"items": [{"task_id": "1", "fold": 0, "repeat": 0, "config_index": i} for i in range(size)]}
+
+
+def _build_commands(jobs: list[dict], *, tmp_path, time_limit=3600, time_limit_overhead=1, **slurm_kw) -> list[str]:
+    slurm = _slurm(time_limit_overhead=time_limit_overhead, **slurm_kw)
+    resources = ResourcesSetup(time_limit=time_limit, num_cpus=8, num_gpus=0, memory_limit=32)
+    return slurm._write_job_batches_and_build_commands(
+        all_jobs=jobs,
+        defaults={"k": "v"},
+        base_json_path=str(tmp_path / "jobs.json"),
+        resources_setup=resources,
+        slurm_log_output=str(tmp_path / "logs"),
+        slurm_script_path=str(tmp_path / "submit.sh"),
+    )
+
+
+class TestWriteJobBatches:
+    def test_single_size_keeps_base_path_and_one_command(self, tmp_path):
+        cmds = _build_commands([_job(5), _job(5)], tmp_path=tmp_path)
+        assert len(cmds) == 1
+        assert str(tmp_path / "jobs.json") in cmds[0]
+        # 3600s // 3600 * 5 configs + 1h overhead = 6h.
+        assert "--time=6:00:00" in cmds[0]
+
+    def test_mixed_sizes_get_separate_arrays_with_own_time(self, tmp_path):
+        # Two singleton (large-dataset) tasks + one 5-config bundle.
+        cmds = _build_commands([_job(1), _job(1), _job(5)], tmp_path=tmp_path)
+        assert len(cmds) == 2
+        by_time = {next(p for p in c.split() if p.startswith("--time=")): c for c in cmds}
+        # Singletons budgeted for 1 config (2h), not the 5-config budget (6h).
+        assert "--time=2:00:00" in by_time
+        assert "--time=6:00:00" in by_time
+        # The two arrays write to distinct, size-suffixed JSON files.
+        assert "_size1.json" in by_time["--time=2:00:00"]
+        assert "_size5.json" in by_time["--time=6:00:00"]
+        assert (tmp_path / "jobs_size1.json").exists()
+        assert (tmp_path / "jobs_size5.json").exists()
+
+    def test_singleton_array_holds_only_its_two_tasks(self, tmp_path):
+        _build_commands([_job(1), _job(1), _job(5)], tmp_path=tmp_path)
+        with (tmp_path / "jobs_size1.json").open() as f:
+            assert len(json.load(f)["jobs"]) == 2
+
+    def test_oversized_single_size_splits_into_batches(self, tmp_path):
+        cmds = _build_commands([_job(5) for _ in range(3)], tmp_path=tmp_path, max_array_size=2)
+        assert len(cmds) == 2
+        assert (tmp_path / "jobs_batch0.json").exists()
+        assert (tmp_path / "jobs_batch1.json").exists()
 
     def test_slurm_log_output_in_command(self):
         assert "/my/logs/bench" in _prefix(slurm_log_output="/my/logs/bench")
