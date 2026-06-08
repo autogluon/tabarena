@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -10,6 +11,8 @@ from tabarena.benchmark.task.user_task import UserTask
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
+
     import pandas as pd
 
 
@@ -230,6 +233,280 @@ def _build_results_cacher(
     )
 
 
+@dataclass
+class _RunStats:
+    """Running tallies for a `run_experiments_new` sweep, plus its progress line.
+
+    Centralizes the counters that were previously a handful of loose ints so the run
+    loop only does ``stats.<field> += 1`` and asks for a formatted progress line.
+    """
+
+    total: int
+    started: int = 0
+    success: int = 0
+    fail: int = 0
+    cache_exists: int = 0
+    missing: int = 0
+
+    def progress_line(self, *, cache_task_key: int | str, repeat: int, fold: int, method_name: str) -> str:
+        return (
+            f"\t{self.started}/{self.total} ran | "
+            f"{self.success} success | "
+            f"{self.fail} fail | "
+            f"{self.cache_exists} cache_exists | "
+            f"{self.missing} missing | "
+            f"Fitting {cache_task_key} on repeat {repeat}, fold {fold} for method {method_name}"
+        )
+
+
+class _LazyTask:
+    """Materialize a task (OpenML download / local load) at most once, on demand.
+
+    `run_experiments_new` only needs the heavy `OpenMLTaskWrapper` when it actually
+    fits a model; fully-cached (method, fold, repeat) jobs load straight from disk. This
+    wrapper defers and memoizes that load, and exposes whatever has been loaded so far
+    via `current` so a default-mode cache hit reuses a prior load without forcing one
+    (mirroring the original loop's per-dataset `task is None` reuse).
+    """
+
+    def __init__(self, task_id_or_object: int | UserTask) -> None:
+        self._spec = task_id_or_object
+        self._loaded = False
+        self._task: OpenMLTaskWrapper | None = None
+        self._eval_metric_name: str | None = None
+        self._task_name: str | None = None
+
+    @property
+    def current(self) -> tuple[OpenMLTaskWrapper | None, str | None, str | None]:
+        """The `(task, eval_metric_name, task_name)` loaded so far (`None`s if never)."""
+        return self._task, self._eval_metric_name, self._task_name
+
+    def materialize(self) -> tuple[OpenMLTaskWrapper, str, str]:
+        """Load the task on first call (memoized), returning `(task, eval_metric, name)`."""
+        if not self._loaded:
+            spec = self._spec
+            if isinstance(spec, int):
+                task = OpenMLTaskWrapper.from_task_id(task_id=spec)
+                task_name = task.task.get_dataset().name
+            else:
+                task_name = spec.tabarena_task_name
+                task = OpenMLTaskWrapper(
+                    task=spec.load_local_openml_task(),
+                    use_task_eval_metric=True,
+                    lazy_load_data=True,
+                )
+            self._task = task
+            self._eval_metric_name = task.eval_metric
+            self._task_name = task_name
+            self._loaded = True
+            print(f"Using eval metric: {self._eval_metric_name}")
+        return self._task, self._eval_metric_name, self._task_name
+
+
+def _enforce_finite_metric(
+    *,
+    out: dict | None,
+    cacher: AbstractCacheFunction,
+    failure_on_non_finite_metric_error: bool,
+    raise_on_failure: bool,
+) -> dict | None:
+    """Drop (and optionally raise on) a result whose final metric error is non-finite.
+
+    Inspects ``metric_error`` / ``metric_error_val``. When one is non-finite and
+    ``failure_on_non_finite_metric_error`` is set, the result's cache file is deleted and
+    the result is discarded (returned as ``None``); if ``raise_on_failure`` is also set,
+    a ``RuntimeError`` is raised instead. Otherwise the result is returned unchanged.
+    """
+    if out is None:
+        return None
+    for metric_error_key in ("metric_error", "metric_error_val"):
+        if metric_error_key not in out:
+            continue
+        if not np.isfinite(out[metric_error_key]):
+            print(
+                f"Non-finite final metric error detected: \t{metric_error_key}={out[metric_error_key]}. ",
+            )
+            if failure_on_non_finite_metric_error:
+                print("\tDeleting cache file and counting as failure.")
+                cacher.delete_cache()
+                if raise_on_failure:
+                    raise RuntimeError(
+                        f"Non-finite metric error detected for key {metric_error_key!r}.",
+                    )
+                return None
+            break
+    return out
+
+
+@dataclass
+class _Job:
+    """One (method, task, fold, repeat) unit of work, with its results cacher resolved.
+
+    The shared scaffold (`_iter_jobs`) builds these; the load and run sweeps consume them.
+    `cache_existed` is sampled once at build time so neither sweep re-stats the cache.
+    """
+
+    model_experiment: Experiment
+    lazy_task: _LazyTask
+    cache_task_key: int | str
+    fold: int
+    repeat: int
+    cacher: AbstractCacheFunction
+    cache_existed: bool
+
+
+def _iter_jobs(
+    *,
+    tasks: list[int | UserTask],
+    fold_repeat_pairs_per_task: list[list[tuple[int, int]]],
+    model_experiments: list[Experiment],
+    stats: _RunStats,
+    base_cache_path: str,
+    cache_cls: type[AbstractCacheFunction],
+    cache_cls_kwargs: dict | None,
+) -> Iterator[_Job]:
+    """Yield every (task, fold, repeat, method) job — the scaffold shared by both sweeps.
+
+    Owns everything common to loading and running: per-dataset task laziness, the nested
+    task/split/method ordering, the progress prints + `stats.started` bump, and building
+    each job's results cacher. The load-vs-run split happens in the consumer, not here.
+    """
+    for dataset_index, task_id_or_object in enumerate(tasks):
+        lazy_task = _LazyTask(task_id_or_object)
+        cache_task_key = _task_cache_key(task_id_or_object)
+        print(f"Starting Dataset {dataset_index + 1}/{len(tasks)}...")
+
+        fold_repeat_pairs = fold_repeat_pairs_per_task[dataset_index]
+        for split_index, (fold, repeat) in enumerate(fold_repeat_pairs, start=1):
+            print(f"Starting Split {split_index}/{len(fold_repeat_pairs)} (Fold {fold}, Repeat {repeat})...")
+
+            for me_index, model_experiment in enumerate(model_experiments, start=1):
+                stats.started += 1
+                print(
+                    f"Starting Model {me_index}/{len(model_experiments)}...\n"
+                    + stats.progress_line(
+                        cache_task_key=cache_task_key,
+                        repeat=repeat,
+                        fold=fold,
+                        method_name=model_experiment.name,
+                    ),
+                )
+                cacher = _build_results_cacher(
+                    cache_cls=cache_cls,
+                    cache_cls_kwargs=cache_cls_kwargs,
+                    base_cache_path=base_cache_path,
+                    method_name=model_experiment.name,
+                    cache_task_key=cache_task_key,
+                    fold=fold,
+                    repeat=repeat,
+                )
+                yield _Job(
+                    model_experiment=model_experiment,
+                    lazy_task=lazy_task,
+                    cache_task_key=cache_task_key,
+                    fold=fold,
+                    repeat=repeat,
+                    cacher=cacher,
+                    cache_existed=cacher.exists,
+                )
+
+
+def _load_sweep(
+    jobs: Iterable[_Job],
+    *,
+    stats: _RunStats,
+    strict: bool,
+) -> list[dict]:
+    """Load-only workflow: read each job's cached `results`, never fitting a model.
+
+    Only the loading path lives here. A missing cache file is counted (and, when
+    `strict`, collected and raised after the full sweep); a present one is loaded and
+    counted as a success. The non-finite-metric guard is a fit-time concern (see
+    `_run_sweep`) — cached results were already validated when written, so this path
+    just reads them back.
+    """
+    results: list[dict] = []
+    missing: list[tuple] = []
+    for job in jobs:
+        if not job.cache_existed:
+            stats.missing += 1
+            if strict:
+                missing.append((job.model_experiment.name, job.cache_task_key, job.fold, job.repeat))
+            continue
+
+        stats.cache_exists += 1
+        stats.success += 1
+        results.append(job.cacher.load_cache())
+
+    if strict and missing:
+        missing_str = "\n\t".join(str(m) for m in missing)
+        raise AssertionError(
+            f"cache_mode='only_strict': missing cached results for "
+            f"{len(missing)}/{stats.total} experiment(s).\n"
+            f"Missing (method, task, fold, repeat):\n\t{missing_str}",
+        )
+    return results
+
+
+def _run_sweep(
+    jobs: Iterable[_Job],
+    *,
+    stats: _RunStats,
+    ignore_cache: bool,
+    debug_mode: bool,
+    raise_on_failure: bool,
+    failure_on_non_finite_metric_error: bool,
+) -> list[dict]:
+    """Run workflow: fit each job, reusing a cached result when one is already present.
+
+    Only the running path lives here. The (heavy) task is materialized lazily — only on a
+    forced re-run (`ignore_cache`) or a cache miss; on a default-mode hit `Experiment.run`
+    short-circuits to the cached `results`, so an already-loaded task (if any) is reused
+    rather than forcing a load. Tracks success/fail and (non-`ignore`) cache hits.
+    """
+    results: list[dict] = []
+    for job in jobs:
+        if ignore_cache or not job.cache_existed:
+            task, eval_metric_name, task_name = job.lazy_task.materialize()
+        else:
+            task, eval_metric_name, task_name = job.lazy_task.current
+
+        task_cache_cm = job.model_experiment.prepare_for_task(task=task, cache_task_key=job.cache_task_key)
+        try:
+            with task_cache_cm:
+                out = job.model_experiment.run(
+                    task=task,
+                    fold=job.fold,
+                    cacher=job.cacher,
+                    ignore_cache=ignore_cache,
+                    debug_mode=debug_mode,
+                    repeat=job.repeat,
+                    task_name=task_name,
+                    eval_metric_name=eval_metric_name,
+                )
+        except Exception as exc:
+            if raise_on_failure:
+                raise
+            print(exc.__class__)
+            out = None
+
+        out = _enforce_finite_metric(
+            out=out,
+            cacher=job.cacher,
+            failure_on_non_finite_metric_error=failure_on_non_finite_metric_error,
+            raise_on_failure=raise_on_failure,
+        )
+
+        if job.cache_existed and not ignore_cache:
+            stats.cache_exists += 1
+        if out is not None:
+            stats.success += 1
+            results.append(out)
+        else:
+            stats.fail += 1
+    return results
+
+
 def run_experiments_new(
     *,
     output_dir: str,
@@ -398,141 +675,31 @@ def run_experiments_new(
         f"\n\tMethods : {[method.name for method in model_experiments]}",
     )
 
-    result_lst = []
-    cur_experiment_idx, experiment_success_count, experiment_fail_count = -1, 0, 0
-    experiment_missing_count, experiment_cache_exists_count = 0, 0
-    # (method, task, fold, repeat) tuples that were requested but absent from the cache,
-    # collected only for `cache_mode="only_strict"` to raise after the full sweep.
-    missing_cached_experiments: list[tuple] = []
-    experiment_count_total = n_splits * len(model_experiments)
-    for dataset_index, task_id_or_object in enumerate(tasks):
-        task, eval_metric_name = None, None
-        # Display name used as the results `dataset` key. Derived from the task object
-        # (OpenML name) / UserTask slug when the task is loaded below.
-        tabarena_task_name = None
-        print(f"Starting Dataset {dataset_index + 1}/{len(tasks)}...")
+    stats = _RunStats(total=n_splits * len(model_experiments))
+    jobs = _iter_jobs(
+        tasks=tasks,
+        fold_repeat_pairs_per_task=fold_repeat_pairs_per_task,
+        model_experiments=model_experiments,
+        stats=stats,
+        base_cache_path=base_cache_path,
+        cache_cls=cache_cls,
+        cache_cls_kwargs=cache_cls_kwargs,
+    )
 
-        for split_index, (fold, repeat) in enumerate(fold_repeat_pairs_per_task[dataset_index], start=1):
-            print(
-                f"Starting Split {split_index}/{len(fold_repeat_pairs_per_task[dataset_index])} (Fold {fold}, Repeat {repeat})...",
-            )
-
-            for me_index, model_experiment in enumerate(model_experiments, start=1):
-                cur_experiment_idx += 1
-                cache_task_key = _task_cache_key(task_id_or_object)
-                print(
-                    f"Starting Model {me_index}/{len(model_experiments)}..."
-                    f"\n\t"
-                    f"{cur_experiment_idx}/{experiment_count_total} ran | "
-                    f"{experiment_success_count} success | "
-                    f"{experiment_fail_count} fail | "
-                    f"{experiment_cache_exists_count} cache_exists | "
-                    f"{experiment_missing_count} missing | "
-                    f"Fitting {cache_task_key} on repeat {repeat}, fold {fold} for method {model_experiment.name}",
-                )
-
-                # Setup Cache for this (method, task, fold, repeat) `results` artifact.
-                cacher = _build_results_cacher(
-                    cache_cls=cache_cls,
-                    cache_cls_kwargs=cache_cls_kwargs,
-                    base_cache_path=base_cache_path,
-                    method_name=model_experiment.name,
-                    cache_task_key=cache_task_key,
-                    fold=fold,
-                    repeat=repeat,
-                )
-                cache_exists = cacher.exists
-                load_only = cache_mode in ("only", "only_strict")
-
-                # Check cache state
-                if cache_exists and (cache_mode != "ignore"):
-                    experiment_cache_exists_count += 1
-                elif (not cache_exists) and load_only:
-                    experiment_missing_count += 1
-                    if cache_mode == "only_strict":
-                        missing_cached_experiments.append((model_experiment.name, cache_task_key, fold, repeat))
-                    continue
-
-                if load_only:
-                    out = cacher.load_cache()
-                else:
-                    if (task is None) and ((cache_mode == "ignore") or (not cache_exists)):
-                        if isinstance(task_id_or_object, int):
-                            task = OpenMLTaskWrapper.from_task_id(task_id=task_id_or_object)
-                            if tabarena_task_name is None:
-                                tabarena_task_name = task.task.get_dataset().name
-                        else:
-                            if tabarena_task_name is None:
-                                tabarena_task_name = task_id_or_object.tabarena_task_name
-                            task = OpenMLTaskWrapper(
-                                task=task_id_or_object.load_local_openml_task(),
-                                use_task_eval_metric=True,
-                                lazy_load_data=True,
-                            )
-
-                        eval_metric_name = task.eval_metric
-                        print(f"Using eval metric: {eval_metric_name}")
-
-                    task_cache_cm = model_experiment.prepare_for_task(
-                        task=task,
-                        cache_task_key=cache_task_key,
-                    )
-
-                    try:
-                        with task_cache_cm:
-                            out = model_experiment.run(
-                                task=task,
-                                fold=fold,
-                                cacher=cacher,
-                                ignore_cache=cache_mode == "ignore",
-                                debug_mode=debug_mode,
-                                repeat=repeat,
-                                # TODO: remove task_name as required parameter in .run()
-                                #   - also unclear how this is used in only cache case,
-                                #     where we don't have the task object.
-                                task_name=tabarena_task_name,  # used in eval as name later.
-                                eval_metric_name=eval_metric_name,
-                            )
-                    except Exception as exc:
-                        if raise_on_failure:
-                            raise
-                        print(exc.__class__)
-                        out = None
-
-                # Safety check for results with non-finite metric errors
-                if out is not None:
-                    for metric_error_key in ["metric_error", "metric_error_val"]:
-                        if metric_error_key not in out:
-                            continue
-
-                        if not np.isfinite(out[metric_error_key]):
-                            print(
-                                "Non-finite final metric error detected: "
-                                f"\t{metric_error_key}={out[metric_error_key]}. ",
-                            )
-                            if failure_on_non_finite_metric_error:
-                                print("\tDeleting cache file and counting as failure.")
-                                # TODO: fix for s3
-                                cacher.delete_cache()
-                                out = None
-                                if raise_on_failure:
-                                    raise RuntimeError(
-                                        f"Non-finite metric error detected for key {metric_error_key!r}.",
-                                    )
-                            break
-
-                if out is not None:
-                    experiment_success_count += 1
-                    result_lst.append(out)
-                else:
-                    experiment_fail_count += 1
-
-    if cache_mode == "only_strict" and missing_cached_experiments:
-        missing_str = "\n\t".join(str(m) for m in missing_cached_experiments)
-        raise AssertionError(
-            f"cache_mode='only_strict': missing cached results for "
-            f"{len(missing_cached_experiments)}/{experiment_count_total} experiment(s).\n"
-            f"Missing (method, task, fold, repeat):\n\t{missing_str}",
+    # Split point: a load-only sweep never fits a model and only reads the cache; every
+    # other mode runs (with `Experiment.run` short-circuiting a default-mode cache hit).
+    # Below here the loading and running paths — and their result tracking — are disjoint.
+    if cache_mode in ("only", "only_strict"):
+        return _load_sweep(
+            jobs,
+            stats=stats,
+            strict=cache_mode == "only_strict",
         )
-
-    return result_lst
+    return _run_sweep(
+        jobs,
+        stats=stats,
+        ignore_cache=cache_mode == "ignore",
+        debug_mode=debug_mode,
+        raise_on_failure=raise_on_failure,
+        failure_on_non_finite_metric_error=failure_on_non_finite_metric_error,
+    )
