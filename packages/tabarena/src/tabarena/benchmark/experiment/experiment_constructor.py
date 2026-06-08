@@ -3,8 +3,10 @@ from __future__ import annotations
 import copy
 import importlib
 import inspect
+import traceback
 from typing import TYPE_CHECKING, Any, Self
 
+import numpy as np
 import yaml
 
 from tabarena.benchmark.experiment.experiment_runner import ExperimentRunner, OOFExperimentRunner
@@ -43,6 +45,13 @@ class Experiment:
         It will also calculate the test `metric_error`, to ensure that the method_cls is evaluated correctly.
     experiment_kwargs: dict, optional
         The kwargs passed to the init of `experiment_cls`.
+    preprocessing_pipeline: str | None, default None
+        Name of an optional preprocessing pipeline to apply (e.g. ``"tabarena_default"``).
+        Resolved lazily at run time via ``_resolve_preprocessing``; ``None`` applies none.
+    dynamic_tabarena_validation_protocol: bool, default False
+        If True, this experiment's validation split is configured dynamically from the
+        task (type and dataset metadata) at run time, via ``prepare_for_task``. Only
+        supported for bagged AutoGluon experiments.
 
     """
 
@@ -129,9 +138,9 @@ class Experiment:
         # Name of an optional preprocessing pipeline to apply, resolved lazily at
         # run time via `_resolve_preprocessing` (see that method).
         self.preprocessing_pipeline = preprocessing_pipeline
-        # Whether `run_experiments_new` should adapt this experiment's validation
-        # data dynamically based on the task it runs on (task-dependent, so applied
-        # at run time rather than baked into method_kwargs).
+        # Whether `run` should adapt this experiment's validation data dynamically
+        # based on the task it runs on (task-dependent, so applied at run time rather
+        # than baked into method_kwargs).
         self.dynamic_tabarena_validation_protocol = dynamic_tabarena_validation_protocol
 
     def construct_method(self, problem_type: str, eval_metric) -> AbstractExecModel:
@@ -146,38 +155,133 @@ class Experiment:
         task: OpenMLTaskWrapper | None,
         fold: int,
         task_name: str,
+        *,
+        cache_task_key: int | str,
         repeat: int = 0,
         sample: int = 0,
         cacher: AbstractCacheFunction | None = None,
         ignore_cache: bool = False,
+        raise_on_failure: bool = True,
         verbose: bool = True,
         **experiment_kwargs,
-    ) -> dict:
+    ) -> dict | None:
+        """Fit this experiment on a single (task, fold, repeat) and return its results.
+
+        Single entry point for executing one experiment job end to end, so callers (e.g.
+        ``run_experiments_new``) only hand over the task and cache and read back a result.
+        It splits into two flows:
+
+        - **Load flow** (``task is None``): load and return the cached ``results`` directly.
+          No task configuration, preprocessing resolution, or fit-failure guard is needed —
+          reached e.g. on a default-mode cache hit, where the caller passes no task.
+        - **Fit flow** (``task`` provided):
+            1. Configure the task-dependent validation protocol and open the task's
+               text-embedding cache scope for the fit (``prepare_for_task``).
+            2. Resolve any preprocessing pipeline (``_resolve_preprocessing``).
+            3. Fit via ``experiment_cls.init_and_run`` through ``cacher`` — which still
+               short-circuits to the cached ``results`` on a hit instead of refitting.
+            4. Guard against a non-finite final metric error (``_enforce_finite_metric``).
+
+        Fit-flow failures are handled here: when ``raise_on_failure`` is False, a fit
+        exception (or a non-finite-metric failure) is swallowed and ``None`` is returned;
+        otherwise it propagates.
+
+        Parameters
+        ----------
+        task: OpenMLTaskWrapper | None
+            The loaded task to fit on. ``None`` is allowed only on a cache hit (the cached
+            ``results`` is loaded without a task); fitting with ``task=None`` is a no-op load.
+        fold: int
+            The fold index to fit.
+        repeat: int, default 0
+            The repeat index to fit.
+        sample: int, default 0
+            The sample index to fit.
+        task_name: str
+            Display name recorded on the results (used downstream as the ``dataset`` key).
+        cache_task_key: int | str
+            Canonical task identifier (OpenML task id or ``UserTask.slug``) used to key the
+            task's text-embedding cache in ``prepare_for_task``.
+        cacher: AbstractCacheFunction | None, default None
+            Cacher for this job's ``results`` artifact. Defaults to a no-op in-memory cacher.
+        ignore_cache: bool, default False
+            If True, refit and overwrite the cache even when a cached result exists.
+        raise_on_failure: bool, default True
+            If True, fit exceptions and non-finite-metric failures propagate; if False, they
+            are swallowed and ``None`` is returned.
+        verbose: bool, default True
+            Verbosity for the default cacher used when ``cacher`` is None.
+        **experiment_kwargs
+            Extra kwargs forwarded to ``experiment_cls.init_and_run`` (e.g. ``debug_mode``,
+            ``eval_metric_name``).
+
+        Returns:
+        -------
+        dict | None
+            The experiment results, or ``None`` when the job failed (and was not raised).
+        """
         if cacher is None:
             cacher = CacheFunctionDummy(verbose=verbose)
-        # Resolve the preprocessing pipeline (if any) into a ready-to-run experiment.
-        resolved = self._resolve_preprocessing()
-        if task is not None:
-            out = cacher.cache(
-                fun=resolved.experiment_cls.init_and_run,
-                fun_kwargs=dict(
-                    method_cls=resolved.method_cls,
-                    task=task,
-                    fold=fold,
-                    repeat=repeat,
-                    sample=sample,
-                    task_name=task_name,
-                    method=resolved.name,
-                    fit_args=self._autodetect_resources(resolved.method_kwargs),
-                    **resolved.experiment_kwargs,
-                    **experiment_kwargs,
-                ),
-                ignore_cache=ignore_cache,
-            )
-        else:
-            # load cache, no need to load task
-            out = cacher.cache(fun=None, fun_kwargs=None, ignore_cache=ignore_cache)
+
+        # Load flow: with no task to fit, load the cached result directly
+        if task is None:
+            return cacher.cache(fun=None, fun_kwargs=None, ignore_cache=ignore_cache)
+
+        # Fit flow: configure for the task (dynamic validation protocol) and obtain the
+        # cache scope wrapping the fit. Eager config happens here; a null scope is returned
+        # when not applicable.
+        task_cache_cm = self.prepare_for_task(task=task, cache_task_key=cache_task_key)
+        try:
+            with task_cache_cm:
+                # Resolve the preprocessing pipeline (if any) into a ready-to-run experiment.
+                resolved = self._resolve_preprocessing()
+                out = cacher.cache(
+                    fun=resolved.experiment_cls.init_and_run,
+                    fun_kwargs=dict(
+                        method_cls=resolved.method_cls,
+                        task=task,
+                        fold=fold,
+                        repeat=repeat,
+                        sample=sample,
+                        task_name=task_name,
+                        method=resolved.name,
+                        fit_args=self._autodetect_resources(resolved.method_kwargs),
+                        **resolved.experiment_kwargs,
+                        **experiment_kwargs,
+                    ),
+                    ignore_cache=ignore_cache,
+                )
+                self._enforce_finite_metric(out=out, cacher=cacher)
+        except Exception:
+            if raise_on_failure:
+                raise
+            print(f"Experiment {self.name!r} failed on {task_name} (fold={fold}, repeat={repeat}):")
+            traceback.print_exc()
+            return None
+
         return out
+
+    @staticmethod
+    def _enforce_finite_metric(*, out: dict | None, cacher: AbstractCacheFunction) -> None:
+        """Raise on a result with a non-finite final metric error, deleting its cache.
+
+        Always enforced: this guards against silently accepting results from models that
+        overflow during fitting. Inspects ``metric_error`` / ``metric_error_val``; if one
+        is non-finite, the result's cache file is deleted and a ``RuntimeError`` is raised.
+        Whether that propagates or is swallowed (the run returning ``None``) is decided by
+        the ``raise_on_failure`` handling in ``run``, which wraps this call. A finite (or
+        absent) metric is a no-op.
+        """
+        if out is None:
+            return
+        for metric_error_key in ("metric_error", "metric_error_val"):
+            if metric_error_key not in out:
+                continue
+            if not np.isfinite(out[metric_error_key]):
+                print(f"Non-finite final metric error detected: \t{metric_error_key}={out[metric_error_key]}. ")
+                print("\tDeleting cache file and counting as failure.")
+                cacher.delete_cache()
+                raise RuntimeError(f"Non-finite metric error detected for key {metric_error_key!r}.")
 
     def _resolve_preprocessing(self) -> Experiment:
         """Resolve `self.preprocessing_pipeline` into a ready-to-run Experiment.
@@ -339,7 +443,7 @@ class Experiment:
     def prepare_for_task(
         self,
         *,
-        task: OpenMLTaskWrapper | None,
+        task: OpenMLTaskWrapper,
         cache_task_key: int | str,
     ) -> AbstractContextManager:
         """Configure this experiment for ``task`` and return its task-specific cache scope.
@@ -348,8 +452,8 @@ class Experiment:
         single call: it adapts this experiment's validation-split metadata to the task
         (eagerly, when called) and returns a context manager that loads the task's
         semantic-text embedding cache for the duration of the fit, restoring the prior
-        state on exit. When the protocol is disabled or no task object is available
-        (e.g. a pure cache load), configuration is skipped and a null context is returned.
+        state on exit. When the protocol is disabled, configuration is skipped and a null
+        context is returned. This is part of the fit flow, so a task object is required.
 
         Configuration runs eagerly here (rather than on ``__enter__``) so a misconfigured
         task/experiment surfaces immediately at the call site; only the returned scope is
@@ -357,8 +461,8 @@ class Experiment:
 
         Parameters
         ----------
-        task: OpenMLTaskWrapper | None
-            The loaded task to adapt to, or ``None`` when no task object is available.
+        task: OpenMLTaskWrapper
+            The loaded task to adapt to.
         cache_task_key: int | str
             The canonical task identifier used to key the task-specific text-embedding
             cache (OpenML task id, or ``UserTask.slug``). This is the same key used for
@@ -371,7 +475,7 @@ class Experiment:
         """
         from contextlib import nullcontext
 
-        if (task is None) or (not self.dynamic_tabarena_validation_protocol):
+        if not self.dynamic_tabarena_validation_protocol:
             return nullcontext()
 
         from tabarena.benchmark.task.openml import TabArenaOpenMLSupervisedTask

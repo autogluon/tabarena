@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-import numpy as np
-
 from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 from tabarena.benchmark.task.user_task import UserTask
@@ -303,41 +301,6 @@ class _LazyTask:
         return self._task, self._eval_metric_name, self._task_name
 
 
-def _enforce_finite_metric(
-    *,
-    out: dict | None,
-    cacher: AbstractCacheFunction,
-    failure_on_non_finite_metric_error: bool,
-    raise_on_failure: bool,
-) -> dict | None:
-    """Drop (and optionally raise on) a result whose final metric error is non-finite.
-
-    Inspects ``metric_error`` / ``metric_error_val``. When one is non-finite and
-    ``failure_on_non_finite_metric_error`` is set, the result's cache file is deleted and
-    the result is discarded (returned as ``None``); if ``raise_on_failure`` is also set,
-    a ``RuntimeError`` is raised instead. Otherwise the result is returned unchanged.
-    """
-    if out is None:
-        return None
-    for metric_error_key in ("metric_error", "metric_error_val"):
-        if metric_error_key not in out:
-            continue
-        if not np.isfinite(out[metric_error_key]):
-            print(
-                f"Non-finite final metric error detected: \t{metric_error_key}={out[metric_error_key]}. ",
-            )
-            if failure_on_non_finite_metric_error:
-                print("\tDeleting cache file and counting as failure.")
-                cacher.delete_cache()
-                if raise_on_failure:
-                    raise RuntimeError(
-                        f"Non-finite metric error detected for key {metric_error_key!r}.",
-                    )
-                return None
-            break
-    return out
-
-
 @dataclass
 class _Job:
     """One (method, task, fold, repeat) unit of work, with its results cacher resolved.
@@ -455,14 +418,15 @@ def _run_sweep(
     ignore_cache: bool,
     debug_mode: bool,
     raise_on_failure: bool,
-    failure_on_non_finite_metric_error: bool,
 ) -> list[dict]:
     """Run workflow: fit each job, reusing a cached result when one is already present.
 
-    Only the running path lives here. The (heavy) task is materialized lazily — only on a
-    forced re-run (`ignore_cache`) or a cache miss; on a default-mode hit `Experiment.run`
-    short-circuits to the cached `results`, so an already-loaded task (if any) is reused
-    rather than forcing a load. Tracks success/fail and (non-`ignore`) cache hits.
+    Only the running path lives here, and it is thin: each job's full fit lifecycle —
+    task configuration, the failure guard, and the non-finite-metric guard — is owned by
+    `Experiment.run`. This sweep just decides whether the (heavy) task needs materializing
+    (only on a forced re-run via `ignore_cache` or a cache miss; on a default-mode hit
+    `Experiment.run` short-circuits to the cached `results`, so an already-loaded task, if
+    any, is reused), hands off to `run`, and tracks success/fail + (non-`ignore`) hits.
     """
     results: list[dict] = []
     for job in jobs:
@@ -471,30 +435,17 @@ def _run_sweep(
         else:
             task, eval_metric_name, task_name = job.lazy_task.current
 
-        task_cache_cm = job.model_experiment.prepare_for_task(task=task, cache_task_key=job.cache_task_key)
-        try:
-            with task_cache_cm:
-                out = job.model_experiment.run(
-                    task=task,
-                    fold=job.fold,
-                    cacher=job.cacher,
-                    ignore_cache=ignore_cache,
-                    debug_mode=debug_mode,
-                    repeat=job.repeat,
-                    task_name=task_name,
-                    eval_metric_name=eval_metric_name,
-                )
-        except Exception as exc:
-            if raise_on_failure:
-                raise
-            print(exc.__class__)
-            out = None
-
-        out = _enforce_finite_metric(
-            out=out,
+        out = job.model_experiment.run(
+            task=task,
+            fold=job.fold,
+            task_name=task_name,
+            cache_task_key=job.cache_task_key,
+            repeat=job.repeat,
             cacher=job.cacher,
-            failure_on_non_finite_metric_error=failure_on_non_finite_metric_error,
+            ignore_cache=ignore_cache,
             raise_on_failure=raise_on_failure,
+            debug_mode=debug_mode,
+            eval_metric_name=eval_metric_name,
         )
 
         if job.cache_existed and not ignore_cache:
@@ -520,7 +471,6 @@ def run_experiments_new(
     cache_cls_kwargs: dict | None = None,
     raise_on_failure: bool = True,
     debug_mode: bool = False,
-    failure_on_non_finite_metric_error: bool = False,
 ) -> list[dict]:
     """Run model experiments for a set of tasks.
 
@@ -631,11 +581,6 @@ def run_experiments_new(
             - If False, operates in a manner best suited for large-scale benchmarking.
                 This mode tries to record information when method's fail and might not
                 work well with local debuggers.
-    failure_on_non_finite_metric_error: bool, default False
-        If True, we count a non-finite final metric error as a failure and delete
-        the cache file produced for the run. This is useful to ensure that such
-        errors resulting from models running into overflows are not ignored silently.
-        Moreover, if `raise_on_failure` is also True, the exception will be raised.
 
     Each experiment carries its own `dynamic_tabarena_validation_protocol` flag
     (see `Experiment`): when True, that experiment's validation split is
@@ -701,5 +646,4 @@ def run_experiments_new(
         ignore_cache=cache_mode == "ignore",
         debug_mode=debug_mode,
         raise_on_failure=raise_on_failure,
-        failure_on_non_finite_metric_error=failure_on_non_finite_metric_error,
     )
