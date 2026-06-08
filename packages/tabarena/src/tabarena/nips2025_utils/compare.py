@@ -126,6 +126,10 @@ def compare(
             datasets=datasets,
             folds=folds,
             task_metadata_og=task_metadata,
+            # Thread the context's predicates so subclass-specific subsets (e.g.
+            # BeyondArena's "random"/"temporal"/"grouped") take effect; without this
+            # subset_tasks silently falls back to TabArenaContext.SUBSET_PREDICATES.
+            predicates=tabarena_context.subset_predicates if tabarena_context is not None else None,
         )
 
     df_results = prepare_data(

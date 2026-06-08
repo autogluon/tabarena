@@ -783,7 +783,15 @@ class MethodMetadata:
         for n_config in n_configs:
             print(f"Running n_config={n_config} ({self.method})")
             assert n_config <= n_config_total
-            for seed in seeds:
+            # The trajectory is independent of `seed` whenever no random config
+            # selection occurs: either the single config is a fixed one (e.g. the
+            # always-included default) or every config is included. In those cases
+            # `seed` only shuffles configs that are then either discarded (n_config
+            # == 1) or fully retained (n_config == n_config_total), so every seed
+            # yields an identical result -- run a single seed to avoid redundant work.
+            seed_invariant = (n_config == 1 and fixed_configs) or n_config == n_config_total
+            seeds_for_n_config = seeds[:1] if seed_invariant else seeds
+            for seed in seeds_for_n_config:
                 df_results_hpo = self.generate_hpo_result(
                     repo=repo,
                     n_configs=n_config,
