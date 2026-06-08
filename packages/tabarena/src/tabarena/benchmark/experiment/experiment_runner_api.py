@@ -14,39 +14,94 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+def _as_int_list(value: object) -> list[int]:
+    """Validate one matrix axis is a non-empty list of ints and return it unchanged."""
+    assert isinstance(value, list) and len(value) > 0 and all(isinstance(x, int) for x in value), (  # noqa: PT018
+        f"`repetitions_mode_args` for 'matrix' must be two ints or two non-empty int lists; got {value!r}."
+    )
+    return value
+
+
 def _clean_repetitions_mode_args_for_matrix(
     repetitions_mode_args: tuple,
 ) -> tuple[list[int], list[int]]:
-    # Ensure input is a tuple of two elements
-    assert isinstance(repetitions_mode_args, tuple), "Input must be tuple!"
-    assert len(repetitions_mode_args) == 2, (
-        "If `repetitions_mode_args` for 'matrix' is a tuple, it must contain two elements: (folds, repeats)"
+    """Normalize a matrix ``(folds, repeats)`` spec into ``(list[int], list[int])``.
+
+    Both elements must be the same kind: either ints ``n`` (expanded to ``range(n)``) or
+    non-empty lists of ints.
+    """
+    assert isinstance(repetitions_mode_args, tuple) and len(repetitions_mode_args) == 2, (  # noqa: PT018
+        "`repetitions_mode_args` for 'matrix' must be a tuple of two elements: (folds, repeats)."
     )
+    folds, repeats = repetitions_mode_args
+    if isinstance(folds, int) and isinstance(repeats, int):
+        return list(range(folds)), list(range(repeats))
+    # Mixed int/list is rejected here too: `_as_int_list` fails on the int element.
+    return _as_int_list(folds), _as_int_list(repeats)
 
-    a, b = repetitions_mode_args
 
-    # If both are ints -> convert to ranges
-    if isinstance(a, int) and isinstance(b, int):
-        return (list(range(a)), list(range(b)))
-
-    # If one is int and other not, error
-    if isinstance(a, int) or isinstance(b, int):
-        raise AssertionError(
-            "If `repetitions_mode_args` for 'matrix' is a tuple with integers, both elements must be integers.",
+def _assert_fold_repeat_pairs(pairs: object) -> None:
+    """Assert ``pairs`` is a non-empty list of ``(fold_index, repeat_index)`` int tuples."""
+    assert isinstance(pairs, list) and len(pairs) > 0, (  # noqa: PT018
+        "Each 'individual' repetition list must be a non-empty list of (fold, repeat) tuples."
+    )
+    for rep in pairs:
+        assert isinstance(rep, tuple) and len(rep) == 2 and all(isinstance(i, int) for i in rep), (  # noqa: PT018
+            "Each 'individual' repetition must be a (fold_index, repeat_index) tuple of two ints."
         )
 
-    # Now both must be lists of ints
-    assert isinstance(a, list) and isinstance(b, list), (  # noqa: PT018
-        "If `repetitions_mode_args` for 'matrix' is a tuple with lists, both elements must be a list."
-    )
-    assert (len(a) > 0) and all(isinstance(x, int) for x in a), (  # noqa: PT018
-        "If `repetitions_mode_args` for 'matrix' is a tuple with lists, the first list must contain at least one integer for folds."
-    )
-    assert (len(b) > 0) and all(isinstance(x, int) for x in b), (  # noqa: PT018
-        "If `repetitions_mode_args` for 'matrix' is a tuple with lists, the second list must contain at least one integer for repeats."
+
+def _parse_tabarena_mode(
+    *,
+    tasks: list[int | UserTask],
+    tasks_metadata: pd.DataFrame | None,
+) -> list[list[tuple[int, int]]]:
+    """Expand each task's ``num_folds`` x ``tabarena_num_repeats`` from `tasks_metadata`."""
+    if tasks_metadata is None:
+        from tabarena.nips2025_utils.fetch_metadata import load_curated_task_metadata
+
+        tasks_metadata = load_curated_task_metadata()
+    else:
+        for col in ("tabarena_num_repeats", "num_folds", "task_id"):
+            assert col in tasks_metadata.columns, (
+                f"`tasks_metadata` must contain the column '{col}' when `repetitions_mode` is 'TabArena'."
+            )
+
+    metadata_task_ids = tasks_metadata["task_id"].astype(str)
+    metadata_task_id_set = set(metadata_task_ids)
+
+    fold_repeat_pairs_per_task = []
+    for task in tasks:
+        t_id = task.task_id_str if isinstance(task, UserTask) else str(task)
+        assert t_id in metadata_task_id_set, f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`."
+        task_meta = tasks_metadata[metadata_task_ids == t_id].iloc[0]
+        n_folds, n_repeats = int(task_meta["num_folds"]), int(task_meta["tabarena_num_repeats"])
+        fold_repeat_pairs_per_task.append([(f, r) for r in range(n_repeats) for f in range(n_folds)])
+    return fold_repeat_pairs_per_task
+
+
+def _parse_individual_mode(
+    *,
+    repetitions_mode_args: tuple | list | None,
+    n_tasks: int,
+) -> list[list[tuple[int, int]]]:
+    """Parse 'individual' args into a per-task list of (fold, repeat) pairs."""
+    assert isinstance(repetitions_mode_args, list) and len(repetitions_mode_args) > 0, (  # noqa: PT018
+        "`repetitions_mode_args` for 'individual' must be a non-empty list."
     )
 
-    return (a, b)
+    # A flat list of (fold, repeat) pairs is broadcast to every task.
+    if isinstance(repetitions_mode_args[0], tuple):
+        _assert_fold_repeat_pairs(repetitions_mode_args)
+        return [repetitions_mode_args] * n_tasks
+
+    # Otherwise: one list of (fold, repeat) pairs per task, aligned with `tasks`.
+    assert len(repetitions_mode_args) == n_tasks, (
+        "`repetitions_mode_args` for 'individual' (a list of per-task lists) must match the number of tasks."
+    )
+    for pairs in repetitions_mode_args:
+        _assert_fold_repeat_pairs(pairs)
+    return repetitions_mode_args
 
 
 def _parse_repetitions_mode_and_args(
@@ -56,110 +111,36 @@ def _parse_repetitions_mode_and_args(
     tasks: list[int | UserTask],
     tasks_metadata: pd.DataFrame | None = None,
 ) -> list[list[tuple[int, int]]]:
-    """Parse the `repetitions_mode` and `repetitions_mode_args` parameters to determine
-    which folds and repeats to run per dataset.
+    """Resolve `repetitions_mode`/`repetitions_mode_args` into the folds/repeats per task.
 
-    Returns a standardized format: a list of elements, where each element corresponds
-    to the repetitions to run for the task; where each element is a list of tuples,
-    each tuple represents a fold-repeat pair; and where each tuple contains two
-    integers, the first one is the fold index second one is the repeat index.
+    Returns one element per task, each a list of ``(fold_index, repeat_index)`` tuples.
     """
-    if repetitions_mode == "TabArena":
-        if tasks_metadata is None:
-            from tabarena.nips2025_utils.fetch_metadata import (
-                load_curated_task_metadata,
-            )
-
-            tasks_metadata = load_curated_task_metadata()
-        else:
-            # Verify user metadata
-            req_columns = [
-                "tabarena_num_repeats",
-                "num_folds",
-                "task_id",
-            ]
-            for col in req_columns:
-                assert col in tasks_metadata.columns, (
-                    f"`tasks_metadata` must contain the column '{col}' when `repetitions_mode` is 'TabArena'"
-                )
-        fold_repeat_pairs_per_task = []
-        metadata_task_ids = tasks_metadata["task_id"].astype(str)
-        metadata_task_id_set = set(metadata_task_ids.tolist())
-        for task in tasks:
-            t_id = task.task_id_str if isinstance(task, UserTask) else str(task)
-            assert t_id in metadata_task_id_set, f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`"
-
-            task_meta = tasks_metadata[metadata_task_ids == t_id].iloc[0]
-            n_folds = int(task_meta["num_folds"])
-            n_repeats = int(task_meta["tabarena_num_repeats"])
-            fold_repeat_pairs = [(f, r) for r in range(n_repeats) for f in range(n_folds)]
-            fold_repeat_pairs_per_task.append(fold_repeat_pairs)
-        return fold_repeat_pairs_per_task
+    n_tasks = len(tasks)
 
     if repetitions_mode == "TabArena-Lite":
-        # Run only the first fold of the first repeat for each task
-        return [[(0, 0)] for _ in range(len(tasks))]
+        # First fold of the first repeat for each task.
+        return [[(0, 0)] for _ in range(n_tasks)]
+
+    if repetitions_mode == "TabArena":
+        return _parse_tabarena_mode(tasks=tasks, tasks_metadata=tasks_metadata)
 
     if repetitions_mode == "matrix":
-        assert repetitions_mode_args is not None, (
-            "If `repetitions_mode` is 'matrix', `repetitions_mode_args` must be provided"
-        )
-        if isinstance(repetitions_mode_args, list):
-            assert len(repetitions_mode_args) == len(tasks), (
-                "If `repetitions_mode_args` for 'matrix' is a list, it must have the same length as `tasks`"
-            )
-            assert all(isinstance(rep, tuple) for rep in repetitions_mode_args), (
-                "If `repetitions_mode_args` for 'matrix' is a list, all elements must be tuples"
-            )
-            repetitions_mode_args = [_clean_repetitions_mode_args_for_matrix(rep) for rep in repetitions_mode_args]
+        assert repetitions_mode_args is not None, "`repetitions_mode_args` is required for 'matrix'."
+        if isinstance(repetitions_mode_args, tuple):
+            specs = [repetitions_mode_args] * n_tasks
         else:
-            assert isinstance(repetitions_mode_args, tuple), (
-                "If `repetitions_mode_args` for 'matrix' is not a list, it must be a tuple"
+            assert isinstance(repetitions_mode_args, list), (
+                "`repetitions_mode_args` for 'matrix' must be a tuple or a list of per-task tuples."
             )
-            repetitions_mode_args = [_clean_repetitions_mode_args_for_matrix(repetitions_mode_args)] * len(tasks)
-        return [[(f, r) for f in e[0] for r in e[1]] for e in repetitions_mode_args]
+            assert len(repetitions_mode_args) == n_tasks, (
+                "`repetitions_mode_args` list for 'matrix' must match the number of tasks."
+            )
+            specs = repetitions_mode_args
+        cleaned = [_clean_repetitions_mode_args_for_matrix(spec) for spec in specs]
+        return [[(f, r) for f in folds for r in repeats] for folds, repeats in cleaned]
 
     if repetitions_mode == "individual":
-        assert repetitions_mode_args is not None, (
-            "If `repetitions_mode` is 'individual', `repetitions_mode_args` must be provided"
-        )
-        assert isinstance(repetitions_mode_args, list), (
-            "If `repetitions_mode` is 'individual', `repetitions_mode_args` must be a list"
-        )
-        assert len(repetitions_mode_args) > 0, "`repetitions_mode_args` for 'individual' must not be empty"
-
-        if isinstance(repetitions_mode_args[0], tuple):
-            assert all(
-                isinstance(rep, tuple) and (len(rep) == 2) and all(isinstance(i, int) for i in rep)
-                for rep in repetitions_mode_args
-            ), (
-                "If `repetitions_mode_args` for 'individual' is a list of tuples, all elements must be tuples of integers of (fold_index, repeat_index) pairs"
-            )
-            repetitions_mode_args = [repetitions_mode_args] * len(tasks)
-
-        # At this point, repetitions_mode_args must be list of lists
-        assert len(repetitions_mode_args) == len(tasks), (
-            "If `repetitions_mode_args` for 'individual' is a list, it must have the same length as `tasks`"
-        )
-        assert isinstance(repetitions_mode_args[0], list), (
-            "Elements of `repetitions_mode_args` for 'individual' must be a list"
-        )
-        assert all(isinstance(rep, list) for rep in repetitions_mode_args), (
-            "If `repetitions_mode_args` for 'individual' is a list, all elements must be lists"
-        )
-        for e in repetitions_mode_args:
-            assert len(e) > 0, (
-                "In `repetitions_mode_args`, each task's repetition list must contain at least one (fold, repeat) tuple."
-            )
-            for rep in e:
-                assert isinstance(rep, tuple) and len(rep) == 2, (  # noqa: PT018
-                    "In `repetitions_mode_args`, each repetition entry must be a tuple of (fold_index, repeat_index)."
-                )
-                assert all(isinstance(i, int) for i in rep), (
-                    "In `repetitions_mode_args`, each element of a repetition tuple must be an integer."
-                )
-
-        return repetitions_mode_args
+        return _parse_individual_mode(repetitions_mode_args=repetitions_mode_args, n_tasks=n_tasks)
 
     raise ValueError(f"Unknown `repetitions_mode` str: {repetitions_mode}")
 
