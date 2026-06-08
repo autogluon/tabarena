@@ -4,6 +4,7 @@ import copy
 import gc
 import inspect
 import shutil
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -14,17 +15,44 @@ from loguru import logger
 from tabarena.benchmark.exec_models.base import AbstractExecModel
 from tabarena.benchmark.exec_models.utils import TabArenaValidationProtocolExecMixin, _apply_inv_perm
 
+if TYPE_CHECKING:
+    from autogluon.tabular import TabularPredictor
+
 
 class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
-    """AutoGluon ``TabularPredictor`` wrapped as an exec model.
+    """An AutoGluon ``TabularPredictor`` wrapped as an exec model.
+
+    Fits a full ``TabularPredictor`` (whatever ``init_kwargs`` / ``fit_kwargs`` describe)
+    and exposes it through the common exec-model interface. Feature/label preprocessing
+    is disabled by default here, since AutoGluon does its own; the label column is
+    appended to the frame internally under ``self.label``.
 
     Adds the task-specific validation protocol (``TabArenaValidationProtocolExecMixin``)
     on top of the generic exec-model interface, since only the AutoGluon predictor path
     consumes the validation-split configuration.
+
+    Parameters
+    ----------
+    init_kwargs:
+        Extra keyword arguments for the ``TabularPredictor(...)`` constructor.
+    fit_kwargs:
+        Extra keyword arguments for ``TabularPredictor.fit(...)``. ``num_bag_folds`` /
+        ``num_bag_sets`` here drive the (optionally task-specific) validation protocol.
+    preprocess_data, preprocess_label:
+        Off by default (AutoGluon preprocesses internally). See ``AbstractExecModel``.
+    target_name:
+        Name of the label column appended to the training frame. Defaults to
+        ``"__label__"`` when not provided.
+    persist:
+        If True, persist the best model in memory around inference (faster repeated
+        prediction at the cost of memory).
     """
 
     can_get_error_val = True
     can_get_oof = True
+
+    predictor: TabularPredictor
+    """The fitted AutoGluon ``TabularPredictor`` (set by ``_fit``)."""
 
     def __init__(
         self,
@@ -58,12 +86,30 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
         X_val: pd.DataFrame | None,
         y_val: pd.Series | None,
     ) -> tuple[pd.DataFrame, dict, dict]:
-        """Update the AutoGluon validation protocol."""
+        """Build the ``(train_data, init_kwargs, fit_kwargs)`` for ``TabularPredictor.fit``.
+
+        Works on deep copies of the configured ``init_kwargs`` / ``fit_kwargs`` so the
+        wrapper can be re-fit. The steps:
+
+        1. Pop ``num_bag_folds`` / ``num_bag_sets`` and run them through the task-specific
+           validation protocol (``resolve_validation_splits``), which may adjust the fold /
+           repeat counts and/or produce explicit ``custom_splits`` (re-injected into
+           ``ag_args_ensemble``).
+        2. If ``feature_generator_cls`` is given, instantiate it (forwarding any group/time
+           split columns it accepts) into ``fit_kwargs["feature_generator"]``.
+        3. Assemble ``train_data`` by appending the label column; attach tuning/validation
+           data when provided.
+
+        Returns:
+        -------
+        (train_data, init_kwargs, fit_kwargs)
+            Ready to pass to ``TabularPredictor(**init_kwargs).fit(train_data, **fit_kwargs)``.
+        """
         init_kwargs = copy.deepcopy(self.init_kwargs)
         fit_kwargs = copy.deepcopy(self.fit_kwargs)
 
         num_folds = fit_kwargs.pop("num_bag_folds", None)
-        num_repeats = fit_kwargs.pop("num_bag_folds", None)
+        num_repeats = fit_kwargs.pop("num_bag_sets", None)
 
         custom_splits, num_folds, num_repeats = self.resolve_validation_splits(
             X=X.reset_index(drop=True),
@@ -119,10 +165,11 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
         self,
         X: pd.DataFrame,
         y: pd.Series,
-        X_val: pd.DataFrame = None,
-        y_val: pd.Series = None,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
         **kwargs,
     ):
+        """Resolve the validation protocol, then construct and fit the ``TabularPredictor``."""
         from autogluon.tabular import TabularPredictor
 
         # FIXME: should we not reset the index of train data here?
@@ -148,20 +195,25 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
         return self
 
     def _predict(self, X: pd.DataFrame) -> pd.Series:
+        """Predict labels with the fitted predictor (already-preprocessed ``X``)."""
         return self.predictor.predict(X)
 
     def _predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Predict class probabilities with the fitted predictor (already-preprocessed ``X``)."""
         return self.predictor.predict_proba(X)
 
     def pre_predict(self):
+        """Persist the best model in memory before inference when ``persist`` is enabled."""
         if self.persist:
             self.predictor.persist(models="best", max_memory=None)
 
     def post_predict(self):
+        """Release any persisted model after inference when ``persist`` is enabled."""
         if self.persist:
             self.predictor.unpersist()
 
-    def get_oof(self):
+    def get_oof(self) -> dict:
+        """Return the predictor's simulation artifact, narrowed to the best model's val proba."""
         # TODO: Rename method
         simulation_artifact = self.predictor.simulation_artifact()
         simulation_artifact["pred_proba_dict_val"] = simulation_artifact["pred_proba_dict_val"][
@@ -170,6 +222,7 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
         return simulation_artifact
 
     def get_metric_error_val(self) -> float:
+        """Return the best model's validation metric error from the predictor leaderboard."""
         # FIXME: this shouldn't be calculating its own val score, that should be external. This should simply give val pred and val pred proba
         leaderboard = self.predictor.leaderboard(score_format="error", set_refit_score_to_parent=True)
         metric_error_val = leaderboard.set_index("model").loc[self.predictor.model_best]["metric_error_val"]
@@ -178,6 +231,7 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
         return metric_error_val
 
     def cleanup(self):
+        """Delete the predictor's on-disk artifacts and free CPU/GPU memory."""
         shutil.rmtree(self.predictor.path, ignore_errors=True)
         gc.collect()
         try:
@@ -190,21 +244,27 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
 
 
 class AGSingleWrapper(AGWrapper):
-    """Wrapper for a single model being fit in AutoGluon.
+    """Fit a single AutoGluon model (no weighted ensemble) inside a ``TabularPredictor``.
+
+    This is the common path for benchmarking one model family: it forces
+    ``fit_weighted_ensemble=False`` and passes ``{model_cls: model_hyperparameters}`` as the
+    predictor's ``hyperparameters``. Predictor/ensemble-level options that would conflict
+    with fitting a single model are rejected up front (see ``_validate_fit_kwargs``);
+    model-level options belong in ``model_hyperparameters``.
 
     Parameters
     ----------
-    model_cls: str | Type["AbstractModel"]
-        The model_cls normally used for the model family in `predictor.fit(..., hyperparameters={model_cls: model_hyperparameters})
-    model_hyperparameters
-        The model_hyperparameters normally used in `predictor.fit(..., hyperparameters={model_cls: model_hyperparameters})
-    calibrate : bool | str, default False
-    init_kwargs
-    fit_kwargs
-    preprocess_data
-    preprocess_label
-    kwargs
-
+    model_cls: str | type[AbstractModel]
+        The model class (or its AutoGluon registry key) to fit, as used in
+        ``predictor.fit(..., hyperparameters={model_cls: model_hyperparameters})``.
+    model_hyperparameters: dict
+        Hyperparameters for ``model_cls`` (including any ``ag_args_fit`` / ``ag_args_ensemble``).
+    calibrate: bool | str, default False
+        Forwarded to ``TabularPredictor.fit(calibrate=...)``.
+    init_kwargs, fit_kwargs:
+        Extra predictor constructor / fit kwargs (the "extra" kwargs recorded in metadata).
+    preprocess_data, preprocess_label:
+        See ``AbstractExecModel`` (off by default).
     """
 
     def __init__(
@@ -225,27 +285,16 @@ class AGSingleWrapper(AGWrapper):
             fit_kwargs = {}
         if init_kwargs is None:
             init_kwargs = {}
+        self._validate_fit_kwargs(fit_kwargs)
 
-        assert "hyperparameters" not in fit_kwargs, "Must not specify `hyperparameters` in AGSingleWrapper."
-        assert "num_stack_levels" not in fit_kwargs, "num_stack_levels is not allowed for `AGSingleWrapper"
-        assert "presets" not in fit_kwargs, "AGSingleWrapper does not support `presets`"
-        assert "fit_weighted_ensemble" not in fit_kwargs, (
-            "Must not specify `fit_weighted_ensemble` in AGSingleWrapper... It is always set to False."
-        )
-        assert "calibrate" not in fit_kwargs, "Specify calibrate directly rather than in `fit_kwargs`"
-        assert "ag_args_fit" not in fit_kwargs, (
-            "ag_args_fit must be specified in `model_hyperparameters`, not in `fit_kwargs` for `AGSingleWrapper"
-        )
-        assert "ag_args_ensemble" not in fit_kwargs, (
-            "ag_args_ensemble must be specified in `model_hyperparameters`, not in `fit_kwargs` for `AGSingleWrapper"
-        )
-
+        # Record the user-provided "extra" kwargs (used for metadata), then derive the
+        # effective fit kwargs by forcing the single-model contract on top of them.
         self.init_kwargs_extra = init_kwargs
 
         fit_kwargs = copy.deepcopy(fit_kwargs)
         fit_kwargs["calibrate"] = calibrate
-
         self.fit_kwargs_extra = fit_kwargs
+
         fit_kwargs = copy.deepcopy(fit_kwargs)
         fit_kwargs["fit_weighted_ensemble"] = False
         fit_kwargs["hyperparameters"] = {model_cls: model_hyperparameters}
@@ -261,14 +310,40 @@ class AGSingleWrapper(AGWrapper):
             **kwargs,
         )
 
+    @staticmethod
+    def _validate_fit_kwargs(fit_kwargs: dict) -> None:
+        """Reject ``fit_kwargs`` incompatible with fitting a single model.
+
+        Options interpreted at the predictor/ensemble level (``presets``,
+        ``num_stack_levels``, ``fit_weighted_ensemble``, ...) or with a dedicated wrapper
+        argument (``calibrate``) must not be passed here; model-level options such as
+        ``ag_args_fit`` / ``ag_args_ensemble`` belong in ``model_hyperparameters``.
+        """
+        disallowed = {
+            "hyperparameters": "Must not specify `hyperparameters` in AGSingleWrapper.",
+            "num_stack_levels": "num_stack_levels is not allowed for AGSingleWrapper.",
+            "presets": "AGSingleWrapper does not support `presets`.",
+            "fit_weighted_ensemble": (
+                "Must not specify `fit_weighted_ensemble` in AGSingleWrapper... It is always set to False."
+            ),
+            "calibrate": "Specify calibrate directly rather than in `fit_kwargs`.",
+            "ag_args_fit": "ag_args_fit must be specified in `model_hyperparameters`, not in `fit_kwargs`.",
+            "ag_args_ensemble": "ag_args_ensemble must be specified in `model_hyperparameters`, not in `fit_kwargs`.",
+        }
+        for key, message in disallowed.items():
+            assert key not in fit_kwargs, message
+
     def post_fit(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame):
+        """Capture any model fit failures so the runner can record them on a crash."""
         self.failure_artifact = self.get_metadata_failure()
 
-    def get_hyperparameters(self):
+    def get_hyperparameters(self) -> dict:
+        """Return the best model's hyperparameters in user-facing form."""
         return self.predictor.model_hyperparameters(model=self.predictor.model_best, output_format="user")
 
     @property
     def model_cls(self) -> type[AbstractModel]:
+        """The model class, resolving an AutoGluon registry key string when needed."""
         if not isinstance(self._model_cls, str):
             model_cls = self._model_cls
         else:
@@ -281,6 +356,11 @@ class AGSingleWrapper(AGWrapper):
         return model_cls
 
     def _load_model(self, assert_single_model: bool = True):
+        """Load the fitted model object from the predictor's trainer.
+
+        When ``assert_single_model`` is True, assert exactly one inferable model exists and
+        load it; otherwise load the predictor's ``model_best``.
+        """
         model_names = self.predictor.model_names(can_infer=True)
         if assert_single_model:
             assert len(model_names) == 1
@@ -290,17 +370,19 @@ class AGSingleWrapper(AGWrapper):
         return self.predictor._trainer.load_model(model_name)
 
     def get_metadata_init(self) -> dict:
+        """Metadata known at construction time (model class, hyperparameters, extra kwargs)."""
         metadata = {}
         metadata["hyperparameters"] = self.get_hyperparameters()
         metadata["model_cls"] = self.model_cls.__name__
-        metadata["model_type"] = self.model_cls.ag_key  # TODO: rename to ag_key?
-        metadata["name_prefix"] = self.model_cls.ag_name  # TODO: rename to ag_name?
+        metadata["model_type"] = self.model_cls.ag_key
+        metadata["name_prefix"] = self.model_cls.ag_name
         metadata["model_hyperparameters"] = self.model_hyperparameters
         metadata["init_kwargs_extra"] = self.init_kwargs_extra
         metadata["fit_kwargs_extra"] = self.fit_kwargs_extra
         return metadata
 
     def get_metadata_fit(self) -> dict:
+        """Metadata available only after fitting (info, disk/compute usage, fit metadata)."""
         metadata = {}
         model = self._load_model(assert_single_model=False)
         metadata["info"] = model.get_info(include_feature_metadata=False)
@@ -315,11 +397,13 @@ class AGSingleWrapper(AGWrapper):
         return metadata
 
     def get_metadata_failure(self) -> dict:
+        """Record any per-model fit failures reported by the predictor."""
         return {
             "model_failures": self.predictor.model_failures(),
         }
 
     def get_metadata(self) -> dict:
+        """Combined construction-time and post-fit metadata for this model."""
         metadata = self.get_metadata_init()
         metadata_fit = self.get_metadata_fit()
 
@@ -328,10 +412,17 @@ class AGSingleWrapper(AGWrapper):
 
 
 class AGSingleBagWrapper(AGSingleWrapper):
+    """A bagged ``AGSingleWrapper`` that also exposes its per-child (per-fold) artifacts.
+
+    Identical fitting to ``AGSingleWrapper``, but advertises and provides the per-bagged-child
+    out-of-fold validation indices and test predictions needed for ensemble simulation.
+    """
+
     can_get_per_child_oof = True
     can_get_per_child_val_idx = True
 
-    def bag_artifact(self, X_test: pd.DataFrame):
+    def bag_artifact(self, X_test: pd.DataFrame) -> dict:
+        """Collect per-child test predictions and validation indices for the bagged model."""
         model = self._load_model()
         bag_info = {}
         bag_info["pred_proba_test_per_child"] = self.get_per_child_test(X_test=X_test, model=model)
@@ -339,6 +430,7 @@ class AGSingleBagWrapper(AGSingleWrapper):
         return bag_info
 
     def get_per_child_val_idx(self, model=None) -> list[np.ndarray]:
+        """Return each child's out-of-fold validation indices (into the internal train data)."""
         if model is None:
             model = self._load_model()
         X, y = self.predictor.load_data_internal()
@@ -361,6 +453,11 @@ class AGSingleBagWrapper(AGSingleWrapper):
 
     # TODO: Can avoid predicting on test twice by doing it all in one go
     def get_per_child_test(self, X_test: pd.DataFrame, model=None) -> list[np.ndarray]:
+        """Return each child's predictions on ``X_test`` (float32), in the original row order.
+
+        Applies the same deterministic test-row shuffle as inference (see
+        ``_shuffle_test_rows``) and inverts it on the per-child outputs.
+        """
         X_test, inv_perm, original_index = self._shuffle_test_rows(X_test)
 
         X_test = self.transform_X(X=X_test)
@@ -384,6 +481,17 @@ class AGSingleBagWrapper(AGSingleWrapper):
 
 
 class AGModelWrapper(AbstractExecModel):
+    """Fit a single AutoGluon model directly, bypassing ``TabularPredictor``.
+
+    Instantiates ``model_cls`` and calls its ``fit`` on all of ``X``/``y`` (no train/val
+    split, no bagging, no ensemble). Used to benchmark methods that want to train on the
+    full data (e.g. via ``AGModelOuterExperiment``). Unlike ``AGWrapper`` this does not
+    carry the validation protocol and provides no OOF / metadata capabilities.
+    """
+
+    model: AbstractModel
+    """The fitted single AutoGluon model (set by ``_fit``)."""
+
     def __init__(self, model_cls: type[AbstractModel], hyperparameters: dict | None = None, **kwargs):
         super().__init__(**kwargs)
         assert issubclass(model_cls, AbstractModel)
@@ -393,6 +501,7 @@ class AGModelWrapper(AbstractExecModel):
         self.hyperparameters = hyperparameters
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, **kwargs):
+        """Instantiate ``model_cls`` and fit it directly on the (preprocessed) data."""
         self.model = self.model_cls(
             path="",
             name=self.model_cls.__name__,
@@ -407,10 +516,12 @@ class AGModelWrapper(AbstractExecModel):
         return self
 
     def _predict(self, X: pd.DataFrame) -> pd.Series:
+        """Predict labels with the fitted model, preserving ``X``'s index."""
         y_pred = self.model.predict(X)
         return pd.Series(y_pred, index=X.index)
 
     def _predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Predict class probabilities, widening binary output to two columns."""
         y_pred_proba = self.model.predict_proba(X)
         if self.problem_type == "binary":
             y_pred_proba = LabelCleanerMulticlassToBinary.convert_binary_proba_to_multiclass_proba(y_pred_proba)
