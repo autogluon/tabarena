@@ -12,10 +12,17 @@ from autogluon.core.models import AbstractModel
 from loguru import logger
 
 from tabarena.benchmark.exec_models.base import AbstractExecModel
-from tabarena.benchmark.exec_models.utils import _apply_inv_perm, _make_perm
+from tabarena.benchmark.exec_models.utils import TabArenaValidationProtocolExecMixin, _apply_inv_perm
 
 
-class AGWrapper(AbstractExecModel):
+class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
+    """AutoGluon ``TabularPredictor`` wrapped as an exec model.
+
+    Adds the task-specific validation protocol (``TabArenaValidationProtocolExecMixin``)
+    on top of the generic exec-model interface, since only the AutoGluon predictor path
+    consumes the validation-split configuration.
+    """
+
     can_get_error_val = True
     can_get_oof = True
 
@@ -354,13 +361,7 @@ class AGSingleBagWrapper(AGSingleWrapper):
 
     # TODO: Can avoid predicting on test twice by doing it all in one go
     def get_per_child_test(self, X_test: pd.DataFrame, model=None) -> list[np.ndarray]:
-        original_index = X_test.index
-        inv_perm = None
-        if self.shuffle_test:
-            perm, inv_perm = _make_perm(len(X_test), seed=self.shuffle_seed)
-            X_test = X_test.iloc[perm]
-        if self.reset_index_test:
-            X_test = X_test.reset_index(drop=True)
+        X_test, inv_perm, original_index = self._shuffle_test_rows(X_test)
 
         X_test = self.transform_X(X=X_test)
 
