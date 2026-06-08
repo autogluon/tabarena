@@ -12,6 +12,7 @@ random_forest_method_metadata = MethodMetadata(
     display_name="RandomForest",
     compute="cpu",
     date="2025-06-12",
+    date_introduced="2001-10",
     ag_key="RF",
     config_default="RandomForest_c1_BAG_L1",
     can_hpo=True,

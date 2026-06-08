@@ -11,6 +11,7 @@ tabpfnwide_method_metadata = MethodMetadata(
     display_name="TabPFN-Wide",
     compute="gpu",
     date="2026-05-13",
+    date_introduced="2025-10",
     ag_key="TA-TABPFN-WIDE",
     config_default="TabPFN-Wide_c1_BAG_L1",
     can_hpo=False,

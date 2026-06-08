@@ -25,6 +25,7 @@ mitra_method_metadata = MethodMetadata(
     display_name="Mitra",
     compute="gpu",
     date="2025-09-03",
+    date_introduced="2025-07",
     ag_key="MITRA",
     model_key="MITRA_GPU",
     config_default="Mitra_GPU_c1_BAG_L1",

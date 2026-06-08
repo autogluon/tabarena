@@ -13,6 +13,7 @@ perpetual_booster_method_metadata = MethodMetadata(
     display_name="PerpetualBooster",
     compute="cpu",
     date="2026-03-06",
+    date_introduced="2024-05",
     ag_key="PB",
     model_key="PB",
     config_default="PerpetualBooster_c1_BAG_L1",

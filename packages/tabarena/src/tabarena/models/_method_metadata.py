@@ -35,6 +35,7 @@ class MethodMetadata:
         *,
         artifact_name: str | None = None,
         date: str | None = None,
+        date_introduced: str | None = None,
         method_type: Literal["config", "baseline", "portfolio"] = "config",
         display_name: str | None = None,
         name: str | None = None,
@@ -61,6 +62,10 @@ class MethodMetadata:
             artifact_name = method
         self.artifact_name = artifact_name
         self.date = date
+        # Date the method/algorithm was first introduced (paper/library release), e.g.
+        # "2017-06" or "2001" — distinct from `date` (when it was added to TabArena). Precision
+        # varies (year for classical methods, month for arXiv-anchored ones). See `reference_url`.
+        self.date_introduced = date_introduced
         self.method_type = method_type
         self.ag_key = ag_key
         if model_key is None:

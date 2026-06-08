@@ -11,6 +11,7 @@ sap_rpt_oss_method_metadata = MethodMetadata(
     display_name="SAP-RPT-OSS",
     compute="gpu",
     date="2025-11-25",
+    date_introduced="2025-06",
     ag_key="SAP-RPT-OSS",
     model_key="SAP-RPT-OSS",
     config_default="SAP-RPT-OSS_c1_BAG_L1",

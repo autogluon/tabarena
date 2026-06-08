@@ -12,6 +12,7 @@ catboost_method_metadata = MethodMetadata(
     display_name="CatBoost",
     compute="cpu",
     date="2025-06-12",
+    date_introduced="2017-06",
     ag_key="CAT",
     config_default="CatBoost_c1_BAG_L1",
     can_hpo=True,

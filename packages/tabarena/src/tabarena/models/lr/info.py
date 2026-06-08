@@ -12,6 +12,7 @@ lr_method_metadata = MethodMetadata(
     display_name="Linear",
     compute="cpu",
     date="2025-10-20",
+    date_introduced="1958",
     ag_key="LR",
     config_default="LinearModel_c1_BAG_L1",
     can_hpo=True,

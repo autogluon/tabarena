@@ -12,6 +12,7 @@ extra_trees_method_metadata = MethodMetadata(
     display_name="ExtraTrees",
     compute="cpu",
     date="2025-06-12",
+    date_introduced="2006",
     ag_key="XT",
     config_default="ExtraTrees_c1_BAG_L1",
     can_hpo=True,

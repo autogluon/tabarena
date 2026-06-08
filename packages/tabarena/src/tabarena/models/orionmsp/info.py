@@ -12,6 +12,7 @@ orionmsp_method_metadata = MethodMetadata(
     method_type="config",
     compute="gpu",
     date="2026-05-13",
+    date_introduced="2025-11",
     ag_key="TA-ORION-MSP",
     config_default="OrionMSP_c1_BAG_L1",
     can_hpo=False,

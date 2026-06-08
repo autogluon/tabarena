@@ -836,6 +836,9 @@ class TabArenaEvaluator:
         leaderboard = leaderboard.reset_index(drop=False)
         save_pd.save(path=f"{self.output_dir}/tabarena_leaderboard.csv", df=leaderboard)
 
+        # Elo vs. method introduction date (no-op unless `date_introduced` method metadata is available).
+        self.plot_elo_vs_date_introduced(leaderboard=leaderboard, show=False)
+
         self.create_leaderboard_latex(
             leaderboard,
             framework_types=framework_types,
@@ -1050,6 +1053,98 @@ class TabArenaEvaluator:
             )
 
         return leaderboard
+
+    def plot_elo_vs_date_introduced(self, leaderboard: pd.DataFrame, *, show: bool = False) -> Path | None:
+        """Scatter of leaderboard Elo (y) vs. each method's introduction date (x).
+
+        Uses ``date_introduced`` from the method metadata, which is only available when the
+        evaluator was constructed with a ``tabarena_context`` (otherwise this is a no-op and
+        returns ``None``). Plots one point per method family at its best (highest) Elo, labeled by
+        display name, and writes ``elo_vs_date_introduced.<figure_file_type>`` to ``output_dir``.
+
+        Parameters
+        ----------
+        leaderboard
+            The leaderboard returned by :meth:`eval` (must carry ``elo``/``ta_name``/``ta_suite``).
+        show
+            If True, display the figure; otherwise it is closed after saving.
+        """
+        if self.method_metadata_info is None or "date_introduced" not in self.method_metadata_info.columns:
+            return None
+
+        meta = self.method_metadata_info[["ta_name", "ta_suite", "date_introduced", "display_name"]].drop_duplicates(
+            subset=["ta_name", "ta_suite"],
+        )
+        df = leaderboard.merge(meta, on=["ta_name", "ta_suite"], how="left")
+        df["_date"] = pd.to_datetime(df["date_introduced"], errors="coerce")
+        df = df[df["_date"].notna() & df["elo"].notna()]
+        if df.empty:
+            return None
+
+        # One labeled point per method family, at its best (highest) Elo.
+        df["_label"] = df["display_name"].fillna(df["ta_name"])
+        df = df.sort_values("elo").drop_duplicates(subset=["_label"], keep="last")
+
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(11, 6.5))
+        ax.scatter(df["_date"], df["elo"], s=45, color="#2b6cb0", zorder=3)
+        for _, row in df.iterrows():
+            ax.annotate(
+                str(row["_label"]),
+                (row["_date"], row["elo"]),
+                xytext=(4, 4),
+                textcoords="offset points",
+                fontsize=7,
+            )
+
+        # Pareto front: the running-best Elo over time — a method is on the front when no
+        # earlier (or same-date) method has a >= Elo. Drawn as a step line, so each record
+        # holds until the next method beats it (the SOTA-over-time frontier).
+        front = df.sort_values(["_date", "elo"], ascending=[True, False])
+        on_front, best_elo = [], -np.inf
+        for elo in front["elo"]:
+            keep = elo > best_elo
+            on_front.append(keep)
+            if keep:
+                best_elo = elo
+        front = front[on_front]
+        ax.step(
+            front["_date"],
+            front["elo"],
+            where="post",
+            color="#dd6b20",
+            linewidth=2,
+            zorder=2,
+            label="Pareto front (best Elo over time)",
+        )
+        ax.scatter(
+            front["_date"],
+            front["elo"],
+            s=80,
+            facecolors="none",
+            edgecolors="#dd6b20",
+            linewidths=1.6,
+            zorder=4,
+        )
+        ax.legend(loc="lower right", fontsize=8)
+
+        ax.set_xlabel("Date introduced")
+        ax.set_ylabel("Elo")
+        ax.set_title("TabArena: Elo vs. method introduction date")
+        ax.set_xlim(left=pd.Timestamp("2013-01-01"))
+        ax.grid(visible=True, alpha=0.3, zorder=0)
+        fig.autofmt_xdate()
+        fig.tight_layout()
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        out_path = self.output_dir / f"elo_vs_date_introduced.{self.figure_file_type}"
+        fig.savefig(out_path, dpi=300, bbox_inches="tight")
+        if show:
+            plt.show()
+        else:
+            plt.close(fig)
+        return out_path
 
     def assert_no_duplicates(self, df_results: pd.DataFrame):
         # don't allow duplicate results

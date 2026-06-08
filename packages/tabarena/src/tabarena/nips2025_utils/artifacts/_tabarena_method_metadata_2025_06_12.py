@@ -286,6 +286,13 @@ methods_to_url_map = {
     "LinearModel": "https://scikit-learn.org/stable/modules/linear_model.html",
 }
 
+# Date each method was first introduced. Methods migrated to a per-model `info.py` get their
+# `date_introduced` from there (they're skipped by the loop below); this map covers the methods
+# still constructed here — notably TabPFNv2, which has no `info.py` wrapper.
+methods_to_date_introduced_map = {
+    "TabPFNv2_GPU": "2025-01",  # TabPFN v2 (Nature s41586-024-08328-6)
+}
+
 tabarena_method_metadata_map_2025_06_12: dict[str, MethodMetadata] = {}
 
 for method in methods:
@@ -320,6 +327,7 @@ for method in methods:
         can_hpo=can_hpo,
         upload_as_public=upload_as_public,
         reference_url=reference_url,
+        date_introduced=methods_to_date_introduced_map.get(method),
         **method_kwargs,
         **s3_cache_kwargs,
     )
