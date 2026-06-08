@@ -7,7 +7,8 @@ import pandas as pd
 from autogluon.core.data.label_cleaner import LabelCleaner, LabelCleanerDummy
 from autogluon.features import AutoMLPipelineFeatureGenerator
 
-from tabarena.benchmark.models.wrapper.validation_utils import TabArenaValidationProtocolExecMixin
+from tabarena.benchmark.exec_models._shuffle import _apply_inv_perm, _make_perm
+from tabarena.benchmark.exec_models.validation import TabArenaValidationProtocolExecMixin
 from tabarena.utils.time_utils import Timer
 
 if TYPE_CHECKING:
@@ -230,25 +231,3 @@ class AbstractExecModel(TabArenaValidationProtocolExecMixin):
 
     def get_metric_error_val(self) -> float:
         raise NotImplementedError
-
-
-def _make_perm(n: int, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
-    """Return (perm, inv_perm) for length n, using a deterministic RNG seed."""
-    rng = np.random.default_rng(seed)
-    perm = rng.permutation(n)
-    inv_perm = np.empty_like(perm)
-    inv_perm[perm] = np.arange(n)
-    return perm, inv_perm
-
-
-def _apply_inv_perm(obj, inv_perm: np.ndarray, index: pd.Index | None = None):
-    """Inverse-permute predictions while preserving type (Series/DataFrame/ndarray)."""
-    if isinstance(obj, pd.Series):
-        vals = obj.to_numpy()[inv_perm]
-        return pd.Series(vals, index=index, name=obj.name)
-    if isinstance(obj, pd.DataFrame):
-        vals = obj.to_numpy()[inv_perm, :]
-        return pd.DataFrame(vals, index=index, columns=obj.columns)
-    # Fallback: numpy array or array-like
-    arr = np.asarray(obj)
-    return arr[inv_perm]

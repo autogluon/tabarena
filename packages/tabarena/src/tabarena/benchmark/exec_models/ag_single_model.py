@@ -4,7 +4,7 @@ import pandas as pd
 from autogluon.core.data.label_cleaner import LabelCleanerMulticlassToBinary
 from autogluon.core.models import AbstractModel
 
-from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel
+from tabarena.benchmark.exec_models.base import AbstractExecModel
 
 
 class AGModelWrapper(AbstractExecModel):

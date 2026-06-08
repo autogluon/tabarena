@@ -163,7 +163,7 @@ python -m tabarena.tools.sync_pyproject_extras
 These pieces pick up the new model automatically once Step 3 lands — do not edit them by hand:
 
 - `packages/tabarena/src/tabarena/models/_registry.py` — `discover_models()` walks `tabarena/models/*/info.py` and collects every `ModelInfo` found. As long as `info.py` exports a top-level `ModelInfo` instance, the model joins `MODEL_REGISTRY`.
-- `packages/tabarena/src/tabarena/benchmark/models/model_registry.py` — auto-derives `tabarena_model_registry` from `get_model_registry()`, so the new class becomes available through the AG registry on the next import.
+- `packages/tabarena/src/tabarena/benchmark/exec_models/registry.py` — auto-derives `tabarena_model_registry` from `get_model_registry()`, so the new class becomes available through the AG registry on the next import.
 
 ## Step 6: Lint
 

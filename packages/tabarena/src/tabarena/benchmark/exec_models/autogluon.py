@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel, _apply_inv_perm, _make_perm
+from tabarena.benchmark.exec_models._shuffle import _apply_inv_perm, _make_perm
+from tabarena.benchmark.exec_models.base import AbstractExecModel
 
 
 class AGWrapper(AbstractExecModel):

@@ -12,7 +12,7 @@ from pandas.api.types import is_integer_dtype
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDF, CacheFunctionDummy
 
 if TYPE_CHECKING:
-    from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel
+    from tabarena.benchmark.exec_models.base import AbstractExecModel
     from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 
 

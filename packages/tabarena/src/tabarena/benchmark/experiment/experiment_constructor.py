@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING, Any, Self
 import numpy as np
 import yaml
 
+from tabarena.benchmark.exec_models.ag_single_model import AGModelWrapper
+from tabarena.benchmark.exec_models.autogluon import AGSingleBagWrapper, AGSingleWrapper, AGWrapper
+from tabarena.benchmark.exec_models.registry import infer_model_cls
 from tabarena.benchmark.experiment.experiment_runner import ExperimentRunner, OOFExperimentRunner
-from tabarena.benchmark.models.model_registry import infer_model_cls
-from tabarena.benchmark.models.wrapper.ag_model import AGModelWrapper
-from tabarena.benchmark.models.wrapper.AutoGluon_class import AGSingleBagWrapper, AGSingleWrapper, AGWrapper
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from autogluon.core.models import AbstractModel
 
-    from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel
+    from tabarena.benchmark.exec_models.base import AbstractExecModel
     from tabarena.benchmark.task.metadata import GroupLabelTypes, SplitTimeHorizonTypes, SplitTimeHorizonUnitTypes
     from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 
@@ -615,7 +615,7 @@ class AGExperiment(Experiment):
     def from_yaml(cls, _context=None, **kwargs) -> Self:
         if _context is None:
             _context = globals()
-        from tabarena.benchmark.models.model_registry import tabarena_model_registry
+        from tabarena.benchmark.exec_models.registry import tabarena_model_registry
 
         tabarena_model_keys = tabarena_model_registry.keys
 
