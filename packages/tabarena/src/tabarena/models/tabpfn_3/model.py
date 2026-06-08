@@ -103,6 +103,8 @@ class TabPFN3Model(AbstractTorchModel):
         default_auxiliary_params.update(
             {
                 "max_classes": 160,
+                # Batch inference once we exceed 150_000 samples (batching starts at 150_001).
+                "max_batch_size": 150_000,
             },
         )
         return default_auxiliary_params
