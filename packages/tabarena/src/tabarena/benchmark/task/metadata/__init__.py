@@ -17,6 +17,7 @@ from tabarena.benchmark.task.metadata.schema import (
     SplitTimeHorizonTypes,
     SplitTimeHorizonUnitTypes,
     TabArenaTaskMetadata,
+    ValidationMetadata,
     to_legacy_task_metadata,
 )
 from tabarena.benchmark.task.metadata.sources import (
@@ -56,6 +57,7 @@ __all__ = [
     "TabArenaV0pt1TaskMetadataSource",
     "TaskMetadataCollection",
     "TaskMetadataSource",
+    "ValidationMetadata",
     "default_task_metadata_collection",
     "resolve_source",
     "to_legacy_task_metadata",

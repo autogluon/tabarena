@@ -12,24 +12,27 @@ from autogluon.core.data.label_cleaner import LabelCleanerMulticlassToBinary
 from autogluon.core.models import AbstractModel
 from loguru import logger
 
+from tabarena.benchmark.exec_models.autogluon_utils import resolve_validation_splits
 from tabarena.benchmark.exec_models.base import AbstractExecModel
-from tabarena.benchmark.exec_models.utils import TabArenaValidationProtocolExecMixin, _apply_inv_perm
+from tabarena.benchmark.exec_models.utils import _apply_inv_perm
+from tabarena.benchmark.task.metadata import ValidationMetadata
 
 if TYPE_CHECKING:
     from autogluon.tabular import TabularPredictor
 
 
-class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
+class AGWrapper(AbstractExecModel):
     """An AutoGluon ``TabularPredictor`` wrapped as an exec model.
 
     Fits a full ``TabularPredictor`` (whatever ``init_kwargs`` / ``fit_kwargs`` describe)
     and exposes it through the common exec-model interface. Feature/label preprocessing
-    is disabled by default here, since AutoGluon does its own; the label column is
-    appended to the frame internally under ``self.label``.
+    is disabled by default here, since AutoGluon does its own; the label column is appended
+    to the frame internally under the name resolved in ``_resolve_validation_protocol``
+    (the validation metadata's ``target_name``, else ``"__label__"``).
 
-    Adds the task-specific validation protocol (``TabArenaValidationProtocolExecMixin``)
-    on top of the generic exec-model interface, since only the AutoGluon predictor path
-    consumes the validation-split configuration.
+    When ``use_task_specific_validation`` is set, the task-specific validation split is built
+    during ``_fit`` via ``resolve_validation_splits`` against ``self.validation_metadata``;
+    only the AutoGluon predictor path consumes that configuration.
 
     Parameters
     ----------
@@ -38,15 +41,21 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
     fit_kwargs:
         Extra keyword arguments for ``TabularPredictor.fit(...)``. ``num_bag_folds`` /
         ``num_bag_sets`` here drive the (optionally task-specific) validation protocol.
-    target_name:
-        Name of the label column appended to the training frame. Defaults to
-        ``"__label__"`` when not provided.
     persist:
         If True, persist the best model in memory around inference (faster repeated
         prediction at the cost of memory).
+    validation_metadata:
+        Task-derived ``ValidationMetadata`` (or a kwargs dict for one) describing the
+        validation-split structure. The label column appended to the training frame is named
+        after its ``target_name`` (falling back to ``"__label__"``).
+    use_task_specific_validation:
+        If True, adapt the validation split to ``validation_metadata`` during fitting;
+        otherwise use standard splitting and ignore the metadata's split columns.
     """
 
+    # Default AutoGluon can return a validation score
     can_get_error_val = True
+    # Default AutoGluon can return OOF predictions for the best model.
     can_get_oof = True
 
     # AutoGluon does its own feature/label preprocessing, so disable ours by default.
@@ -60,20 +69,20 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
         self,
         init_kwargs: dict | None = None,
         fit_kwargs: dict | None = None,
-        target_name: str | None = None,
         persist: bool = False,
+        validation_metadata: ValidationMetadata | dict | None = None,
+        use_task_specific_validation: bool = False,
         **kwargs,
     ):
-        super().__init__(target_name=target_name, **kwargs)
+        super().__init__(**kwargs)
         if init_kwargs is None:
             init_kwargs = {}
         if fit_kwargs is None:
             fit_kwargs = {}
         self.init_kwargs = init_kwargs
         self.fit_kwargs = fit_kwargs
-        if target_name is None:
-            target_name = "__label__"
-        self.label = target_name
+        self.validation_metadata = ValidationMetadata.from_config(validation_metadata)
+        self.use_task_specific_validation = use_task_specific_validation
         self.persist = persist
 
     def _resolve_validation_protocol(
@@ -109,12 +118,15 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
         num_folds = fit_kwargs.pop("num_bag_folds", None)
         num_repeats = fit_kwargs.pop("num_bag_sets", None)
 
-        custom_splits, num_folds, num_repeats = self.resolve_validation_splits(
-            X=X.reset_index(drop=True),
-            y=y.reset_index(drop=True),
-            num_folds=num_folds,
-            num_repeats=num_repeats,
-        )
+        custom_splits = None
+        if self.use_task_specific_validation:
+            custom_splits, num_folds, num_repeats = resolve_validation_splits(
+                self.validation_metadata,
+                X=X.reset_index(drop=True),
+                y=y.reset_index(drop=True),
+                num_folds=num_folds,
+                num_repeats=num_repeats,
+            )
 
         if num_folds is not None:
             logger.info(f"Using num_folds: {num_folds}")
@@ -133,14 +145,19 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
             feature_generator_kwargs = fit_kwargs.pop("feature_generator_kwargs", {})
             sig = inspect.signature(feature_generator_cls.__init__)
             group_params = {
-                "group_cols": self.group_on,
-                "group_labels": self.group_labels,
-                "group_time_on": self.group_time_on,
+                "group_cols": self.validation_metadata.group_on,
+                "group_labels": self.validation_metadata.group_labels,
+                "group_time_on": self.validation_metadata.group_time_on,
             }
             for param, value in group_params.items():
                 if param in sig.parameters:
                     feature_generator_kwargs[param] = value
             fit_kwargs["feature_generator"] = feature_generator_cls(**feature_generator_kwargs)
+
+        # Name the internal label column from the validation metadata's target (else a safe
+        # sentinel), and tell the predictor about it via init_kwargs.
+        label = self.validation_metadata.target_name or "__label__"
+        init_kwargs["label"] = label
 
         # TODO: think about if we can reset the index here without breaking simulation artifacts
         if self._can_use_data_in_place:
@@ -152,9 +169,9 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
             if X_val is not None:
                 tuning_data = X_val.copy()
 
-        train_data[self.label] = y
+        train_data[label] = y
         if X_val is not None:
-            tuning_data[self.label] = y_val
+            tuning_data[label] = y_val
             fit_kwargs["tuning_data"] = tuning_data
 
         return train_data, init_kwargs, fit_kwargs
@@ -179,7 +196,6 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
         )
 
         self.predictor = TabularPredictor(
-            label=self.label,
             problem_type=self.problem_type,
             eval_metric=self.eval_metric,
             **init_kwargs,
@@ -410,6 +426,7 @@ class AGSingleBagWrapper(AGSingleWrapper):
     out-of-fold validation indices and test predictions needed for ensemble simulation.
     """
 
+    # Bagging exposes per-child OOF predictions and their validation indices.
     can_get_per_child_oof = True
     can_get_per_child_val_idx = True
 

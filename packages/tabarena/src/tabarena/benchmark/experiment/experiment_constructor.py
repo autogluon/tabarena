@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from autogluon.core.models import AbstractModel
 
     from tabarena.benchmark.exec_models.base import AbstractExecModel
-    from tabarena.benchmark.task.metadata import GroupLabelTypes, SplitTimeHorizonTypes, SplitTimeHorizonUnitTypes
+    from tabarena.benchmark.task.metadata import ValidationMetadata
     from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 
 
@@ -372,77 +372,20 @@ class Experiment:
             print(f"memory_limit not provided, using detected memory size: {fit_kwargs['memory_limit']} GB")
         return method_kwargs
 
-    def load_validation_split_metadata(
-        self,
-        *,
-        use_task_specific_validation: bool,
-        target_name: str | None = None,
-        stratify_on: str | None = None,
-        group_on: str | list[str] | None = None,
-        time_on: str | None = None,
-        group_time_on: str | None = None,
-        group_labels: GroupLabelTypes | None = None,
-        split_time_horizon: SplitTimeHorizonTypes | None = None,
-        split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
-        overwrite_existing: bool = False,
-    ) -> None:
-        """Load validation split metadata into the experiment's method_kwargs.
+    def _apply_validation_metadata(self, task_metadata: ValidationMetadata) -> None:
+        """Merge ``task_metadata`` into ``method_kwargs`` and enable task-specific validation.
 
-        Parameter
-        ---------
-        use_task_specific_validation: bool
-            If True, we will adapt the validation protocol of the experiment
-            based on the metadat from the task.
-        target_name: str, optional
-            The name of the target column in the dataset.
-        stratify_on: str, optional
-            The name of the column to stratify on when creating validation splits.
-        group_on: str or list of str, optional
-            The name(s) of the column(s) to group on when creating validation splits.
-        time_on: str, optional
-            The name of the column to use for time-based validation splits.
-        group_time_on: str, optional
-            The name of the column to use for group time-based validation splits.
-        group_labels:
-            Whether the group_on column(s) contain labels for each sample, or for each group.
-        split_time_horizon:
-            The time horizon of the test data.
-        split_time_horizon_unit:
-            The unit for the time horizon.
-        overwrite_existing: bool, default False
-            If True, will overwrite existing validation split metadata in method_kwargs.
+        Sets ``validation_metadata`` (the task-derived base, with any value already present in
+        ``method_kwargs`` layered over it — per-key for a dict, see
+        ``ValidationMetadata.from_config``) and turns on ``use_task_specific_validation``
+        (unless the user already set it). The wrapper (``AGWrapper``) reads both from its kwargs.
         """
-        print(
-            "Loading validation split metadata into experiment:"
-            f"\n\tUse task specific validation: {use_task_specific_validation}"
-            f"\n\ttarget_name: {target_name}"
-            f"\n\tstratify_on: {stratify_on}"
-            f"\n\ttime_on: {time_on}"
-            f"\n\tsplit_time_horizon: {split_time_horizon}"
-            f"\n\tsplit_time_horizon_unit: {split_time_horizon_unit}"
-            f"\n\tgroup_on: {group_on}"
-            f"\n\tgroup_time_on: {group_time_on}"
-            f"\n\tgroup_labels: {group_labels}",
-        )
-        params = {
-            "use_task_specific_validation": use_task_specific_validation,
-            "target_name": target_name,
-            "stratify_on": stratify_on,
-            "group_on": group_on,
-            "time_on": time_on,
-            "group_time_on": group_time_on,
-            "group_labels": group_labels,
-            "split_time_horizon": split_time_horizon,
-            "split_time_horizon_unit": split_time_horizon_unit,
-        }
+        from tabarena.benchmark.task.metadata import ValidationMetadata
 
-        for key, value in params.items():
-            if (not overwrite_existing) and (key in self.method_kwargs):
-                print(
-                    f"{key} already exists, using existing value: \n\t{self.method_kwargs[key]}",
-                )
-            else:
-                self.method_kwargs[key] = value
+        metadata = ValidationMetadata.from_config(self.method_kwargs.get("validation_metadata"), base=task_metadata)
+        print(f"Loading validation metadata into experiment:\n\t{metadata}")
+        self.method_kwargs["validation_metadata"] = metadata
+        self.method_kwargs.setdefault("use_task_specific_validation", True)
 
     def prepare_for_task(
         self,
@@ -495,11 +438,8 @@ class Experiment:
                 f"Validation split kwargs only implemented for AGModelBagExperiment for now, got {type(self)}",
             )
 
-        # Add info about group and time for the pipeline to handle.
-        self.load_validation_split_metadata(
-            use_task_specific_validation=True,
-            **task.get_validation_split_kwargs(),
-        )
+        # Adapt the validation metadata to the task and stash it for the wrapper to consume.
+        self._apply_validation_metadata(task.get_validation_metadata())
 
         # Load this task's semantic-text embedding cache for the duration of the fit
         # (slug-keyed + encoder-versioned; restored afterwards). Default ``require``: a
