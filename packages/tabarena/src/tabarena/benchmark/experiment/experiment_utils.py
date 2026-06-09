@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from tabarena.benchmark.experiment.experiment_constructor import Experiment
+    from tabarena.benchmark.experiment.job import Job
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 
 
@@ -234,6 +235,98 @@ class ExperimentBatchRunner:
         return self.run_dataset_fold_repeats(
             methods=methods,
             dataset_fold_repeats=dataset_fold_repeats,
+        )
+
+    def run_jobs(
+        self,
+        jobs: list[Job],
+    ) -> list[dict[str, Any]]:
+        """Run an explicit, possibly non-rectangular list of ``(experiment, task)`` jobs.
+
+        Unlike `run` / `run_dataset_fold_repeats`, which cross a single `methods` list with
+        every task, each `Job` names *both* its experiment and its `(dataset, fold, repeat)`
+        split. Different experiments may therefore run on different tasks — e.g. re-running
+        only the specific (method, task, fold) units that failed, or running a heavy model
+        on a subset of datasets.
+
+        The jobs are resolved to tid-keyed work units and dispatched in a single pass that
+        groups by task, so a task shared by several experiments is materialized (OpenML
+        load) once *overall* (not once per experiment) and only one dataset is resident in
+        memory at a time. Caching and validation match the other entry points; the returned
+        `results_lst` preserves the order of `jobs` (failed or skipped jobs simply drop out).
+
+        Parameters
+        ----------
+        jobs: list[Job]
+            The (experiment, task) units to run. Must be unique on
+            `(experiment.name, dataset, fold, repeat)`.
+
+        Returns:
+        -------
+        results_lst: list[dict[str, Any]]
+            A list of experiment run metadata dictionaries (see `run`), in the same order as
+            `jobs` (minus any that failed or were skipped).
+            Can pass into `exp_bach_runner.repo_from_results(results_lst=results_lst)` to generate an EvaluationRepository.
+
+        """
+        if not jobs:
+            return []
+
+        # Validate the two ways a job list can be malformed before running anything: a
+        # duplicated unit of work, and two *different* experiments sharing a name. The
+        # results cache is keyed by `experiment.name`, so a name collision between distinct
+        # configs would silently cross-contaminate cached results.
+        experiments_by_name: dict[str, Experiment] = {}
+        seen: set[tuple[str, str, int, int]] = set()
+        datasets: list[str] = []
+        for job in jobs:
+            experiment = job.experiment
+            name = experiment.name
+            dataset, fold, repeat = job.task.as_triple()
+
+            existing = experiments_by_name.get(name)
+            if existing is None:
+                experiments_by_name[name] = experiment
+            elif existing is not experiment and existing.to_yaml_str() != experiment.to_yaml_str():
+                raise AssertionError(
+                    f"Two different experiments share the name {name!r}; experiment names must be "
+                    f"unique because the results cache is keyed by name.",
+                )
+
+            key = (name, dataset, fold, repeat)
+            if key in seen:
+                raise AssertionError(
+                    f"Duplicate job: experiment={name!r}, (dataset, fold, repeat)={(dataset, fold, repeat)}.",
+                )
+            seen.add(key)
+            if dataset not in datasets:
+                datasets.append(dataset)
+
+        self._validate_datasets(datasets=datasets)
+
+        # Resolve dataset name -> tid and build one flat, tid-keyed spec list in `jobs`
+        # order. `_run_job_specs` executes grouped by task (one load per shared task) but
+        # returns results in this input order, so `results_lst` aligns with `jobs`.
+        # Lazy import to avoid a circular import (experiment_runner_api imports this module).
+        from tabarena.benchmark.experiment.experiment_runner_api import _JobSpec, _run_job_specs
+
+        job_specs = [
+            _JobSpec(
+                model_experiment=job.experiment,
+                task=int(self._dataset_to_tid_dict[job.task.dataset]),
+                fold=job.task.fold,
+                repeat=job.task.repeat,
+            )
+            for job in jobs
+        ]
+        return _run_job_specs(
+            job_specs,
+            base_cache_path=self.expname,
+            cache_mode=self.cache_mode,
+            cache_cls=self.cache_cls,
+            cache_cls_kwargs=self.cache_cls_kwargs,
+            raise_on_failure=self.raise_on_failure,
+            debug_mode=self.debug_mode,
         )
 
     def _run_individual(

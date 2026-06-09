@@ -282,12 +282,31 @@ class _LazyTask:
         return self._task, self._eval_metric_name, self._task_name
 
 
+@dataclass(frozen=True)
+class _JobSpec:
+    """A single (method, task, fold, repeat) unit, task identified by tid / UserTask.
+
+    The tid-keyed counterpart of the public `Job` (which is dataset-*name* keyed): the
+    name->tid resolution has already happened upstream. `_run_job_specs` is the engine that
+    consumes a flat list of these; both front doors (`run_experiments_new` for a rectangular
+    grid, `ExperimentBatchRunner.run_jobs` for a sparse job list) build specs and hand them
+    over.
+    """
+
+    model_experiment: Experiment
+    task: int | UserTask
+    fold: int
+    repeat: int
+
+
 @dataclass
 class _Job:
     """One (method, task, fold, repeat) unit of work, with its results cacher resolved.
 
     The shared scaffold (`_iter_jobs`) builds these; the load and run sweeps consume them.
     `cache_existed` is sampled once at build time so neither sweep re-stats the cache.
+    `input_index` is the position of the originating spec in the engine's input list, so the
+    run-order result stream can be reordered back to input order.
     """
 
     model_experiment: Experiment
@@ -297,62 +316,71 @@ class _Job:
     repeat: int
     cacher: AbstractCacheFunction
     cache_existed: bool
+    input_index: int
 
 
 def _iter_jobs(
+    job_specs: list[_JobSpec],
     *,
-    tasks: list[int | UserTask],
-    fold_repeat_pairs_per_task: list[list[tuple[int, int]]],
-    model_experiments: list[Experiment],
     stats: _RunStats,
     base_cache_path: str,
     cache_cls: type[AbstractCacheFunction],
     cache_cls_kwargs: dict | None,
 ) -> Iterator[_Job]:
-    """Yield every (task, fold, repeat, method) job — the scaffold shared by both sweeps.
+    """Yield a `_Job` per spec, grouped by task — the scaffold shared by both sweeps.
 
-    Owns everything common to loading and running: per-dataset task laziness, the nested
-    task/split/method ordering, the progress prints + `stats.started` bump, and building
-    each job's results cacher. The load-vs-run split happens in the consumer, not here.
+    Specs are bucketed by their cache key (`_task_cache_key`), preserving first-seen task
+    order; one `_LazyTask` is built per bucket and shared across all of that task's
+    method/fold/repeat jobs. This per-dataset grouping is what `_run_sweep`'s `.current`
+    reuse and the one-dataset memory footprint rely on: once a task's contiguous block is
+    consumed, its `_LazyTask` (and the loaded `OpenMLTaskWrapper`) is no longer referenced
+    and can be collected before the next task loads. Each job carries its spec's
+    `input_index` so the consumer can restore input order; a non-rectangular / interleaved
+    spec list is fine. The load-vs-run split happens in the consumer, not here.
     """
-    for dataset_index, task_id_or_object in enumerate(tasks):
-        lazy_task = _LazyTask(task_id_or_object)
-        cache_task_key = _task_cache_key(task_id_or_object)
-        print(f"Starting Dataset {dataset_index + 1}/{len(tasks)}...")
+    # Group by task, keeping each task's specs in input order and remembering one task
+    # object per bucket to load lazily.
+    indexed_specs_by_task: dict[int | str, list[tuple[int, _JobSpec]]] = {}
+    task_by_key: dict[int | str, int | UserTask] = {}
+    for input_index, spec in enumerate(job_specs):
+        cache_task_key = _task_cache_key(spec.task)
+        indexed_specs_by_task.setdefault(cache_task_key, []).append((input_index, spec))
+        task_by_key.setdefault(cache_task_key, spec.task)
 
-        fold_repeat_pairs = fold_repeat_pairs_per_task[dataset_index]
-        for split_index, (fold, repeat) in enumerate(fold_repeat_pairs, start=1):
-            print(f"Starting Split {split_index}/{len(fold_repeat_pairs)} (Fold {fold}, Repeat {repeat})...")
+    n_tasks = len(indexed_specs_by_task)
+    for dataset_index, (cache_task_key, indexed_specs) in enumerate(indexed_specs_by_task.items()):
+        lazy_task = _LazyTask(task_by_key[cache_task_key])
+        print(f"Starting Dataset {dataset_index + 1}/{n_tasks}...")
 
-            for me_index, model_experiment in enumerate(model_experiments, start=1):
-                stats.started += 1
-                print(
-                    f"Starting Model {me_index}/{len(model_experiments)}...\n"
-                    + stats.progress_line(
-                        cache_task_key=cache_task_key,
-                        repeat=repeat,
-                        fold=fold,
-                        method_name=model_experiment.name,
-                    ),
-                )
-                cacher = _build_results_cacher(
-                    cache_cls=cache_cls,
-                    cache_cls_kwargs=cache_cls_kwargs,
-                    base_cache_path=base_cache_path,
-                    method_name=model_experiment.name,
+        for input_index, spec in indexed_specs:
+            stats.started += 1
+            print(
+                stats.progress_line(
                     cache_task_key=cache_task_key,
-                    fold=fold,
-                    repeat=repeat,
-                )
-                yield _Job(
-                    model_experiment=model_experiment,
-                    lazy_task=lazy_task,
-                    cache_task_key=cache_task_key,
-                    fold=fold,
-                    repeat=repeat,
-                    cacher=cacher,
-                    cache_existed=cacher.exists,
-                )
+                    repeat=spec.repeat,
+                    fold=spec.fold,
+                    method_name=spec.model_experiment.name,
+                ),
+            )
+            cacher = _build_results_cacher(
+                cache_cls=cache_cls,
+                cache_cls_kwargs=cache_cls_kwargs,
+                base_cache_path=base_cache_path,
+                method_name=spec.model_experiment.name,
+                cache_task_key=cache_task_key,
+                fold=spec.fold,
+                repeat=spec.repeat,
+            )
+            yield _Job(
+                model_experiment=spec.model_experiment,
+                lazy_task=lazy_task,
+                cache_task_key=cache_task_key,
+                fold=spec.fold,
+                repeat=spec.repeat,
+                cacher=cacher,
+                cache_existed=cacher.exists,
+                input_index=input_index,
+            )
 
 
 def _load_sweep(
@@ -360,16 +388,17 @@ def _load_sweep(
     *,
     stats: _RunStats,
     strict: bool,
-) -> list[dict]:
+) -> list[tuple[int, dict]]:
     """Load-only workflow: read each job's cached `results`, never fitting a model.
 
     Only the loading path lives here. A missing cache file is counted (and, when
     `strict`, collected and raised after the full sweep); a present one is loaded and
     counted as a success. The non-finite-metric guard is a fit-time concern (see
     `_run_sweep`) — cached results were already validated when written, so this path
-    just reads them back.
+    just reads them back. Each loaded result is paired with its job's `input_index` so the
+    caller can restore input order.
     """
-    results: list[dict] = []
+    results: list[tuple[int, dict]] = []
     missing: list[tuple] = []
     for job in jobs:
         if not job.cache_existed:
@@ -380,7 +409,7 @@ def _load_sweep(
 
         stats.cache_exists += 1
         stats.success += 1
-        results.append(job.cacher.load_cache())
+        results.append((job.input_index, job.cacher.load_cache()))
 
     if strict and missing:
         missing_str = "\n\t".join(str(m) for m in missing)
@@ -399,7 +428,7 @@ def _run_sweep(
     ignore_cache: bool,
     debug_mode: bool,
     raise_on_failure: bool,
-) -> list[dict]:
+) -> list[tuple[int, dict]]:
     """Run workflow: fit each job, reusing a cached result when one is already present.
 
     Only the running path lives here, and it is thin: each job's full fit lifecycle —
@@ -407,9 +436,11 @@ def _run_sweep(
     `Experiment.run`. This sweep just decides whether the (heavy) task needs materializing
     (only on a forced re-run via `ignore_cache` or a cache miss; on a default-mode hit
     `Experiment.run` short-circuits to the cached `results`, so an already-loaded task, if
-    any, is reused), hands off to `run`, and tracks success/fail + (non-`ignore`) hits.
+    any, is reused), hands off to `run`, and tracks success/fail + (non-`ignore`) hits. Each
+    successful result is paired with its job's `input_index` so the caller can restore input
+    order.
     """
-    results: list[dict] = []
+    results: list[tuple[int, dict]] = []
     for job in jobs:
         if ignore_cache or not job.cache_existed:
             task, eval_metric_name, task_name = job.lazy_task.materialize()
@@ -433,10 +464,65 @@ def _run_sweep(
             stats.cache_exists += 1
         if out is not None:
             stats.success += 1
-            results.append(out)
+            results.append((job.input_index, out))
         else:
             stats.fail += 1
     return results
+
+
+def _run_job_specs(
+    job_specs: list[_JobSpec],
+    *,
+    base_cache_path: str,
+    cache_mode: Literal["default", "ignore", "only", "only_strict"],
+    cache_cls: type[AbstractCacheFunction],
+    cache_cls_kwargs: dict | None,
+    raise_on_failure: bool,
+    debug_mode: bool,
+) -> list[dict]:
+    """Execute a flat list of `_JobSpec`s — the engine shared by both front doors.
+
+    Run order is grouped by task (see `_iter_jobs`) so a task shared by several specs is
+    loaded once and only one dataset is resident at a time. The returned results are then
+    reordered to match the order of `job_specs`, so a caller's `results[i]` lines up with
+    their input; failed or skipped jobs simply drop out, leaving the survivors in input
+    order.
+
+    Each (method.name, task, fold, repeat) must be unique: it is the results-cache key, so a
+    duplicate would mean two jobs racing the same cache file.
+    """
+    cache_keys = [(s.model_experiment.name, _task_cache_key(s.task), s.fold, s.repeat) for s in job_specs]
+    assert len(cache_keys) == len(set(cache_keys)), (
+        "Duplicate (method, task, fold, repeat) job spec; this is the results-cache key and must be unique."
+    )
+
+    stats = _RunStats(total=len(job_specs))
+    jobs = _iter_jobs(
+        job_specs,
+        stats=stats,
+        base_cache_path=base_cache_path,
+        cache_cls=cache_cls,
+        cache_cls_kwargs=cache_cls_kwargs,
+    )
+
+    # Split point: a load-only sweep never fits a model and only reads the cache; every
+    # other mode runs (with `Experiment.run` short-circuiting a default-mode cache hit).
+    # Both return (input_index, result) pairs; sorting by index restores input order.
+    if cache_mode in ("only", "only_strict"):
+        indexed_results = _load_sweep(
+            jobs,
+            stats=stats,
+            strict=cache_mode == "only_strict",
+        )
+    else:
+        indexed_results = _run_sweep(
+            jobs,
+            stats=stats,
+            ignore_cache=cache_mode == "ignore",
+            debug_mode=debug_mode,
+            raise_on_failure=raise_on_failure,
+        )
+    return [result for _, result in sorted(indexed_results, key=lambda pair: pair[0])]
 
 
 def run_experiments_new(
@@ -601,30 +687,22 @@ def run_experiments_new(
         f"\n\tMethods : {[method.name for method in model_experiments]}",
     )
 
-    stats = _RunStats(total=n_splits * len(model_experiments))
-    jobs = _iter_jobs(
-        tasks=tasks,
-        fold_repeat_pairs_per_task=fold_repeat_pairs_per_task,
-        model_experiments=model_experiments,
-        stats=stats,
+    # Flatten the rectangular grid into per-(method, task, fold, repeat) specs in
+    # task -> split -> method order. `_run_job_specs` regroups them by task for execution
+    # and returns results in this same spec order, so the result ordering is identical to
+    # the original nested loop.
+    job_specs = [
+        _JobSpec(model_experiment=model_experiment, task=task, fold=fold, repeat=repeat)
+        for task, fold_repeat_pairs in zip(tasks, fold_repeat_pairs_per_task, strict=True)
+        for (fold, repeat) in fold_repeat_pairs
+        for model_experiment in model_experiments
+    ]
+    return _run_job_specs(
+        job_specs,
         base_cache_path=base_cache_path,
+        cache_mode=cache_mode,
         cache_cls=cache_cls,
         cache_cls_kwargs=cache_cls_kwargs,
-    )
-
-    # Split point: a load-only sweep never fits a model and only reads the cache; every
-    # other mode runs (with `Experiment.run` short-circuiting a default-mode cache hit).
-    # Below here the loading and running paths — and their result tracking — are disjoint.
-    if cache_mode in ("only", "only_strict"):
-        return _load_sweep(
-            jobs,
-            stats=stats,
-            strict=cache_mode == "only_strict",
-        )
-    return _run_sweep(
-        jobs,
-        stats=stats,
-        ignore_cache=cache_mode == "ignore",
-        debug_mode=debug_mode,
         raise_on_failure=raise_on_failure,
+        debug_mode=debug_mode,
     )

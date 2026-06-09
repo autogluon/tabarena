@@ -6,7 +6,10 @@ import pytest
 from tabarena.benchmark.experiment.experiment_runner_api import (
     _build_cache_prefix,
     _clean_repetitions_mode_args_for_matrix,
+    _iter_jobs,
+    _JobSpec,
     _parse_repetitions_mode_and_args,
+    _RunStats,
     run_experiments_new,
 )
 from tabarena.utils.cache import AbstractCacheFunction
@@ -38,6 +41,34 @@ class _RecordingCache(AbstractCacheFunction):
 
     def load_cache(self):
         return None
+
+
+class _IdentityHitCache(AbstractCacheFunction):
+    """Cache that always 'hits' and loads back an identifier derived from its path.
+
+    Lets a `cache_mode="only"` run return one result per job without any training, where
+    each result encodes which (method, tid, repeat_fold) it came from — so result ordering
+    can be asserted against the input.
+    """
+
+    def __init__(self, cache_name, cache_path, **kwargs):
+        super().__init__(include_self_in_call=kwargs.get("include_self_in_call", False))
+        self.cache_name = cache_name
+        self.cache_path = cache_path
+
+    @property
+    def cache_file(self):
+        return None
+
+    @property
+    def exists(self) -> bool:
+        return True
+
+    def save_cache(self, data) -> None:
+        pass
+
+    def load_cache(self):
+        return {"suffix": self.cache_path.rsplit("/data/", 1)[1]}
 
 
 @pytest.mark.parametrize(
@@ -215,6 +246,21 @@ def _make_minimal_experiment(name: str = "lgbm_test"):
         name=name,
         model_cls=LGBModel,
         model_hyperparameters={},
+        num_bag_folds=2,
+        time_limit=60,
+    )
+
+
+def _make_experiment_variant(name: str, *, hp: dict):
+    """An experiment with a given name and hyperparameters (to build name collisions)."""
+    from autogluon.tabular.models import LGBModel
+
+    from tabarena.benchmark.experiment import AGModelBagExperiment
+
+    return AGModelBagExperiment(
+        name=name,
+        model_cls=LGBModel,
+        model_hyperparameters=hp,
         num_bag_folds=2,
         time_limit=60,
     )
@@ -618,3 +664,130 @@ class TestExperimentBatchRunnerNativeCollection:
     def test_unknown_dataset_rejected(self, tmp_path):
         with pytest.raises(AssertionError, match="not valid for"):
             self._runner(tmp_path, dataset_fold_repeats=[("nope", 0, 0)])
+
+
+class TestIterJobsGrouping:
+    """_iter_jobs groups specs by task (one _LazyTask per task) while threading input order."""
+
+    def test_groups_by_task_and_threads_input_index(self, tmp_path):
+        from types import SimpleNamespace
+
+        a = SimpleNamespace(name="a")
+        b = SimpleNamespace(name="b")
+        # Task 0 appears at indices 0 and 2 (different experiments); task 1 at index 1.
+        specs = [
+            _JobSpec(model_experiment=a, task=0, fold=0, repeat=0),
+            _JobSpec(model_experiment=a, task=1, fold=0, repeat=0),
+            _JobSpec(model_experiment=b, task=0, fold=1, repeat=0),
+        ]
+        stats = _RunStats(total=len(specs))
+        jobs = list(
+            _iter_jobs(
+                specs,
+                stats=stats,
+                base_cache_path=str(tmp_path),
+                cache_cls=_RecordingCache,
+                cache_cls_kwargs=None,
+            ),
+        )
+
+        # Run order: grouped by task, first-seen task order, input order within a task.
+        assert [j.input_index for j in jobs] == [0, 2, 1]
+        # One _LazyTask per distinct task, shared across that task's jobs regardless of which
+        # experiment they belong to — the load-sharing / one-dataset-resident invariant.
+        assert jobs[0].lazy_task is jobs[1].lazy_task  # both task 0
+        assert jobs[0].lazy_task is not jobs[2].lazy_task  # task 1 is distinct
+        assert len({id(j.lazy_task) for j in jobs}) == 2
+        assert stats.started == 3
+
+
+class TestExperimentBatchRunnerRunJobs:
+    """ExperimentBatchRunner.run_jobs: sparse (experiment, task) jobs via the shared engine."""
+
+    @staticmethod
+    def _runner(tmp_path, **kwargs):
+        from tabarena.benchmark.experiment import ExperimentBatchRunner
+
+        task_metadata = pd.DataFrame({"tid": [0, 1], "dataset": ["d0", "d1"]})
+        return ExperimentBatchRunner(expname=str(tmp_path), task_metadata=task_metadata, **kwargs)
+
+    @staticmethod
+    def _cache_suffixes() -> list[str]:
+        return sorted(cache_path.rsplit("/data/", 1)[1] for _, cache_path, _ in _RecordingCache.instances)
+
+    def test_empty_jobs_returns_empty(self, tmp_path):
+        runner = self._runner(tmp_path, cache_mode="only")
+        assert runner.run_jobs([]) == []
+
+    def test_enumerates_exact_sparse_units(self, tmp_path):
+        from tabarena.benchmark.experiment import Job
+
+        _RecordingCache.instances.clear()
+        runner = self._runner(tmp_path, cache_mode="only", cache_cls=_RecordingCache)
+        a = _make_minimal_experiment("a")
+        b = _make_minimal_experiment("b")
+        # Non-rectangular: a and b run on different tasks/splits, no cartesian product.
+        result = runner.run_jobs(
+            [
+                Job.create(a, "d0", 0, 0),
+                Job.create(b, "d1", 2, 1),
+                Job.create(a, "d1", 0, 0),
+            ],
+        )
+        assert result == []
+        assert self._cache_suffixes() == ["a/0/0_0", "a/1/0_0", "b/1/1_2"]
+
+    def test_results_match_input_job_order(self, tmp_path):
+        from tabarena.benchmark.experiment import Job
+
+        runner = self._runner(tmp_path, cache_mode="only", cache_cls=_IdentityHitCache)
+        a = _make_minimal_experiment("a")
+        b = _make_minimal_experiment("b")
+        # Deliberately interleave tasks so input order differs from task-grouped run order.
+        jobs = [
+            Job.create(a, "d1", 0, 0),  # a/1/0_0
+            Job.create(b, "d0", 0, 0),  # b/0/0_0
+            Job.create(a, "d0", 1, 0),  # a/0/0_1
+            Job.create(b, "d1", 2, 1),  # b/1/1_2
+        ]
+        result = runner.run_jobs(jobs)
+        # Results come back in input-job order, not the (task-grouped) execution order.
+        assert [r["suffix"] for r in result] == ["a/1/0_0", "b/0/0_0", "a/0/0_1", "b/1/1_2"]
+
+    def test_shared_task_enumerated_once_per_method_only(self, tmp_path):
+        from tabarena.benchmark.experiment import Job
+
+        _RecordingCache.instances.clear()
+        runner = self._runner(tmp_path, cache_mode="only", cache_cls=_RecordingCache)
+        a = _make_minimal_experiment("a")
+        b = _make_minimal_experiment("b")
+        # Both methods on the same task/split: two distinct cache units (one per method),
+        # never duplicated by the per-experiment grouping the old implementation used.
+        result = runner.run_jobs([Job.create(a, "d0", 0, 0), Job.create(b, "d0", 0, 0)])
+        assert result == []
+        assert self._cache_suffixes() == ["a/0/0_0", "b/0/0_0"]
+
+    def test_duplicate_job_raises(self, tmp_path):
+        from tabarena.benchmark.experiment import Job
+
+        runner = self._runner(tmp_path, cache_mode="only")
+        a = _make_minimal_experiment("a")
+        with pytest.raises(AssertionError, match="Duplicate job"):
+            runner.run_jobs([Job.create(a, "d0", 0, 0), Job.create(a, "d0", 0, 0)])
+
+    def test_same_name_different_config_raises(self, tmp_path):
+        from tabarena.benchmark.experiment import Job
+
+        runner = self._runner(tmp_path, cache_mode="only")
+        dup1 = _make_experiment_variant("dup", hp={})
+        dup2 = _make_experiment_variant("dup", hp={"learning_rate": 0.05})
+        with pytest.raises(AssertionError, match="share the name"):
+            runner.run_jobs([Job.create(dup1, "d0", 0, 0), Job.create(dup2, "d1", 0, 0)])
+
+    def test_unknown_dataset_raises(self, tmp_path):
+        from tabarena.benchmark.experiment import Job
+
+        runner = self._runner(tmp_path, cache_mode="only")
+        a = _make_minimal_experiment("a")
+        with pytest.raises(ValueError, match="present in task_metadata"):
+            runner.run_jobs([Job.create(a, "nope", 0, 0)])

@@ -15,6 +15,10 @@ from tabarena.benchmark.experiment.experiment_constructor import (
     YamlExperimentSerializer,
     YamlSingleExperimentSerializer,
 )
+from tabarena.benchmark.experiment.job import (
+    Job,
+    Task,
+)
 from tabarena.benchmark.experiment.experiment_runner import (
     ExperimentRunner,
     OOFExperimentRunner,
@@ -34,10 +38,12 @@ __all__ = [
     "Experiment",
     "ExperimentBatchRunner",
     "ExperimentRunner",
+    "Job",
     "ModelConstraints",
     "OOFExperimentRunner",
     "TabArenaExperimentBundle",
     "TabArenaV0pt1ExperimentBundle",
+    "Task",
     "YamlExperimentSerializer",
     "run_experiments_new",
 ]
