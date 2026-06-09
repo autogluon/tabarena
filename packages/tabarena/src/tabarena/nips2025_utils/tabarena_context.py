@@ -976,11 +976,15 @@ class TabArenaContext:
         else:
             dataset_fold_repeats = derived
 
-        # Pass the native collection so the runner derives its tid map / grid / validation natively.
+        # The collection is the single source of truth for what `run_all` executes: pre-filter
+        # it to the selected triplets (when any filter was given) instead of passing a separate
+        # "allowed triplets" channel to the runner.
+        collection = self.task_metadata_collection
+        if dataset_fold_repeats is not None:
+            collection = collection.subset(dataset_fold_repeats)
         return ExperimentBatchRunner(
             expname=expname,
-            task_metadata=self.task_metadata_collection,
-            dataset_fold_repeats=dataset_fold_repeats,
+            task_metadata=collection,
             **kwargs,
         )
 

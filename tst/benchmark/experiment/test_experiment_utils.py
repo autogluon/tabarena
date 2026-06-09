@@ -586,27 +586,24 @@ class TestExperimentBatchRunnerRunAll:
         with pytest.raises(AssertionError, match="only_strict"):
             runner.run_all(methods=[_make_minimal_experiment()])
 
-    def test_run_all_uses_dataset_fold_repeats_init_arg(self, tmp_path):
-        # When dataset_fold_repeats is set at init, run_all runs exactly those triplets
-        # (not the full n_folds x n_repeats grid).
+    def test_run_all_runs_pre_filtered_collection(self, tmp_path):
+        # Scoping a run_all to a subset is done by pre-filtering the collection (no
+        # dataset_fold_repeats arg): run_all runs exactly the collection's splits.
         _RecordingCache.instances.clear()
-        # d1 needs 3 folds x 2 repeats for (d1, fold 2, repeat 1) to be a valid init triple.
-        runner = self._runner(
-            tmp_path,
-            task_metadata=_legacy_collection([0, 1], ["d0", "d1"], n_folds=[1, 3], n_repeats=[1, 2]),
-            cache_mode="only",
-            cache_cls=_RecordingCache,
-            dataset_fold_repeats=[("d0", 0, 0), ("d1", 2, 1)],
+        # d1 has 3 folds x 2 repeats, so (d1, fold 2, repeat 1) is a real split.
+        collection = _legacy_collection([0, 1], ["d0", "d1"], n_folds=[1, 3], n_repeats=[1, 2]).subset(
+            [("d0", 0, 0), ("d1", 2, 1)],
         )
+        runner = self._runner(tmp_path, task_metadata=collection, cache_mode="only", cache_cls=_RecordingCache)
         result = runner.run_all(methods=[_make_minimal_experiment("m")])
         assert result == []
         assert self._cache_suffixes() == ["m/0/0_0", "m/1/1_2"]
 
-    def test_invalid_dataset_fold_repeats_raises(self, tmp_path):
-        # repeat=5 is not a real split for d0 (2 folds x 1 repeat) -> rejected at construction.
-        task_metadata = _legacy_collection([0], ["d0"], n_folds=2, n_repeats=1)
-        with pytest.raises(AssertionError, match="not valid for"):
-            self._runner(tmp_path, task_metadata=task_metadata, dataset_fold_repeats=[("d0", 0, 5)])
+    def test_subset_invalid_split_raises(self, tmp_path):
+        # repeat=5 is not a real split for d0 (2 folds x 1 repeat) -> subset rejects it.
+        collection = _legacy_collection([0], ["d0"], n_folds=2, n_repeats=1)
+        with pytest.raises(ValueError, match="not splits of this collection"):
+            collection.subset([("d0", 0, 5)])
 
 
 class TestRunExperimentsNewCacheCls:
@@ -690,12 +687,12 @@ class TestExperimentBatchRunnerNativeCollection:
 
     def test_invalid_split_rejected_against_actual_splits(self, tmp_path):
         # d1 has 1 fold x 2 repeats, so (d1, fold 1, repeat 0) is not a real split.
-        with pytest.raises(AssertionError, match="not valid for"):
-            self._runner(tmp_path, dataset_fold_repeats=[("d1", 1, 0)])
+        with pytest.raises(ValueError, match="not splits of this collection"):
+            self._collection().subset([("d1", 1, 0)])
 
     def test_unknown_dataset_rejected(self, tmp_path):
-        with pytest.raises(AssertionError, match="not valid for"):
-            self._runner(tmp_path, dataset_fold_repeats=[("nope", 0, 0)])
+        with pytest.raises(ValueError, match="not splits of this collection"):
+            self._collection().subset([("nope", 0, 0)])
 
 
 class TestIterJobsGrouping:

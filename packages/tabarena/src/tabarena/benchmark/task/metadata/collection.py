@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -67,6 +68,39 @@ class TaskMetadataCollection:
             for t in self._tasks
             for split in t.splits_metadata.values()
         ]
+
+    def subset(self, dataset_fold_repeats: list[tuple[str, int, int]]) -> TaskMetadataCollection:
+        """A new collection restricted to the given ``(dataset, fold, repeat)`` triplets.
+
+        Each task keeps only the splits whose ``(fold, repeat)`` was requested for its
+        dataset; tasks left with no splits are dropped. Every requested triplet must be a
+        real split of this collection (raises otherwise), so the result's
+        :meth:`dataset_fold_repeats` is exactly the requested set. Useful for scoping a
+        run to a subset of splits without a separate "allowed triplets" channel — the
+        collection itself becomes the single source of truth for what to run.
+        """
+        valid = set(self.dataset_fold_repeats())
+        invalid = [t for t in dataset_fold_repeats if t not in valid]
+        if invalid:
+            invalid_str = "\n\t".join(str(x) for x in invalid)
+            raise ValueError(
+                f"{len(invalid)} requested (dataset, fold, repeat) triplet(s) are not splits of this "
+                f"collection:\n\t{invalid_str}",
+            )
+
+        wanted: dict[str, set[tuple[int, int]]] = {}
+        for dataset, fold, repeat in dataset_fold_repeats:
+            wanted.setdefault(dataset, set()).add((fold, repeat))
+
+        new_tasks: list[TabArenaTaskMetadata] = []
+        for t in self._tasks:
+            wanted_splits = wanted.get(t.tabarena_task_name)
+            if not wanted_splits:
+                continue
+            kept = {idx: s for idx, s in t.splits_metadata.items() if (s.fold, s.repeat) in wanted_splits}
+            if kept:
+                new_tasks.append(replace(t, splits_metadata=kept))
+        return TaskMetadataCollection(new_tasks)
 
     def per_dataset_frame(self) -> pd.DataFrame:
         """One row per dataset with the dataset-level (split-invariant) metadata.

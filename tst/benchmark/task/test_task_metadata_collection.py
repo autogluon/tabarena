@@ -229,3 +229,19 @@ class TestLegacyBoundary:
         for col in ("dataset", "tid", "n_folds", "n_features"):
             assert col in legacy.columns
         assert legacy.iloc[0]["n_folds"] == 3
+
+
+class TestSubset:
+    def test_keeps_requested_splits_and_drops_unrequested_tasks(self):
+        a = _task_meta(dataset_name="a", splits=[_split_meta(repeat=r, fold=f) for r in range(2) for f in range(2)])
+        b = _task_meta(dataset_name="b", splits=[_split_meta(fold=0)])
+        c = TaskMetadataCollection([a, b])
+        # Keep two of a's four splits; b is not requested, so it drops out entirely.
+        sub = c.subset([("a", 0, 0), ("a", 1, 1)])
+        assert sub.dataset_names() == ["a"]
+        assert set(sub.dataset_fold_repeats()) == {("a", 0, 0), ("a", 1, 1)}
+
+    def test_invalid_triplet_raises(self):
+        c = TaskMetadataCollection([_task_meta(dataset_name="a", splits=[_split_meta(fold=0)])])
+        with pytest.raises(ValueError, match="not splits of this collection"):
+            c.subset([("a", 1, 0)])

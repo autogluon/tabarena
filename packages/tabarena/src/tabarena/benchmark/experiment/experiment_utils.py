@@ -19,7 +19,6 @@ class ExperimentBatchRunner:
         self,
         expname: str,
         task_metadata: TaskMetadataCollection,
-        dataset_fold_repeats: list[tuple[str, int, int]] | None = None,
         cache_cls: type[AbstractCacheFunction] | None = CacheFunctionPickle,
         cache_cls_kwargs: dict | None = None,
         cache_mode: Literal["default", "ignore", "only", "only_strict"] = "default",
@@ -31,14 +30,14 @@ class ExperimentBatchRunner:
         ----------
         expname
         task_metadata: TaskMetadataCollection
-            The native task metadata. A legacy one-row-per-dataset DataFrame is no longer
-            accepted — wrap it first with ``TaskMetadataCollection.from_legacy_df(df)`` (or
-            build one with ``TaskMetadataCollection(tasks)``) so the lossy legacy conversion
-            stays an explicit, opt-in step at the call site.
-        dataset_fold_repeats: list[tuple[str, int, int]] | None, default None
-            The allowed (dataset, fold, repeat) triplets that `run_all` executes. If None,
-            `run_all` uses the collection's actual splits (a non-rectangular set is
-            respected). Each triplet is validated against the collection's splits.
+            The native task metadata, and the single source of truth for what `run_all`
+            executes: `run_all` runs exactly this collection's splits (a non-rectangular set
+            is respected). To run a subset, pre-filter the collection with
+            :meth:`TaskMetadataCollection.subset` before constructing the runner. A legacy
+            one-row-per-dataset DataFrame is not accepted — wrap it first with
+            ``TaskMetadataCollection.from_legacy_df(df)`` (or build one with
+            ``TaskMetadataCollection(tasks)``) so the lossy legacy conversion stays an
+            explicit, opt-in step at the call site.
         cache_cls
         cache_cls_kwargs
         cache_mode: {"default", "ignore", "only", "only_strict"}, default "default"
@@ -96,9 +95,6 @@ class ExperimentBatchRunner:
         self._dataset_to_user_task = self._build_dataset_to_user_task(user_tasks)
         self.debug_mode = debug_mode
         self.raise_on_failure = raise_on_failure
-        if dataset_fold_repeats is not None:
-            self._validate_dataset_fold_repeats(dataset_fold_repeats)
-        self._dataset_fold_repeats = dataset_fold_repeats
 
     @property
     def datasets(self) -> list[str]:
@@ -138,12 +134,6 @@ class ExperimentBatchRunner:
         if user_task is not None:
             return user_task
         return int(self._dataset_to_tid_dict[dataset])
-
-    def _full_dataset_fold_repeats(self) -> list[tuple[str, int, int]]:
-        """The full ``(dataset, fold, repeat)`` grid `run_all` executes when no explicit
-        triplets were given: the collection's actual splits (a non-rectangular set is respected).
-        """
-        return self.task_metadata_collection.dataset_fold_repeats()
 
     def run(
         self,
@@ -236,12 +226,11 @@ class ExperimentBatchRunner:
         self,
         methods: list[Experiment],
     ) -> list[dict[str, Any]]:
-        """Run the configured (dataset, fold, repeat) triplets.
+        """Run every (dataset, fold, repeat) split in `task_metadata`.
 
-        If `dataset_fold_repeats` was passed at init, runs exactly those triplets.
-        Otherwise, for each dataset runs all folds in `range(n_folds)` x repeats in
-        `range(n_repeats)`, taken from the `n_folds` and `n_repeats` columns of
-        `task_metadata`. Delegates to `run_dataset_fold_repeats`.
+        Runs exactly the collection's splits (a non-rectangular set is respected). To run a
+        subset, construct the runner with a pre-filtered collection (see
+        `TaskMetadataCollection.subset`). Delegates to `run_dataset_fold_repeats`.
 
         Parameters
         ----------
@@ -255,13 +244,9 @@ class ExperimentBatchRunner:
             Can pass into `exp_bach_runner.repo_from_results(results_lst=results_lst)` to generate an EvaluationRepository.
 
         """
-        dataset_fold_repeats = self._dataset_fold_repeats
-        if dataset_fold_repeats is None:
-            dataset_fold_repeats = self._full_dataset_fold_repeats()
-
         return self.run_dataset_fold_repeats(
             methods=methods,
-            dataset_fold_repeats=dataset_fold_repeats,
+            dataset_fold_repeats=self.task_metadata_collection.dataset_fold_repeats(),
         )
 
     def run_jobs(
@@ -416,29 +401,6 @@ class ExperimentBatchRunner:
             return
         if len(repeats) != len(set(repeats)):
             raise AssertionError("Duplicate repeats present! Ensure all repeats are unique.")
-
-    def _validate_dataset_fold_repeats(self, dataset_fold_repeats: list[tuple[str, int, int]]):
-        """Verify each (dataset, fold, repeat) is a real split of the collection.
-
-        Validated against the collection's actual splits, so a non-rectangular set of splits
-        is respected.
-        """
-        valid = set(self.task_metadata_collection.dataset_fold_repeats())
-        invalid = [
-            (
-                dataset,
-                fold,
-                repeat,
-                "unknown dataset" if dataset not in self._dataset_to_tid_dict else "no such (fold, repeat) split",
-            )
-            for dataset, fold, repeat in dataset_fold_repeats
-            if (dataset, fold, repeat) not in valid
-        ]
-        if invalid:
-            invalid_str = "\n\t".join(str(x) for x in invalid)
-            raise AssertionError(
-                f"`dataset_fold_repeats` contains {len(invalid)} entry(ies) not valid for `task_metadata`:\n\t{invalid_str}",
-            )
 
 
 def check_cache_hit(
