@@ -20,14 +20,14 @@ from tabarena.benchmark.task.metadata import ValidationMetadata
 if TYPE_CHECKING:
     from autogluon.tabular import TabularPredictor
 
-
+# FIXME: determine if want to persist by default?
 class AGWrapper(AbstractExecModel):
     """An AutoGluon ``TabularPredictor`` wrapped as an exec model.
 
     Fits a full ``TabularPredictor`` (whatever ``init_kwargs`` / ``fit_kwargs`` describe)
     and exposes it through the common exec-model interface. Feature/label preprocessing
     is disabled by default here, since AutoGluon does its own; the label column is appended
-    to the frame internally under the name resolved in ``_resolve_validation_protocol``
+    to the frame internally under the name resolved in ``_build_predictor_args``
     (the validation metadata's ``target_name``, else ``"__label__"``).
 
     When ``use_task_specific_validation`` is set, the task-specific validation split is built
@@ -85,7 +85,7 @@ class AGWrapper(AbstractExecModel):
         self.use_task_specific_validation = use_task_specific_validation
         self.persist = persist
 
-    def _resolve_validation_protocol(
+    def _build_predictor_args(
         self,
         *,
         X: pd.DataFrame,
@@ -115,6 +115,28 @@ class AGWrapper(AbstractExecModel):
         init_kwargs = copy.deepcopy(self.init_kwargs)
         fit_kwargs = copy.deepcopy(self.fit_kwargs)
 
+        # Name the internal label column from the validation metadata's target (else a safe
+        # sentinel), and tell the predictor about it.
+        label = self.validation_metadata.target_name or "__label__"
+        init_kwargs["label"] = label
+
+        self._apply_validation_splits(fit_kwargs, X=X, y=y)
+        self._apply_feature_generator(fit_kwargs)
+
+        # TODO: think about if we can reset the index here without breaking simulation artifacts
+        train_data = self._attach_label(X, y, label=label)
+        if X_val is not None:
+            fit_kwargs["tuning_data"] = self._attach_label(X_val, y_val, label=label)
+
+        return train_data, init_kwargs, fit_kwargs
+
+    def _apply_validation_splits(self, fit_kwargs: dict, *, X: pd.DataFrame, y: pd.Series) -> None:
+        """Resolve the fold/repeat counts (+ any custom splits) into ``fit_kwargs`` in place.
+
+        Pops the requested ``num_bag_folds`` / ``num_bag_sets``; when task-specific validation
+        is enabled they run through ``resolve_validation_splits`` (which may adjust them and/or
+        produce explicit ``custom_splits``), then are written back.
+        """
         num_folds = fit_kwargs.pop("num_bag_folds", None)
         num_repeats = fit_kwargs.pop("num_bag_sets", None)
 
@@ -136,45 +158,36 @@ class AGWrapper(AbstractExecModel):
             fit_kwargs["num_bag_sets"] = num_repeats
         if custom_splits is not None:
             logger.info("Using custom_splits for validation protocol.")
-            if "ag_args_ensemble" not in fit_kwargs:
-                fit_kwargs["ag_args_ensemble"] = {}
-            fit_kwargs["ag_args_ensemble"]["custom_splits"] = custom_splits
+            fit_kwargs.setdefault("ag_args_ensemble", {})["custom_splits"] = custom_splits
 
+    def _apply_feature_generator(self, fit_kwargs: dict) -> None:
+        """Instantiate ``feature_generator_cls`` into ``fit_kwargs["feature_generator"]`` (in place).
+
+        No-op when ``feature_generator_cls`` is absent. Forwards any group/time split columns
+        from the validation metadata that the generator's ``__init__`` accepts.
+        """
         feature_generator_cls = fit_kwargs.pop("feature_generator_cls", None)
-        if feature_generator_cls is not None:
-            feature_generator_kwargs = fit_kwargs.pop("feature_generator_kwargs", {})
-            sig = inspect.signature(feature_generator_cls.__init__)
-            group_params = {
-                "group_cols": self.validation_metadata.group_on,
-                "group_labels": self.validation_metadata.group_labels,
-                "group_time_on": self.validation_metadata.group_time_on,
-            }
-            for param, value in group_params.items():
-                if param in sig.parameters:
-                    feature_generator_kwargs[param] = value
-            fit_kwargs["feature_generator"] = feature_generator_cls(**feature_generator_kwargs)
+        if feature_generator_cls is None:
+            return
 
-        # Name the internal label column from the validation metadata's target (else a safe
-        # sentinel), and tell the predictor about it via init_kwargs.
-        label = self.validation_metadata.target_name or "__label__"
-        init_kwargs["label"] = label
+        feature_generator_kwargs = fit_kwargs.pop("feature_generator_kwargs", {})
+        accepted = inspect.signature(feature_generator_cls.__init__).parameters
+        group_params = {
+            "group_cols": self.validation_metadata.group_on,
+            "group_labels": self.validation_metadata.group_labels,
+            "group_time_on": self.validation_metadata.group_time_on,
+        }
+        feature_generator_kwargs.update({k: v for k, v in group_params.items() if k in accepted})
+        fit_kwargs["feature_generator"] = feature_generator_cls(**feature_generator_kwargs)
 
-        # TODO: think about if we can reset the index here without breaking simulation artifacts
-        if self._can_use_data_in_place:
-            train_data = X
-            if X_val is not None:
-                tuning_data = X_val
-        else:
-            train_data = X.copy()
-            if X_val is not None:
-                tuning_data = X_val.copy()
+    def _attach_label(self, X: pd.DataFrame, y: pd.Series, *, label: str) -> pd.DataFrame:
+        """Return ``X`` with ``y`` appended as the ``label`` column.
 
-        train_data[label] = y
-        if X_val is not None:
-            tuning_data[label] = y_val
-            fit_kwargs["tuning_data"] = tuning_data
-
-        return train_data, init_kwargs, fit_kwargs
+        Copies ``X`` first unless the data is owned by this object (``_can_use_data_in_place``).
+        """
+        data = X if self._can_use_data_in_place else X.copy()
+        data[label] = y
+        return data
 
     def _fit(
         self,
@@ -187,8 +200,7 @@ class AGWrapper(AbstractExecModel):
         """Resolve the validation protocol, then construct and fit the ``TabularPredictor``."""
         from autogluon.tabular import TabularPredictor
 
-        # FIXME: should we not reset the index of train data here?
-        train_data, init_kwargs, fit_kwargs = self._resolve_validation_protocol(
+        train_data, init_kwargs, fit_kwargs = self._build_predictor_args(
             X=X,
             y=y,
             X_val=X_val,
@@ -205,7 +217,6 @@ class AGWrapper(AbstractExecModel):
             **fit_kwargs,
         )
 
-        # FIXME: persist
         return self
 
     def _predict(self, X: pd.DataFrame) -> pd.Series:
