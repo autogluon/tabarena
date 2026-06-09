@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 
@@ -238,3 +239,37 @@ class TestNativeGridSubset:
             ("small_ds", 0, 0),
             ("small_ds", 1, 0),
         }
+
+
+class _MiniArenaContext(AbstractArenaContext):
+    """A minimal arena context with no presets — exercises the abstract base standalone."""
+
+    def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
+        raise ValueError(f"no task_metadata presets: {name!r}")
+
+    def _resolve_methods_preset(self, name: str, *, include_unverified: bool):
+        raise ValueError(f"no methods presets: {name!r}")
+
+
+class TestAbstractArenaContextStandalone:
+    """The base class is usable on its own with only the two hooks implemented."""
+
+    @staticmethod
+    def _ctx() -> _MiniArenaContext:
+        return _MiniArenaContext(methods=[], task_metadata=_ctx().task_metadata_collection)
+
+    def test_defaults_are_arena_agnostic(self):
+        ctx = self._ctx()
+        assert ctx.methods == []
+        assert ctx.load_results_paper().empty  # no baselines by default
+        # Base ships only the universal predicates (no TabArena size/foundation buckets).
+        assert set(ctx.subset_predicates) == {"all", "binary", "multiclass", "classification", "regression", "lite"}
+
+    def test_make_experiment_batch_runner_and_subset(self, tmp_path):
+        runner = self._ctx().make_experiment_batch_runner(expname=str(tmp_path), subset="lite")
+        # "lite" keeps split 0 == (fold 0, repeat 0) for each dataset.
+        assert runner.task_metadata_collection.dataset_fold_repeats() == [("small_ds", 0, 0), ("big_ds", 0, 0)]
+
+    def test_unknown_preset_string_delegates_to_hook(self):
+        with pytest.raises(ValueError, match="no methods presets"):
+            _MiniArenaContext(methods="tabarena", task_metadata=_ctx().task_metadata_collection)
