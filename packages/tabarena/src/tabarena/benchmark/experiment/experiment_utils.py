@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from tabarena.benchmark.experiment.experiment_constructor import Experiment
     from tabarena.benchmark.experiment.job import Job
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+    from tabarena.benchmark.task.user_task import UserTask
 
 
 # TODO: Inspect artifact folder to load all results without needing to specify them explicitly
@@ -26,6 +27,7 @@ class ExperimentBatchRunner:
         cache_mode: Literal["default", "ignore", "only", "only_strict"] = "default",
         debug_mode: bool = True,
         raise_on_failure: bool = True,
+        user_tasks: list[UserTask] | None = None,
     ):
         """Parameters
         ----------
@@ -56,6 +58,15 @@ class ExperimentBatchRunner:
         raise_on_failure: bool, default True
             If True, exceptions raised during an experiment propagate and stop the run.
             If False, failures are recorded and the remaining experiments continue.
+        user_tasks: list[UserTask] | None, default None
+            Local (custom) tasks to register so the run methods can execute them. Each
+            ``UserTask`` is keyed by its ``tabarena_task_name`` (which must also appear as a
+            ``dataset`` row in ``task_metadata``, with ``tid == UserTask.task_id``). When a
+            run resolves such a dataset it hands the live ``UserTask`` to
+            ``run_experiments_new`` (loaded from local disk via ``save_local_openml_task``),
+            instead of the integer tid that ``run_experiments_new`` would try to download
+            from OpenML. Datasets without a registered ``UserTask`` keep resolving to their
+            integer OpenML tid.
         """
         cache_cls = CacheFunctionDummy if cache_cls is None else cache_cls
         cache_cls_kwargs = {"include_self_in_call": True} if cache_cls_kwargs is None else cache_cls_kwargs
@@ -75,6 +86,7 @@ class ExperimentBatchRunner:
         self.cache_cls_kwargs = cache_cls_kwargs
         self.cache_mode = cache_mode
         self._dataset_to_tid_dict = self._build_dataset_to_tid()
+        self._dataset_to_user_task = self._build_dataset_to_user_task(user_tasks)
         self.debug_mode = debug_mode
         self.raise_on_failure = raise_on_failure
         if dataset_fold_repeats is not None:
@@ -97,6 +109,37 @@ class ExperimentBatchRunner:
             .set_index("dataset")["tid"]
             .to_dict()
         )
+
+    def _build_dataset_to_user_task(self, user_tasks: list[UserTask] | None) -> dict[str, UserTask]:
+        """Map dataset name -> registered local ``UserTask`` (see the ``user_tasks`` arg).
+
+        Each task is keyed by its ``tabarena_task_name`` (the ``dataset`` column key) and must
+        already be present in the tid map, so ``task_metadata`` and the registered tasks stay
+        consistent.
+        """
+        if not user_tasks:
+            return {}
+        mapping: dict[str, UserTask] = {}
+        for task in user_tasks:
+            dataset = task.tabarena_task_name
+            if dataset not in self._dataset_to_tid_dict:
+                raise ValueError(
+                    f"Registered user task {dataset!r} is not present in `task_metadata`; add a "
+                    f"row for it (its `tid` must equal `UserTask.task_id`).",
+                )
+            mapping[dataset] = task
+        return mapping
+
+    def _resolve_task(self, dataset: str) -> int | UserTask:
+        """Resolve a dataset name to what ``run_experiments_new`` should run for it.
+
+        A registered local task resolves to its live ``UserTask`` (loaded from local disk);
+        any other dataset resolves to its integer OpenML tid (downloaded on demand).
+        """
+        user_task = self._dataset_to_user_task.get(dataset)
+        if user_task is not None:
+            return user_task
+        return int(self._dataset_to_tid_dict[dataset])
 
     def _full_dataset_fold_repeats(self) -> list[tuple[str, int, int]]:
         """The full ``(dataset, fold, repeat)`` grid `run_all` executes when no explicit
@@ -144,7 +187,7 @@ class ExperimentBatchRunner:
         self._validate_folds(folds=folds)
         self._validate_repeats(repeats=repeats)
 
-        tids = [int(self._dataset_to_tid_dict[dataset]) for dataset in datasets]
+        tasks = [self._resolve_task(dataset) for dataset in datasets]
 
         # Translate folds/repeats into explicit (fold, repeat) pairs run for every task.
         # When `repeats` is unspecified, default to repeat 0. The cache path always
@@ -156,7 +199,7 @@ class ExperimentBatchRunner:
 
         return self._run_individual(
             methods=methods,
-            tids=tids,
+            tasks=tasks,
             repetitions_mode_args=fold_repeat_pairs,
         )
 
@@ -196,12 +239,12 @@ class ExperimentBatchRunner:
         datasets = list(pairs_per_dataset.keys())
         self._validate_datasets(datasets=datasets)
 
-        tids = [int(self._dataset_to_tid_dict[dataset]) for dataset in datasets]
+        tasks = [self._resolve_task(dataset) for dataset in datasets]
         repetitions_mode_args = [pairs_per_dataset[dataset] for dataset in datasets]
 
         return self._run_individual(
             methods=methods,
-            tids=tids,
+            tasks=tasks,
             repetitions_mode_args=repetitions_mode_args,
         )
 
@@ -313,7 +356,7 @@ class ExperimentBatchRunner:
         job_specs = [
             _JobSpec(
                 model_experiment=job.experiment,
-                task=int(self._dataset_to_tid_dict[job.task.dataset]),
+                task=self._resolve_task(job.task.dataset),
                 fold=job.task.fold,
                 repeat=job.task.repeat,
             )
@@ -332,13 +375,14 @@ class ExperimentBatchRunner:
     def _run_individual(
         self,
         methods: list[Experiment],
-        tids: list[int],
+        tasks: list[int | UserTask],
         repetitions_mode_args: list,
     ) -> list[dict[str, Any]]:
         """Invoke `run_experiments_new` in 'individual' repetitions mode.
 
         `repetitions_mode_args` is either a single list of (fold, repeat) pairs applied
-        to every task, or one (fold, repeat) list per task (aligned with `tids`). See
+        to every task, or one (fold, repeat) list per task (aligned with `tasks`). Each task
+        is an integer OpenML tid or a local ``UserTask`` (see `_resolve_task`). See
         `run_experiments_new` for the 'individual' arg format.
         """
         # Lazy import to avoid a circular import (experiment_runner_api imports this module).
@@ -347,7 +391,7 @@ class ExperimentBatchRunner:
         return run_experiments_new(
             output_dir=self.expname,
             model_experiments=methods,
-            tasks=tids,
+            tasks=tasks,
             tasks_metadata=self.task_metadata,
             repetitions_mode="individual",
             repetitions_mode_args=repetitions_mode_args,
