@@ -45,7 +45,7 @@ if __name__ == "__main__":
     # compute results
     end_to_end = EndToEnd.from_raw(
         results_lst=results_lst,
-        task_metadata=context.task_metadata,
+        task_metadata=context.task_metadata_collection,
         cache=False,
         cache_raw=False,
     )

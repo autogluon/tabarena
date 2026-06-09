@@ -9,15 +9,16 @@ from tabarena import EvaluationRepository, Evaluator
 from tabarena.benchmark.exec_models import AGWrapper
 from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
 from tabarena.benchmark.result import ExperimentResults
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 
 class MyCustomAGWrapper(AGWrapper):
-    """
-    Edit this however you like to alter the functionality of AutoGluon,
+    """Edit this however you like to alter the functionality of AutoGluon,
     or replace AutoGluon entirely by instead subclassing `AbstractExecModel` instead of `AGWrapper.
     """
+
     def _fit(self, X: pd.DataFrame, y: pd.Series, X_val: pd.DataFrame = None, y_val: pd.Series = None, **kwargs):
         from autogluon.tabular import TabularPredictor
 
@@ -31,22 +32,26 @@ class MyCustomAGWrapper(AGWrapper):
             tuning_data[self.label] = y_val
             fit_kwargs["tuning_data"] = tuning_data
 
-        self.predictor = TabularPredictor(label=self.label, problem_type=self.problem_type, eval_metric=self.eval_metric, **self.init_kwargs)
+        self.predictor = TabularPredictor(
+            label=self.label, problem_type=self.problem_type, eval_metric=self.eval_metric, **self.init_kwargs
+        )
         self.predictor.fit(train_data=train_data, **fit_kwargs)
         return self
 
     def _predict(self, X: pd.DataFrame) -> pd.Series:
-        y_pred = self.predictor.predict(X)
-        return y_pred
+        return self.predictor.predict(X)
 
     def _predict_proba(self, X: pd.DataFrame) -> pd.DataFrame:
-        y_pred_proba = self.predictor.predict_proba(X)
-        return y_pred_proba
+        return self.predictor.predict_proba(X)
 
 
-if __name__ == '__main__':
-    expname = str(Path(__file__).parent / "experiments" / "quickstart_custom_ag")  # folder location to save all experiment artifacts
-    repo_dir = str(Path(__file__).parent / "repos" / "quickstart_custom_ag")  # Load the repo later via `EvaluationRepository.from_dir(repo_dir)`
+if __name__ == "__main__":
+    expname = str(
+        Path(__file__).parent / "experiments" / "quickstart_custom_ag"
+    )  # folder location to save all experiment artifacts
+    repo_dir = str(
+        Path(__file__).parent / "repos" / "quickstart_custom_ag"
+    )  # Load the repo later via `EvaluationRepository.from_dir(repo_dir)`
     ignore_cache = False  # set to True to overwrite existing caches and re-run experiments from scratch
 
     task_metadata = load_task_metadata()
@@ -66,13 +71,13 @@ if __name__ == '__main__':
                     hyperparameters={"GBM": [{}]},
                     num_bag_folds=8,
                 )
-            }
+            },
         ),
     ]
 
     exp_batch_runner = ExperimentBatchRunner(
         expname=expname,
-        task_metadata=task_metadata,
+        task_metadata=TaskMetadataCollection.from_legacy_df(task_metadata),
         cache_mode="ignore" if ignore_cache else "default",
     )
 
@@ -109,13 +114,19 @@ if __name__ == '__main__':
         return (dataset in dataset_fold_map.index) and (fold in dataset_fold_map.loc[dataset])
 
     # filter tabarena_results to only the dataset, fold pairs that are present in `metrics`
-    is_in_lst = [is_in(dataset, fold) for dataset, fold in zip(tabarena_results["dataset"], tabarena_results["fold"])]
+    is_in_lst = [
+        is_in(dataset, fold)
+        for dataset, fold in zip(tabarena_results["dataset"], tabarena_results["fold"], strict=False)
+    ]
     tabarena_results = tabarena_results[is_in_lst]
 
-    metrics = pd.concat([
-        metrics,
-        tabarena_results,
-    ], ignore_index=True)
+    metrics = pd.concat(
+        [
+            metrics,
+            tabarena_results,
+        ],
+        ignore_index=True,
+    )
 
     with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
         print(f"Results:\n{metrics.head(100)}")
@@ -123,6 +134,7 @@ if __name__ == '__main__':
     calibration_framework = "RF (default)"
 
     from bencheval.tabarena import TabArena
+
     tabarena = TabArena(
         method_col="method",
         task_col="dataset",
@@ -135,7 +147,7 @@ if __name__ == '__main__':
         groupby_columns=[
             "metric",
             "problem_type",
-        ]
+        ],
     )
 
     leaderboard = tabarena.leaderboard(

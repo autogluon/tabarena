@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from tabarena.benchmark.experiment import run_experiments_new
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.models.utils import get_configs_generator_from_name
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
@@ -49,7 +50,7 @@ if __name__ == "__main__":
     # compute results
     end_to_end = EndToEnd.from_raw(
         results_lst=results_lst,
-        task_metadata=metadata,
+        task_metadata=TaskMetadataCollection.from_legacy_df(metadata),
         cache=False,
         cache_raw=False,
     )

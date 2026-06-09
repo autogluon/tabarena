@@ -178,7 +178,7 @@ if __name__ == "__main__":
     # 3: register the custom tasks so the runner resolves them to local UserTasks.
     runner = ExperimentBatchRunner(
         expname=results_dir,
-        task_metadata=task_metadata,
+        task_metadata=task_collection,
         user_tasks=tasks,
         debug_mode=True,
     )

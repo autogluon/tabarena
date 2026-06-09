@@ -9,13 +9,35 @@ from sklearn.model_selection import RepeatedStratifiedKFold, train_test_split
 
 from tabarena.benchmark.experiment import run_experiments_new
 from tabarena.benchmark.task import UserTask
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.models.utils import get_configs_generator_from_name
 from tabarena.nips2025_utils.compare import compare
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.website.website_format import format_leaderboard
 
 
-def get_custom_classification_task(task_cache_dir: str) -> UserTask:
+def _legacy_metadata_row(task: UserTask, dataset: pd.DataFrame, *, problem_type: str, n_classes: int) -> dict:
+    """One legacy task_metadata row for a custom task (the columns from_legacy_df needs).
+
+    n_folds / n_repeats are 1 here because the run below is TabArena-Lite (fold 0, repeat 0).
+    """
+    return {
+        "tid": task.task_id,
+        "name": task.tabarena_task_name,
+        "dataset": task.tabarena_task_name,
+        "problem_type": problem_type,
+        "n_folds": 1,
+        "n_repeats": 1,
+        "n_features": dataset.shape[1] - 1,
+        "n_classes": n_classes,
+        "NumberOfInstances": len(dataset),
+        "n_samples_train_per_fold": int(len(dataset) * 0.67),
+        "n_samples_test_per_fold": int(len(dataset) * 0.33),
+        "target_feature": "target",
+    }
+
+
+def get_custom_classification_task(task_cache_dir: str) -> tuple[UserTask, dict]:
     """Example for defining a classification task/dataset."""
     # Create toy classification dataset
     X, y = make_classification(
@@ -65,10 +87,10 @@ def get_custom_classification_task(task_cache_dir: str) -> UserTask:
         splits=splits,
     )
     user_task.save_local_openml_task(oml_task)
-    return user_task
+    return user_task, _legacy_metadata_row(user_task, dataset, problem_type="binary", n_classes=2)
 
 
-def get_custom_regression_task(task_cache_dir: str) -> UserTask:
+def get_custom_regression_task(task_cache_dir: str) -> tuple[UserTask, dict]:
     """Example for defining a custom regression task/dataset."""
     X, y = make_regression(
         n_samples=100,
@@ -106,7 +128,7 @@ def get_custom_regression_task(task_cache_dir: str) -> UserTask:
         splits=splits,
     )
     user_task.save_local_openml_task(oml_task)
-    return user_task
+    return user_task, _legacy_metadata_row(user_task, dataset, problem_type="regression", n_classes=0)
 
 
 if __name__ == "__main__":
@@ -115,29 +137,15 @@ if __name__ == "__main__":
     eval_dir = Path(__file__).parent / "eval" / "quickstart_custom_dataset"
     task_cache_dir = str(Path(__file__).parent / "task_cache" / "quickstart_custom_dataset")
 
-    # Get custom dataset (see below for how to write your own function)
-    tasks = [
+    # Get custom datasets and their metadata (see the functions above to write your own).
+    tasks_and_metadata = [
         get_custom_classification_task(task_cache_dir=task_cache_dir),
         get_custom_regression_task(task_cache_dir=task_cache_dir),
     ]
-    # Build metadata for custom tasks
-    task_metadata = []
-    for task in tasks:
-        oml_task = task.load_local_openml_task()
-        task_metadata.append(
-            [
-                task.task_id,
-                task.tabarena_task_name,
-                oml_task.task_type,
-                task.tabarena_task_name,
-                int(len(oml_task.get_dataset().get_data()) * 0.67),
-                int(len(oml_task.get_dataset().get_data()) * 0.33),
-            ],
-        )
-    task_metadata = pd.DataFrame(
-        task_metadata,
-        columns=["tid", "name", "task_type", "dataset", "n_samples_train_per_fold", "n_samples_test_per_fold"],
-    )
+    tasks = [task for task, _ in tasks_and_metadata]
+    task_metadata = pd.DataFrame([meta for _, meta in tasks_and_metadata])
+    # ExperimentBatchRunner / EndToEnd / compare all consume the native collection.
+    task_collection = TaskMetadataCollection.from_legacy_df(task_metadata)
 
     # This list of some methods we want fit sequentially on each task (dataset x fold)
     # Checkout the available models in tabarena.benchmark.models.utils.get_configs_generator_from_name
@@ -170,7 +178,7 @@ if __name__ == "__main__":
     # compute results
     end_to_end = EndToEnd.from_raw(
         results_lst=results_lst,
-        task_metadata=task_metadata,
+        task_metadata=task_collection,
         cache=False,
         cache_raw=False,
     )
@@ -180,7 +188,7 @@ if __name__ == "__main__":
     leaderboard: pd.DataFrame = compare(
         df_results=df_results,
         output_dir=eval_dir,
-        task_metadata=task_metadata,
+        task_metadata=task_collection,
         fillna="RF (default)",
         calibration_framework="RF (default)",
     )

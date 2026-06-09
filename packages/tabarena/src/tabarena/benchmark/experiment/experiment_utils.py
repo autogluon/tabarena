@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any, Literal
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy, CacheFunctionPickle
 
 if TYPE_CHECKING:
-    import pandas as pd
-
     from tabarena.benchmark.experiment.experiment_constructor import Experiment
     from tabarena.benchmark.experiment.job import Job
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
@@ -20,7 +18,7 @@ class ExperimentBatchRunner:
     def __init__(
         self,
         expname: str,
-        task_metadata: pd.DataFrame | TaskMetadataCollection,
+        task_metadata: TaskMetadataCollection,
         dataset_fold_repeats: list[tuple[str, int, int]] | None = None,
         cache_cls: type[AbstractCacheFunction] | None = CacheFunctionPickle,
         cache_cls_kwargs: dict | None = None,
@@ -32,11 +30,15 @@ class ExperimentBatchRunner:
         """Parameters
         ----------
         expname
+        task_metadata: TaskMetadataCollection
+            The native task metadata. A legacy one-row-per-dataset DataFrame is no longer
+            accepted — wrap it first with ``TaskMetadataCollection.from_legacy_df(df)`` (or
+            build one with ``TaskMetadataCollection(tasks)``) so the lossy legacy conversion
+            stays an explicit, opt-in step at the call site.
         dataset_fold_repeats: list[tuple[str, int, int]] | None, default None
-            The allowed (dataset, fold, repeat) triplets that `run_all` executes. If
-            None, `run_all` uses the full grid implied by the `n_folds` and `n_repeats`
-            columns of `task_metadata`. Each triplet is validated against `task_metadata`
-            (dataset must be present; fold < n_folds; repeat < n_repeats).
+            The allowed (dataset, fold, repeat) triplets that `run_all` executes. If None,
+            `run_all` uses the collection's actual splits (a non-rectangular set is
+            respected). Each triplet is validated against the collection's splits.
         cache_cls
         cache_cls_kwargs
         cache_mode: {"default", "ignore", "only", "only_strict"}, default "default"
@@ -71,15 +73,20 @@ class ExperimentBatchRunner:
         cache_cls = CacheFunctionDummy if cache_cls is None else cache_cls
         cache_cls_kwargs = {"include_self_in_call": True} if cache_cls_kwargs is None else cache_cls_kwargs
 
-        # A TaskMetadataCollection is the native input; a raw DataFrame stays a legacy
-        # passthrough. Given a collection, derive the tid map / grid / validation from it
-        # natively and keep a legacy `task_metadata` df for the downstream run_experiments_new.
+        # The TaskMetadataCollection is the single source of truth: the tid map / grid /
+        # validation are derived from it natively. A legacy DataFrame is no longer accepted.
         from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 
-        self.task_metadata_collection = task_metadata if isinstance(task_metadata, TaskMetadataCollection) else None
-        self.task_metadata = (
-            self.task_metadata_collection.to_legacy_df() if self.task_metadata_collection is not None else task_metadata
-        )
+        if not isinstance(task_metadata, TaskMetadataCollection):
+            raise TypeError(
+                f"`task_metadata` must be a TaskMetadataCollection, got {type(task_metadata).__name__}. "
+                "Wrap a legacy DataFrame with TaskMetadataCollection.from_legacy_df(df) (or build one "
+                "with TaskMetadataCollection(tasks)).",
+            )
+        self.task_metadata_collection = task_metadata
+        # Legacy DataFrame view, derived from the collection, for the downstream
+        # `run_experiments_new` `tasks_metadata` passthrough.
+        self.task_metadata = task_metadata.to_legacy_df()
 
         self.expname = expname
         self.cache_cls = cache_cls
@@ -98,17 +105,8 @@ class ExperimentBatchRunner:
         return list(self._dataset_to_tid_dict.keys())
 
     def _build_dataset_to_tid(self) -> dict[str, int]:
-        """Map dataset name -> integer tid, natively from the collection (parsed from
-        ``task_id_str``) or from the legacy ``tid``/``dataset`` columns.
-        """
-        if self.task_metadata_collection is not None:
-            return {dataset: int(tid) for dataset, tid in self.task_metadata_collection.dataset_to_tid().items()}
-        return (
-            self.task_metadata[["tid", "dataset"]]
-            .drop_duplicates(["tid", "dataset"])
-            .set_index("dataset")["tid"]
-            .to_dict()
-        )
+        """Map dataset name -> integer tid, parsed natively from the collection's ``task_id_str``."""
+        return {dataset: int(tid) for dataset, tid in self.task_metadata_collection.dataset_to_tid().items()}
 
     def _build_dataset_to_user_task(self, user_tasks: list[UserTask] | None) -> dict[str, UserTask]:
         """Map dataset name -> registered local ``UserTask`` (see the ``user_tasks`` arg).
@@ -143,23 +141,9 @@ class ExperimentBatchRunner:
 
     def _full_dataset_fold_repeats(self) -> list[tuple[str, int, int]]:
         """The full ``(dataset, fold, repeat)`` grid `run_all` executes when no explicit
-        triplets were given: the collection's actual splits when present (a non-rectangular
-        set is respected), else the legacy ``n_folds`` x ``n_repeats`` product.
+        triplets were given: the collection's actual splits (a non-rectangular set is respected).
         """
-        if self.task_metadata_collection is not None:
-            return self.task_metadata_collection.dataset_fold_repeats()
-        for col in ("dataset", "n_folds", "n_repeats"):
-            if col not in self.task_metadata.columns:
-                raise AssertionError(f"`task_metadata` must contain the column '{col}' to use `run_all`.")
-        metadata = self.task_metadata.drop_duplicates(subset="dataset")
-        grid = []
-        for dataset, n_folds, n_repeats in zip(
-            metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
-        ):
-            for repeat in range(int(n_repeats)):
-                for fold in range(int(n_folds)):
-                    grid.append((dataset, fold, repeat))
-        return grid
+        return self.task_metadata_collection.dataset_fold_repeats()
 
     def run(
         self,
@@ -434,50 +418,22 @@ class ExperimentBatchRunner:
             raise AssertionError("Duplicate repeats present! Ensure all repeats are unique.")
 
     def _validate_dataset_fold_repeats(self, dataset_fold_repeats: list[tuple[str, int, int]]):
-        """Verify each (dataset, fold, repeat) is possible according to `task_metadata`.
+        """Verify each (dataset, fold, repeat) is a real split of the collection.
 
-        With a TaskMetadataCollection, validates against the actual splits (so a
-        non-rectangular set of splits is respected). With a DataFrame, checks the dataset is
-        present and (when the `n_folds`/`n_repeats` columns exist) that `0 <= fold < n_folds`
-        and `0 <= repeat < n_repeats` for that dataset.
+        Validated against the collection's actual splits, so a non-rectangular set of splits
+        is respected.
         """
-        if self.task_metadata_collection is not None:
-            valid = set(self.task_metadata_collection.dataset_fold_repeats())
-            invalid = [
-                (
-                    dataset,
-                    fold,
-                    repeat,
-                    "unknown dataset" if dataset not in self._dataset_to_tid_dict else "no such (fold, repeat) split",
-                )
-                for dataset, fold, repeat in dataset_fold_repeats
-                if (dataset, fold, repeat) not in valid
-            ]
-            if invalid:
-                invalid_str = "\n\t".join(str(x) for x in invalid)
-                raise AssertionError(
-                    f"`dataset_fold_repeats` contains {len(invalid)} entry(ies) not valid for `task_metadata`:\n\t{invalid_str}",
-                )
-            return
-
-        has_counts = {"n_folds", "n_repeats"}.issubset(self.task_metadata.columns)
-        counts: dict[str, tuple[int, int]] = {}
-        if has_counts:
-            metadata = self.task_metadata.drop_duplicates(subset="dataset")
-            counts = {
-                dataset: (int(n_folds), int(n_repeats))
-                for dataset, n_folds, n_repeats in zip(
-                    metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
-                )
-            }
-        invalid = []
-        for dataset, fold, repeat in dataset_fold_repeats:
-            if dataset not in self._dataset_to_tid_dict:
-                invalid.append((dataset, fold, repeat, "unknown dataset"))
-            elif has_counts:
-                n_folds, n_repeats = counts[dataset]
-                if not (0 <= fold < n_folds) or not (0 <= repeat < n_repeats):
-                    invalid.append((dataset, fold, repeat, f"out of range (n_folds={n_folds}, n_repeats={n_repeats})"))
+        valid = set(self.task_metadata_collection.dataset_fold_repeats())
+        invalid = [
+            (
+                dataset,
+                fold,
+                repeat,
+                "unknown dataset" if dataset not in self._dataset_to_tid_dict else "no such (fold, repeat) split",
+            )
+            for dataset, fold, repeat in dataset_fold_repeats
+            if (dataset, fold, repeat) not in valid
+        ]
         if invalid:
             invalid_str = "\n\t".join(str(x) for x in invalid)
             raise AssertionError(

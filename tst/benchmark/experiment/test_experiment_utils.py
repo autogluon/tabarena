@@ -266,6 +266,37 @@ def _make_experiment_variant(name: str, *, hp: dict):
     )
 
 
+def _legacy_collection(tids, datasets, *, n_folds=1, n_repeats=1, problem_type="binary"):
+    """Build a TaskMetadataCollection from a compact (tid, dataset) spec for the runner tests.
+
+    ExperimentBatchRunner only accepts a TaskMetadataCollection, so this fills the columns
+    `from_legacy_df` requires. `n_folds`/`n_repeats` accept an int (shared) or a per-dataset
+    list (controls the collection's split grid, which `run_all` / init validation key on).
+    """
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
+
+    def _col(value):
+        return value if isinstance(value, list) else [value] * len(tids)
+
+    df = pd.DataFrame(
+        {
+            "tid": tids,
+            "dataset": datasets,
+            "name": datasets,
+            "problem_type": _col(problem_type),
+            "n_folds": _col(n_folds),
+            "n_repeats": _col(n_repeats),
+            "n_features": _col(5),
+            "n_classes": _col(2),
+            "NumberOfInstances": _col(100),
+            "n_samples_train_per_fold": _col(66),
+            "n_samples_test_per_fold": _col(34),
+            "target_feature": _col("t"),
+        },
+    )
+    return TaskMetadataCollection.from_legacy_df(df)
+
+
 class TestRunExperimentsNewValidation:
     def test_non_experiment_in_model_experiments_raises(self, tmp_path):
         with pytest.raises(AssertionError):
@@ -429,10 +460,9 @@ class TestExperimentBatchRunnerDelegation:
     def _runner(tmp_path, **kwargs):
         from tabarena.benchmark.experiment import ExperimentBatchRunner
 
-        task_metadata = pd.DataFrame({"tid": [0, 1], "dataset": ["d0", "d1"]})
         return ExperimentBatchRunner(
             expname=str(tmp_path),
-            task_metadata=task_metadata,
+            task_metadata=_legacy_collection([0, 1], ["d0", "d1"]),
             **kwargs,
         )
 
@@ -489,7 +519,7 @@ class TestExperimentBatchRunnerRunAll:
         from tabarena.benchmark.experiment import ExperimentBatchRunner
 
         if task_metadata is None:
-            task_metadata = pd.DataFrame({"tid": [0, 1], "dataset": ["d0", "d1"]})
+            task_metadata = _legacy_collection([0, 1], ["d0", "d1"])
         return ExperimentBatchRunner(expname=str(tmp_path), task_metadata=task_metadata, **kwargs)
 
     @staticmethod
@@ -526,19 +556,22 @@ class TestExperimentBatchRunnerRunAll:
 
     def test_run_all_expands_metadata_folds_and_repeats(self, tmp_path):
         _RecordingCache.instances.clear()
-        task_metadata = pd.DataFrame(
-            {"tid": [0, 1], "dataset": ["d0", "d1"], "n_folds": [2, 1], "n_repeats": [1, 2]},
-        )
+        task_metadata = _legacy_collection([0, 1], ["d0", "d1"], n_folds=[2, 1], n_repeats=[1, 2])
         runner = self._runner(tmp_path, task_metadata=task_metadata, cache_mode="only", cache_cls=_RecordingCache)
         result = runner.run_all(methods=[_make_minimal_experiment("m")])
         assert result == []
         # d0: 2 folds x 1 repeat -> (f0,r0),(f1,r0); d1: 1 fold x 2 repeats -> (f0,r0),(f0,r1)
         assert self._cache_suffixes() == ["m/0/0_0", "m/0/0_1", "m/1/0_0", "m/1/1_0"]
 
-    def test_run_all_missing_metadata_columns_raises(self, tmp_path):
-        runner = self._runner(tmp_path, cache_mode="only")  # task_metadata lacks n_folds/n_repeats
-        with pytest.raises(AssertionError, match="n_folds"):
-            runner.run_all(methods=[_make_minimal_experiment()])
+    def test_legacy_dataframe_rejected(self, tmp_path):
+        # Legacy DataFrame input is no longer accepted; callers must wrap with from_legacy_df.
+        from tabarena.benchmark.experiment import ExperimentBatchRunner
+
+        with pytest.raises(TypeError, match="from_legacy_df"):
+            ExperimentBatchRunner(
+                expname=str(tmp_path),
+                task_metadata=pd.DataFrame({"tid": [0], "dataset": ["d0"]}),
+            )
 
     def test_only_strict_raises_on_missing_cache(self, tmp_path):
         # cache_mode="only_strict": no cache exists, so every requested experiment is
@@ -549,10 +582,7 @@ class TestExperimentBatchRunnerRunAll:
 
     def test_only_strict_generalizes_to_run_all(self, tmp_path):
         # only_strict works through run_all too (same canonical cache path).
-        task_metadata = pd.DataFrame(
-            {"tid": [0, 1], "dataset": ["d0", "d1"], "n_folds": [1, 1], "n_repeats": [1, 1]},
-        )
-        runner = self._runner(tmp_path, task_metadata=task_metadata, cache_mode="only_strict")
+        runner = self._runner(tmp_path, cache_mode="only_strict")
         with pytest.raises(AssertionError, match="only_strict"):
             runner.run_all(methods=[_make_minimal_experiment()])
 
@@ -560,8 +590,10 @@ class TestExperimentBatchRunnerRunAll:
         # When dataset_fold_repeats is set at init, run_all runs exactly those triplets
         # (not the full n_folds x n_repeats grid).
         _RecordingCache.instances.clear()
+        # d1 needs 3 folds x 2 repeats for (d1, fold 2, repeat 1) to be a valid init triple.
         runner = self._runner(
             tmp_path,
+            task_metadata=_legacy_collection([0, 1], ["d0", "d1"], n_folds=[1, 3], n_repeats=[1, 2]),
             cache_mode="only",
             cache_cls=_RecordingCache,
             dataset_fold_repeats=[("d0", 0, 0), ("d1", 2, 1)],
@@ -571,8 +603,8 @@ class TestExperimentBatchRunnerRunAll:
         assert self._cache_suffixes() == ["m/0/0_0", "m/1/1_2"]
 
     def test_invalid_dataset_fold_repeats_raises(self, tmp_path):
-        # repeat=5 is out of range for n_repeats=1 -> rejected at construction.
-        task_metadata = pd.DataFrame({"tid": [0], "dataset": ["d0"], "n_folds": [2], "n_repeats": [1]})
+        # repeat=5 is not a real split for d0 (2 folds x 1 repeat) -> rejected at construction.
+        task_metadata = _legacy_collection([0], ["d0"], n_folds=2, n_repeats=1)
         with pytest.raises(AssertionError, match="not valid for"):
             self._runner(tmp_path, task_metadata=task_metadata, dataset_fold_repeats=[("d0", 0, 5)])
 
@@ -708,8 +740,11 @@ class TestExperimentBatchRunnerRunJobs:
     def _runner(tmp_path, **kwargs):
         from tabarena.benchmark.experiment import ExperimentBatchRunner
 
-        task_metadata = pd.DataFrame({"tid": [0, 1], "dataset": ["d0", "d1"]})
-        return ExperimentBatchRunner(expname=str(tmp_path), task_metadata=task_metadata, **kwargs)
+        return ExperimentBatchRunner(
+            expname=str(tmp_path),
+            task_metadata=_legacy_collection([0, 1], ["d0", "d1"]),
+            **kwargs,
+        )
 
     @staticmethod
     def _cache_suffixes() -> list[str]:
