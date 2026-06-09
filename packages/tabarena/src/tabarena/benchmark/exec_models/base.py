@@ -77,16 +77,45 @@ class AbstractExecModel:
     Read by the experiment runner when handling failures.
     """
 
+    # --- Preprocessing / inference-shuffle config (class-level defaults) ---------------
+    # These are plain class attributes so a subclass can change a default by simply
+    # re-declaring it (e.g. ``preprocess_data = False``) instead of threading it through
+    # every ``__init__``. Each one can still be overridden per instance by passing the same
+    # name as a keyword argument to ``__init__`` (see ``_CONFIG_ATTRS``).
+    preprocess_data: bool = True
+    """If True, fit an ``AutoMLPipelineFeatureGenerator`` on ``X`` and transform all feature
+    inputs through it (see ``transform_X``). Subclasses whose underlying model preprocesses
+    features themselves set this to False."""
+    preprocess_label: bool = True
+    """If True, clean/encode the label via an AutoGluon ``LabelCleaner``; set False to pass
+    labels through unchanged."""
+    shuffle_test: bool = True
+    """If True, deterministically permute the test rows before inference and invert the
+    permutation on the outputs (guards against models that depend on row order). See
+    ``_shuffle_test_rows``."""
+    shuffle_seed: int = 0
+    """Seed for the test-row permutation (see ``shuffle_test``)."""
+    reset_index_test: bool = True
+    """If True, reset the test frame's index before inference (the original index is
+    restored on the outputs)."""
+    shuffle_features: bool = False
+    """If True, deterministically permute the feature columns (per split) before fitting.
+    Requires a ``split_seed`` in ``fit_custom``. See ``_shuffle_features``."""
+
+    #: Config attributes (above) that ``__init__`` accepts as per-instance overrides.
+    _CONFIG_ATTRS = (
+        "preprocess_data",
+        "preprocess_label",
+        "shuffle_test",
+        "shuffle_seed",
+        "reset_index_test",
+        "shuffle_features",
+    )
+
     def __init__(
         self,
         problem_type: str,
         eval_metric: Scorer,
-        preprocess_data: bool = True,
-        preprocess_label: bool = True,
-        shuffle_test: bool = True,
-        shuffle_seed: int = 0,
-        reset_index_test: bool = True,
-        shuffle_features: bool = False,
         **kwargs,
     ):
         """Configure the method.
@@ -97,38 +126,21 @@ class AbstractExecModel:
             One of ``"binary"``, ``"multiclass"``, ``"regression"``.
         eval_metric:
             AutoGluon scorer used for evaluation (and, for some wrappers, model fitting).
-        preprocess_data:
-            If True, fit an ``AutoMLPipelineFeatureGenerator`` on ``X`` and transform all
-            feature inputs through it. Disable when the underlying model preprocesses
-            features itself.
-        preprocess_label:
-            If True, clean/encode the label via an AutoGluon ``LabelCleaner``. Disable to
-            pass labels through unchanged.
-        shuffle_test:
-            If True, deterministically permute the test rows before inference and invert
-            the permutation on the outputs. Guards against models that depend on row
-            order. See ``_shuffle_test_rows``.
-        shuffle_seed:
-            Seed for the test-row permutation.
-        reset_index_test:
-            If True, reset the test frame's index before inference (the original index is
-            restored on the outputs).
-        shuffle_features:
-            If True, deterministically permute the feature columns (per split) before
-            fitting. Requires a ``split_seed`` in ``fit_custom``. See ``_shuffle_features``.
         **kwargs:
-            Forwarded up the MRO (used by cooperative mixins such as the validation
-            protocol on the AutoGluon wrappers).
+            Per-instance overrides for any of the class-level config attributes
+            (``preprocess_data``, ``preprocess_label``, ``shuffle_test``, ``shuffle_seed``,
+            ``reset_index_test``, ``shuffle_features``); the remaining keys are forwarded up
+            the MRO (used by cooperative mixins such as the validation protocol on the
+            AutoGluon wrappers).
         """
+        # Apply any per-instance overrides of the class-level config defaults, then forward
+        # the remaining kwargs up the MRO (e.g. to the validation-protocol mixin).
+        for name in self._CONFIG_ATTRS:
+            if name in kwargs:
+                setattr(self, name, kwargs.pop(name))
         super().__init__(**kwargs)
         self.problem_type = problem_type
         self.eval_metric = eval_metric
-        self.preprocess_data = preprocess_data
-        self.preprocess_label = preprocess_label
-        self.shuffle_test = shuffle_test
-        self.shuffle_seed = shuffle_seed
-        self.reset_index_test = reset_index_test
-        self.shuffle_features = shuffle_features
 
         # Defaults for internal state
         self._can_use_data_in_place = False
@@ -337,7 +349,6 @@ class AbstractExecModel:
         )
 
     # --- Fit / predict (public + protected hooks) -------------------------------------
-
     def fit(self, X: pd.DataFrame, y: pd.Series, X_val=None, y_val=None):
         """Preprocess the data and delegate to ``_fit``.
 

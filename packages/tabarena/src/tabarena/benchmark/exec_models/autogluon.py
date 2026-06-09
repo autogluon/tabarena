@@ -38,8 +38,6 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
     fit_kwargs:
         Extra keyword arguments for ``TabularPredictor.fit(...)``. ``num_bag_folds`` /
         ``num_bag_sets`` here drive the (optionally task-specific) validation protocol.
-    preprocess_data, preprocess_label:
-        Off by default (AutoGluon preprocesses internally). See ``AbstractExecModel``.
     target_name:
         Name of the label column appended to the training frame. Defaults to
         ``"__label__"`` when not provided.
@@ -51,6 +49,10 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
     can_get_error_val = True
     can_get_oof = True
 
+    # AutoGluon does its own feature/label preprocessing, so disable ours by default.
+    preprocess_data = False
+    preprocess_label = False
+
     predictor: TabularPredictor
     """The fitted AutoGluon ``TabularPredictor`` (set by ``_fit``)."""
 
@@ -58,15 +60,11 @@ class AGWrapper(AbstractExecModel, TabArenaValidationProtocolExecMixin):
         self,
         init_kwargs: dict | None = None,
         fit_kwargs: dict | None = None,
-        preprocess_data: bool = False,
-        preprocess_label: bool = False,
         target_name: str | None = None,
         persist: bool = False,
         **kwargs,
     ):
-        super().__init__(
-            preprocess_data=preprocess_data, preprocess_label=preprocess_label, target_name=target_name, **kwargs
-        )
+        super().__init__(target_name=target_name, **kwargs)
         if init_kwargs is None:
             init_kwargs = {}
         if fit_kwargs is None:
@@ -263,8 +261,6 @@ class AGSingleWrapper(AGWrapper):
         Forwarded to ``TabularPredictor.fit(calibrate=...)``.
     init_kwargs, fit_kwargs:
         Extra predictor constructor / fit kwargs (the "extra" kwargs recorded in metadata).
-    preprocess_data, preprocess_label:
-        See ``AbstractExecModel`` (off by default).
     """
 
     def __init__(
@@ -274,8 +270,6 @@ class AGSingleWrapper(AGWrapper):
         calibrate: bool | str = False,
         init_kwargs: dict | None = None,
         fit_kwargs: dict | None = None,
-        preprocess_data: bool = False,
-        preprocess_label: bool = False,
         **kwargs,
     ):
         assert isinstance(model_cls, str) or issubclass(model_cls, AbstractModel)
@@ -305,8 +299,6 @@ class AGSingleWrapper(AGWrapper):
         super().__init__(
             init_kwargs=init_kwargs,
             fit_kwargs=fit_kwargs,
-            preprocess_data=preprocess_data,
-            preprocess_label=preprocess_label,
             **kwargs,
         )
 
