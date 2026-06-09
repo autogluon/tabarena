@@ -20,6 +20,7 @@ from tabarena.benchmark.task.metadata import ValidationMetadata
 if TYPE_CHECKING:
     from autogluon.tabular import TabularPredictor
 
+
 # FIXME: determine if want to persist by default?
 class AGWrapper(AbstractExecModel):
     """An AutoGluon ``TabularPredictor`` wrapped as an exec model.

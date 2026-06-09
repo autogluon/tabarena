@@ -289,7 +289,7 @@ class TabArenaExperimentBundle:
             mk["extra_model_hyperparameters"]["ag.verbosity"] = self.model_verbosity
         # Bake compute resources into the experiment so the serialized config is
         # self-contained. `None` num_cpus/memory_limit are auto-detected at run
-        # time by the Experiment (see `Experiment._autodetect_resources`).
+        # time by the Experiment (see `Experiment._apply_resources`).
         mk["fit_kwargs"]["num_cpus"] = num_cpus
         mk["fit_kwargs"]["num_gpus"] = num_gpus
         mk["fit_kwargs"]["memory_limit"] = memory_limit

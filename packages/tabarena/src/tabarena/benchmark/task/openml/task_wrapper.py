@@ -246,7 +246,7 @@ class OpenMLTaskWrapper:
         Pulls the split metadata from a ``TabArenaOpenMLSupervisedTask`` (group/time/stratify
         columns, time horizon); a plain ``OpenMLSupervisedTask`` yields the target name only.
         Whether the metadata is applied is decided by the wrapper (the experiment runner
-        enables it; see ``Experiment.prepare_for_task``).
+        enables it; see ``Experiment.task_cache_scope``).
         """
         from tabarena.benchmark.task.metadata import ValidationMetadata
         from tabarena.benchmark.task.openml.metadata_mixin import TabArenaOpenMLSupervisedTask
