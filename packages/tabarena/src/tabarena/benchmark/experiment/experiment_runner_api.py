@@ -11,7 +11,7 @@ from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
-    import pandas as pd
+    from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 
 
 def _as_int_list(value: object) -> list[int]:
@@ -54,29 +54,34 @@ def _assert_fold_repeat_pairs(pairs: object) -> None:
 def _parse_tabarena_mode(
     *,
     tasks: list[int | UserTask],
-    tasks_metadata: pd.DataFrame | None,
+    tasks_metadata: TaskMetadataCollection | None,
 ) -> list[list[tuple[int, int]]]:
-    """Expand each task's ``num_folds`` x ``tabarena_num_repeats`` from `tasks_metadata`."""
+    """Each task's ``(fold, repeat)`` pairs taken from its splits in `tasks_metadata`.
+
+    Reads each task's *actual* splits from the collection (not a ``n_folds`` x ``n_repeats``
+    product), so a task with a sparse / non-rectangular set of splits is respected. Tasks are
+    matched to the collection by ``task_id_str`` (the ``UserTask`` id for a local task, the
+    stringified OpenML tid otherwise).
+    """
     if tasks_metadata is None:
-        from tabarena.nips2025_utils.fetch_metadata import load_curated_task_metadata
+        from tabarena.benchmark.task.metadata import default_task_metadata_collection
 
-        tasks_metadata = load_curated_task_metadata()
-    else:
-        for col in ("tabarena_num_repeats", "num_folds", "task_id"):
-            assert col in tasks_metadata.columns, (
-                f"`tasks_metadata` must contain the column '{col}' when `repetitions_mode` is 'TabArena'."
-            )
+        tasks_metadata = default_task_metadata_collection()
 
-    metadata_task_ids = tasks_metadata["task_id"].astype(str)
-    metadata_task_id_set = set(metadata_task_ids)
+    # Aggregate splits per task id, so both the "unrolled" (one entry per split) and the
+    # multi-split forms of the collection behave the same.
+    splits_by_id: dict[str, list[tuple[int, int]]] = {}
+    for t in tasks_metadata:
+        splits_by_id.setdefault(t.task_id_str, []).extend(
+            (split.fold, split.repeat) for split in t.splits_metadata.values()
+        )
 
     fold_repeat_pairs_per_task = []
     for task in tasks:
         t_id = task.task_id_str if isinstance(task, UserTask) else str(task)
-        assert t_id in metadata_task_id_set, f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`."
-        task_meta = tasks_metadata[metadata_task_ids == t_id].iloc[0]
-        n_folds, n_repeats = int(task_meta["num_folds"]), int(task_meta["tabarena_num_repeats"])
-        fold_repeat_pairs_per_task.append([(f, r) for r in range(n_repeats) for f in range(n_folds)])
+        pairs = splits_by_id.get(t_id)
+        assert pairs, f"Task ID '{t_id}' from `tasks` not found in `tasks_metadata`."
+        fold_repeat_pairs_per_task.append(pairs)
     return fold_repeat_pairs_per_task
 
 
@@ -109,7 +114,7 @@ def _parse_repetitions_mode_and_args(
     repetitions_mode: Literal["TabArena-Lite", "TabArena", "matrix", "individual"],
     repetitions_mode_args: tuple | list | None,
     tasks: list[int | UserTask],
-    tasks_metadata: pd.DataFrame | None = None,
+    tasks_metadata: TaskMetadataCollection | None = None,
 ) -> list[list[tuple[int, int]]]:
     """Resolve `repetitions_mode`/`repetitions_mode_args` into the folds/repeats per task.
 
@@ -531,7 +536,7 @@ def run_experiments_new(
     model_experiments: list[Experiment],
     tasks: list[int | UserTask],
     repetitions_mode: Literal["TabArena-Lite", "TabArena", "matrix", "individual"],
-    tasks_metadata: pd.DataFrame | None = None,
+    tasks_metadata: TaskMetadataCollection | None = None,
     repetitions_mode_args: tuple | list | None = None,
     cache_mode: Literal["default", "ignore", "only", "only_strict"] = "default",
     cache_cls: type[AbstractCacheFunction] = CacheFunctionPickle,
@@ -563,23 +568,16 @@ def run_experiments_new(
                 combinations. See `repetitions_mode_args`.
             - "individual": Allows you to specific individual fold-repeats pairs to run.
                 See `repetitions_mode_args`.
-    tasks_metadata: pd.DataFrame | None, default None
-        Metadata about each task in `tasks`. Required if `repetitions_mode="TabArena"`.
+    tasks_metadata: TaskMetadataCollection | None, default None
+        Native task metadata, used only when `repetitions_mode="TabArena"` to look up each
+        task's splits. Tasks in `tasks` are matched to the collection by ``task_id_str``
+        (the ``UserTask`` id for a local task, the stringified OpenML tid otherwise), and
+        each task runs exactly that collection task's ``(fold, repeat)`` splits — so a
+        sparse / non-rectangular set of splits is respected.
 
-        If None, we assume that the `tasks` contain tasks from the official curated
-        TabArena benchmark and load the metadata internally. If it contains tasks
-        not in the official benchmark, an error will be raised.
-
-        If pd.DataFrame, we assume the users passes custom metadata. This dataframe
-        must contain the following columns:
-            "task_id": str
-                The task ID for the task as an int.
-                If a local task, we assume this to be `UserTask.task_id_str`.
-            "tabarena_num_repeats": int
-                The number of repeats for the task based on the protocol from TabArena.
-                See tabarena.nips2025_utils.fetch_metadata._get_n_repeats for details.
-            "num_folds": int
-                The number of folds for the task.
+        If None, the official curated TabArena collection is loaded internally; passing a
+        task not present in it raises. Wrap a legacy DataFrame with
+        ``TaskMetadataCollection.from_legacy_df(df)`` to pass custom metadata.
     repetitions_mode_args: list | tuple | None, default None
         Determine how many repetitions of the experiments to run per task, i.e., how
         many folds and repeats to run for each task. Note, all tasks come with

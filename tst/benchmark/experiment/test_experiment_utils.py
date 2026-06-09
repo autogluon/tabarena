@@ -143,6 +143,35 @@ def test_parse_repetitions_mode_and_args(
         )
 
 
+class TestParseTabArenaMode:
+    """`repetitions_mode="TabArena"` reads each task's actual splits from the collection."""
+
+    @staticmethod
+    def _parse(tasks, collection):
+        return _parse_repetitions_mode_and_args(
+            repetitions_mode="TabArena",
+            repetitions_mode_args=None,
+            tasks=tasks,
+            tasks_metadata=collection,
+        )
+
+    def test_expands_to_collection_splits(self):
+        collection = _legacy_collection([360], ["ds"], n_folds=2, n_repeats=2)
+        pairs = self._parse([360], collection)
+        assert len(pairs) == 1
+        assert set(pairs[0]) == {(f, r) for r in range(2) for f in range(2)}
+
+    def test_respects_sparse_splits(self):
+        # A non-rectangular collection: folds 0 and 2 of repeat 0 only.
+        collection = _legacy_collection([360], ["ds"], n_folds=3, n_repeats=1).subset([("ds", 0, 0), ("ds", 2, 0)])
+        pairs = self._parse([360], collection)
+        assert set(pairs[0]) == {(0, 0), (2, 0)}
+
+    def test_unknown_task_raises(self):
+        with pytest.raises(AssertionError, match="not found in"):
+            self._parse([999], _legacy_collection([360], ["ds"]))
+
+
 # ---------------------------------------------------------------------------
 # _clean_repetitions_mode_args_for_matrix
 # ---------------------------------------------------------------------------

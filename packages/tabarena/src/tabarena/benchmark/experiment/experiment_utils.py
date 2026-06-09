@@ -83,9 +83,6 @@ class ExperimentBatchRunner:
                 "with TaskMetadataCollection(tasks)).",
             )
         self.task_metadata_collection = task_metadata
-        # Legacy DataFrame view, derived from the collection, for the downstream
-        # `run_experiments_new` `tasks_metadata` passthrough.
-        self.task_metadata = task_metadata.to_legacy_df()
 
         self.expname = expname
         self.cache_cls = cache_cls
@@ -361,7 +358,7 @@ class ExperimentBatchRunner:
             output_dir=self.expname,
             model_experiments=methods,
             tasks=tasks,
-            tasks_metadata=self.task_metadata,
+            tasks_metadata=self.task_metadata_collection,
             repetitions_mode="individual",
             repetitions_mode_args=repetitions_mode_args,
             cache_mode=self.cache_mode,
