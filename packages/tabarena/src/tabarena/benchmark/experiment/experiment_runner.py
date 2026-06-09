@@ -134,7 +134,6 @@ class ExperimentRunner:
             self.X_test = self.task.to_csv_format(X=self.X_test)
         self.label_cleaner = LabelCleaner.construct(problem_type=self.task.problem_type, y=y)
 
-
     @classmethod
     def init_and_run(
         cls,
