@@ -78,6 +78,7 @@ def compare_on_tabarena(
         tasks=tasks,
         datasets=datasets,
         folds=folds,
+        tabarena_context=tabarena_context,
         fillna=fillna,
         calibration_framework=calibration_framework,
         score_on_val=score_on_val,
@@ -110,6 +111,7 @@ def compare(
     subset: list[str] | None = None,
     folds: list[int] | None = None,
     elo_ymin: float | None = None,
+    tabarena_context: TabArenaContext | None = None,
     **kwargs,
 ):
     if task_metadata is None:
