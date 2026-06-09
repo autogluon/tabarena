@@ -17,6 +17,8 @@ from .task_utils import get_ag_problem_type, get_task_data, get_task_with_retry
 if TYPE_CHECKING:
     import numpy as np
 
+    from tabarena.benchmark.task.metadata import ValidationMetadata
+
 logger = logging.getLogger(__name__)
 
 
@@ -238,43 +240,24 @@ class OpenMLTaskWrapper:
         data, _ = self.subsample(X=data, y=data[self.label], size=size, random_state=random_state)
         return data
 
-    def get_validation_split_kwargs(self) -> dict:
-        """Extra splits kwargs from the TabArenaOpenMLSupervisedTask task,
-        or fallback to defaults.
+    def get_validation_metadata(self) -> ValidationMetadata:
+        """Task-derived validation-split metadata.
+
+        Pulls the split metadata from a ``TabArenaOpenMLSupervisedTask`` (group/time/stratify
+        columns, time horizon); a plain ``OpenMLSupervisedTask`` yields the target name only.
+        Whether the metadata is applied is decided by the wrapper (the experiment runner
+        enables it; see ``Experiment.task_cache_scope``).
         """
+        from tabarena.benchmark.task.metadata import ValidationMetadata
         from tabarena.benchmark.task.openml.metadata_mixin import TabArenaOpenMLSupervisedTask
 
         oml_task: TabArenaOpenMLSupervisedTask | OpenMLSupervisedTask = self.task
 
-        if isinstance(oml_task, TabArenaOpenMLSupervisedTask):
-            stratify_on = oml_task.stratify_on
-            group_on = oml_task.group_on
-            time_on = oml_task.time_on
-            group_time_on = oml_task.group_time_on
-            group_labels = oml_task.group_labels
-            split_time_horizon = oml_task.split_time_horizon
-            split_time_horizon_unit = oml_task.split_time_horizon_unit
-        else:
-            (
-                stratify_on,
-                group_on,
-                time_on,
-                group_time_on,
-                group_labels,
-                split_time_horizon,
-                split_time_horizon_unit,
-            ) = None, None, None, None, None, None, None
+        if not isinstance(oml_task, TabArenaOpenMLSupervisedTask):
+            return ValidationMetadata(target_name=oml_task.target_name)
 
-        return dict(
-            target_name=oml_task.target_name,
-            stratify_on=stratify_on,
-            group_on=group_on,
-            time_on=time_on,
-            group_time_on=group_time_on,
-            group_labels=group_labels,
-            split_time_horizon=split_time_horizon,
-            split_time_horizon_unit=split_time_horizon_unit,
-        )
+        # TabArena tasks carry the split-metadata attributes; project them in one place.
+        return ValidationMetadata.from_task_metadata(oml_task)
 
 
 class OpenMLS3TaskWrapper(OpenMLTaskWrapper):

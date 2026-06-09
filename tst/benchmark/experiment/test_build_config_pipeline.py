@@ -9,6 +9,8 @@ optional `config_index` filter), yielding ready-to-run experiments.
 
 from __future__ import annotations
 
+import copy
+
 from tabarena.benchmark.experiment import (
     ModelConstraints,
     TabArenaExperimentBundle,
@@ -74,20 +76,20 @@ def test_build_bakes_resources_fold_fitting_and_carries_preprocessing(tmp_path):
     # sequential local fold fitting baked into model hyperparameters at build time
     assert mk["model_hyperparameters"]["ag_args_ensemble"]["fold_fitting_strategy"] == "sequential_local"
 
-    # preprocessing carried as a first-class attribute, resolved lazily
+    # preprocessing carried as a first-class attribute, applied lazily
     assert exp.preprocessing_pipeline == "tabarena_default"
     assert "feature_generator_cls" not in mk["fit_kwargs"]
     assert "ag.model_specific_feature_generator_kwargs" not in mk["model_hyperparameters"]
 
-    resolved = exp._resolve_preprocessing()
-    rmk = resolved.method_kwargs
-    assert resolved.preprocessing_pipeline is None
+    rmk = exp._apply_preprocessing(copy.deepcopy(exp.method_kwargs))
     assert rmk["fit_kwargs"]["feature_generator_cls"] is TabArenaModelAgnosticPreprocessing
     assert rmk["fit_kwargs"]["feature_generator_kwargs"] == {}
     assert "ag.model_specific_feature_generator_kwargs" in rmk["model_hyperparameters"]
-    # resolved experiment still carries the baked resources + fold fitting
+    # baked resources + fold fitting are carried through
     assert rmk["fit_kwargs"]["num_cpus"] == 4
     assert rmk["model_hyperparameters"]["ag_args_ensemble"]["fold_fitting_strategy"] == "sequential_local"
+    # the original experiment's method_kwargs are left untouched (applied on a copy)
+    assert "feature_generator_cls" not in exp.method_kwargs["fit_kwargs"]
 
 
 def test_build_without_sequential_fold_fitting(tmp_path):
@@ -128,7 +130,7 @@ def test_build_with_none_resources_is_autodetected_lazily(tmp_path):
     assert exp.method_kwargs["fit_kwargs"]["memory_limit"] is None
 
     # resolved lazily to concrete node resources
-    resolved = exp._autodetect_resources(exp.method_kwargs)
+    resolved = exp._apply_resources(exp.method_kwargs)
     assert isinstance(resolved["fit_kwargs"]["num_cpus"], int)
     assert isinstance(resolved["fit_kwargs"]["memory_limit"], int)
 

@@ -5,8 +5,8 @@ from typing import Any
 
 import pandas as pd
 
+from tabarena.benchmark.exec_models.base import AbstractExecModel
 from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
-from tabarena.benchmark.models.wrapper.abstract_class import AbstractExecModel
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 

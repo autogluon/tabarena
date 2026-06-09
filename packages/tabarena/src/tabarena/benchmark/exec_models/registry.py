@@ -6,7 +6,7 @@ from autogluon.tabular.registry import ModelRegistry, ag_model_registry
 
 # `tabarena_model_registry` and `_models_to_add` are built lazily on first
 # access so that this module finishes loading before `get_model_registry()`
-# (which transitively triggers `experiment_constructor` → `model_registry`)
+# (which transitively triggers `experiment_constructor` → this `registry`)
 # tries to import from us. See PEP 562. Note: they are NOT predefined as
 # module-level globals — that would short-circuit `__getattr__` and yield
 # `None` on first access. The cache lives in `_lazy_state` instead.

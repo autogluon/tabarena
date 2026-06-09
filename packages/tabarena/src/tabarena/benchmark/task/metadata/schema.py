@@ -5,6 +5,7 @@ from enum import StrEnum
 from typing import Annotated, Literal
 
 import pandas as pd
+from loguru import logger
 
 SplitIndex = Annotated[str, "format: r{int}f{int}"]
 
@@ -158,6 +159,14 @@ class TabArenaTaskMetadata:
     source: str | None = None
     """Origin of the dataset (e.g. ``"Kaggle"``, ``"OpenML"``, ``"UCI"``)."""
 
+    def to_validation_metadata(self) -> ValidationMetadata:
+        """Project this task metadata onto a ``ValidationMetadata`` (the split-config subset).
+
+        Single source for the task -> validation-metadata mapping; the fold-count policy
+        fields keep their defaults.
+        """
+        return ValidationMetadata.from_task_metadata(self)
+
     @property
     def n_splits(self):
         """Get the number of splits in the task."""
@@ -290,6 +299,132 @@ class TabArenaTaskMetadata:
             )
             for split_idx, split_meta in self.splits_metadata.items()
         ]
+
+
+@dataclass(frozen=True)
+class ValidationMetadata:
+    """Task-derived metadata (and policy) for building the validation split.
+
+    Projected from a task's split metadata (see ``TabArenaTaskMetadata.to_validation_metadata``
+    / ``ValidationMetadata.from_task_metadata``) and consumed by the AutoGluon wrappers via
+    ``tabarena.benchmark.exec_models.autogluon_utils.resolve_validation_splits``.
+
+    The split-column fields mirror the task metadata; ``target_name`` is carried so the
+    wrapper can name its internal label column (the splitting logic itself does not use it).
+    The ``*_num_folds`` / ``*_num_repeats`` / ``max_samples_for_tiny_data`` fields encode the
+    fold-count policy resolved in ``resolve_number_of_splits``. Whether this metadata is
+    applied at all is a separate decision the wrapper makes (``use_task_specific_validation``).
+    """
+
+    target_name: str | None = None
+    """Name of the target column (used by the wrapper to name its label column)."""
+    stratify_on: str | None = None
+    """Column to stratify validation splits on."""
+    group_on: str | list[str] | None = None
+    """Column(s) identifying groups for group-wise validation splitting."""
+    time_on: str | None = None
+    """Column identifying time for time-based validation splitting."""
+    group_time_on: str | None = None
+    """Column identifying time within groups."""
+    group_labels: GroupLabelTypes | None = None
+    """Whether ``group_on`` carries labels per sample or per group."""
+    split_time_horizon: SplitTimeHorizonTypes | None = None
+    """Time horizon for the deployment/test data."""
+    split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None
+    """Unit for ``split_time_horizon`` (e.g. days, months, years)."""
+
+    # Fold-count policy. Above ``max_samples_for_tiny_data`` (group) instances we expect the
+    # benchmark defaults; at or below it we switch to the denser tiny-data regime (more
+    # folds/repeats) for a more reliable validation score. See ``resolve_number_of_splits``.
+    default_num_folds: int = 8
+    """Expected number of folds for non-tiny datasets."""
+    default_num_repeats: int = 1
+    """Expected number of repeats for non-tiny datasets (``None`` is also allowed)."""
+    tiny_data_num_folds: int = 5
+    """Number of folds to use for tiny datasets."""
+    tiny_data_num_repeats: int = 5
+    """Number of repeats to use for tiny datasets."""
+    max_samples_for_tiny_data: int = 500
+    """At or below this many (group) instances, the tiny-data regime applies."""
+
+    @classmethod
+    def from_task_metadata(cls, metadata) -> ValidationMetadata:
+        """Project a task-metadata-like object onto a ``ValidationMetadata``.
+
+        ``metadata`` is any object exposing the split-metadata attributes (a
+        ``TabArenaTaskMetadata`` or a TabArena OpenML task); the fold-count policy fields
+        keep their defaults.
+        """
+        return cls(
+            target_name=metadata.target_name,
+            stratify_on=metadata.stratify_on,
+            group_on=metadata.group_on,
+            time_on=metadata.time_on,
+            group_time_on=metadata.group_time_on,
+            group_labels=metadata.group_labels,
+            split_time_horizon=metadata.split_time_horizon,
+            split_time_horizon_unit=metadata.split_time_horizon_unit,
+        )
+
+    @classmethod
+    def from_config(
+        cls,
+        config: ValidationMetadata | dict | None,
+        *,
+        base: ValidationMetadata | None = None,
+    ) -> ValidationMetadata:
+        """Build metadata from ``config``, layering it over ``base``.
+
+        ``config`` may be:
+
+        - ``None`` — use ``base`` unchanged.
+        - a ``dict`` — override the corresponding ``base`` fields individually (keys absent
+          from the dict keep their ``base`` value).
+        - a ``ValidationMetadata`` — used as-is (a complete, explicit spec).
+
+        ``base`` defaults to a fresh ``ValidationMetadata()``; pass the task-derived metadata
+        to let per-key dict overrides fall back to the task's values.
+        """
+        base = base if base is not None else cls()
+        if config is None:
+            return base
+        if isinstance(config, ValidationMetadata):
+            return config
+        return replace(base, **config)
+
+    def resolve_number_of_splits(
+        self,
+        *,
+        num_folds: int,
+        num_repeats: int | None,
+        num_group_instances: int,
+    ) -> tuple[int, int | None]:
+        """Resolve the (folds, repeats) to use given the data size.
+
+        At or below ``max_samples_for_tiny_data`` (group) instances, switch to the tiny-data
+        regime (``tiny_data_num_folds`` / ``tiny_data_num_repeats``); otherwise assert and
+        return the configured defaults (``default_num_folds`` / ``default_num_repeats``).
+
+        Parameters
+        ----------
+        num_folds: int
+            The number of folds entered for validation.
+        num_repeats: int
+            The number of repeats entered for validation.
+        num_group_instances: int
+            The number of group instances in the data.
+        """
+        if num_group_instances <= self.max_samples_for_tiny_data:
+            logger.info(
+                f"\nTiny data ({num_group_instances} <= {self.max_samples_for_tiny_data}): using "
+                f"num_bag_folds={self.tiny_data_num_folds}, num_bag_sets={self.tiny_data_num_repeats}.",
+            )
+            return self.tiny_data_num_folds, self.tiny_data_num_repeats
+
+        # Larger data: expect (and keep) the configured benchmark defaults.
+        assert num_folds == self.default_num_folds
+        assert num_repeats in (self.default_num_repeats, None)
+        return num_folds, num_repeats
 
 
 @dataclass

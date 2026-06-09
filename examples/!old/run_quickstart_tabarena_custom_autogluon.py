@@ -6,8 +6,8 @@ from typing import Any
 import pandas as pd
 
 from tabarena import EvaluationRepository, Evaluator
-from tabarena.benchmark.experiment import ExperimentBatchRunner, Experiment
-from tabarena.benchmark.models.wrapper import AGWrapper
+from tabarena.benchmark.exec_models import AGWrapper
+from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
 from tabarena.benchmark.result import ExperimentResults
 from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext

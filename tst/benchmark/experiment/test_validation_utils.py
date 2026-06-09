@@ -6,22 +6,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tabarena.benchmark.models.wrapper.validation_utils import (
-    TabArenaValidationProtocolExecMixin,
+from tabarena.benchmark.exec_models import autogluon_utils
+from tabarena.benchmark.exec_models.autogluon_utils import (
+    get_num_group_instances,
+    group_on_to_groups_data,
+    resolve_validation_splits,
     split_time_index_into_intervals,
+    time_on_to_groups_data,
 )
-from tabarena.benchmark.task.metadata import GroupLabelTypes
+from tabarena.benchmark.task.metadata import GroupLabelTypes, ValidationMetadata
 
 _DATA_FOUNDRY_AVAILABLE = importlib.util.find_spec("data_foundry") is not None
-
-# ---------------------------------------------------------------------------
-# Concrete subclass for testing the mixin
-# ---------------------------------------------------------------------------
-
-
-class _Validation(TabArenaValidationProtocolExecMixin):
-    """Minimal concrete subclass — the mixin has no abstract methods."""
-
 
 # ---------------------------------------------------------------------------
 # split_time_index_into_intervals
@@ -122,25 +117,25 @@ def test_output_length_equals_input_length(n_intervals):
 
 
 # ---------------------------------------------------------------------------
-# TabArenaValidationProtocolExecMixin — static helpers
+# validation protocol — static helpers
 # ---------------------------------------------------------------------------
 
 
 def test_group_on_to_groups_data_single_column():
     X = pd.DataFrame({"a": [1, 2, 3], "group": ["x", "y", "x"]})
-    result = _Validation.group_on_to_groups_data(X=X, group_on="group")
+    result = group_on_to_groups_data(X=X, group_on="group")
     assert list(result) == ["x", "y", "x"]
 
 
 def test_group_on_to_groups_data_multi_column():
     X = pd.DataFrame({"g1": ["a", "a", "b"], "g2": ["1", "2", "1"]})
-    result = _Validation.group_on_to_groups_data(X=X, group_on=["g1", "g2"])
+    result = group_on_to_groups_data(X=X, group_on=["g1", "g2"])
     assert list(result) == ["a_1", "a_2", "b_1"]
 
 
 def test_time_on_to_groups_data_integer():
     X = pd.DataFrame({"time": [1, 2, 3, 4, 5, 6]})
-    groups, n_intervals = _Validation.time_on_to_groups_data(X=X, time_on="time", num_folds=3)
+    groups, n_intervals = time_on_to_groups_data(X=X, time_on="time", num_folds=3)
     assert n_intervals == 3
     assert len(groups) == 6
     assert (groups.diff().dropna() >= 0).all()
@@ -148,13 +143,13 @@ def test_time_on_to_groups_data_integer():
 
 def test_time_on_to_groups_data_datetime():
     X = pd.DataFrame({"time": pd.date_range("2020-01-01", periods=6, freq="D")})
-    groups, n_intervals = _Validation.time_on_to_groups_data(X=X, time_on="time", num_folds=3)
+    groups, n_intervals = time_on_to_groups_data(X=X, time_on="time", num_folds=3)
     assert n_intervals == 3
     assert len(groups) == 6
 
 
 # ---------------------------------------------------------------------------
-# TabArenaValidationProtocolExecMixin — resolve_validation_splits
+# resolve_validation_splits
 # ---------------------------------------------------------------------------
 
 
@@ -162,52 +157,41 @@ def _make_X(n: int) -> pd.DataFrame:
     return pd.DataFrame({"feature": np.arange(n, dtype=float)})
 
 
-def test_resolve_validation_splits_disabled_returns_unchanged():
-    """use_task_specific_validation=False → immediate passthrough."""
-    v = _Validation(use_task_specific_validation=False)
-    X = _make_X(10)
-    y = pd.Series(np.zeros(10))
-    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
-    assert custom_splits is None
-    assert folds == 8
-    assert repeats == 1
-
-
 def test_resolve_validation_splits_num_folds_none_returns_early():
-    v = _Validation(use_task_specific_validation=True)
+    protocol = ValidationMetadata()
     X = _make_X(10)
     y = pd.Series(np.zeros(10))
-    custom_splits, folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=None, num_repeats=1)
+    custom_splits, folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=None, num_repeats=1)
     assert custom_splits is None
     assert folds is None
 
 
 def test_resolve_validation_splits_num_folds_one_returns_early():
-    v = _Validation(use_task_specific_validation=True)
+    protocol = ValidationMetadata()
     X = _make_X(10)
     y = pd.Series(np.zeros(10))
-    custom_splits, folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=1, num_repeats=1)
+    custom_splits, folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=1, num_repeats=1)
     assert custom_splits is None
     assert folds == 1
 
 
 def test_resolve_validation_splits_tiny_data_updates_folds_and_repeats():
     """Datasets with <= 500 instances use tiny_data_num_folds/repeats."""
-    v = _Validation(use_task_specific_validation=True)
+    protocol = ValidationMetadata()
     X = _make_X(100)  # 100 < 500 → tiny
     y = pd.Series(np.zeros(100))
-    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     assert custom_splits is None
-    assert folds == _Validation.tiny_data_num_folds
-    assert repeats == _Validation.tiny_data_num_repeats
+    assert folds == ValidationMetadata.tiny_data_num_folds
+    assert repeats == ValidationMetadata.tiny_data_num_repeats
 
 
 def test_resolve_validation_splits_normal_data_unchanged():
     """Datasets with > 500 instances and no grouping/time → folds/repeats unchanged."""
-    v = _Validation(use_task_specific_validation=True)
+    protocol = ValidationMetadata()
     X = _make_X(600)  # > 500
     y = pd.Series(np.zeros(600))
-    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     assert custom_splits is None
     assert folds == 8
     assert repeats == 1
@@ -215,8 +199,7 @@ def test_resolve_validation_splits_normal_data_unchanged():
 
 def test_resolve_validation_splits_time_on_and_group_on_raises_not_implemented():
     """Simultaneous time_on and group_on is explicitly not implemented."""
-    v = _Validation(
-        use_task_specific_validation=True,
+    protocol = ValidationMetadata(
         time_on="time",
         group_on="group",
     )
@@ -224,51 +207,47 @@ def test_resolve_validation_splits_time_on_and_group_on_raises_not_implemented()
     X = pd.DataFrame({"feature": range(n), "time": range(n), "group": ["g"] * n})
     y = pd.Series(np.zeros(n))
     with pytest.raises(NotImplementedError):
-        v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+        resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
 
 
 # ---------------------------------------------------------------------------
-# TabArenaValidationProtocolExecMixin — _resolve_number_of_splits
+# _resolve_number_of_splits
 # ---------------------------------------------------------------------------
 
 
 def test_resolve_number_of_splits_tiny_data():
-    v = _Validation(use_task_specific_validation=True)
-    folds, repeats = v._resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=50)
-    assert folds == _Validation.tiny_data_num_folds
-    assert repeats == _Validation.tiny_data_num_repeats
+    folds, repeats = ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=50)
+    assert folds == ValidationMetadata.tiny_data_num_folds
+    assert repeats == ValidationMetadata.tiny_data_num_repeats
 
 
 def test_resolve_number_of_splits_normal_data_unchanged():
-    v = _Validation(use_task_specific_validation=True)
-    folds, repeats = v._resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=1000)
+    folds, repeats = ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=1000)
     assert folds == 8
     assert repeats == 1
 
 
 def test_resolve_number_of_splits_normal_data_wrong_folds_asserts():
     """The normal path asserts num_folds == 8."""
-    v = _Validation(use_task_specific_validation=True)
     with pytest.raises(AssertionError):
-        v._resolve_number_of_splits(num_folds=5, num_repeats=1, num_group_instances=1000)
+        ValidationMetadata().resolve_number_of_splits(num_folds=5, num_repeats=1, num_group_instances=1000)
 
 
 def test_resolve_number_of_splits_normal_data_wrong_repeats_asserts():
     """The normal path asserts num_repeats is 1 or None."""
-    v = _Validation(use_task_specific_validation=True)
     with pytest.raises(AssertionError):
-        v._resolve_number_of_splits(num_folds=8, num_repeats=3, num_group_instances=1000)
+        ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=3, num_group_instances=1000)
 
 
 # ---------------------------------------------------------------------------
-# TabArenaValidationProtocolExecMixin — get_num_group_instances
+# get_num_group_instances
 # ---------------------------------------------------------------------------
 
 
 def test_get_num_group_instances_no_group():
-    v = _Validation(use_task_specific_validation=True, group_on=None)
+    protocol = ValidationMetadata(group_on=None)
     X = _make_X(7)
-    assert v.get_num_group_instances(X) == 7
+    assert get_num_group_instances(protocol, X) == 7
 
 
 @pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
@@ -282,12 +261,12 @@ def test_resolve_validation_splits_group_on_with_num_repeats_none():
     groups = [f"g{i % 10}" for i in range(n)]
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": groups})
     y = pd.Series(np.zeros(n))
-    v = _Validation(
-        use_task_specific_validation=True,
+    protocol = ValidationMetadata(
         group_on="grp",
         group_labels=GroupLabelTypes.PER_SAMPLE,
     )
-    custom_splits, _folds, repeats = v.resolve_validation_splits(
+    custom_splits, _folds, repeats = resolve_validation_splits(
+        protocol,
         X=X,
         y=y,
         num_folds=8,
@@ -552,7 +531,7 @@ def test_large_integer_time_values_work():
 
 
 # ===========================================================================
-# Additional TabArenaValidationProtocolExecMixin tests
+# Additional validation protocol tests
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
@@ -562,9 +541,9 @@ def test_large_integer_time_values_work():
 
 def test_mixin_class_constants():
     """The constants govern the tiny-data regime — pin their values explicitly."""
-    assert _Validation.tiny_data_num_folds == 5
-    assert _Validation.tiny_data_num_repeats == 5
-    assert _Validation.max_samples_for_tiny_data == 500
+    assert ValidationMetadata.tiny_data_num_folds == 5
+    assert ValidationMetadata.tiny_data_num_repeats == 5
+    assert ValidationMetadata.max_samples_for_tiny_data == 500
 
 
 # ---------------------------------------------------------------------------
@@ -574,24 +553,23 @@ def test_mixin_class_constants():
 
 def test_resolve_number_of_splits_at_exact_boundary_500_is_tiny():
     """500 instances == max_samples_for_tiny_data → tiny-data path."""
-    v = _Validation(use_task_specific_validation=True)
-    folds, repeats = v._resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=500)
-    assert folds == _Validation.tiny_data_num_folds
-    assert repeats == _Validation.tiny_data_num_repeats
+    folds, repeats = ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=500)
+    assert folds == ValidationMetadata.tiny_data_num_folds
+    assert repeats == ValidationMetadata.tiny_data_num_repeats
 
 
 def test_resolve_number_of_splits_at_501_is_normal():
     """501 instances > max_samples_for_tiny_data → normal path."""
-    v = _Validation(use_task_specific_validation=True)
-    folds, repeats = v._resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=501)
+    folds, repeats = ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=501)
     assert folds == 8
     assert repeats == 1
 
 
 def test_resolve_number_of_splits_num_repeats_none_allowed_on_normal_path():
     """Normal path assertion is: num_repeats == 1 OR num_repeats is None."""
-    v = _Validation(use_task_specific_validation=True)
-    folds, repeats = v._resolve_number_of_splits(num_folds=8, num_repeats=None, num_group_instances=1000)
+    folds, repeats = ValidationMetadata().resolve_number_of_splits(
+        num_folds=8, num_repeats=None, num_group_instances=1000
+    )
     assert folds == 8
     assert repeats is None  # unchanged — no new value was assigned
 
@@ -603,20 +581,20 @@ def test_resolve_number_of_splits_num_repeats_none_allowed_on_normal_path():
 
 def test_resolve_validation_splits_num_folds_zero_returns_early():
     """num_folds=0 satisfies the `<= 1` early-exit condition."""
-    v = _Validation(use_task_specific_validation=True)
+    protocol = ValidationMetadata()
     X = _make_X(10)
     y = pd.Series(np.zeros(10))
-    custom_splits, folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=0, num_repeats=1)
+    custom_splits, folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=0, num_repeats=1)
     assert custom_splits is None
     assert folds == 0
 
 
 def test_resolve_validation_splits_num_repeats_none_normal_data():
     """num_repeats=None is accepted for the normal-data (>500 rows) path."""
-    v = _Validation(use_task_specific_validation=True)
+    protocol = ValidationMetadata()
     X = _make_X(600)
     y = pd.Series(np.zeros(600))
-    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=None)
+    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=None)
     assert custom_splits is None
     assert folds == 8
     assert repeats is None
@@ -624,33 +602,22 @@ def test_resolve_validation_splits_num_repeats_none_normal_data():
 
 def test_resolve_validation_splits_exactly_500_instances_is_tiny():
     """500 rows == boundary → tiny-data folds/repeats must be applied."""
-    v = _Validation(use_task_specific_validation=True)
+    protocol = ValidationMetadata()
     X = _make_X(500)
     y = pd.Series(np.zeros(500))
-    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     assert custom_splits is None
-    assert folds == _Validation.tiny_data_num_folds
-    assert repeats == _Validation.tiny_data_num_repeats
+    assert folds == ValidationMetadata.tiny_data_num_folds
+    assert repeats == ValidationMetadata.tiny_data_num_repeats
 
 
 def test_resolve_validation_splits_501_instances_is_normal():
     """501 rows > boundary → folds/repeats must remain unchanged."""
-    v = _Validation(use_task_specific_validation=True)
+    protocol = ValidationMetadata()
     X = _make_X(501)
     y = pd.Series(np.zeros(501))
-    custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     assert custom_splits is None
-    assert folds == 8
-    assert repeats == 1
-
-
-def test_resolve_validation_splits_disabled_ignores_tiny_data():
-    """use_task_specific_validation=False must skip all logic regardless of data size."""
-    v = _Validation(use_task_specific_validation=False)
-    X = _make_X(50)  # would be tiny if validation were enabled
-    y = pd.Series(np.zeros(50))
-    _custom_splits, folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
-    # Folds must NOT be changed to tiny_data_num_folds
     assert folds == 8
     assert repeats == 1
 
@@ -663,14 +630,14 @@ def test_resolve_validation_splits_disabled_ignores_tiny_data():
 def test_group_on_to_groups_data_preserves_dataframe_index():
     """The returned series must carry the same index as X."""
     X = pd.DataFrame({"group": ["a", "b", "c"]}, index=[10, 20, 30])
-    result = _Validation.group_on_to_groups_data(X=X, group_on="group")
+    result = group_on_to_groups_data(X=X, group_on="group")
     assert list(result.index) == [10, 20, 30]
 
 
 def test_group_on_to_groups_data_returns_independent_copy():
     """Mutating the returned series must not modify X."""
     X = pd.DataFrame({"group": ["x", "y"]})
-    result = _Validation.group_on_to_groups_data(X=X, group_on="group")
+    result = group_on_to_groups_data(X=X, group_on="group")
     result.iloc[0] = "MUTATED"
     assert X["group"].iloc[0] == "x"
 
@@ -678,14 +645,14 @@ def test_group_on_to_groups_data_returns_independent_copy():
 def test_group_on_to_groups_data_multi_column_separator_is_underscore():
     """Multi-column groups are joined with '_' as separator."""
     X = pd.DataFrame({"g1": ["foo", "foo"], "g2": ["bar", "baz"]})
-    result = _Validation.group_on_to_groups_data(X=X, group_on=["g1", "g2"])
+    result = group_on_to_groups_data(X=X, group_on=["g1", "g2"])
     assert list(result) == ["foo_bar", "foo_baz"]
 
 
 def test_group_on_to_groups_data_numeric_columns_joined_as_strings():
     """Numeric group columns must be cast to str before joining."""
     X = pd.DataFrame({"g1": [1, 1], "g2": [2, 3]})
-    result = _Validation.group_on_to_groups_data(X=X, group_on=["g1", "g2"])
+    result = group_on_to_groups_data(X=X, group_on=["g1", "g2"])
     assert list(result) == ["1_2", "1_3"]
 
 
@@ -700,7 +667,7 @@ def test_time_on_to_groups_data_unsorted_input_gives_monotonic_output():
     The output labels must satisfy: time[i] < time[j] ⟹ label[i] ≤ label[j].
     """
     X = pd.DataFrame({"time": [5, 3, 1, 4, 2]})
-    groups, n = _Validation.time_on_to_groups_data(X=X, time_on="time", num_folds=3)
+    groups, n = time_on_to_groups_data(X=X, time_on="time", num_folds=3)
     assert n == 3
     pairs = sorted(zip(X["time"].tolist(), groups.tolist(), strict=False))
     for i in range(len(pairs) - 1):
@@ -714,13 +681,13 @@ def test_time_on_to_groups_data_string_column_raises():
     """A non-numeric, non-datetime column must be rejected with AssertionError."""
     X = pd.DataFrame({"time": ["2020-01", "2020-02", "2020-03", "2020-04"]})
     with pytest.raises(AssertionError, match="not datetime or numeric"):
-        _Validation.time_on_to_groups_data(X=X, time_on="time", num_folds=2)
+        time_on_to_groups_data(X=X, time_on="time", num_folds=2)
 
 
 def test_time_on_to_groups_data_output_length_matches_input():
     """Returned series must have the same length as the input DataFrame."""
     X = pd.DataFrame({"time": list(range(15))})
-    groups, n = _Validation.time_on_to_groups_data(X=X, time_on="time", num_folds=4)
+    groups, n = time_on_to_groups_data(X=X, time_on="time", num_folds=4)
     assert len(groups) == len(X)
     assert n == 4
 
@@ -728,7 +695,7 @@ def test_time_on_to_groups_data_output_length_matches_input():
 def test_time_on_to_groups_data_fewer_unique_than_folds_caps_n():
     """When n_unique < num_folds, actual n_intervals is capped at n_unique."""
     X = pd.DataFrame({"time": [1, 1, 2, 2]})  # only 2 unique timestamps
-    _groups, n = _Validation.time_on_to_groups_data(X=X, time_on="time", num_folds=10)
+    _groups, n = time_on_to_groups_data(X=X, time_on="time", num_folds=10)
     assert n == 2
 
 
@@ -739,24 +706,22 @@ def test_time_on_to_groups_data_fewer_unique_than_folds_caps_n():
 
 def test_get_num_group_instances_per_group_label_counts_groups():
     """PER_GROUP: result is the number of distinct group identifiers."""
-    v = _Validation(
-        use_task_specific_validation=True,
+    protocol = ValidationMetadata(
         group_on="g",
         group_labels=GroupLabelTypes.PER_GROUP,
     )
     X = pd.DataFrame({"a": [1, 2, 3, 4], "g": ["x", "x", "y", "y"]})
-    assert v.get_num_group_instances(X) == 2
+    assert get_num_group_instances(protocol, X) == 2
 
 
 def test_get_num_group_instances_per_sample_label_returns_len():
     """PER_SAMPLE: result is len(X), ignoring group column entirely."""
-    v = _Validation(
-        use_task_specific_validation=True,
+    protocol = ValidationMetadata(
         group_on="g",
         group_labels=GroupLabelTypes.PER_SAMPLE,
     )
     X = pd.DataFrame({"a": [1, 2, 3, 4], "g": ["x", "x", "y", "y"]})
-    assert v.get_num_group_instances(X) == 4  # len(X), not 2 groups
+    assert get_num_group_instances(protocol, X) == 4  # len(X), not 2 groups
 
 
 # ===========================================================================
@@ -775,21 +740,20 @@ def _dummy_splits(n: int) -> list[tuple[np.ndarray, np.ndarray]]:
 
 
 def _patch_group_splits(
-    v: _Validation,
     monkeypatch: pytest.MonkeyPatch,
     n: int,
     captured: dict | None = None,
 ) -> None:
-    """Conditionally patch ``_resolve_group_splits`` on instance *v*.
+    """Conditionally patch the module-level ``_resolve_group_splits``.
 
-    * When ``data_foundry`` is **not** installed the method is replaced with a
+    * When ``data_foundry`` is **not** installed the function is replaced with a
       dummy that returns a trivial 50/50 split.
-    * When ``data_foundry`` **is** installed the real method is wrapped so that
+    * When ``data_foundry`` **is** installed the real function is wrapped so that
       its keyword arguments are still captured (when *captured* is given) while
       the genuine implementation runs.
     """
     if _DATA_FOUNDRY_AVAILABLE:
-        original = v._resolve_group_splits
+        original = autogluon_utils._resolve_group_splits
 
         def _wrapper(**kw):
             if captured is not None:
@@ -802,7 +766,7 @@ def _patch_group_splits(
                 captured.update(kw)
             return _dummy_splits(n)
 
-    monkeypatch.setattr(v, "_resolve_group_splits", _wrapper)
+    monkeypatch.setattr(autogluon_utils, "_resolve_group_splits", _wrapper)
 
 
 # ---------------------------------------------------------------------------
@@ -813,8 +777,7 @@ def _patch_group_splits(
 def test_resolve_validation_splits_group_on_returns_custom_splits(monkeypatch):
     """group_on set → custom_splits is a non-empty list of (train, test) pairs."""
     n = 600
-    v = _Validation(
-        use_task_specific_validation=True,
+    protocol = ValidationMetadata(
         group_on="group",
         group_labels=GroupLabelTypes.PER_GROUP,
     )
@@ -825,9 +788,9 @@ def test_resolve_validation_splits_group_on_returns_custom_splits(monkeypatch):
         },
     )
     y = pd.Series(np.zeros(n))
-    _patch_group_splits(v, monkeypatch, n)
+    _patch_group_splits(monkeypatch, n)
 
-    custom_splits, _folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, _folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     assert custom_splits is not None
     assert len(custom_splits) > 0
     train_idx, test_idx = custom_splits[0]
@@ -838,8 +801,7 @@ def test_resolve_validation_splits_group_on_returns_custom_splits(monkeypatch):
 def test_resolve_validation_splits_group_on_indices_do_not_overlap(monkeypatch):
     """Train and test index arrays returned for group_on must be disjoint."""
     n = 600
-    v = _Validation(
-        use_task_specific_validation=True,
+    protocol = ValidationMetadata(
         group_on="group",
         group_labels=GroupLabelTypes.PER_GROUP,
     )
@@ -850,9 +812,9 @@ def test_resolve_validation_splits_group_on_indices_do_not_overlap(monkeypatch):
         },
     )
     y = pd.Series(np.zeros(n))
-    _patch_group_splits(v, monkeypatch, n)
+    _patch_group_splits(monkeypatch, n)
 
-    custom_splits, _folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, _folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     for train_idx, test_idx in custom_splits:
         assert len(set(train_idx).intersection(set(test_idx))) == 0
 
@@ -860,8 +822,7 @@ def test_resolve_validation_splits_group_on_indices_do_not_overlap(monkeypatch):
 def test_resolve_validation_splits_group_on_tiny_data_uses_tiny_folds(monkeypatch):
     """group_on with PER_SAMPLE label and tiny data uses tiny_data_num_folds."""
     n = 100  # < 500 → tiny
-    v = _Validation(
-        use_task_specific_validation=True,
+    protocol = ValidationMetadata(
         group_on="group",
         group_labels=GroupLabelTypes.PER_SAMPLE,
     )
@@ -873,18 +834,17 @@ def test_resolve_validation_splits_group_on_tiny_data_uses_tiny_folds(monkeypatc
     )
     y = pd.Series(np.zeros(n))
     captured: dict = {}
-    _patch_group_splits(v, monkeypatch, n, captured)
+    _patch_group_splits(monkeypatch, n, captured)
 
-    v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
-    assert captured["num_folds"] == _Validation.tiny_data_num_folds
-    assert captured["num_repeats"] == _Validation.tiny_data_num_repeats
+    resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    assert captured["num_folds"] == ValidationMetadata.tiny_data_num_folds
+    assert captured["num_repeats"] == ValidationMetadata.tiny_data_num_repeats
 
 
 def test_resolve_validation_splits_group_on_passes_correct_groups_data(monkeypatch):
     """The groups_data passed to _resolve_group_splits must match group_on column."""
     n = 600
-    v = _Validation(
-        use_task_specific_validation=True,
+    protocol = ValidationMetadata(
         group_on="grp",
         group_labels=GroupLabelTypes.PER_GROUP,
     )
@@ -892,9 +852,9 @@ def test_resolve_validation_splits_group_on_passes_correct_groups_data(monkeypat
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values})
     y = pd.Series(np.zeros(n))
     captured: dict = {}
-    _patch_group_splits(v, monkeypatch, n, captured)
+    _patch_group_splits(monkeypatch, n, captured)
 
-    v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     assert list(captured["groups_data"]) == group_values
 
 
@@ -906,19 +866,19 @@ def test_resolve_validation_splits_group_on_passes_correct_groups_data(monkeypat
 def test_resolve_validation_splits_time_on_forces_num_repeats_to_one(monkeypatch):
     """time_on set → num_repeats is always forced to 1, regardless of input."""
     n = 600
-    v = _Validation(use_task_specific_validation=True, time_on="time")
+    protocol = ValidationMetadata(time_on="time")
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
     y = pd.Series(np.zeros(n))
-    _patch_group_splits(v, monkeypatch, n)
+    _patch_group_splits(monkeypatch, n)
 
-    _custom_splits, _folds, repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    _custom_splits, _folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     assert repeats == 1
 
 
 def test_resolve_validation_splits_time_on_folds_capped_at_unique_values(monkeypatch):
     """time_on with fewer unique values than num_folds → folds capped at n_unique."""
     n = 600
-    v = _Validation(use_task_specific_validation=True, time_on="time")
+    protocol = ValidationMetadata(time_on="time")
     # Only 4 unique time values; num_folds=8 must be capped to 4.
     X = pd.DataFrame(
         {
@@ -927,21 +887,21 @@ def test_resolve_validation_splits_time_on_folds_capped_at_unique_values(monkeyp
         },
     )
     y = pd.Series(np.zeros(n))
-    _patch_group_splits(v, monkeypatch, n)
+    _patch_group_splits(monkeypatch, n)
 
-    _custom_splits, folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    _custom_splits, folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     assert folds == 4
 
 
 def test_resolve_validation_splits_time_on_returns_custom_splits(monkeypatch):
     """time_on set → custom_splits is a non-empty list."""
     n = 600
-    v = _Validation(use_task_specific_validation=True, time_on="time")
+    protocol = ValidationMetadata(time_on="time")
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
     y = pd.Series(np.zeros(n))
-    _patch_group_splits(v, monkeypatch, n)
+    _patch_group_splits(monkeypatch, n)
 
-    custom_splits, _folds, _repeats = v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, _folds, _repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     assert custom_splits is not None
     assert len(custom_splits) > 0
 
@@ -949,26 +909,26 @@ def test_resolve_validation_splits_time_on_returns_custom_splits(monkeypatch):
 def test_resolve_validation_splits_time_on_group_labels_set_to_per_sample(monkeypatch):
     """time_on sets group_labels=PER_SAMPLE when calling _resolve_group_splits."""
     n = 600
-    v = _Validation(use_task_specific_validation=True, time_on="time")
+    protocol = ValidationMetadata(time_on="time")
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
     y = pd.Series(np.zeros(n))
     captured: dict = {}
-    _patch_group_splits(v, monkeypatch, n, captured)
+    _patch_group_splits(monkeypatch, n, captured)
 
-    v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     assert captured["group_labels"] == GroupLabelTypes.PER_SAMPLE
 
 
 def test_resolve_validation_splits_time_on_passes_interval_labels_as_groups(monkeypatch):
     """groups_data passed to _resolve_group_splits must be the interval labels, not raw time."""
     n = 600
-    v = _Validation(use_task_specific_validation=True, time_on="time")
+    protocol = ValidationMetadata(time_on="time")
     X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
     y = pd.Series(np.zeros(n))
     captured: dict = {}
-    _patch_group_splits(v, monkeypatch, n, captured)
+    _patch_group_splits(monkeypatch, n, captured)
 
-    v.resolve_validation_splits(X=X, y=y, num_folds=8, num_repeats=1)
+    resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
     groups = captured["groups_data"]
     # Interval labels must be non-negative integers, not the original time values
     assert groups.min() == 0

@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from tabarena.benchmark.exec_models.registry import infer_model_cls
 from tabarena.benchmark.experiment.experiment_constructor import resolve_class
 from tabarena.benchmark.experiment.experiment_utils import check_cache_hit
-from tabarena.benchmark.models.model_registry import infer_model_cls
 from tabarena.benchmark.task.user_task import UserTask
 from tabarena.utils.cache import CacheFunctionPickle
 
