@@ -28,6 +28,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+import numpy as np
 import pandas as pd
 
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
@@ -247,8 +248,11 @@ class AbstractArenaContext(ABC):
         self,
         output_dir: str | Path,
         new_results: pd.DataFrame | None = None,
+        ta_results: pd.DataFrame | None = None,
         only_valid_tasks: bool | str | list[str] = False,
         subset: str | list[str] | None = None,
+        tasks: list[tuple[str, int]] | None = None,
+        datasets: list[str] | None = None,
         folds: list[int] | None = None,
         score_on_val: bool = False,
         average_seeds: bool = False,
@@ -260,27 +264,65 @@ class AbstractArenaContext(ABC):
         figure_file_type: str = "pdf",
         **kwargs,
     ) -> pd.DataFrame:
-        from tabarena.nips2025_utils.compare import compare_on_tabarena
+        """Compute the leaderboard comparing ``new_results`` against this arena's baselines.
+
+        ``ta_results`` defaults to :meth:`load_baseline_results`; ``new_results`` (if given)
+        are concatenated to them. ``fillna`` / ``calibration_method`` resolve ``"auto"`` to
+        the context's settings.
+        """
+        # Deferred import: tabarena.nips2025_utils.compare imports TabArenaContext at module
+        # level, which would be circular at import time.
+        from tabarena.nips2025_utils.compare import compare, filter_to_valid_tasks
 
         if fillna == "auto":
             fillna = self.fillna_method
         if calibration_method == "auto":
             calibration_method = self.calibration_method
 
-        return compare_on_tabarena(
-            output_dir=output_dir,
-            new_results=new_results,
-            only_valid_tasks=only_valid_tasks,
+        if ta_results is None:
+            ta_results = self.load_baseline_results(
+                download_results="auto",
+            )
+
+        if new_results is not None:
+            new_results = new_results.copy(deep=True)
+            if "method_subtype" not in new_results.columns:
+                new_results["method_subtype"] = np.nan
+
+        df_results = pd.concat([ta_results, new_results], ignore_index=True) if new_results is not None else ta_results
+
+        kwargs = kwargs.copy()
+        if isinstance(only_valid_tasks, (tuple, np.ndarray)):
+            only_valid_tasks = list(only_valid_tasks)
+        if isinstance(only_valid_tasks, (str, list)):
+            kwargs["only_valid_tasks"] = only_valid_tasks
+        elif only_valid_tasks and new_results is not None:
+            df_results = filter_to_valid_tasks(
+                df_to_filter=df_results,
+                df_filter=new_results,
+            )
+
+        # TODO: only methods that exist in runs
+        #  Pair with (method, artifact_name)
+        method_rename_map = self.get_method_rename_map()
+
+        return compare(
+            df_results=df_results,
+            output_dir=Path(output_dir),
+            task_metadata=self.task_metadata_collection,
             subset=subset,
+            tasks=tasks,
+            datasets=datasets,
             folds=folds,
             tabarena_context=self,
-            score_on_val=score_on_val,
-            average_seeds=average_seeds,
             fillna=fillna,
             calibration_framework=calibration_method,
+            score_on_val=score_on_val,
+            average_seeds=average_seeds,
             remove_imputed=remove_imputed,
             tmp_treat_tasks_independently=tmp_treat_tasks_independently,
             leaderboard_kwargs=leaderboard_kwargs,
+            method_rename_map=method_rename_map,
             figure_file_type=figure_file_type,
             **kwargs,
         )

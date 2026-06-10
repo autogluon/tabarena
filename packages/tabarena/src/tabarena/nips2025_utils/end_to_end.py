@@ -7,7 +7,7 @@ import pandas as pd
 
 from bencheval.tabarena import TabArena
 from tabarena.models._method_metadata import MethodMetadata
-from tabarena.nips2025_utils.compare import compare, compare_on_tabarena
+from tabarena.nips2025_utils.compare import compare
 from tabarena.nips2025_utils.end_to_end_single import (
     EndToEndResultsSingle,
     EndToEndSingle,
@@ -17,6 +17,7 @@ from tabarena.nips2025_utils.load_metadata_from_raw import load_from_raw_all_met
 from tabarena.nips2025_utils.method_processor import (
     load_all_artifacts,
 )
+from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.utils.ray_utils import ray_map_list
 
@@ -442,15 +443,17 @@ class EndToEndResults:
         if extra_results is not None:
             results = pd.concat([results, extra_results], ignore_index=True)
 
-        return compare_on_tabarena(
-            new_results=results,
+        if tabarena_context_kwargs is None:
+            tabarena_context_kwargs = {}
+        tabarena_context = TabArenaContext(**tabarena_context_kwargs)
+        return tabarena_context.compare(
             output_dir=output_dir,
+            new_results=results,
             only_valid_tasks=only_valid_tasks,
             subset=subset,
             score_on_val=score_on_val,
             average_seeds=average_seeds,
             leaderboard_kwargs=leaderboard_kwargs,
-            tabarena_context_kwargs=tabarena_context_kwargs,
             remove_imputed=remove_imputed,
             **kwargs,
         )
