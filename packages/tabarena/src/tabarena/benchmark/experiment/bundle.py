@@ -162,7 +162,7 @@ class TabArenaExperimentBundle:
     with the original TabArena setup, but not recommended to change."""
     dynamic_tabarena_validation_protocol: bool = True
     """If True, experiments built by this bundle adapt their validation data
-    dynamically based on the task at run time (handled by `run_experiments_new`).
+    dynamically based on the task at run time (handled by the run engine).
     WARNING: this can overwrite the configured validation of a configuration!"""
 
     custom_model_constraints: dict[str, ModelConstraints] = field(default_factory=dict)

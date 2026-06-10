@@ -31,7 +31,6 @@ from tabarena.benchmark.experiment.experiment_utils import (
 )
 from tabarena.benchmark.experiment.experiment_runner_api import (
     job_cache_exists,
-    run_experiments_new,
     task_cache_key_from_task_id_str,
 )
 
@@ -56,6 +55,5 @@ __all__ = [
     "build_jobs",
     "filter_jobs_by_constraints",
     "job_cache_exists",
-    "run_experiments_new",
     "task_cache_key_from_task_id_str",
 ]

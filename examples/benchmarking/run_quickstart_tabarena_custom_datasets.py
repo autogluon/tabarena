@@ -7,7 +7,7 @@ import pandas as pd
 from sklearn.datasets import make_classification, make_regression
 from sklearn.model_selection import RepeatedStratifiedKFold, train_test_split
 
-from tabarena.benchmark.experiment import run_experiments_new
+from tabarena.benchmark.experiment import ExperimentBatchRunner
 from tabarena.benchmark.task import UserTask
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.models.utils import get_configs_generator_from_name
@@ -168,12 +168,10 @@ if __name__ == "__main__":
             ),
         )
 
-    results_lst = run_experiments_new(
-        output_dir=tabarena_dir,
-        model_experiments=model_experiments,
-        tasks=tasks,
-        repetitions_mode="TabArena-Lite",
-    )
+    # Register the custom tasks so the runner resolves them to local UserTasks; the
+    # collection's splits (one r0f0 split per task, see the metadata rows) are run.
+    runner = ExperimentBatchRunner(expname=tabarena_dir, task_metadata=task_collection, user_tasks=tasks)
+    results_lst = runner.run_all(methods=model_experiments)
 
     # compute results
     end_to_end = EndToEnd.from_raw(

@@ -137,7 +137,7 @@ class Experiment:
         """Fit this experiment on a single (task, fold, repeat) and return its results.
 
         Single entry point for executing one experiment job end to end, so callers (e.g.
-        ``run_experiments_new``) only hand over the task and cache and read back a result.
+        ``_run_job_specs``) only hand over the task and cache and read back a result.
         It splits into two flows:
 
         - **Load flow** (``task is None``): load and return the cached ``results`` directly.

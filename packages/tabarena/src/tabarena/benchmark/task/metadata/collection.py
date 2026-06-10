@@ -180,6 +180,7 @@ class TaskMetadataCollection:
         problem_types: list[str] | None = None,
         split_indices: list[str] | Literal["lite"] | None = None,
         dataset_names: list[str] | None = None,
+        task_ids: list[str | int] | None = None,
         required_dtypes: list[str] | None = None,
         forbidden_dtypes: list[str] | None = None,
         n_train_samples: tuple[int | None, int | None] | None = None,
@@ -196,6 +197,8 @@ class TaskMetadataCollection:
           Tasks left with no splits are dropped.
         * ``dataset_names`` — keep tasks whose ``dataset_name`` is listed; raises if a
           requested name is not in this collection.
+        * ``task_ids`` — keep tasks whose ``task_id_str`` is listed (ints are accepted
+          for OpenML task ids); raises if a requested id is not in this collection.
         * ``required_dtypes`` / ``forbidden_dtypes`` — keep datasets with at least one /
           no column of the given dtypes (options: ``"numeric"``, ``"categorical"``,
           ``"text"``, ``"datetime"``).
@@ -218,6 +221,9 @@ class TaskMetadataCollection:
         if dataset_names is not None:
             result = result._filter_dataset_names(dataset_names)
             steps.append(("Filter to dataset names", result))
+        if task_ids is not None:
+            result = result._filter_task_ids(task_ids)
+            steps.append(("Filter to task ids", result))
         if required_dtypes is not None or forbidden_dtypes is not None:
             result = result._with_tasks(
                 [
@@ -272,6 +278,18 @@ class TaskMetadataCollection:
                 f"Available dataset names: {sorted(available)}",
             )
         return self._with_tasks([t for t in self._tasks if t.dataset_name in requested])
+
+    def _filter_task_ids(self, task_ids: list[str | int]) -> TaskMetadataCollection:
+        """Keep tasks whose ``task_id_str`` is listed; raise on ids not in the collection."""
+        requested = {str(task_id) for task_id in task_ids}
+        available = {str(t.task_id_str) for t in self._tasks}
+        missing = requested - available
+        if missing:
+            raise ValueError(
+                f"Requested task ids not found in task metadata: {sorted(missing)}. "
+                f"Available task ids: {sorted(available)}",
+            )
+        return self._with_tasks([t for t in self._tasks if str(t.task_id_str) in requested])
 
     def _filter_train_samples(self, n_train_samples: tuple[int | None, int | None]) -> TaskMetadataCollection:
         """Keep splits whose train size is in ``(lower, upper]``; drop tasks left empty."""
