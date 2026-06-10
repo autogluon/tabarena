@@ -8,64 +8,30 @@ from pathlib import Path
 from typing import ClassVar
 
 from tabarena.benchmark.experiment.experiment_constructor import Experiment
+from tabarena.benchmark.experiment.model_constraints import (
+    TABICL_CONSTRAINTS,
+    TABPFNV2_CONSTRAINTS,
+    ModelConstraints,
+)
 
 
-@dataclass(frozen=True)
-class ModelConstraints:
-    """Per-model dataset-compatibility constraints.
+def _experiment_ag_key(experiment: Experiment) -> str:
+    """Resolve the AutoGluon model key an experiment's constraints are looked up under.
 
-    A constraint is "active" only when its corresponding field is set
-    (non-`None`); unset fields impose no restriction. `regression_support`
-    defaults to True — set False for classification-only models.
+    The wrapped class is read from the experiment's captured constructor args
+    (``model_cls`` for model experiments, ``method_cls`` for plain ones — the same keys
+    the serialized YAML form carries) and its ``ag_key`` is used. Full-pipeline
+    AutoGluon experiments (neither key) map to ``"AutoGluon"``; classes without an
+    ``ag_key`` fall back to their class name, which simply won't match any constraint
+    key (i.e. unconstrained).
     """
-
-    max_n_features: int | None = None
-    max_n_samples_train_per_fold: int | None = None
-    min_n_samples_train_per_fold: int | None = None
-    max_n_classes: int | None = None
-    regression_support: bool = True
-
-    def applies(
-        self,
-        *,
-        n_features: int,
-        n_classes: int,
-        n_samples_train_per_fold: int,
-        problem_type: str | None = None,
-    ) -> bool:
-        """True if a dataset with these properties is compatible with the model.
-
-        For regression datasets, `problem_type == "regression"` is the
-        authoritative signal — `n_classes` from metadata can be 0/-1/None.
-        """
-        if problem_type == "regression" and not self.regression_support:
-            return False
-        if self.max_n_features is not None and n_features > self.max_n_features:
-            return False
-        if (
-            self.max_n_samples_train_per_fold is not None
-            and n_samples_train_per_fold > self.max_n_samples_train_per_fold
-        ):
-            return False
-        if (
-            self.min_n_samples_train_per_fold is not None
-            and n_samples_train_per_fold < self.min_n_samples_train_per_fold
-        ):
-            return False
-        return not (self.max_n_classes is not None and n_classes > self.max_n_classes)
-
-
-# Shared constraints for model families (used by TabArenaExperimentBundle.DEFAULT_MODEL_CONSTRAINTS).
-TABICL_CONSTRAINTS = ModelConstraints(
-    max_n_samples_train_per_fold=100_000,
-    max_n_features=500,
-    regression_support=False,
-)
-TABPFNV2_CONSTRAINTS = ModelConstraints(
-    max_n_samples_train_per_fold=10_000,
-    max_n_features=500,
-    max_n_classes=10,
-)
+    ctor_args = getattr(experiment, "_locals", None) or {}
+    cls_obj = ctor_args.get("model_cls") or ctor_args.get("method_cls")
+    if cls_obj is not None:
+        return getattr(cls_obj, "ag_key", None) or cls_obj.__name__
+    if experiment.name.startswith("AutoGluon"):
+        return "AutoGluon"
+    return experiment.name
 
 
 @dataclass(kw_only=True)
@@ -162,7 +128,7 @@ class TabArenaExperimentBundle:
     with the original TabArena setup, but not recommended to change."""
     dynamic_tabarena_validation_protocol: bool = True
     """If True, experiments built by this bundle adapt their validation data
-    dynamically based on the task at run time (handled by `run_experiments_new`).
+    dynamically based on the task at run time (handled by the run engine).
     WARNING: this can overwrite the configured validation of a configuration!"""
 
     custom_model_constraints: dict[str, ModelConstraints] = field(default_factory=dict)
@@ -243,14 +209,21 @@ class TabArenaExperimentBundle:
         memory_limit: int | None,
         time_limit_with_preprocessing: bool,
     ) -> list[Experiment]:
-        """Build the full list of experiments (one per model x pipeline x random config)."""
+        """Build the full list of experiments (one per model x pipeline x random config).
+
+        Each experiment leaves here self-contained: compute resources are baked into its
+        kwargs, and its dataset-compatibility :class:`ModelConstraints` (resolved from
+        :attr:`model_constraints` by AG model key) are attached to the experiment itself —
+        so downstream consumers (``build_jobs``, ``run_jobs``, the SLURM dispatch) respect
+        them without being handed a separate constraints mapping.
+        """
         method_kwargs = self._init_base_method_kwargs(
             num_cpus=num_cpus,
             num_gpus=num_gpus,
             memory_limit=memory_limit,
         )
         self._print_experiment_summary(method_kwargs)
-        return [
+        experiments = [
             exp
             for pipeline_name in self.preprocessing_pipelines
             for exp in self._build_experiments_for_pipeline(
@@ -260,6 +233,21 @@ class TabArenaExperimentBundle:
                 time_limit_with_preprocessing=time_limit_with_preprocessing,
             )
         ]
+        self._attach_model_constraints(experiments)
+        return experiments
+
+    def _attach_model_constraints(self, experiments: list[Experiment]) -> None:
+        """Attach each experiment's :class:`ModelConstraints` (keyed by its AG model key).
+
+        Experiments that already carry explicit constraints keep them; models without an
+        entry in :attr:`model_constraints` stay unconstrained (``None``).
+        """
+        constraints_by_key = self.model_constraints
+        for experiment in experiments:
+            if experiment.model_constraints is None:
+                constraints = constraints_by_key.get(_experiment_ag_key(experiment))
+                if constraints is not None:
+                    experiment.set_model_constraints(constraints)
 
     def _init_base_method_kwargs(
         self,

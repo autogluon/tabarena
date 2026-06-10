@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy, CacheFunctionPickle
 
 if TYPE_CHECKING:
-    import pandas as pd
-
     from tabarena.benchmark.experiment.experiment_constructor import Experiment
+    from tabarena.benchmark.experiment.job import Job
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+    from tabarena.benchmark.task.user_task import UserTask
 
 
 # TODO: Inspect artifact folder to load all results without needing to specify them explicitly
@@ -18,22 +18,26 @@ class ExperimentBatchRunner:
     def __init__(
         self,
         expname: str,
-        task_metadata: pd.DataFrame | TaskMetadataCollection,
-        dataset_fold_repeats: list[tuple[str, int, int]] | None = None,
+        task_metadata: TaskMetadataCollection,
         cache_cls: type[AbstractCacheFunction] | None = CacheFunctionPickle,
         cache_cls_kwargs: dict | None = None,
         cache_mode: Literal["default", "ignore", "only", "only_strict"] = "default",
         debug_mode: bool = True,
         raise_on_failure: bool = True,
+        user_tasks: list[UserTask] | None = None,
     ):
         """Parameters
         ----------
         expname
-        dataset_fold_repeats: list[tuple[str, int, int]] | None, default None
-            The allowed (dataset, fold, repeat) triplets that `run_all` executes. If
-            None, `run_all` uses the full grid implied by the `n_folds` and `n_repeats`
-            columns of `task_metadata`. Each triplet is validated against `task_metadata`
-            (dataset must be present; fold < n_folds; repeat < n_repeats).
+        task_metadata: TaskMetadataCollection
+            The native task metadata, and the single source of truth for what `run_all`
+            executes: `run_all` runs exactly this collection's splits (a non-rectangular set
+            is respected). To run a subset, pre-filter the collection with
+            :meth:`TaskMetadataCollection.subset` before constructing the runner. A legacy
+            one-row-per-dataset DataFrame is not accepted — wrap it first with
+            ``TaskMetadataCollection.from_legacy_df(df)`` (or build one with
+            ``TaskMetadataCollection(tasks)``) so the lossy legacy conversion stays an
+            explicit, opt-in step at the call site.
         cache_cls
         cache_cls_kwargs
         cache_mode: {"default", "ignore", "only", "only_strict"}, default "default"
@@ -55,67 +59,88 @@ class ExperimentBatchRunner:
         raise_on_failure: bool, default True
             If True, exceptions raised during an experiment propagate and stop the run.
             If False, failures are recorded and the remaining experiments continue.
+        user_tasks: list[UserTask] | None, default None
+            Local (custom) tasks to register so the run methods can execute them. Each
+            ``UserTask`` is keyed by its ``tabarena_task_name`` (which must also appear as a
+            ``dataset`` row in ``task_metadata``, with ``tid == UserTask.task_id``). When a
+            run resolves such a dataset it hands the live ``UserTask`` to the run
+            engine (loaded from local disk via ``save_local_openml_task``), instead of
+            the integer tid that the engine would try to download from OpenML. Datasets
+            without a registered ``UserTask`` keep resolving to their integer OpenML tid.
+
+            Tasks whose collection ``task_id_str`` is a serialized ``UserTask`` id
+            (``"UserTask|..."``, e.g. materialized Data Foundry tasks) are auto-registered
+            from the collection — no explicit entry needed; an explicit entry for the same
+            dataset takes precedence.
         """
         cache_cls = CacheFunctionDummy if cache_cls is None else cache_cls
         cache_cls_kwargs = {"include_self_in_call": True} if cache_cls_kwargs is None else cache_cls_kwargs
 
-        # A TaskMetadataCollection is the native input; a raw DataFrame stays a legacy
-        # passthrough. Given a collection, derive the tid map / grid / validation from it
-        # natively and keep a legacy `task_metadata` df for the downstream run_experiments_new.
+        # The TaskMetadataCollection is the single source of truth: the tid map / grid /
+        # validation are derived from it natively. A legacy DataFrame is no longer accepted.
         from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 
-        self.task_metadata_collection = task_metadata if isinstance(task_metadata, TaskMetadataCollection) else None
-        self.task_metadata = (
-            self.task_metadata_collection.to_legacy_df() if self.task_metadata_collection is not None else task_metadata
-        )
+        if not isinstance(task_metadata, TaskMetadataCollection):
+            raise TypeError(
+                f"`task_metadata` must be a TaskMetadataCollection, got {type(task_metadata).__name__}. "
+                "Wrap a legacy DataFrame with TaskMetadataCollection.from_legacy_df(df) (or build one "
+                "with TaskMetadataCollection(tasks)).",
+            )
+        self.task_metadata_collection = task_metadata
 
         self.expname = expname
         self.cache_cls = cache_cls
         self.cache_cls_kwargs = cache_cls_kwargs
         self.cache_mode = cache_mode
         self._dataset_to_tid_dict = self._build_dataset_to_tid()
+        self._dataset_to_user_task = self._build_dataset_to_user_task(user_tasks)
         self.debug_mode = debug_mode
         self.raise_on_failure = raise_on_failure
-        if dataset_fold_repeats is not None:
-            self._validate_dataset_fold_repeats(dataset_fold_repeats)
-        self._dataset_fold_repeats = dataset_fold_repeats
 
     @property
     def datasets(self) -> list[str]:
         return list(self._dataset_to_tid_dict.keys())
 
     def _build_dataset_to_tid(self) -> dict[str, int]:
-        """Map dataset name -> integer tid, natively from the collection (parsed from
-        ``task_id_str``) or from the legacy ``tid``/``dataset`` columns.
-        """
-        if self.task_metadata_collection is not None:
-            return {dataset: int(tid) for dataset, tid in self.task_metadata_collection.dataset_to_tid().items()}
-        return (
-            self.task_metadata[["tid", "dataset"]]
-            .drop_duplicates(["tid", "dataset"])
-            .set_index("dataset")["tid"]
-            .to_dict()
-        )
+        """Map dataset name -> integer tid, parsed natively from the collection's ``task_id_str``."""
+        return {dataset: int(tid) for dataset, tid in self.task_metadata_collection.dataset_to_tid().items()}
 
-    def _full_dataset_fold_repeats(self) -> list[tuple[str, int, int]]:
-        """The full ``(dataset, fold, repeat)`` grid `run_all` executes when no explicit
-        triplets were given: the collection's actual splits when present (a non-rectangular
-        set is respected), else the legacy ``n_folds`` x ``n_repeats`` product.
+    def _build_dataset_to_user_task(self, user_tasks: list[UserTask] | None) -> dict[str, UserTask]:
+        """Map dataset name -> registered local ``UserTask`` (see the ``user_tasks`` arg).
+
+        Each task is keyed by its ``tabarena_task_name`` (the ``dataset`` column key) and must
+        already be present in the tid map, so ``task_metadata`` and the registered tasks stay
+        consistent. Local tasks are auto-derived from the collection (a ``task_id_str`` of the
+        ``"UserTask|..."`` form reconstructs its ``UserTask``); explicit ``user_tasks`` entries
+        override the auto-derived ones.
         """
-        if self.task_metadata_collection is not None:
-            return self.task_metadata_collection.dataset_fold_repeats()
-        for col in ("dataset", "n_folds", "n_repeats"):
-            if col not in self.task_metadata.columns:
-                raise AssertionError(f"`task_metadata` must contain the column '{col}' to use `run_all`.")
-        metadata = self.task_metadata.drop_duplicates(subset="dataset")
-        grid = []
-        for dataset, n_folds, n_repeats in zip(
-            metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
-        ):
-            for repeat in range(int(n_repeats)):
-                for fold in range(int(n_folds)):
-                    grid.append((dataset, fold, repeat))
-        return grid
+        from tabarena.benchmark.task.user_task import UserTask
+
+        mapping: dict[str, UserTask] = {}
+        for ttm in self.task_metadata_collection:
+            task_id_str = ttm.task_id_str
+            if isinstance(task_id_str, str) and task_id_str.startswith("UserTask|"):
+                mapping.setdefault(ttm.tabarena_task_name, UserTask.from_task_id_str(task_id_str))
+        for task in user_tasks or []:
+            dataset = task.tabarena_task_name
+            if dataset not in self._dataset_to_tid_dict:
+                raise ValueError(
+                    f"Registered user task {dataset!r} is not present in `task_metadata`; add a "
+                    f"row for it (its `tid` must equal `UserTask.task_id`).",
+                )
+            mapping[dataset] = task
+        return mapping
+
+    def _resolve_task(self, dataset: str) -> int | UserTask:
+        """Resolve a dataset name to what the run engine should run for it.
+
+        A registered local task resolves to its live ``UserTask`` (loaded from local disk);
+        any other dataset resolves to its integer OpenML tid (downloaded on demand).
+        """
+        user_task = self._dataset_to_user_task.get(dataset)
+        if user_task is not None:
+            return user_task
+        return int(self._dataset_to_tid_dict[dataset])
 
     def run(
         self,
@@ -143,7 +168,7 @@ class ExperimentBatchRunner:
         self._validate_folds(folds=folds)
         self._validate_repeats(repeats=repeats)
 
-        tids = [int(self._dataset_to_tid_dict[dataset]) for dataset in datasets]
+        tasks = [self._resolve_task(dataset) for dataset in datasets]
 
         # Translate folds/repeats into explicit (fold, repeat) pairs run for every task.
         # When `repeats` is unspecified, default to repeat 0. The cache path always
@@ -155,7 +180,7 @@ class ExperimentBatchRunner:
 
         return self._run_individual(
             methods=methods,
-            tids=tids,
+            tasks=tasks,
             repetitions_mode_args=fold_repeat_pairs,
         )
 
@@ -195,12 +220,12 @@ class ExperimentBatchRunner:
         datasets = list(pairs_per_dataset.keys())
         self._validate_datasets(datasets=datasets)
 
-        tids = [int(self._dataset_to_tid_dict[dataset]) for dataset in datasets]
+        tasks = [self._resolve_task(dataset) for dataset in datasets]
         repetitions_mode_args = [pairs_per_dataset[dataset] for dataset in datasets]
 
         return self._run_individual(
             methods=methods,
-            tids=tids,
+            tasks=tasks,
             repetitions_mode_args=repetitions_mode_args,
         )
 
@@ -208,12 +233,11 @@ class ExperimentBatchRunner:
         self,
         methods: list[Experiment],
     ) -> list[dict[str, Any]]:
-        """Run the configured (dataset, fold, repeat) triplets.
+        """Run every (dataset, fold, repeat) split in `task_metadata`.
 
-        If `dataset_fold_repeats` was passed at init, runs exactly those triplets.
-        Otherwise, for each dataset runs all folds in `range(n_folds)` x repeats in
-        `range(n_repeats)`, taken from the `n_folds` and `n_repeats` columns of
-        `task_metadata`. Delegates to `run_dataset_fold_repeats`.
+        Runs exactly the collection's splits (a non-rectangular set is respected). To run a
+        subset, construct the runner with a pre-filtered collection (see
+        `TaskMetadataCollection.subset`). Delegates to `run_dataset_fold_repeats`.
 
         Parameters
         ----------
@@ -227,37 +251,156 @@ class ExperimentBatchRunner:
             Can pass into `exp_bach_runner.repo_from_results(results_lst=results_lst)` to generate an EvaluationRepository.
 
         """
-        dataset_fold_repeats = self._dataset_fold_repeats
-        if dataset_fold_repeats is None:
-            dataset_fold_repeats = self._full_dataset_fold_repeats()
-
         return self.run_dataset_fold_repeats(
             methods=methods,
-            dataset_fold_repeats=dataset_fold_repeats,
+            dataset_fold_repeats=self.task_metadata_collection.dataset_fold_repeats(),
+        )
+
+    def run_jobs(
+        self,
+        jobs: list[Job],
+    ) -> list[dict[str, Any]]:
+        """Run an explicit, possibly non-rectangular list of ``(experiment, task)`` jobs.
+
+        Unlike `run` / `run_dataset_fold_repeats`, which cross a single `methods` list with
+        every task, each `Job` names *both* its experiment and its `(dataset, fold, repeat)`
+        split. Different experiments may therefore run on different tasks — e.g. re-running
+        only the specific (method, task, fold) units that failed, or running a heavy model
+        on a subset of datasets.
+
+        The jobs are resolved to tid-keyed work units and dispatched in a single pass that
+        groups by task, so a task shared by several experiments is materialized (OpenML
+        load) once *overall* (not once per experiment) and only one dataset is resident in
+        memory at a time. Caching and validation match the other entry points; the returned
+        `results_lst` preserves the order of `jobs` (failed or skipped jobs simply drop out).
+
+        Parameters
+        ----------
+        jobs: list[Job]
+            The (experiment, task) units to run. Must be unique on
+            `(experiment.name, dataset, fold, repeat)`. Jobs whose experiment carries
+            attached `ModelConstraints` incompatible with their dataset's shape are
+            skipped up front (see `filter_jobs_by_constraints`); experiments without
+            constraints run as-is.
+
+        Returns:
+        -------
+        results_lst: list[dict[str, Any]]
+            A list of experiment run metadata dictionaries (see `run`), in the same order as
+            `jobs` (minus any that failed or were skipped).
+            Can pass into `exp_bach_runner.repo_from_results(results_lst=results_lst)` to generate an EvaluationRepository.
+
+        """
+        from tabarena.benchmark.experiment.job import filter_jobs_by_constraints
+
+        # Respect each experiment's attached constraints (no-op for unconstrained jobs).
+        jobs = filter_jobs_by_constraints(jobs, task_metadata=self.task_metadata_collection)
+        if not jobs:
+            return []
+
+        # Validate the two ways a job list can be malformed before running anything: a
+        # duplicated unit of work, and two *different* experiments sharing a name. The
+        # results cache is keyed by `experiment.name`, so a name collision between distinct
+        # configs would silently cross-contaminate cached results.
+        experiments_by_name: dict[str, Experiment] = {}
+        seen: set[tuple[str, str, int, int]] = set()
+        datasets: list[str] = []
+        for job in jobs:
+            experiment = job.experiment
+            name = experiment.name
+            dataset, fold, repeat = job.task.as_triple()
+
+            existing = experiments_by_name.get(name)
+            if existing is None:
+                experiments_by_name[name] = experiment
+            elif existing is not experiment and existing.to_yaml_str() != experiment.to_yaml_str():
+                raise AssertionError(
+                    f"Two different experiments share the name {name!r}; experiment names must be "
+                    f"unique because the results cache is keyed by name.",
+                )
+
+            key = (name, dataset, fold, repeat)
+            if key in seen:
+                raise AssertionError(
+                    f"Duplicate job: experiment={name!r}, (dataset, fold, repeat)={(dataset, fold, repeat)}.",
+                )
+            seen.add(key)
+            if dataset not in datasets:
+                datasets.append(dataset)
+
+        self._validate_datasets(datasets=datasets)
+
+        # Resolve dataset name -> tid and build one flat, tid-keyed spec list in `jobs`
+        # order. `_run_job_specs` executes grouped by task (one load per shared task) but
+        # returns results in this input order, so `results_lst` aligns with `jobs`.
+        # Lazy import to avoid a circular import (experiment_runner_api imports this module).
+        from tabarena.benchmark.experiment.experiment_runner_api import _JobSpec, _run_job_specs
+
+        job_specs = [
+            _JobSpec(
+                model_experiment=job.experiment,
+                task=self._resolve_task(job.task.dataset),
+                fold=job.task.fold,
+                repeat=job.task.repeat,
+            )
+            for job in jobs
+        ]
+        return _run_job_specs(
+            job_specs,
+            base_cache_path=self.expname,
+            cache_mode=self.cache_mode,
+            cache_cls=self.cache_cls,
+            cache_cls_kwargs=self.cache_cls_kwargs,
+            raise_on_failure=self.raise_on_failure,
+            debug_mode=self.debug_mode,
         )
 
     def _run_individual(
         self,
         methods: list[Experiment],
-        tids: list[int],
+        tasks: list[int | UserTask],
         repetitions_mode_args: list,
     ) -> list[dict[str, Any]]:
-        """Invoke `run_experiments_new` in 'individual' repetitions mode.
+        """Build tid-keyed `_JobSpec`s and dispatch them through the shared engine.
 
         `repetitions_mode_args` is either a single list of (fold, repeat) pairs applied
-        to every task, or one (fold, repeat) list per task (aligned with `tids`). See
-        `run_experiments_new` for the 'individual' arg format.
+        to every task, or one (fold, repeat) list per task (aligned with `tasks`). Each task
+        is an integer OpenML tid or a local ``UserTask`` (see `_resolve_task`). Specs are
+        flattened in task -> split -> method order, which is also the result order (the
+        engine regroups by task for execution but returns results in spec order).
         """
         # Lazy import to avoid a circular import (experiment_runner_api imports this module).
-        from tabarena.benchmark.experiment.experiment_runner_api import run_experiments_new
+        from tabarena.benchmark.experiment.experiment_constructor import Experiment
+        from tabarena.benchmark.experiment.experiment_runner_api import _JobSpec, _run_job_specs
 
-        return run_experiments_new(
-            output_dir=self.expname,
-            model_experiments=methods,
-            tasks=tids,
-            tasks_metadata=self.task_metadata,
-            repetitions_mode="individual",
-            repetitions_mode_args=repetitions_mode_args,
+        assert all(isinstance(method, Experiment) for method in methods), (
+            "All `methods` elements must be instances of Experiment class"
+        )
+        assert len({method.name for method in methods}) == len(methods), (
+            "Duplicate experiment name found in `methods`. All names must be unique."
+        )
+
+        # A flat list of (fold, repeat) pairs is broadcast to every task; otherwise it is
+        # one list per task, aligned with `tasks`.
+        if repetitions_mode_args and isinstance(repetitions_mode_args[0], tuple):
+            pairs_per_task = [repetitions_mode_args] * len(tasks)
+        else:
+            pairs_per_task = repetitions_mode_args
+
+        job_specs = [
+            _JobSpec(model_experiment=method, task=task, fold=fold, repeat=repeat)
+            for task, fold_repeat_pairs in zip(tasks, pairs_per_task, strict=True)
+            for (fold, repeat) in fold_repeat_pairs
+            for method in methods
+        ]
+        print(
+            f"Running Experiments, saving to: '{self.expname}'..."
+            f"\n\tFitting {len(methods)} methods on {len(tasks)} tasks for a total of {len(job_specs)} jobs..."
+            f"\n\tMethods : {[method.name for method in methods]}",
+        )
+        return _run_job_specs(
+            job_specs,
+            base_cache_path=self.expname,
             cache_mode=self.cache_mode,
             # Forward the configured cache backend. The default `cache_cls_kwargs`
             # carries `include_self_in_call=True`, preserving the legacy
@@ -295,57 +438,6 @@ class ExperimentBatchRunner:
             return
         if len(repeats) != len(set(repeats)):
             raise AssertionError("Duplicate repeats present! Ensure all repeats are unique.")
-
-    def _validate_dataset_fold_repeats(self, dataset_fold_repeats: list[tuple[str, int, int]]):
-        """Verify each (dataset, fold, repeat) is possible according to `task_metadata`.
-
-        With a TaskMetadataCollection, validates against the actual splits (so a
-        non-rectangular set of splits is respected). With a DataFrame, checks the dataset is
-        present and (when the `n_folds`/`n_repeats` columns exist) that `0 <= fold < n_folds`
-        and `0 <= repeat < n_repeats` for that dataset.
-        """
-        if self.task_metadata_collection is not None:
-            valid = set(self.task_metadata_collection.dataset_fold_repeats())
-            invalid = [
-                (
-                    dataset,
-                    fold,
-                    repeat,
-                    "unknown dataset" if dataset not in self._dataset_to_tid_dict else "no such (fold, repeat) split",
-                )
-                for dataset, fold, repeat in dataset_fold_repeats
-                if (dataset, fold, repeat) not in valid
-            ]
-            if invalid:
-                invalid_str = "\n\t".join(str(x) for x in invalid)
-                raise AssertionError(
-                    f"`dataset_fold_repeats` contains {len(invalid)} entry(ies) not valid for `task_metadata`:\n\t{invalid_str}",
-                )
-            return
-
-        has_counts = {"n_folds", "n_repeats"}.issubset(self.task_metadata.columns)
-        counts: dict[str, tuple[int, int]] = {}
-        if has_counts:
-            metadata = self.task_metadata.drop_duplicates(subset="dataset")
-            counts = {
-                dataset: (int(n_folds), int(n_repeats))
-                for dataset, n_folds, n_repeats in zip(
-                    metadata["dataset"], metadata["n_folds"], metadata["n_repeats"], strict=False
-                )
-            }
-        invalid = []
-        for dataset, fold, repeat in dataset_fold_repeats:
-            if dataset not in self._dataset_to_tid_dict:
-                invalid.append((dataset, fold, repeat, "unknown dataset"))
-            elif has_counts:
-                n_folds, n_repeats = counts[dataset]
-                if not (0 <= fold < n_folds) or not (0 <= repeat < n_repeats):
-                    invalid.append((dataset, fold, repeat, f"out of range (n_folds={n_folds}, n_repeats={n_repeats})"))
-        if invalid:
-            invalid_str = "\n\t".join(str(x) for x in invalid)
-            raise AssertionError(
-                f"`dataset_fold_repeats` contains {len(invalid)} entry(ies) not valid for `task_metadata`:\n\t{invalid_str}",
-            )
 
 
 def check_cache_hit(

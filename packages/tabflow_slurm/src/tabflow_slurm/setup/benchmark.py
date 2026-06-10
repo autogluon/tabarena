@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import os
+import shutil
 import warnings
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import ray
 
+from tabarena.benchmark.experiment import JobBatch, build_jobs, job_cache_exists_batch
 from tabarena.utils.ray_utils import ray_map_list, to_batch_list
-from tabflow_slurm.setup.candidates import JobCandidate, should_run_job_batch
 
 if TYPE_CHECKING:
-    from tabarena.benchmark.experiment import TabArenaExperimentBundle
-    from tabarena.benchmark.task.metadata import TabArenaMetadataBundle, TabArenaTaskMetadata
+    from tabarena.benchmark.experiment import Job, TabArenaExperimentBundle
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
     from tabflow_slurm.setup.scheduler import SchedulerSetup
@@ -33,9 +33,10 @@ class TabArenaBenchmarkSetup:
     benchmark_name: str
     """Unique name of the benchmark; determines where output artifacts are stored."""
 
-    tasks_to_run_setup: TabArenaMetadataBundle
-    """Defines which tasks to run in the benchmark, including the source of
-    task metadata and any filters applied on top of it."""
+    tasks: TaskMetadataCollection
+    """The tasks (dataset x split) to run in the benchmark — already filtered
+    (see `TaskMetadataCollection.subset_tasks`) but not necessarily materialized;
+    `get_jobs_to_run` materializes it (downloads only this collection's tasks)."""
     experiment_bundle: TabArenaExperimentBundle
     """Defines which models / experiments to run in the benchmark and builds them
     (models, per-model config counts, preprocessing pipelines, fold fitting,
@@ -53,9 +54,9 @@ class TabArenaBenchmarkSetup:
     # Misc Settings
     # -------------
     parallel_safe_benchmark_name: str | None = None
-    """Per-run name for the config/job `.yaml`/`.json` setup artifacts, so
-    parallel runs of the same `benchmark_name` don't overwrite each other (SLURM
-    output and TabArena output still share the `benchmark_name` folders). Set by
+    """Per-run name for the job-batch/job-JSON setup artifacts, so parallel runs
+    of the same `benchmark_name` don't overwrite each other (SLURM output and
+    TabArena output still share the `benchmark_name` folders). Set by
     `TabArenaBenchmarkPlan` (one per group); falls back to `benchmark_name` for a
     single, non-parallel run."""
     ignore_cache: bool = False
@@ -70,30 +71,37 @@ class TabArenaBenchmarkSetup:
         """Per-run name for setup artifacts; falls back to `benchmark_name`."""
         return self.parallel_safe_benchmark_name or self.benchmark_name
 
+    @property
+    def _job_batch_dir(self) -> str:
+        """Directory of this run's `JobBatch` artifact (per parallel run)."""
+        return self.path_setup.get_job_batch_dir(
+            benchmark_name=self.benchmark_name,
+            safe_benchmark_name=self._safe_benchmark_name,
+        )
+
     def get_jobs_to_run(self) -> tuple[list[dict], int]:
         """Resolve the work to run for this benchmark.
 
         Pipeline:
             1. Create the output / log / setup / OpenML-cache directories if missing.
-            2. Load task metadata + generate the experiment configs YAML.
-            3. Enumerate the cartesian product (task split x config) as
-               candidate items.
-            4. Drop cache hits and constraint-violating items in parallel via
-               Ray (`should_run_job`).
-            5. Bundle the survivors into array tasks via
-               `scheduler_setup.bundle_items`.
+            2. Materialize the task collection (download only its tasks) and build
+               the experiments from the bundle (which attaches each experiment's
+               `ModelConstraints`).
+            3. Enumerate the sweep via the core `build_jobs` (experiments x splits;
+               constraint-violating pairs are dropped during enumeration).
+            4. Drop cache hits in parallel via Ray (the core `job_cache_exists_batch`),
+               unless `ignore_cache`.
+            5. Persist the surviving jobs as a self-contained `JobBatch` artifact
+               (experiments + task metadata + job coordinates) for the compute nodes.
+            6. Bundle the survivors into array tasks via `scheduler_setup.bundle_items`.
 
         Returns `(jobs, max_configs_per_job)`: `jobs` is a list of
         `{"items": [...]}` per array task; `max_configs_per_job` is the
         largest bundle observed and is used to budget the per-task time limit.
         """
         self.path_setup.ensure_runtime_dirs(self.benchmark_name)
-        task_metadata_list = self.tasks_to_run_setup.load_task_metadata()
-        configs = self.experiment_bundle.generate_configs_yaml(
-            configs_path=self.path_setup.get_configs_path(
-                benchmark_name=self.benchmark_name,
-                safe_benchmark_name=self._safe_benchmark_name,
-            ),
+        collection = self.tasks.materialize()
+        experiments = self.experiment_bundle.build_experiments(
             time_limit=self.resources_setup.time_limit,
             num_cpus=self.resources_setup.num_cpus,
             num_gpus=self.resources_setup.effective_num_gpus_model,
@@ -101,45 +109,33 @@ class TabArenaBenchmarkSetup:
             time_limit_with_preprocessing=self.resources_setup.time_limit_with_model_agnostic_preprocessing,
         )
 
-        candidates = self._enumerate_candidates(task_metadata_list, configs)
-        approved = self._filter_via_ray(candidates)
+        # Constraint-violating (experiment, split) pairs are dropped by build_jobs itself
+        # (the bundle attached each experiment's ModelConstraints at build time).
+        runnable_jobs = build_jobs(experiments, collection)
+        if not self.ignore_cache:
+            runnable_jobs = self._drop_cache_hits_via_ray(runnable_jobs, collection)
 
-        jobs, max_configs_per_job = self.scheduler_setup.bundle_items(approved)
+        self._save_job_batch(runnable_jobs, collection)
+        jobs, max_configs_per_job = self.scheduler_setup.bundle_items(runnable_jobs, collection)
 
         print(
-            f"Approved {len(approved)} (task, fold, repeat, config) items"
+            f"Approved {len(runnable_jobs)} (experiment, dataset, fold, repeat) items"
             f" -> {len(jobs)} array tasks (max {max_configs_per_job} items/task).",
         )
         return jobs, max_configs_per_job
 
-    @staticmethod
-    def _enumerate_candidates(
-        task_metadata_list: list[TabArenaTaskMetadata],
-        configs: list[dict],
-    ) -> list[JobCandidate]:
-        """Cartesian product of task splits x configs."""
-        candidates: list[JobCandidate] = []
-        for tm in task_metadata_list:
-            split_md = tm.splits_metadata[tm.split_index]
-            for config_index, config in enumerate(configs):
-                candidates.append(
-                    JobCandidate(
-                        task_id=tm.task_id_str,
-                        dataset_name=tm.dataset_name,
-                        fold=split_md.fold,
-                        repeat=split_md.repeat,
-                        config_index=config_index,
-                        config=config,
-                        n_features=split_md.num_features_train,
-                        n_classes=split_md.num_classes_train,
-                        n_samples_train_per_fold=split_md.num_instances_train,
-                        problem_type=tm.problem_type,
-                    ),
-                )
-        return candidates
+    def _drop_cache_hits_via_ray(self, jobs: list[Job], collection: TaskMetadataCollection) -> list[Job]:
+        """Fan out the cache check across Ray workers; return the not-yet-cached subset.
 
-    def _filter_via_ray(self, candidates: list[JobCandidate]) -> list[JobCandidate]:
-        """Fan out `should_run_job` across Ray workers; return the approved subset."""
+        Each job is projected to a plain ``(method_name, task_id_str, fold, repeat)``
+        tuple — no live experiments are pickled to workers — and checked through the
+        core, writer-aligned ``job_cache_exists_batch``.
+        """
+        task_id_by_dataset = {ttm.tabarena_task_name: ttm.task_id_str for ttm in collection}
+        items = [
+            (job.experiment.name, task_id_by_dataset[job.task.dataset], job.task.fold, job.task.repeat) for job in jobs
+        ]
+
         num_ray_cpus = len(os.sched_getaffinity(0)) if self.num_ray_cpus == "auto" else self.num_ray_cpus
         if ray.is_initialized():
             ray.shutdown()
@@ -148,22 +144,28 @@ class TabArenaBenchmarkSetup:
             ray.init(num_cpus=num_ray_cpus)
 
         batched = ray_map_list(
-            list_to_map=list(to_batch_list(candidates, 10_000)),
-            func=should_run_job_batch,
-            func_element_key_string="candidates",
+            list_to_map=list(to_batch_list(items, 10_000)),
+            func=job_cache_exists_batch,
+            func_element_key_string="items",
             num_workers=num_ray_cpus,
             num_cpus_per_worker=1,
-            func_kwargs={
-                "output_dir": self.path_setup.get_output_path(self.benchmark_name),
-                "model_constraints": self.experiment_bundle.model_constraints,
-                "ignore_cache": self.ignore_cache,
-            },
+            func_kwargs={"output_dir": self.path_setup.get_output_path(self.benchmark_name)},
             track_progress=True,
-            tqdm_kwargs={"desc": "Checking Cache and Filter Invalid Jobs"},
+            tqdm_kwargs={"desc": "Checking Cache"},
         )
-        keep_flags = [b for batch in batched for b in batch]
+        cached_flags = [b for batch in batched for b in batch]
+        return [job for cached, job in zip(cached_flags, jobs, strict=True) if not cached]
 
-        return [c for keep, c in zip(keep_flags, candidates, strict=True) if keep]
+    def _save_job_batch(self, jobs: list[Job], collection: TaskMetadataCollection) -> None:
+        """Persist the surviving jobs as the run's `JobBatch` artifact (or clean it up).
+
+        With no jobs there is nothing to ship; remove any stale artifact from a
+        previous invocation so the setup output always reflects this run.
+        """
+        if jobs:
+            JobBatch(jobs=jobs, task_metadata=collection).save(self._job_batch_dir)
+        else:
+            shutil.rmtree(self._job_batch_dir, ignore_errors=True)
 
     def get_jobs_dict(self) -> dict:
         """Build the dict consumed by `scheduler_setup.get_run_commands`.
@@ -188,10 +190,7 @@ class TabArenaBenchmarkSetup:
             "python": self.path_setup.python_path,
             "run_script": self.path_setup.run_script_path,
             "openml_cache_dir": self.path_setup.openml_cache_path,
-            "configs_yaml_file": self.path_setup.get_configs_path(
-                benchmark_name=self.benchmark_name,
-                safe_benchmark_name=self._safe_benchmark_name,
-            ),
+            "job_batch_dir": self._job_batch_dir,
             "output_dir": self.path_setup.get_output_path(self.benchmark_name),
             "num_cpus": self.resources_setup.num_cpus,
             "num_gpus": self.resources_setup.num_gpus,
@@ -205,14 +204,15 @@ class TabArenaBenchmarkSetup:
 
         Delegates persistence and command construction to
         `scheduler_setup.get_run_commands`. Returns `None` when there are no
-        jobs to run; in that case the configs YAML for this parallel run is
-        also removed so it can be re-prepared cleanly on the next invocation.
+        jobs to run; in that case the `JobBatch` artifact for this parallel run
+        was already removed (see `_save_job_batch`) so it can be re-prepared
+        cleanly on the next invocation.
 
         `print_run_commands` controls whether the scheduler prints its own
         run-command summary; `TabArenaBenchmarkPlan` sets this to False so it can
         print one consolidated summary across all runs instead.
         """
-        run_commands = self.scheduler_setup.get_run_commands(
+        return self.scheduler_setup.get_run_commands(
             jobs_dict=self.get_jobs_dict(),
             path_setup=self.path_setup,
             benchmark_name=self.benchmark_name,
@@ -220,11 +220,3 @@ class TabArenaBenchmarkSetup:
             resources_setup=self.resources_setup,
             print_summary=print_run_commands,
         )
-        if run_commands is None:
-            Path(
-                self.path_setup.get_configs_path(
-                    benchmark_name=self.benchmark_name,
-                    safe_benchmark_name=self._safe_benchmark_name,
-                ),
-            ).unlink(missing_ok=True)
-        return run_commands

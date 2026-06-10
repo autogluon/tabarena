@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import importlib
 import inspect
 import traceback
@@ -18,6 +19,7 @@ from tabarena.benchmark.exec_models.autogluon import (
 )
 from tabarena.benchmark.exec_models.registry import infer_model_cls
 from tabarena.benchmark.experiment.experiment_runner import ExperimentRunner, OOFExperimentRunner
+from tabarena.benchmark.experiment.model_constraints import ModelConstraints
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy
 
 if TYPE_CHECKING:
@@ -57,6 +59,14 @@ class Experiment:
         If True, this experiment's validation split is configured dynamically from the
         task (type and dataset metadata) at run time, via ``init_method_kwargs``. Only
         supported for ``AGWrapper``-based experiments (see ``_validate_dynamic_protocol_supported``).
+    model_constraints: ModelConstraints | dict | None, default None
+        Optional dataset-compatibility constraints of this experiment's model (e.g. a max
+        train-set size). A dict is accepted for the YAML round-trip and normalized to a
+        :class:`~tabarena.benchmark.experiment.model_constraints.ModelConstraints`.
+        Respected wherever jobs are enumerated or run (``build_jobs``, ``run_jobs``, the
+        SLURM dispatch): incompatible (experiment, task-split) pairs are skipped. ``None``
+        means unconstrained. ``TabArenaExperimentBundle`` attaches these automatically at
+        build time (see ``set_model_constraints``).
 
     """
 
@@ -75,6 +85,7 @@ class Experiment:
         experiment_kwargs: dict | None = None,
         preprocessing_pipeline: str | None = None,
         dynamic_tabarena_validation_protocol: bool = False,
+        model_constraints: ModelConstraints | dict | None = None,
     ):
         if experiment_kwargs is None:
             experiment_kwargs = {}
@@ -96,6 +107,8 @@ class Experiment:
         # based on the task it runs on (task-dependent, so applied at run time rather
         # than baked into method_kwargs).
         self.dynamic_tabarena_validation_protocol = dynamic_tabarena_validation_protocol
+        # Dataset-compatibility constraints of this experiment's model (None = unconstrained).
+        self.model_constraints = self._normalize_model_constraints(model_constraints)
 
     def __new__(cls, *args, **kwargs):
         """Capture the constructor arguments on ``self._locals`` for YAML round-tripping.
@@ -119,6 +132,29 @@ class Experiment:
         instance._locals = {**_kwargs}
         return instance
 
+    @staticmethod
+    def _normalize_model_constraints(
+        model_constraints: ModelConstraints | dict | None,
+    ) -> ModelConstraints | None:
+        """Normalize the ``model_constraints`` input (a dict comes from the YAML form)."""
+        if isinstance(model_constraints, dict):
+            return ModelConstraints(**model_constraints)
+        return model_constraints
+
+    def set_model_constraints(self, model_constraints: ModelConstraints | dict | None) -> None:
+        """Attach dataset-compatibility constraints after construction.
+
+        Equivalent to passing ``model_constraints`` to the constructor, including the
+        YAML round-trip (``_locals`` is kept in sync). Used by builders that obtain
+        experiments from config generators rather than calling the constructor directly
+        (e.g. ``TabArenaExperimentBundle``).
+        """
+        self.model_constraints = self._normalize_model_constraints(model_constraints)
+        if self.model_constraints is None:
+            self._locals.pop("model_constraints", None)
+        else:
+            self._locals["model_constraints"] = self.model_constraints
+
     # --- Execution (fit / run) -------------------------------------------------------
     def run(
         self,
@@ -137,7 +173,7 @@ class Experiment:
         """Fit this experiment on a single (task, fold, repeat) and return its results.
 
         Single entry point for executing one experiment job end to end, so callers (e.g.
-        ``run_experiments_new``) only hand over the task and cache and read back a result.
+        ``_run_job_specs``) only hand over the task and cache and read back a result.
         It splits into two flows:
 
         - **Load flow** (``task is None``): load and return the cached ``results`` directly.
@@ -439,11 +475,17 @@ class Experiment:
         return yaml.safe_dump(yaml_out, sort_keys=False, allow_unicode=True)
 
     def _to_yaml_dict(self, locals: dict) -> dict:
-        """Convert captured constructor args to YAML-friendly values (classes -> import paths)."""
+        """Convert captured constructor args to YAML-friendly values.
+
+        Classes become import paths; a ``ModelConstraints`` value becomes its plain field
+        dict (``__init__`` normalizes it back on load).
+        """
         locals_new = {}
         for k, v in locals.items():
             if inspect.isclass(v):
                 v = class_to_path(v)
+            elif isinstance(v, ModelConstraints):
+                v = dataclasses.asdict(v)
             locals_new[k] = v
         return locals_new
 

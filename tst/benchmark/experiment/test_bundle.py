@@ -115,3 +115,43 @@ def test_default_model_constraints_are_shared_across_subclasses():
     # With no custom overrides, the effective `model_constraints` equals the defaults.
     assert BeyondArenaExperimentBundle().model_constraints == expected
     assert TabArenaV0pt1ExperimentBundle().model_constraints == expected
+
+
+def test_build_experiments_attaches_model_constraints():
+    """build_experiments resolves each experiment's constraints by AG key and attaches them."""
+    from autogluon.tabular.models import LGBModel
+
+    from tabarena.benchmark.experiment import AGModelBagExperiment, ModelConstraints
+
+    gbm_constraints = ModelConstraints(max_n_samples_train_per_fold=123)
+    explicit = ModelConstraints(max_n_features=7)
+    bundle = TabArenaExperimentBundle(
+        models=[
+            # Built via the registry: LGBModel's AG key is "GBM" -> gets gbm_constraints.
+            ("LightGBM", 0),
+            # Pre-built passthrough with explicit constraints: kept, not overridden.
+            AGModelBagExperiment(
+                name="explicitly_constrained",
+                model_cls=LGBModel,
+                model_hyperparameters={},
+                num_bag_folds=2,
+                time_limit=60,
+                model_constraints=explicit,
+            ),
+        ],
+        n_random_configs=0,
+        preprocessing_pipelines=["default"],
+        custom_model_constraints={"GBM": gbm_constraints},
+    )
+    experiments = bundle.build_experiments(
+        time_limit=60,
+        num_cpus=1,
+        num_gpus=0,
+        memory_limit=4,
+        time_limit_with_preprocessing=False,
+    )
+    by_name = {experiment.name: experiment for experiment in experiments}
+    assert by_name["explicitly_constrained"].model_constraints == explicit
+    registry_built = [e for name, e in by_name.items() if name != "explicitly_constrained"]
+    assert registry_built, "expected at least the default LightGBM config"
+    assert all(e.model_constraints == gbm_constraints for e in registry_built)

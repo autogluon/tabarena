@@ -112,6 +112,14 @@ class TestNativeViews:
         assert len(dfr) == 6
         assert set(dfr) == {("a", f, r) for r in range(2) for f in range(3)}
 
+    def test_task_grid_exposes_warehouse_predicate_columns(self):
+        # task_grid carries the warehouse columns (None for tasks that don't set them, e.g.
+        # TabArena v0.1) so arena-specific predicates (BeyondArena) can read them.
+        c = TaskMetadataCollection(_unrolled(_task_meta(dataset_name="a")))
+        grid = c.task_grid()
+        for col in ("task_type", "num_cols_after_preprocessing", "num_text_cols", "num_high_cardinality_cats"):
+            assert col in grid.columns
+
     def test_per_dataset_frame_one_row_per_dataset_native_columns(self):
         tasks = _unrolled(_task_meta(dataset_name="a", num_features=7, splits=[_split_meta(fold=f) for f in range(3)]))
         tasks += _unrolled(_task_meta(dataset_name="b", problem_type="regression", num_features=4))
@@ -200,13 +208,12 @@ class TestFromLegacyDf:
         assert row["n_repeats"] == 2
         assert row["tid"] == 363612
 
-    def test_real_legacy_df_matches_native_bundle(self):
-        """The real legacy df rebuilds to the same datasets/feature counts as the native bundle."""
-        from tabarena.benchmark.task.metadata import TabArenaV0pt1MetadataBundle
+    def test_real_legacy_df_matches_native_preset(self):
+        """The real legacy df rebuilds to the same datasets/feature counts as the native preset."""
         from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
 
         legacy_collection = TaskMetadataCollection.from_legacy_df(load_task_metadata(paper=True))
-        native = TabArenaV0pt1MetadataBundle(materialize=False).load_collection()
+        native = TaskMetadataCollection.from_preset("TabArena-v0.1")
         assert set(legacy_collection.dataset_names()) == set(native.dataset_names())  # 51 datasets
         legacy_nf = legacy_collection.per_dataset_frame().set_index("dataset")["num_features"]
         native_nf = native.per_dataset_frame().set_index("dataset")["num_features"]
@@ -229,3 +236,19 @@ class TestLegacyBoundary:
         for col in ("dataset", "tid", "n_folds", "n_features"):
             assert col in legacy.columns
         assert legacy.iloc[0]["n_folds"] == 3
+
+
+class TestSubset:
+    def test_keeps_requested_splits_and_drops_unrequested_tasks(self):
+        a = _task_meta(dataset_name="a", splits=[_split_meta(repeat=r, fold=f) for r in range(2) for f in range(2)])
+        b = _task_meta(dataset_name="b", splits=[_split_meta(fold=0)])
+        c = TaskMetadataCollection([a, b])
+        # Keep two of a's four splits; b is not requested, so it drops out entirely.
+        sub = c.subset([("a", 0, 0), ("a", 1, 1)])
+        assert sub.dataset_names() == ["a"]
+        assert set(sub.dataset_fold_repeats()) == {("a", 0, 0), ("a", 1, 1)}
+
+    def test_invalid_triplet_raises(self):
+        c = TaskMetadataCollection([_task_meta(dataset_name="a", splits=[_split_meta(fold=0)])])
+        with pytest.raises(ValueError, match="not splits of this collection"):
+            c.subset([("a", 1, 0)])

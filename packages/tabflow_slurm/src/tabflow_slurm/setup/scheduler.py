@@ -10,7 +10,8 @@ from typing import TYPE_CHECKING, Literal
 from tabarena.utils.ray_utils import to_batch_list
 
 if TYPE_CHECKING:
-    from tabflow_slurm.setup.candidates import JobCandidate
+    from tabarena.benchmark.experiment import Job
+    from tabarena.benchmark.task.metadata import SplitMetadata, TaskMetadataCollection
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
 
@@ -27,15 +28,16 @@ class SchedulerSetup:
     """
 
     bundle_size: int = 5
-    """Number of `(task_id, fold, repeat, config_index)` items batched into a
-    single array task. Items may span different `(task_id, fold, repeat)`
+    """Number of `(experiment, dataset, fold, repeat)` items batched into a
+    single array task. Items may span different `(dataset, fold, repeat)`
     groups.
 
     Mirrors the design used by `tabflow` (the SageMaker side) — see
     `tabflow/cli/launch_jobs.py::get_tasks_batched`."""
 
     bundle_size_per_dataset: dict[str, int] | None = None
-    """Optional per-dataset override of `bundle_size`, keyed by `dataset_name`.
+    """Optional per-dataset override of `bundle_size`, keyed by the dataset name
+    (the collection's `tabarena_task_name` — the runner's results `dataset` key).
     Items from datasets not listed here use `bundle_size`. Items belonging to
     different effective bundle sizes are not mixed in the same bundle.
     An explicit entry here takes precedence over the large-dataset auto-rule
@@ -91,60 +93,68 @@ class SchedulerSetup:
         """
         return {}
 
-    def bundle_items(self, approved: list[JobCandidate]) -> tuple[list[dict], int]:
-        """Group approved candidates into array-task bundles.
+    def bundle_items(self, jobs: list[Job], task_metadata: TaskMetadataCollection) -> tuple[list[dict], int]:
+        """Group approved jobs into array-task bundles.
 
-        Candidates are partitioned by their effective bundle size (see
-        `_effective_bundle_size`) so candidates with different effective sizes
-        never share a task. Returns `(jobs, max_configs_per_job)` where each job
-        is `{"items": [...]}` (JSON-serializable, only the identifying-tuple
-        fields), and `max_configs_per_job` is the largest bundle observed
-        (used by schedulers to budget the per-task time limit).
+        Jobs are partitioned by their effective bundle size (see
+        `_effective_bundle_size`; each job's dataset shape is looked up in
+        `task_metadata`) so jobs with different effective sizes never share a
+        task. Returns `(array_tasks, max_configs_per_job)` where each array task
+        is `{"items": [...]}` (JSON-serializable: the self-describing
+        `(experiment, dataset, fold, repeat)` coordinates the runner resolves
+        against the shipped `JobBatch`), and `max_configs_per_job` is the largest
+        bundle observed (used by schedulers to budget the per-task time limit).
         """
-        by_size: dict[int, list[JobCandidate]] = {}
-        for c in approved:
-            by_size.setdefault(self._effective_bundle_size(c), []).append(c)
+        split_index = {
+            (ttm.tabarena_task_name, split.fold, split.repeat): split
+            for ttm in task_metadata
+            for split in ttm.splits_metadata.values()
+        }
+        by_size: dict[int, list[Job]] = {}
+        for job in jobs:
+            size = self._effective_bundle_size(job, split=split_index[job.task.as_triple()])
+            by_size.setdefault(size, []).append(job)
 
-        jobs: list[dict] = []
+        array_tasks: list[dict] = []
         max_configs_per_job = 1
         # Sort sizes for deterministic job ordering across runs.
         for size in sorted(by_size):
             for bundle in to_batch_list(by_size[size], size):
                 max_configs_per_job = max(max_configs_per_job, len(bundle))
-                jobs.append(
+                array_tasks.append(
                     {
                         "items": [
                             {
-                                "task_id": c.task_id,
-                                "fold": c.fold,
-                                "repeat": c.repeat,
-                                "config_index": c.config_index,
+                                "experiment": job.experiment.name,
+                                "dataset": job.task.dataset,
+                                "fold": job.task.fold,
+                                "repeat": job.task.repeat,
                             }
-                            for c in bundle
+                            for job in bundle
                         ],
                     },
                 )
-        return jobs, max_configs_per_job
+        return array_tasks, max_configs_per_job
 
-    def _effective_bundle_size(self, c: JobCandidate) -> int:
-        """Effective bundle size for a single candidate.
+    def _effective_bundle_size(self, job: Job, *, split: SplitMetadata) -> int:
+        """Effective bundle size for a single job (with its split's shape metadata).
 
         Precedence: an explicit `bundle_size_per_dataset` entry wins; otherwise
         large datasets (see `_is_large_dataset`) collapse to 1; otherwise the
         default `bundle_size` applies.
         """
         overrides = self.bundle_size_per_dataset or {}
-        if c.dataset_name in overrides:
-            return overrides[c.dataset_name]
-        if self._is_large_dataset(c):
+        if job.task.dataset in overrides:
+            return overrides[job.task.dataset]
+        if self._is_large_dataset(split):
             return 1
         return self.bundle_size
 
-    def _is_large_dataset(self, c: JobCandidate) -> bool:
-        """Whether a candidate's dataset exceeds either large-dataset threshold."""
-        return (self.large_dataset_n_features is not None and c.n_features > self.large_dataset_n_features) or (
-            self.large_dataset_n_samples is not None and c.n_samples_train_per_fold > self.large_dataset_n_samples
-        )
+    def _is_large_dataset(self, split: SplitMetadata) -> bool:
+        """Whether a split's dataset shape exceeds either large-dataset threshold."""
+        return (
+            self.large_dataset_n_features is not None and split.num_features_train > self.large_dataset_n_features
+        ) or (self.large_dataset_n_samples is not None and split.num_instances_train > self.large_dataset_n_samples)
 
 
 @dataclass(kw_only=True)

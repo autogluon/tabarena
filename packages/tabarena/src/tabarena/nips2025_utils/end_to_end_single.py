@@ -737,7 +737,7 @@ class EndToEndResultsSingle:
         fillna_method = "RF (default)"
         fillna_method_name = "RandomForest"
 
-        df_fillna = tabarena_context.load_results_paper(methods=[fillna_method_name])
+        df_fillna = tabarena_context.load_baseline_results(methods=[fillna_method_name])
         df_fillna = df_fillna[df_fillna["method"] == fillna_method]
         assert not df_fillna.empty
 

@@ -351,28 +351,26 @@ def test_repository_configs_hyperparameters():
     }
 
 
-def test_repository_save_load():
+def test_repository_save_load(tmp_path):
     """Test repo save and load work."""
     repo = load_repo_artificial(include_hyperparameters=True)
-    save_path = "tmp_repo"
+    save_path = str(tmp_path / "tmp_repo")
     repo.to_dir(path=save_path)
     repo_loaded = EvaluationRepository.from_dir(path=save_path)
     verify_equivalent_repository(repo1=repo, repo2=repo_loaded, verify_ensemble=True, exact=True)
 
     repo_float64 = load_repo_artificial(include_hyperparameters=True, dtype=np.float64)
-    save_path = "tmp_repo_from_float64"
+    save_path = str(tmp_path / "tmp_repo_from_float64")
     repo_float64.to_dir(path=save_path)
     repo_loaded_float64 = EvaluationRepository.from_dir(path=save_path)
     # exact=False because the loaded version is float32 and the original is float64
     verify_equivalent_repository(repo1=repo_float64, repo2=repo_loaded_float64, verify_ensemble=True, exact=False)
 
 
-def test_repository_save_load_with_moving_files():
+def test_repository_save_load_with_moving_files(tmp_path):
     """Test repo save and load work when moving files to different directories."""
-    save_path = "tmp_repo"
-    copy_path = "tmp_repo_copy"
-    shutil.rmtree(save_path, ignore_errors=True)
-    shutil.rmtree(copy_path, ignore_errors=True)
+    save_path = str(tmp_path / "tmp_repo")
+    copy_path = str(tmp_path / "tmp_repo_copy")
 
     repo = load_repo_artificial(include_hyperparameters=True)
     repo.set_config_fallback(config_fallback=repo.configs()[0])

@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 
 from tabarena.benchmark.experiment import AGModelBagExperiment, ExperimentBatchRunner
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.method_processor import generate_task_metadata
 
@@ -33,6 +34,23 @@ if __name__ == "__main__":
     assert len(task_metadata["dataset"].unique()) == len(task_metadata["dataset"])  # ensure unique dataset names
 
     datasets = list(task_metadata["dataset"].unique())
+
+    # `generate_task_metadata` returns raw OpenML metadata; adapt it to the columns the native
+    # TaskMetadataCollection needs (ExperimentBatchRunner / EndToEnd / compare all consume the
+    # collection). Only fold 0 is run below, so n_folds / n_repeats are nominal here.
+    def _problem_type(row):
+        if "regression" in str(row["task_type"]).lower():
+            return "regression"
+        return "binary" if int(row["NumberOfClasses"]) == 2 else "multiclass"
+
+    task_metadata["problem_type"] = task_metadata.apply(_problem_type, axis=1)
+    task_metadata["n_classes"] = task_metadata["NumberOfClasses"].fillna(0).astype(int)
+    task_metadata["n_features"] = (task_metadata["NumberOfFeatures"] - 1).astype(int)  # exclude target
+    task_metadata["n_folds"] = 10
+    task_metadata["n_repeats"] = 1
+    task_metadata["n_samples_train_per_fold"] = (task_metadata["NumberOfInstances"] * 0.9).astype(int)
+    task_metadata["n_samples_test_per_fold"] = (task_metadata["NumberOfInstances"] * 0.1).astype(int)
+    task_metadata_collection = TaskMetadataCollection.from_legacy_df(task_metadata)
 
     # import your model classes
     from autogluon.tabular.models import LGBModel, XGBoostModel
@@ -64,7 +82,7 @@ if __name__ == "__main__":
 
     exp_batch_runner = ExperimentBatchRunner(
         expname=expname,
-        task_metadata=task_metadata,
+        task_metadata=task_metadata_collection,
         cache_mode="ignore" if ignore_cache else "default",
     )
 
@@ -77,7 +95,9 @@ if __name__ == "__main__":
     )
 
     # compute results
-    end_to_end = EndToEnd.from_raw(results_lst=results_lst, task_metadata=task_metadata, cache=False, cache_raw=False)
+    end_to_end = EndToEnd.from_raw(
+        results_lst=results_lst, task_metadata=task_metadata_collection, cache=False, cache_raw=False
+    )
     end_to_end_results = end_to_end.to_results()
 
     print(f"New Configs Hyperparameters: {end_to_end.configs_hyperparameters()}")
@@ -86,7 +106,7 @@ if __name__ == "__main__":
 
     leaderboard = end_to_end_results.compare(
         output_dir=eval_dir,
-        task_metadata=task_metadata,
+        task_metadata=task_metadata_collection,
         use_model_results=True,
         average_seeds=False,
     )

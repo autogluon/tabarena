@@ -58,10 +58,10 @@ if __name__ == "__main__":
     ignore_cache = False  # set to True to overwrite existing caches and re-run experiments from scratch
 
     ta_context = TabArenaContext()
-    task_metadata = ta_context.task_metadata.copy()
+    task_metadata_collection = ta_context.task_metadata_collection
 
     # Sample for a quick demo
-    datasets = ["anneal", "credit-g", "diabetes"]  # datasets = list(task_metadata["name"])
+    datasets = ["anneal", "credit-g", "diabetes"]  # all datasets: ta_context.task_metadata["name"].tolist()
     folds = [0]
 
     methods = [
@@ -78,7 +78,7 @@ if __name__ == "__main__":
 
     exp_batch_runner = ExperimentBatchRunner(
         expname=expname,
-        task_metadata=task_metadata,
+        task_metadata=task_metadata_collection,
         cache_mode="ignore" if ignore_cache else "default",
     )
 
@@ -91,7 +91,9 @@ if __name__ == "__main__":
     )
 
     # compute results
-    end_to_end = EndToEnd.from_raw(results_lst=results_lst, task_metadata=task_metadata, cache=False, cache_raw=False)
+    end_to_end = EndToEnd.from_raw(
+        results_lst=results_lst, task_metadata=task_metadata_collection, cache=False, cache_raw=False
+    )
     end_to_end_results = end_to_end.to_results()
 
     with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):

@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from tabarena.benchmark.experiment import TabArenaExperimentBundle
-from tabarena.benchmark.task.metadata import TabArenaMetadataBundle
+from tabarena.benchmark.task.metadata import SplitMetadata, TabArenaTaskMetadata, TaskMetadataCollection
 
 # Import a real submodule (see test_setup.py for why a bare namespace won't skip).
 pytest.importorskip("tabflow_slurm.setup", reason="tabflow_slurm is not installed")
@@ -41,11 +41,50 @@ def _resources(**kw) -> ResourcesSetup:
     return ResourcesSetup(**kw)
 
 
+def _task_meta(dataset_name: str, *, n_train: int = 80) -> TabArenaTaskMetadata:
+    sm = SplitMetadata(
+        repeat=0,
+        fold=0,
+        num_instances_train=n_train,
+        num_instances_test=20,
+        num_instance_groups_train=n_train,
+        num_instance_groups_test=20,
+        num_classes_train=2,
+        num_classes_test=2,
+        num_features_train=5,
+        num_features_test=5,
+    )
+    return TabArenaTaskMetadata(
+        dataset_name=dataset_name,
+        problem_type="binary",
+        is_classification=True,
+        target_name="target",
+        eval_metric="roc_auc",
+        splits_metadata={sm.split_index: sm},
+        split_time_horizon=None,
+        split_time_horizon_unit=None,
+        stratify_on=None,
+        time_on=None,
+        group_on=None,
+        group_time_on=None,
+        group_labels=None,
+        multiclass_min_n_classes_over_splits=2,
+        multiclass_max_n_classes_over_splits=2,
+        class_consistency_over_splits=True,
+        num_instances=100,
+        num_features=5,
+        num_classes=2,
+        num_instance_groups=100,
+        tabarena_task_name=dataset_name,
+        task_id_str="360",
+    )
+
+
 def _plan(model_jobs: list[ModelJob], **kwargs) -> TabArenaBenchmarkPlan:
     defaults = {
         "benchmark_name": "my_bench",
         "model_jobs": model_jobs,
-        "tasks_to_run_setup": TabArenaMetadataBundle(task_metadata=[]),
+        "tasks": TaskMetadataCollection([]),
         "experiment_bundle": TabArenaExperimentBundle(n_random_configs=0, preprocessing_pipelines=["default"]),
         "path_setup": PathSetup(workspace="/ws", python_path="/py"),
         "scheduler_setup": _slurm(),
@@ -154,10 +193,27 @@ class TestBuildSetups:
         assert setup.scheduler_setup.gpu_partition == "X"
         assert plan.scheduler_setup.gpu_partition == "gpu_part"
 
-    def test_tasks_override_lands(self):
-        plan = _plan([ModelJob(models=("A", 0), tasks={"n_train_samples_to_run": (0, 1000)})])
+    def test_tasks_override_filters_base_collection(self):
+        base_tasks = TaskMetadataCollection([_task_meta("small", n_train=500), _task_meta("big", n_train=50_000)])
+        plan = _plan(
+            [ModelJob(models=("A", 0), tasks={"n_train_samples": (0, 1000)})],
+            tasks=base_tasks,
+        )
         setup = plan.build_setups()[0]
-        assert setup.tasks_to_run_setup.n_train_samples_to_run == (0, 1000)
+        assert [t.dataset_name for t in setup.tasks] == ["small"]
+        assert len(plan.tasks) == 2  # base collection untouched
+
+    def test_equal_task_filters_merge_into_one_setup(self):
+        base_tasks = TaskMetadataCollection([_task_meta("small", n_train=500), _task_meta("big", n_train=50_000)])
+        plan = _plan(
+            [
+                ModelJob(models=("A", 0), tasks={"n_train_samples": (0, 1000)}),
+                ModelJob(models=("B", 0), tasks={"n_train_samples": (0, 1000)}),
+            ],
+            tasks=base_tasks,
+        )
+        setups = plan.build_setups()
+        assert len(setups) == 1  # equal filtered collections compare equal -> merged
 
     def test_experiment_override_lands_and_models_preserved(self):
         plan = _plan([ModelJob(models=("A", 0), experiment={"model_agnostic_preprocessing": False})])
