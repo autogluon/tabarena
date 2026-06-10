@@ -724,7 +724,7 @@ class TabArenaContext(AbstractArenaContext):
                 method_downloader.download_results(holdout=holdout)
 
             try:
-                df_results = method_metadata.load_paper_results(holdout=holdout)
+                df_results = method_metadata.load_results(holdout=holdout)
             except FileNotFoundError as err:
                 if isinstance(download_results, str) and download_results == "auto":
                     print(
@@ -734,7 +734,7 @@ class TabArenaContext(AbstractArenaContext):
                     )
                     method_downloader = method_metadata.method_downloader()
                     method_downloader.download_results(holdout=holdout)
-                    df_results = method_metadata.load_paper_results(holdout=holdout)
+                    df_results = method_metadata.load_results(holdout=holdout)
                 else:
                     print(
                         f"Missing local results files for method {method_metadata.method}! "

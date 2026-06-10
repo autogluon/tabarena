@@ -498,7 +498,7 @@ class MethodMetadata:
     def load_portfolio_results(self, holdout: bool = False) -> pd.DataFrame:
         return pd.read_parquet(path=self.path_results_portfolio(holdout=holdout))
 
-    def load_paper_results(self, holdout: bool = False) -> pd.DataFrame:
+    def load_results(self, holdout: bool = False) -> pd.DataFrame:
         if self.method_type == "config":
             df_results = self.load_hpo_results(holdout=holdout)
         elif self.method_type == "baseline":
