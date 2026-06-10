@@ -1,14 +1,7 @@
-"""TabArena task metadata: schema (data classes) and bundle (selection/filtering)."""
+"""TabArena task metadata: schema (data classes), sources, and the TaskMetadataCollection."""
 
 from __future__ import annotations
 
-from tabarena.benchmark.task.metadata.bundles import (
-    BeyondArenaLiteMetadataBundle,
-    BeyondArenaMetadataBundle,
-    TabArenaMetadataBundle,
-    TabArenaV0pt1LiteMetadataBundle,
-    TabArenaV0pt1MetadataBundle,
-)
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 from tabarena.benchmark.task.metadata.schema import (
     GroupLabelTypes,
@@ -36,12 +29,10 @@ def default_task_metadata_collection() -> TaskMetadataCollection:
     Matches what ``TabArenaContext(task_metadata="tabarena")`` loads — used as the ``None`` default
     for task metadata across the evaluator / ``compare`` paths.
     """
-    return TabArenaV0pt1MetadataBundle(materialize=False).load_collection()
+    return TaskMetadataCollection.from_preset("TabArena-v0.1")
 
 
 __all__ = [
-    "BeyondArenaLiteMetadataBundle",
-    "BeyondArenaMetadataBundle",
     "DataFoundryTaskMetadataSource",
     "GroupLabelTypes",
     "InMemoryTaskMetadataSource",
@@ -50,10 +41,7 @@ __all__ = [
     "SplitMetadata",
     "SplitTimeHorizonTypes",
     "SplitTimeHorizonUnitTypes",
-    "TabArenaMetadataBundle",
     "TabArenaTaskMetadata",
-    "TabArenaV0pt1LiteMetadataBundle",
-    "TabArenaV0pt1MetadataBundle",
     "TabArenaV0pt1TaskMetadataSource",
     "TaskMetadataCollection",
     "TaskMetadataSource",

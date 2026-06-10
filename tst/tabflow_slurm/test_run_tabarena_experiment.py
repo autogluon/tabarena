@@ -10,10 +10,10 @@ import pytest
 pytest.importorskip("tabflow_slurm.run_tabarena_experiment", reason="tabflow_slurm is not installed")
 
 from tabflow_slurm.run_tabarena_experiment import (
-    _parse_int_list,
     _parse_int_or_none,
-    _parse_task_id,
     _str2bool,
+    _strip_quotes,
+    run_experiment,
 )
 from tabflow_slurm.slurm_utils import setup_slurm_job
 
@@ -48,37 +48,20 @@ class TestStr2Bool:
 
 
 # ---------------------------------------------------------------------------
-# _parse_int_list
+# _strip_quotes
 # ---------------------------------------------------------------------------
 
 
-class TestParseIntList:
-    def test_single_element(self):
-        assert _parse_int_list("5") == [5]
+class TestStripQuotes:
+    @pytest.mark.parametrize("value", ["'exp_a'", '"exp_a"', "exp_a", " exp_a "])
+    def test_strips_surrounding_quotes_and_whitespace(self, value):
+        assert _strip_quotes(value) == "exp_a"
 
-    def test_multiple_elements(self):
-        assert _parse_int_list("1,2,3") == [1, 2, 3]
+    def test_inner_quotes_kept(self):
+        assert _strip_quotes("a'b") == "a'b"
 
-    def test_negative_value(self):
-        assert _parse_int_list("-1,0,1") == [-1, 0, 1]
-
-    def test_returns_list_of_ints(self):
-        result = _parse_int_list("10,20")
-        assert all(isinstance(v, int) for v in result)
-
-    def test_single_zero(self):
-        assert _parse_int_list("0") == [0]
-
-    def test_longer_list(self):
-        assert _parse_int_list("0,1,2,3,4,5,6,7") == list(range(8))
-
-    def test_non_int_raises(self):
-        with pytest.raises((ValueError, TypeError)):
-            _parse_int_list("a,b,c")
-
-    def test_float_raises(self):
-        with pytest.raises((ValueError, TypeError)):
-            _parse_int_list("1.5,2.0")
+    def test_mismatched_quotes_kept(self):
+        assert _strip_quotes("'exp_a\"") == "'exp_a\""
 
 
 # ---------------------------------------------------------------------------
@@ -116,44 +99,76 @@ class TestParseIntOrNone:
 
 
 # ---------------------------------------------------------------------------
-# _parse_task_id
+# run_experiment — JobBatch resolution
 # ---------------------------------------------------------------------------
 
 
-class TestParseTaskId:
-    def test_numeric_string_returns_int(self):
-        result = _parse_task_id("360")
-        assert result == 360
-        assert isinstance(result, int)
+def _save_minimal_batch(path) -> None:
+    """Write a one-experiment, one-dataset JobBatch to `path`."""
+    import pandas as pd
+    from autogluon.tabular.models import LGBModel
 
-    def test_zero_string_returns_int(self):
-        result = _parse_task_id("0")
-        assert result == 0
-        assert isinstance(result, int)
+    from tabarena.benchmark.experiment import AGModelBagExperiment, Job, JobBatch
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
 
-    def test_large_numeric_string(self):
-        result = _parse_task_id("12345678")
-        assert result == 12345678
+    experiment = AGModelBagExperiment(
+        name="exp_a",
+        model_cls=LGBModel,
+        model_hyperparameters={},
+        num_bag_folds=2,
+        time_limit=60,
+    )
+    collection = TaskMetadataCollection.from_legacy_df(
+        pd.DataFrame(
+            {
+                "tid": [1],
+                "dataset": ["ds_a"],
+                "problem_type": ["binary"],
+                "n_folds": [1],
+                "n_repeats": [1],
+                "n_features": [5],
+                "n_classes": [2],
+                "NumberOfInstances": [100],
+                "n_samples_train_per_fold": [80.0],
+                "n_samples_test_per_fold": [20.0],
+            },
+        ),
+    )
+    JobBatch(jobs=[Job.create(experiment, "ds_a", fold=0)], task_metadata=collection).save(path)
 
-    def test_negative_numeric_string(self):
-        result = _parse_task_id("-1")
-        assert result == -1
 
-    def test_user_task_string_parsed(self, tmp_path):
-        # A valid UserTask task_id_str is formatted as "UserTask|<id>|<name>|<path>".
-        # Passing a non-integer string that matches the UserTask format should return a
-        # UserTask object rather than raising an exception.
-        from tabarena.benchmark.task.user_task import UserTask
+class TestRunExperimentResolution:
+    def test_unknown_experiment_name_raises_with_available_names(self, tmp_path):
+        batch_dir = tmp_path / "batch"
+        _save_minimal_batch(batch_dir)
+        with pytest.raises(ValueError, match="exp_a"):
+            run_experiment(
+                job_batch_dir=str(batch_dir),
+                experiment_name="not_in_batch",
+                dataset="ds_a",
+                fold=0,
+                repeat=0,
+                output_dir=str(tmp_path / "out"),
+                ignore_cache=False,
+            )
 
-        task = UserTask(task_name="my_task", task_cache_path=tmp_path)
-        result = _parse_task_id(task.task_id_str)
-        assert isinstance(result, UserTask)
-        assert result.task_name == "my_task"
-
-    def test_arbitrary_non_int_non_usertask_raises(self):
-        # Plain non-parseable strings that aren't UserTask ids should raise.
-        with pytest.raises(Exception):
-            _parse_task_id("not_a_valid_task_id")
+    def test_coordinates_not_in_batch_raise(self, tmp_path):
+        """A known experiment with coordinates that name no serialized job fails loudly
+        (e.g. a stale job JSON against a regenerated batch).
+        """
+        batch_dir = tmp_path / "batch"
+        _save_minimal_batch(batch_dir)
+        for dataset, fold in [("not_a_dataset", 0), ("ds_a", 7)]:
+            with pytest.raises(ValueError, match="not a job of the batch"):
+                run_experiment(
+                    job_batch_dir=str(batch_dir),
+                    experiment_name="exp_a",
+                    dataset=dataset,
+                    fold=fold,
+                    repeat=0,
+                    output_dir=str(tmp_path / "out"),
+                    ignore_cache=False,
+                )
 
 
 # ---------------------------------------------------------------------------

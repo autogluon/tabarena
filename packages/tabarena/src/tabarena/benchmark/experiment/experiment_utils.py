@@ -63,11 +63,15 @@ class ExperimentBatchRunner:
             Local (custom) tasks to register so the run methods can execute them. Each
             ``UserTask`` is keyed by its ``tabarena_task_name`` (which must also appear as a
             ``dataset`` row in ``task_metadata``, with ``tid == UserTask.task_id``). When a
-            run resolves such a dataset it hands the live ``UserTask`` to
-            ``run_experiments_new`` (loaded from local disk via ``save_local_openml_task``),
-            instead of the integer tid that ``run_experiments_new`` would try to download
-            from OpenML. Datasets without a registered ``UserTask`` keep resolving to their
-            integer OpenML tid.
+            run resolves such a dataset it hands the live ``UserTask`` to the run
+            engine (loaded from local disk via ``save_local_openml_task``), instead of
+            the integer tid that the engine would try to download from OpenML. Datasets
+            without a registered ``UserTask`` keep resolving to their integer OpenML tid.
+
+            Tasks whose collection ``task_id_str`` is a serialized ``UserTask`` id
+            (``"UserTask|..."``, e.g. materialized Data Foundry tasks) are auto-registered
+            from the collection — no explicit entry needed; an explicit entry for the same
+            dataset takes precedence.
         """
         cache_cls = CacheFunctionDummy if cache_cls is None else cache_cls
         cache_cls_kwargs = {"include_self_in_call": True} if cache_cls_kwargs is None else cache_cls_kwargs
@@ -106,12 +110,18 @@ class ExperimentBatchRunner:
 
         Each task is keyed by its ``tabarena_task_name`` (the ``dataset`` column key) and must
         already be present in the tid map, so ``task_metadata`` and the registered tasks stay
-        consistent.
+        consistent. Local tasks are auto-derived from the collection (a ``task_id_str`` of the
+        ``"UserTask|..."`` form reconstructs its ``UserTask``); explicit ``user_tasks`` entries
+        override the auto-derived ones.
         """
-        if not user_tasks:
-            return {}
+        from tabarena.benchmark.task.user_task import UserTask
+
         mapping: dict[str, UserTask] = {}
-        for task in user_tasks:
+        for ttm in self.task_metadata_collection:
+            task_id_str = ttm.task_id_str
+            if isinstance(task_id_str, str) and task_id_str.startswith("UserTask|"):
+                mapping.setdefault(ttm.tabarena_task_name, UserTask.from_task_id_str(task_id_str))
+        for task in user_tasks or []:
             dataset = task.tabarena_task_name
             if dataset not in self._dataset_to_tid_dict:
                 raise ValueError(
@@ -122,7 +132,7 @@ class ExperimentBatchRunner:
         return mapping
 
     def _resolve_task(self, dataset: str) -> int | UserTask:
-        """Resolve a dataset name to what ``run_experiments_new`` should run for it.
+        """Resolve a dataset name to what the run engine should run for it.
 
         A registered local task resolves to its live ``UserTask`` (loaded from local disk);
         any other dataset resolves to its integer OpenML tid (downloaded on demand).
@@ -268,7 +278,10 @@ class ExperimentBatchRunner:
         ----------
         jobs: list[Job]
             The (experiment, task) units to run. Must be unique on
-            `(experiment.name, dataset, fold, repeat)`.
+            `(experiment.name, dataset, fold, repeat)`. Jobs whose experiment carries
+            attached `ModelConstraints` incompatible with their dataset's shape are
+            skipped up front (see `filter_jobs_by_constraints`); experiments without
+            constraints run as-is.
 
         Returns:
         -------
@@ -278,6 +291,10 @@ class ExperimentBatchRunner:
             Can pass into `exp_bach_runner.repo_from_results(results_lst=results_lst)` to generate an EvaluationRepository.
 
         """
+        from tabarena.benchmark.experiment.job import filter_jobs_by_constraints
+
+        # Respect each experiment's attached constraints (no-op for unconstrained jobs).
+        jobs = filter_jobs_by_constraints(jobs, task_metadata=self.task_metadata_collection)
         if not jobs:
             return []
 
@@ -344,23 +361,46 @@ class ExperimentBatchRunner:
         tasks: list[int | UserTask],
         repetitions_mode_args: list,
     ) -> list[dict[str, Any]]:
-        """Invoke `run_experiments_new` in 'individual' repetitions mode.
+        """Build tid-keyed `_JobSpec`s and dispatch them through the shared engine.
 
         `repetitions_mode_args` is either a single list of (fold, repeat) pairs applied
         to every task, or one (fold, repeat) list per task (aligned with `tasks`). Each task
-        is an integer OpenML tid or a local ``UserTask`` (see `_resolve_task`). See
-        `run_experiments_new` for the 'individual' arg format.
+        is an integer OpenML tid or a local ``UserTask`` (see `_resolve_task`). Specs are
+        flattened in task -> split -> method order, which is also the result order (the
+        engine regroups by task for execution but returns results in spec order).
         """
         # Lazy import to avoid a circular import (experiment_runner_api imports this module).
-        from tabarena.benchmark.experiment.experiment_runner_api import run_experiments_new
+        from tabarena.benchmark.experiment.experiment_constructor import Experiment
+        from tabarena.benchmark.experiment.experiment_runner_api import _JobSpec, _run_job_specs
 
-        return run_experiments_new(
-            output_dir=self.expname,
-            model_experiments=methods,
-            tasks=tasks,
-            tasks_metadata=self.task_metadata_collection,
-            repetitions_mode="individual",
-            repetitions_mode_args=repetitions_mode_args,
+        assert all(isinstance(method, Experiment) for method in methods), (
+            "All `methods` elements must be instances of Experiment class"
+        )
+        assert len({method.name for method in methods}) == len(methods), (
+            "Duplicate experiment name found in `methods`. All names must be unique."
+        )
+
+        # A flat list of (fold, repeat) pairs is broadcast to every task; otherwise it is
+        # one list per task, aligned with `tasks`.
+        if repetitions_mode_args and isinstance(repetitions_mode_args[0], tuple):
+            pairs_per_task = [repetitions_mode_args] * len(tasks)
+        else:
+            pairs_per_task = repetitions_mode_args
+
+        job_specs = [
+            _JobSpec(model_experiment=method, task=task, fold=fold, repeat=repeat)
+            for task, fold_repeat_pairs in zip(tasks, pairs_per_task, strict=True)
+            for (fold, repeat) in fold_repeat_pairs
+            for method in methods
+        ]
+        print(
+            f"Running Experiments, saving to: '{self.expname}'..."
+            f"\n\tFitting {len(methods)} methods on {len(tasks)} tasks for a total of {len(job_specs)} jobs..."
+            f"\n\tMethods : {[method.name for method in methods]}",
+        )
+        return _run_job_specs(
+            job_specs,
+            base_cache_path=self.expname,
             cache_mode=self.cache_mode,
             # Forward the configured cache backend. The default `cache_cls_kwargs`
             # carries `include_self_in_call=True`, preserving the legacy

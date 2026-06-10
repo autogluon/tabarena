@@ -128,9 +128,9 @@ class TabArenaContext(AbstractArenaContext):
         if name != "tabarena":
             raise ValueError(f"Unknown task_metadata preset {name!r}; expected 'tabarena'.")
         # Native default: the committed TabArena v0.1 suite (metadata only, no downloads).
-        from tabarena.benchmark.task.metadata import TabArenaV0pt1MetadataBundle
+        from tabarena.benchmark.task.metadata import TaskMetadataCollection
 
-        return TabArenaV0pt1MetadataBundle(materialize=False).load_collection()
+        return TaskMetadataCollection.from_preset("TabArena-v0.1")
 
     def _resolve_methods_preset(self, name: str, *, include_unverified: bool) -> list[MethodMetadata]:
         if name != "tabarena":

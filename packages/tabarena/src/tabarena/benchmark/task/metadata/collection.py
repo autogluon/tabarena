@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 
@@ -15,34 +16,96 @@ from tabarena.benchmark.task.metadata.schema import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
+
+    from tabarena.benchmark.task.metadata.sources import TaskMetadataSource
 
 
 class TaskMetadataCollection:
-    """A ``list[TabArenaTaskMetadata]`` plus the derived views its consumers need.
+    """The single task-metadata concept: which tasks (dataset x split) a benchmark runs.
 
-    The wrapped list is the source of truth; the views are derived on demand:
+    A ``list[TabArenaTaskMetadata]`` plus everything its consumers need:
 
-    * :meth:`dataset_names` / :meth:`dataset_fold_repeats` — native, built straight from
-      the tasks (no DataFrame, no legacy columns).
-    * :meth:`per_dataset_frame` — one row per dataset with the dataset-level metadata
-      (native column names), for joining onto a results frame.
-    * :meth:`dataset_to_tid` / :meth:`to_legacy_df` — the boundary adapters for consumers
-      that are still keyed on the legacy schema / OpenML ``tid`` (tabrepo repo generation,
-      ``ExperimentBatchRunner``). Keeping the legacy conversion behind one named method
-      makes it the single chokepoint to migrate later.
+    * **Construction** — :meth:`from_source` (any
+      :class:`~tabarena.benchmark.task.metadata.sources.base.TaskMetadataSource`, suite
+      literal, DataFrame, CSV path, or task list) and :meth:`from_preset` (the registered
+      benchmark suites, e.g. ``"TabArena-v0.1-lite"``).
+    * **Filtering** — :meth:`subset_tasks` (declarative filters: problem types, split
+      indices, dataset names, dtypes, train-set size) and :meth:`subset` (explicit
+      ``(dataset, fold, repeat)`` triplets).
+    * **Materialization** — :meth:`materialize` makes the (already-filtered) tasks
+      runnable via the retained source (e.g. Data Foundry downloads only this
+      collection's tasks); a no-op for already-local metadata.
+    * **Views** — :meth:`dataset_names` / :meth:`dataset_fold_repeats` (native, built
+      straight from the tasks), :meth:`per_dataset_frame` (one row per dataset, for
+      joining onto results), :meth:`task_grid` (subset-predicate frame).
+    * **Serialization** — :meth:`to_dataframe` (native schema, one row per split) which
+      round-trips through :meth:`from_source`; plus the legacy boundary adapters
+      :meth:`dataset_to_tid` / :meth:`to_legacy_df` for consumers still keyed on the
+      legacy schema / OpenML ``tid``.
 
     Mirrors :class:`~tabarena.models._method_metadata_collection.MethodMetadataCollection`
     on the methods axis. The wrapped list may be "unrolled" (one entry per split) or hold
     multi-split tasks; every view iterates ``splits_metadata`` so both forms behave the same.
+    Equality compares the task lists (the source is provenance, not identity).
     """
 
-    def __init__(self, tasks: list[TabArenaTaskMetadata]):
+    def __init__(self, tasks: list[TabArenaTaskMetadata], *, source: TaskMetadataSource | None = None):
         self._tasks = list(tasks)
+        self._source = source
+
+    # ------------------------------------------------------------------ construction
+    @classmethod
+    def from_source(
+        cls,
+        source: TaskMetadataSource | pd.DataFrame | list[TabArenaTaskMetadata] | str | Path,
+        *,
+        verbose: bool = False,
+    ) -> TaskMetadataCollection:
+        """Load a collection from any task-metadata source (no dataset downloads).
+
+        ``source`` is resolved via
+        :func:`~tabarena.benchmark.task.metadata.sources.resolve_source`: a
+        :class:`TaskMetadataSource` instance, a registered suite literal
+        (``"TabArena-v0.1"``, ``"BeyondArena"``), a native-schema DataFrame / CSV path,
+        or a ``list[TabArenaTaskMetadata]``. The loaded tasks are unrolled to one entry
+        per split, and the resolved source is retained so :meth:`materialize` can later
+        make the (filtered) tasks runnable.
+        """
+        from tabarena.benchmark.task.metadata.sources import resolve_source
+
+        resolved = resolve_source(source)
+        tasks = resolved.load(verbose=verbose)
+        tasks = [single_ttm for ttm in tasks for single_ttm in ttm.unroll_splits()]
+        collection = cls(tasks, source=resolved)
+        collection._sanity_check_task_ids()
+        return collection
+
+    @classmethod
+    def from_preset(cls, preset: str, *, verbose: bool = False) -> TaskMetadataCollection:
+        """Load a registered benchmark suite by name (metadata only, no downloads).
+
+        Presets: ``"TabArena-v0.1"``, ``"BeyondArena"``, plus their ``"-lite"`` variants
+        (first split — ``r0f0`` — of each dataset). Unlike :meth:`from_source`, an
+        unknown name raises instead of being treated as a CSV path.
+        """
+        suites = ("TabArena-v0.1", "BeyondArena")
+        base, lite = (preset[: -len("-lite")], True) if preset.endswith("-lite") else (preset, False)
+        if base not in suites:
+            options = [s + variant for s in suites for variant in ("", "-lite")]
+            raise ValueError(f"Unknown preset {preset!r}. Available presets: {options}.")
+        collection = cls.from_source(base, verbose=verbose)
+        return collection.subset_tasks(split_indices="lite") if lite else collection
 
     # ------------------------------------------------------------------ list-like
     @property
     def tasks(self) -> list[TabArenaTaskMetadata]:
         return self._tasks
+
+    @property
+    def source(self) -> TaskMetadataSource | None:
+        """The source this collection was loaded from (``None`` for directly-built ones)."""
+        return self._source
 
     def __len__(self) -> int:
         return len(self._tasks)
@@ -52,6 +115,14 @@ class TaskMetadataCollection:
 
     def __getitem__(self, idx):
         return self._tasks[idx]
+
+    def __eq__(self, other: object) -> bool:
+        """Collections are equal iff their task lists are equal (source is provenance only)."""
+        if not isinstance(other, TaskMetadataCollection):
+            return NotImplemented
+        return self._tasks == other._tasks
+
+    __hash__ = None  # mutable container semantics (like list)
 
     # ------------------------------------------------------------------ native views
     def dataset_names(self) -> list[str]:
@@ -100,7 +171,157 @@ class TaskMetadataCollection:
             kept = {idx: s for idx, s in t.splits_metadata.items() if (s.fold, s.repeat) in wanted_splits}
             if kept:
                 new_tasks.append(replace(t, splits_metadata=kept))
-        return TaskMetadataCollection(new_tasks)
+        return TaskMetadataCollection(new_tasks, source=self._source)
+
+    def subset_tasks(
+        self,
+        *,
+        problem_types: list[str] | None = None,
+        split_indices: list[str] | Literal["lite"] | None = None,
+        dataset_names: list[str] | None = None,
+        task_ids: list[str | int] | None = None,
+        required_dtypes: list[str] | None = None,
+        forbidden_dtypes: list[str] | None = None,
+        n_train_samples: tuple[int | None, int | None] | None = None,
+        verbose: bool = False,
+    ) -> TaskMetadataCollection:
+        """A new collection restricted by declarative filters (``None`` = no filter).
+
+        The filters (applied in this order, each on the previous result):
+
+        * ``problem_types`` — keep tasks whose ``problem_type`` is listed
+          (options: ``"binary"``, ``"multiclass"``, ``"regression"``).
+        * ``split_indices`` — keep only the listed splits (``"r{repeat}f{fold}"`` strings,
+          e.g. ``["r0f0", "r0f1"]``); ``"lite"`` keeps only the first split (``r0f0``).
+          Tasks left with no splits are dropped.
+        * ``dataset_names`` — keep tasks whose ``dataset_name`` is listed; raises if a
+          requested name is not in this collection.
+        * ``task_ids`` — keep tasks whose ``task_id_str`` is listed (ints are accepted
+          for OpenML task ids); raises if a requested id is not in this collection.
+        * ``required_dtypes`` / ``forbidden_dtypes`` — keep datasets with at least one /
+          no column of the given dtypes (options: ``"numeric"``, ``"categorical"``,
+          ``"text"``, ``"datetime"``).
+        * ``n_train_samples`` — ``(lower, upper)`` bounds on a split's number of training
+          samples; lower is exclusive, upper inclusive, ``None`` means unbounded on that
+          side. Splits outside the band are dropped (and tasks left with no splits).
+
+        The source ref is preserved, so the usual flow is filter-then-:meth:`materialize`
+        (only the surviving tasks are downloaded). ``verbose`` prints how many tasks
+        survived each filter step.
+        """
+        steps: list[tuple[str, TaskMetadataCollection]] = [("Starting", self)]
+        result = self
+        if problem_types is not None:
+            result = result._with_tasks([t for t in result if t.problem_type in problem_types])
+            steps.append(("Filter to problem types", result))
+        if split_indices is not None:
+            result = result._filter_split_indices(split_indices)
+            steps.append(("Filter to splits", result))
+        if dataset_names is not None:
+            result = result._filter_dataset_names(dataset_names)
+            steps.append(("Filter to dataset names", result))
+        if task_ids is not None:
+            result = result._filter_task_ids(task_ids)
+            steps.append(("Filter to task ids", result))
+        if required_dtypes is not None or forbidden_dtypes is not None:
+            result = result._with_tasks(
+                [
+                    t
+                    for t in result
+                    if t.has_supported_dtypes(required_dtypes=required_dtypes, forbidden_dtypes=forbidden_dtypes)
+                ],
+            )
+            steps.append(("Filter to dtypes", result))
+        if n_train_samples is not None:
+            result = result._filter_train_samples(n_train_samples)
+            steps.append(("Filter to dataset size", result))
+
+        if verbose:
+            lines = [
+                f"Found {len(steps[-1][1])} tasks to run.",
+                "\tTask Filter History:",
+                *(f"\t({i}) {label}: {len(coll)}." for i, (label, coll) in enumerate(steps, start=1)),
+            ]
+            print("\n".join(lines))
+        return result
+
+    def _with_tasks(self, tasks: list[TabArenaTaskMetadata]) -> TaskMetadataCollection:
+        """A new collection over ``tasks``, preserving this collection's source ref."""
+        return TaskMetadataCollection(tasks, source=self._source)
+
+    def _filter_split_indices(self, split_indices: list[str] | Literal["lite"]) -> TaskMetadataCollection:
+        """Keep only the splits whose ``split_index`` is listed; drop tasks left empty."""
+        if split_indices == "lite":
+            split_indices = [SplitMetadata.get_split_index(repeat_i=0, fold_i=0)]
+        split_index_pattern = re.compile(r"^r\d+f\d+$")
+        for split_index in split_indices:
+            if not split_index_pattern.match(split_index):
+                raise ValueError(f"Invalid SplitIndex format: {split_index!r}, expected 'r{{int}}f{{int}}'")
+
+        wanted = set(split_indices)
+        new_tasks = []
+        for t in self._tasks:
+            kept = {idx: s for idx, s in t.splits_metadata.items() if s.split_index in wanted}
+            if kept:
+                new_tasks.append(replace(t, splits_metadata=kept))
+        return self._with_tasks(new_tasks)
+
+    def _filter_dataset_names(self, dataset_names: list[str]) -> TaskMetadataCollection:
+        """Keep tasks whose ``dataset_name`` is listed; raise on names not in the collection."""
+        requested = set(dataset_names)
+        available = {t.dataset_name for t in self._tasks}
+        missing = requested - available
+        if missing:
+            raise ValueError(
+                f"Requested dataset names not found in task metadata: {sorted(missing)}. "
+                f"Available dataset names: {sorted(available)}",
+            )
+        return self._with_tasks([t for t in self._tasks if t.dataset_name in requested])
+
+    def _filter_task_ids(self, task_ids: list[str | int]) -> TaskMetadataCollection:
+        """Keep tasks whose ``task_id_str`` is listed; raise on ids not in the collection."""
+        requested = {str(task_id) for task_id in task_ids}
+        available = {str(t.task_id_str) for t in self._tasks}
+        missing = requested - available
+        if missing:
+            raise ValueError(
+                f"Requested task ids not found in task metadata: {sorted(missing)}. "
+                f"Available task ids: {sorted(available)}",
+            )
+        return self._with_tasks([t for t in self._tasks if str(t.task_id_str) in requested])
+
+    def _filter_train_samples(self, n_train_samples: tuple[int | None, int | None]) -> TaskMetadataCollection:
+        """Keep splits whose train size is in ``(lower, upper]``; drop tasks left empty."""
+        lb, ub = n_train_samples
+        lb = lb if lb is not None else 0
+        ub = ub if ub is not None else float("inf")
+        new_tasks = []
+        for t in self._tasks:
+            kept = {idx: s for idx, s in t.splits_metadata.items() if lb < s.num_instances_train <= ub}
+            if kept:
+                new_tasks.append(replace(t, splits_metadata=kept))
+        return self._with_tasks(new_tasks)
+
+    # ------------------------------------------------------------------ materialization
+    def materialize(self) -> TaskMetadataCollection:
+        """Make this collection's tasks runnable, in place; returns ``self`` for chaining.
+
+        Delegates to the retained source's
+        :meth:`~tabarena.benchmark.task.metadata.sources.base.TaskMetadataSource.materialize`
+        hook: for remote-backed sources (e.g. Data Foundry) this downloads + converts only
+        this collection's tasks (so filter first — see :meth:`subset_tasks`) and updates
+        each ``task_id_str``; for already-local sources (or a collection built directly
+        from a task list) it is a no-op.
+        """
+        if self._source is not None:
+            self._source.materialize(self._tasks)
+        self._sanity_check_task_ids()
+        return self
+
+    def _sanity_check_task_ids(self) -> None:
+        for ttm in self._tasks:
+            if ttm.task_id_str is None:
+                raise ValueError(f"Task metadata for task {ttm.tabarena_task_name} does not have a task_id_str!")
 
     def per_dataset_frame(self) -> pd.DataFrame:
         """One row per dataset with the dataset-level (split-invariant) metadata.
@@ -174,6 +395,18 @@ class TaskMetadataCollection:
         ]
         return pd.DataFrame(rows, columns=cols)
 
+    # ------------------------------------------------------------------ serialization
+    def to_dataframe(self) -> pd.DataFrame:
+        """The native-schema DataFrame: one row per split, all task + split fields.
+
+        Round-trips through :meth:`from_source` (a multi-split task reloads as its
+        unrolled splits) — this is the on-disk form used to ship a collection (e.g. to
+        benchmark compute nodes) and the same schema as the committed reference CSVs.
+        """
+        if not self._tasks:
+            return pd.DataFrame()
+        return pd.concat([t.to_dataframe() for t in self._tasks], ignore_index=True)
+
     # ------------------------------------------------------------------ legacy boundary
     @classmethod
     def from_legacy_df(cls, task_metadata: pd.DataFrame) -> TaskMetadataCollection:
@@ -183,7 +416,7 @@ class TaskMetadataCollection:
         legacy frame (the ``load_task_metadata`` format: one row per dataset with
         ``tid``/``dataset``/``n_folds``/``n_repeats``/``n_features``/``n_classes``/
         ``n_samples_train_per_fold``/...). Prefer the native path
-        (:meth:`TabArenaMetadataBundle.load_collection`) when you can — the legacy frame
+        (:meth:`from_source` / :meth:`from_preset`) when you can — the legacy frame
         lacks most rich fields, so the rebuilt tasks are structurally valid but sparse:
 
         * derived: ``eval_metric`` (from ``problem_type``), ``is_classification``, and the

@@ -27,7 +27,7 @@ echo "Selected Job Index: $J"
 PYTHON_PATH=$(jq -r '.defaults.python' "$JSON_FILE")
 RUNSCRIPT=$(jq -r '.defaults.run_script' "$JSON_FILE")
 OPENML_CACHE_DIR=$(jq -r '.defaults.openml_cache_dir' "$JSON_FILE")
-CONFIGS_YAML_FILE=$(jq -r '.defaults.configs_yaml_file' "$JSON_FILE")
+JOB_BATCH_DIR=$(jq -r '.defaults.job_batch_dir' "$JSON_FILE")
 OUTPUT_DIR=$(jq -r '.defaults.output_dir' "$JSON_FILE")
 NUM_CPUS=$(jq -r '.defaults.num_cpus' "$JSON_FILE")
 NUM_GPUS=$(jq -r '.defaults.num_gpus' "$JSON_FILE")
@@ -38,7 +38,7 @@ IGNORE_CACHE=$(jq -r '.defaults.ignore_cache' "$JSON_FILE")
 echo "Python Path: $PYTHON_PATH"
 echo "Run Script: $RUNSCRIPT"
 echo "OpenML Cache Directory: $OPENML_CACHE_DIR"
-echo "Configs YAML File: $CONFIGS_YAML_FILE"
+echo "Job Batch Dir: $JOB_BATCH_DIR"
 echo "Output Directory: $OUTPUT_DIR"
 echo "Number of CPUs: $NUM_CPUS"
 echo "Number of GPUs: $NUM_GPUS"
@@ -47,18 +47,18 @@ echo "Setup Ray for SLURM Shared Resources Environment: $SETUP_RAY"
 echo "Ignore Cache: $IGNORE_CACHE"
 
 run_one() {
-    local TASK_ID="$1"
-    local FOLD="$2"
-    local REPEAT="$3"
-    local CI="$4"
-    echo "Running task_id=$TASK_ID fold=$FOLD repeat=$REPEAT config_index=$CI"
+    local EXPERIMENT="$1"
+    local DATASET="$2"
+    local FOLD="$3"
+    local REPEAT="$4"
+    echo "Running experiment=$EXPERIMENT dataset=$DATASET fold=$FOLD repeat=$REPEAT"
 
     $PYTHON_PATH $RUNSCRIPT \
-        --task_id $TASK_ID \
+        --experiment "$EXPERIMENT" \
+        --dataset "$DATASET" \
         --fold $FOLD \
         --repeat $REPEAT \
-        --config_index $CI \
-        --configs_yaml_file $CONFIGS_YAML_FILE \
+        --job_batch_dir "$JOB_BATCH_DIR" \
         --openml_cache_dir $OPENML_CACHE_DIR \
         --output_dir $OUTPUT_DIR \
         --num_cpus $NUM_CPUS \
@@ -69,14 +69,14 @@ run_one() {
 }
 
 # Bundle format: each job has `items: [...]` with one entry per
-# (task_id, fold, repeat, config_index) tuple. Stream them as TSV
-# (`task_id<TAB>fold<TAB>repeat<TAB>config_index`) so we don't depend on tuple
+# (experiment, dataset, fold, repeat) work unit. Stream them as TSV
+# (`experiment<TAB>dataset<TAB>fold<TAB>repeat`) so we don't depend on tuple
 # indexing or argument quoting per item.
 NUM_ITEMS=$(jq -r --argjson J "$J" '.jobs[$J].items | length' "$JSON_FILE")
 echo "Bundle items: $NUM_ITEMS"
 
-while IFS=$'\t' read -r TASK_ID FOLD REPEAT CI; do
-    run_one "$TASK_ID" "$FOLD" "$REPEAT" "$CI"
+while IFS=$'\t' read -r EXPERIMENT DATASET FOLD REPEAT; do
+    run_one "$EXPERIMENT" "$DATASET" "$FOLD" "$REPEAT"
 done < <(jq -r --argjson J "$J" \
-    '.jobs[$J].items[] | [.task_id, .fold, .repeat, .config_index] | @tsv' \
+    '.jobs[$J].items[] | [.experiment, .dataset, .fold, .repeat] | @tsv' \
     "$JSON_FILE")

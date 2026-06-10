@@ -1,6 +1,8 @@
 """The :class:`TaskMetadataSource` strategy and the in-memory source.
 
-A *source* answers two questions for a bundle, decoupled from any filtering:
+A *source* answers two questions for a
+:class:`~tabarena.benchmark.task.metadata.collection.TaskMetadataCollection`,
+decoupled from any filtering:
 
 * :meth:`TaskMetadataSource.load` — *where does the task metadata come from?*
   (a built-in suite, a DataFrame/CSV the user already has, a Data Foundry
@@ -10,9 +12,8 @@ A *source* answers two questions for a bundle, decoupled from any filtering:
   tasks runnable?* The default is a no-op; sources backed by a remote collection
   override it to download + convert only the tasks that survived filtering.
 
-This keeps :class:`~tabarena.benchmark.task.metadata.bundles.base.TabArenaMetadataBundle`
-free of any per-suite special-casing: the bundle owns filtering, the source owns
-loading + materialization.
+This keeps the collection free of any per-suite special-casing: the collection owns
+filtering (``subset_tasks``), the source owns loading + materialization.
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ class TaskMetadataSource(ABC):
         """Return the (unfiltered) task metadata this source describes.
 
         Implementations must not download dataset contents here when it can be
-        avoided — loading should be cheap so bundles can filter before any
+        avoided — loading should be cheap so collections can filter before any
         expensive materialization (see :meth:`materialize`).
 
         ``verbose`` toggles load-path logging (e.g. "Loading … reference metadata
@@ -61,8 +62,8 @@ class TaskMetadataSource(ABC):
     def materialize(self, task_metadata: list[TabArenaTaskMetadata]) -> None:
         """Ensure the given (already-filtered) tasks are runnable, in place.
 
-        Called by the bundle after filtering, only when the bundle's
-        ``materialize`` flag is set. The default does nothing — metadata that is
+        Called by :meth:`TaskMetadataCollection.materialize` (typically after
+        ``subset_tasks`` filtering). The default does nothing — metadata that is
         already local (in-memory frames, built-in suites) needs no preparation.
         Sources backed by a remote collection override this to fetch + convert
         the tasks and update each ``task_id_str`` accordingly.

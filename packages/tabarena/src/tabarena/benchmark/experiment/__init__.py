@@ -1,7 +1,7 @@
 from __future__ import annotations  # noqa: I001
 
+from tabarena.benchmark.experiment.model_constraints import ModelConstraints
 from tabarena.benchmark.experiment.bundle import (
-    ModelConstraints,
     TabArenaExperimentBundle,
     TabArenaV0pt1ExperimentBundle,
     BeyondArenaExperimentBundle,
@@ -17,7 +17,10 @@ from tabarena.benchmark.experiment.experiment_constructor import (
 )
 from tabarena.benchmark.experiment.job import (
     Job,
+    JobBatch,
     Task,
+    build_jobs,
+    filter_jobs_by_constraints,
 )
 from tabarena.benchmark.experiment.experiment_runner import (
     ExperimentRunner,
@@ -26,7 +29,11 @@ from tabarena.benchmark.experiment.experiment_runner import (
 from tabarena.benchmark.experiment.experiment_utils import (
     ExperimentBatchRunner,
 )
-from tabarena.benchmark.experiment.experiment_runner_api import run_experiments_new
+from tabarena.benchmark.experiment.experiment_runner_api import (
+    job_cache_exists,
+    job_cache_exists_batch,
+    task_cache_key_from_task_id_str,
+)
 
 
 __all__ = [
@@ -39,11 +46,16 @@ __all__ = [
     "ExperimentBatchRunner",
     "ExperimentRunner",
     "Job",
+    "JobBatch",
     "ModelConstraints",
     "OOFExperimentRunner",
     "TabArenaExperimentBundle",
     "TabArenaV0pt1ExperimentBundle",
     "Task",
     "YamlExperimentSerializer",
-    "run_experiments_new",
+    "build_jobs",
+    "filter_jobs_by_constraints",
+    "job_cache_exists",
+    "job_cache_exists_batch",
+    "task_cache_key_from_task_id_str",
 ]

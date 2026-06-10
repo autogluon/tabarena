@@ -18,7 +18,7 @@ Run with::
 ----------------------------------------------------------------------------------------
 Note on step 3 (what this required in the source):
 ``ExperimentBatchRunner`` historically resolved every dataset name to an *integer* OpenML
-tid and handed those ints to ``run_experiments_new``, which loads them via
+tid and handed those ints to the run engine, which loads them via
 ``OpenMLTaskWrapper.from_task_id`` — i.e. an OpenML *download*. A custom ``UserTask`` lives
 only on local disk, so that path cannot run it. The ``user_tasks=`` argument used below was
 added for exactly this: a registered ``UserTask`` is resolved to its live object (loaded

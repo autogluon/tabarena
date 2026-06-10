@@ -1,9 +1,8 @@
-"""Tests for `TabArenaMetadataBundle.load_task_metadata`.
+"""Tests for `TaskMetadataCollection.from_source` / `from_preset` / `subset_tasks`.
 
-Ported from the pre-refactor `test_setup_slurm_base_v2.py`, where this task
-selection/filtering logic lived on the monolithic `BenchmarkSetup2026`. It now
-lives on `TabArenaMetadataBundle` in tabarena core, so these tests have no
-dependency on the tabflow_slurm package.
+Ported from the pre-refactor `test_metadata_bundle.py` (which tested
+`TabArenaMetadataBundle.load_task_metadata`): construction + declarative filtering
+now live directly on `TaskMetadataCollection`.
 """
 
 from __future__ import annotations
@@ -13,8 +12,8 @@ import pytest
 
 from tabarena.benchmark.task.metadata import (
     SplitMetadata,
-    TabArenaMetadataBundle,
     TabArenaTaskMetadata,
+    TaskMetadataCollection,
 )
 from tabarena.benchmark.task.metadata.sources import load_tabarena_v0_1_task_metadata
 
@@ -23,13 +22,13 @@ from tabarena.benchmark.task.metadata.sources import load_tabarena_v0_1_task_met
 # ---------------------------------------------------------------------------
 
 
-def _split_meta(repeat: int = 0, fold: int = 0) -> SplitMetadata:
+def _split_meta(repeat: int = 0, fold: int = 0, n_train: int = 80) -> SplitMetadata:
     return SplitMetadata(
         repeat=repeat,
         fold=fold,
-        num_instances_train=80,
+        num_instances_train=n_train,
         num_instances_test=20,
-        num_instance_groups_train=80,
+        num_instance_groups_train=n_train,
         num_instance_groups_test=20,
         num_classes_train=2,
         num_classes_test=2,
@@ -43,10 +42,12 @@ def _task_meta(
     task_id_str: str | None = "360",
     n_splits: int = 1,
     dataset_name: str = "test_ds",
+    n_train: int = 80,
+    **extra_fields,
 ) -> TabArenaTaskMetadata:
     splits: dict = {}
     for i in range(n_splits):
-        sm = _split_meta(repeat=0, fold=i)
+        sm = _split_meta(repeat=0, fold=i, n_train=n_train)
         splits[sm.split_index] = sm
     return TabArenaTaskMetadata(
         dataset_name=dataset_name,
@@ -71,97 +72,165 @@ def _task_meta(
         num_instance_groups=100,
         tabarena_task_name="test_task",
         task_id_str=task_id_str,
+        **extra_fields,
     )
 
 
-def _bundle(**kwargs) -> TabArenaMetadataBundle:
-    """TabArenaMetadataBundle with a sensible default task_metadata."""
-    defaults = {"task_metadata": [_task_meta()]}
-    defaults.update(kwargs)
-    return TabArenaMetadataBundle(**defaults)
+def _collection(task_metadata) -> TaskMetadataCollection:
+    return TaskMetadataCollection.from_source(task_metadata)
 
 
 # ---------------------------------------------------------------------------
-# load_task_metadata — list / DataFrame inputs + filters
+# from_source — list / DataFrame inputs
 # ---------------------------------------------------------------------------
 
 
-class TestLoadTaskMetadata:
+class TestFromSource:
     def test_list_input_passthrough(self):
-        result = _bundle(task_metadata=[_task_meta()]).load_task_metadata()
+        result = _collection([_task_meta()])
         assert len(result) == 1
         assert result[0].dataset_name == "test_ds"
 
     def test_multi_split_task_unrolled(self):
-        result = _bundle(task_metadata=[_task_meta(n_splits=3)]).load_task_metadata()
+        result = _collection([_task_meta(n_splits=3)])
         assert len(result) == 3
 
-    def test_problem_type_filter_excludes_non_matching(self):
-        meta = [
-            _task_meta(problem_type="binary", dataset_name="bin_ds"),
-            _task_meta(problem_type="regression", dataset_name="reg_ds"),
-        ]
-        result = _bundle(task_metadata=meta, problem_types_to_run=["binary"]).load_task_metadata()
-        assert all(m.problem_type == "binary" for m in result)
-        assert not any(m.dataset_name == "reg_ds" for m in result)
-
-    def test_problem_type_filter_includes_all_types_by_default(self):
-        meta = [
-            _task_meta(problem_type="binary"),
-            _task_meta(problem_type="multiclass"),
-            _task_meta(problem_type="regression"),
-        ]
-        result = _bundle(
-            task_metadata=meta,
-            problem_types_to_run=["binary", "multiclass", "regression"],
-        ).load_task_metadata()
-        assert len(result) == 3
-
-    def test_split_indices_none_keeps_all(self):
-        result = _bundle(task_metadata=[_task_meta(n_splits=4)], split_indices_to_run=None).load_task_metadata()
-        assert len(result) == 4
-
-    def test_split_indices_lite_keeps_only_r0f0(self):
-        result = _bundle(task_metadata=[_task_meta(n_splits=4)], split_indices_to_run="lite").load_task_metadata()
-        assert len(result) == 1
-        assert result[0].split_index == "r0f0"
-
-    def test_split_indices_list_filters_correctly(self):
-        result = _bundle(
-            task_metadata=[_task_meta(n_splits=3)],
-            split_indices_to_run=["r0f0", "r0f2"],
-        ).load_task_metadata()
-        assert len(result) == 2
-        assert {m.split_index for m in result} == {"r0f0", "r0f2"}
+    def test_each_task_has_exactly_one_split(self):
+        result = _collection([_task_meta(n_splits=4)])
+        for item in result:
+            assert item.n_splits == 1
 
     def test_missing_task_id_str_raises(self):
-        bundle = _bundle(task_metadata=[_task_meta(task_id_str=None)])
         with pytest.raises(ValueError, match="task_id_str"):
-            bundle.load_task_metadata()
+            _collection([_task_meta(task_id_str=None)])
 
     def test_multiple_tasks_combined(self):
         meta = [
             _task_meta(dataset_name="a", n_splits=2),
             _task_meta(dataset_name="b", n_splits=3),
         ]
-        result = _bundle(task_metadata=meta).load_task_metadata()
-        assert len(result) == 5
+        assert len(_collection(meta)) == 5
 
     def test_empty_task_list(self):
-        result = _bundle(task_metadata=[]).load_task_metadata()
-        assert result == []
-
-    def test_each_result_has_exactly_one_split(self):
-        result = _bundle(task_metadata=[_task_meta(n_splits=4)]).load_task_metadata()
-        for item in result:
-            assert item.n_splits == 1
+        assert len(_collection([])) == 0
 
     def test_dataframe_input_parsed(self):
         meta_obj = _task_meta(n_splits=1)
         df = meta_obj.to_dataframe()
-        result = _bundle(task_metadata=df).load_task_metadata()
+        result = _collection(df)
         assert len(result) == 1
         assert result[0].dataset_name == meta_obj.dataset_name
+
+    def test_source_is_retained_and_materialize_is_noop(self):
+        result = _collection([_task_meta()])
+        assert result.source is not None
+        assert result.materialize() is result
+
+    def test_to_dataframe_round_trips(self):
+        original = _collection([_task_meta(dataset_name="a", n_splits=2), _task_meta(dataset_name="b")])
+        reloaded = _collection(original.to_dataframe())
+        assert reloaded == original
+
+
+class TestFromPreset:
+    def test_unknown_preset_raises(self):
+        with pytest.raises(ValueError, match="Unknown preset"):
+            TaskMetadataCollection.from_preset("not-a-suite")
+
+    def test_tabarena_v0pt1_lite_is_one_split_per_dataset(self):
+        full = TaskMetadataCollection.from_preset("TabArena-v0.1")
+        lite = TaskMetadataCollection.from_preset("TabArena-v0.1-lite")
+        assert len(lite) == len(lite.dataset_names())
+        assert set(lite.dataset_names()) == set(full.dataset_names())
+        assert all(t.split_index == "r0f0" for t in lite)
+
+
+# ---------------------------------------------------------------------------
+# subset_tasks — declarative filters
+# ---------------------------------------------------------------------------
+
+
+class TestSubsetTasks:
+    def test_no_filters_returns_same_tasks(self):
+        collection = _collection([_task_meta(n_splits=2)])
+        assert collection.subset_tasks() == collection
+
+    def test_problem_type_filter_excludes_non_matching(self):
+        meta = [
+            _task_meta(problem_type="binary", dataset_name="bin_ds"),
+            _task_meta(problem_type="regression", dataset_name="reg_ds"),
+        ]
+        result = _collection(meta).subset_tasks(problem_types=["binary"])
+        assert all(m.problem_type == "binary" for m in result)
+        assert not any(m.dataset_name == "reg_ds" for m in result)
+
+    def test_problem_type_filter_keeps_all_listed_types(self):
+        meta = [
+            _task_meta(problem_type="binary"),
+            _task_meta(problem_type="multiclass"),
+            _task_meta(problem_type="regression"),
+        ]
+        result = _collection(meta).subset_tasks(problem_types=["binary", "multiclass", "regression"])
+        assert len(result) == 3
+
+    def test_split_indices_none_keeps_all(self):
+        result = _collection([_task_meta(n_splits=4)]).subset_tasks(split_indices=None)
+        assert len(result) == 4
+
+    def test_split_indices_lite_keeps_only_r0f0(self):
+        result = _collection([_task_meta(n_splits=4)]).subset_tasks(split_indices="lite")
+        assert len(result) == 1
+        assert result[0].split_index == "r0f0"
+
+    def test_split_indices_list_filters_correctly(self):
+        result = _collection([_task_meta(n_splits=3)]).subset_tasks(split_indices=["r0f0", "r0f2"])
+        assert len(result) == 2
+        assert {m.split_index for m in result} == {"r0f0", "r0f2"}
+
+    def test_split_indices_invalid_format_raises(self):
+        with pytest.raises(ValueError, match="SplitIndex format"):
+            _collection([_task_meta()]).subset_tasks(split_indices=["fold0"])
+
+    def test_dataset_names_filter(self):
+        meta = [_task_meta(dataset_name="a"), _task_meta(dataset_name="b")]
+        result = _collection(meta).subset_tasks(dataset_names=["a"])
+        assert [t.dataset_name for t in result] == ["a"]
+
+    def test_dataset_names_unknown_raises(self):
+        with pytest.raises(ValueError, match="not found in task metadata"):
+            _collection([_task_meta(dataset_name="a")]).subset_tasks(dataset_names=["nope"])
+
+    def test_n_train_samples_band(self):
+        meta = [
+            _task_meta(dataset_name="small", n_train=50),
+            _task_meta(dataset_name="big", n_train=5000),
+        ]
+        result = _collection(meta).subset_tasks(n_train_samples=(0, 100))
+        assert [t.dataset_name for t in result] == ["small"]
+        # Lower bound is exclusive, upper inclusive.
+        assert len(_collection(meta).subset_tasks(n_train_samples=(50, 5000))) == 1
+        assert len(_collection(meta).subset_tasks(n_train_samples=(49, 5000))) == 2
+
+    def test_dtype_filters(self):
+        meta = [
+            _task_meta(dataset_name="with_text", has_text=True, has_numerical=True),
+            _task_meta(dataset_name="no_text", has_text=False, has_numerical=True),
+        ]
+        required = _collection(meta).subset_tasks(required_dtypes=["text"])
+        assert [t.dataset_name for t in required] == ["with_text"]
+        forbidden = _collection(meta).subset_tasks(forbidden_dtypes=["text"])
+        assert [t.dataset_name for t in forbidden] == ["no_text"]
+
+    def test_filters_compose_and_preserve_source(self):
+        meta = [
+            _task_meta(dataset_name="a", n_splits=3),
+            _task_meta(dataset_name="b", problem_type="regression"),
+        ]
+        collection = _collection(meta)
+        result = collection.subset_tasks(problem_types=["binary"], split_indices="lite")
+        assert len(result) == 1
+        assert result[0].dataset_name == "a"
+        assert result.source is collection.source
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +253,7 @@ def test_add_old_minimal_metadata_tid_handles_both_id_formats(task_id_str, expec
 
 
 # ---------------------------------------------------------------------------
-# load_task_metadata — TabArena v0.1 rebuild conversion
+# TabArena v0.1 rebuild conversion (+ collection filtering on top)
 # ---------------------------------------------------------------------------
 
 
@@ -209,7 +278,7 @@ def _fake_curated_metadata(rows: list[dict] | None = None) -> pd.DataFrame:
 
 
 class TestTabArenaV0pt1Conversion:
-    """Tests for load_tabarena_v0_1_task_metadata (the v0.1 rebuild) and bundle filtering on top."""
+    """Tests for load_tabarena_v0_1_task_metadata (the v0.1 rebuild) and collection filtering on top."""
 
     def test_returns_task_metadata_list(self):
         result = load_tabarena_v0_1_task_metadata(_fake_curated_metadata())
@@ -289,7 +358,7 @@ class TestTabArenaV0pt1Conversion:
         assert ttm.num_classes == 2
         assert isinstance(ttm.num_classes, int)
 
-    def test_problem_type_filter_applied_via_bundle(self):
+    def test_problem_type_filter_applied_via_collection(self):
         curated = _fake_curated_metadata(
             [
                 {
@@ -318,19 +387,15 @@ class TestTabArenaV0pt1Conversion:
                 },
             ],
         )
-        result = _bundle(
-            task_metadata=load_tabarena_v0_1_task_metadata(curated),
-            problem_types_to_run=["binary"],
-        ).load_task_metadata()
+        result = _collection(load_tabarena_v0_1_task_metadata(curated)).subset_tasks(problem_types=["binary"])
         assert len(result) == 1
         assert result[0].problem_type == "binary"
 
-    def test_split_indices_lite_filter_via_bundle(self):
+    def test_split_indices_lite_filter_via_collection(self):
         """With 'lite', only r0f0 should survive out of 3 folds."""
-        result = _bundle(
-            task_metadata=load_tabarena_v0_1_task_metadata(_fake_curated_metadata()),
-            split_indices_to_run="lite",
-        ).load_task_metadata()
+        result = _collection(load_tabarena_v0_1_task_metadata(_fake_curated_metadata())).subset_tasks(
+            split_indices="lite",
+        )
         assert len(result) == 1
         assert result[0].split_index == "r0f0"
 

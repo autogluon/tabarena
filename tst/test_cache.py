@@ -5,24 +5,23 @@ import pandas as pd
 from tabarena.utils.cache import CacheFunctionDF, CacheFunctionDummy, CacheFunctionPickle
 
 
-def test_cache_pickle():
+def test_cache_pickle(tmp_path):
     def f():
         return [1, 2, 3]
 
     for ignore_cache in [True, False]:
-        cacher = CacheFunctionPickle(cache_name="f")
+        cacher = CacheFunctionPickle(cache_name="f", cache_path=str(tmp_path))
         data = cacher.cache(fun=f, ignore_cache=ignore_cache)
         assert cacher.exists
         assert data == [1, 2, 3]
 
 
-def test_cache_dataframe():
+def test_cache_dataframe(tmp_path):
     def f():
         return pd.DataFrame({"a": [1, 2], "b": [3, 4]})
 
     for ignore_cache in [True, False]:
-        cacher = CacheFunctionDF(cache_name="f", cache_path="tmp_cache_dir")
-        # TODO: Consider using a true tempdir to avoid side-effects, question: how to pass a tempdir as a function argument?
+        cacher = CacheFunctionDF(cache_name="f", cache_path=str(tmp_path))
         data = cacher.cache(fun=f, ignore_cache=ignore_cache)
         assert cacher.exists
         pd.testing.assert_frame_equal(data, pd.DataFrame({"a": [1, 2], "b": [3, 4]}))
