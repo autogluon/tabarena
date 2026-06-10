@@ -25,7 +25,7 @@ from tabarena.utils.cache import CacheFunctionPickle
 # ---------------------------------------------------------------------------
 
 
-def _make_experiment(name: str = "lgbm_test", *, hp: dict | None = None):
+def _make_experiment(name: str = "lgbm_test", *, hp: dict | None = None, constraints: ModelConstraints | None = None):
     from autogluon.tabular.models import LGBModel
 
     from tabarena.benchmark.experiment import AGModelBagExperiment
@@ -36,6 +36,7 @@ def _make_experiment(name: str = "lgbm_test", *, hp: dict | None = None):
         model_hyperparameters=hp or {},
         num_bag_folds=2,
         time_limit=60,
+        model_constraints=constraints,
     )
 
 
@@ -114,47 +115,53 @@ class TestBuildJobs:
 # ---------------------------------------------------------------------------
 
 
-class TestFilterJobsByConstraints:
-    def test_filters_by_shape_per_split(self):
+class TestExperimentAttachedConstraints:
+    def test_build_jobs_drops_incompatible_pairs(self):
         collection = _collection([1, 2], ["small", "big"], n_samples=[100, 100_000])
-        jobs = build_jobs([_make_experiment()], collection)
-        # LGBModel's AG key is "GBM": constrain it to <= 10_000 train samples.
-        kept = filter_jobs_by_constraints(
-            jobs,
-            model_constraints={"GBM": ModelConstraints(max_n_samples_train_per_fold=10_000)},
-            task_metadata=collection,
+        constrained = _make_experiment(
+            "constrained",
+            constraints=ModelConstraints(max_n_samples_train_per_fold=10_000),
         )
-        assert [j.task.dataset for j in kept] == ["small"]
+        unconstrained = _make_experiment("unconstrained")
+        jobs = build_jobs([constrained, unconstrained], collection)
+        # The constrained experiment loses "big"; the unconstrained one keeps everything.
+        assert [(j.experiment.name, j.task.dataset) for j in jobs] == [
+            ("constrained", "small"),
+            ("unconstrained", "small"),
+            ("unconstrained", "big"),
+        ]
 
-    def test_unconstrained_model_passes(self):
-        collection = _collection([1], ["big"], n_samples=100_000)
-        jobs = build_jobs([_make_experiment()], collection)
-        kept = filter_jobs_by_constraints(
-            jobs,
-            model_constraints={"SOME_OTHER_KEY": ModelConstraints(max_n_samples_train_per_fold=1)},
-            task_metadata=collection,
-        )
-        assert kept == jobs
-
-    def test_unknown_split_raises(self):
+    def test_filter_requires_split_lookup_only_for_constrained_jobs(self):
         collection = _collection([1], ["ds_a"])
-        job = Job.create(_make_experiment(), "ds_a", fold=7)
+        # An unconstrained job on a split outside the collection passes through untouched...
+        unconstrained_job = Job.create(_make_experiment("unconstrained"), "ds_a", fold=7)
+        assert filter_jobs_by_constraints([unconstrained_job], task_metadata=collection) == [unconstrained_job]
+        # ...but a constrained one needs its shape and raises.
+        constrained_job = Job.create(
+            _make_experiment("constrained", constraints=ModelConstraints(max_n_features=5)),
+            "ds_a",
+            fold=7,
+        )
         with pytest.raises(ValueError, match="not a split"):
-            filter_jobs_by_constraints(
-                [job],
-                model_constraints={},
-                task_metadata=collection,
-            )
+            filter_jobs_by_constraints([constrained_job], task_metadata=collection)
 
-    def test_run_jobs_opt_in_filters_everything_without_running(self, tmp_path):
+    def test_run_jobs_respects_attached_constraints_without_running(self, tmp_path):
         """When constraints filter out every job, run_jobs returns [] without any task load."""
         collection = _collection([1], ["big"], n_samples=100_000)
         runner = ExperimentBatchRunner(expname=str(tmp_path), task_metadata=collection)
-        results = runner.run_jobs(
-            build_jobs([_make_experiment()], collection),
-            model_constraints={"GBM": ModelConstraints(max_n_samples_train_per_fold=10)},
-        )
+        experiment = _make_experiment(constraints=ModelConstraints(max_n_samples_train_per_fold=10))
+        results = runner.run_jobs([Job.create(experiment, "big", fold=0)])
         assert results == []
+
+    def test_constraints_round_trip_through_job_batch(self, tmp_path):
+        collection = _collection([1], ["small"], n_samples=100)
+        constraints = ModelConstraints(max_n_samples_train_per_fold=10_000, regression_support=False)
+        experiment = _make_experiment("constrained", constraints=constraints)
+        batch = JobBatch(jobs=[Job.create(experiment, "small", fold=0)], task_metadata=collection)
+        batch.save(tmp_path / "batch")
+        loaded = JobBatch.load(tmp_path / "batch")
+        # The shipped sweep carries the constraints with the experiment itself.
+        assert loaded.experiments[0].model_constraints == constraints
 
 
 # ---------------------------------------------------------------------------

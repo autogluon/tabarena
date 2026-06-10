@@ -26,7 +26,6 @@ from tabarena.benchmark.task.metadata import TaskMetadataCollection
 pytest.importorskip("tabflow_slurm.setup", reason="tabflow_slurm is not installed")
 
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
-from tabflow_slurm.setup.candidates import JobCandidate
 from tabflow_slurm.setup.paths import PathSetup
 from tabflow_slurm.setup.resources import ResourcesSetup
 from tabflow_slurm.setup.scheduler import SlurmSetup
@@ -161,16 +160,55 @@ class TestSlurmSetup:
 # ---------------------------------------------------------------------------
 
 
-def _candidate(*, dataset="d", n_features=10, n_samples_train_per_fold=1000) -> JobCandidate:
-    return JobCandidate(
-        experiment_name="cfg",
-        dataset=dataset,
-        fold=0,
+def _split(*, n_features=10, n_samples_train_per_fold=1000):
+    from tabarena.benchmark.task.metadata import SplitMetadata
+
+    return SplitMetadata(
         repeat=0,
-        task_id_str="1",
-        n_features=n_features,
-        n_samples_train_per_fold=n_samples_train_per_fold,
+        fold=0,
+        num_instances_train=n_samples_train_per_fold,
+        num_instances_test=100,
+        num_instance_groups_train=n_samples_train_per_fold,
+        num_instance_groups_test=100,
+        num_classes_train=2,
+        num_classes_test=2,
+        num_features_train=n_features,
+        num_features_test=n_features,
     )
+
+
+def _sched_job(*, name="cfg", dataset="d", fold=0):
+    """A scheduler-facing job; bundling only reads `experiment.name` and `task`."""
+    from types import SimpleNamespace
+
+    from tabarena.benchmark.experiment import Job
+
+    return Job.create(SimpleNamespace(name=name), dataset, fold=fold)
+
+
+def _shape_collection(specs: dict[str, dict]):
+    """A collection of one-split datasets with the given shapes ({dataset: shape kwargs})."""
+    import pandas as pd
+
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
+
+    df = pd.DataFrame(
+        {
+            "tid": list(range(1, len(specs) + 1)),
+            "dataset": list(specs),
+            "problem_type": ["binary"] * len(specs),
+            "n_folds": [1] * len(specs),
+            "n_repeats": [1] * len(specs),
+            "n_features": [shape.get("n_features", 10) for shape in specs.values()],
+            "n_classes": [2] * len(specs),
+            "NumberOfInstances": [100] * len(specs),
+            "n_samples_train_per_fold": [
+                float(shape.get("n_samples_train_per_fold", 1000)) for shape in specs.values()
+            ],
+            "n_samples_test_per_fold": [100.0] * len(specs),
+        },
+    )
+    return TaskMetadataCollection.from_legacy_df(df)
 
 
 class TestEffectiveBundleSize:
@@ -181,43 +219,51 @@ class TestEffectiveBundleSize:
 
     def test_small_dataset_uses_bundle_size(self):
         ss = _slurm(bundle_size=5)
-        assert ss._effective_bundle_size(_candidate(n_features=10, n_samples_train_per_fold=1000)) == 5
+        assert ss._effective_bundle_size(_sched_job(), split=_split(n_features=10, n_samples_train_per_fold=1000)) == 5
 
     def test_wide_dataset_collapses_to_one(self):
         ss = _slurm(bundle_size=5)
-        assert ss._effective_bundle_size(_candidate(n_features=5001)) == 1
+        assert ss._effective_bundle_size(_sched_job(), split=_split(n_features=5001)) == 1
 
     def test_large_sample_dataset_collapses_to_one(self):
         ss = _slurm(bundle_size=5)
-        assert ss._effective_bundle_size(_candidate(n_samples_train_per_fold=100_001)) == 1
+        assert ss._effective_bundle_size(_sched_job(), split=_split(n_samples_train_per_fold=100_001)) == 1
 
     def test_at_threshold_is_not_large(self):
         ss = _slurm(bundle_size=5)
-        assert ss._effective_bundle_size(_candidate(n_features=5000, n_samples_train_per_fold=100_000)) == 5
+        assert (
+            ss._effective_bundle_size(_sched_job(), split=_split(n_features=5000, n_samples_train_per_fold=100_000))
+            == 5
+        )
 
     def test_per_dataset_override_wins_over_auto_rule(self):
         ss = _slurm(bundle_size=5, bundle_size_per_dataset={"big": 3})
-        assert ss._effective_bundle_size(_candidate(dataset="big", n_features=5001)) == 3
+        assert ss._effective_bundle_size(_sched_job(dataset="big"), split=_split(n_features=5001)) == 3
 
     def test_feature_check_disabled(self):
         ss = _slurm(bundle_size=5, large_dataset_n_features=None)
-        assert ss._effective_bundle_size(_candidate(n_features=5001)) == 5
+        assert ss._effective_bundle_size(_sched_job(), split=_split(n_features=5001)) == 5
 
     def test_sample_check_disabled(self):
         ss = _slurm(bundle_size=5, large_dataset_n_samples=None)
-        assert ss._effective_bundle_size(_candidate(n_samples_train_per_fold=100_001)) == 5
+        assert ss._effective_bundle_size(_sched_job(), split=_split(n_samples_train_per_fold=100_001)) == 5
 
 
 class TestBundleItems:
     def test_large_datasets_get_singleton_bundles(self):
         ss = _slurm(bundle_size=5)
-        small = [_candidate(dataset="small") for _ in range(3)]
-        wide = [_candidate(dataset="wide", n_features=6000) for _ in range(2)]
-        jobs, max_configs = ss.bundle_items([*small, *wide])
-        sizes = sorted(len(j["items"]) for j in jobs)
+        collection = _shape_collection({"small": {}, "wide": {"n_features": 6000}})
+        jobs = [_sched_job(name=f"cfg_{i}", dataset="small") for i in range(3)] + [
+            _sched_job(name=f"cfg_{i}", dataset="wide") for i in range(2)
+        ]
+        array_tasks, max_configs = ss.bundle_items(jobs, collection)
+        sizes = sorted(len(j["items"]) for j in array_tasks)
         # 3 small batched into one bundle, 2 wide as singletons.
         assert sizes == [1, 1, 3]
         assert max_configs == 3
+        # Items carry the self-describing coordinates.
+        first = next(j for j in array_tasks if len(j["items"]) == 3)["items"][0]
+        assert set(first) == {"experiment", "dataset", "fold", "repeat"}
 
 
 # ---------------------------------------------------------------------------

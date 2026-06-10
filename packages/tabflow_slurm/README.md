@@ -156,8 +156,9 @@ Presets: **`TabArenaV0pt1ResourcesSetup`** (8 CPU / 32 GB / 1h) and **`BeyondAre
 
 ### `SchedulerSetup` / `SlurmSetup` / `GCPSlurmSetup` — `setup/scheduler.py`
 - **`SchedulerSetup`** (base) owns scheduler-agnostic **batching**: `bundle_size` (items per array
-  task) and `bundle_size_per_dataset` (per-dataset override). `bundle_items()` groups approved
-  candidates by effective bundle size into `{"items": [...]}` array tasks.
+  task) and `bundle_size_per_dataset` (per-dataset override). `bundle_items()` groups the approved
+  jobs by effective bundle size (dataset shapes looked up in the task collection) into
+  `{"items": [...]}` array tasks.
 - **`SlurmSetup`** turns the job dict into JSON file(s) + `sbatch` command(s): GPU/CPU partitions,
   `extra_gres`, `exclusive_node`, memory style (`mem_per_handle`), `time_limit_overhead`,
   `array_job_limit` (the `%N` concurrency cap), and `max_array_size` (splits very large arrays into
@@ -168,25 +169,19 @@ Presets: **`TabArenaV0pt1ResourcesSetup`** (8 CPU / 32 GB / 1h) and **`BeyondAre
 ### `TabArenaBenchmarkSetup` — `setup/benchmark.py` *(internal)*
 The per-run engine for one homogeneous run. Not part of the public API — the plan builds and drives
 it. `get_jobs_to_run()` is the core pipeline: ensure dirs → materialize the task collection →
-build the experiments → core `build_jobs` (experiments × splits) → core
-`filter_jobs_by_constraints` → Ray cache check → persist the surviving sweep as a self-contained
+build the experiments (the bundle attaches each experiment's `ModelConstraints`) → core
+`build_jobs` (experiments × splits; constraint-violating pairs are dropped during enumeration) →
+Ray cache check (tabarena core's writer-aligned `job_cache_exists_batch`, fanned out over plain
+`(method, task_id_str, fold, repeat)` tuples) → persist the surviving sweep as a self-contained
 `JobBatch` artifact (experiments.yaml + task_metadata.csv + jobs.json) → bundle.
-
-### `JobCandidate` / `is_job_cached_batch` — `setup/candidates.py`
-- **`JobCandidate`** — the scheduler-side projection of one core `Job`: its identifying coordinates
-  (`experiment_name / dataset / fold / repeat` — exactly what survives into the job JSON) plus the
-  dataset shape the bundling rules read.
-- **`is_job_cached_batch`** — the batched cache check, **module-level so Ray workers can pickle
-  it**. Delegates to tabarena core's writer-aligned `job_cache_exists`, so the pre-check can never
-  drift from the cache layout the run engine writes. (Constraint filtering happens before, via the
-  core `filter_jobs_by_constraints`.)
 
 ### Runtime (what runs on the node)
 - **`run_tabarena_experiment.py`** — the runner a single array task invokes per item. Loads the
-  shipped `JobBatch`, resolves the item's `experiment` by name and `dataset` against the batch's
-  task metadata, calls `setup_slurm_job()`, then runs the unit through
-  `ExperimentBatchRunner.run_jobs` — the exact same execution path (task resolution, results
-  naming, cache layout) as a local benchmark run. Results cache under `output/<benchmark_name>/`.
+  shipped `JobBatch`, looks the item's `(experiment, dataset, fold, repeat)` coordinates up in the
+  batch's serialized job list (stale coordinates fail loudly), calls `setup_slurm_job()`, then runs
+  that job through `ExperimentBatchRunner.run_jobs` — the exact same execution path (task
+  resolution, results naming, cache layout) as a local benchmark run. Results cache under
+  `output/<benchmark_name>/`.
 - **`submit_template.sh`** — the `sbatch` array script. Reads `defaults` + the array index's `items`
   from the job JSON (with `jq`) and runs the runner once per item.
 - **`slurm_utils.py::setup_slurm_job`** — per-node setup: points OpenML at the right cache and

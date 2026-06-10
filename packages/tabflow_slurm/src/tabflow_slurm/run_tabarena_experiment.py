@@ -55,15 +55,27 @@ def run_experiment(
         Whether to ignore the cache or not. If True, the cache will be ignored and the
         experiment will be run from scratch and potentially overwrite existing results.
     """
-    from tabarena.benchmark.experiment import ExperimentBatchRunner, Job, JobBatch
+    from tabarena.benchmark.experiment import ExperimentBatchRunner, JobBatch
 
     batch = JobBatch.load(job_batch_dir)
-    experiment_by_name = {experiment.name: experiment for experiment in batch.experiments}
-    experiment = experiment_by_name.get(experiment_name)
-    if experiment is None:
+    # The coordinates are a lookup key into the batch's serialized job list — the job
+    # that runs is the one loaded from disk, and coordinates that don't name a job of
+    # the batch (e.g. a stale job JSON against a regenerated batch) fail loudly here.
+    wanted = (experiment_name, dataset, fold, repeat)
+    job = next(
+        (j for j in batch.jobs if (j.experiment.name, *j.task.as_triple()) == wanted),
+        None,
+    )
+    if job is None:
+        experiment_names = sorted({j.experiment.name for j in batch.jobs})
+        if experiment_name not in experiment_names:
+            raise ValueError(
+                f"Experiment {experiment_name!r} is not in the job batch at {job_batch_dir!r} "
+                f"(has: {experiment_names}).",
+            )
         raise ValueError(
-            f"Experiment {experiment_name!r} is not in the job batch at {job_batch_dir!r} "
-            f"(has: {sorted(experiment_by_name)}).",
+            f"(experiment, dataset, fold, repeat) = {wanted} is not a job of the batch at "
+            f"{job_batch_dir!r}. The job JSON may be stale relative to a regenerated batch.",
         )
 
     runner = ExperimentBatchRunner(
@@ -73,7 +85,7 @@ def run_experiment(
         # Benchmark mode: record model failures instead of debugger-friendly behavior.
         debug_mode=False,
     )
-    results_lst = runner.run_jobs([Job.create(experiment, dataset, fold=fold, repeat=repeat)])
+    results_lst = runner.run_jobs([job])
     for results in results_lst:
         print("Metric error:", results.get("metric_error"))
     return results_lst

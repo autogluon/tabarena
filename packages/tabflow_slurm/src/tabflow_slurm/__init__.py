@@ -17,7 +17,6 @@ from __future__ import annotations
 from tabflow_slurm.setup import (
     BeyondArenaResourcesSetup,
     GCPSlurmSetup,
-    JobCandidate,
     LocalSequentialSetup,
     ModelJob,
     PathSetup,
@@ -29,13 +28,11 @@ from tabflow_slurm.setup import (
     TabArenaV0pt1ResourcesSetup,
     get_run_script_path,
     get_submit_script_path,
-    is_job_cached_batch,
 )
 
 __all__ = [
     "BeyondArenaResourcesSetup",
     "GCPSlurmSetup",
-    "JobCandidate",
     "LocalSequentialSetup",
     "ModelJob",
     "PathSetup",
@@ -47,5 +44,4 @@ __all__ = [
     "TabArenaV0pt1ResourcesSetup",
     "get_run_script_path",
     "get_submit_script_path",
-    "is_job_cached_batch",
 ]

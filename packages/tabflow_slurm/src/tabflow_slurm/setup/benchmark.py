@@ -10,9 +10,8 @@ from typing import TYPE_CHECKING, Literal
 
 import ray
 
-from tabarena.benchmark.experiment import JobBatch, build_jobs, filter_jobs_by_constraints
+from tabarena.benchmark.experiment import JobBatch, build_jobs, job_cache_exists_batch
 from tabarena.utils.ray_utils import ray_map_list, to_batch_list
-from tabflow_slurm.setup.candidates import JobCandidate, is_job_cached_batch
 
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import Job, TabArenaExperimentBundle
@@ -86,11 +85,12 @@ class TabArenaBenchmarkSetup:
         Pipeline:
             1. Create the output / log / setup / OpenML-cache directories if missing.
             2. Materialize the task collection (download only its tasks) and build
-               the experiments from the bundle.
-            3. Enumerate the sweep via the core `build_jobs` (experiments x splits)
-               and drop constraint-violating jobs (`filter_jobs_by_constraints`).
-            4. Drop cache hits in parallel via Ray (`is_job_cached_batch`), unless
-               `ignore_cache`.
+               the experiments from the bundle (which attaches each experiment's
+               `ModelConstraints`).
+            3. Enumerate the sweep via the core `build_jobs` (experiments x splits;
+               constraint-violating pairs are dropped during enumeration).
+            4. Drop cache hits in parallel via Ray (the core `job_cache_exists_batch`),
+               unless `ignore_cache`.
             5. Persist the surviving jobs as a self-contained `JobBatch` artifact
                (experiments + task metadata + job coordinates) for the compute nodes.
             6. Bundle the survivors into array tasks via `scheduler_setup.bundle_items`.
@@ -109,45 +109,33 @@ class TabArenaBenchmarkSetup:
             time_limit_with_preprocessing=self.resources_setup.time_limit_with_model_agnostic_preprocessing,
         )
 
-        all_jobs = build_jobs(experiments, collection)
-        runnable_jobs = filter_jobs_by_constraints(
-            all_jobs,
-            model_constraints=self.experiment_bundle.model_constraints,
-            task_metadata=collection,
-        )
-        candidates = self._project_candidates(runnable_jobs, collection)
+        # Constraint-violating (experiment, split) pairs are dropped by build_jobs itself
+        # (the bundle attached each experiment's ModelConstraints at build time).
+        runnable_jobs = build_jobs(experiments, collection)
         if not self.ignore_cache:
-            runnable_jobs, candidates = self._drop_cache_hits_via_ray(runnable_jobs, candidates)
+            runnable_jobs = self._drop_cache_hits_via_ray(runnable_jobs, collection)
 
         self._save_job_batch(runnable_jobs, collection)
-        jobs, max_configs_per_job = self.scheduler_setup.bundle_items(candidates)
+        jobs, max_configs_per_job = self.scheduler_setup.bundle_items(runnable_jobs, collection)
 
         print(
-            f"Approved {len(candidates)} (experiment, dataset, fold, repeat) items"
+            f"Approved {len(runnable_jobs)} (experiment, dataset, fold, repeat) items"
             f" -> {len(jobs)} array tasks (max {max_configs_per_job} items/task).",
         )
         return jobs, max_configs_per_job
 
-    @staticmethod
-    def _project_candidates(jobs: list[Job], collection: TaskMetadataCollection) -> list[JobCandidate]:
-        """Project each job to its scheduler candidate (id coordinates + dataset shape)."""
-        split_index = {
-            (ttm.tabarena_task_name, split.fold, split.repeat): (ttm, split)
-            for ttm in collection
-            for split in ttm.splits_metadata.values()
-        }
-        candidates: list[JobCandidate] = []
-        for job in jobs:
-            task, split = split_index[job.task.as_triple()]
-            candidates.append(JobCandidate.from_job(job, task=task, split=split))
-        return candidates
+    def _drop_cache_hits_via_ray(self, jobs: list[Job], collection: TaskMetadataCollection) -> list[Job]:
+        """Fan out the cache check across Ray workers; return the not-yet-cached subset.
 
-    def _drop_cache_hits_via_ray(
-        self,
-        jobs: list[Job],
-        candidates: list[JobCandidate],
-    ) -> tuple[list[Job], list[JobCandidate]]:
-        """Fan out the cache check across Ray workers; return the not-yet-cached subset."""
+        Each job is projected to a plain ``(method_name, task_id_str, fold, repeat)``
+        tuple — no live experiments are pickled to workers — and checked through the
+        core, writer-aligned ``job_cache_exists_batch``.
+        """
+        task_id_by_dataset = {ttm.tabarena_task_name: ttm.task_id_str for ttm in collection}
+        items = [
+            (job.experiment.name, task_id_by_dataset[job.task.dataset], job.task.fold, job.task.repeat) for job in jobs
+        ]
+
         num_ray_cpus = len(os.sched_getaffinity(0)) if self.num_ray_cpus == "auto" else self.num_ray_cpus
         if ray.is_initialized():
             ray.shutdown()
@@ -156,9 +144,9 @@ class TabArenaBenchmarkSetup:
             ray.init(num_cpus=num_ray_cpus)
 
         batched = ray_map_list(
-            list_to_map=list(to_batch_list(candidates, 10_000)),
-            func=is_job_cached_batch,
-            func_element_key_string="candidates",
+            list_to_map=list(to_batch_list(items, 10_000)),
+            func=job_cache_exists_batch,
+            func_element_key_string="items",
             num_workers=num_ray_cpus,
             num_cpus_per_worker=1,
             func_kwargs={"output_dir": self.path_setup.get_output_path(self.benchmark_name)},
@@ -166,12 +154,7 @@ class TabArenaBenchmarkSetup:
             tqdm_kwargs={"desc": "Checking Cache"},
         )
         cached_flags = [b for batch in batched for b in batch]
-
-        kept = [(j, c) for cached, j, c in zip(cached_flags, jobs, candidates, strict=True) if not cached]
-        if not kept:
-            return [], []
-        kept_jobs, kept_candidates = zip(*kept, strict=True)
-        return list(kept_jobs), list(kept_candidates)
+        return [job for cached, job in zip(cached_flags, jobs, strict=True) if not cached]
 
     def _save_job_batch(self, jobs: list[Job], collection: TaskMetadataCollection) -> None:
         """Persist the surviving jobs as the run's `JobBatch` artifact (or clean it up).

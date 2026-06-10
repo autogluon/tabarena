@@ -68,6 +68,28 @@ def job_cache_exists(
     return cacher.exists
 
 
+def job_cache_exists_batch(
+    *,
+    items: list[tuple[str, str, int, int]],
+    output_dir: str,
+) -> list[bool]:
+    """Batched :func:`job_cache_exists` over ``(method_name, task_id_str, fold, repeat)`` tuples.
+
+    Module-level and tuple-based so dispatch filters can fan it out across workers
+    (e.g. Ray in ``tabflow_slurm``) without pickling live experiments.
+    """
+    return [
+        job_cache_exists(
+            output_dir=output_dir,
+            method_name=method_name,
+            task_id_str=task_id_str,
+            fold=fold,
+            repeat=repeat,
+        )
+        for method_name, task_id_str, fold, repeat in items
+    ]
+
+
 def _build_cache_prefix(
     *,
     method_name: str,

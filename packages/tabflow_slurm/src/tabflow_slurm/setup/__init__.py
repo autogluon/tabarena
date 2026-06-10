@@ -15,7 +15,6 @@ installed locations (these are also the defaults used by `PathSetup`).
 
 from __future__ import annotations
 
-from tabflow_slurm.setup.candidates import JobCandidate, is_job_cached_batch
 from tabflow_slurm.setup.paths import PathSetup, get_run_script_path, get_submit_script_path
 from tabflow_slurm.setup.plan import ModelJob, SingleModel, TabArenaBenchmarkPlan
 from tabflow_slurm.setup.resources import BeyondArenaResourcesSetup, ResourcesSetup, TabArenaV0pt1ResourcesSetup
@@ -24,7 +23,6 @@ from tabflow_slurm.setup.scheduler import GCPSlurmSetup, LocalSequentialSetup, S
 __all__ = [
     "BeyondArenaResourcesSetup",
     "GCPSlurmSetup",
-    "JobCandidate",
     "LocalSequentialSetup",
     "ModelJob",
     "PathSetup",
@@ -36,5 +34,4 @@ __all__ = [
     "TabArenaV0pt1ResourcesSetup",
     "get_run_script_path",
     "get_submit_script_path",
-    "is_job_cached_batch",
 ]

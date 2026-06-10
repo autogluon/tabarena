@@ -30,8 +30,7 @@ tabflow_slurm/                      ← this folder (docs, examples, history, py
         ├── benchmark.py            ← TabArenaBenchmarkSetup (INTERNAL per-run engine)
         ├── paths.py                ← PathSetup, get_run_script_path/get_submit_script_path
         ├── resources.py            ← ResourcesSetup + v0.1/BeyondArena presets
-        ├── scheduler.py            ← SchedulerSetup → SlurmSetup → GCPSlurmSetup (batching + sbatch)
-        └── candidates.py           ← JobCandidate projection, is_job_cached_batch (Ray-side filter)
+        └── scheduler.py            ← SchedulerSetup → SlurmSetup → GCPSlurmSetup (batching + sbatch)
 ```
 
 ## The public-API boundary
@@ -51,9 +50,10 @@ tabflow_slurm/                      ← this folder (docs, examples, history, py
    `(resources, scheduler, tasks, experiment-with-models-zeroed, ignore_cache)` signature matches
    (collections compare by value). One `TabArenaBenchmarkSetup` per group.
 3. Each setup's `get_jobs_to_run()`: ensure dirs → `tasks.materialize()` (downloads only the
-   collection's tasks) → `experiment_bundle.build_experiments()` → core `build_jobs` (experiments ×
-   splits) → core `filter_jobs_by_constraints` → Ray cache check (`is_job_cached_batch`, built on
-   core `job_cache_exists`) → persist the surviving sweep as a `JobBatch` artifact
+   collection's tasks) → `experiment_bundle.build_experiments()` (attaches each experiment's
+   `ModelConstraints`) → core `build_jobs` (experiments × splits; constraint-violating pairs are
+   dropped during enumeration) → Ray cache check (core `job_cache_exists_batch` over plain
+   coordinate tuples) → persist the surviving sweep as a `JobBatch` artifact
    (experiments.yaml + task_metadata.csv + jobs.json) → `scheduler.bundle_items()`.
 4. `scheduler.get_run_commands()` writes the job JSON (splitting at `max_array_size`) and returns the
    `sbatch` command(s). The plan prints one consolidated summary.
@@ -81,11 +81,9 @@ Then: `sbatch … submit_template.sh <job.json>` → array task picks `jobs[SLUR
 
 ## Gotchas
 
-- **`is_job_cached_batch` must stay importable + picklable at module level**
-  (`setup/candidates.py`) — it runs on Ray workers. Keep it dependency-light and reading everything
-  off `JobCandidate`. The cache key/normalization itself lives in tabarena core
-  (`job_cache_exists` / `task_cache_key_from_task_id_str`), shared with the writer — don't re-derive
-  it here.
+- **The Ray cache check pickles plain `(method, task_id_str, fold, repeat)` tuples** to workers
+  (never live experiments) and runs tabarena core's writer-aligned `job_cache_exists_batch` — don't
+  re-derive the cache key/normalization in this package.
 - **OpenML cache must be shared** between the head node (setup materializes tasks there) and workers
   (`--openml_cache_dir`). `PathSetup.ensure_runtime_dirs()` points the ambient cache at it during
   setup.

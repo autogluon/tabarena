@@ -152,19 +152,23 @@ class TestRunExperimentResolution:
                 ignore_cache=False,
             )
 
-    def test_unknown_dataset_raises(self, tmp_path):
+    def test_coordinates_not_in_batch_raise(self, tmp_path):
+        """A known experiment with coordinates that name no serialized job fails loudly
+        (e.g. a stale job JSON against a regenerated batch).
+        """
         batch_dir = tmp_path / "batch"
         _save_minimal_batch(batch_dir)
-        with pytest.raises(ValueError, match="task_metadata"):
-            run_experiment(
-                job_batch_dir=str(batch_dir),
-                experiment_name="exp_a",
-                dataset="not_a_dataset",
-                fold=0,
-                repeat=0,
-                output_dir=str(tmp_path / "out"),
-                ignore_cache=False,
-            )
+        for dataset, fold in [("not_a_dataset", 0), ("ds_a", 7)]:
+            with pytest.raises(ValueError, match="not a job of the batch"):
+                run_experiment(
+                    job_batch_dir=str(batch_dir),
+                    experiment_name="exp_a",
+                    dataset=dataset,
+                    fold=fold,
+                    repeat=0,
+                    output_dir=str(tmp_path / "out"),
+                    ignore_cache=False,
+                )
 
 
 # ---------------------------------------------------------------------------

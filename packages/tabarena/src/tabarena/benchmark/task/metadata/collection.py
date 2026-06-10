@@ -98,7 +98,6 @@ class TaskMetadataCollection:
         return collection.subset_tasks(split_indices="lite") if lite else collection
 
     # ------------------------------------------------------------------ list-like
-
     @property
     def tasks(self) -> list[TabArenaTaskMetadata]:
         return self._tasks
