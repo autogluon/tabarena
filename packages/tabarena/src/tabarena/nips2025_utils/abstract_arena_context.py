@@ -6,13 +6,11 @@ leaderboard via ``compare``, subsetting results, and rendering a website leaderb
 that is specific to TabArena — it works for any benchmark whose tasks/methods are described by
 a :class:`TaskMetadataCollection` / :class:`MethodMetadataCollection`.
 
-Each concrete arena fills in three hooks:
+Each concrete arena fills in two hooks:
 
 * :meth:`_resolve_task_metadata_preset` — turn a named preset (e.g. ``"tabarena"``) into a
   :class:`TaskMetadataCollection`.
 * :meth:`_resolve_methods_preset` — turn a named methods preset into a ``list[MethodMetadata]``.
-* :meth:`load_baseline_results` — the baseline/reference results ``compare`` compares against
-  (none by default; override to supply them).
 
 and may override the class-level :attr:`SUBSET_PREDICATES` and :attr:`_default_subsets` to
 declare arena-specific subset filters. :class:`~tabarena.nips2025_utils.tabarena_context.TabArenaContext`
@@ -107,18 +105,58 @@ class AbstractArenaContext(ABC):
     def _resolve_methods_preset(self, name: str, *, include_unverified: bool) -> list[MethodMetadata]:
         """Resolve a named methods preset (e.g. ``"tabarena"``) to a ``list[MethodMetadata]``."""
 
-    def load_baseline_results(
+    def load_results(
         self,
         methods: list[str] | None = None,
         download_results: str | bool = "auto",
         methods_drop: list[str] | None = None,
     ) -> pd.DataFrame:
-        """Baseline/reference results to compare new results against.
+        """Load the cached results of this arena's methods (downloading on cache miss).
 
-        Empty by default — a self-contained arena has no external baselines. Override to load
-        them (see ``TabArenaContext`` for the paper-results downloader).
+        These are the baseline/reference results ``compare`` compares new results against.
+        A context constructed with no methods contributes none (empty DataFrame), so a
+        self-contained arena's leaderboard is computed purely from ``new_results``.
         """
-        return pd.DataFrame()
+        if methods is None:
+            methods = self.methods
+        if methods_drop is not None:
+            for method in methods_drop:
+                if method not in methods:
+                    raise AssertionError(
+                        f"Specified '{method}' in `methods_drop`, but '{method}' is not present in methods: {methods}",
+                    )
+            methods = [method for method in methods if method not in methods_drop]
+        if not methods:
+            return pd.DataFrame()
+
+        df_results_lst = []
+        for method in methods:
+            method_metadata = self.method_metadata(method=method)
+            if isinstance(download_results, bool) and download_results:
+                method_downloader = method_metadata.method_downloader()
+                method_downloader.download_results()
+
+            try:
+                df_results = method_metadata.load_results()
+            except FileNotFoundError as err:
+                if isinstance(download_results, str) and download_results == "auto":
+                    print(
+                        f"Missing local results files for method! "
+                        f"Attempting to download from s3 and retry... "
+                        f'(download_results={download_results}, method="{method_metadata.method}")',
+                    )
+                    method_downloader = method_metadata.method_downloader()
+                    method_downloader.download_results()
+                    df_results = method_metadata.load_results()
+                else:
+                    print(
+                        f"Missing local results files for method {method_metadata.method}! "
+                        f"Try setting `download_results=True` to get the required files.",
+                    )
+                    raise err
+            df_results_lst.append(df_results)
+
+        return pd.concat(df_results_lst, ignore_index=True)
 
     # ------------------------------------------------------------------ metadata views
     def _resolve_task_metadata_collection(
@@ -266,7 +304,7 @@ class AbstractArenaContext(ABC):
     ) -> pd.DataFrame:
         """Compute the leaderboard comparing ``new_results`` against this arena's baselines.
 
-        ``ta_results`` defaults to :meth:`load_baseline_results`; ``new_results`` (if given)
+        ``ta_results`` defaults to :meth:`load_results`; ``new_results`` (if given)
         are concatenated to them. ``fillna`` / ``calibration_method`` resolve ``"auto"`` to
         the context's settings.
         """
@@ -280,7 +318,7 @@ class AbstractArenaContext(ABC):
             calibration_method = self.calibration_method
 
         if ta_results is None:
-            ta_results = self.load_baseline_results(
+            ta_results = self.load_results(
                 download_results="auto",
             )
 
@@ -336,7 +374,7 @@ class AbstractArenaContext(ABC):
     ) -> dict[str, pd.DataFrame]:
         output_dir = Path(output_dir)
         if ta_results is None:
-            ta_results = self.load_baseline_results(
+            ta_results = self.load_results(
                 download_results="auto",
             )
         datasets = sorted(ta_results["dataset"].unique())

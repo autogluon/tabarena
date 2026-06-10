@@ -9,7 +9,7 @@ download), and showcases each of these steps:
 4. Run them on two models, using ``run_jobs`` for a *non-rectangular* sweep (the
    classification task has 3 folds, the regression task has 1).
 5. Aggregate the raw results with ``EndToEnd``.
-6. Compute a leaderboard via a subclassed ``TabArenaContext.compare`` call.
+6. Compute a leaderboard via a ``TabArenaContext.compare`` call (with no baseline methods).
 
 Run with::
 
@@ -137,19 +137,6 @@ def _metadata_row(
     }
 
 
-class CustomBenchmarkContext(TabArenaContext):
-    """A ``TabArenaContext`` for a self-contained custom benchmark (no paper baselines).
-
-    The base ``compare`` pulls the official TabArena paper results to compare against (via
-    ``load_baseline_results``). A custom benchmark has no such baselines, so we override it to
-    contribute nothing — the leaderboard is then computed purely from the results we pass as
-    ``new_results``, against the custom task metadata the context was constructed with.
-    """
-
-    def load_baseline_results(self, *args, **kwargs) -> pd.DataFrame:
-        return pd.DataFrame()
-
-
 if __name__ == "__main__":
     here = Path(__file__).parent
     results_dir = str(here / "experiments" / "custom_ebr")
@@ -205,8 +192,11 @@ if __name__ == "__main__":
     print("\n=== raw per-fold results ===")
     print(df_results[["method", "dataset", "fold", "metric", "metric_error"]].to_string(index=False))
 
-    # 6: leaderboard via the subclassed context's `compare`, on the custom task metadata.
-    context = CustomBenchmarkContext(
+    # 6: leaderboard via the context's `compare`, on the custom task metadata. With
+    # `methods=[]` the context contributes no baseline results (`load_results` returns an
+    # empty frame), so the leaderboard is computed purely from the results passed as
+    # `new_results`.
+    context = TabArenaContext(
         task_metadata=task_collection,
         methods=[],
         fillna_method=None,

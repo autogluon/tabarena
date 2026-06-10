@@ -68,9 +68,9 @@ class TabArenaContext(AbstractArenaContext):
     """Reference arena context: TabArena v0.1 task/method presets + the paper workflow.
 
     Implements the :class:`AbstractArenaContext` hooks against the committed TabArena v0.1
-    suite and the paper's method metadata, overrides :meth:`load_baseline_results` to load the
-    paper baseline results, and adds the full reproduction workflow (HPO / portfolio
-    simulation, plotting, repo generation). ``BeyondArenaContext`` subclasses this.
+    suite and the paper's method metadata (so :meth:`load_results` loads the paper baseline
+    results), and adds the full reproduction workflow (HPO / portfolio simulation, plotting,
+    repo generation). ``BeyondArenaContext`` subclasses this.
     """
 
     SUBSET_PREDICATES: dict[str, SubsetPredicate] = {
@@ -673,51 +673,6 @@ class TabArenaContext(AbstractArenaContext):
         metadata = self.method_metadata(method=method)
         return metadata.load_portfolio_results()
 
-    def load_baseline_results(
-        self,
-        methods: list[str] | None = None,
-        download_results: str | bool = "auto",
-        methods_drop: list[str] | None = None,
-    ) -> pd.DataFrame:
-        if methods is None:
-            methods = self.methods
-        if methods_drop is not None:
-            for method in methods_drop:
-                if method not in methods:
-                    raise AssertionError(
-                        f"Specified '{method}' in `methods_drop`, but '{method}' is not present in methods: {methods}",
-                    )
-            methods = [method for method in methods if method not in methods_drop]
-
-        df_results_lst = []
-        for method in methods:
-            method_metadata = self.method_metadata(method=method)
-            if isinstance(download_results, bool) and download_results:
-                method_downloader = method_metadata.method_downloader()
-                method_downloader.download_results()
-
-            try:
-                df_results = method_metadata.load_results()
-            except FileNotFoundError as err:
-                if isinstance(download_results, str) and download_results == "auto":
-                    print(
-                        f"Missing local results files for method! "
-                        f"Attempting to download from s3 and retry... "
-                        f'(download_results={download_results}, method="{method_metadata.method}")',
-                    )
-                    method_downloader = method_metadata.method_downloader()
-                    method_downloader.download_results()
-                    df_results = method_metadata.load_results()
-                else:
-                    print(
-                        f"Missing local results files for method {method_metadata.method}! "
-                        f"Try setting `download_results=True` to get the required files.",
-                    )
-                    raise err
-            df_results_lst.append(df_results)
-
-        return pd.concat(df_results_lst, ignore_index=True)
-
     def load_configs_hyperparameters(
         self,
         methods: list[str] | None = None,
@@ -763,7 +718,7 @@ class TabArenaContext(AbstractArenaContext):
         progress_bar: bool = True,
     ):
         if df_results is None:
-            df_results = self.load_baseline_results(download_results="auto")
+            df_results = self.load_results(download_results="auto")
 
         if fillna_method == "auto":
             fillna_method = self.fillna_method
@@ -907,7 +862,7 @@ class TabArenaContext(AbstractArenaContext):
         if fillna_method == "auto":
             fillna_method = self.fillna_method
         if df_results is None:
-            df_results = self.load_baseline_results(download_results="auto")
+            df_results = self.load_results(download_results="auto")
 
         if use_display_names:
             rename_map = self._method_rename_map_to_display_names()
