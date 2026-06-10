@@ -358,6 +358,18 @@ class AbstractArenaContext:
                 df_filter=new_results,
             )
 
+        # Subset to the requested tasks here (with this context's subset predicates) — the
+        # lower-level `compare` evaluates the results frame as-is.
+        if isinstance(subset, str):
+            subset = [subset]
+        df_results = self.subset_results(
+            df_results=df_results,
+            subset=subset,
+            tasks=tasks,
+            datasets=datasets,
+            folds=folds,
+        )
+
         # TODO: only methods that exist in runs
         #  Pair with (method, artifact_name)
         method_rename_map = self.get_method_rename_map()
@@ -366,11 +378,6 @@ class AbstractArenaContext:
             df_results=df_results,
             output_dir=Path(output_dir),
             task_metadata=self.task_metadata_collection,
-            subset=subset,
-            tasks=tasks,
-            datasets=datasets,
-            folds=folds,
-            tabarena_context=self,
             fillna=fillna,
             calibration_framework=calibration_method,
             score_on_val=score_on_val,

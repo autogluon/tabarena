@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from tabarena.benchmark.task.metadata import default_task_metadata_collection
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
@@ -19,10 +18,8 @@ if TYPE_CHECKING:
 def compare(
     df_results: pd.DataFrame,
     output_dir: str | Path,
-    task_metadata: TaskMetadataCollection | None = None,
+    task_metadata: TaskMetadataCollection,
     only_valid_tasks: str | list[str] | None = None,
-    tasks: list[tuple[str, int]] | None = None,
-    datasets: list[str] | None = None,
     calibration_framework: str | None = None,
     fillna: str | pd.DataFrame | None = None,
     score_on_val: bool = False,
@@ -32,41 +29,20 @@ def compare(
     method_rename_map: dict | None = None,
     figure_file_type: str = "pdf",
     add_dataset_count: bool = False,
-    subset: list[str] | None = None,
-    folds: list[int] | None = None,
     elo_ymin: float | None = None,
-    tabarena_context: TabArenaContext | None = None,
     **kwargs,
 ):
-    if task_metadata is None:
-        task_metadata = default_task_metadata_collection()
-    if subset is not None or folds is not None or datasets is not None or tasks is not None:
-        if subset is None:
-            subset = []
-        if isinstance(subset, str):
-            subset = [subset]
-        df_results = subset_tasks(
-            df_results=df_results,
-            subset=subset,
-            tasks=tasks,
-            datasets=datasets,
-            folds=folds,
-            task_metadata_og=task_metadata,
-            # Thread the context's predicates so subclass-specific subsets (e.g.
-            # BeyondArena's "random"/"temporal"/"grouped") take effect; without this
-            # subset_tasks silently falls back to TabArenaContext.SUBSET_PREDICATES.
-            predicates=tabarena_context.subset_predicates if tabarena_context is not None else None,
-        )
+    """Evaluate ``df_results`` (already subset to the tasks of interest) into a leaderboard.
 
+    Generic over the supplied ``task_metadata``; task subsetting is the caller's job
+    (see :meth:`AbstractArenaContext.compare`, which subsets via ``subset_results`` first).
+    """
     df_results = prepare_data(
         df_results=df_results,
         only_valid_tasks=only_valid_tasks,
         fillna=fillna,
         remove_imputed=remove_imputed,
     )
-
-    if datasets is not None:
-        df_results = df_results[df_results["dataset"].isin(datasets)]
 
     if score_on_val:
         error_col = "metric_error_val"
