@@ -63,6 +63,8 @@ pytest tst/test_metrics.py::test_name -x  # Single test, stop on failure
 
 CI (`.github/workflows/`) runs `pytest` on Python 3.11 against an editable install of `./packages/tabarena`.
 
+**Avoid running `tst/models/` in bulk** unless your change would likely impact a specific model: these tests fit real models (slow, and some need GPUs/licenses/network), and they are only affected by changes to the model files under `packages/tabarena/src/tabarena/models/<model>/`. When you touch a model, run just its test (`pytest tst/models/test_<model>.py`).
+
 ## Architecture
 
 ### Core data flow
