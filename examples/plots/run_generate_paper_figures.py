@@ -17,7 +17,7 @@ if __name__ == "__main__":
     tabarena_context = TabArenaContext()
     include_portfolio = False
 
-    df_results = tabarena_context.load_baseline_results(download_results=download_results)
+    df_results = tabarena_context.load_results(download_results=download_results)
 
     configs_hyperparameters = tabarena_context.load_configs_hyperparameters(download=download_results)
 

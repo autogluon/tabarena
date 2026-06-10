@@ -1084,7 +1084,7 @@ def _prepare_tuning_trajectories_data(
     results_hpo = pd.concat(results_hpo_lst, ignore_index=True)
     results_hpo["display_name"] = results_hpo["display_name"].fillna(results_hpo["config_type"])
 
-    result_baselines = tabarena_context.load_baseline_results()
+    result_baselines = tabarena_context.load_results()
 
     results_hpo_mean = (
         results_hpo.copy()
