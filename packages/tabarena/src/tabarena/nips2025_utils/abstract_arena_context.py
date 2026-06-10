@@ -76,7 +76,6 @@ class AbstractArenaContext:
         task_metadata: str | TaskMetadataCollection,
         *,
         extra_methods: list[MethodMetadata] | None = None,
-        include_unverified: bool = False,
         backend: Literal["ray", "native"] = "ray",
         fillna_method: str | None = None,
         calibration_method: str | None = None,
@@ -93,7 +92,7 @@ class AbstractArenaContext:
         # A string selects a named preset (resolved by the concrete arena); otherwise an
         # explicit list of MethodMetadata is used as-is.
         if isinstance(methods, str):
-            method_metadata_lst = self._resolve_methods_preset(methods, include_unverified=include_unverified)
+            method_metadata_lst = self._resolve_methods_preset(methods)
         else:
             method_metadata_lst = list(methods)
         method_names = {m.method for m in method_metadata_lst}
@@ -116,7 +115,7 @@ class AbstractArenaContext:
             f"Pass an explicit TaskMetadataCollection instead.",
         )
 
-    def _resolve_methods_preset(self, name: str, *, include_unverified: bool) -> list[MethodMetadata]:
+    def _resolve_methods_preset(self, name: str) -> list[MethodMetadata]:
         """Resolve a named methods preset to a ``list[MethodMetadata]``. The base arena defines
         no presets — pass an explicit list or override in a subclass.
         """

@@ -1332,9 +1332,7 @@ def plot_tuning_trajectories(
         subset_map = []
 
     if tabarena_context is None:
-        tabarena_context = TabArenaContext(
-            include_unverified=True,
-        )
+        tabarena_context = TabArenaContext()
     if isinstance(calibration_framework, str) and calibration_framework == "auto":
         calibration_framework = tabarena_context.calibration_method
     if isinstance(fillna_method, str) and fillna_method == "auto":
