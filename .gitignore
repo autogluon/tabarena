@@ -159,3 +159,9 @@ AutogluonModels/
 /examples/**/*.zip
 
 /tmp_scripts/
+
+# Generated eval / plot / website artifacts (never committed)
+/examples/plots/clean_website_artifacts/
+/examples/benchmarking/task_cache/
+/examples/benchmarking/leaderboards/
+/packages/tabflow_slurm/experiments/eval_output/
