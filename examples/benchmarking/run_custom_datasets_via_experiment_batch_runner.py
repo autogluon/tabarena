@@ -161,9 +161,9 @@ if __name__ == "__main__":
     reg_task, reg_meta = make_regression_task(task_cache_dir)
     tasks = [clf_task, reg_task]
     task_metadata = pd.DataFrame([clf_meta, reg_meta])
-    # The native task-metadata representation, shared by EndToEnd (step 5) and the
-    # leaderboard context (step 6). `ExperimentBatchRunner` (step 3) still accepts the
-    # legacy DataFrame directly.
+    # The native task-metadata representation, used by every consumer below:
+    # ExperimentBatchRunner (step 3), EndToEnd (step 5), and the leaderboard context (step 6).
+    # The legacy DataFrame is only an opt-in input to `from_legacy_df`.
     task_collection = TaskMetadataCollection.from_legacy_df(task_metadata)
 
     # Two models. (See `tabarena.models.utils.get_configs_generator_from_name` for the

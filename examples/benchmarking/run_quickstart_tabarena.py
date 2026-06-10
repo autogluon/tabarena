@@ -17,10 +17,9 @@ if __name__ == "__main__":
     ignore_cache = False  # set to True to overwrite existing caches and re-run experiments from scratch
 
     tabarena_context = TabArenaContext()
-    task_metadata = tabarena_context.task_metadata
 
     # Sample for a quick demo
-    datasets = ["anneal", "credit-g", "diabetes"]  # datasets = list(task_metadata["name"])
+    datasets = ["anneal", "credit-g", "diabetes"]  # all: tabarena_context.task_metadata_collection.dataset_names()
 
     # import your model classes
     from autogluon.tabular.models import LGBModel

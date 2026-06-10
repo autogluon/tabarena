@@ -145,10 +145,13 @@ class AbstractArenaContext(ABC):
 
     @functools.cached_property
     def task_metadata(self) -> pd.DataFrame:
-        """Legacy one-row-per-dataset ``task_metadata`` DataFrame.
+        """Legacy one-row-per-dataset ``task_metadata`` DataFrame (back-compat bridge only).
 
-        Derived from :attr:`task_metadata_collection` via ``to_legacy_df()`` — the collection
-        is the single source of truth. Cached because it is effectively immutable post-init.
+        The sole remaining legacy-DataFrame surface on the context: nothing internal consumes
+        it (the runner, ``compare``, and subset predicates all work off
+        :attr:`task_metadata_collection` and its native :meth:`~TaskMetadataCollection.task_grid`).
+        Kept as a convenience for external callers still on the legacy schema; derived from the
+        collection via ``to_legacy_df()`` and cached (effectively immutable post-init).
         """
         return self.task_metadata_collection.to_legacy_df()
 
