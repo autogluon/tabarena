@@ -163,6 +163,49 @@ def _task_cache_key(task: int | UserTask) -> int | str:
     return task if isinstance(task, int) else task.slug
 
 
+def task_cache_key_from_task_id_str(task_id_str: str) -> int | str:
+    """The results-cache task key for a serialized task id (``task_id_str``).
+
+    The string-side counterpart of :func:`_task_cache_key`: an OpenML id string maps to
+    its int, a ``UserTask`` id string to the task's ``slug``. This is the *one*
+    normalization shared by the cache writer (the run engine) and any cache-hit
+    pre-check (e.g. the SLURM dispatch filter) — they must agree or cached jobs are
+    needlessly re-run.
+    """
+    try:
+        return int(task_id_str)
+    except ValueError:
+        return UserTask.from_task_id_str(task_id_str).slug
+
+
+def job_cache_exists(
+    *,
+    output_dir: str,
+    method_name: str,
+    task_id_str: str,
+    fold: int,
+    repeat: int,
+    cache_cls: type[AbstractCacheFunction] = CacheFunctionPickle,
+    cache_cls_kwargs: dict | None = None,
+) -> bool:
+    """Whether the ``results`` cache for one (method, task, fold, repeat) unit exists.
+
+    Built on the same `_build_results_cacher` the run engine writes through, so the
+    check can never drift from the writer's cache layout. ``task_id_str`` is the
+    serialized task id (see :func:`task_cache_key_from_task_id_str`).
+    """
+    cacher = _build_results_cacher(
+        cache_cls=cache_cls,
+        cache_cls_kwargs=cache_cls_kwargs,
+        base_cache_path=output_dir,
+        method_name=method_name,
+        cache_task_key=task_cache_key_from_task_id_str(task_id_str),
+        fold=fold,
+        repeat=repeat,
+    )
+    return cacher.exists
+
+
 def _build_cache_prefix(
     *,
     method_name: str,

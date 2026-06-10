@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy, CacheFunctionPickle
 
 if TYPE_CHECKING:
+    from tabarena.benchmark.experiment.bundle import ModelConstraints
     from tabarena.benchmark.experiment.experiment_constructor import Experiment
     from tabarena.benchmark.experiment.job import Job
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
@@ -249,6 +250,7 @@ class ExperimentBatchRunner:
     def run_jobs(
         self,
         jobs: list[Job],
+        model_constraints: dict[str, ModelConstraints] | None = None,
     ) -> list[dict[str, Any]]:
         """Run an explicit, possibly non-rectangular list of ``(experiment, task)`` jobs.
 
@@ -269,6 +271,12 @@ class ExperimentBatchRunner:
         jobs: list[Job]
             The (experiment, task) units to run. Must be unique on
             `(experiment.name, dataset, fold, repeat)`.
+        model_constraints: dict[str, ModelConstraints] | None, default None
+            Optional per-model dataset-compatibility constraints, keyed by AG model key
+            (see `TabArenaExperimentBundle.model_constraints`). When given, jobs whose
+            dataset shape violates their model's constraints are skipped up front (the
+            same filter the SLURM dispatch applies; see `filter_jobs_by_constraints`).
+            Default None: run every job as-is.
 
         Returns:
         -------
@@ -278,6 +286,14 @@ class ExperimentBatchRunner:
             Can pass into `exp_bach_runner.repo_from_results(results_lst=results_lst)` to generate an EvaluationRepository.
 
         """
+        if model_constraints:
+            from tabarena.benchmark.experiment.job import filter_jobs_by_constraints
+
+            jobs = filter_jobs_by_constraints(
+                jobs,
+                model_constraints=model_constraints,
+                task_metadata=self.task_metadata_collection,
+            )
         if not jobs:
             return []
 
