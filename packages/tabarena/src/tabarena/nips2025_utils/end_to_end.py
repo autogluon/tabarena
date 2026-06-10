@@ -392,6 +392,13 @@ class EndToEndResults:
             fillna=False,
         )
 
+        # The lower-level `compare` requires explicit task metadata; default to the
+        # TabArena-v0.1 suite here, matching the TabArena results this class manages.
+        if task_metadata is None:
+            from tabarena.benchmark.task.metadata import default_task_metadata_collection
+
+            task_metadata = default_task_metadata_collection()
+
         return compare(
             df_results=results,
             output_dir=output_dir,
