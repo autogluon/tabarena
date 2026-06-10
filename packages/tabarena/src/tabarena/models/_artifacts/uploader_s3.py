@@ -57,24 +57,19 @@ class MethodUploaderS3:
         print(f"Uploading raw zipped files to: {s3_key}")
         self._upload_fileobj(fileobj=fileobj, s3_key=s3_key)
 
-    def upload_processed(self, holdout: bool = False):
-        if holdout:
-            path_processed = self.method_metadata.path_processed_holdout
-            processed_zip_name = "processed_holdout.zip"
-        else:
-            path_processed = self.method_metadata.path_processed
-            processed_zip_name = "processed.zip"
+    def upload_processed(self):
+        path_processed = self.method_metadata.path_processed
 
         print(f"Zipping processed files into memory under: {path_processed}")
         fileobj = zip_in_memory(path=path_processed)
-        s3_key = self.prefix / processed_zip_name
+        s3_key = self.prefix / "processed.zip"
 
         # Upload to S3 directly from memory
         print(f"Uploading processed zipped files to: {s3_key}")
         self._upload_fileobj(fileobj=fileobj, s3_key=s3_key)
 
         # Upload configs_hyperparameters as a standalone file for fast access
-        self.upload_configs_hyperparameters(holdout=holdout)
+        self.upload_configs_hyperparameters()
 
     def _upload_fileobj(self, fileobj: io.BytesIO, s3_key: str | Path):
         import boto3
@@ -108,8 +103,8 @@ class MethodUploaderS3:
         s3_client = boto3.client("s3")
         s3_client.upload_file(Filename=path_local, Bucket=self.s3_bucket, Key=s3_key, **kwargs)
 
-    def upload_configs_hyperparameters(self, holdout: bool = False):
-        path_local = self.method_metadata.path_configs_hyperparameters(holdout=holdout)
+    def upload_configs_hyperparameters(self):
+        path_local = self.method_metadata.path_configs_hyperparameters()
         self._upload_file(path_local=path_local)
 
     def local_to_s3_path(self, path_local: str | Path) -> str:
@@ -117,11 +112,11 @@ class MethodUploaderS3:
         _, s3_key = s3_path_to_bucket_prefix(s3_path_loc)
         return s3_key
 
-    def upload_results(self, holdout: bool = False):
-        file_names = self.method_metadata.path_results_files(holdout=holdout)
+    def upload_results(self):
+        file_names = self.method_metadata.path_results_files()
         for path_local in file_names:
             self._upload_file(path_local=path_local)
 
-    def upload_results_hpo_trajectories(self, holdout: bool = False):
-        path_local = self.method_metadata.path_results_hpo_trajectories(holdout=holdout)
+    def upload_results_hpo_trajectories(self):
+        path_local = self.method_metadata.path_results_hpo_trajectories()
         self._upload_file(path_local=path_local)
