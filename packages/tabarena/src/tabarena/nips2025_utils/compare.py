@@ -27,7 +27,6 @@ def compare(
     fillna: str | pd.DataFrame | None = None,
     score_on_val: bool = False,
     average_seeds: bool = False,
-    tmp_treat_tasks_independently: bool = False,  # FIXME: Update
     leaderboard_kwargs: dict | None = None,
     remove_imputed: bool = False,
     method_rename_map: dict | None = None,
@@ -96,7 +95,6 @@ def compare(
         plot_times=True,
         calibration_framework=calibration_framework,
         average_seeds=average_seeds,
-        tmp_treat_tasks_independently=tmp_treat_tasks_independently,
         leaderboard_kwargs=leaderboard_kwargs,
         **kwargs,
     )

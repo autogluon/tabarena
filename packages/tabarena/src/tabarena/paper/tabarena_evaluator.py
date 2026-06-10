@@ -610,7 +610,6 @@ class TabArenaEvaluator:
         compute_fold_similarity: bool = False,
         calibration_framework: str | None = "auto",
         average_seeds: bool = False,
-        tmp_treat_tasks_independently: bool = False,  # FIXME: Need to make a weighted elo logic
         leaderboard_kwargs: dict | None = None,
         plot_with_baselines: bool = False,
         plot_tuning_kwargs: dict | None = None,
@@ -792,12 +791,6 @@ class TabArenaEvaluator:
             calibration_elo=1000,
             BOOTSTRAP_ROUNDS=self.elo_bootstrap_rounds,
         )
-
-        if tmp_treat_tasks_independently:
-            df_results_rank_compare["dataset"] = (
-                df_results_rank_compare["dataset"] + "_" + df_results_rank_compare["fold"].astype(str)
-            )
-            df_results_rank_compare["fold"] = 0
 
         tabarena = TabArena(
             method_col=self.method_col,
