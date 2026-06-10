@@ -9,7 +9,7 @@ download), and showcases each of these steps:
 4. Run them on two models, using ``run_jobs`` for a *non-rectangular* sweep (the
    classification task has 3 folds, the regression task has 1).
 5. Aggregate the raw results with ``EndToEnd``.
-6. Compute a leaderboard via a ``TabArenaContext.compare`` call (with no baseline methods).
+6. Compute a leaderboard via an ``AbstractArenaContext.compare`` call (with no baseline methods).
 
 Run with::
 
@@ -43,8 +43,8 @@ from tabarena.benchmark.experiment import (
 from tabarena.benchmark.task import UserTask
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.benchmark.task.user_task import from_sklearn_splits_to_user_task_splits
+from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 from tabarena.nips2025_utils.end_to_end import EndToEnd
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 
 def _toy_frame(*, classification: bool) -> pd.DataFrame:
@@ -192,15 +192,14 @@ if __name__ == "__main__":
     print("\n=== raw per-fold results ===")
     print(df_results[["method", "dataset", "fold", "metric", "metric_error"]].to_string(index=False))
 
-    # 6: leaderboard via the context's `compare`, on the custom task metadata. With
-    # `methods=[]` the context contributes no baseline results (`load_results` returns an
-    # empty frame), so the leaderboard is computed purely from the results passed as
+    # 6: leaderboard via the context's `compare`, on the custom task metadata. The generic
+    # arena context is instantiated directly (no TabArena presets involved); with
+    # `methods=[]` it contributes no baseline results (`load_results` returns an empty
+    # frame), so the leaderboard is computed purely from the results passed as
     # `new_results`.
-    context = TabArenaContext(
+    context = AbstractArenaContext(
         task_metadata=task_collection,
         methods=[],
-        fillna_method=None,
-        calibration_method=None,
     )
     leaderboard = context.compare(output_dir=eval_dir, new_results=df_results)
     print("\n=== leaderboard ===")
