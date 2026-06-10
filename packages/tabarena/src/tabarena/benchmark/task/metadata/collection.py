@@ -135,18 +135,28 @@ class TaskMetadataCollection:
         * predicate columns, using the predicate-facing names: ``max_train_rows`` (mean per-fold
           train size over the dataset's splits — matches :meth:`to_legacy_df`'s
           ``n_samples_train_per_fold``), ``n_features`` (``num_features``), ``n_classes``
-          (``num_classes``), ``problem_type``.
+          (``num_classes``), ``problem_type``, and the warehouse fields ``task_type``,
+          ``num_cols_after_preprocessing``, ``num_text_cols``, ``num_high_cardinality_cats``
+          (``None`` for tasks that don't carry them, e.g. TabArena v0.1).
         """
-        cols = ["dataset", "fold", "repeat", "split", "max_train_rows", "n_features", "n_classes", "problem_type"]
+        # Predicate-facing grid column -> TabArenaTaskMetadata attribute. Warehouse fields are
+        # None for tasks that don't carry them (e.g. TabArena v0.1); BeyondArena populates them.
+        grid_col_to_field = {
+            "n_features": "num_features",
+            "n_classes": "num_classes",
+            "problem_type": "problem_type",
+            "task_type": "task_type",
+            "num_cols_after_preprocessing": "num_cols_after_preprocessing",
+            "num_text_cols": "num_text_cols",
+            "num_high_cardinality_cats": "num_high_cardinality_cats",
+        }
+        cols = ["dataset", "fold", "repeat", "split", "max_train_rows", *grid_col_to_field]
         n_folds_by_dataset: dict[str, int] = {}
         train_sizes: dict[str, list[float]] = {}
         meta: dict[str, dict] = {}
         for t in self._tasks:
             ds = t.tabarena_task_name
-            meta.setdefault(
-                ds,
-                {"n_features": t.num_features, "n_classes": t.num_classes, "problem_type": t.problem_type},
-            )
+            meta.setdefault(ds, {col: getattr(t, field) for col, field in grid_col_to_field.items()})
             for split in t.splits_metadata.values():
                 n_folds_by_dataset[ds] = max(n_folds_by_dataset.get(ds, 0), split.fold + 1)
                 train_sizes.setdefault(ds, []).append(split.num_instances_train)
@@ -158,9 +168,7 @@ class TaskMetadataCollection:
                 "repeat": repeat,
                 "split": n_folds_by_dataset[ds] * repeat + fold,
                 "max_train_rows": mean_train[ds],
-                "n_features": meta[ds]["n_features"],
-                "n_classes": meta[ds]["n_classes"],
-                "problem_type": meta[ds]["problem_type"],
+                **meta[ds],
             }
             for ds, fold, repeat in self.dataset_fold_repeats()
         ]

@@ -112,6 +112,14 @@ class TestNativeViews:
         assert len(dfr) == 6
         assert set(dfr) == {("a", f, r) for r in range(2) for f in range(3)}
 
+    def test_task_grid_exposes_warehouse_predicate_columns(self):
+        # task_grid carries the warehouse columns (None for tasks that don't set them, e.g.
+        # TabArena v0.1) so arena-specific predicates (BeyondArena) can read them.
+        c = TaskMetadataCollection(_unrolled(_task_meta(dataset_name="a")))
+        grid = c.task_grid()
+        for col in ("task_type", "num_cols_after_preprocessing", "num_text_cols", "num_high_cardinality_cats"):
+            assert col in grid.columns
+
     def test_per_dataset_frame_one_row_per_dataset_native_columns(self):
         tasks = _unrolled(_task_meta(dataset_name="a", num_features=7, splits=[_split_meta(fold=f) for f in range(3)]))
         tasks += _unrolled(_task_meta(dataset_name="b", problem_type="regression", num_features=4))

@@ -32,11 +32,10 @@ import pandas as pd
 
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
+from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 from tabarena.website.website_format import format_leaderboard
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from tabarena.benchmark.experiment import ExperimentBatchRunner
     from tabarena.models._method_metadata import MethodMetadata
 
@@ -44,20 +43,22 @@ if TYPE_CHECKING:
 class AbstractArenaContext(ABC):
     """Arena-agnostic base: task/method metadata + comparison/runner/leaderboard plumbing."""
 
-    #: Subset-filter predicates available to `compare` / `make_experiment_batch_runner`,
-    #: keyed by name and evaluated on the task grid (or a results frame). Subclasses override
-    #: to add arena-specific filters (size buckets, split regimes, ...). Read via
-    #: :attr:`subset_predicates` so subclass overrides take effect.
-    SUBSET_PREDICATES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
-        "all": lambda df: pd.Series(True, index=df.index),
-        "binary": lambda df: df["problem_type"] == "binary",
-        "multiclass": lambda df: df["problem_type"] == "multiclass",
-        "classification": lambda df: df["problem_type"].isin(["binary", "multiclass"]),
-        "regression": lambda df: df["problem_type"] == "regression",
+    #: Subset-filter predicates available to `compare` / `make_experiment_batch_runner`, keyed by
+    #: name. Each :class:`SubsetPredicate` declares the grid columns it needs (validated before
+    #: it runs). Subclasses override to add arena-specific filters (size buckets, split regimes,
+    #: ...). Read via :attr:`subset_predicates` so subclass overrides take effect.
+    SUBSET_PREDICATES: dict[str, SubsetPredicate] = {
+        "all": SubsetPredicate(lambda df: pd.Series(True, index=df.index)),
+        "binary": SubsetPredicate(lambda df: df["problem_type"] == "binary", ("problem_type",)),
+        "multiclass": SubsetPredicate(lambda df: df["problem_type"] == "multiclass", ("problem_type",)),
+        "classification": SubsetPredicate(
+            lambda df: df["problem_type"].isin(["binary", "multiclass"]), ("problem_type",)
+        ),
+        "regression": SubsetPredicate(lambda df: df["problem_type"] == "regression", ("problem_type",)),
         # split-level filter: keeps split 0 == (fold 0, repeat 0). Evaluated on the task grid's
         # "split" column (see TaskMetadataCollection.task_grid); a results frame's "fold" is the
         # split, so this maps to fold == 0 there.
-        "lite": lambda df: df["split"] == 0,
+        "lite": SubsetPredicate(lambda df: df["split"] == 0, ("split",)),
     }
 
     def __init__(
@@ -152,7 +153,7 @@ class AbstractArenaContext(ABC):
         return self.task_metadata_collection.to_legacy_df()
 
     @property
-    def subset_predicates(self) -> dict[str, Callable[[pd.DataFrame], pd.Series]]:
+    def subset_predicates(self) -> dict[str, SubsetPredicate]:
         """Predicates available for subset filtering. Reads from
         ``type(self).SUBSET_PREDICATES`` so subclass overrides take effect.
         """

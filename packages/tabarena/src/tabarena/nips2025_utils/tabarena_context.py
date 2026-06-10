@@ -13,14 +13,13 @@ from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collectio
 from tabarena.nips2025_utils.eval_all import evaluate_all
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_paths
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
+from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection
 from tabarena.utils.pickle_utils import fetch_all_pickles
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from tabarena.benchmark.result import BaselineResult
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
     from tabarena.repository.abstract_repository import AbstractRepository
@@ -76,24 +75,32 @@ class TabArenaContext(AbstractArenaContext):
     simulation, plotting, repo generation). ``BeyondArenaContext`` subclasses this.
     """
 
-    SUBSET_PREDICATES: dict[str, Callable[[pd.DataFrame], pd.Series]] = {
-        "all": lambda df: pd.Series(True, index=df.index),
+    SUBSET_PREDICATES: dict[str, SubsetPredicate] = {
+        "all": SubsetPredicate(lambda df: pd.Series(True, index=df.index)),
         # problem_type
-        "binary": lambda df: df["problem_type"] == "binary",
-        "multiclass": lambda df: df["problem_type"] == "multiclass",
-        "classification": lambda df: df["problem_type"].isin(["binary", "multiclass"]),
-        "regression": lambda df: df["problem_type"] == "regression",
+        "binary": SubsetPredicate(lambda df: df["problem_type"] == "binary", ("problem_type",)),
+        "multiclass": SubsetPredicate(lambda df: df["problem_type"] == "multiclass", ("problem_type",)),
+        "classification": SubsetPredicate(
+            lambda df: df["problem_type"].isin(["binary", "multiclass"]), ("problem_type",)
+        ),
+        "regression": SubsetPredicate(lambda df: df["problem_type"] == "regression", ("problem_type",)),
         # size buckets keyed on training rows
-        "medium": lambda df: df["max_train_rows"].between(10_001, 100_000),
-        "small": lambda df: df["max_train_rows"] <= 10_000,
-        "tiny": lambda df: df["max_train_rows"] <= 2_000,
+        "medium": SubsetPredicate(lambda df: df["max_train_rows"].between(10_001, 100_000), ("max_train_rows",)),
+        "small": SubsetPredicate(lambda df: df["max_train_rows"] <= 10_000, ("max_train_rows",)),
+        "tiny": SubsetPredicate(lambda df: df["max_train_rows"] <= 2_000, ("max_train_rows",)),
         # foundation-model compatibility (operates on tabarena task_metadata columns)
-        "tabpfn": lambda df: (df["max_train_rows"] <= 10_000) & (df["n_features"] <= 500) & (df["n_classes"] <= 10),
-        "tabicl": lambda df: (df["max_train_rows"] <= 100_000) & (df["n_features"] <= 500) & (df["n_classes"] > 0),
+        "tabpfn": SubsetPredicate(
+            lambda df: (df["max_train_rows"] <= 10_000) & (df["n_features"] <= 500) & (df["n_classes"] <= 10),
+            ("max_train_rows", "n_features", "n_classes"),
+        ),
+        "tabicl": SubsetPredicate(
+            lambda df: (df["max_train_rows"] <= 100_000) & (df["n_features"] <= 500) & (df["n_classes"] > 0),
+            ("max_train_rows", "n_features", "n_classes"),
+        ),
         # split-level filter: keeps split 0 == (fold 0, repeat 0). Evaluated on the task grid's
         # "split" column (see TaskMetadataCollection.task_grid); a results frame's "fold" is the
         # split, so this maps to fold == 0 there.
-        "lite": lambda df: df["split"] == 0,
+        "lite": SubsetPredicate(lambda df: df["split"] == 0, ("split",)),
     }
 
     def __init__(

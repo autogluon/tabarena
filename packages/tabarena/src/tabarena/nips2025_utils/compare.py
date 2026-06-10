@@ -8,6 +8,7 @@ import pandas as pd
 
 from tabarena.benchmark.task.metadata import default_task_metadata_collection
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 
@@ -307,7 +308,10 @@ def _evaluate_subset_expression(
         if part not in predicates:
             valid = sorted(predicates)
             raise ValueError(f"Invalid subset name {part!r}. Valid names: {valid}")
-        sub = predicates[part](df).astype(bool)
+        pred = predicates[part]
+        # `SubsetPredicate` validates its `required_columns` against the grid (clear error on a
+        # missing column); a plain callable is applied as-is for backward compatibility.
+        sub = (pred.evaluate(df, name=part) if isinstance(pred, SubsetPredicate) else pred(df)).astype(bool)
         if negate:
             sub = ~sub
         mask = sub if mask is None else (mask | sub)
