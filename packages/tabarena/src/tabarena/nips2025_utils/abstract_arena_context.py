@@ -109,7 +109,6 @@ class AbstractArenaContext(ABC):
     def load_baseline_results(
         self,
         methods: list[str] | None = None,
-        holdout: bool = False,
         download_results: str | bool = "auto",
         methods_drop: list[str] | None = None,
     ) -> pd.DataFrame:

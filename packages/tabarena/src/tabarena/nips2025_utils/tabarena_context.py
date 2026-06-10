@@ -11,13 +11,11 @@ from tabarena.models._method_metadata import MethodMetadata
 from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
 from tabarena.nips2025_utils.eval_all import evaluate_all
-from tabarena.nips2025_utils.generate_repo import generate_repo_from_paths
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
 from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection
-from tabarena.utils.pickle_utils import fetch_all_pickles
 
 if TYPE_CHECKING:
     from tabarena.benchmark.result import BaselineResult
@@ -257,26 +255,6 @@ class TabArenaContext(AbstractArenaContext):
         )
         return metadata.path_processed
 
-    def generate_repo_holdout(self, method: str) -> Path:
-        metadata = self.method_metadata(method=method)
-
-        path_raw = metadata.path_raw
-        path_processed = metadata.path_processed_holdout
-
-        name_suffix = metadata.name_suffix
-
-        file_paths_method = fetch_all_pickles(dir_path=path_raw, suffix="results.pkl")
-        repo: EvaluationRepository = generate_repo_from_paths(
-            result_paths=file_paths_method,
-            task_metadata=self.task_metadata_collection,
-            engine=self.engine,
-            name_suffix=name_suffix,
-            as_holdout=True,
-        )
-
-        repo.to_dir(path_processed)
-        return path_processed
-
     # FIXME: This is a hacky approach, refactor
     def generate_hpo_trajectories(
         self,
@@ -342,7 +320,6 @@ class TabArenaContext(AbstractArenaContext):
         methods: str | None = None,
         repo: EvaluationRepository | None = None,
         folds: list[int] | None = None,
-        holdout: bool = False,
         name: str | None = None,
         ta_name: str | None = None,
         ta_suite: str | None = None,
@@ -684,30 +661,26 @@ class TabArenaContext(AbstractArenaContext):
             **kwargs,
         )
 
-    def load_hpo_results(self, method: str, holdout: bool = False) -> pd.DataFrame:
+    def load_hpo_results(self, method: str) -> pd.DataFrame:
         metadata = self.method_metadata(method=method)
-        return metadata.load_hpo_results(holdout=holdout)
+        return metadata.load_hpo_results()
 
-    def load_config_results(self, method: str, holdout: bool = False) -> pd.DataFrame:
+    def load_config_results(self, method: str) -> pd.DataFrame:
         metadata = self.method_metadata(method=method)
-        return metadata.load_model_results(holdout=holdout)
+        return metadata.load_model_results()
 
-    def load_portfolio_results(self, method: str, holdout: bool = False) -> pd.DataFrame:
+    def load_portfolio_results(self, method: str) -> pd.DataFrame:
         metadata = self.method_metadata(method=method)
-        return metadata.load_portfolio_results(holdout=holdout)
+        return metadata.load_portfolio_results()
 
     def load_baseline_results(
         self,
         methods: list[str] | None = None,
-        holdout: bool = False,
         download_results: str | bool = "auto",
         methods_drop: list[str] | None = None,
     ) -> pd.DataFrame:
         if methods is None:
             methods = self.methods
-            if holdout:
-                # only include methods that can have holdout
-                methods = [m for m in methods if self.method_metadata(m).is_bag]
         if methods_drop is not None:
             for method in methods_drop:
                 if method not in methods:
@@ -721,10 +694,10 @@ class TabArenaContext(AbstractArenaContext):
             method_metadata = self.method_metadata(method=method)
             if isinstance(download_results, bool) and download_results:
                 method_downloader = method_metadata.method_downloader()
-                method_downloader.download_results(holdout=holdout)
+                method_downloader.download_results()
 
             try:
-                df_results = method_metadata.load_results(holdout=holdout)
+                df_results = method_metadata.load_results()
             except FileNotFoundError as err:
                 if isinstance(download_results, str) and download_results == "auto":
                     print(
@@ -733,8 +706,8 @@ class TabArenaContext(AbstractArenaContext):
                         f'(download_results={download_results}, method="{method_metadata.method}")',
                     )
                     method_downloader = method_metadata.method_downloader()
-                    method_downloader.download_results(holdout=holdout)
-                    df_results = method_metadata.load_results(holdout=holdout)
+                    method_downloader.download_results()
+                    df_results = method_metadata.load_results()
                 else:
                     print(
                         f"Missing local results files for method {method_metadata.method}! "
@@ -748,19 +721,15 @@ class TabArenaContext(AbstractArenaContext):
     def load_configs_hyperparameters(
         self,
         methods: list[str] | None = None,
-        holdout: bool = False,
         download: bool | str = False,
     ) -> dict[str, dict]:
         if methods is None:
             methods = self.methods
             methods = [m for m in methods if self.method_metadata(m).method_type == "config"]
-            if holdout:
-                # only include methods that can have holdout
-                methods = [m for m in methods if self.method_metadata(m).is_bag]
         configs_hyperparameters_lst = []
         for method in methods:
             metadata = self.method_metadata(method=method)
-            configs_hyperparameters = metadata.load_configs_hyperparameters(holdout=holdout, download=download)
+            configs_hyperparameters = metadata.load_configs_hyperparameters(download=download)
             configs_hyperparameters_lst.append(configs_hyperparameters)
 
         def merge_dicts_no_duplicates(dicts: list[dict]) -> dict:
@@ -782,7 +751,6 @@ class TabArenaContext(AbstractArenaContext):
         self,
         save_path: str | Path,
         df_results: pd.DataFrame = None,
-        df_results_holdout: pd.DataFrame = None,
         df_results_cpu: pd.DataFrame = None,
         configs_hyperparameters: dict[str, dict] | None = None,
         include_portfolio: bool = False,
@@ -808,7 +776,6 @@ class TabArenaContext(AbstractArenaContext):
         evaluate_all(
             tabarena_context=self,  # FIXME: Don't do this in future, clean up
             df_results=df_results,
-            # df_results_holdout=df_results_holdout,  # TODO: Add back later
             # configs_hyperparameters=configs_hyperparameters,  # TODO: Add back later
             eval_save_path=save_path,
             elo_bootstrap_rounds=elo_bootstrap_rounds,
@@ -967,14 +934,13 @@ class TabArenaContext(AbstractArenaContext):
     def load_config_results_multi(
         self,
         method_metadata_lst: list[MethodMetadata] | None = None,
-        holdout: bool = False,
     ) -> pd.DataFrame:
         if method_metadata_lst is None:
             method_metadata_lst = self.method_metadata_collection.method_metadata_lst
         df_results_configs_lst = []
         for method_metadata in method_metadata_lst:
             if method_metadata.method_type == "config":
-                df_results_configs_lst.append(method_metadata.load_model_results(holdout=holdout))
+                df_results_configs_lst.append(method_metadata.load_model_results())
         return pd.concat(df_results_configs_lst, ignore_index=True)
 
     def find_missing(self, method: str):
