@@ -15,7 +15,7 @@ from tabflow_slurm.setup.candidates import JobCandidate, should_run_job_batch
 
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import TabArenaExperimentBundle
-    from tabarena.benchmark.task.metadata import TabArenaMetadataBundle, TabArenaTaskMetadata
+    from tabarena.benchmark.task.metadata import TabArenaTaskMetadata, TaskMetadataCollection
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
     from tabflow_slurm.setup.scheduler import SchedulerSetup
@@ -33,9 +33,10 @@ class TabArenaBenchmarkSetup:
     benchmark_name: str
     """Unique name of the benchmark; determines where output artifacts are stored."""
 
-    tasks_to_run_setup: TabArenaMetadataBundle
-    """Defines which tasks to run in the benchmark, including the source of
-    task metadata and any filters applied on top of it."""
+    tasks: TaskMetadataCollection
+    """The tasks (dataset x split) to run in the benchmark — already filtered
+    (see `TaskMetadataCollection.subset_tasks`) but not necessarily materialized;
+    `get_jobs_to_run` materializes it (downloads only this collection's tasks)."""
     experiment_bundle: TabArenaExperimentBundle
     """Defines which models / experiments to run in the benchmark and builds them
     (models, per-model config counts, preprocessing pipelines, fold fitting,
@@ -88,7 +89,7 @@ class TabArenaBenchmarkSetup:
         largest bundle observed and is used to budget the per-task time limit.
         """
         self.path_setup.ensure_runtime_dirs(self.benchmark_name)
-        task_metadata_list = self.tasks_to_run_setup.load_task_metadata()
+        task_metadata_list = self.tasks.materialize().tasks
         configs = self.experiment_bundle.generate_configs_yaml(
             configs_path=self.path_setup.get_configs_path(
                 benchmark_name=self.benchmark_name,

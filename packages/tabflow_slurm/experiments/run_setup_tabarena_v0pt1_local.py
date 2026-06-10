@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
-from tabarena.benchmark.task.metadata import TabArenaV0pt1LiteMetadataBundle
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabflow_slurm import (
     LocalSequentialSetup,
     ModelJob,
@@ -46,10 +46,10 @@ benchmark_plan = TabArenaBenchmarkPlan(
         # GPU resource override so it becomes its own sequential run:
         #   ModelJob(models=("TabPFN-3", 0), name="gpu", resources={"num_gpus": 1}),
     ],
-    # Scope to one tiny dataset so the demo is fast — the full Lite bundle is 51
+    # Scope to one tiny dataset so the demo is fast — the full Lite preset is 51
     # datasets. Add more names (e.g. "diabetes") to widen it.
-    tasks_to_run_setup=TabArenaV0pt1LiteMetadataBundle(
-        dataset_names_to_run=["blood-transfusion-service-center"],
+    tasks=TaskMetadataCollection.from_preset("TabArena-v0.1-lite").subset_tasks(
+        dataset_names=["blood-transfusion-service-center"],
     ),
     experiment_bundle=TabArenaV0pt1ExperimentBundle(),
     path_setup=PathSetup(

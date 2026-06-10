@@ -2,7 +2,7 @@
 
 These avoid the optional ``data-foundry`` dependency and any network access by
 patching the reference-metadata loader / materialization helpers on the
-``tabarena.benchmark.task.data_foundry`` package (the bundle imports them lazily
+``tabarena.benchmark.task.data_foundry`` package (the source imports them lazily
 from there at call time).
 """
 
@@ -12,9 +12,9 @@ import pandas as pd
 import pytest
 
 from tabarena.benchmark.task.metadata import (
-    BeyondArenaMetadataBundle,
     SplitMetadata,
     TabArenaTaskMetadata,
+    TaskMetadataCollection,
 )
 from tabarena.benchmark.task.user_task import UserTask
 
@@ -46,7 +46,7 @@ def test_portable_task_id_str_roundtrips_to_ambient_cache():
 
 
 # ---------------------------------------------------------------------------
-# BeyondArenaMetadataBundle: reference loading + filtering + resolution
+# TaskMetadataCollection.from_preset("BeyondArena"): loading + filtering + resolution
 # ---------------------------------------------------------------------------
 
 
@@ -112,7 +112,7 @@ def patched_data_foundry(monkeypatch):
     class _DummyCollection:
         name = "BeyondArena"
 
-    monkeypatch.setattr(df_pkg, "get_beyond_arena_collection", lambda: _DummyCollection())
+    monkeypatch.setattr(df_pkg, "get_beyond_arena_collection", _DummyCollection)
     monkeypatch.setattr(
         df_pkg,
         "load_reference_metadata",
@@ -130,7 +130,7 @@ def patched_data_foundry(monkeypatch):
 
 
 def test_inspection_without_materialize_does_not_download(patched_data_foundry):
-    result = BeyondArenaMetadataBundle(materialize=False).load_task_metadata()
+    result = TaskMetadataCollection.from_preset("BeyondArena")
 
     assert {m.dataset_name for m in result} == {"ds_bin", "ds_reg"}
     assert patched_data_foundry == []  # nothing materialized / downloaded
@@ -140,10 +140,7 @@ def test_inspection_without_materialize_does_not_download(patched_data_foundry):
 
 
 def test_problem_type_filter_then_materialize(patched_data_foundry):
-    result = BeyondArenaMetadataBundle(
-        materialize=True,
-        problem_types_to_run=["binary"],
-    ).load_task_metadata()
+    result = TaskMetadataCollection.from_preset("BeyondArena").subset_tasks(problem_types=["binary"]).materialize()
 
     assert [m.dataset_name for m in result] == ["ds_bin"]
     # Only the surviving task is materialized, by its data_foundry_uri.
@@ -152,10 +149,7 @@ def test_problem_type_filter_then_materialize(patched_data_foundry):
 
 
 def test_dataset_names_filter(patched_data_foundry):
-    result = BeyondArenaMetadataBundle(
-        materialize=False,
-        dataset_names_to_run=["ds_reg"],
-    ).load_task_metadata()
+    result = TaskMetadataCollection.from_preset("BeyondArena").subset_tasks(dataset_names=["ds_reg"])
 
     assert [m.dataset_name for m in result] == ["ds_reg"]
 
@@ -165,7 +159,7 @@ def test_custom_metadata_passthrough_skips_reference_and_materialization(patched
     custom = _ref_task(dataset_name="my_custom")
     custom.data_foundry_uri = None  # a user-supplied task, not from data_foundry
 
-    result = BeyondArenaMetadataBundle(task_metadata=[custom], materialize=True).load_task_metadata()
+    result = TaskMetadataCollection.from_source([custom]).materialize()
 
     assert [m.dataset_name for m in result] == ["my_custom"]  # reference table was NOT loaded
     assert patched_data_foundry == []  # nothing to materialize without a data_foundry_uri

@@ -24,7 +24,7 @@ from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
 
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import TabArenaExperimentBundle
-    from tabarena.benchmark.task.metadata import TabArenaMetadataBundle
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
     from tabflow_slurm.setup.scheduler import SchedulerSetup
@@ -117,8 +117,10 @@ class ModelJob:
     """Field overrides applied to the plan's base `SchedulerSetup`
     (e.g. `gpu_partition`, `bundle_size`, `array_job_limit`)."""
     tasks: dict[str, Any] = field(default_factory=dict)
-    """Field overrides applied to the plan's base `TabArenaMetadataBundle`
-    (e.g. `n_train_samples_to_run`, `dataset_names_to_run`)."""
+    """Filter kwargs applied to the plan's base `TaskMetadataCollection` via
+    `subset_tasks` (e.g. `n_train_samples`, `dataset_names`, `split_indices`).
+    Note these *compose with* (further restrict) the base collection rather than
+    replacing its filters."""
     experiment: dict[str, Any] = field(default_factory=dict)
     """Field overrides applied to the plan's base `TabArenaExperimentBundle`
     (e.g. `model_agnostic_preprocessing`). The `models` key is forbidden here —
@@ -174,8 +176,9 @@ class TabArenaBenchmarkPlan:
     """The models to run, each with optional per-model overrides."""
 
     # Base / default building blocks (the same objects TabArenaBenchmarkSetup takes).
-    tasks_to_run_setup: TabArenaMetadataBundle
-    """Default tasks. Per-job `tasks` overrides are applied on top."""
+    tasks: TaskMetadataCollection
+    """Default tasks (a loaded, filtered-as-desired collection). Per-job `tasks`
+    filter kwargs are applied on top via `subset_tasks`."""
     experiment_bundle: TabArenaExperimentBundle
     """Default experiment settings. Its `models` field is ignored (a template);
     each group's models come from its `ModelJob`s. Per-job `experiment`
@@ -209,7 +212,7 @@ class TabArenaBenchmarkPlan:
                 TabArenaBenchmarkSetup(
                     benchmark_name=self.benchmark_name,
                     parallel_safe_benchmark_name=f"{self.benchmark_name}_{group_name}",
-                    tasks_to_run_setup=group["tasks"],
+                    tasks=group["tasks"],
                     experiment_bundle=experiment_bundle,
                     path_setup=self.path_setup,
                     scheduler_setup=group["scheduler"],
@@ -236,7 +239,10 @@ class TabArenaBenchmarkPlan:
                 )
             resources = _apply_overrides(self.resources_setup, job.resources, "resources")
             scheduler = _apply_overrides(self.scheduler_setup, job.scheduler, "scheduler")
-            tasks = _apply_overrides(self.tasks_to_run_setup, job.tasks, "tasks")
+            # Tasks compose (further restrict the base collection) instead of replacing
+            # fields: an empty dict short-circuits to the identical base object so the
+            # signature comparison can match on equality across jobs.
+            tasks = self.tasks.subset_tasks(**job.tasks) if job.tasks else self.tasks
             # Zero out models so only non-model settings define the signature.
             experiment = _apply_overrides(self.experiment_bundle, {**job.experiment, "models": []}, "experiment")
 

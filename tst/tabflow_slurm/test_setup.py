@@ -7,8 +7,8 @@ monolithic `BenchmarkSetup2026`. That class is now split into focused pieces:
     - `ResourcesSetup.time_limit_per_config` (setup/resources.py)
     - `TabArenaBenchmarkSetup`             (setup/benchmark.py)
 
-The task-metadata loading/filtering moved into `TabArenaMetadataBundle`
-(tabarena core) and is covered by `tst/benchmark/task/test_metadata_bundle.py`.
+The task-metadata loading/filtering moved into `TaskMetadataCollection`
+(tabarena core) and is covered by `tst/benchmark/task/test_collection_subset_tasks.py`.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import json
 import pytest
 
 from tabarena.benchmark.experiment import TabArenaExperimentBundle
-from tabarena.benchmark.task.metadata import TabArenaMetadataBundle
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
 
 # Import a real submodule (not the bare `tabflow_slurm` namespace): when the package
 # is not installed, the repo-root workspace dir is importable as an empty namespace
@@ -287,7 +287,7 @@ class TestTimeLimitPerConfig:
 def _benchmark_setup(**kwargs) -> TabArenaBenchmarkSetup:
     defaults = {
         "benchmark_name": "my_bench",
-        "tasks_to_run_setup": TabArenaMetadataBundle(task_metadata=[]),
+        "tasks": TaskMetadataCollection([]),
         "experiment_bundle": TabArenaExperimentBundle(n_random_configs=0, preprocessing_pipelines=["default"]),
         "path_setup": PathSetup(workspace="/ws", python_path="/py"),
         "scheduler_setup": _slurm(),

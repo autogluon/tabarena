@@ -1,16 +1,17 @@
 """Code for running the BeyondArena benchmark on a full node in a GCP cluster.
 
 The tasks come from the Data Foundry ``BeyondArena`` collection via
-`BeyondArenaLiteMetadataBundle`: it loads reference metadata, applies the filters
-below, and (on this head node) downloads + converts only the surviving datasets
-into local OpenML tasks. Set `dataset_names_to_run=[...]` to run a chosen subset
-and only those datasets are fetched.
+`TaskMetadataCollection.from_preset("BeyondArena")`: it loads reference metadata
+(no downloads); the benchmark setup later materializes (downloads + converts)
+only the surviving datasets into local OpenML tasks on this head node. Chain
+`.subset_tasks(dataset_names=[...])` to run a chosen subset and only those
+datasets are fetched.
 """
 
 from __future__ import annotations
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
-from tabarena.benchmark.task.metadata import BeyondArenaMetadataBundle
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabflow_slurm import (
     BeyondArenaResourcesSetup,
     GCPSlurmSetup,
@@ -32,7 +33,7 @@ benchmark_plan = TabArenaBenchmarkPlan(
             },
         ),
     ],
-    tasks_to_run_setup=BeyondArenaMetadataBundle(),
+    tasks=TaskMetadataCollection.from_preset("BeyondArena"),
     experiment_bundle=BeyondArenaExperimentBundle(),
     path_setup=PathSetup(
         workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",

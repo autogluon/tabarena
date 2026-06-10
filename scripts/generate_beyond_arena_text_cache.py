@@ -1,7 +1,7 @@
 """Generate the semantic-text embedding caches for the BeyondArena text tasks (maintainer tool).
 
 For every BeyondArena task that carries text, this downloads/converts the task (via the
-``BeyondArena`` metadata bundle), computes its semantic embeddings, and writes the per-task cache to
+``BeyondArena`` task-metadata preset), computes its semantic embeddings, and writes the per-task cache to
 the canonical, encoder-versioned location
 (:func:`~tabarena.benchmark.preprocessing.text_cache.text_cache_path`). This is the *producer* side;
 end users instead download these caches (see
@@ -28,11 +28,13 @@ import argparse
 def generate_beyond_arena_text_caches(*, dataset_names: list[str] | None = None, ignore_cache: bool = False) -> int:
     """Generate caches for all (or the named) BeyondArena text tasks; returns the count generated."""
     from tabarena.benchmark.preprocessing.text_cache import generate_text_cache
-    from tabarena.benchmark.task.metadata import BeyondArenaMetadataBundle
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
     from tabarena.benchmark.task.user_task import UserTask
 
-    bundle = BeyondArenaMetadataBundle(dataset_names_to_run=dataset_names)
-    task_metadata = bundle.load_task_metadata()  # downloads/converts the (filtered) tasks
+    collection = TaskMetadataCollection.from_preset("BeyondArena")
+    if dataset_names is not None:
+        collection = collection.subset_tasks(dataset_names=dataset_names)
+    task_metadata = collection.materialize().tasks  # downloads/converts the (filtered) tasks
     text_tasks = [ttm for ttm in task_metadata if ttm.has_text]
     print(f"Found {len(text_tasks)} BeyondArena text task(s) to cache (of {len(task_metadata)} total).")
 
