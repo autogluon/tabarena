@@ -11,7 +11,7 @@ Each concrete arena fills in three hooks:
 * :meth:`_resolve_task_metadata_preset` — turn a named preset (e.g. ``"tabarena"``) into a
   :class:`TaskMetadataCollection`.
 * :meth:`_resolve_methods_preset` — turn a named methods preset into a ``list[MethodMetadata]``.
-* :meth:`load_results_paper` — the baseline/reference results ``compare`` compares against
+* :meth:`load_baseline_results` — the baseline/reference results ``compare`` compares against
   (none by default; override to supply them).
 
 and may override the class-level :attr:`SUBSET_PREDICATES` and :attr:`_default_subsets` to
@@ -105,7 +105,7 @@ class AbstractArenaContext(ABC):
     def _resolve_methods_preset(self, name: str, *, include_unverified: bool) -> list[MethodMetadata]:
         """Resolve a named methods preset (e.g. ``"tabarena"``) to a ``list[MethodMetadata]``."""
 
-    def load_results_paper(
+    def load_baseline_results(
         self,
         methods: list[str] | None = None,
         holdout: bool = False,
@@ -291,7 +291,7 @@ class AbstractArenaContext(ABC):
     ) -> dict[str, pd.DataFrame]:
         output_dir = Path(output_dir)
         if ta_results is None:
-            ta_results = self.load_results_paper(
+            ta_results = self.load_baseline_results(
                 download_results="auto",
             )
         datasets = sorted(ta_results["dataset"].unique())

@@ -48,7 +48,7 @@ def compare_on_tabarena(
     method_rename_map = tabarena_context.get_method_rename_map()
 
     if ta_results is None:
-        ta_results = tabarena_context.load_results_paper(
+        ta_results = tabarena_context.load_baseline_results(
             download_results="auto",
         )
 

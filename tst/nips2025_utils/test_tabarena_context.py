@@ -261,7 +261,7 @@ class TestAbstractArenaContextStandalone:
     def test_defaults_are_arena_agnostic(self):
         ctx = self._ctx()
         assert ctx.methods == []
-        assert ctx.load_results_paper().empty  # no baselines by default
+        assert ctx.load_baseline_results().empty  # no baselines by default
         # Base ships only the universal predicates (no TabArena size/foundation buckets).
         assert set(ctx.subset_predicates) == {"all", "binary", "multiclass", "classification", "regression", "lite"}
 

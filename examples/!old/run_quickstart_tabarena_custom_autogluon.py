@@ -105,7 +105,7 @@ if __name__ == "__main__":
 
     # load the TabArena paper results
     tabarena_context = TabArenaContext()
-    tabarena_results = tabarena_context.load_results_paper(download_results="auto")
+    tabarena_results = tabarena_context.load_baseline_results(download_results="auto")
     tabarena_results = tabarena_results[[c for c in tabarena_results.columns if c in metrics.columns]]
 
     dataset_fold_map = metrics.groupby("dataset")["fold"].apply(set)

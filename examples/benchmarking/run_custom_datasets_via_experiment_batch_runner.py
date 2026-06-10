@@ -141,12 +141,12 @@ class CustomBenchmarkContext(TabArenaContext):
     """A ``TabArenaContext`` for a self-contained custom benchmark (no paper baselines).
 
     The base ``compare`` pulls the official TabArena paper results to compare against (via
-    ``load_results_paper``). A custom benchmark has no such baselines, so we override it to
+    ``load_baseline_results``). A custom benchmark has no such baselines, so we override it to
     contribute nothing — the leaderboard is then computed purely from the results we pass as
     ``new_results``, against the custom task metadata the context was constructed with.
     """
 
-    def load_results_paper(self, *args, **kwargs) -> pd.DataFrame:
+    def load_baseline_results(self, *args, **kwargs) -> pd.DataFrame:
         return pd.DataFrame()
 
 

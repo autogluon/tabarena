@@ -71,7 +71,7 @@ class TabArenaContext(AbstractArenaContext):
     """Reference arena context: TabArena v0.1 task/method presets + the paper workflow.
 
     Implements the :class:`AbstractArenaContext` hooks against the committed TabArena v0.1
-    suite and the paper's method metadata, overrides :meth:`load_results_paper` to load the
+    suite and the paper's method metadata, overrides :meth:`load_baseline_results` to load the
     paper baseline results, and adds the full reproduction workflow (HPO / portfolio
     simulation, plotting, repo generation). ``BeyondArenaContext`` subclasses this.
     """
@@ -689,7 +689,7 @@ class TabArenaContext(AbstractArenaContext):
         metadata = self.method_metadata(method=method)
         return metadata.load_portfolio_results(holdout=holdout)
 
-    def load_results_paper(
+    def load_baseline_results(
         self,
         methods: list[str] | None = None,
         holdout: bool = False,
@@ -788,7 +788,7 @@ class TabArenaContext(AbstractArenaContext):
         progress_bar: bool = True,
     ):
         if df_results is None:
-            df_results = self.load_results_paper(download_results="auto")
+            df_results = self.load_baseline_results(download_results="auto")
 
         if fillna_method == "auto":
             fillna_method = self.fillna_method
@@ -933,7 +933,7 @@ class TabArenaContext(AbstractArenaContext):
         if fillna_method == "auto":
             fillna_method = self.fillna_method
         if df_results is None:
-            df_results = self.load_results_paper(download_results="auto")
+            df_results = self.load_baseline_results(download_results="auto")
 
         if use_display_names:
             rename_map = self._method_rename_map_to_display_names()

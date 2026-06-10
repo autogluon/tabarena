@@ -30,7 +30,7 @@ def generate_website_artifacts(output_path: str | Path):
     engine = "ray"
 
     tabarena_context = TabArenaContext(include_unverified=include_unverified)
-    tabarena_context.load_results_paper(download_results=download_results)
+    tabarena_context.load_baseline_results(download_results=download_results)
 
     evaluator_kwargs = {
         "figure_file_type": figure_file_type,
