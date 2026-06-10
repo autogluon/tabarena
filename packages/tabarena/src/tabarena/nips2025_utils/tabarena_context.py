@@ -101,7 +101,6 @@ class TabArenaContext(AbstractArenaContext):
         task_metadata: str | TaskMetadataCollection = "tabarena",
         *,
         extra_methods: list[MethodMetadata] | None = None,
-        include_unverified: bool = False,
         backend: Literal["ray", "native"] = "ray",
         fillna_method: str | None = "RF (default)",
         calibration_method: str | None = "RF (default)",
@@ -110,7 +109,6 @@ class TabArenaContext(AbstractArenaContext):
             methods=methods,
             task_metadata=task_metadata,
             extra_methods=extra_methods,
-            include_unverified=include_unverified,
             backend=backend,
             fillna_method=fillna_method,
             calibration_method=calibration_method,
@@ -124,7 +122,7 @@ class TabArenaContext(AbstractArenaContext):
 
         return TaskMetadataCollection.from_preset("TabArena-v0.1")
 
-    def _resolve_methods_preset(self, name: str, *, include_unverified: bool) -> list[MethodMetadata]:
+    def _resolve_methods_preset(self, name: str) -> list[MethodMetadata]:
         if name != "tabarena":
             raise ValueError(f"Unknown methods preset '{name}'.")
         methods = copy.deepcopy(_methods_paper)
@@ -132,8 +130,6 @@ class TabArenaContext(AbstractArenaContext):
             tabarena_method_metadata_collection.method_metadata_lst,
         )
         method_metadata_lst = [m for m in method_metadata_lst if m.method in methods]
-        if not include_unverified:
-            method_metadata_lst = [m for m in method_metadata_lst if m.verified]
         method_metadata_name_set = {m.method for m in method_metadata_lst}
         methods = [m for m in methods if m in method_metadata_name_set]
         return [m for m in method_metadata_lst if m.method in set(methods)]

@@ -65,8 +65,6 @@ class TabArenaEvalConfig:
     subsets: list[list[str]] | None = None
     """Each entry is a subset spec (e.g. ``["regression"]``); ``[]`` means the full
     benchmark. ``None`` is treated as ``[[]]`` (full only)."""
-    include_unverified: bool = True
-    """Passed to ``TabArenaContext`` so unverified baselines are included."""
     num_cpus: int | None = None
     """CPUs for raw-result post-processing (None = all available)."""
     tabarena_cache_path: str | None = None
@@ -103,7 +101,6 @@ def _compare_subset(results, subset: list[str], *, config: TabArenaEvalConfig, f
     return results.compare_on_tabarena(
         output_dir=figure_output_dir / "subsets" / subset_label(subset),
         subset=subset or None,
-        tabarena_context_kwargs={"include_unverified": config.include_unverified},
     )
 
 
