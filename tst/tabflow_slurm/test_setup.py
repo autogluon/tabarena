@@ -65,15 +65,14 @@ class TestPathSetup:
         ps = PathSetup(workspace="/ws", python_path="/py", openml_cache="/data/cache")
         assert ps.openml_cache_path == "/data/cache"
 
-    def test_get_configs_path_contains_safe_name_and_is_yaml(self):
+    def test_get_job_batch_dir_contains_safe_name(self):
         ps = PathSetup(workspace="/ws", python_path="/py")
-        path = ps.get_configs_path(benchmark_name="bench", safe_benchmark_name="bench_p1")
+        path = ps.get_job_batch_dir(benchmark_name="bench", safe_benchmark_name="bench_p1")
         assert "bench_p1" in path
-        assert path.endswith(".yaml")
 
-    def test_get_configs_path_under_workspace_setup_out(self):
+    def test_get_job_batch_dir_under_workspace_setup_out(self):
         ps = PathSetup(workspace="/ws", python_path="/py")
-        path = ps.get_configs_path(benchmark_name="bench", safe_benchmark_name="bench")
+        path = ps.get_job_batch_dir(benchmark_name="bench", safe_benchmark_name="bench")
         assert path.startswith("/ws/setup_out/bench/")
 
     def test_get_slurm_job_json_path_contains_safe_name_and_is_json(self):
@@ -162,18 +161,15 @@ class TestSlurmSetup:
 # ---------------------------------------------------------------------------
 
 
-def _candidate(*, dataset_name="d", n_features=10, n_samples_train_per_fold=1000) -> JobCandidate:
+def _candidate(*, dataset="d", n_features=10, n_samples_train_per_fold=1000) -> JobCandidate:
     return JobCandidate(
-        task_id="1",
-        dataset_name=dataset_name,
+        experiment_name="cfg",
+        dataset=dataset,
         fold=0,
         repeat=0,
-        config_index=0,
-        config={"name": "cfg"},
+        task_id_str="1",
         n_features=n_features,
-        n_classes=2,
         n_samples_train_per_fold=n_samples_train_per_fold,
-        problem_type="binary",
     )
 
 
@@ -201,7 +197,7 @@ class TestEffectiveBundleSize:
 
     def test_per_dataset_override_wins_over_auto_rule(self):
         ss = _slurm(bundle_size=5, bundle_size_per_dataset={"big": 3})
-        assert ss._effective_bundle_size(_candidate(dataset_name="big", n_features=5001)) == 3
+        assert ss._effective_bundle_size(_candidate(dataset="big", n_features=5001)) == 3
 
     def test_feature_check_disabled(self):
         ss = _slurm(bundle_size=5, large_dataset_n_features=None)
@@ -215,8 +211,8 @@ class TestEffectiveBundleSize:
 class TestBundleItems:
     def test_large_datasets_get_singleton_bundles(self):
         ss = _slurm(bundle_size=5)
-        small = [_candidate(dataset_name="small") for _ in range(3)]
-        wide = [_candidate(dataset_name="wide", n_features=6000) for _ in range(2)]
+        small = [_candidate(dataset="small") for _ in range(3)]
+        wide = [_candidate(dataset="wide", n_features=6000) for _ in range(2)]
         jobs, max_configs = ss.bundle_items([*small, *wide])
         sizes = sorted(len(j["items"]) for j in jobs)
         # 3 small batched into one bundle, 2 wide as singletons.
@@ -305,6 +301,81 @@ class TestSafeBenchmarkName:
     def test_parallel_safe_name_used_directly(self):
         bs = _benchmark_setup(benchmark_name="my_bench", parallel_safe_benchmark_name="my_bench_run1")
         assert bs._safe_benchmark_name == "my_bench_run1"
+
+
+# ---------------------------------------------------------------------------
+# TabArenaBenchmarkSetup.get_jobs_to_run (ignore_cache path: no Ray)
+# ---------------------------------------------------------------------------
+
+
+def _two_dataset_collection() -> TaskMetadataCollection:
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "tid": [1, 2],
+            "dataset": ["ds_a", "ds_b"],
+            "problem_type": ["binary", "binary"],
+            "n_folds": [2, 1],
+            "n_repeats": [1, 1],
+            "n_features": [5, 5],
+            "n_classes": [2, 2],
+            "NumberOfInstances": [100, 100],
+            "n_samples_train_per_fold": [80.0, 80.0],
+            "n_samples_test_per_fold": [20.0, 20.0],
+        },
+    )
+    return TaskMetadataCollection.from_legacy_df(df)
+
+
+def _passthrough_experiment(name: str):
+    from autogluon.tabular.models import LGBModel
+
+    from tabarena.benchmark.experiment import AGModelBagExperiment
+
+    return AGModelBagExperiment(
+        name=name,
+        model_cls=LGBModel,
+        model_hyperparameters={},
+        num_bag_folds=2,
+        time_limit=60,
+    )
+
+
+class TestGetJobsToRun:
+    def test_enumerates_saves_batch_and_bundles(self, tmp_path):
+        from tabarena.benchmark.experiment import JobBatch
+
+        bs = _benchmark_setup(
+            tasks=_two_dataset_collection(),
+            experiment_bundle=TabArenaExperimentBundle(
+                models=[_passthrough_experiment("exp_a")],
+                n_random_configs=0,
+                preprocessing_pipelines=["default"],
+            ),
+            path_setup=PathSetup(workspace=str(tmp_path), python_path="/py"),
+            scheduler_setup=_slurm(bundle_size=2),
+            ignore_cache=True,  # skip the Ray cache check
+        )
+        jobs, max_configs_per_job = bs.get_jobs_to_run()
+
+        # 1 experiment x 3 splits (ds_a: 2 folds, ds_b: 1 fold) -> 3 items in size-2 bundles.
+        items = [item for job in jobs for item in job["items"]]
+        assert [(i["experiment"], i["dataset"], i["fold"], i["repeat"]) for i in items] == [
+            ("exp_a", "ds_a", 0, 0),
+            ("exp_a", "ds_a", 1, 0),
+            ("exp_a", "ds_b", 0, 0),
+        ]
+        assert max_configs_per_job == 2
+
+        # The self-contained JobBatch artifact is on disk and loadable.
+        batch = JobBatch.load(bs._job_batch_dir)
+        assert [j.task.as_triple() for j in batch.jobs] == [("ds_a", 0, 0), ("ds_a", 1, 0), ("ds_b", 0, 0)]
+        assert [e.name for e in batch.experiments] == ["exp_a"]
+        assert set(batch.task_metadata.dataset_names()) == {"ds_a", "ds_b"}
+
+        # The per-job defaults point the runner at the batch.
+        assert bs._build_default_args()["job_batch_dir"] == bs._job_batch_dir
 
 
 # ---------------------------------------------------------------------------
@@ -401,7 +472,7 @@ class TestBuildSbatchPrefix:
 
 def _job(size: int) -> dict:
     """An array-task bundle with `size` (placeholder) items."""
-    return {"items": [{"task_id": "1", "fold": 0, "repeat": 0, "config_index": i} for i in range(size)]}
+    return {"items": [{"experiment": f"cfg_{i}", "dataset": "d", "fold": 0, "repeat": 0} for i in range(size)]}
 
 
 def _build_commands(jobs: list[dict], *, tmp_path, time_limit=3600, time_limit_overhead=1, **slurm_kw) -> list[str]:

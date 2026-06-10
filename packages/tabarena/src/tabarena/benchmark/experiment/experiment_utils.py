@@ -69,6 +69,11 @@ class ExperimentBatchRunner:
             instead of the integer tid that ``run_experiments_new`` would try to download
             from OpenML. Datasets without a registered ``UserTask`` keep resolving to their
             integer OpenML tid.
+
+            Tasks whose collection ``task_id_str`` is a serialized ``UserTask`` id
+            (``"UserTask|..."``, e.g. materialized Data Foundry tasks) are auto-registered
+            from the collection — no explicit entry needed; an explicit entry for the same
+            dataset takes precedence.
         """
         cache_cls = CacheFunctionDummy if cache_cls is None else cache_cls
         cache_cls_kwargs = {"include_self_in_call": True} if cache_cls_kwargs is None else cache_cls_kwargs
@@ -107,12 +112,18 @@ class ExperimentBatchRunner:
 
         Each task is keyed by its ``tabarena_task_name`` (the ``dataset`` column key) and must
         already be present in the tid map, so ``task_metadata`` and the registered tasks stay
-        consistent.
+        consistent. Local tasks are auto-derived from the collection (a ``task_id_str`` of the
+        ``"UserTask|..."`` form reconstructs its ``UserTask``); explicit ``user_tasks`` entries
+        override the auto-derived ones.
         """
-        if not user_tasks:
-            return {}
+        from tabarena.benchmark.task.user_task import UserTask
+
         mapping: dict[str, UserTask] = {}
-        for task in user_tasks:
+        for ttm in self.task_metadata_collection:
+            task_id_str = ttm.task_id_str
+            if isinstance(task_id_str, str) and task_id_str.startswith("UserTask|"):
+                mapping.setdefault(ttm.tabarena_task_name, UserTask.from_task_id_str(task_id_str))
+        for task in user_tasks or []:
             dataset = task.tabarena_task_name
             if dataset not in self._dataset_to_tid_dict:
                 raise ValueError(

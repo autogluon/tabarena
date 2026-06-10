@@ -4,7 +4,7 @@ The non-cluster counterpart to ``submit_template.sh``. Where the SLURM submit
 script runs one array task (``jobs[SLURM_ARRAY_TASK_ID]``) and loops over that
 task's bundled items, this runner flattens *all* jobs and *all* items into a
 single sequential loop and runs ``run_tabarena_experiment``'s per-item logic
-once per item.
+once per item (one (experiment, dataset, fold, repeat) work unit each).
 
 Two execution modes (``--execution_mode``):
     - ``subprocess`` (default): each item runs in its own fresh subprocess via
@@ -50,23 +50,22 @@ def _build_item_command(defaults: dict, item: dict) -> list[str]:
 
     Mirrors ``submit_template.sh::run_one``. Every value is stringified:
     ``str(True/False)`` -> ``"True"/"False"`` (accepted by the runner's
-    ``_str2bool``), ``str(None)`` -> ``"None"`` (accepted by ``_parse_int_or_none``
-    for ``num_cpus``/``memory_limit``), and ``config_index`` is a single int
-    (parsed into a one-element list by the runner's ``_parse_int_list``).
+    ``_str2bool``) and ``str(None)`` -> ``"None"`` (accepted by
+    ``_parse_int_or_none`` for ``num_cpus``/``memory_limit``).
     """
     return [
         str(defaults["python"]),
         str(defaults["run_script"]),
-        "--task_id",
-        str(item["task_id"]),
+        "--job_batch_dir",
+        str(defaults["job_batch_dir"]),
+        "--experiment",
+        str(item["experiment"]),
+        "--dataset",
+        str(item["dataset"]),
         "--fold",
         str(item["fold"]),
         "--repeat",
         str(item["repeat"]),
-        "--config_index",
-        str(item["config_index"]),
-        "--configs_yaml_file",
-        str(defaults["configs_yaml_file"]),
         "--openml_cache_dir",
         str(defaults["openml_cache_dir"]),
         "--output_dir",
@@ -120,11 +119,11 @@ def _run_item_in_process(defaults: dict, item: dict) -> int:
 
     try:
         run_experiment(
-            task_id=str(item["task_id"]),
+            job_batch_dir=str(defaults["job_batch_dir"]),
+            experiment_name=str(item["experiment"]),
+            dataset=str(item["dataset"]),
             fold=item["fold"],
             repeat=item["repeat"],
-            configs_yaml_file=str(defaults["configs_yaml_file"]),
-            config_index=[item["config_index"]],
             output_dir=str(defaults["output_dir"]),
             ignore_cache=bool(defaults["ignore_cache"]),
         )
@@ -160,8 +159,8 @@ def run(json_path: str, *, continue_on_error: bool, execution_mode: str = "subpr
     completed = 0
     for idx, item in enumerate(items, start=1):
         print(
-            f"\n===== [{idx}/{total}] task_id={item['task_id']} fold={item['fold']} "
-            f"repeat={item['repeat']} config_index={item['config_index']} =====",
+            f"\n===== [{idx}/{total}] experiment={item['experiment']} dataset={item['dataset']} "
+            f"fold={item['fold']} repeat={item['repeat']} =====",
             flush=True,
         )
         if execution_mode == "in_process":
@@ -172,8 +171,8 @@ def run(json_path: str, *, continue_on_error: bool, execution_mode: str = "subpr
         if code != 0:
             print(
                 f"##### Item [{idx}/{total}] FAILED (exit {code}): "
-                f"task_id={item['task_id']} fold={item['fold']} "
-                f"repeat={item['repeat']} config_index={item['config_index']}",
+                f"experiment={item['experiment']} dataset={item['dataset']} "
+                f"fold={item['fold']} repeat={item['repeat']}",
                 flush=True,
             )
             failures.append((idx, item, code))
@@ -188,8 +187,8 @@ def run(json_path: str, *, continue_on_error: bool, execution_mode: str = "subpr
     )
     for idx, item, code in failures:
         print(
-            f"  - [{idx}/{total}] exit {code}: task_id={item['task_id']} fold={item['fold']} "
-            f"repeat={item['repeat']} config_index={item['config_index']}",
+            f"  - [{idx}/{total}] exit {code}: experiment={item['experiment']} dataset={item['dataset']} "
+            f"fold={item['fold']} repeat={item['repeat']}",
             flush=True,
         )
     return 1 if failures else 0

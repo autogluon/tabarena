@@ -27,15 +27,16 @@ class SchedulerSetup:
     """
 
     bundle_size: int = 5
-    """Number of `(task_id, fold, repeat, config_index)` items batched into a
-    single array task. Items may span different `(task_id, fold, repeat)`
+    """Number of `(experiment, dataset, fold, repeat)` items batched into a
+    single array task. Items may span different `(dataset, fold, repeat)`
     groups.
 
     Mirrors the design used by `tabflow` (the SageMaker side) — see
     `tabflow/cli/launch_jobs.py::get_tasks_batched`."""
 
     bundle_size_per_dataset: dict[str, int] | None = None
-    """Optional per-dataset override of `bundle_size`, keyed by `dataset_name`.
+    """Optional per-dataset override of `bundle_size`, keyed by the dataset name
+    (the collection's `tabarena_task_name` — the runner's results `dataset` key).
     Items from datasets not listed here use `bundle_size`. Items belonging to
     different effective bundle sizes are not mixed in the same bundle.
     An explicit entry here takes precedence over the large-dataset auto-rule
@@ -111,19 +112,7 @@ class SchedulerSetup:
         for size in sorted(by_size):
             for bundle in to_batch_list(by_size[size], size):
                 max_configs_per_job = max(max_configs_per_job, len(bundle))
-                jobs.append(
-                    {
-                        "items": [
-                            {
-                                "task_id": c.task_id,
-                                "fold": c.fold,
-                                "repeat": c.repeat,
-                                "config_index": c.config_index,
-                            }
-                            for c in bundle
-                        ],
-                    },
-                )
+                jobs.append({"items": [c.to_item() for c in bundle]})
         return jobs, max_configs_per_job
 
     def _effective_bundle_size(self, c: JobCandidate) -> int:
@@ -134,8 +123,8 @@ class SchedulerSetup:
         default `bundle_size` applies.
         """
         overrides = self.bundle_size_per_dataset or {}
-        if c.dataset_name in overrides:
-            return overrides[c.dataset_name]
+        if c.dataset in overrides:
+            return overrides[c.dataset]
         if self._is_large_dataset(c):
             return 1
         return self.bundle_size

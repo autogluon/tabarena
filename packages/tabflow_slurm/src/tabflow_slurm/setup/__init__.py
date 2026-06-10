@@ -1,10 +1,10 @@
 """Benchmark setup building blocks.
 
 `TabArenaBenchmarkPlan` is the single public entry point: compose it from the
-building blocks below (`PathSetup`, `SlurmSetup`, `ResourcesSetup`, a metadata
-bundle, an experiment bundle) plus a list of `ModelJob`s, then call
-`.setup_jobs()` to generate the configs YAML, the SLURM job JSON, and the
-`sbatch` command(s) to launch. The per-run engine
+building blocks below (`PathSetup`, `SlurmSetup`, `ResourcesSetup`, a
+`TaskMetadataCollection`, an experiment bundle) plus a list of `ModelJob`s, then
+call `.setup_jobs()` to generate the `JobBatch` artifact, the SLURM job JSON,
+and the `sbatch` command(s) to launch. The per-run engine
 (`tabflow_slurm.setup.benchmark.TabArenaBenchmarkSetup`) is internal — the plan
 builds and drives it for you.
 
@@ -15,7 +15,7 @@ installed locations (these are also the defaults used by `PathSetup`).
 
 from __future__ import annotations
 
-from tabflow_slurm.setup.candidates import JobCandidate, should_run_job, should_run_job_batch
+from tabflow_slurm.setup.candidates import JobCandidate, is_job_cached_batch
 from tabflow_slurm.setup.paths import PathSetup, get_run_script_path, get_submit_script_path
 from tabflow_slurm.setup.plan import ModelJob, SingleModel, TabArenaBenchmarkPlan
 from tabflow_slurm.setup.resources import BeyondArenaResourcesSetup, ResourcesSetup, TabArenaV0pt1ResourcesSetup
@@ -36,6 +36,5 @@ __all__ = [
     "TabArenaV0pt1ResourcesSetup",
     "get_run_script_path",
     "get_submit_script_path",
-    "should_run_job",
-    "should_run_job_batch",
+    "is_job_cached_batch",
 ]

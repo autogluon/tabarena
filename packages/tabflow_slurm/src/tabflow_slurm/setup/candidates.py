@@ -1,109 +1,88 @@
-"""Job candidates and the Ray-side cache/constraint filter."""
+"""The scheduler-side projection of core ``Job``s + the Ray-side cache filter.
+
+Enumeration, constraint filtering, and the cache layout all live in tabarena core now
+(:func:`~tabarena.benchmark.experiment.job.build_jobs`,
+:func:`~tabarena.benchmark.experiment.job.filter_jobs_by_constraints`,
+:func:`~tabarena.benchmark.experiment.experiment_runner_api.job_cache_exists`). What
+remains here is the thin, pickle-friendly projection a SLURM setup needs per job —
+its identity coordinates plus the dataset shape the scheduler's bundling rules read —
+and the batched cache check fanned out across Ray workers.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from tabarena.benchmark.exec_models.registry import infer_model_cls
-from tabarena.benchmark.experiment.experiment_constructor import resolve_class
-from tabarena.benchmark.experiment.experiment_utils import check_cache_hit
-from tabarena.benchmark.task.user_task import UserTask
-from tabarena.utils.cache import CacheFunctionPickle
+from tabarena.benchmark.experiment import job_cache_exists
 
 if TYPE_CHECKING:
-    from tabarena.benchmark.experiment import ModelConstraints
+    from tabarena.benchmark.experiment import Job
+    from tabarena.benchmark.task.metadata import SplitMetadata, TabArenaTaskMetadata
 
 
 @dataclass(frozen=True)
 class JobCandidate:
-    """A single (task split x config) work unit.
+    """One core ``Job``, projected for scheduling.
 
-    Carries the identifying tuple (`task_id`, `dataset_name`, `fold`,
-    `repeat`, `config_index`), the resolved `config` dict, and the dataset
-    shape inputs needed by the cache/constraint filter on the Ray side
-    (`should_run_job`). Used end-to-end: enumeration -> Ray filtering ->
-    scheduler bundling. Only `task_id`/`fold`/`repeat`/`config_index` survive
-    into the per-array-task JSON consumed by the runner script.
+    Carries the job's identity coordinates (``experiment_name``, ``dataset``,
+    ``fold``, ``repeat`` — exactly what :meth:`to_item` serializes into the array-task
+    JSON), the ``task_id_str`` the cache check keys on, and the dataset shape the
+    scheduler's bundling rules read (`bundle_size_per_dataset`, large-dataset
+    singletons). The live ``Experiment`` deliberately stays behind in the ``Job`` /
+    ``JobBatch`` — candidates are pickled to Ray workers and must stay light.
     """
 
-    task_id: str
-    dataset_name: str
+    experiment_name: str
+    dataset: str
     fold: int
     repeat: int
-    config_index: int
-    config: dict
+    task_id_str: str
     n_features: int
-    n_classes: int
     n_samples_train_per_fold: int
-    problem_type: str
+
+    @classmethod
+    def from_job(cls, job: Job, *, task: TabArenaTaskMetadata, split: SplitMetadata) -> JobCandidate:
+        """Project a core ``Job`` given its task + split metadata from the collection."""
+        return cls(
+            experiment_name=job.experiment.name,
+            dataset=job.task.dataset,
+            fold=job.task.fold,
+            repeat=job.task.repeat,
+            task_id_str=task.task_id_str,
+            n_features=split.num_features_train,
+            n_samples_train_per_fold=split.num_instances_train,
+        )
+
+    def to_item(self) -> dict:
+        """The per-array-task JSON item: the job's self-describing coordinates.
+
+        The runner resolves ``experiment`` by name against the shipped ``JobBatch``
+        artifact and ``dataset`` against its collection, so the item carries no
+        positional index into any file.
+        """
+        return {
+            "experiment": self.experiment_name,
+            "dataset": self.dataset,
+            "fold": self.fold,
+            "repeat": self.repeat,
+        }
 
 
-def should_run_job_batch(*, candidates: list[JobCandidate], **kwargs) -> list[bool]:
-    """Batched version for Ray."""
-    return [should_run_job(candidate=c, **kwargs) for c in candidates]
+def is_job_cached_batch(*, candidates: list[JobCandidate], output_dir: str) -> list[bool]:
+    """Whether each candidate's results cache already exists (batched for Ray workers).
 
-
-def _resolve_ag_key(config: dict) -> str:
-    """Resolve the AutoGluon model key from a serialized experiment config.
-
-    `model_cls` (AGModelExperiment) and `method_cls` (plain Experiment) both
-    carry the class identifier as a dotted import path. Resolve back to the
-    class and use `ag_key` so the lookup matches the AG-key-based
-    `model_constraints` dict. Fall back to "AutoGluon" for the full-pipeline
-    AutoGluon experiments (which expose neither field).
+    Module-level so Ray can pickle it. Delegates to the core, writer-aligned
+    :func:`job_cache_exists`, so this pre-check can never drift from the cache layout
+    the run engine writes.
     """
-    raw_cls = config.get("model_cls") or config.get("method_cls")
-    if raw_cls is not None:
-        try:
-            cls_obj = resolve_class(raw_cls, registry_resolver=infer_model_cls)
-            return getattr(cls_obj, "ag_key", None) or raw_cls
-        except (ImportError, AttributeError, ValueError, TypeError):
-            return raw_cls
-    if config.get("name", "").startswith("AutoGluon"):
-        return "AutoGluon"
-    return config.get("name", "")
-
-
-def should_run_job(
-    *,
-    candidate: JobCandidate,
-    output_dir: str,
-    model_constraints: dict[str, ModelConstraints],
-    ignore_cache: bool,
-) -> bool:
-    """Decide whether a candidate's job should run (skip on cache hit / constraint violation).
-
-    Module-level so Ray workers can pickle it; reads everything it needs off
-    the `JobCandidate` dataclass.
-    """
-    # Normalize task_id into the cache directory key. This MUST match the key the
-    # writer uses in `run_experiments_new` (`task.slug` for UserTasks, the int task
-    # id otherwise) — otherwise cache hits are looked up under the wrong path and the
-    # benchmark needlessly re-runs already-cached jobs.
-    try:
-        task_id = int(candidate.task_id)
-    except ValueError:
-        task_id = UserTask.from_task_id_str(candidate.task_id).slug
-
-    constraints = model_constraints.get(_resolve_ag_key(candidate.config))
-    if constraints is not None and not constraints.applies(
-        n_features=candidate.n_features,
-        n_classes=candidate.n_classes,
-        n_samples_train_per_fold=candidate.n_samples_train_per_fold,
-        problem_type=candidate.problem_type,
-    ):
-        return False
-
-    if ignore_cache:
-        return True
-
-    return not check_cache_hit(
-        result_dir=output_dir,
-        method_name=candidate.config["name"],
-        task_id=task_id,
-        fold=candidate.fold,
-        repeat=candidate.repeat,
-        cache_cls=CacheFunctionPickle,
-        cache_cls_kwargs={"include_self_in_call": True},
-    )
+    return [
+        job_cache_exists(
+            output_dir=output_dir,
+            method_name=c.experiment_name,
+            task_id_str=c.task_id_str,
+            fold=c.fold,
+            repeat=c.repeat,
+        )
+        for c in candidates
+    ]
