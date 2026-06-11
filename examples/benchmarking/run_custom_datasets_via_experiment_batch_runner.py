@@ -3,7 +3,8 @@
 This walks the full local-benchmark loop on datasets you define yourself (no OpenML
 download), and showcases each of these steps:
 
-1. Implement two custom datasets as ``UserTask``s (one classification, one regression).
+1. Implement two custom datasets as ``UserTask``s (one classification, one regression),
+   computing each task's native ``TabArenaTaskMetadata`` via ``compute_metadata``.
 2. Cache them to disk (``save_local_openml_task``) so they load locally at run time.
 3. Register them in ``ExperimentBatchRunner`` via the ``user_tasks=`` argument.
 4. Run them on two models, using ``run_jobs`` for a *non-rectangular* sweep (the
@@ -30,7 +31,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification, make_regression
 from sklearn.model_selection import StratifiedKFold, train_test_split
@@ -41,7 +41,7 @@ from tabarena.benchmark.experiment import (
     Job,
 )
 from tabarena.benchmark.task import UserTask
-from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.benchmark.task.metadata import TabArenaTaskMetadata, TaskMetadataCollection
 from tabarena.benchmark.task.user_task import from_sklearn_splits_to_user_task_splits
 from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 from tabarena.nips2025_utils.end_to_end import EndToEnd
@@ -57,10 +57,11 @@ def _toy_frame(*, classification: bool) -> pd.DataFrame:
     return df.assign(target=y)
 
 
-def make_classification_task(task_cache_dir: Path) -> tuple[UserTask, dict]:
-    """A 3-fold classification ``UserTask`` plus its legacy-metadata row.
+def make_classification_task(task_cache_dir: Path) -> tuple[UserTask, TabArenaTaskMetadata]:
+    """A 3-fold classification ``UserTask`` plus its native ``TabArenaTaskMetadata``.
 
-    Steps 1 + 2: build the dataset and stratified splits, then cache the task to disk.
+    Steps 1 + 2: build the dataset and stratified splits, compute the task's metadata,
+    then cache the task to disk.
     """
     dataset = _toy_frame(classification=True)
     n_splits = 3
@@ -79,12 +80,13 @@ def make_classification_task(task_cache_dir: Path) -> tuple[UserTask, dict]:
         problem_type="classification",
         splits=splits,
     )
+    metadata = _task_metadata(task, oml_task)
     task.save_local_openml_task(oml_task)  # cache to disk
-    return task, _metadata_row(task, dataset, splits, problem_type="binary", n_classes=2)
+    return task, metadata
 
 
-def make_regression_task(task_cache_dir: Path) -> tuple[UserTask, dict]:
-    """A 1-fold (holdout) regression ``UserTask`` plus its legacy-metadata row."""
+def make_regression_task(task_cache_dir: Path) -> tuple[UserTask, TabArenaTaskMetadata]:
+    """A 1-fold (holdout) regression ``UserTask`` plus its native ``TabArenaTaskMetadata``."""
     dataset = _toy_frame(classification=False)
     train_idx, test_idx = train_test_split(
         list(range(len(dataset))),
@@ -101,40 +103,24 @@ def make_regression_task(task_cache_dir: Path) -> tuple[UserTask, dict]:
         problem_type="regression",
         splits=splits,
     )
+    metadata = _task_metadata(task, oml_task)
     task.save_local_openml_task(oml_task)  # cache to disk
-    return task, _metadata_row(task, dataset, splits, problem_type="regression", n_classes=0)
+    return task, metadata
 
 
-def _metadata_row(
-    task: UserTask,
-    dataset: pd.DataFrame,
-    splits: dict,
-    *,
-    problem_type: str,
-    n_classes: int,
-) -> dict:
-    """Legacy one-row ``task_metadata`` for a custom task.
+def _task_metadata(task: UserTask, oml_task) -> TabArenaTaskMetadata:
+    """Native ``TabArenaTaskMetadata`` for a custom task, derived from the task itself.
 
-    The dataset name is the task's ``tabarena_task_name`` (also the results ``dataset`` key
-    and the tid-map key); ``tid`` must equal ``UserTask.task_id``. Includes every column
-    ``TaskMetadataCollection.from_legacy_df`` requires so the same frame drives the runner,
-    ``EndToEnd``, and the leaderboard context.
+    ``compute_metadata`` inspects the dataset and splits (problem type, sizes, dtype
+    flags, per-split stats); the ``UserTask`` supplies the identity: ``tabarena_task_name``
+    (the results ``dataset`` key) and ``task_id_str`` (from which the integer ``tid`` is
+    derived). Must run before ``save_local_openml_task``, which unhooks the local
+    ``get_dataset`` accessor that ``compute_metadata`` relies on.
     """
-    fold_pairs = [splits[r][f] for r in splits for f in splits[r]]
-    return {
-        "tid": task.task_id,
-        "name": task.tabarena_task_name,
-        "dataset": task.tabarena_task_name,
-        "problem_type": problem_type,
-        "n_folds": len(splits[0]),
-        "n_repeats": len(splits),
-        "n_features": dataset.shape[1] - 1,
-        "n_classes": n_classes,
-        "NumberOfInstances": len(dataset),
-        "n_samples_train_per_fold": float(np.mean([len(tr) for tr, _ in fold_pairs])),
-        "n_samples_test_per_fold": float(np.mean([len(te) for _, te in fold_pairs])),
-        "target_feature": "target",
-    }
+    return oml_task.compute_metadata(
+        tabarena_task_name=task.tabarena_task_name,
+        task_id_str=task.task_id_str,
+    )
 
 
 if __name__ == "__main__":
@@ -143,15 +129,14 @@ if __name__ == "__main__":
     eval_dir = here / "eval" / "custom_ebr"
     task_cache_dir = here / "task_cache" / "custom_ebr"
 
-    # 1 + 2: build and cache the two custom datasets.
+    # 1 + 2: build and cache the two custom datasets, with native metadata throughout —
+    # no legacy task_metadata DataFrame anywhere. The collection drives every consumer
+    # below: ExperimentBatchRunner (step 3), EndToEnd (step 5), and the leaderboard
+    # context (step 6).
     clf_task, clf_meta = make_classification_task(task_cache_dir)
     reg_task, reg_meta = make_regression_task(task_cache_dir)
     tasks = [clf_task, reg_task]
-    task_metadata = pd.DataFrame([clf_meta, reg_meta])
-    # The native task-metadata representation, used by every consumer below:
-    # ExperimentBatchRunner (step 3), EndToEnd (step 5), and the leaderboard context (step 6).
-    # The legacy DataFrame is only an opt-in input to `from_legacy_df`.
-    task_collection = TaskMetadataCollection.from_legacy_df(task_metadata)
+    task_collection = TaskMetadataCollection.from_source([clf_meta, reg_meta])
 
     # Two models. (See `tabarena.models.utils.get_configs_generator_from_name` for the
     # model-registry / random-search route; here we keep it to two explicit configs.)
@@ -175,7 +160,7 @@ if __name__ == "__main__":
     # could not express this (reg has no folds 1/2).
     jobs: list[Job] = []
     for method in methods:
-        for fold in range(clf_meta["n_folds"]):
+        for fold in range(clf_meta.n_splits):
             jobs.append(Job.create(method, clf_task.tabarena_task_name, fold=fold, repeat=0))
         jobs.append(Job.create(method, reg_task.tabarena_task_name, fold=0, repeat=0))
     results_lst = runner.run_jobs(jobs)
