@@ -40,7 +40,7 @@ benchmark_plan = TabArenaBenchmarkPlan(
         python_path="/home/lennart_priorlabs_ai/.venvs/beyondarena_27052026/bin/python",
     ),
     resources_setup=BeyondArenaResourcesSetup(),
-    scheduler_setup=GCPSlurmSetup(),
+    scheduler_setup=GCPSlurmSetup(bundle_size=1),
 )
 
 benchmark_plan.setup_jobs()

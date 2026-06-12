@@ -1,33 +1,16 @@
-"""Tests for the relocated ``BeyondArenaContext`` and its idempotent warehouse merge."""
+"""Tests for ``BeyondArenaContext`` (collection-native task metadata)."""
 
 from __future__ import annotations
 
-import pandas as pd
-
-from tabarena.evaluation.context.beyond_arena import BeyondArenaContext, _merge_warehouse_fields
+from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
 
 
-def test_merge_is_noop_when_fields_already_present():
-    df = pd.DataFrame({"dataset": ["a"], "task_type": ["random"], "num_text_cols": [1]})
-    warehouse = pd.DataFrame({"dataset": ["a"], "task_type": ["WRONG"], "num_text_cols": [99]})
-    out = _merge_warehouse_fields(df, warehouse)
-    # Existing, non-null values are not overwritten.
-    assert out.loc[0, "task_type"] == "random"
-    assert out.loc[0, "num_text_cols"] == 1
-
-
-def test_merge_repopulates_missing_column():
-    df = pd.DataFrame({"dataset": ["a"]})
-    warehouse = pd.DataFrame({"dataset": ["a"], "task_type": ["random"]})
-    out = _merge_warehouse_fields(df, warehouse)
-    assert out.loc[0, "task_type"] == "random"
-
-
-def test_merge_repopulates_all_null_column():
-    df = pd.DataFrame({"dataset": ["a"], "task_type": [None]})
-    warehouse = pd.DataFrame({"dataset": ["a"], "task_type": ["random"]})
-    out = _merge_warehouse_fields(df, warehouse)
-    assert out.loc[0, "task_type"] == "random"
+def test_init_resolves_source_name_to_native_collection():
+    ctx = BeyondArenaContext()
+    assert len(ctx.task_metadata_collection) > 0
+    # The committed CSV is self-contained: warehouse + predicate columns inline, no merge step.
+    frame = ctx.task_metadata_collection.per_dataset_frame()
+    assert {"task_type", "num_text_cols", "num_high_cardinality_cats", "max_train_rows"} <= set(frame.columns)
 
 
 def test_subset_predicates_cover_beyond_subsets():

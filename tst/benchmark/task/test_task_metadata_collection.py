@@ -132,6 +132,15 @@ class TestNativeViews:
         assert by_ds.loc["a", "num_features"] == 7
         assert by_ds.loc["b", "problem_type"] == "regression"
 
+    def test_per_dataset_frame_max_train_rows_is_max_over_splits(self):
+        # Uneven split sizes (e.g. temporal/grouped splits) -> the per-dataset max, not the mean.
+        splits = [_split_meta(fold=f, num_instances_train=size) for f, size in enumerate([50, 200, 110])]
+        tasks = _unrolled(_task_meta(dataset_name="a", splits=splits))
+        tasks += _unrolled(_task_meta(dataset_name="b"))  # single split of 80
+        frame = TaskMetadataCollection(tasks).per_dataset_frame().set_index("dataset")
+        assert frame.loc["a", "max_train_rows"] == 200
+        assert frame.loc["b", "max_train_rows"] == 80
+
 
 def _legacy_row(
     *,

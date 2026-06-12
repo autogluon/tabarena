@@ -136,7 +136,7 @@ class TabArenaTaskMetadata:
 
     # -- Warehouse-level metadata (added later; default to None for backward compat) --
     # These align the in-task metadata with the columns previously merged in from a
-    # separate warehouse_metadata.csv (see BeyondArenaContext). Dataset-derived fields
+    # separate warehouse_metadata.csv. Dataset-derived fields
     # are computed at creation when the dataset is available (data_foundry / OpenML
     # task path); they remain None when only tabular metadata is known (e.g. v0.1).
     task_type: str | None = None

@@ -21,6 +21,7 @@ from tabarena.loaders import set_tabarena_cache_root
 if TYPE_CHECKING:
     import pandas as pd
 
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
     from tabarena.nips2025_utils.end_to_end import EndToEndResults
 
 
@@ -92,7 +93,7 @@ def resolve_ag_name(name: str, ag_name_override: str | None = None) -> str:
 def post_process_to_results(
     method_artifacts: list[MethodArtifact],
     *,
-    task_metadata: pd.DataFrame | None = None,
+    task_metadata: TaskMetadataCollection | None = None,
     num_cpus: int | None = None,
 ) -> EndToEndResults:
     """Post-process each method's raw artifacts into the cache, then re-load all from the cache.
@@ -101,7 +102,8 @@ def post_process_to_results(
 
     1. **Cache:** for each non-``only_load_cache`` method, ``EndToEndSingle.from_path_raw_to_results``
        processes the raw ``results.pkl`` files into per-task results and writes them to the cache
-       (keyed by ``(artifact_name, ag_name)``). ``task_metadata`` is forwarded so custom (e.g.
+       (keyed by ``(artifact_name, ag_name)``). ``task_metadata`` is a native
+       :class:`~tabarena.benchmark.task.metadata.TaskMetadataCollection`, forwarded so custom (e.g.
        BeyondArena) task sets match correctly; pass ``None`` to infer it from the results.
     2. **Load:** every method is (re-)loaded from the cache via ``EndToEndResults.from_cache`` — in
        all cases, including the ones just cached — so the in-memory results always come from the
