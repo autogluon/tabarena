@@ -24,39 +24,7 @@ from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
-#: Warehouse-level columns BeyondArena predicates/plots rely on. Used by the (idempotent)
-#: back-compat merge below when a caller still supplies a separate warehouse frame.
-_WAREHOUSE_FIELDS = (
-    "task_type",
-    "num_cols_after_preprocessing",
-    "num_text_cols",
-    "num_high_cardinality_cats",
-    "domain",
-    "dataset_year",
-    "source",
-    "missing_value_fraction",
-)
-
-
-def _merge_warehouse_fields(task_metadata: pd.DataFrame, warehouse_metadata: pd.DataFrame) -> pd.DataFrame:
-    """Idempotently add warehouse fields to ``task_metadata`` from ``warehouse_metadata``.
-
-    Only columns that are absent (or entirely null) are merged in (on ``dataset``), so this is a
-    no-op when ``task_metadata`` is already self-contained (the new committed CSV). Kept for
-    back-compat with callers that pass a separate warehouse frame.
-    """
-    missing = [
-        c
-        for c in _WAREHOUSE_FIELDS
-        if c in warehouse_metadata.columns and (c not in task_metadata.columns or task_metadata[c].isna().all())
-    ]
-    if not missing:
-        return task_metadata
-    task_metadata = task_metadata.drop(columns=[c for c in missing if c in task_metadata.columns])
-    return task_metadata.merge(warehouse_metadata[["dataset", *missing]], on="dataset", how="left")
 
 
 class BeyondArenaContext(TabArenaContext):
