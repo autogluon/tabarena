@@ -142,15 +142,6 @@ beyond_tabiclv2_metadata = MethodMetadata(
     reference_url="https://arxiv.org/abs/2602.11139",
     **_common_fm_kwargs,
 )
-beyond_tabpfnv3_metadata = MethodMetadata(
-    method="TabPFN-3alpha",
-    display_name="TabPFN-3alpha",
-    ag_key="TABPFN-3alpha",
-    config_default="TabPFN-3alpha_c1_BAG_L1",
-    verified=False,
-    **_common_fm_kwargs,
-)
-
 beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_linear_metadata,
     beyond_random_forest_metadata,
@@ -163,7 +154,6 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_tabdpt_metadata,
     beyond_tabpfnv26_metadata,
     beyond_tabiclv2_metadata,
-    # beyond_tabpfnv3_metadata,  # unverified; excluded from the default collection
 ]
 
 beyond_method_metadata_collection = MethodMetadataCollection(
