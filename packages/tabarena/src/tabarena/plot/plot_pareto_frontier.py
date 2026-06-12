@@ -536,18 +536,22 @@ def plot_pareto(
     # Use adjustText for collision avoidance (only for non-top-region labels)
     if HAS_ADJUST_TEXT and texts:
         with redirect_stdout(io.StringIO()):
+            # adjustText >= 1.0 API. Legacy names (force_points/expand_text/
+            # expand_points/lim, only_move key "points") are silently swallowed by
+            # adjust_text's **kwargs and crash its FancyArrowPatch arrow path.
+            # expand_points has no 1.x equivalent; point avoidance is carried by
+            # force_static instead.
             adjust_text(
                 texts,
                 x=[p[0] for p in text_positions],
                 y=[p[1] for p in text_positions],
                 ax=ax,
                 force_text=(0.3, 0.3),
-                force_points=(0.8, 0.8),  # Strong repulsion from points
-                expand_text=(1.1, 1.1),
-                expand_points=(1.8, 1.8),  # Large buffer around points
+                force_static=(0.8, 0.8),  # Strong repulsion from points
+                expand=(1.1, 1.1),
                 arrowprops=dict(arrowstyle="-", color="gray", lw=0.5, alpha=0.5),
-                only_move={"points": "y", "text": "xy"},
-                lim=50,
+                only_move={"text": "xy", "static": "y", "explode": "y", "pull": "y"},
+                iter_lim=50,
             )
 
     # Restore original limits (prevents Matplotlib from auto-expanding them)

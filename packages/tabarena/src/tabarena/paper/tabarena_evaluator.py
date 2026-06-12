@@ -1574,7 +1574,7 @@ class TabArenaEvaluator:
         save_prefix: str,
         baselines: list[str] | None = None,
         baseline_colors: list[str] | None = None,
-        show: bool = True,
+        show: bool = False,
         use_gmean=False,
         use_score: bool = True,
         df_elo: pd.DataFrame = None,
@@ -1774,8 +1774,10 @@ class TabArenaEvaluator:
                     y = metric
                     ylim = lim
                     if figsize is None:
-                        figsize = (0.5 * len(framework_types), figheight if figheight is not None else 2.7)
-                    # figsize = None
+                        # Floor the width: with few framework types (e.g. a small demo run),
+                        # 0.5"/type leaves no room for the legend above the axes and
+                        # constrained_layout collapses the axes to zero size.
+                        figsize = (max(3.5, 0.5 * len(framework_types)), figheight if figheight is not None else 2.7)
 
                 fig, ax = plt.subplots(1, 1, figsize=figsize, constrained_layout=True)
 
