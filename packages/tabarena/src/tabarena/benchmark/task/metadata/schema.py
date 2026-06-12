@@ -275,6 +275,15 @@ class TabArenaTaskMetadata:
             )
         task_kwargs = {key: row_dict[key] for key in all_task_fields if key in row_dict}
 
+        # The DataFrame/CSV round-trip serializes None as NaN (see ``to_dataframe``);
+        # map scalar NA back to None for the fields that permit it, so e.g. an unset
+        # ``group_on`` does not surface as ``float("nan")`` downstream.
+        optional_task_fields = {f.name for f in fields(TabArenaTaskMetadata) if "None" in str(f.type)}
+        for key in optional_task_fields & task_kwargs.keys():
+            value = task_kwargs[key]
+            if isinstance(value, float) and pd.isna(value):
+                task_kwargs[key] = None
+
         # Identify SplitMetadata fields
         split_field_names = {f.name for f in fields(SplitMetadata)}
         if not all(name in row_dict for name in split_field_names):

@@ -433,15 +433,23 @@ class Experiment:
     def _validate_dynamic_protocol_supported(self, task: TaskWrapper) -> None:
         """Assert the dynamic validation protocol is supported for ``task`` and this experiment.
 
-        Requires a ``TabArenaOpenMLSupervisedTask`` (which carries the split metadata) and an
+        Requires a task wrapper whose ``get_validation_metadata`` carries the real split
+        configuration — an ``InMemoryTaskWrapper`` (projected from its task metadata) or an
+        ``OpenMLTaskWrapper`` around a ``TabArenaOpenMLSupervisedTask`` — and an
         ``AGWrapper``-based ``method_cls`` (which accepts ``validation_metadata`` /
         ``use_task_specific_validation``).
         """
-        from tabarena.benchmark.task.openml import TabArenaOpenMLSupervisedTask
+        from tabarena.benchmark.task.in_memory import InMemoryTaskWrapper
+        from tabarena.benchmark.task.openml import OpenMLTaskWrapper, TabArenaOpenMLSupervisedTask
 
-        if not isinstance(task.task, TabArenaOpenMLSupervisedTask):
+        supported = isinstance(task, InMemoryTaskWrapper) or (
+            isinstance(task, OpenMLTaskWrapper) and isinstance(task.task, TabArenaOpenMLSupervisedTask)
+        )
+        if not supported:
             raise ValueError(
-                "`dynamic_tabarena_validation_protocol` is only implemented for `TabArenaOpenMLSupervisedTask`!",
+                "`dynamic_tabarena_validation_protocol` requires a task wrapper with split-aware "
+                "validation metadata: an `InMemoryTaskWrapper` or an `OpenMLTaskWrapper` around a "
+                f"`TabArenaOpenMLSupervisedTask`; got {type(task).__name__}.",
             )
 
         if not issubclass(self.method_cls, AGWrapper):
