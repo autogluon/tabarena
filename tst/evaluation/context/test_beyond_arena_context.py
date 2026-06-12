@@ -47,13 +47,15 @@ class TestPresets:
         )
         assert len(ctx.task_metadata_collection) > 0
 
-    def test_beyond_task_metadata_alias(self):
-        ctx = BeyondArenaContext(methods=[], task_metadata="beyond")
-        assert len(ctx.task_metadata_collection) > 0
-
-    def test_unknown_methods_preset_raises(self):
-        with pytest.raises(ValueError, match="preset"):
-            BeyondArenaContext(methods="nope", task_metadata="BeyondArena")
+    def test_only_beyondarena_preset_supported(self):
+        # "BeyondArena" is the single preset name; legacy variants and the base
+        # context's "tabarena" are rejected for both methods and task_metadata.
+        for bad_methods in ("beyond", "tabarena", "nope"):
+            with pytest.raises(ValueError, match="preset"):
+                BeyondArenaContext(methods=bad_methods, task_metadata="BeyondArena")
+        for bad_task_metadata in ("beyond", "tabarena", "nope"):
+            with pytest.raises(ValueError, match="preset"):
+                BeyondArenaContext(methods=[], task_metadata=bad_task_metadata)
 
 
 class TestSubsetPredicates:

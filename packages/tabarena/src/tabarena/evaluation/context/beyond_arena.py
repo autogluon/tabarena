@@ -1,8 +1,9 @@
 """``BeyondArenaContext`` — the data-foundry counterpart to :class:`TabArenaContext`.
 
 One of the pluggable evaluation contexts under :mod:`tabarena.evaluation.context`; subclasses
-:class:`~tabarena.nips2025_utils.tabarena_context.TabArenaContext`. BeyondArena differs from
-TabArena v0.1 in three ways:
+:class:`~tabarena.nips2025_utils.abstract_arena_context.AbstractArenaContext` directly (it needs
+nothing from ``TabArenaContext``, whose only addition over the base is the TabArena-paper
+``evaluate_all`` workflow). BeyondArena differs from TabArena v0.1 in three ways:
 
 * **Subset predicates** — size buckets keyed on ``max_train_rows``, plus split-regime
   (``iid``/``temporal``/``grouped``), feature-dimensionality, text and high-cardinality subsets.
@@ -10,7 +11,7 @@ TabArena v0.1 in three ways:
   :func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata_collection`), whose tasks
   already carry the warehouse fields inline, so no separate ``warehouse_metadata.csv`` merge is
   needed.
-* **Method metadata** — the ``"beyond"`` preset selects the Beyond-IID benchmark's method
+* **Method metadata** — the ``"BeyondArena"`` preset selects the Beyond-IID benchmark's method
   collection (artifact ``beyond_iid_benchmark_2026``; see
   :mod:`tabarena.nips2025_utils.artifacts._beyond_method_metadata`).
 
@@ -24,15 +25,15 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 if TYPE_CHECKING:
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
     from tabarena.models._method_metadata import MethodMetadata
 
 
-class BeyondArenaContext(TabArenaContext):
+class BeyondArenaContext(AbstractArenaContext):
     """Evaluation context for the data-foundry BeyondArena benchmark."""
 
     SUBSET_PREDICATES: dict[str, SubsetPredicate] = {
@@ -75,8 +76,8 @@ class BeyondArenaContext(TabArenaContext):
 
     def __init__(
         self,
-        methods: list[MethodMetadata] | str = "beyond",
-        task_metadata: str | TaskMetadataCollection | pd.DataFrame = "BeyondArena",
+        methods: list[MethodMetadata] | str = "BeyondArena",
+        task_metadata: str | TaskMetadataCollection = "BeyondArena",
         *,
         extra_methods: list[MethodMetadata] | None = None,
         backend: str = "ray",
@@ -86,26 +87,17 @@ class BeyondArenaContext(TabArenaContext):
         """Build a BeyondArena context.
 
         Args:
-            methods: ``"beyond"`` (the Beyond-IID method collection), ``"tabarena"`` (the
-                TabArena paper methods), or an explicit ``list[MethodMetadata]``.
-            task_metadata: A BeyondArena source name (e.g. ``"BeyondArena"``) or a
+            methods: ``"BeyondArena"`` (the Beyond-IID method collection) or an explicit
+                ``list[MethodMetadata]``.
+            task_metadata: ``"BeyondArena"`` (the committed reference CSV) or a
                 ``*_tasks_metadata.csv`` path — loaded via
                 :func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata_collection`
-                — a ready ``TaskMetadataCollection``, a native-schema (per-split) DataFrame,
-                or ``"tabarena"`` to defer to the base loader.
+                — or a ready ``TaskMetadataCollection``.
             extra_methods: Additional ``MethodMetadata`` appended to the resolved methods.
-            backend: ``"ray"`` or ``"native"``, forwarded to :class:`TabArenaContext`.
-            fillna_method: Imputed-method name forwarded to :class:`TabArenaContext`.
-            calibration_method: Calibration-method name forwarded to :class:`TabArenaContext`.
+            backend: ``"ray"`` or ``"native"``, forwarded to :class:`AbstractArenaContext`.
+            fillna_method: Imputed-method name forwarded to :class:`AbstractArenaContext`.
+            calibration_method: Calibration-method name forwarded to :class:`AbstractArenaContext`.
         """
-        if isinstance(task_metadata, pd.DataFrame):
-            # The BeyondArena CSV is in the native (per-split) schema, not the legacy
-            # one-row-per-dataset frame, so reconstruct a TaskMetadataCollection from it
-            # (matching `beyond_arena_eval`); the base context does not accept a DataFrame.
-            from tabarena.benchmark.task.metadata import InMemoryTaskMetadataSource, TaskMetadataCollection
-
-            task_metadata = TaskMetadataCollection(InMemoryTaskMetadataSource(task_metadata).load())
-
         super().__init__(
             methods=methods,
             task_metadata=task_metadata,
@@ -116,24 +108,22 @@ class BeyondArenaContext(TabArenaContext):
         )
 
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
-        """``"tabarena"`` defers to the base loader; any other name is a BeyondArena suite
-        name (``"beyond"`` aliases ``"BeyondArena"``) or a ``*_tasks_metadata.csv`` path,
-        loaded self-contained (committed CSV, no downloads).
+        """``"BeyondArena"`` (committed reference CSV, no downloads) or a
+        ``*_tasks_metadata.csv`` path, loaded self-contained.
         """
-        if name == "tabarena":
-            return super()._resolve_task_metadata_preset(name)
+        is_csv_path = name.endswith(".csv") or "/" in name or "\\" in name
+        if name != "BeyondArena" and not is_csv_path:
+            raise ValueError(
+                f"Unknown task_metadata preset {name!r}; expected 'BeyondArena' or a *_tasks_metadata.csv path.",
+            )
         from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata_collection
 
-        if name == "beyond":
-            name = "BeyondArena"
         return load_beyond_task_metadata_collection(name)
 
     def _resolve_methods_preset(self, name: str) -> list[MethodMetadata]:
-        """``"beyond"`` -> the Beyond-IID method collection; other names defer to
-        :class:`TabArenaContext`.
-        """
-        if name != "beyond":
-            return super()._resolve_methods_preset(name)
+        """``"BeyondArena"`` -> the Beyond-IID method collection."""
+        if name != "BeyondArena":
+            raise ValueError(f"Unknown methods preset {name!r}; expected 'BeyondArena'.")
         from tabarena.nips2025_utils.artifacts import beyond_method_metadata_collection
 
         return copy.deepcopy(beyond_method_metadata_collection.method_metadata_lst)
