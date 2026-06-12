@@ -17,19 +17,12 @@ from autogluon.core.data.label_cleaner import LabelCleaner, LabelCleanerDummy
 from autogluon.core.metrics import Scorer, get_metric
 from pandas.api.types import is_integer_dtype
 
+from tabarena.benchmark.task.metrics import default_eval_metric
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDF, CacheFunctionDummy
 
 if TYPE_CHECKING:
     from tabarena.benchmark.exec_models.base import AbstractExecModel
     from tabarena.benchmark.task import TaskWrapper
-
-# Default AutoGluon eval metric per problem type, used when none is specified.
-# FIXME: Don't hardcode eval metric (mirrors TaskWrapper.eval_metric).
-DEFAULT_EVAL_METRIC_BY_PROBLEM_TYPE = {
-    "binary": "roc_auc",
-    "multiclass": "log_loss",
-    "regression": "rmse",
-}
 
 
 # TODO: make a dataclass so type hinter is happy with subclasses?
@@ -98,7 +91,7 @@ class ExperimentRunner:
         assert input_format in ["openml", "csv"]
 
         if eval_metric_name is None:
-            eval_metric_name = DEFAULT_EVAL_METRIC_BY_PROBLEM_TYPE[task.problem_type]
+            eval_metric_name = default_eval_metric(task.problem_type)
         if cacher is None:
             cacher = CacheFunctionDummy()
 

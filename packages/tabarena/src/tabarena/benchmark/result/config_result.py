@@ -158,10 +158,14 @@ class ConfigResult(BaselineResult):
         split_idx = self.result["task_metadata"]["split_idx"]
         framework = self.result["framework"]
 
-        # Fix for a missmatch in name between OpenMLTaskWrapper.eval_metric and ExperimentRunner.eval_metric_name
-        if self.result["metric"] == "root_mean_squared_error":
-            self.result["metric"] = "rmse"
-            self.result["simulation_artifacts"]["metric"] = "rmse"
+        # Canonicalize metric-name aliases (a task's explicit eval metric may use an
+        # AutoGluon alias, e.g. BeyondArena's root_mean_squared_error == rmse).
+        from tabarena.benchmark.task.metrics import normalize_eval_metric
+
+        metric = normalize_eval_metric(self.result["metric"])
+        if metric != self.result["metric"]:
+            self.result["metric"] = metric
+            self.result["simulation_artifacts"]["metric"] = metric
 
         if list(self.result["simulation_artifacts"].keys()) == [dataset]:
             # if old format
@@ -176,13 +180,15 @@ class ConfigResult(BaselineResult):
             pred_proba_val = pred_proba_dict_val[framework]
             self.result["simulation_artifacts"]["pred_val"] = pred_proba_val
         if "eval_metric" in self.result["simulation_artifacts"]:
-            if self.result["simulation_artifacts"]["eval_metric"] == "root_mean_squared_error":
-                self.result["simulation_artifacts"]["eval_metric"] = "rmse"
+            self.result["simulation_artifacts"]["eval_metric"] = normalize_eval_metric(
+                self.result["simulation_artifacts"]["eval_metric"],
+            )
             assert self.result["simulation_artifacts"]["eval_metric"] == self.result["metric"]
             self.result["simulation_artifacts"].pop("eval_metric")
         if "metric" in self.result["simulation_artifacts"]:
-            if self.result["simulation_artifacts"]["metric"] == "root_mean_squared_error":
-                self.result["simulation_artifacts"]["metric"] = "rmse"
+            self.result["simulation_artifacts"]["metric"] = normalize_eval_metric(
+                self.result["simulation_artifacts"]["metric"],
+            )
             assert self.result["simulation_artifacts"]["metric"] == self.result["metric"]
             self.result["simulation_artifacts"].pop("metric")
         if "problem_type_transform" in self.result["simulation_artifacts"]:
