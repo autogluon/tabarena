@@ -24,9 +24,10 @@ the way the tabflow_slurm benchmark setup does it (see
    ``tabflow_slurm.run_tabarena_experiment``).
 6. Aggregate the raw results with ``EndToEnd`` and compute a leaderboard via
    ``AbstractArenaContext.compare``, as in the custom-datasets example.
-7. Compute the same leaderboard via ``BeyondArenaContext`` — the Beyond-IID arena
-   context, which brings the suite's subset predicates (size buckets, ``iid`` /
-   ``temporal`` / ``grouped``, text / dimensionality filters) on top of ``compare``.
+7. Compute a leaderboard via ``BeyondArenaContext`` — the Beyond-IID arena context —
+   comparing the demo's (prefixed) results against the suite's baseline results,
+   with the suite's subset predicates (size buckets, ``iid`` / ``temporal`` /
+   ``grouped``, text / dimensionality filters) available on ``compare``.
 
 The first run downloads the selected dataset(s) from the Data Foundry warehouse (needs
 the ``data_foundry`` dependency and network access).
@@ -112,21 +113,20 @@ if __name__ == "__main__":
     print("\n=== leaderboard ===")
     print(leaderboard.to_string())
 
-    # 7: the same comparison through the Beyond-IID arena context. `methods=[]` again
-    # contributes no baseline results (the full `methods="beyond"` preset would download
-    # the suite's baseline artifacts); the demo's results stand alone. The context's
-    # Beyond defaults are overridden where the demo can't satisfy them
-    # (`calibration_method="XGB (default)"` — XGBoost is not among the demo's methods).
-    # On top of `compare`, BeyondArenaContext brings the suite's subset predicates —
-    # e.g. pass `subset="binary"` or `subset="tiny"` to restrict the leaderboard.
-    beyond_context = BeyondArenaContext(
-        methods=[],
-        task_metadata=task_collection,
-        calibration_method=None,
-    )
+    # 7: the comparison through the Beyond-IID arena context, against the suite's
+    # baselines: with `methods` left at its default ("BeyondArena"), `compare` loads
+    # the Beyond baseline results for the suite's methods (downloaded on first use).
+    # The demo's methods share names with those baselines ("RF (default)", ...), so
+    # re-export the demo results with a prefix to avoid the collision.
+    # `only_valid_tasks=True` restricts the baselines to the demo's tasks. On top of
+    # `compare`, BeyondArenaContext brings the suite's subset predicates — e.g. pass
+    # `subset="binary"` or `subset="tiny"` to restrict the leaderboard.
+    beyond_df_results = end_to_end.to_results().get_results(new_result_prefix="[demo] ")
+    beyond_context = BeyondArenaContext(task_metadata=task_collection)
     beyond_leaderboard = beyond_context.compare(
         output_dir=here / "eval" / "beyondarena_ebr_beyond_context",
-        new_results=df_results,
+        new_results=beyond_df_results,
+        only_valid_tasks=True,
     )
     print("\n=== leaderboard (BeyondArenaContext) ===")
     print(beyond_leaderboard.to_string())
