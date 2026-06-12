@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -48,7 +48,6 @@ class ExperimentRunner:
         sample: int = 0,
         fit_args: dict | None = None,
         cleanup: bool = True,
-        input_format: Literal["openml", "csv"] = "openml",
         cacher: AbstractCacheFunction | None = None,
         debug_mode: bool = True,
         eval_metric_name: str | None = None,
@@ -71,9 +70,6 @@ class ExperimentRunner:
             Kwargs forwarded to ``method_cls(...)`` (alongside ``problem_type`` / ``eval_metric``).
         cleanup:
             If True, call the model's ``cleanup`` after running (frees files/GPU memory).
-        input_format:
-            ``"openml"`` (default) or ``"csv"``; the latter round-trips features through CSV
-            dtypes before fitting. ``"csv"`` is incompatible with lazy-loaded data.
         cacher:
             Cacher used to persist side artifacts (e.g. model failures); defaults to a no-op.
         debug_mode: bool, default True
@@ -88,8 +84,6 @@ class ExperimentRunner:
             If provided, will override the default evaluation metric for the task.
             If None, will use the default metric based on the task's problem type.
         """
-        assert input_format in ["openml", "csv"]
-
         if eval_metric_name is None:
             eval_metric_name = default_eval_metric(task.problem_type)
         if cacher is None:
@@ -104,7 +98,6 @@ class ExperimentRunner:
         self.method = method
         self.fit_args = fit_args or {}
         self.cleanup = cleanup
-        self.input_format = input_format
         self.eval_metric_name = eval_metric_name
         self.eval_metric: Scorer = get_metric(metric=self.eval_metric_name, problem_type=self.task.problem_type)
         self.model: AbstractExecModel | None = None
@@ -115,16 +108,12 @@ class ExperimentRunner:
         # When lazy-loading, keep the split frames as None and (re)load them on demand; we only
         # materialize ``y`` here to fit the label cleaner.
         if self.task.lazy_load_data:
-            assert input_format == "openml", "Lazy load data only works with input_format='openml'"
             self.X, self.y, self.X_test, self.y_test = None, None, None, None
             _, y, _, _ = self._train_test_split()
         else:
             self.X, self.y, self.X_test, self.y_test = self._train_test_split()
             y = self.y
 
-        if input_format == "csv":
-            self.X = self.task.to_csv_format(X=self.X)
-            self.X_test = self.task.to_csv_format(X=self.X_test)
         self.label_cleaner = LabelCleaner.construct(problem_type=self.task.problem_type, y=y)
 
     @classmethod
@@ -137,7 +126,6 @@ class ExperimentRunner:
         method: str,
         fit_args: dict | None = None,
         cleanup: bool = True,
-        input_format: Literal["openml", "csv"] = "openml",
         cacher: AbstractCacheFunction | None = None,
         debug_mode: bool = True,
         **kwargs,
@@ -151,7 +139,6 @@ class ExperimentRunner:
             method=method,
             fit_args=fit_args,
             cleanup=cleanup,
-            input_format=input_format,
             cacher=cacher,
             debug_mode=debug_mode,
             **kwargs,

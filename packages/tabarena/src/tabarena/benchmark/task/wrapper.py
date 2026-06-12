@@ -10,7 +10,6 @@ for OpenML-backed tasks.
 
 from __future__ import annotations
 
-import io
 import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
@@ -365,17 +364,6 @@ class TaskWrapper(ABC):
         train_data = pd.concat([X_train, y_train.to_frame(name=self.label)], axis=1)
         test_data = pd.concat([X_test, y_test.to_frame(name=self.label)], axis=1)
         return train_data, test_data
-
-    @classmethod
-    def to_csv_format(cls, X: pd.DataFrame) -> pd.DataFrame:
-        """Converts X to the dtypes that it would have if it were saved to a CSV and then loaded."""
-        s_buf = io.StringIO()
-        X_index = X.index
-        X.to_csv(s_buf, index=False)
-        s_buf.seek(0)
-        X = pd.read_csv(s_buf, low_memory=False)
-        X.index = X_index
-        return X
 
     def subsample(
         self,
