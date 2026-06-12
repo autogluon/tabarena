@@ -89,10 +89,9 @@ class BeyondArenaContext(AbstractArenaContext):
         Args:
             methods: ``"BeyondArena"`` (the Beyond-IID method collection) or an explicit
                 ``list[MethodMetadata]``.
-            task_metadata: ``"BeyondArena"`` (the committed reference CSV) or a
-                ``*_tasks_metadata.csv`` path — loaded via
-                :func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata_collection`
-                — or a ready ``TaskMetadataCollection``.
+            task_metadata: ``"BeyondArena"`` (the committed reference CSV, loaded via
+                :func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata_collection`)
+                or a ready ``TaskMetadataCollection``.
             extra_methods: Additional ``MethodMetadata`` appended to the resolved methods.
             backend: ``"ray"`` or ``"native"``, forwarded to :class:`AbstractArenaContext`.
             fillna_method: Imputed-method name forwarded to :class:`AbstractArenaContext`.
@@ -108,14 +107,9 @@ class BeyondArenaContext(AbstractArenaContext):
         )
 
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
-        """``"BeyondArena"`` (committed reference CSV, no downloads) or a
-        ``*_tasks_metadata.csv`` path, loaded self-contained.
-        """
-        is_csv_path = name.endswith(".csv") or "/" in name or "\\" in name
-        if name != "BeyondArena" and not is_csv_path:
-            raise ValueError(
-                f"Unknown task_metadata preset {name!r}; expected 'BeyondArena' or a *_tasks_metadata.csv path.",
-            )
+        """``"BeyondArena"`` -> the committed reference CSV (no downloads)."""
+        if name != "BeyondArena":
+            raise ValueError(f"Unknown task_metadata preset {name!r}; expected 'BeyondArena'.")
         from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata_collection
 
         return load_beyond_task_metadata_collection(name)
