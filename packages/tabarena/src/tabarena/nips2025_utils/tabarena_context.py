@@ -96,7 +96,7 @@ class TabArenaContext(AbstractArenaContext):
 
     def __init__(
         self,
-        methods: list[MethodMetadata] | str = "tabarena",
+        methods: str | list[MethodMetadata] = "tabarena",
         task_metadata: str | TaskMetadataCollection = "tabarena",
         *,
         extra_methods: list[MethodMetadata] | None = None,

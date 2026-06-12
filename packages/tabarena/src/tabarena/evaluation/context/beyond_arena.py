@@ -76,7 +76,7 @@ class BeyondArenaContext(AbstractArenaContext):
 
     def __init__(
         self,
-        methods: list[MethodMetadata] | str = "BeyondArena",
+        methods: str | list[MethodMetadata] = "BeyondArena",
         task_metadata: str | TaskMetadataCollection = "BeyondArena",
         *,
         extra_methods: list[MethodMetadata] | None = None,

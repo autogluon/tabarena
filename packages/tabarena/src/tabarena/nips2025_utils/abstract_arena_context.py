@@ -72,7 +72,7 @@ class AbstractArenaContext:
 
     def __init__(
         self,
-        methods: list[MethodMetadata] | str,
+        methods: str | list[MethodMetadata],
         task_metadata: str | TaskMetadataCollection,
         *,
         extra_methods: list[MethodMetadata] | None = None,
