@@ -32,13 +32,16 @@ def derive_task_type(*, time_on: str | None, group_on: str | list[str] | None) -
 
 
 def tid_from_task_id_str(task_id_str: str | int) -> int:
-    """Parse the legacy integer OpenML ``tid`` from a ``task_id_str``.
+    """Parse the legacy integer ``tid`` from a ``task_id_str``.
 
-    Handles the UserTask hash form (``UserTask|<id>|...`` -> ``<id>``) for local tasks and a
-    plain OpenML integer task id (str or int) otherwise.
+    Serialized spec ids follow the ``"{Prefix}|{task_id}|..."`` convention (see
+    :attr:`~tabarena.benchmark.task.spec.TaskSpec.task_id_str`), so the embedded
+    ``{task_id}`` segment is returned for any prefixed form — no spec reconstruction
+    needed; a plain OpenML integer task id (str or int) parses as-is.
     """
     s = str(task_id_str)
-    return int(s.split("|")[1]) if s.startswith("UserTask|") else int(s)
+    parts = s.split("|")
+    return int(parts[1]) if len(parts) > 1 else int(s)
 
 
 @dataclass

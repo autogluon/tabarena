@@ -173,11 +173,11 @@ def generate_text_cache(task_id_or_object, *, ignore_cache: bool = False) -> Pat
         return out_path
 
     if isinstance(task_id_or_object, UserTask):
-        oml_task = task_id_or_object.load_local_openml_task()
+        task = task_id_or_object.load()
     else:
-        oml_task = task_id_or_object  # already an OpenML task object
-    task = OpenMLTaskWrapper(task=oml_task)
-    print(f"Loaded {task_key}: {len(task.X)} rows x {len(task.X.columns)} columns.")
+        task = OpenMLTaskWrapper(task=task_id_or_object)  # already an OpenML task object
+    X, _ = task.get_X_y()
+    print(f"Loaded {task_key}: {len(X)} rows x {len(X.columns)} columns.")
 
     preprocessing = TabArenaModelAgnosticPreprocessing(
         enable_sematic_text_features=True,
@@ -188,7 +188,7 @@ def generate_text_cache(task_id_or_object, *, ignore_cache: bool = False) -> Pat
         enable_datetime_features=False,
         verbosity=4,
     )
-    preprocessing.fit_transform(X=task.X)
+    preprocessing.fit_transform(X=X)
 
     save_text_cache(cache=SemanticTextFeatureGenerator._embedding_look_up, path=out_path)
     SemanticTextFeatureGenerator._embedding_look_up.clear()

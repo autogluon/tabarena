@@ -132,6 +132,22 @@ class TaskMetadataCollection:
             seen.setdefault(t.tabarena_task_name, None)
         return list(seen)
 
+    def task_metadata_by_dataset(self) -> dict[str, TabArenaTaskMetadata]:
+        """Map dataset name -> one ``TabArenaTaskMetadata`` carrying *all* of its splits.
+
+        The inverse of the per-split unrolling done on ingest (:meth:`from_source`):
+        the dataset's per-split entries are re-rolled into a single task metadata —
+        task-level fields from the first entry (they are duplicated across splits),
+        ``splits_metadata`` merged across entries. Keys follow first-seen order.
+        """
+        first_entry: dict[str, TabArenaTaskMetadata] = {}
+        splits_by_dataset: dict[str, dict] = {}
+        for t in self._tasks:
+            name = t.tabarena_task_name
+            first_entry.setdefault(name, t)
+            splits_by_dataset.setdefault(name, {}).update(t.splits_metadata)
+        return {name: replace(t, splits_metadata=splits_by_dataset[name]) for name, t in first_entry.items()}
+
     def dataset_fold_repeats(self) -> list[tuple[str, int, int]]:
         """All ``(dataset, fold, repeat)`` triplets, from each task's ``splits_metadata``."""
         return [

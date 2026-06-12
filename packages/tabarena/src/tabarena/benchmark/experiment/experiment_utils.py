@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from tabarena.benchmark.experiment.experiment_constructor import Experiment
     from tabarena.benchmark.experiment.job import Job
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+    from tabarena.benchmark.task.spec import TaskSpec
     from tabarena.benchmark.task.user_task import UserTask
 
 
@@ -63,15 +64,14 @@ class ExperimentBatchRunner:
             Local (custom) tasks to register so the run methods can execute them. Each
             ``UserTask`` is keyed by its ``tabarena_task_name`` (which must also appear as a
             ``dataset`` row in ``task_metadata``, with ``tid == UserTask.task_id``). When a
-            run resolves such a dataset it hands the live ``UserTask`` to the run
-            engine (loaded from local disk via ``save_local_openml_task``), instead of
-            the integer tid that the engine would try to download from OpenML. Datasets
-            without a registered ``UserTask`` keep resolving to their integer OpenML tid.
+            run resolves such a dataset it hands the live ``UserTask`` (a ``TaskSpec``
+            loading from local disk via ``save_local_openml_task``) to the run engine,
+            instead of the ``OpenMLTaskSpec`` the engine would download from OpenML.
 
-            Tasks whose collection ``task_id_str`` is a serialized ``UserTask`` id
-            (``"UserTask|..."``, e.g. materialized Data Foundry tasks) are auto-registered
-            from the collection — no explicit entry needed; an explicit entry for the same
-            dataset takes precedence.
+            Usually unnecessary: every task auto-resolves to its spec from the
+            collection's ``task_id_str`` through the spec registry (``"UserTask|..."``
+            ids — e.g. materialized Data Foundry tasks — reconstruct their ``UserTask``);
+            an explicit entry for the same dataset takes precedence.
         """
         cache_cls = CacheFunctionDummy if cache_cls is None else cache_cls
         cache_cls_kwargs = {"include_self_in_call": True} if cache_cls_kwargs is None else cache_cls_kwargs
@@ -93,7 +93,7 @@ class ExperimentBatchRunner:
         self.cache_cls_kwargs = cache_cls_kwargs
         self.cache_mode = cache_mode
         self._dataset_to_tid_dict = self._build_dataset_to_tid()
-        self._dataset_to_user_task = self._build_dataset_to_user_task(user_tasks)
+        self._dataset_to_task_spec = self._build_dataset_to_task_spec(user_tasks)
         self.debug_mode = debug_mode
         self.raise_on_failure = raise_on_failure
 
@@ -105,22 +105,30 @@ class ExperimentBatchRunner:
         """Map dataset name -> integer tid, parsed natively from the collection's ``task_id_str``."""
         return {dataset: int(tid) for dataset, tid in self.task_metadata_collection.dataset_to_tid().items()}
 
-    def _build_dataset_to_user_task(self, user_tasks: list[UserTask] | None) -> dict[str, UserTask]:
-        """Map dataset name -> registered local ``UserTask`` (see the ``user_tasks`` arg).
+    def _build_dataset_to_task_spec(self, user_tasks: list[UserTask] | None) -> dict[str, TaskSpec]:
+        """Map dataset name -> the ``TaskSpec`` the run engine should load for it.
 
-        Each task is keyed by its ``tabarena_task_name`` (the ``dataset`` column key) and must
-        already be present in the tid map, so ``task_metadata`` and the registered tasks stay
-        consistent. Local tasks are auto-derived from the collection (a ``task_id_str`` of the
-        ``"UserTask|..."`` form reconstructs its ``UserTask``); explicit ``user_tasks`` entries
-        override the auto-derived ones.
+        Specs are auto-derived from the collection: each task's ``task_id_str`` is
+        parsed back into its spec through the spec registry (an OpenML id yields an
+        ``OpenMLTaskSpec``, a ``"UserTask|..."`` id its ``UserTask``, and any other
+        registered task type its own spec). Each spec is keyed by the task's
+        ``tabarena_task_name`` (the ``dataset`` column key) and carries the task's
+        collection entry (``with_task_metadata``), making the collection the run-time
+        source of truth for the loaded task's problem metadata. Explicit
+        ``user_tasks`` entries override the auto-derived ones and must already be
+        present in the tid map, so ``task_metadata`` and the registered tasks stay
+        consistent.
         """
-        from tabarena.benchmark.task.user_task import UserTask
+        from tabarena.benchmark.task.spec import task_spec_from_task_id_str
 
-        mapping: dict[str, UserTask] = {}
-        for ttm in self.task_metadata_collection:
-            task_id_str = ttm.task_id_str
-            if isinstance(task_id_str, str) and task_id_str.startswith("UserTask|"):
-                mapping.setdefault(ttm.tabarena_task_name, UserTask.from_task_id_str(task_id_str))
+        # One full (re-rolled) metadata per dataset — the collection stores one entry
+        # per split, but the loaded task represents all of its splits.
+        metadata_by_dataset = self.task_metadata_collection.task_metadata_by_dataset()
+
+        mapping: dict[str, TaskSpec] = {}
+        for dataset, ttm in metadata_by_dataset.items():
+            if ttm.task_id_str is not None:
+                mapping[dataset] = task_spec_from_task_id_str(ttm.task_id_str).with_task_metadata(ttm)
         for task in user_tasks or []:
             dataset = task.tabarena_task_name
             if dataset not in self._dataset_to_tid_dict:
@@ -128,19 +136,16 @@ class ExperimentBatchRunner:
                     f"Registered user task {dataset!r} is not present in `task_metadata`; add a "
                     f"row for it (its `tid` must equal `UserTask.task_id`).",
                 )
-            mapping[dataset] = task
+            mapping[dataset] = task.with_task_metadata(metadata_by_dataset.get(dataset))
         return mapping
 
-    def _resolve_task(self, dataset: str) -> int | UserTask:
-        """Resolve a dataset name to what the run engine should run for it.
+    def _resolve_task(self, dataset: str) -> TaskSpec:
+        """Resolve a dataset name to the ``TaskSpec`` the run engine should load for it.
 
-        A registered local task resolves to its live ``UserTask`` (loaded from local disk);
-        any other dataset resolves to its integer OpenML tid (downloaded on demand).
+        How the task is then vended is the spec's business: a ``UserTask`` loads from
+        local disk, an ``OpenMLTaskSpec`` downloads on demand.
         """
-        user_task = self._dataset_to_user_task.get(dataset)
-        if user_task is not None:
-            return user_task
-        return int(self._dataset_to_tid_dict[dataset])
+        return self._dataset_to_task_spec[dataset]
 
     def run(
         self,
@@ -268,10 +273,10 @@ class ExperimentBatchRunner:
         only the specific (method, task, fold) units that failed, or running a heavy model
         on a subset of datasets.
 
-        The jobs are resolved to tid-keyed work units and dispatched in a single pass that
-        groups by task, so a task shared by several experiments is materialized (OpenML
-        load) once *overall* (not once per experiment) and only one dataset is resident in
-        memory at a time. Caching and validation match the other entry points; the returned
+        The jobs are resolved to spec-keyed work units and dispatched in a single pass
+        that groups by task, so a task shared by several experiments is materialized
+        (loaded) once *overall* (not once per experiment) and only one dataset is resident
+        in memory at a time. Caching and validation match the other entry points; the returned
         `results_lst` preserves the order of `jobs` (failed or skipped jobs simply drop out).
 
         Parameters
@@ -330,7 +335,7 @@ class ExperimentBatchRunner:
 
         self._validate_datasets(datasets=datasets)
 
-        # Resolve dataset name -> tid and build one flat, tid-keyed spec list in `jobs`
+        # Resolve dataset name -> TaskSpec and build one flat spec list in `jobs`
         # order. `_run_job_specs` executes grouped by task (one load per shared task) but
         # returns results in this input order, so `results_lst` aligns with `jobs`.
         # Lazy import to avoid a circular import (experiment_runner_api imports this module).
@@ -358,14 +363,14 @@ class ExperimentBatchRunner:
     def _run_individual(
         self,
         methods: list[Experiment],
-        tasks: list[int | UserTask],
+        tasks: list[TaskSpec],
         repetitions_mode_args: list,
     ) -> list[dict[str, Any]]:
-        """Build tid-keyed `_JobSpec`s and dispatch them through the shared engine.
+        """Build spec-keyed `_JobSpec`s and dispatch them through the shared engine.
 
         `repetitions_mode_args` is either a single list of (fold, repeat) pairs applied
         to every task, or one (fold, repeat) list per task (aligned with `tasks`). Each task
-        is an integer OpenML tid or a local ``UserTask`` (see `_resolve_task`). Specs are
+        is a ``TaskSpec`` (see `_resolve_task`). Specs are
         flattened in task -> split -> method order, which is also the result order (the
         engine regroups by task for execution but returns results in spec order).
         """

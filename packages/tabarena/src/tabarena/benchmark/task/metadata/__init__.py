@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+from tabarena.benchmark.task.metadata.compute import compute_task_metadata
 from tabarena.benchmark.task.metadata.schema import (
     GroupLabelTypes,
     SplitIndex,
@@ -46,6 +47,7 @@ __all__ = [
     "TaskMetadataCollection",
     "TaskMetadataSource",
     "ValidationMetadata",
+    "compute_task_metadata",
     "default_task_metadata_collection",
     "resolve_source",
     "to_legacy_task_metadata",

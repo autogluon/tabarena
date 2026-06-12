@@ -381,13 +381,16 @@ class TestIterJobsGrouping:
     def test_groups_by_task_and_threads_input_index(self, tmp_path):
         from types import SimpleNamespace
 
+        from tabarena.benchmark.task.openml import OpenMLTaskSpec
+
         a = SimpleNamespace(name="a")
         b = SimpleNamespace(name="b")
         # Task 0 appears at indices 0 and 2 (different experiments); task 1 at index 1.
+        task0, task1 = OpenMLTaskSpec(0), OpenMLTaskSpec(1)
         specs = [
-            _JobSpec(model_experiment=a, task=0, fold=0, repeat=0),
-            _JobSpec(model_experiment=a, task=1, fold=0, repeat=0),
-            _JobSpec(model_experiment=b, task=0, fold=1, repeat=0),
+            _JobSpec(model_experiment=a, task=task0, fold=0, repeat=0),
+            _JobSpec(model_experiment=a, task=task1, fold=0, repeat=0),
+            _JobSpec(model_experiment=b, task=task0, fold=1, repeat=0),
         ]
         stats = _RunStats(total=len(specs))
         jobs = list(

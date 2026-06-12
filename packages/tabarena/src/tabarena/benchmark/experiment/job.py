@@ -10,7 +10,7 @@ This promotes to a public type the unit the runner enumerates internally.
 :meth:`ExperimentBatchRunner.run_jobs
 <tabarena.benchmark.experiment.experiment_utils.ExperimentBatchRunner.run_jobs>` consumes a
 ``list[Job]`` directly: it resolves each ``Job``'s dataset name to a tid to build a
-tid-keyed ``_JobSpec``, then dispatches the whole list through the shared engine
+spec-keyed ``_JobSpec``, then dispatches the whole list through the shared engine
 (``_run_job_specs`` in ``experiment_runner_api``) in a single task-grouped pass — which
 expands the specs into the runner's fully-resolved ``_Job`` work units and loads each task
 once, even when several experiments share it.

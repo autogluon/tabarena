@@ -3,9 +3,9 @@
 This walks the full local-benchmark loop on datasets you define yourself (no OpenML
 download), and showcases each of these steps:
 
-1. Implement two custom datasets as ``UserTask``s (one classification, one regression),
-   computing each task's native ``TabArenaTaskMetadata`` via ``compute_metadata``.
-2. Cache them to disk (``save_local_openml_task``) so they load locally at run time.
+1. Implement two custom datasets as ``UserTask``s (one classification, one regression);
+   ``create_task`` computes each task's native ``TabArenaTaskMetadata`` on the way.
+2. Cache them to disk (``save_task``) so they load locally at run time.
 3. Register them in ``ExperimentBatchRunner`` via the ``user_tasks=`` argument.
 4. Run them on two models, using ``run_jobs`` for a *non-rectangular* sweep (the
    classification task has 3 folds, the regression task has 1).
@@ -18,12 +18,11 @@ Run with::
 
 ----------------------------------------------------------------------------------------
 Note on step 3 (what this required in the source):
-``ExperimentBatchRunner`` historically resolved every dataset name to an *integer* OpenML
-tid and handed those ints to the run engine, which loads them via
-``OpenMLTaskWrapper.from_task_id`` — i.e. an OpenML *download*. A custom ``UserTask`` lives
-only on local disk, so that path cannot run it. The ``user_tasks=`` argument used below was
-added for exactly this: a registered ``UserTask`` is resolved to its live object (loaded
-locally) instead of its tid. See ``ExperimentBatchRunner._resolve_task``.
+``ExperimentBatchRunner`` resolves every dataset name to a ``TaskSpec`` — the handle that
+owns the task's vending logic. An OpenML task resolves to an ``OpenMLTaskSpec`` (an OpenML
+*download* on load); a custom ``UserTask`` lives only on local disk, so it must resolve to
+the ``UserTask`` itself (which loads locally). The ``user_tasks=`` argument used below
+registers the tasks for that resolution. See ``ExperimentBatchRunner._resolve_task``.
 ----------------------------------------------------------------------------------------
 """
 
@@ -60,8 +59,9 @@ def _toy_frame(*, classification: bool) -> pd.DataFrame:
 def make_classification_task(task_cache_dir: Path) -> tuple[UserTask, TabArenaTaskMetadata]:
     """A 3-fold classification ``UserTask`` plus its native ``TabArenaTaskMetadata``.
 
-    Steps 1 + 2: build the dataset and stratified splits, compute the task's metadata,
-    then cache the task to disk.
+    Steps 1 + 2: build the dataset and stratified splits, create the task (its exact
+    metadata — problem type, sizes, dtype flags, per-split stats, and the task's
+    identity — is computed by ``create_task``), then cache it to disk.
     """
     dataset = _toy_frame(classification=True)
     n_splits = 3
@@ -74,15 +74,14 @@ def make_classification_task(task_cache_dir: Path) -> tuple[UserTask, TabArenaTa
     )
 
     task = UserTask(task_name="toy_classification", task_cache_path=task_cache_dir)
-    oml_task = task.create_local_openml_task(
+    task_wrapper = task.create_task(
         dataset=dataset,
         target_feature="target",
         problem_type="classification",
         splits=splits,
     )
-    metadata = _task_metadata(task, oml_task)
-    task.save_local_openml_task(oml_task)  # cache to disk
-    return task, metadata
+    task.save_task(task_wrapper)  # cache to disk
+    return task, task_wrapper.metadata
 
 
 def make_regression_task(task_cache_dir: Path) -> tuple[UserTask, TabArenaTaskMetadata]:
@@ -97,30 +96,14 @@ def make_regression_task(task_cache_dir: Path) -> tuple[UserTask, TabArenaTaskMe
     splits = {0: {0: (train_idx, test_idx)}}
 
     task = UserTask(task_name="toy_regression", task_cache_path=task_cache_dir)
-    oml_task = task.create_local_openml_task(
+    task_wrapper = task.create_task(
         dataset=dataset,
         target_feature="target",
         problem_type="regression",
         splits=splits,
     )
-    metadata = _task_metadata(task, oml_task)
-    task.save_local_openml_task(oml_task)  # cache to disk
-    return task, metadata
-
-
-def _task_metadata(task: UserTask, oml_task) -> TabArenaTaskMetadata:
-    """Native ``TabArenaTaskMetadata`` for a custom task, derived from the task itself.
-
-    ``compute_metadata`` inspects the dataset and splits (problem type, sizes, dtype
-    flags, per-split stats); the ``UserTask`` supplies the identity: ``tabarena_task_name``
-    (the results ``dataset`` key) and ``task_id_str`` (from which the integer ``tid`` is
-    derived). Must run before ``save_local_openml_task``, which unhooks the local
-    ``get_dataset`` accessor that ``compute_metadata`` relies on.
-    """
-    return oml_task.compute_metadata(
-        tabarena_task_name=task.tabarena_task_name,
-        task_id_str=task.task_id_str,
-    )
+    task.save_task(task_wrapper)  # cache to disk
+    return task, task_wrapper.metadata
 
 
 if __name__ == "__main__":
@@ -137,6 +120,12 @@ if __name__ == "__main__":
     reg_task, reg_meta = make_regression_task(task_cache_dir)
     tasks = [clf_task, reg_task]
     task_collection = TaskMetadataCollection.from_source([clf_meta, reg_meta])
+
+    # Sanity: the stored metadata matches each task as it will actually load at run
+    # time — validate_metadata recomputes the metadata from the loaded task (available
+    # on every task wrapper) and raises listing any diverging field.
+    for task, meta in [(clf_task, clf_meta), (reg_task, reg_meta)]:
+        task.with_task_metadata(meta).load().validate_metadata()
 
     # Two models. (See `tabarena.models.utils.get_configs_generator_from_name` for the
     # model-registry / random-search route; here we keep it to two explicit configs.)
