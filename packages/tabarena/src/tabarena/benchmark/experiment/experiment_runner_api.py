@@ -3,13 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
+from tabarena.benchmark.experiment.experiment_utils import ExperimentBatchRunner
 from tabarena.benchmark.task.spec import task_spec_from_task_id_str
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
+    from tabarena.benchmark.experiment.experiment_constructor import Experiment
     from tabarena.benchmark.task import TaskWrapper
     from tabarena.benchmark.task.spec import TaskSpec
 
