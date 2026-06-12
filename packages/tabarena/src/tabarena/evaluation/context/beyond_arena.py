@@ -4,11 +4,12 @@ One of the pluggable evaluation contexts under :mod:`tabarena.evaluation.context
 :class:`~tabarena.nips2025_utils.tabarena_context.TabArenaContext`. BeyondArena differs from
 TabArena v0.1 in two ways:
 
-* **Subset predicates** — size buckets keyed on warehouse ``max_train_rows``, plus split-regime
+* **Subset predicates** — size buckets keyed on ``max_train_rows``, plus split-regime
   (``random``/``temporal``/``grouped``), feature-dimensionality, text and high-cardinality subsets.
 * **Task metadata** — sourced from the self-contained committed BeyondArena reference CSV (via
-  :func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata`), which already carries
-  the warehouse fields inline, so no separate ``warehouse_metadata.csv`` merge is needed.
+  :func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata_collection`), whose tasks
+  already carry the warehouse fields inline, so no separate ``warehouse_metadata.csv`` merge is
+  needed.
 
 Everything else (method handling, plotting, leaderboard logic) is inherited unchanged.
 """
@@ -24,36 +25,7 @@ from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-#: Warehouse-level columns BeyondArena predicates/plots rely on. Used by the (idempotent)
-#: back-compat merge below when a caller still supplies a separate warehouse frame.
-_WAREHOUSE_FIELDS = (
-    "task_type",
-    "num_cols_after_preprocessing",
-    "num_text_cols",
-    "num_high_cardinality_cats",
-    "domain",
-    "dataset_year",
-    "source",
-    "missing_value_fraction",
-)
-
-
-def _merge_warehouse_fields(task_metadata: pd.DataFrame, warehouse_metadata: pd.DataFrame) -> pd.DataFrame:
-    """Idempotently add warehouse fields to ``task_metadata`` from ``warehouse_metadata``.
-
-    Only columns that are absent (or entirely null) are merged in (on ``dataset``), so this is a
-    no-op when ``task_metadata`` is already self-contained (the new committed CSV). Kept for
-    back-compat with callers that pass a separate warehouse frame.
-    """
-    missing = [
-        c
-        for c in _WAREHOUSE_FIELDS
-        if c in warehouse_metadata.columns and (c not in task_metadata.columns or task_metadata[c].isna().all())
-    ]
-    if not missing:
-        return task_metadata
-    task_metadata = task_metadata.drop(columns=[c for c in missing if c in task_metadata.columns])
-    return task_metadata.merge(warehouse_metadata[["dataset", *missing]], on="dataset", how="left")
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
 
 
 class BeyondArenaContext(TabArenaContext):
@@ -89,11 +61,10 @@ class BeyondArenaContext(TabArenaContext):
     def __init__(
         self,
         methods: str | list = "tabarena",
-        task_metadata: str | pd.DataFrame = "BeyondArena",
+        task_metadata: str | TaskMetadataCollection = "BeyondArena",
         *,
         fillna_method: str | None = "RF (default)",
         calibration_method: str | None = "XGB (default)",
-        warehouse_metadata: pd.DataFrame | None = None,
         **kwargs,
     ) -> None:
         """Build a BeyondArena context.
@@ -101,20 +72,16 @@ class BeyondArenaContext(TabArenaContext):
         Args:
             methods: Method preset/list, forwarded to :class:`TabArenaContext`.
             task_metadata: A BeyondArena source name (e.g. ``"BeyondArena"``) or CSV path — loaded
-                + collapsed via :func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata`
-                — a ready DataFrame, or ``"tabarena"`` to defer to the base loader.
+                via :func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata_collection`
+                — a ready ``TaskMetadataCollection``, or ``"tabarena"`` to defer to the base loader.
             fillna_method: Imputed-method name forwarded to :class:`TabArenaContext`.
             calibration_method: Calibration-method name forwarded to :class:`TabArenaContext`.
-            warehouse_metadata: Optional separate warehouse frame; merged in idempotently for any
-                warehouse fields the task metadata lacks (no-op for the self-contained CSV).
             **kwargs: Forwarded verbatim to :class:`TabArenaContext`.
         """
         if isinstance(task_metadata, str) and task_metadata != "tabarena":
-            from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata
+            from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata_collection
 
-            task_metadata = load_beyond_task_metadata(task_metadata)
-        if warehouse_metadata is not None and isinstance(task_metadata, pd.DataFrame):
-            task_metadata = _merge_warehouse_fields(task_metadata, warehouse_metadata)
+            task_metadata = load_beyond_task_metadata_collection(task_metadata)
 
         super().__init__(
             methods=methods,

@@ -11,8 +11,9 @@ the *same* model (e.g. ``TabPFN-3``) can appear in several runs without collidin
 new TabPFN-3-only run is compared head-to-head with an older full-suite run.
 
 Task metadata is loaded once from the self-contained committed BeyondArena reference CSV (see
-:func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata`) and used as both the eval
-``task_metadata`` and the subset-filtering frame — no warehouse merge needed.
+:func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata_collection`) as a native
+``TaskMetadataCollection``; its ``per_dataset_frame()`` doubles as the subset-filtering frame — no
+warehouse merge needed.
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import pandas as pd
+
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
 
 #: Internal config-type -> display-name fixups for BeyondArena methods, applied on top of the
 #: TabArena rename map. Mirrors the hardcoded map in the legacy ``run_eval.py``.
@@ -120,13 +123,13 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
         post_process_to_results,
         resolve_ag_name,
     )
-    from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata
+    from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata_collection
 
     init_caches(config.tabarena_cache_path, config.openml_cache_path)
     init_aux_metric_env(config.aux_metric_map)
 
-    # One self-contained frame, used as both task_metadata and the subset-filtering frame.
-    task_metadata = load_beyond_task_metadata(config.metadata_source)
+    # One self-contained native collection, shared by post-processing, compare, and subset filtering.
+    task_metadata = load_beyond_task_metadata_collection(config.metadata_source)
 
     # Flatten (run, model) into post-processing specs; distinct artifact_name per run keeps a
     # method that appears in multiple runs from colliding in the cache.
@@ -159,7 +162,7 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
 def evaluate_beyond_subsets(
     *,
     df_results: pd.DataFrame,
-    task_metadata: pd.DataFrame,
+    task_metadata: TaskMetadataCollection,
     figure_output_dir: str | Path,
     subsets: list[list[str]],
     data_foundry_metadata: pd.DataFrame | None = None,
@@ -173,18 +176,19 @@ def evaluate_beyond_subsets(
 ) -> dict[str, pd.DataFrame]:
     """Run the per-subset compare/leaderboard loop for the data-foundry (BeyondArena) flow.
 
-    Shared by :func:`run_beyond_arena_eval` and the legacy ``run_eval.py`` so the loop lives in
-    one place. ``df_results`` is filtered per subset via ``subset_tasks_data_foundry`` using
-    ``data_foundry_metadata`` (defaults to ``task_metadata`` — the self-contained frame) and the
-    BeyondArena subset predicates, then compared (no paper baselines).
+    ``df_results`` is filtered per subset via ``subset_tasks_data_foundry`` using
+    ``data_foundry_metadata`` (defaults to ``task_metadata.per_dataset_frame()`` — self-contained,
+    carries every predicate column incl. ``max_train_rows``) and the BeyondArena subset
+    predicates, then compared (no paper baselines).
 
     Args:
         df_results: Combined per-fold results across all runs/methods.
-        task_metadata: Per-task metadata frame (the eval ``task_metadata``).
+        task_metadata: Native per-task metadata collection (the eval ``task_metadata``).
         figure_output_dir: Where ``subsets/<label>`` figures, ``dataset_subsets.json`` and the
             ``all_leaderboards`` CSVs are written.
         subsets: Subset specs to evaluate (``[]`` = full benchmark).
-        data_foundry_metadata: Frame the subset predicates filter on; defaults to ``task_metadata``.
+        data_foundry_metadata: Frame the subset predicates filter on; defaults to
+            ``task_metadata.per_dataset_frame()``.
         fillna: Imputed-method name passed to ``compare`` (``fillna``).
         calibration_framework: Calibration-method name passed to ``compare``.
         method_rename_map: Full rename map; if None, built from ``TabArenaContext`` + the
@@ -201,8 +205,6 @@ def evaluate_beyond_subsets(
     """
     import json
 
-    from tabarena.benchmark.task.metadata import TaskMetadataCollection
-    from tabarena.benchmark.task.metadata.sources.base import InMemoryTaskMetadataSource
     from tabarena.evaluation._eval_common import save_leaderboard, subset_label
     from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
     from tabarena.nips2025_utils.compare import compare, get_subsets_per_dataset, subset_tasks_data_foundry
@@ -210,15 +212,9 @@ def evaluate_beyond_subsets(
     from tabarena.website.website_format import format_leaderboard
 
     if data_foundry_metadata is None:
-        data_foundry_metadata = task_metadata
+        data_foundry_metadata = task_metadata.per_dataset_frame()
     if predicates is None:
         predicates = BeyondArenaContext.SUBSET_PREDICATES
-
-    # The evaluator/`compare` take a native collection; the self-contained metadata frame is
-    # one (native-schema) row per task, so rebuild a collection from it (used only by the
-    # evaluator's per-1K-sample sizing). The `data_foundry_metadata` frame above still drives
-    # the BeyondArena subset filtering.
-    task_metadata_collection = TaskMetadataCollection(InMemoryTaskMetadataSource(task_metadata).load())
     if method_rename_map is None:
         method_rename_map = TabArenaContext(include_unverified=True).get_method_rename_map()
         method_rename_map = {**method_rename_map, **DEFAULT_METHOD_RENAME_MAP, **(method_rename_map_extra or {})}
@@ -254,7 +250,7 @@ def evaluate_beyond_subsets(
                 predicates=predicates,
             ),
             output_dir=figure_output_dir / "subsets" / label,
-            task_metadata=task_metadata_collection,
+            task_metadata=task_metadata,
             fillna=fillna,
             calibration_framework=calibration_framework,
             remove_imputed=False,
@@ -282,14 +278,14 @@ def evaluate_beyond_subsets(
 
 def _align_results_to_task_metadata(
     df_results: pd.DataFrame,
-    task_metadata: pd.DataFrame,
+    task_metadata: TaskMetadataCollection,
     *,
     require: bool,
 ) -> pd.DataFrame:
     """Ensure every dataset in ``df_results`` has task metadata; raise or filter on mismatch."""
     import warnings
 
-    task_metadata_datasets = set(task_metadata["dataset"].unique())
+    task_metadata_datasets = set(task_metadata.dataset_names())
     results_datasets = set(df_results["dataset"].unique())
     missing = results_datasets - task_metadata_datasets
     if not missing:
