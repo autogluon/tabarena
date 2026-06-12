@@ -34,6 +34,7 @@ from tabarena.benchmark.task.spec import TaskSpec, register_task_spec_parser
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from tabarena.benchmark.task.in_memory import InMemoryTaskWrapper
     from tabarena.benchmark.task.metadata import (
         GroupLabelTypes,
         SplitTimeHorizonTypes,
@@ -44,6 +45,9 @@ if TYPE_CHECKING:
 
 #: Number of hex chars of the task-name hash appended to a slug for uniqueness.
 _SLUG_HASH_LEN = 12
+
+#: Marker of the native task persistence format (see :meth:`UserTask.save_task`).
+_USER_TASK_FORMAT = "tabarena-user-task-v1"
 
 
 def _slugify(name: str, *, max_len: int = 40) -> str:
@@ -158,20 +162,52 @@ class UserTask(TaskSpec):
         return self.slug
 
     def load(self) -> TaskWrapper:
-        """Vend the task from local disk (see :meth:`save_local_openml_task`).
+        """Vend the task from local disk (see :meth:`save_task`).
 
-        The task's own eval metric (when set at creation) is honored, and data is
-        lazy-loaded: the engine re-reads the local cache per split access instead of
-        keeping the full frame resident.
+        A task persisted in the native format loads as an
+        :class:`~tabarena.benchmark.task.in_memory.InMemoryTaskWrapper`; a legacy
+        cache (a pickled local OpenML task, see :meth:`save_local_openml_task`)
+        loads through the OpenML-backed wrapper. Either way the task's own eval
+        metric (when set at creation) is honored, and data is lazy-loaded: the
+        engine re-reads the local cache per data access instead of keeping the
+        full frame resident. An attached collection entry (``task_metadata``)
+        takes precedence over the persisted metadata.
         """
+        payload = self._read_task_file()
+
+        if isinstance(payload, dict) and payload.get("format") == _USER_TASK_FORMAT:
+            from tabarena.benchmark.task.in_memory import InMemoryTaskWrapper
+
+            task_path = self.task_path
+
+            def _read_dataset() -> pd.DataFrame:
+                with task_path.open("rb") as f:
+                    return pickle.load(f)["dataset"]
+
+            return InMemoryTaskWrapper(
+                dataset=_read_dataset,
+                splits=payload["splits"],
+                metadata=self.task_metadata if self.task_metadata is not None else payload["metadata"],
+                lazy_load_data=True,
+            )
+
+        # Legacy cache: a pickled local OpenML task object.
         from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 
+        payload.get_dataset = _get_dataset.__get__(payload, OpenMLSupervisedTask)
         return OpenMLTaskWrapper(
-            task=self.load_local_openml_task(),
+            task=payload,
             use_task_eval_metric=True,
             lazy_load_data=True,
             metadata=self.task_metadata,
         )
+
+    def _read_task_file(self):
+        """Unpickle this task's cache file (native payload dict or legacy OpenML task)."""
+        if not self.task_path.exists():
+            raise FileNotFoundError(f"Cached task file {self.task_path} does not exist!")
+        with self.task_path.open("rb") as f:
+            return pickle.load(f)
 
     def resolve_task_name(self, task: TaskWrapper) -> str:
         """The results ``dataset`` key — known up front (the loaded task is not needed)."""
@@ -401,9 +437,96 @@ class UserTask(TaskSpec):
             elif found_structure != len(split_dict):
                 raise ValueError("All repeats must have the same number of splits.")
 
+    # --- Native task creation / persistence ------------------------------------------
+    def create_task(
+        self,
+        *,
+        target_feature: str,
+        problem_type: Literal["classification", "regression"],
+        dataset: pd.DataFrame,
+        splits: dict[int, dict[int, tuple[list, list]]],
+        eval_metric: str | None = None,
+        stratify_on: str | None = None,
+        group_on: str | list[str] | None = None,
+        time_on: str | None = None,
+        group_time_on: str | None = None,
+        group_labels: GroupLabelTypes | None = None,
+        split_time_horizon: SplitTimeHorizonTypes | None = None,
+        split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None,
+        dataset_name: str | None = None,
+    ) -> InMemoryTaskWrapper:
+        """Build the task natively as an ``InMemoryTaskWrapper`` — no OpenML objects.
+
+        Takes the same inputs as :meth:`create_local_openml_task` (see there for the
+        parameter documentation) but returns a runnable
+        :class:`~tabarena.benchmark.task.in_memory.InMemoryTaskWrapper` whose
+        ``metadata`` is the task's exact ``TabArenaTaskMetadata`` — computed here,
+        with this ``UserTask``'s identity (``tabarena_task_name`` / ``task_id_str``)
+        filled in. Persist with :meth:`save_task`; reload with :meth:`load`.
+        """
+        if problem_type not in ("classification", "regression"):
+            raise NotImplementedError(f"Problem type {problem_type!r} not supported.")
+        dataset = deepcopy(dataset).reset_index(drop=True)
+        self._validate_splits(splits=splits, n_samples=len(dataset))
+        splits_arrays = {
+            repeat: {
+                fold: (np.asarray(train_idx, dtype=int), np.asarray(test_idx, dtype=int))
+                for fold, (train_idx, test_idx) in fold_splits.items()
+            }
+            for repeat, fold_splits in splits.items()
+        }
+
+        from tabarena.benchmark.task.in_memory import InMemoryTaskWrapper
+        from tabarena.benchmark.task.metadata.compute import compute_task_metadata
+
+        metadata = compute_task_metadata(
+            dataset=dataset,
+            dataset_name=self.get_dataset_name(dataset_name=dataset_name),
+            target_name=target_feature,
+            is_classification=problem_type == "classification",
+            eval_metric=eval_metric,
+            splits=splits_arrays,
+            stratify_on=stratify_on,
+            group_on=group_on,
+            time_on=time_on,
+            group_time_on=group_time_on,
+            group_labels=group_labels,
+            split_time_horizon=split_time_horizon,
+            split_time_horizon_unit=split_time_horizon_unit,
+            tabarena_task_name=self.tabarena_task_name,
+            task_id_str=self.task_id_str,
+        )
+        return InMemoryTaskWrapper(dataset=dataset, splits=splits_arrays, metadata=metadata)
+
+    def save_task(self, task: InMemoryTaskWrapper) -> None:
+        """Persist a task built by :meth:`create_task` to this task's cache file.
+
+        The native format is one pickle holding ``(dataset, splits, metadata)`` —
+        dtypes survive exactly, and no OpenML object is involved. :meth:`load`
+        re-vends it as an ``InMemoryTaskWrapper`` (lazy-loading from this file).
+        """
+        logger.debug(f"Saving task {self.task_name} to: {self.task_cache_path}")
+        dataset = task._dataset_source() if callable(task._dataset_source) else task._dataset_source
+        payload = {
+            "format": _USER_TASK_FORMAT,
+            "dataset": dataset,
+            "splits": task._splits,
+            "metadata": task.metadata,
+        }
+        self.task_cache_path.mkdir(parents=True, exist_ok=True)
+        with self.task_path.open("wb") as f:
+            pickle.dump(payload, f, pickle.HIGHEST_PROTOCOL)
+
+    @property
+    def task_path(self) -> Path:
+        """This task's cache file (native payload, or a legacy pickled OpenML task)."""
+        return self.task_cache_path / f"{self.slug}.pkl"
+
+    # --- Legacy local-OpenML-task persistence -----------------------------------------
     @property
     def openml_task_path(self) -> Path:
-        return self.task_cache_path / f"{self.slug}.pkl"
+        """Deprecated alias of :attr:`task_path` (kept for existing callers)."""
+        return self.task_path
 
     def save_local_openml_task(self, task: OpenMLSupervisedTask) -> None:
         """Safe the OpenML task to be usable by loading from disk later."""
@@ -412,16 +535,17 @@ class UserTask(TaskSpec):
         self.task_cache_path.mkdir(parents=True, exist_ok=True)
         # Remove monkey patch to avoid pickle issues.
         del task.get_dataset
-        with self.openml_task_path.open("wb") as f:
+        with self.task_path.open("wb") as f:
             pickle.dump(task, f)
 
     def load_local_openml_task(self) -> TabArenaOpenMLSupervisedTask:
-        """Load a local OpenML task from disk."""
-        if not self.openml_task_path.exists():
-            raise FileNotFoundError(f"Cached task file {self.openml_task_path} does not exist!")
-
-        with self.openml_task_path.open("rb") as f:
-            task: OpenMLSupervisedTask = pickle.load(f)
+        """Load a local OpenML task from disk (legacy caches only; see :meth:`load`)."""
+        task = self._read_task_file()
+        if isinstance(task, dict):
+            raise TypeError(
+                f"Task {self.task_name!r} is persisted in the native TabArena format "
+                f"({task.get('format')!r}); there is no OpenML task object to load — use `UserTask.load()`.",
+            )
         # Add monkey patch again.
         task.get_dataset = _get_dataset.__get__(task, OpenMLSupervisedTask)
 

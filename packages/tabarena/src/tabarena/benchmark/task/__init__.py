@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tabarena.benchmark.task.in_memory import InMemoryTaskWrapper
 from tabarena.benchmark.task.spec import (
     TaskSpec,
     register_task_spec_parser,
@@ -12,6 +13,7 @@ from tabarena.benchmark.task.user_task import (
 from tabarena.benchmark.task.wrapper import TaskWrapper
 
 __all__ = [
+    "InMemoryTaskWrapper",
     "TaskSpec",
     "TaskWrapper",
     "UserTask",

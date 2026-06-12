@@ -80,13 +80,13 @@ def get_custom_classification_task(task_cache_dir: str) -> tuple[UserTask, dict]
         task_name="ToyClf",
         task_cache_path=Path(task_cache_dir),
     )
-    oml_task = user_task.create_local_openml_task(
+    task_wrapper = user_task.create_task(
         dataset=dataset,
         target_feature="target",
         problem_type="classification",
         splits=splits,
     )
-    user_task.save_local_openml_task(oml_task)
+    user_task.save_task(task_wrapper)
     return user_task, _legacy_metadata_row(user_task, dataset, problem_type="binary", n_classes=2)
 
 
@@ -121,13 +121,13 @@ def get_custom_regression_task(task_cache_dir: str) -> tuple[UserTask, dict]:
         task_name="ToyReg",
         task_cache_path=Path(task_cache_dir),
     )
-    oml_task = user_task.create_local_openml_task(
+    task_wrapper = user_task.create_task(
         dataset=dataset,
         target_feature="target",
         problem_type="regression",
         splits=splits,
     )
-    user_task.save_local_openml_task(oml_task)
+    user_task.save_task(task_wrapper)
     return user_task, _legacy_metadata_row(user_task, dataset, problem_type="regression", n_classes=0)
 
 

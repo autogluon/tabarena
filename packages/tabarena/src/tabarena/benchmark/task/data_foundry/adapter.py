@@ -47,9 +47,9 @@ class DataFoundryAdapter:
 
     The adapter is a thin driver around a :class:`DatasetCollection`: it walks the
     collection (downloading via its ``source`` when needed) and converts each
-    :class:`CuratedContainer` into a local OpenML task via :class:`UserTask`. The
-    resulting ``UserTask`` is persisted in the OpenML cache (see
-    :meth:`UserTask.save_local_openml_task`) and one metadata row per task is collected
+    :class:`CuratedContainer` into a native local task via :class:`UserTask`. The
+    resulting ``UserTask`` is persisted in the task cache (see
+    :meth:`UserTask.save_task`) and one metadata row per task is collected
     into a DataFrame.
 
     Example:
@@ -138,12 +138,8 @@ class DataFoundryAdapter:
                 container=container,
                 evaluation_metrics=self.evaluation_metrics,
             )
-            oml_task = user_task.load_local_openml_task()
-
-            task_metadata = oml_task.compute_metadata(
-                tabarena_task_name=user_task.tabarena_task_name,
-                task_id_str=user_task.task_id_str,
-            )
+            # The exact task metadata was computed at creation and persisted with the task.
+            task_metadata = user_task.load().metadata
             task_metadata.data_foundry_uri = entry.relative_path.as_posix()
             # Warehouse-level metadata only available from the Data Foundry container.
             task_metadata.domain = container.dataset_metadata.domain_str
@@ -179,8 +175,8 @@ def convert_curated_container_to_user_task(
     Validates the target column matches the declared ``problem_type``, resolves the
     eval metric against the allowed list (falling back to the first allowed metric
     when the container's metric is not allowed), and persists the resulting
-    ``UserTask`` to the OpenML cache so it can be reloaded later via
-    :meth:`UserTask.load_local_openml_task`.
+    ``UserTask`` to the task cache so it can be reloaded later via
+    :meth:`UserTask.load`.
 
     Args:
         container: An already-loaded :class:`CuratedContainer` (e.g. yielded by
@@ -243,7 +239,7 @@ def convert_curated_container_to_user_task(
             eval_metric = fallback
 
     user_task = UserTask(task_name=container.unique_name)
-    oml_task = user_task.create_local_openml_task(
+    task_wrapper = user_task.create_task(
         dataset=container.dataset,
         target_feature=target_name,
         problem_type=problem_type,
@@ -258,7 +254,7 @@ def convert_curated_container_to_user_task(
         split_time_horizon=container.experiment_metadata.time_horizon,
         split_time_horizon_unit=container.experiment_metadata.time_horizon_unit,
     )
-    user_task.save_local_openml_task(oml_task)
+    user_task.save_task(task_wrapper)
 
     # The container ships its semantic-text embedding cache as an extra artifact; copy it into the
     # canonical tabarena cache so the fit-time loader finds it (no-op when the container has none).

@@ -286,11 +286,14 @@ class TaskWrapper(ABC):
         )
 
     # --- Data access ---------------------------------------------------------------------
-    def combine_X_y(self) -> pd.DataFrame:
+    def get_X_y(self) -> tuple[pd.DataFrame, pd.Series]:
+        """The full ``(X, y)`` of the task, loading on demand when data is lazy-loaded."""
         if self.lazy_load_data:
-            X, y = self._load_data()
-        else:
-            X, y = self.X, self.y
+            return self._load_data()
+        return self.X, self.y
+
+    def combine_X_y(self) -> pd.DataFrame:
+        X, y = self.get_X_y()
         return pd.concat([X, y.to_frame(name=self.label)], axis=1)
 
     def save_data(self, path: str, file_type=".csv", train_indices=None, test_indices=None):
