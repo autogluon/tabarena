@@ -4,42 +4,27 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
-from tabarena.benchmark.task.openml import OpenMLTaskWrapper
-from tabarena.benchmark.task.user_task import UserTask
+from tabarena.benchmark.task.spec import task_spec_from_task_id_str
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
     from tabarena.benchmark.task import TaskWrapper
-
-
-def _task_cache_key(task: int | UserTask) -> int | str:
-    """Canonical, filesystem-safe identifier for a task, used to key its cache.
-
-    Returns the OpenML task id for an integer task, or the ``UserTask.slug`` for a
-    local task. This is the per-task component of the results cache path (see
-    ``_build_cache_prefix``) and the same key under which the task's text-embedding
-    cache is stored (mirrors
-    ``tabarena.benchmark.preprocessing.text_cache.text_cache_key``), so a task's
-    results and text caches stay consistently keyed off one identifier.
-    """
-    return task if isinstance(task, int) else task.slug
+    from tabarena.benchmark.task.spec import TaskSpec
 
 
 def task_cache_key_from_task_id_str(task_id_str: str) -> int | str:
     """The results-cache task key for a serialized task id (``task_id_str``).
 
-    The string-side counterpart of :func:`_task_cache_key`: an OpenML id string maps to
-    its int, a ``UserTask`` id string to the task's ``slug``. This is the *one*
-    normalization shared by the cache writer (the run engine) and any cache-hit
-    pre-check (e.g. the SLURM dispatch filter) — they must agree or cached jobs are
-    needlessly re-run.
+    The string-side counterpart of :attr:`TaskSpec.cache_key`: the id is parsed back
+    into its spec (via the spec registry) and the spec's cache key returned — an
+    OpenML id string maps to its int, a ``UserTask`` id string to the task's
+    ``slug``. This is the *one* normalization shared by the cache writer (the run
+    engine) and any cache-hit pre-check (e.g. the SLURM dispatch filter) — they must
+    agree or cached jobs are needlessly re-run.
     """
-    try:
-        return int(task_id_str)
-    except ValueError:
-        return UserTask.from_task_id_str(task_id_str).slug
+    return task_spec_from_task_id_str(task_id_str).cache_key
 
 
 def job_cache_exists(
@@ -123,7 +108,7 @@ def _build_results_cacher(
     hand: the artifact is named ``results`` and lives at
     ``{base_cache_path}/data/{method_name}/{cache_task_key}/{repeat}_{fold}``. Note the
     task identity enters only as the pre-derived ``cache_task_key`` (see
-    ``_task_cache_key``); the cache class itself stays task-agnostic and reusable.
+    ``TaskSpec.cache_key``); the cache class itself stays task-agnostic and reusable.
 
     ``include_self_in_call`` passes the cacher into the runner so a failed fit (in
     benchmark mode) can drop a ``model_failures`` artifact next to the results. It
@@ -173,17 +158,17 @@ class _RunStats:
 
 
 class _LazyTask:
-    """Materialize a task (OpenML download / local load) at most once, on demand.
+    """Materialize a task (via its spec's vending logic) at most once, on demand.
 
-    The run engine only needs the heavy `OpenMLTaskWrapper` when it actually
+    The run engine only needs the heavy loaded `TaskWrapper` when it actually
     fits a model; fully-cached (method, fold, repeat) jobs load straight from disk. This
     wrapper defers and memoizes that load, and exposes whatever has been loaded so far
     via `current` so a default-mode cache hit reuses a prior load without forcing one
     (mirroring the original loop's per-dataset `task is None` reuse).
     """
 
-    def __init__(self, task_id_or_object: int | UserTask) -> None:
-        self._spec = task_id_or_object
+    def __init__(self, task_spec: TaskSpec) -> None:
+        self._spec = task_spec
         self._loaded = False
         self._task: TaskWrapper | None = None
         self._eval_metric_name: str | None = None
@@ -197,20 +182,10 @@ class _LazyTask:
     def materialize(self) -> tuple[TaskWrapper, str, str]:
         """Load the task on first call (memoized), returning `(task, eval_metric, name)`."""
         if not self._loaded:
-            spec = self._spec
-            if isinstance(spec, int):
-                task = OpenMLTaskWrapper.from_task_id(task_id=spec)
-                task_name = task.task.get_dataset().name
-            else:
-                task_name = spec.tabarena_task_name
-                task = OpenMLTaskWrapper(
-                    task=spec.load_local_openml_task(),
-                    use_task_eval_metric=True,
-                    lazy_load_data=True,
-                )
+            task = self._spec.load()
             self._task = task
             self._eval_metric_name = task.eval_metric
-            self._task_name = task_name
+            self._task_name = self._spec.resolve_task_name(task)
             self._loaded = True
             print(f"Using eval metric: {self._eval_metric_name}")
         return self._task, self._eval_metric_name, self._task_name
@@ -218,17 +193,17 @@ class _LazyTask:
 
 @dataclass(frozen=True)
 class _JobSpec:
-    """A single (method, task, fold, repeat) unit, task identified by tid / UserTask.
+    """A single (method, task, fold, repeat) unit, task identified by a `TaskSpec`.
 
-    The tid-keyed counterpart of the public `Job` (which is dataset-*name* keyed): the
-    name->tid resolution has already happened upstream. `_run_job_specs` is the engine that
+    The spec-keyed counterpart of the public `Job` (which is dataset-*name* keyed): the
+    name->spec resolution has already happened upstream. `_run_job_specs` is the engine that
     consumes a flat list of these; `ExperimentBatchRunner`'s front doors (`_run_individual`
     for the name-keyed grid entry points, `run_jobs` for a sparse job list) build specs and
     hand them over.
     """
 
     model_experiment: Experiment
-    task: int | UserTask
+    task: TaskSpec
     fold: int
     repeat: int
 
@@ -263,11 +238,11 @@ def _iter_jobs(
 ) -> Iterator[_Job]:
     """Yield a `_Job` per spec, grouped by task — the scaffold shared by both sweeps.
 
-    Specs are bucketed by their cache key (`_task_cache_key`), preserving first-seen task
-    order; one `_LazyTask` is built per bucket and shared across all of that task's
+    Specs are bucketed by their cache key (`TaskSpec.cache_key`), preserving first-seen
+    task order; one `_LazyTask` is built per bucket and shared across all of that task's
     method/fold/repeat jobs. This per-dataset grouping is what `_run_sweep`'s `.current`
     reuse and the one-dataset memory footprint rely on: once a task's contiguous block is
-    consumed, its `_LazyTask` (and the loaded `OpenMLTaskWrapper`) is no longer referenced
+    consumed, its `_LazyTask` (and the loaded `TaskWrapper`) is no longer referenced
     and can be collected before the next task loads. Each job carries its spec's
     `input_index` so the consumer can restore input order; a non-rectangular / interleaved
     spec list is fine. The load-vs-run split happens in the consumer, not here.
@@ -275,9 +250,9 @@ def _iter_jobs(
     # Group by task, keeping each task's specs in input order and remembering one task
     # object per bucket to load lazily.
     indexed_specs_by_task: dict[int | str, list[tuple[int, _JobSpec]]] = {}
-    task_by_key: dict[int | str, int | UserTask] = {}
+    task_by_key: dict[int | str, TaskSpec] = {}
     for input_index, spec in enumerate(job_specs):
-        cache_task_key = _task_cache_key(spec.task)
+        cache_task_key = spec.task.cache_key
         indexed_specs_by_task.setdefault(cache_task_key, []).append((input_index, spec))
         task_by_key.setdefault(cache_task_key, spec.task)
 
@@ -425,7 +400,7 @@ def _run_job_specs(
     Each (method.name, task, fold, repeat) must be unique: it is the results-cache key, so a
     duplicate would mean two jobs racing the same cache file.
     """
-    cache_keys = [(s.model_experiment.name, _task_cache_key(s.task), s.fold, s.repeat) for s in job_specs]
+    cache_keys = [(s.model_experiment.name, s.task.cache_key, s.fold, s.repeat) for s in job_specs]
     assert len(cache_keys) == len(set(cache_keys)), (
         "Duplicate (method, task, fold, repeat) job spec; this is the results-cache key and must be unique."
     )

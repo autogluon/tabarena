@@ -29,6 +29,7 @@ from tabarena.benchmark.task.openml import (
     TabArenaOpenMLRegressionTask,
     TabArenaOpenMLSupervisedTask,
 )
+from tabarena.benchmark.task.spec import TaskSpec, register_task_spec_parser
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
         SplitTimeHorizonTypes,
         SplitTimeHorizonUnitTypes,
     )
+    from tabarena.benchmark.task.wrapper import TaskWrapper
 
 
 #: Number of hex chars of the task-name hash appended to a slug for uniqueness.
@@ -59,8 +61,13 @@ def _get_dataset(self, **kwargs) -> openml.datasets.OpenMLDataset:
     return self.local_dataset
 
 
-class UserTask:
-    """A user-defined task to run on custom datasets or tasks."""
+class UserTask(TaskSpec):
+    """A user-defined task to run on custom datasets or tasks.
+
+    As a :class:`TaskSpec`, a ``UserTask`` vends itself from local disk: ``load``
+    reads the task cached by :meth:`save_local_openml_task` — no remote service
+    involved.
+    """
 
     def __init__(self, *, task_name: str, task_cache_path: Path | None = None) -> None:
         """Initialize a user-defined task.
@@ -144,6 +151,30 @@ class UserTask:
     def tabarena_task_name(self) -> str:
         """Task/Dataset name used for the task (and as the results ``dataset`` key)."""
         return self.slug
+
+    @property
+    def cache_key(self) -> str:
+        """Filesystem-safe results/text-cache key for this task (the :attr:`slug`)."""
+        return self.slug
+
+    def load(self) -> TaskWrapper:
+        """Vend the task from local disk (see :meth:`save_local_openml_task`).
+
+        The task's own eval metric (when set at creation) is honored, and data is
+        lazy-loaded: the engine re-reads the local cache per split access instead of
+        keeping the full frame resident.
+        """
+        from tabarena.benchmark.task.openml import OpenMLTaskWrapper
+
+        return OpenMLTaskWrapper(
+            task=self.load_local_openml_task(),
+            use_task_eval_metric=True,
+            lazy_load_data=True,
+        )
+
+    def resolve_task_name(self, task: TaskWrapper) -> str:
+        """The results ``dataset`` key — known up front (the loaded task is not needed)."""
+        return self.tabarena_task_name
 
     @property
     def task_id(self) -> int:
@@ -514,3 +545,7 @@ def from_sklearn_splits_to_user_task_splits(
             splits[repeat_i] = {}
         splits[repeat_i][fold_i] = (train_idx.tolist(), test_idx.tolist())
     return splits
+
+
+# Serialized UserTask ids ("UserTask|...") reconstruct through the spec registry.
+register_task_spec_parser("UserTask", UserTask.from_task_id_str)
