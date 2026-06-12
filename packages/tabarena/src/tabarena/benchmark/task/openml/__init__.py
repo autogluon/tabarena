@@ -6,10 +6,9 @@ from .metadata_mixin import (
     TabArenaOpenMLSupervisedTask,
     TabArenaTaskMetadataMixin,
 )
-from .task_wrapper import OpenMLS3TaskWrapper, OpenMLTaskWrapper
+from .task_wrapper import OpenMLTaskWrapper
 
 __all__ = [
-    "OpenMLS3TaskWrapper",
     "OpenMLTaskWrapper",
     "TabArenaOpenMLClassificationTask",
     "TabArenaOpenMLRegressionTask",
