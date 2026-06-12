@@ -1,5 +1,4 @@
-"""Local, sequential variant of ``run_setup_beyondarena.py`` (no SLURM).
-"""
+"""Local, sequential variant of ``run_setup_beyondarena.py`` (no SLURM)."""
 
 from __future__ import annotations
 
