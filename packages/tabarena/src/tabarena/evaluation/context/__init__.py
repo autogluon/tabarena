@@ -2,9 +2,10 @@
 
 A *context* bundles everything an evaluation needs to know about a benchmark family — its method
 collection, its task metadata, and its subset predicates.
-:class:`~tabarena.nips2025_utils.tabarena_context.TabArenaContext` is the base/TabArena-v0.1
-context; :class:`~tabarena.evaluation.context.beyond_arena.BeyondArenaContext` is the data-foundry
-(BeyondArena) variant. New benchmark families add a context here.
+Contexts subclass :class:`~tabarena.nips2025_utils.abstract_arena_context.AbstractArenaContext`;
+:class:`~tabarena.nips2025_utils.tabarena_context.TabArenaContext` is the TabArena-v0.1 context,
+:class:`~tabarena.evaluation.context.beyond_arena.BeyondArenaContext` the data-foundry
+(BeyondArena) one. New benchmark families add a context here.
 
 Imported lazily by the runners, so this subpackage is not pulled in at ``import tabarena.evaluation``.
 """

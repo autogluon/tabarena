@@ -63,8 +63,7 @@ class TabArenaContext(AbstractArenaContext):
 
     Implements the :class:`AbstractArenaContext` hooks against the committed TabArena v0.1
     suite and the paper's method metadata (so :meth:`load_results` loads the paper baseline
-    results), and adds the full reproduction workflow (HPO / portfolio simulation, plotting,
-    repo generation). ``BeyondArenaContext`` subclasses this.
+    results), and adds the paper's ``evaluate_all`` reproduction workflow.
     """
 
     SUBSET_PREDICATES: dict[str, SubsetPredicate] = {
@@ -97,7 +96,7 @@ class TabArenaContext(AbstractArenaContext):
 
     def __init__(
         self,
-        methods: list[MethodMetadata] | str = "tabarena",
+        methods: str | list[MethodMetadata] = "tabarena",
         task_metadata: str | TaskMetadataCollection = "tabarena",
         *,
         extra_methods: list[MethodMetadata] | None = None,
