@@ -1084,7 +1084,7 @@ def _prepare_tuning_trajectories_data(
     results_hpo = pd.concat(results_hpo_lst, ignore_index=True)
     results_hpo["display_name"] = results_hpo["display_name"].fillna(results_hpo["config_type"])
 
-    result_baselines = tabarena_context.load_results_paper()
+    result_baselines = tabarena_context.load_results()
 
     results_hpo_mean = (
         results_hpo.copy()
@@ -1332,9 +1332,7 @@ def plot_tuning_trajectories(
         subset_map = []
 
     if tabarena_context is None:
-        tabarena_context = TabArenaContext(
-            include_unverified=True,
-        )
+        tabarena_context = TabArenaContext()
     if isinstance(calibration_framework, str) and calibration_framework == "auto":
         calibration_framework = tabarena_context.calibration_method
     if isinstance(fillna_method, str) and fillna_method == "auto":

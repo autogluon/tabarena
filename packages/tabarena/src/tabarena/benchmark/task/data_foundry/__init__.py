@@ -13,7 +13,9 @@ Primary entry points:
 * :func:`load_reference_metadata` / :func:`materialize_task` /
   :func:`generate_reference_metadata` — load a
   reference metadata table without downloading, then materialize only the tasks that
-  survive filtering (see :class:`tabarena.benchmark.task.metadata.BeyondArenaMetadataBundle`).
+  survive filtering (see
+  :meth:`tabarena.benchmark.task.metadata.TaskMetadataCollection.from_preset` with
+  ``"BeyondArena"``).
 
 The vocabulary "data_foundry_uri" is preserved in the metadata DataFrame and CSV for
 backward compatibility with existing downstream code (e.g. ``tabflow_slurm``).

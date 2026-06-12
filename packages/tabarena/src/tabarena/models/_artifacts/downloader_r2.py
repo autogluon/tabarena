@@ -123,30 +123,26 @@ class MethodDownloaderR2:
         r2_key = (self.prefix / "raw.zip").as_posix()
         self._download_and_unzip_if_exists(r2_key=r2_key, dest_dir=dest_dir, clear_dir=self.clear_dirs)
 
-    def download_processed(self, holdout: bool = False):
-        if holdout:
-            dest_dir = Path(self.method_metadata.path_processed_holdout)
-            r2_key = (self.prefix / "processed_holdout.zip").as_posix()
-        else:
-            dest_dir = Path(self.method_metadata.path_processed)
-            r2_key = (self.prefix / "processed.zip").as_posix()
+    def download_processed(self):
+        dest_dir = Path(self.method_metadata.path_processed)
+        r2_key = (self.prefix / "processed.zip").as_posix()
 
         self._download_and_unzip_if_exists(r2_key=r2_key, dest_dir=dest_dir, clear_dir=self.clear_dirs)
 
-    def download_configs_hyperparameters(self, holdout: bool = False):
-        path_local = Path(self.method_metadata.path_configs_hyperparameters(holdout=holdout))
+    def download_configs_hyperparameters(self):
+        path_local = Path(self.method_metadata.path_configs_hyperparameters())
         r2_key = self.local_to_r2_path(path_local=path_local)
         self._download_to_local_if_exists(r2_key=r2_key, path_local=path_local)
 
-    def download_results(self, holdout: bool = False):
-        file_names: Iterable[Path | str] = self.method_metadata.path_results_files(holdout=holdout)
+    def download_results(self):
+        file_names: Iterable[Path | str] = self.method_metadata.path_results_files()
         for path_local in file_names:
             path_local = Path(path_local)
             r2_key = self.local_to_r2_path(path_local=path_local)
             self._download_to_local_if_exists(r2_key=r2_key, path_local=path_local)
 
-    def download_results_hpo_trajectories(self, holdout: bool = False):
-        path_local = self.method_metadata.path_results_hpo_trajectories(holdout=holdout)
+    def download_results_hpo_trajectories(self):
+        path_local = self.method_metadata.path_results_hpo_trajectories()
         r2_key = self.local_to_r2_path(path_local=path_local)
         self._download_to_local_if_exists(r2_key=r2_key, path_local=Path(path_local))
 

@@ -100,12 +100,17 @@ class PathSetup:
         return str(self.openml_cache)
 
     def get_setup_out_path(self, benchmark_name: str) -> Path:
-        """Directory holding the generated configs YAML + SLURM job JSON."""
+        """Directory holding the generated job-batch artifact + SLURM job JSON."""
         return self._workspace / "setup_out" / benchmark_name
 
-    def get_configs_path(self, *, benchmark_name: str, safe_benchmark_name: str) -> str:
-        """YAML file with the configs to run."""
-        return str(self.get_setup_out_path(benchmark_name) / f"benchmark_configs_{safe_benchmark_name}.yaml")
+    def get_job_batch_dir(self, *, benchmark_name: str, safe_benchmark_name: str) -> str:
+        """Directory of the run's ``JobBatch`` artifact (experiments + task metadata + jobs).
+
+        This is the self-contained sweep specification the compute nodes load (see
+        :class:`tabarena.benchmark.experiment.job_batch.JobBatch`); the per-array-task
+        JSON items reference its experiments by name.
+        """
+        return str(self.get_setup_out_path(benchmark_name) / f"job_batch_{safe_benchmark_name}")
 
     def get_slurm_job_json_path(self, *, benchmark_name: str, safe_benchmark_name: str) -> str:
         """JSON file with the job data to run used by SLURM.

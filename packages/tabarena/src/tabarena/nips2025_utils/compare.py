@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
-from tabarena.benchmark.task.metadata import default_task_metadata_collection
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 
@@ -15,134 +15,34 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def compare_on_tabarena(
-    output_dir: str | Path,
-    new_results: pd.DataFrame | None = None,
-    ta_results: pd.DataFrame | None = None,
-    *,
-    only_valid_tasks: bool | str | list[str] = False,
-    subset: str | list[str] | None = None,
-    tasks: list[tuple[str, int]] | None = None,
-    datasets: list[str] | None = None,
-    folds: list[int] | None = None,
-    tabarena_context: TabArenaContext | None = None,
-    tabarena_context_kwargs: dict | None = None,
-    fillna: str | pd.DataFrame | None = "RF (default)",
-    calibration_framework: str | None = "auto",
-    score_on_val: bool = False,
-    average_seeds: bool = False,
-    remove_imputed: bool = False,
-    tmp_treat_tasks_independently: bool = False,
-    leaderboard_kwargs: dict | None = None,
-    **kwargs,
-) -> pd.DataFrame:
-    output_dir = Path(output_dir)
-    if tabarena_context is None:
-        if tabarena_context_kwargs is None:
-            tabarena_context_kwargs = {}
-        tabarena_context = TabArenaContext(**tabarena_context_kwargs)
-    task_metadata = tabarena_context.task_metadata_collection
-
-    # TODO: only methods that exist in runs
-    #  Pair with (method, artifact_name)
-    method_rename_map = tabarena_context.get_method_rename_map()
-
-    if ta_results is None:
-        ta_results = tabarena_context.load_results_paper(
-            download_results="auto",
-        )
-
-    if new_results is not None:
-        new_results = new_results.copy(deep=True)
-        if "method_subtype" not in new_results.columns:
-            new_results["method_subtype"] = np.nan
-
-    df_results = pd.concat([ta_results, new_results], ignore_index=True) if new_results is not None else ta_results
-
-    kwargs = kwargs.copy()
-    if isinstance(only_valid_tasks, (tuple, np.ndarray)):
-        only_valid_tasks = list(only_valid_tasks)
-    if isinstance(only_valid_tasks, (str, list)):
-        kwargs["only_valid_tasks"] = only_valid_tasks
-    elif only_valid_tasks and new_results is not None:
-        df_results = filter_to_valid_tasks(
-            df_to_filter=df_results,
-            df_filter=new_results,
-        )
-
-    return compare(
-        df_results=df_results,
-        output_dir=output_dir,
-        task_metadata=task_metadata,
-        subset=subset,
-        tasks=tasks,
-        datasets=datasets,
-        folds=folds,
-        tabarena_context=tabarena_context,
-        fillna=fillna,
-        calibration_framework=calibration_framework,
-        score_on_val=score_on_val,
-        average_seeds=average_seeds,
-        remove_imputed=remove_imputed,
-        tmp_treat_tasks_independently=tmp_treat_tasks_independently,
-        leaderboard_kwargs=leaderboard_kwargs,
-        method_rename_map=method_rename_map,
-        **kwargs,
-    )
-
-
 def compare(
     df_results: pd.DataFrame,
     output_dir: str | Path,
-    task_metadata: TaskMetadataCollection | None = None,
+    task_metadata: TaskMetadataCollection,
     only_valid_tasks: str | list[str] | None = None,
-    tasks: list[tuple[str, int]] | None = None,
-    datasets: list[str] | None = None,
     calibration_framework: str | None = None,
     fillna: str | pd.DataFrame | None = None,
     score_on_val: bool = False,
     average_seeds: bool = False,
-    tmp_treat_tasks_independently: bool = False,  # FIXME: Update
     leaderboard_kwargs: dict | None = None,
     remove_imputed: bool = False,
     method_rename_map: dict | None = None,
     figure_file_type: str = "pdf",
     add_dataset_count: bool = False,
-    subset: list[str] | None = None,
-    folds: list[int] | None = None,
     elo_ymin: float | None = None,
-    tabarena_context: TabArenaContext | None = None,
     **kwargs,
 ):
-    if task_metadata is None:
-        task_metadata = default_task_metadata_collection()
-    if subset is not None or folds is not None or datasets is not None or tasks is not None:
-        if subset is None:
-            subset = []
-        if isinstance(subset, str):
-            subset = [subset]
-        df_results = subset_tasks(
-            df_results=df_results,
-            subset=subset,
-            tasks=tasks,
-            datasets=datasets,
-            folds=folds,
-            task_metadata_og=task_metadata,
-            # Thread the context's predicates so subclass-specific subsets (e.g.
-            # BeyondArena's "random"/"temporal"/"grouped") take effect; without this
-            # subset_tasks silently falls back to TabArenaContext.SUBSET_PREDICATES.
-            predicates=tabarena_context.subset_predicates if tabarena_context is not None else None,
-        )
+    """Evaluate ``df_results`` (already subset to the tasks of interest) into a leaderboard.
 
+    Generic over the supplied ``task_metadata``; task subsetting is the caller's job
+    (see :meth:`AbstractArenaContext.compare`, which subsets via ``subset_results`` first).
+    """
     df_results = prepare_data(
         df_results=df_results,
         only_valid_tasks=only_valid_tasks,
         fillna=fillna,
         remove_imputed=remove_imputed,
     )
-
-    if datasets is not None:
-        df_results = df_results[df_results["dataset"].isin(datasets)]
 
     if score_on_val:
         error_col = "metric_error_val"
@@ -171,7 +71,6 @@ def compare(
         plot_times=True,
         calibration_framework=calibration_framework,
         average_seeds=average_seeds,
-        tmp_treat_tasks_independently=tmp_treat_tasks_independently,
         leaderboard_kwargs=leaderboard_kwargs,
         **kwargs,
     )
@@ -307,7 +206,10 @@ def _evaluate_subset_expression(
         if part not in predicates:
             valid = sorted(predicates)
             raise ValueError(f"Invalid subset name {part!r}. Valid names: {valid}")
-        sub = predicates[part](df).astype(bool)
+        pred = predicates[part]
+        # `SubsetPredicate` validates its `required_columns` against the grid (clear error on a
+        # missing column); a plain callable is applied as-is for backward compatibility.
+        sub = (pred.evaluate(df, name=part) if isinstance(pred, SubsetPredicate) else pred(df)).astype(bool)
         if negate:
             sub = ~sub
         mask = sub if mask is None else (mask | sub)

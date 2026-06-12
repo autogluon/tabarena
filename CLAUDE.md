@@ -16,4 +16,5 @@ When the user describes work that matches a skill's trigger criteria, invoke the
 
 - **Always run `ruff check --fix`** on touched files before reporting a task complete. The `from __future__ import annotations` requirement (isort `required-imports`) is the most common CI failure on new files. CI now enforces `ruff check .` + `ruff format --check .`, and a pinned `.pre-commit-config.yaml` is available (`pre-commit install`) — see AGENTS.md "Lint & Format".
 - **Tests live in `tst/`** — when adding a test for `packages/tabarena/src/tabarena/<area>/foo.py`, mirror the path under `tst/<area>/test_foo.py`.
+- **Don't run `tst/models/` in bulk** — these fit real models and are slow (some need GPUs/licenses/network), and only changes to the model files themselves affect them. Run only `pytest tst/models/test_<model>.py` for a model you actually touched; skip them entirely for non-model changes.
 - **Optional model deps**: when adding code that imports an optional library (e.g., `tabpfn`, `tabicl`, `xrfm`), keep the import inside the wrapper's `_fit` / class body, never at module top-level — top-level imports break installs without that extra.

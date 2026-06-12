@@ -15,11 +15,9 @@ if __name__ == "__main__":
     plot_n_configs = False
 
     tabarena_context = TabArenaContext()
-    df_results_holdout = None  # TODO: Mitra does not yet have holdout results saved in S3, need to add
     include_portfolio = False
-    # df_results_holdout = tabarena_context.load_results_paper(download_results=download_results, holdout=True)
 
-    df_results = tabarena_context.load_results_paper(download_results=download_results)
+    df_results = tabarena_context.load_results(download_results=download_results)
 
     configs_hyperparameters = tabarena_context.load_configs_hyperparameters(download=download_results)
 
@@ -40,7 +38,6 @@ if __name__ == "__main__":
 
     tabarena_context_all.evaluate_all(
         df_results=df_results,
-        df_results_holdout=df_results_holdout,
         configs_hyperparameters=configs_hyperparameters,
         save_path=save_path,
         elo_bootstrap_rounds=elo_bootstrap_rounds,

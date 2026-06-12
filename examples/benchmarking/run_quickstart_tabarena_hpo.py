@@ -18,10 +18,10 @@ if __name__ == "__main__":
     ignore_cache = False  # set to True to overwrite existing caches and re-run experiments from scratch
 
     tabarena_context = TabArenaContext()
-    task_metadata = tabarena_context.task_metadata
+    task_metadata_collection = tabarena_context.task_metadata_collection
 
     # Sample for a quick demo
-    datasets = ["anneal", "credit-g", "diabetes"]  # datasets = list(task_metadata["name"])
+    datasets = ["anneal", "credit-g", "diabetes"]  # all datasets: tabarena_context.task_metadata["name"].tolist()
     folds = [0]
 
     # import your model search spaces
@@ -40,7 +40,7 @@ if __name__ == "__main__":
 
     exp_batch_runner = ExperimentBatchRunner(
         expname=expname,
-        task_metadata=task_metadata,
+        task_metadata=task_metadata_collection,
         cache_mode="ignore" if ignore_cache else "default",
     )
 
@@ -53,7 +53,9 @@ if __name__ == "__main__":
     )
 
     # compute results
-    end_to_end = EndToEnd.from_raw(results_lst=results_lst, task_metadata=task_metadata, cache=False, cache_raw=False)
+    end_to_end = EndToEnd.from_raw(
+        results_lst=results_lst, task_metadata=task_metadata_collection, cache=False, cache_raw=False
+    )
     end_to_end_results = end_to_end.to_results()
 
     print(f"New Configs Hyperparameters: {end_to_end.configs_hyperparameters()}")

@@ -20,7 +20,6 @@ def generate_website_artifacts(output_path: str | Path):
     use_latex: bool = False
     download_results = "auto"  # Set to False to avoid re-download
 
-    include_unverified = True
     run_ablations = False
     figure_file_type = "png"
 
@@ -29,8 +28,8 @@ def generate_website_artifacts(output_path: str | Path):
     # set to "sequential" to debug or "auto" to follow the TabArenaContext backend.
     engine = "ray"
 
-    tabarena_context = TabArenaContext(include_unverified=include_unverified)
-    tabarena_context.load_results_paper(download_results=download_results)
+    tabarena_context = TabArenaContext()
+    tabarena_context.load_results(download_results=download_results)
 
     evaluator_kwargs = {
         "figure_file_type": figure_file_type,

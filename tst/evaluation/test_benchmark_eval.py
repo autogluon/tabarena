@@ -110,7 +110,7 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     figs = Path(cfg.figure_output_dir)
     assert [c[0] for c in compare_calls] == [figs / "subsets" / "full", figs / "subsets" / "regression"]
     assert [c[1] for c in compare_calls] == [None, ["regression"]]
-    assert compare_calls[0][2] == {"include_unverified": True}
+    assert compare_calls[0][2] is None
 
     # Leaderboards returned + saved as CSV.
     assert set(out) == {"full", "regression"}

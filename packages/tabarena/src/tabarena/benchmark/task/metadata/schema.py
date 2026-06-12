@@ -503,7 +503,8 @@ def to_legacy_task_metadata(task_metadata: list[TabArenaTaskMetadata]) -> pd.Dat
       on missing columns rather than skipping them).
 
     Requires each task to carry a parseable ``task_id_str`` (enforced upstream by
-    :class:`TabArenaMetadataBundle`); an empty list yields an empty DataFrame.
+    :class:`~tabarena.benchmark.task.metadata.collection.TaskMetadataCollection`); an
+    empty list yields an empty DataFrame.
     """
     if not task_metadata:
         return pd.DataFrame()

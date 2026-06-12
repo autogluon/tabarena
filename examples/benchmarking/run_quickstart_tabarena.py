@@ -17,10 +17,9 @@ if __name__ == "__main__":
     ignore_cache = False  # set to True to overwrite existing caches and re-run experiments from scratch
 
     tabarena_context = TabArenaContext()
-    task_metadata = tabarena_context.task_metadata
 
     # Sample for a quick demo
-    datasets = ["anneal", "credit-g", "diabetes"]  # datasets = list(task_metadata["name"])
+    datasets = ["anneal", "credit-g", "diabetes"]  # all: tabarena_context.task_metadata_collection.dataset_names()
 
     # import your model classes
     from autogluon.tabular.models import LGBModel
@@ -57,7 +56,9 @@ if __name__ == "__main__":
     results_lst: list[dict[str, Any]] = exp_batch_runner.run_all(methods=methods)
 
     # compute results
-    end_to_end = EndToEnd.from_raw(results_lst=results_lst, task_metadata=task_metadata, cache=False, cache_raw=False)
+    end_to_end = EndToEnd.from_raw(
+        results_lst=results_lst, task_metadata=tabarena_context.task_metadata_collection, cache=False, cache_raw=False
+    )
     end_to_end_results = end_to_end.to_results()
 
     print(f"New Configs Hyperparameters: {end_to_end.configs_hyperparameters()}")

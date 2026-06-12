@@ -345,16 +345,8 @@ class MethodMetadata:
         return self.path / "processed"
 
     @property
-    def path_processed_holdout(self) -> Path:
-        return self.path / "processed_holdout"
-
-    @property
     def path_results(self) -> Path:
         return self.path / "results"
-
-    @property
-    def path_results_holdout(self) -> Path:
-        return self.path_results / "holdout"
 
     @property
     def path_raw_exists(self) -> bool:
@@ -368,21 +360,17 @@ class MethodMetadata:
     def path_results_exists(self) -> bool:
         return self.path_results.is_dir()
 
-    def path_results_hpo(self, holdout: bool = False) -> Path:
-        path_prefix = self.path_results_holdout if holdout else self.path_results
-        return path_prefix / "hpo_results.parquet"
+    def path_results_hpo(self) -> Path:
+        return self.path_results / "hpo_results.parquet"
 
-    def path_results_model(self, holdout: bool = False) -> Path:
-        path_prefix = self.path_results_holdout if holdout else self.path_results
-        return path_prefix / "model_results.parquet"
+    def path_results_model(self) -> Path:
+        return self.path_results / "model_results.parquet"
 
-    def path_results_portfolio(self, holdout: bool = False) -> Path:
-        path_prefix = self.path_results_holdout if holdout else self.path_results
-        return path_prefix / "portfolio_results.parquet"
+    def path_results_portfolio(self) -> Path:
+        return self.path_results / "portfolio_results.parquet"
 
-    def path_results_hpo_trajectories(self, holdout: bool = False) -> Path:
-        path_prefix = self.path_results_holdout if holdout else self.path_results
-        return path_prefix / "hpo_trajectories.parquet"
+    def path_results_hpo_trajectories(self) -> Path:
+        return self.path_results / "hpo_trajectories.parquet"
 
     def relative_to_cache_root(self, path: Path) -> Path:
         return path.relative_to(self.path_cache_root)
@@ -489,50 +477,49 @@ class MethodMetadata:
             )
         raise ValueError(f"Invalid cache_type for uploads: {cache_type}")
 
-    def load_model_results(self, holdout: bool = False) -> pd.DataFrame:
-        return pd.read_parquet(path=self.path_results_model(holdout=holdout))
+    def load_model_results(self) -> pd.DataFrame:
+        return pd.read_parquet(path=self.path_results_model())
 
-    def load_hpo_results(self, holdout: bool = False) -> pd.DataFrame:
-        return pd.read_parquet(path=self.path_results_hpo(holdout=holdout))
+    def load_hpo_results(self) -> pd.DataFrame:
+        return pd.read_parquet(path=self.path_results_hpo())
 
-    def load_portfolio_results(self, holdout: bool = False) -> pd.DataFrame:
-        return pd.read_parquet(path=self.path_results_portfolio(holdout=holdout))
+    def load_portfolio_results(self) -> pd.DataFrame:
+        return pd.read_parquet(path=self.path_results_portfolio())
 
-    def load_paper_results(self, holdout: bool = False) -> pd.DataFrame:
+    def load_results(self) -> pd.DataFrame:
         if self.method_type == "config":
-            df_results = self.load_hpo_results(holdout=holdout)
+            df_results = self.load_hpo_results()
         elif self.method_type == "baseline":
-            df_results = self.load_model_results(holdout=holdout)
+            df_results = self.load_model_results()
         elif self.method_type == "portfolio":
-            df_results = self.load_portfolio_results(holdout=holdout)
+            df_results = self.load_portfolio_results()
         else:
             raise ValueError(f"Unknown method_type: {self.method_type} for method {self.method}")
         return df_results
 
-    def path_configs_hyperparameters(self, holdout: bool = False) -> Path:
-        path_processed = self.path_processed_holdout if holdout else self.path_processed
-        return path_processed / "configs_hyperparameters.json"
+    def path_configs_hyperparameters(self) -> Path:
+        return self.path_processed / "configs_hyperparameters.json"
 
-    def load_configs_hyperparameters(self, holdout: bool = False, download: str | bool = "auto") -> dict[str, dict]:
+    def load_configs_hyperparameters(self, download: str | bool = "auto") -> dict[str, dict]:
         if download == "auto":
             try:
-                return self.load_configs_hyperparameters(holdout=holdout, download=False)
+                return self.load_configs_hyperparameters(download=False)
             except FileNotFoundError:
                 print(
                     f"Cache miss detected for configs_hyperparameters.json "
                     f"(method={self.method}), attempting download...",
                 )
-                out = self.load_configs_hyperparameters(holdout=holdout, download=True)
+                out = self.load_configs_hyperparameters(download=True)
                 print("\tDownload successful")
                 return out
         elif isinstance(download, bool) and download:
-            self.download_configs_hyperparameters(holdout=holdout)
-        with open(self.path_configs_hyperparameters(holdout=holdout)) as f:
+            self.download_configs_hyperparameters()
+        with open(self.path_configs_hyperparameters()) as f:
             return json.load(f)
 
-    def download_configs_hyperparameters(self, holdout: bool = False):
+    def download_configs_hyperparameters(self):
         method_downloader = self.method_downloader()
-        method_downloader.download_configs_hyperparameters(holdout=holdout)
+        method_downloader.download_configs_hyperparameters()
 
     def load_raw_file_paths(self, max_files: int | None = None) -> list[Path]:
         return fetch_all_pickles(dir_path=self.path_raw, suffix="results.pkl", max_files=max_files)
@@ -563,11 +550,10 @@ class MethodMetadata:
         self,
         path_processed: str | Path | None = None,
         prediction_format: Literal["memmap", "memopt", "mem"] = "memmap",
-        as_holdout: bool = False,
         verbose: bool = False,
     ) -> EvaluationRepository:
         if path_processed is None:
-            path_processed = self.path_processed_holdout if as_holdout else self.path_processed
+            path_processed = self.path_processed
         return EvaluationRepository.from_dir(
             path=path_processed,
             prediction_format=prediction_format,
@@ -617,33 +603,27 @@ class MethodMetadata:
         self,
         results_lst: list[BaselineResult] | None = None,
         task_metadata: pd.DataFrame | TaskMetadataCollection = None,
-        cache: bool = False,
         engine: str = "ray",
     ) -> EvaluationRepository:
         if results_lst is None:
             results_lst = self.load_raw(engine=engine)
         results_holdout_lst = results_to_holdout(result_lst=results_lst)
-        repo: EvaluationRepository = generate_repo_from_results_lst(
+        return generate_repo_from_results_lst(
             results_lst=results_holdout_lst,
             task_metadata=task_metadata,
             name_suffix=self.name_suffix,
         )
 
-        if cache:
-            repo.to_dir(self.path_processed_holdout)
-        return repo
-
     def generate_results(
         self,
         repo: EvaluationRepository | None = None,
-        as_holdout: bool = False,
         backend: Literal["ray", "native"] = "ray",
         cache: bool = False,
     ) -> tuple[pd.DataFrame | None, pd.DataFrame]:
-        save_file = str(self.path_results_hpo(holdout=as_holdout))
-        save_file_model = str(self.path_results_model(holdout=as_holdout))
+        save_file = str(self.path_results_hpo())
+        save_file_model = str(self.path_results_model())
         if repo is None:
-            repo = self.load_processed(as_holdout=as_holdout)
+            repo = self.load_processed()
 
         if self.method_type == "config":
             model_types = repo.config_types()
@@ -695,13 +675,12 @@ class MethodMetadata:
         fixed_configs: list[str] | None = None,
         fit_order: Literal["original", "random"] = "random",
         config_type: str | list[str] | None = None,
-        holdout: bool = False,
         backend: Literal["ray", "native"] = "ray",
         seed: int = 0,
         **kwargs,
     ) -> pd.DataFrame:
         if repo is None:
-            repo = self.load_processed(as_holdout=holdout)
+            repo = self.load_processed()
         if config_type is None:
             assert self.config_type is not None
             config_type = self.config_type
@@ -741,7 +720,6 @@ class MethodMetadata:
         fit_order: Literal["original", "random"] = "random",
         time_limit: float | None = None,
         backend: Literal["ray", "native"] = "ray",
-        holdout: bool = False,
         config_type: str | list[str] | None = None,
         repo: EvaluationRepository | None = None,
         cache: bool = False,
@@ -763,9 +741,8 @@ class MethodMetadata:
 
         df_results_hpo_lst = []
         if repo is None:
-            repo = self.load_processed(as_holdout=holdout)
+            repo = self.load_processed()
 
-        # FIXME: Breaks for holdout, need to find a way to get self.config_default(holdout=True)
         # FIXME: Needed for TabPFN-2.5
         repo.set_config_fallback(config_fallback=self.config_default)
 
@@ -801,7 +778,6 @@ class MethodMetadata:
                     fit_order=fit_order,
                     time_limit=time_limit,
                     backend=backend,
-                    holdout=holdout,
                     config_type=config_type,
                 )
                 df_results_hpo["always_include_default"] = always_include_default
@@ -809,18 +785,18 @@ class MethodMetadata:
         df_results_hpo_combined = pd.concat(df_results_hpo_lst, ignore_index=True)
 
         if cache:
-            save_pd.save(path=self.path_results_hpo_trajectories(holdout=holdout), df=df_results_hpo_combined)
+            save_pd.save(path=self.path_results_hpo_trajectories(), df=df_results_hpo_combined)
 
         return df_results_hpo_combined
 
-    def load_hpo_trajectories(self, holdout: bool = False, download: bool | str = "auto") -> pd.DataFrame:
-        path_local = self.path_results_hpo_trajectories(holdout=holdout)
+    def load_hpo_trajectories(self, download: bool | str = "auto") -> pd.DataFrame:
+        path_local = self.path_results_hpo_trajectories()
         if download == "auto":
             download = not path_local.exists()
             if download:
                 print(f"Downloading hpo trajectories for {self.method}...")
         if download:
-            self.method_downloader().download_results_hpo_trajectories(holdout=holdout)
+            self.method_downloader().download_results_hpo_trajectories()
         return pd.read_parquet(path=path_local)
 
     def generate_best(
@@ -829,12 +805,11 @@ class MethodMetadata:
         n_configs: int = 1,
         n_iterations: int = 40,
         backend: Literal["ray", "native"] = "ray",
-        holdout: bool = False,
         time_limit: float | None = None,
         **kwargs,
     ):
         if repo is None:
-            repo = self.load_processed(as_holdout=holdout)
+            repo = self.load_processed()
         from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
 
         simulator = PaperRunTabArena(repo=repo, backend=backend)
@@ -962,16 +937,16 @@ class MethodMetadata:
     def cache_processed(self, repo: EvaluationRepository):
         repo.to_dir(self.path_processed)
 
-    def path_results_files(self, holdout: bool = False) -> list[Path]:
+    def path_results_files(self) -> list[Path]:
         if self.method_type == "portfolio":
             file_names = [
-                self.path_results_portfolio(holdout=holdout),
+                self.path_results_portfolio(),
             ]
         else:
             file_names = [
-                self.path_results_model(holdout=holdout),
+                self.path_results_model(),
             ]
 
         if self.method_type == "config":
-            file_names.append(self.path_results_hpo(holdout=holdout))
+            file_names.append(self.path_results_hpo())
         return file_names

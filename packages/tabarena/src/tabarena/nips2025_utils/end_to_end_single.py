@@ -10,7 +10,6 @@ from autogluon.common.savers import save_pd
 from tabarena.benchmark.result import BaselineResult, ConfigResult
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.models._method_metadata import MethodMetadata
-from tabarena.nips2025_utils.compare import compare_on_tabarena
 from tabarena.nips2025_utils.fetch_metadata import enrich_legacy_task_metadata, load_task_metadata
 from tabarena.nips2025_utils.method_processor import (
     generate_task_metadata,
@@ -160,7 +159,6 @@ class EndToEndSingle:
         task_metadata: TaskMetadataCollection | None = None,
         cache: bool = True,
         cache_raw: bool = True,
-        cache_holdout: bool = False,
         cache_hpo_trajectories: bool = False,
         name: str | None = None,
         name_prefix: str | None = None,
@@ -291,26 +289,8 @@ class EndToEndSingle:
         hpo_results, model_results = method_metadata.generate_results(
             repo=repo,
             cache=cache,
-            as_holdout=False,
             backend=backend,
         )
-
-        if cache_holdout and method_metadata.is_bag:
-            log("\tConverting raw (holdout) results into an EvaluationRepository...")
-            repo_holdout: EvaluationRepository = method_metadata.generate_repo_holdout(
-                results_lst=results_lst,
-                task_metadata=task_metadata,
-                cache=True,
-            )
-            repo_holdout = method_metadata.load_processed(as_holdout=True)
-
-            log("\tSimulating HPO (holdout)...")
-            _hpo_results_holdout, _model_results_holdout = method_metadata.generate_results(
-                repo=repo_holdout,
-                cache=cache,
-                as_holdout=True,
-                backend=backend,
-            )
 
         if cache_hpo_trajectories:
             if method_metadata.method_type == "config":
@@ -341,7 +321,6 @@ class EndToEndSingle:
         task_metadata: TaskMetadataCollection | None = None,
         cache: bool = True,
         cache_raw: bool = True,
-        cache_holdout: bool = False,
         cache_hpo_trajectories: bool = False,
         name: str | None = None,
         name_prefix: str | None = None,
@@ -394,7 +373,6 @@ class EndToEndSingle:
             task_metadata=task_metadata,
             cache=cache,
             cache_raw=cache_raw,
-            cache_holdout=cache_holdout,
             cache_hpo_trajectories=cache_hpo_trajectories,
             name=name,
             name_prefix=name_prefix,
@@ -608,18 +586,17 @@ class EndToEndResultsSingle:
         *,
         model_results: pd.DataFrame = None,
         hpo_results: pd.DataFrame = None,
-        holdout: bool = False,
     ):
         self.method_metadata = method_metadata
         if model_results is None:
-            model_results = self.method_metadata.load_model_results(holdout=holdout)
+            model_results = self.method_metadata.load_model_results()
         if hpo_results is None and self.method_metadata.method_type == "config":
-            hpo_results = self.method_metadata.load_hpo_results(holdout=holdout)
+            hpo_results = self.method_metadata.load_hpo_results()
         self.model_results = model_results
         self.hpo_results = hpo_results
 
     @classmethod
-    def from_cache(cls, method: str | MethodMetadata, artifact_name: str | None = None, holdout: bool = False) -> Self:
+    def from_cache(cls, method: str | MethodMetadata, artifact_name: str | None = None) -> Self:
         if isinstance(method, MethodMetadata):
             method_metadata = method
         else:
@@ -629,7 +606,7 @@ class EndToEndResultsSingle:
                 method=method,
                 artifact_name=artifact_name,
             )
-        return cls(method_metadata=method_metadata, holdout=holdout)
+        return cls(method_metadata=method_metadata)
 
     def compare_on_tabarena(
         self,
@@ -670,15 +647,17 @@ class EndToEndResultsSingle:
         if extra_results is not None:
             results = pd.concat([results, extra_results], ignore_index=True)
 
-        return compare_on_tabarena(
-            new_results=results,
+        if tabarena_context_kwargs is None:
+            tabarena_context_kwargs = {}
+        tabarena_context = TabArenaContext(**tabarena_context_kwargs)
+        return tabarena_context.compare(
             output_dir=output_dir,
+            new_results=results,
             only_valid_tasks=only_valid_tasks,
             subset=subset,
             score_on_val=score_on_val,
             average_seeds=average_seeds,
             leaderboard_kwargs=leaderboard_kwargs,
-            tabarena_context_kwargs=tabarena_context_kwargs,
             remove_imputed=remove_imputed,
         )
 
@@ -737,7 +716,7 @@ class EndToEndResultsSingle:
         fillna_method = "RF (default)"
         fillna_method_name = "RandomForest"
 
-        df_fillna = tabarena_context.load_results_paper(methods=[fillna_method_name])
+        df_fillna = tabarena_context.load_results(methods=[fillna_method_name])
         df_fillna = df_fillna[df_fillna["method"] == fillna_method]
         assert not df_fillna.empty
 

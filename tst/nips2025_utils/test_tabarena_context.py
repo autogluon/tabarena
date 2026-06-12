@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 
@@ -44,23 +45,29 @@ class TestSubsetDatasetFoldRepeats:
 class TestMakeExperimentBatchRunner:
     def test_subset_forwarded_as_dataset_fold_repeats(self, tmp_path):
         runner = _ctx().make_experiment_batch_runner(expname=str(tmp_path), subset="lite", cache_mode="only")
-        assert runner._dataset_fold_repeats == [("small_ds", 0, 0), ("big_ds", 0, 0)]
+        assert runner.task_metadata_collection.dataset_fold_repeats() == [("small_ds", 0, 0), ("big_ds", 0, 0)]
         assert runner.cache_mode == "only"  # extra kwargs forwarded
 
     def test_no_subset_leaves_full_grid(self, tmp_path):
         runner = _ctx().make_experiment_batch_runner(expname=str(tmp_path))
-        assert runner._dataset_fold_repeats is None
+        # No filter -> the runner gets the full, unfiltered collection.
+        assert runner.task_metadata_collection.dataset_fold_repeats() == [
+            ("small_ds", 0, 0),
+            ("small_ds", 1, 0),
+            ("big_ds", 0, 0),
+            ("big_ds", 1, 0),
+        ]
 
     def test_datasets_filter(self, tmp_path):
         runner = _ctx().make_experiment_batch_runner(expname=str(tmp_path), datasets=["small_ds"])
-        assert runner._dataset_fold_repeats == [("small_ds", 0, 0), ("small_ds", 1, 0)]
+        assert runner.task_metadata_collection.dataset_fold_repeats() == [("small_ds", 0, 0), ("small_ds", 1, 0)]
 
     def test_dataset_fold_repeats_used_as_is_without_subset(self, tmp_path):
         runner = _ctx().make_experiment_batch_runner(
             expname=str(tmp_path),
             dataset_fold_repeats=[("big_ds", 1, 0)],
         )
-        assert runner._dataset_fold_repeats == [("big_ds", 1, 0)]
+        assert runner.task_metadata_collection.dataset_fold_repeats() == [("big_ds", 1, 0)]
 
     def test_dataset_fold_repeats_intersected_with_subset(self, tmp_path):
         # "lite" keeps split 0 only -> (small_ds,1,0) is dropped.
@@ -69,7 +76,7 @@ class TestMakeExperimentBatchRunner:
             subset="lite",
             dataset_fold_repeats=[("small_ds", 0, 0), ("small_ds", 1, 0), ("big_ds", 0, 0)],
         )
-        assert runner._dataset_fold_repeats == [("small_ds", 0, 0), ("big_ds", 0, 0)]
+        assert runner.task_metadata_collection.dataset_fold_repeats() == [("small_ds", 0, 0), ("big_ds", 0, 0)]
 
     def test_dataset_fold_repeats_intersected_with_datasets(self, tmp_path):
         # datasets=["small_ds"] -> (big_ds,0,0) is dropped.
@@ -78,7 +85,7 @@ class TestMakeExperimentBatchRunner:
             datasets=["small_ds"],
             dataset_fold_repeats=[("small_ds", 1, 0), ("big_ds", 0, 0)],
         )
-        assert runner._dataset_fold_repeats == [("small_ds", 1, 0)]
+        assert runner.task_metadata_collection.dataset_fold_repeats() == [("small_ds", 1, 0)]
 
 
 def _ctx_multi() -> TabArenaContext:
@@ -102,7 +109,8 @@ def _ctx_multi() -> TabArenaContext:
 
 class TestSplitsFoldsRepeats:
     def _dfr(self, tmp_path, **kwargs):
-        return _ctx_multi().make_experiment_batch_runner(expname=str(tmp_path), **kwargs)._dataset_fold_repeats
+        runner = _ctx_multi().make_experiment_batch_runner(expname=str(tmp_path), **kwargs)
+        return runner.task_metadata_collection.dataset_fold_repeats()
 
     def test_folds_filter(self, tmp_path):
         # fold 0 across all repeats: a(0,0),(0,1); b(0,0).
@@ -231,3 +239,29 @@ class TestNativeGridSubset:
             ("small_ds", 0, 0),
             ("small_ds", 1, 0),
         }
+
+
+class TestAbstractArenaContextStandalone:
+    """The base class is directly instantiable with explicit methods/task metadata."""
+
+    @staticmethod
+    def _base_ctx() -> AbstractArenaContext:
+        return AbstractArenaContext(methods=[], task_metadata=_ctx().task_metadata_collection)
+
+    def test_defaults_are_arena_agnostic(self):
+        ctx = self._base_ctx()
+        assert ctx.methods == []
+        assert ctx.load_results().empty  # no methods -> no baseline results
+        # Base ships only the universal predicates (no TabArena size/foundation buckets).
+        assert set(ctx.subset_predicates) == {"all", "binary", "multiclass", "classification", "regression", "lite"}
+
+    def test_make_experiment_batch_runner_and_subset(self, tmp_path):
+        runner = self._base_ctx().make_experiment_batch_runner(expname=str(tmp_path), subset="lite")
+        # "lite" keeps split 0 == (fold 0, repeat 0) for each dataset.
+        assert runner.task_metadata_collection.dataset_fold_repeats() == [("small_ds", 0, 0), ("big_ds", 0, 0)]
+
+    def test_base_has_no_presets(self):
+        with pytest.raises(ValueError, match="defines no presets"):
+            AbstractArenaContext(methods="tabarena", task_metadata=_ctx().task_metadata_collection)
+        with pytest.raises(ValueError, match="defines no presets"):
+            AbstractArenaContext(methods=[], task_metadata="tabarena")

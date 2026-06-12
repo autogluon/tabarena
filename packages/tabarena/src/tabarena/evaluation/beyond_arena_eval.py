@@ -246,7 +246,7 @@ def evaluate_beyond_subsets(
     if predicates is None:
         predicates = BeyondArenaContext.SUBSET_PREDICATES
     if method_rename_map is None:
-        method_rename_map = TabArenaContext(include_unverified=True).get_method_rename_map()
+        method_rename_map = TabArenaContext().get_method_rename_map()
         method_rename_map = {**method_rename_map, **DEFAULT_METHOD_RENAME_MAP, **(method_rename_map_extra or {})}
 
     df_results = _align_results_to_task_metadata(
