@@ -604,6 +604,7 @@ class TabArenaEvaluator:
         plot_times: bool = False,
         plot_extra_barplots: bool = False,
         plot_cdd: bool = True,
+        plot_critical_diagrams: bool = False,
         plot_runtimes: bool = False,
         plot_pareto: bool = True,
         compute_fold_stability_curves: bool = False,
@@ -1018,7 +1019,8 @@ class TabArenaEvaluator:
                         "This likely means the CLI does not have access to the correct Chromium version...",
                     )
 
-            if len(results_te_per_task) != 0:
+            # Off by default while the FIXME above (diagram possibly incorrect) stands.
+            if plot_critical_diagrams and len(results_te_per_task) != 0:
                 try:
                     tabarena.plot_critical_diagrams(
                         results_per_task=results_te_per_task,
