@@ -46,8 +46,8 @@ from tabarena.benchmark.experiment import (
     build_jobs,
 )
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
 from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
-from tabarena.nips2025_utils.beyond_arena_context import BeyondArenaContext
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 
 if __name__ == "__main__":
