@@ -36,7 +36,7 @@ class OpenMLTaskSpec(TaskSpec):
     def load(self) -> OpenMLTaskWrapper:
         from tabarena.benchmark.task.openml.task_wrapper import OpenMLTaskWrapper
 
-        return OpenMLTaskWrapper.from_task_id(task_id=self._task_id)
+        return OpenMLTaskWrapper.from_task_id(task_id=self._task_id, metadata=self.task_metadata)
 
     def resolve_task_name(self, task: TaskWrapper) -> str:
         """The OpenML dataset name (available on the loaded task's dataset object)."""

@@ -22,7 +22,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import Self
 
+    from tabarena.benchmark.task.metadata import TabArenaTaskMetadata
     from tabarena.benchmark.task.wrapper import TaskWrapper
 
 
@@ -32,6 +34,22 @@ class TaskSpec(ABC):
     Specs are lightweight and picklable: loading the (heavy) task data happens only
     in :meth:`load`, so the engine can defer/skip it for fully-cached jobs.
     """
+
+    #: The task's known metadata, when attached (see :meth:`with_task_metadata`).
+    task_metadata: TabArenaTaskMetadata | None = None
+
+    def with_task_metadata(self, task_metadata: TabArenaTaskMetadata | None) -> Self:
+        """Attach the task's ``TabArenaTaskMetadata`` (returning ``self``).
+
+        ``load`` implementations hand the attached metadata to the wrapper they
+        build, making it the run-time source of truth for ``problem_type`` /
+        ``label`` / ``eval_metric`` / dtype flags (see ``TaskWrapper``).
+        ``ExperimentBatchRunner`` attaches each task's collection entry when
+        resolving datasets, so runs cannot diverge from the collection that
+        scheduled them.
+        """
+        self.task_metadata = task_metadata
+        return self
 
     @property
     @abstractmethod

@@ -137,6 +137,12 @@ if __name__ == "__main__":
     tasks = [clf_task, reg_task]
     task_collection = TaskMetadataCollection.from_source([clf_meta, reg_meta])
 
+    # Sanity: the stored metadata matches each task as it will actually load at run
+    # time — validate_metadata recomputes the metadata from the loaded task (available
+    # on every task wrapper) and raises listing any diverging field.
+    for task, meta in [(clf_task, clf_meta), (reg_task, reg_meta)]:
+        task.with_task_metadata(meta).load().validate_metadata()
+
     # Two models. (See `tabarena.models.utils.get_configs_generator_from_name` for the
     # model-registry / random-search route; here we keep it to two explicit configs.)
     from autogluon.tabular.models import LGBModel, RFModel

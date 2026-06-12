@@ -170,6 +170,7 @@ class UserTask(TaskSpec):
             task=self.load_local_openml_task(),
             use_task_eval_metric=True,
             lazy_load_data=True,
+            metadata=self.task_metadata,
         )
 
     def resolve_task_name(self, task: TaskWrapper) -> str:

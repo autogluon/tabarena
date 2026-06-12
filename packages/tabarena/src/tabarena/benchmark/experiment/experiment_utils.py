@@ -112,16 +112,23 @@ class ExperimentBatchRunner:
         parsed back into its spec through the spec registry (an OpenML id yields an
         ``OpenMLTaskSpec``, a ``"UserTask|..."`` id its ``UserTask``, and any other
         registered task type its own spec). Each spec is keyed by the task's
-        ``tabarena_task_name`` (the ``dataset`` column key). Explicit ``user_tasks``
-        entries override the auto-derived ones and must already be present in the tid
-        map, so ``task_metadata`` and the registered tasks stay consistent.
+        ``tabarena_task_name`` (the ``dataset`` column key) and carries the task's
+        collection entry (``with_task_metadata``), making the collection the run-time
+        source of truth for the loaded task's problem metadata. Explicit
+        ``user_tasks`` entries override the auto-derived ones and must already be
+        present in the tid map, so ``task_metadata`` and the registered tasks stay
+        consistent.
         """
         from tabarena.benchmark.task.spec import task_spec_from_task_id_str
 
+        # One full (re-rolled) metadata per dataset — the collection stores one entry
+        # per split, but the loaded task represents all of its splits.
+        metadata_by_dataset = self.task_metadata_collection.task_metadata_by_dataset()
+
         mapping: dict[str, TaskSpec] = {}
-        for ttm in self.task_metadata_collection:
+        for dataset, ttm in metadata_by_dataset.items():
             if ttm.task_id_str is not None:
-                mapping.setdefault(ttm.tabarena_task_name, task_spec_from_task_id_str(ttm.task_id_str))
+                mapping[dataset] = task_spec_from_task_id_str(ttm.task_id_str).with_task_metadata(ttm)
         for task in user_tasks or []:
             dataset = task.tabarena_task_name
             if dataset not in self._dataset_to_tid_dict:
@@ -129,7 +136,7 @@ class ExperimentBatchRunner:
                     f"Registered user task {dataset!r} is not present in `task_metadata`; add a "
                     f"row for it (its `tid` must equal `UserTask.task_id`).",
                 )
-            mapping[dataset] = task
+            mapping[dataset] = task.with_task_metadata(metadata_by_dataset.get(dataset))
         return mapping
 
     def _resolve_task(self, dataset: str) -> TaskSpec:

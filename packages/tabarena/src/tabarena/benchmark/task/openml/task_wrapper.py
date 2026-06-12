@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
 
-    from tabarena.benchmark.task.metadata import ValidationMetadata
+    from tabarena.benchmark.task.metadata import TabArenaTaskMetadata, ValidationMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -27,25 +27,48 @@ class OpenMLTaskWrapper(TaskWrapper):
     vend a task from the OpenML server.
     """
 
-    def __init__(self, task: OpenMLSupervisedTask, *, use_task_eval_metric: bool = False, lazy_load_data: bool = False):
+    def __init__(
+        self,
+        task: OpenMLSupervisedTask,
+        *,
+        use_task_eval_metric: bool = False,
+        lazy_load_data: bool = False,
+        metadata: TabArenaTaskMetadata | None = None,
+    ):
         assert isinstance(task, OpenMLSupervisedTask)
         self.task: OpenMLSupervisedTask = task
-        super().__init__(lazy_load_data=lazy_load_data)
+        super().__init__(lazy_load_data=lazy_load_data, metadata=metadata)
 
-        self.problem_type = get_ag_problem_type(self.task)
-        self.label = self.task.target_name
+        if metadata is None:
+            self.problem_type = get_ag_problem_type(self.task)
+            self.label = self.task.target_name
 
-        # TODO: check if we can always use the eval metric from the task for TabArena
-        #   tasks?
-        if use_task_eval_metric and (self.task.evaluation_measure is not None):
-            self._eval_metric = self.task.evaluation_measure
+            # TODO: check if we can always use the eval metric from the task for TabArena
+            #   tasks?
+            if use_task_eval_metric and (self.task.evaluation_measure is not None):
+                self._eval_metric = self.task.evaluation_measure
+            else:
+                self._eval_metric = None
         else:
-            self._eval_metric = None
+            # Metadata is the source of truth (set by the base); fail fast if it
+            # contradicts the task definition itself — that means the collection and
+            # the loaded task drifted apart.
+            assert self.label == self.task.target_name, (
+                f"Task metadata target_name={self.label!r} contradicts the loaded OpenML task's "
+                f"target_name={self.task.target_name!r}."
+            )
+            task_problem_type = get_ag_problem_type(self.task)
+            assert self.problem_type == task_problem_type, (
+                f"Task metadata problem_type={self.problem_type!r} contradicts the loaded OpenML task's "
+                f"problem_type={task_problem_type!r}."
+            )
+            if use_task_eval_metric and self._eval_metric is None and self.task.evaluation_measure is not None:
+                self._eval_metric = self.task.evaluation_measure
 
     @classmethod
-    def from_task_id(cls, task_id: int) -> Self:
+    def from_task_id(cls, task_id: int, *, metadata: TabArenaTaskMetadata | None = None) -> Self:
         task = get_task_with_retry(task_id=task_id)
-        return cls(task)
+        return cls(task, metadata=metadata)
 
     def _load_data(self) -> tuple[pd.DataFrame, pd.Series]:
         return get_task_data(task=self.task)
@@ -57,6 +80,12 @@ class OpenMLTaskWrapper(TaskWrapper):
     @property
     def dataset_id(self) -> int:
         return self.task.dataset_id
+
+    @property
+    def dataset_name(self) -> str | None:
+        if self.metadata is not None:
+            return self.metadata.dataset_name
+        return self.task.get_dataset().name
 
     def get_split_dimensions(self) -> tuple[int, int, int]:
         n_repeats, n_folds, n_samples = self.task.get_split_dimensions()
