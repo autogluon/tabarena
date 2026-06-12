@@ -90,7 +90,11 @@ class BeyondArenaEvalConfig:
     """Each entry is a subset spec (e.g. ``["regression"]``); ``[]`` = full. ``None`` = full only."""
     tabarena_cache_path: str | None = None
     openml_cache_path: str | None = None
+    compute_aux_metric: bool = False
+    """If True, compute the auxiliary metric (per ``aux_metric_map``) during raw post-processing,
+    adding an ``aux_metric_error`` column. Off by default — it slows down post-processing."""
     aux_metric_map: dict[str, str] | None = field(default_factory=lambda: dict(DEFAULT_AUX_METRIC_MAP))
+    """Auxiliary problem_type -> metric map; only published when ``compute_aux_metric=True``."""
     reference_model_name: str | None = "XGB (default)"
     """Calibration framework passed to ``compare`` (``calibration_framework``)."""
     imputed_model_name: str | None = "RF (default)"
@@ -106,6 +110,10 @@ class BeyondArenaEvalConfig:
     def subsets_to_run(self) -> list[list[str]]:
         """Subset specs to evaluate; defaults to the full benchmark only."""
         return self.subsets_to_evaluate if self.subsets_to_evaluate is not None else [[]]
+
+    def effective_aux_metric_map(self) -> dict[str, str] | None:
+        """The aux-metric map to publish; ``None`` (disabled) unless ``compute_aux_metric``."""
+        return self.aux_metric_map if self.compute_aux_metric else None
 
 
 def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFrame]:
@@ -126,7 +134,8 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
     from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata_collection
 
     init_caches(config.tabarena_cache_path, config.openml_cache_path)
-    init_aux_metric_env(config.aux_metric_map)
+    # Passing None also clears a stale env var, so a previous run can't silently re-enable it.
+    init_aux_metric_env(config.effective_aux_metric_map())
 
     # One self-contained native collection, shared by post-processing, compare, and subset filtering.
     task_metadata = load_beyond_task_metadata_collection(config.metadata_source)

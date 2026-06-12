@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tabarena.evaluation.beyond_arena_eval import BenchmarkRun
+from tabarena.evaluation.beyond_arena_eval import BenchmarkRun, BeyondArenaEvalConfig
 
 
 def _run(only_load_cache):
@@ -35,3 +35,29 @@ def test_loads_from_cache_list_is_per_model():
 def test_loads_from_cache_empty_list_regenerates_all():
     run = _run([])
     assert [run.loads_from_cache(m) for m in run.models] == [False, False, False]
+
+
+def _config(**kwargs) -> BeyondArenaEvalConfig:
+    return BeyondArenaEvalConfig(runs=[_run(False)], figure_output_dir="out/figs", **kwargs)
+
+
+def test_aux_metric_disabled_by_default():
+    # The aux metric slows down raw post-processing, so it is opt-in.
+    config = _config()
+    assert config.compute_aux_metric is False
+    assert config.effective_aux_metric_map() is None
+
+
+def test_aux_metric_opt_in_publishes_map():
+    config = _config(compute_aux_metric=True)
+    assert config.effective_aux_metric_map() == {
+        "binary": "balanced_accuracy",
+        "multiclass": "balanced_accuracy",
+        "regression": "r2",
+    }
+
+
+def test_aux_metric_custom_map_only_used_when_enabled():
+    custom = {"regression": "rmse"}
+    assert _config(aux_metric_map=custom).effective_aux_metric_map() is None
+    assert _config(compute_aux_metric=True, aux_metric_map=custom).effective_aux_metric_map() == custom
