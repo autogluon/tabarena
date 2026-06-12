@@ -82,10 +82,14 @@ config = BeyondArenaEvalConfig(
             benchmark_name=NEW_BENCHMARK_NAME,
             output_dir=path_setup.get_output_path(NEW_BENCHMARK_NAME),
             models=["TabPFN-3"],
+            only_load_cache=True,
         ),
     ],
     figure_output_dir=Path(__file__).parent / "eval_output" / NEW_BENCHMARK_NAME,
     subsets_to_evaluate=SUBSETS,
+    # Highlight TabPFN-3 in the result plots: its own line in the per-family plot,
+    # star-marked / top-layered in the per-model plot.
+    contender_models=["TabPFN-3"],
 )
 
 if __name__ == "__main__":

@@ -106,6 +106,15 @@ class BeyondArenaEvalConfig:
     config_type -> display name)."""
     num_cpus: int | None = None
     save_leaderboards: bool = True
+    save_result_plots: bool = True
+    """If True (and at least two subsets were evaluated), save the per-family / per-model
+    overview plots across subsets under ``figure_output_dir/result_plots`` (see
+    :func:`tabarena.plot.subset_results.plot_subset_results`)."""
+    result_plot_metrics: tuple[str, ...] = ("elo", "improvability")
+    """Metrics to render in the result plots (keys of ``METRIC_SPECS`` or custom specs)."""
+    contender_models: list[str] | None = None
+    """Methods highlighted as contenders in the result plots: drawn as their own standalone
+    line in the per-family plot and star-marked in the per-model plot (e.g. ``["TabPFN-3"]``)."""
 
     def subsets_to_run(self) -> list[list[str]]:
         """Subset specs to evaluate; defaults to the full benchmark only."""
@@ -155,7 +164,7 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
     ]
     results = post_process_to_results(artifacts, task_metadata=task_metadata, num_cpus=config.num_cpus)
 
-    return evaluate_beyond_subsets(
+    leaderboards = evaluate_beyond_subsets(
         df_results=results.get_results(),
         task_metadata=task_metadata,
         figure_output_dir=config.figure_output_dir,
@@ -166,6 +175,18 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
         require_task_metadata_to_match=config.require_task_metadata_to_match,
         save_leaderboards=config.save_leaderboards,
     )
+
+    if config.save_result_plots and len(leaderboards) >= 2:
+        from tabarena.plot.subset_results import plot_subset_results
+
+        plot_subset_results(
+            leaderboards,
+            Path(config.figure_output_dir) / "result_plots",
+            metrics=config.result_plot_metrics,
+            contenders=config.contender_models or (),
+        )
+
+    return leaderboards
 
 
 def evaluate_beyond_subsets(
