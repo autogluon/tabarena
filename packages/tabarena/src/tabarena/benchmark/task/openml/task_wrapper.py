@@ -1,42 +1,36 @@
 from __future__ import annotations
 
-import io
 import logging
 from typing import TYPE_CHECKING, Self
 
-import pandas as pd
-from autogluon.common.savers import save_json, save_pd
-from autogluon.core.utils import generate_train_test_split
+from autogluon.common.savers import save_json
 from openml.tasks.task import OpenMLSupervisedTask
 
-from tabarena.benchmark.task.utils import get_split_idx, get_split_vals_from_split_idx
+from tabarena.benchmark.task.wrapper import TaskWrapper
 
 from .task_utils import get_ag_problem_type, get_task_data, get_task_with_retry
 
 if TYPE_CHECKING:
     import numpy as np
+    import pandas as pd
 
     from tabarena.benchmark.task.metadata import ValidationMetadata
 
 logger = logging.getLogger(__name__)
 
 
-class OpenMLTaskWrapper:
+class OpenMLTaskWrapper(TaskWrapper):
+    """:class:`TaskWrapper` backed by a (live or local) ``OpenMLSupervisedTask``.
+
+    Data and split indices are delegated to the OpenML task object; the problem
+    type and target come from the task definition. Use :meth:`from_task_id` to
+    vend a task from the OpenML server.
+    """
+
     def __init__(self, task: OpenMLSupervisedTask, *, use_task_eval_metric: bool = False, lazy_load_data: bool = False):
         assert isinstance(task, OpenMLSupervisedTask)
         self.task: OpenMLSupervisedTask = task
-        self.lazy_load_data = lazy_load_data
-        self.X, self.y = get_task_data(task=self.task)
-        self._n_rows, self._n_cols = self.X.shape
-
-        # Light metadata for task handling.
-        self._has_datetime = len(self.X.select_dtypes(include=["datetime64"]).columns) > 0
-        self._has_text = len(self.X.select_dtypes(include=["string"]).columns) > 0
-        self._has_categorical = len(self.X.select_dtypes(include=["category"]).columns) > 0
-        self._has_numeric = len(self.X.select_dtypes(include=["number"]).columns) > 0
-
-        if self.lazy_load_data:
-            del self.X, self.y
+        super().__init__(lazy_load_data=lazy_load_data)
 
         self.problem_type = get_ag_problem_type(self.task)
         self.label = self.task.target_name
@@ -53,6 +47,9 @@ class OpenMLTaskWrapper:
         task = get_task_with_retry(task_id=task_id)
         return cls(task)
 
+    def _load_data(self) -> tuple[pd.DataFrame, pd.Series]:
+        return get_task_data(task=self.task)
+
     @property
     def task_id(self) -> int:
         return self.task.task_id
@@ -61,46 +58,13 @@ class OpenMLTaskWrapper:
     def dataset_id(self) -> int:
         return self.task.dataset_id
 
-    @property
-    def eval_metric(self) -> str:
-        if self._eval_metric is not None:
-            return self._eval_metric
-        metric_map = {
-            "binary": "roc_auc",
-            "multiclass": "log_loss",
-            # Same value/name used in ExperimentRunner.eval_metric_name
-            #   - mostly for backwards compatibility
-            "regression": "rmse",
-        }
-        return metric_map[self.problem_type]
-
-    def compute_error(self, y_true, y_pred) -> float:
-        eval_metric = self.eval_metric
-        from autogluon.core.metrics import get_metric
-
-        scorer = get_metric(metric=eval_metric, problem_type=self.problem_type)
-        return scorer.error(y_true, y_pred)
-
     def get_split_dimensions(self) -> tuple[int, int, int]:
         n_repeats, n_folds, n_samples = self.task.get_split_dimensions()
         return n_repeats, n_folds, n_samples
 
-    def combine_X_y(self) -> pd.DataFrame:
-        if self.lazy_load_data:
-            X, y = get_task_data(task=self.task)
-        else:
-            X, y = self.X, self.y
-        return pd.concat([X, y.to_frame(name=self.label)], axis=1)
-
-    def save_data(self, path: str, file_type=".csv", train_indices=None, test_indices=None):
-        data = self.combine_X_y()
-        if train_indices is not None and test_indices is not None:
-            train_data = data.loc[train_indices]
-            test_data = data.loc[test_indices]
-            save_pd.save(f"{path}train{file_type}", train_data)
-            save_pd.save(f"{path}test{file_type}", test_data)
-        else:
-            save_pd.save(f"{path}data{file_type}", data)
+    def get_split_indices(self, fold: int = 0, repeat: int = 0, sample: int = 0) -> tuple[np.ndarray, np.ndarray]:
+        train_indices, test_indices = self.task.get_train_test_split_indices(fold=fold, repeat=repeat, sample=sample)
+        return train_indices, test_indices
 
     def save_metadata(self, path: str):
         metadata = dict(
@@ -114,130 +78,6 @@ class OpenMLTaskWrapper:
         )
         path_full = f"{path}metadata.json"
         save_json.save(path=path_full, obj=metadata)
-
-    def get_split_indices(self, fold: int = 0, repeat: int = 0, sample: int = 0) -> tuple[np.ndarray, np.ndarray]:
-        train_indices, test_indices = self.task.get_train_test_split_indices(fold=fold, repeat=repeat, sample=sample)
-        return train_indices, test_indices
-
-    def get_split_idx(self, fold: int = 0, repeat: int = 0, sample: int = 0) -> int:
-        n_repeats, n_folds, n_samples = self.get_split_dimensions()
-        return get_split_idx(
-            fold=fold,
-            repeat=repeat,
-            sample=sample,
-            n_folds=n_folds,
-            n_repeats=n_repeats,
-            n_samples=n_samples,
-        )
-
-    def get_split_vals_from_split_idx(self, split_idx: int) -> tuple[int, int, int]:
-        n_repeats, n_folds, n_samples = self.get_split_dimensions()
-        return get_split_vals_from_split_idx(
-            split_idx=split_idx,
-            n_folds=n_folds,
-            n_repeats=n_repeats,
-            n_samples=n_samples,
-        )
-
-    def get_train_test_split(
-        self,
-        fold: int = 0,
-        repeat: int = 0,
-        sample: int = 0,
-        train_indices: np.ndarray = None,
-        test_indices: np.ndarray = None,
-        train_size: int | float | None = None,
-        test_size: int | float | None = None,
-        random_state: int = 0,
-    ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
-        if train_indices is None or test_indices is None:
-            train_indices, test_indices = self.get_split_indices(fold=fold, repeat=repeat, sample=sample)
-
-        if self.lazy_load_data:
-            X, y = get_task_data(task=self.task)
-            X_train = X.loc[train_indices].copy()
-            y_train = y[train_indices].copy()
-            X_test = X.loc[test_indices].copy()
-            y_test = y[test_indices].copy()
-            del X, y
-        else:
-            X, y = self.X, self.y
-            X_train = X.loc[train_indices]
-            y_train = y[train_indices]
-            X_test = X.loc[test_indices]
-            y_test = y[test_indices]
-
-        if train_size is not None:
-            X_train, y_train = self.subsample(X=X_train, y=y_train, size=train_size, random_state=random_state)
-        if test_size is not None:
-            X_test, y_test = self.subsample(X=X_test, y=y_test, size=test_size, random_state=random_state)
-
-        return X_train, y_train, X_test, y_test
-
-    @classmethod
-    def to_csv_format(cls, X: pd.DataFrame) -> pd.DataFrame:
-        """Converts X to the dtypes that it would have if it were saved to a CSV and then loaded."""
-        s_buf = io.StringIO()
-        X_index = X.index
-        X.to_csv(s_buf, index=False)
-        s_buf.seek(0)
-        X = pd.read_csv(s_buf, low_memory=False)
-        X.index = X_index
-        return X
-
-    def subsample(
-        self,
-        X: pd.DataFrame,
-        y: pd.Series,
-        size: int | float,
-        random_state: int = 0,
-    ) -> tuple[pd.DataFrame, pd.Series]:
-        if isinstance(size, int) and size >= len(X):
-            return X, y
-        if isinstance(size, float) and size >= 1:
-            return X, y
-        X, _, y, _ = generate_train_test_split(
-            X=X,
-            y=y,
-            problem_type=self.problem_type,
-            train_size=size,
-            random_state=random_state,
-        )
-        return X, y
-
-    def get_train_test_split_combined(
-        self,
-        fold: int = 0,
-        repeat: int = 0,
-        sample: int = 0,
-        train_indices: np.ndarray = None,
-        test_indices: np.ndarray = None,
-        train_size: int | float | None = None,
-        test_size: int | float | None = None,
-        random_state: int = 0,
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        X_train, y_train, X_test, y_test = self.get_train_test_split(
-            fold=fold,
-            repeat=repeat,
-            sample=sample,
-            train_indices=train_indices,
-            test_indices=test_indices,
-            train_size=train_size,
-            test_size=test_size,
-            random_state=random_state,
-        )
-        train_data = pd.concat([X_train, y_train.to_frame(name=self.label)], axis=1)
-        test_data = pd.concat([X_test, y_test.to_frame(name=self.label)], axis=1)
-        return train_data, test_data
-
-    def subsample_combined(
-        self,
-        data: pd.DataFrame,
-        size: int | float,
-        random_state: int = 0,
-    ) -> pd.DataFrame:
-        data, _ = self.subsample(X=data, y=data[self.label], size=size, random_state=random_state)
-        return data
 
     def get_validation_metadata(self) -> ValidationMetadata:
         """Task-derived validation-split metadata.

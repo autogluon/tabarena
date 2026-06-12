@@ -11,6 +11,8 @@ from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionPickle
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
+    from tabarena.benchmark.task import TaskWrapper
+
 
 def _task_cache_key(task: int | UserTask) -> int | str:
     """Canonical, filesystem-safe identifier for a task, used to key its cache.
@@ -183,16 +185,16 @@ class _LazyTask:
     def __init__(self, task_id_or_object: int | UserTask) -> None:
         self._spec = task_id_or_object
         self._loaded = False
-        self._task: OpenMLTaskWrapper | None = None
+        self._task: TaskWrapper | None = None
         self._eval_metric_name: str | None = None
         self._task_name: str | None = None
 
     @property
-    def current(self) -> tuple[OpenMLTaskWrapper | None, str | None, str | None]:
+    def current(self) -> tuple[TaskWrapper | None, str | None, str | None]:
         """The `(task, eval_metric_name, task_name)` loaded so far (`None`s if never)."""
         return self._task, self._eval_metric_name, self._task_name
 
-    def materialize(self) -> tuple[OpenMLTaskWrapper, str, str]:
+    def materialize(self) -> tuple[TaskWrapper, str, str]:
         """Load the task on first call (memoized), returning `(task, eval_metric, name)`."""
         if not self._loaded:
             spec = self._spec

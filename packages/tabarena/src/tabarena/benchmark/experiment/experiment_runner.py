@@ -21,10 +21,10 @@ from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDF, CacheFu
 
 if TYPE_CHECKING:
     from tabarena.benchmark.exec_models.base import AbstractExecModel
-    from tabarena.benchmark.task.openml import OpenMLTaskWrapper
+    from tabarena.benchmark.task import TaskWrapper
 
 # Default AutoGluon eval metric per problem type, used when none is specified.
-# FIXME: Don't hardcode eval metric (mirrors OpenMLTaskWrapper.eval_metric).
+# FIXME: Don't hardcode eval metric (mirrors TaskWrapper.eval_metric).
 DEFAULT_EVAL_METRIC_BY_PROBLEM_TYPE = {
     "binary": "roc_auc",
     "multiclass": "log_loss",
@@ -47,7 +47,7 @@ class ExperimentRunner:
         self,
         *,
         method_cls: type[AbstractExecModel],
-        task: OpenMLTaskWrapper,
+        task: TaskWrapper,
         fold: int,
         task_name: str,
         method: str,
@@ -138,7 +138,7 @@ class ExperimentRunner:
     def init_and_run(
         cls,
         method_cls: type[AbstractExecModel],
-        task: OpenMLTaskWrapper,
+        task: TaskWrapper,
         fold: int,
         task_name: str,
         method: str,

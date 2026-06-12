@@ -28,8 +28,8 @@ if TYPE_CHECKING:
     from autogluon.core.models import AbstractModel
 
     from tabarena.benchmark.exec_models.base import AbstractExecModel
+    from tabarena.benchmark.task import TaskWrapper
     from tabarena.benchmark.task.metadata import ValidationMetadata
-    from tabarena.benchmark.task.openml import OpenMLTaskWrapper
 
 
 class Experiment:
@@ -158,7 +158,7 @@ class Experiment:
     # --- Execution (fit / run) -------------------------------------------------------
     def run(
         self,
-        task: OpenMLTaskWrapper | None,
+        task: TaskWrapper | None,
         fold: int,
         task_name: str,
         *,
@@ -193,7 +193,7 @@ class Experiment:
 
         Parameters
         ----------
-        task: OpenMLTaskWrapper | None
+        task: TaskWrapper | None
             The loaded task to fit on. ``None`` is allowed only on a cache hit (the cached
             ``results`` is loaded without a task); fitting with ``task=None`` is a no-op load.
         fold: int
@@ -266,7 +266,7 @@ class Experiment:
     def task_cache_scope(
         self,
         *,
-        task: OpenMLTaskWrapper,
+        task: TaskWrapper,
         cache_task_key: int | str,
     ) -> AbstractContextManager:
         """Return the task's text-embedding cache scope for the fit (a null scope when the
@@ -279,7 +279,7 @@ class Experiment:
 
         Parameters
         ----------
-        task: OpenMLTaskWrapper
+        task: TaskWrapper
             The loaded task to adapt to.
         cache_task_key: int | str
             The canonical task identifier used to key the task-specific text-embedding
@@ -306,11 +306,11 @@ class Experiment:
 
         return use_text_cache_for_task(
             cache_task_key,
-            has_text=task._has_text,
+            has_text=task.has_text,
             mode="require",
         )
 
-    def init_method_kwargs(self, *, task: OpenMLTaskWrapper) -> dict:
+    def init_method_kwargs(self, *, task: TaskWrapper) -> dict:
         """Build the finalized ``method_kwargs`` (passed as ``fit_args``) for a single fit.
 
         Works on a fresh deep copy of ``self.method_kwargs`` (the experiment is never mutated),
@@ -430,7 +430,7 @@ class Experiment:
                 cacher.delete_cache()
                 raise RuntimeError(f"Non-finite metric error detected for key {metric_error_key!r}.")
 
-    def _validate_dynamic_protocol_supported(self, task: OpenMLTaskWrapper) -> None:
+    def _validate_dynamic_protocol_supported(self, task: TaskWrapper) -> None:
         """Assert the dynamic validation protocol is supported for ``task`` and this experiment.
 
         Requires a ``TabArenaOpenMLSupervisedTask`` (which carries the split metadata) and an
