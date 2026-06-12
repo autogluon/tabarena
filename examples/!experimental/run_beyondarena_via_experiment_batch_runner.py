@@ -24,6 +24,9 @@ the way the tabflow_slurm benchmark setup does it (see
    ``tabflow_slurm.run_tabarena_experiment``).
 6. Aggregate the raw results with ``EndToEnd`` and compute a leaderboard via
    ``AbstractArenaContext.compare``, as in the custom-datasets example.
+7. Compute the same leaderboard via ``BeyondArenaContext`` — the Beyond-IID arena
+   context, which brings the suite's subset predicates (size buckets, ``iid`` /
+   ``temporal`` / ``grouped``, text / dimensionality filters) on top of ``compare``.
 
 The first run downloads the selected dataset(s) from the Data Foundry warehouse (needs
 the ``data_foundry`` dependency and network access).
@@ -44,6 +47,7 @@ from tabarena.benchmark.experiment import (
 )
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
+from tabarena.nips2025_utils.beyond_arena_context import BeyondArenaContext
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 
 if __name__ == "__main__":
@@ -107,3 +111,22 @@ if __name__ == "__main__":
     leaderboard = context.compare(output_dir=eval_dir, new_results=df_results)
     print("\n=== leaderboard ===")
     print(leaderboard.to_string())
+
+    # 7: the same comparison through the Beyond-IID arena context. `methods=[]` again
+    # contributes no baseline results (the full `methods="beyond"` preset would download
+    # the suite's baseline artifacts); the demo's results stand alone. The context's
+    # Beyond defaults are overridden where the demo can't satisfy them
+    # (`calibration_method="XGB (default)"` — XGBoost is not among the demo's methods).
+    # On top of `compare`, BeyondArenaContext brings the suite's subset predicates —
+    # e.g. pass `subset="binary"` or `subset="tiny"` to restrict the leaderboard.
+    beyond_context = BeyondArenaContext(
+        methods=[],
+        task_metadata=task_collection,
+        calibration_method=None,
+    )
+    beyond_leaderboard = beyond_context.compare(
+        output_dir=here / "eval" / "beyondarena_ebr_beyond_context",
+        new_results=df_results,
+    )
+    print("\n=== leaderboard (BeyondArenaContext) ===")
+    print(beyond_leaderboard.to_string())
