@@ -22,6 +22,9 @@ _common_kwargs = dict(
     has_processed=True,
     has_results=True,
     name_suffix=None,
+    cache_type="r2",
+    s3_bucket="tabarena",
+    s3_prefix="cache",
 )
 
 _common_bag_kwargs = dict(
