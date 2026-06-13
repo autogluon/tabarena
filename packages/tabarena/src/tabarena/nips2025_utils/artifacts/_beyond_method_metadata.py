@@ -7,7 +7,7 @@ re-run models, CPU/GPU compute, config defaults). Kept as standalone
 ``info.py`` modules carry the *tabarena* benchmark's metadata, not Beyond's.
 
 ``beyond_method_metadata_collection`` is the aggregate consumed by
-:class:`~tabarena.nips2025_utils.beyond_arena_context.BeyondArenaContext`.
+:class:`~tabarena.evaluation.context.beyond_arena.BeyondArenaContext`.
 """
 
 from __future__ import annotations
@@ -142,6 +142,15 @@ beyond_tabiclv2_metadata = MethodMetadata(
     reference_url="https://arxiv.org/abs/2602.11139",
     **_common_fm_kwargs,
 )
+beyond_tabpfn3_metadata = MethodMetadata(
+    method="TA-TabPFN-3",
+    display_name="TabPFN-3",
+    ag_key="TA-TABPFN-3",
+    config_default="TA-TabPFN-3_c1_BAG_L1",
+    verified=True,
+    reference_url="https://arxiv.org/abs/2605.13986",
+    **_common_fm_kwargs,
+)
 beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_linear_metadata,
     beyond_random_forest_metadata,
@@ -154,6 +163,7 @@ beyond_method_metadata_lst: list[MethodMetadata] = [
     beyond_tabdpt_metadata,
     beyond_tabpfnv26_metadata,
     beyond_tabiclv2_metadata,
+    beyond_tabpfn3_metadata,
 ]
 
 beyond_method_metadata_collection = MethodMetadataCollection(
