@@ -4,8 +4,10 @@ The counterpart to run_quickstart_tabarena.py: rather than threading a results D
 ``compare(new_results=...)``, this converts the run into ``InMemoryMethodMetadata`` objects
 (``EndToEnd.from_raw_to_methods``) and registers them at context init via ``extra_methods=``.
 The new methods are then first-class — picked up automatically by ``compare`` (through
-``load_results``), restricted to their own tasks via ``only_valid_tasks=True``, and carried
-(with their metadata: hardware, verified, ...) into ``leaderboard_to_website_format``.
+``load_results``), restricted to their own tasks via ``only_valid_tasks=True`` at context init
+(which pre-filters ``task_metadata`` to the tasks they ran, so ``compare`` scopes to them with
+nothing extra), and carried (with their metadata: hardware, verified, ...) into
+``leaderboard_to_website_format``.
 
 Bounded for a fast, self-contained run: 3 small datasets, and the cached ``LightGBM`` as the
 only baseline (so no ~30-method S3 download). fillna/calibration are disabled so no separate
@@ -14,7 +16,6 @@ RandomForest baseline is needed.
 
 from __future__ import annotations
 
-import copy
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,7 +29,6 @@ from tabarena.benchmark.experiment import (
     build_jobs,
 )
 from tabarena.benchmark.task.metadata import TabArenaTaskMetadataCollection
-from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
@@ -138,12 +138,12 @@ if __name__ == "__main__":
             f"config_type={m.config_type!r}  display_name={m.display_name!r}  type={type(m).__name__}",
         )
 
-    ta_context = TabArenaContext(extra_methods=new_methods)
+    # only_valid_tasks=True pre-filters the context's task_metadata to the tasks the new
+    # methods ran, so `compare` (which scopes results to task_metadata) is already restricted
+    # to them — no need to repeat only_valid_tasks=True at the compare call.
+    ta_context = TabArenaContext(extra_methods=new_methods, only_valid_tasks=True)
 
-    leaderboard = ta_context.compare(
-        output_dir=eval_dir,
-        only_valid_tasks=True,
-    )
+    leaderboard = ta_context.compare(output_dir=eval_dir)
     print("\n=== leaderboard (raw) ===")
     print(leaderboard.to_string())
 

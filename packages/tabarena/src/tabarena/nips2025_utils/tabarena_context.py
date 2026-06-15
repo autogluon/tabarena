@@ -103,6 +103,7 @@ class TabArenaContext(AbstractArenaContext):
         backend: Literal["ray", "native"] = "ray",
         fillna_method: str | None = "RF (default)",
         calibration_method: str | None = "RF (default)",
+        only_valid_tasks: bool = False,
     ):
         super().__init__(
             methods=methods,
@@ -111,6 +112,7 @@ class TabArenaContext(AbstractArenaContext):
             backend=backend,
             fillna_method=fillna_method,
             calibration_method=calibration_method,
+            only_valid_tasks=only_valid_tasks,
         )
 
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:

@@ -227,3 +227,63 @@ class TestResolveOnlyValidTasks:
         ctx = self._ctx_with(im)
         with pytest.raises(TypeError, match="not mixed"):
             ctx._resolve_only_valid_tasks([im, "NewA (default)"], None)
+
+
+class TestInitOnlyValidTasks:
+    """`only_valid_tasks=True` at init pre-filters task_metadata to the new methods' tasks."""
+
+    def _im(self, method: str, datasets) -> InMemoryMethodMetadata:
+        return InMemoryMethodMetadata(
+            results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
+            method=method,
+            artifact_name=method,
+            method_type="config",
+            model_key=method,
+        )
+
+    def test_default_keeps_full_task_metadata(self):
+        ctx = AbstractArenaContext(
+            methods=[],
+            task_metadata=_task_metadata(),
+            extra_methods=[self._im("NewA", datasets=("d1",))],
+        )
+        assert ctx.only_valid_tasks is False
+        assert set(ctx.task_metadata_collection.dataset_names()) == {"d1", "d2"}
+
+    def test_prefilters_to_registered_method_tasks(self):
+        ctx = AbstractArenaContext(
+            methods=[],
+            task_metadata=_task_metadata(),
+            extra_methods=[self._im("NewA", datasets=("d1",))],
+            only_valid_tasks=True,
+        )
+        assert ctx.only_valid_tasks is True
+        # d2 had no new-method results, so it is pruned from the context's task_metadata.
+        assert ctx.task_metadata_collection.dataset_names() == ["d1"]
+        # The legacy DataFrame view derives from the (now filtered) collection.
+        assert set(ctx.task_metadata["dataset"]) == {"d1"}
+
+    def test_results_filter_frame_tracks_prefilter(self):
+        ctx = AbstractArenaContext(
+            methods=[],
+            task_metadata=_task_metadata(),
+            extra_methods=[self._im("NewA", datasets=("d1",))],
+            only_valid_tasks=True,
+        )
+        # The (dataset, fold) frame compare uses to scope results matches the kept tasks.
+        df_filter = ctx._task_metadata_results_filter()
+        assert set(zip(df_filter["dataset"], df_filter["fold"], strict=False)) == {("d1", 0)}
+
+    def test_without_in_memory_methods_raises(self):
+        with pytest.raises(ValueError, match="only_valid_tasks=True needs"):
+            AbstractArenaContext(methods=[], task_metadata=_task_metadata(), only_valid_tasks=True)
+
+    def test_no_overlap_with_task_metadata_raises(self):
+        # A method that ran a task outside the context's universe must not widen it.
+        with pytest.raises(ValueError, match="share no"):
+            AbstractArenaContext(
+                methods=[],
+                task_metadata=_task_metadata(),
+                extra_methods=[self._im("Bad", datasets=("d3",))],
+                only_valid_tasks=True,
+            )

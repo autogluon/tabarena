@@ -842,7 +842,7 @@ class TabArenaEvaluator:
 
         if verbose:
             print(
-                f"Evaluating with {len(df_results_rank_compare[tabarena.task_col].unique())} datasets... ({n_tasks} tasks)| problem_types={self.problem_types}, folds={self.folds}"
+                f"Evaluating with {len(df_results_rank_compare[tabarena.task_col].unique())} datasets... ({n_tasks} tasks)"
             )
             with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
                 print(leaderboard)

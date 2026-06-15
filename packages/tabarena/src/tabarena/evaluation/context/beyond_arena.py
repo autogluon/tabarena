@@ -101,6 +101,7 @@ class BeyondArenaContext(AbstractArenaContext):
         backend: str = "ray",
         fillna_method: str | None = "RF (default)",
         calibration_method: str | None = "XGB (default)",
+        only_valid_tasks: bool = False,
     ) -> None:
         """Build a BeyondArena context.
 
@@ -114,6 +115,8 @@ class BeyondArenaContext(AbstractArenaContext):
             backend: ``"ray"`` or ``"native"``, forwarded to :class:`AbstractArenaContext`.
             fillna_method: Imputed-method name forwarded to :class:`AbstractArenaContext`.
             calibration_method: Calibration-method name forwarded to :class:`AbstractArenaContext`.
+            only_valid_tasks: Forwarded to :class:`AbstractArenaContext`; when ``True``,
+                pre-filter ``task_metadata`` to the registered in-memory methods' tasks.
         """
         super().__init__(
             methods=methods,
@@ -122,6 +125,7 @@ class BeyondArenaContext(AbstractArenaContext):
             backend=backend,
             fillna_method=fillna_method,
             calibration_method=calibration_method,
+            only_valid_tasks=only_valid_tasks,
         )
 
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
