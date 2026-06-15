@@ -318,6 +318,8 @@ class AbstractArenaContext:
         remove_imputed: bool = False,
         leaderboard_kwargs: dict | None = None,
         figure_file_type: str = "pdf",
+        compute_fold_similarity: bool = False,
+        fold_similarity_kwargs: dict | None = None,
         **kwargs,
     ) -> pd.DataFrame:
         """Compute the leaderboard comparing ``new_results`` against this arena's baselines.
@@ -325,6 +327,13 @@ class AbstractArenaContext:
         ``ta_results`` defaults to :meth:`load_results`; ``new_results`` (if given)
         are concatenated to them. ``fillna`` / ``calibration_method`` resolve ``"auto"`` to
         the context's settings.
+
+        ``compute_fold_similarity`` ranks datasets by how consistently their folds/seeds agree
+        (and estimates folds-needed-for-stability), writing ``fold_similarity.csv`` to
+        ``output_dir``. ``fold_similarity_kwargs`` is forwarded to
+        :meth:`bencheval.tabarena.TabArena.rank_datasets_by_fold_similarity` (e.g.
+        ``{"similarity": "pearson", "target_reliability": 0.95}``); ignored unless
+        ``compute_fold_similarity`` is True.
         """
         # Deferred import: tabarena.nips2025_utils.compare imports TabArenaContext at module
         # level, which would be circular at import time.
@@ -386,6 +395,8 @@ class AbstractArenaContext:
             leaderboard_kwargs=leaderboard_kwargs,
             method_rename_map=method_rename_map,
             figure_file_type=figure_file_type,
+            compute_fold_similarity=compute_fold_similarity,
+            fold_similarity_kwargs=fold_similarity_kwargs,
             **kwargs,
         )
 
