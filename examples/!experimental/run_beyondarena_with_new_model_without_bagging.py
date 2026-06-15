@@ -71,7 +71,7 @@ if __name__ == "__main__":
     bundle = BeyondArenaExperimentBundle(
         models=[(DummyPredictorModel.config_generator(), 0)],
         outer_experiments=True,
-        verbosity=3,  # set to log default preprocessing
+        # verbosity=3,  # set to log default preprocessing
     )
     experiments = bundle.build_experiments()
 
