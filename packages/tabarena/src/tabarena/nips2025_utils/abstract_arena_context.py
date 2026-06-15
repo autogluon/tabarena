@@ -42,7 +42,7 @@ from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollec
 from tabarena.website.website_format import format_leaderboard
 
 if TYPE_CHECKING:
-    from tabarena.benchmark.experiment import ExperimentBatchRunner
+    from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
     from tabarena.benchmark.result import BaselineResult
     from tabarena.repository.abstract_repository import AbstractRepository
 
@@ -96,32 +96,26 @@ class AbstractArenaContext:
             method_metadata_lst = self._resolve_methods_preset(methods)
         else:
             method_metadata_lst = list(methods)
-        method_names = {m.method for m in method_metadata_lst}
-
-        # The "new" methods registered on top of the baselines via `extra_methods=`. These
-        # define the valid-task scope for `only_valid_tasks` (whether their results live in
-        # memory or are loaded from disk); `methods=` baselines are the comparison set, not the
-        # scope. Tracked by name (method names are unique — asserted below).
-        self._new_method_names: set[str] = {m.method for m in extra_methods} if extra_methods else set()
-        if extra_methods:
-            for method_metadata in extra_methods:
-                assert method_metadata.method not in method_names, f"{method_metadata.method} already in methods..."
-                method_metadata_lst.append(method_metadata)
-                method_names.add(method_metadata.method)
-
         self.method_metadata_collection: MethodMetadataCollection = MethodMetadataCollection(method_metadata_lst)
 
-        # When True, pre-filter the context's task_metadata down to the tasks the registered
-        # "new" methods actually ran, so it becomes the single source of truth for what is in
-        # scope — `compare` (which scopes results to `task_metadata` by default), the runner,
-        # plotting, and per-dataset tables all inherit the restriction without the caller
+        # Names of the "new" methods registered on top of the baselines via `extra_methods=`
+        # (and :meth:`register`). These define the valid-task scope for `only_valid_tasks`
+        # (whether their results live in memory or are loaded from disk); `methods=` baselines
+        # are the comparison set, not the scope.
+        self._new_method_names: set[str] = set()
+
+        # `only_valid_tasks=True` pre-filters the context's task_metadata down to the tasks the
+        # registered "new" methods actually ran, so it becomes the single source of truth for
+        # what is in scope — `compare` (which scopes results to `task_metadata` by default), the
+        # runner, plotting, and per-dataset tables all inherit the restriction without the caller
         # repeating `only_valid_tasks=True` at each call site. (The counterpart to
         # `compare(only_valid_tasks=True)`; see `run_register_new_methods.py`.)
-        self.only_valid_tasks = only_valid_tasks
-        if only_valid_tasks:
-            self.task_metadata_collection = self.task_metadata_collection.subset(
-                self._registered_valid_task_triplets(),
-            )
+        self.only_valid_tasks = False
+        if extra_methods:
+            self._register_methods(list(extra_methods), scope_to_valid_tasks=only_valid_tasks)
+        elif only_valid_tasks:
+            # No new methods to define the scope — raise the standard, helpful error.
+            self._scope_to_valid_tasks()
 
     @classmethod
     def from_new_methods(cls, new_methods: list[MethodMetadata], **kwargs) -> Self:
@@ -141,6 +135,78 @@ class AbstractArenaContext:
         the concrete arena's constructor defaults).
         """
         return cls(extra_methods=new_methods, only_valid_tasks=True, **kwargs)
+
+    def register(
+        self,
+        results: list[BaselineResult | dict],
+        *,
+        new_result_prefix: str | None = None,
+        scope_to_valid_tasks: bool = True,
+    ) -> list[MethodMetadata]:
+        """Register externally-produced raw results into this context as new methods.
+
+        The post-construction counterpart to ``extra_methods=`` / :meth:`from_new_methods`:
+        converts ``results`` (e.g. from :meth:`run_experiments` or
+        ``ExperimentBatchRunner.run_all``) into in-memory methods via
+        :meth:`~tabarena.nips2025_utils.end_to_end.EndToEnd.from_raw_to_methods`, appends them as
+        "new" methods, and — when ``scope_to_valid_tasks`` (the default) — pre-filters
+        ``task_metadata`` to the tasks they ran so a subsequent :meth:`compare` is scoped to them
+        with nothing extra. Returns the registered methods.
+        """
+        # Deferred: tabarena.nips2025_utils.end_to_end imports TabArenaContext at module level,
+        # which would be circular at import time.
+        from tabarena.nips2025_utils.end_to_end import EndToEnd
+
+        new_methods = EndToEnd.from_raw_to_methods(
+            results_lst=results,
+            task_metadata=self.task_metadata_collection,
+            new_result_prefix=new_result_prefix,
+        )
+        self._register_methods(new_methods, scope_to_valid_tasks=scope_to_valid_tasks)
+        return new_methods
+
+    def run_experiments(
+        self,
+        experiments: list[Experiment],
+        *,
+        expname: str | Path,
+        subset: str | list[str] | None = None,
+        datasets: list[str] | None = None,
+        splits: list[int] | None = None,
+        folds: list[int] | None = None,
+        repeats: list[int] | None = None,
+        register: bool = True,
+        new_result_prefix: str | None = None,
+        **runner_kwargs,
+    ) -> list[BaselineResult]:
+        """Run ``experiments`` over this context's task_metadata and register the results.
+
+        The single-hub entry point for the registration-first workflow (see
+        ``examples/benchmarking/run_register_new_methods.py``): builds a runner scoped to the
+        selected ``(dataset, fold, repeat)`` triplets (via :meth:`make_experiment_batch_runner` —
+        ``subset`` / ``datasets`` / ``splits`` / ``folds`` / ``repeats`` have the same semantics
+        there), runs every selected split (``ExperimentBatchRunner.run_all``), and — when
+        ``register`` (the default) — registers the raw results back into this context via
+        :meth:`register` (pre-filtering ``task_metadata`` to the tasks just run, so a subsequent
+        :meth:`compare` is scoped to them with nothing extra).
+
+        ``expname`` is the runner's results-cache directory. Extra ``**runner_kwargs`` (e.g.
+        ``debug_mode``, ``cache_mode``) reach :class:`ExperimentBatchRunner`. Returns the raw
+        results list (also registered when ``register`` is True).
+        """
+        runner = self.make_experiment_batch_runner(
+            expname=str(expname),
+            subset=subset,
+            datasets=datasets,
+            splits=splits,
+            folds=folds,
+            repeats=repeats,
+            **runner_kwargs,
+        )
+        results = runner.run_all(experiments)
+        if register:
+            self.register(results, new_result_prefix=new_result_prefix)
+        return results
 
     # ------------------------------------------------------------------ arena-specific hooks
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
@@ -401,6 +467,39 @@ class AbstractArenaContext:
         """
         grid = self.task_metadata_collection.task_grid()
         return grid[["dataset", "split"]].rename(columns={"split": "fold"})
+
+    def _register_methods(self, new_methods: list[MethodMetadata], *, scope_to_valid_tasks: bool) -> None:
+        """Append ``new_methods`` as "new" methods (shared by ``__init__`` and :meth:`register`).
+
+        Validates name uniqueness, extends :attr:`method_metadata_collection` and
+        :attr:`_new_method_names`, and — when ``scope_to_valid_tasks`` — pre-filters
+        ``task_metadata`` to the tasks the registered new methods ran (see
+        :meth:`_scope_to_valid_tasks`).
+        """
+        existing = {m.method for m in self.method_metadata_collection.method_metadata_lst}
+        for m in new_methods:
+            assert m.method not in existing, f"{m.method} already in methods..."
+            existing.add(m.method)
+        self.method_metadata_collection = MethodMetadataCollection(
+            [*self.method_metadata_collection.method_metadata_lst, *new_methods],
+        )
+        self._new_method_names.update(m.method for m in new_methods)
+        if scope_to_valid_tasks:
+            self.only_valid_tasks = True
+            self._scope_to_valid_tasks()
+
+    def _scope_to_valid_tasks(self) -> None:
+        """Pre-filter :attr:`task_metadata_collection` to the registered new methods' tasks.
+
+        Subsets the collection to :meth:`_registered_valid_task_triplets` (raising if no new
+        methods define a scope) and invalidates the derived :attr:`task_metadata` cache.
+        """
+        self.task_metadata_collection = self.task_metadata_collection.subset(
+            self._registered_valid_task_triplets(),
+        )
+        # The legacy `task_metadata` DataFrame is a cached_property derived from the collection;
+        # drop it so it is recomputed from the now-filtered collection on next access.
+        self.__dict__.pop("task_metadata", None)
 
     def _resolve_only_valid_tasks(
         self,

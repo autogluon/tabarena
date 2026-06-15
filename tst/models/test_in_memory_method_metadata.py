@@ -379,3 +379,92 @@ class TestFromNewMethodsFactory:
     def test_without_new_methods_raises(self):
         with pytest.raises(ValueError, match="only_valid_tasks=True needs"):
             AbstractArenaContext.from_new_methods([], methods=[], task_metadata=_task_metadata())
+
+
+class TestRegister:
+    """`register` adds run results post-construction and (by default) scopes task_metadata."""
+
+    def _im(self, method: str, datasets) -> InMemoryMethodMetadata:
+        return InMemoryMethodMetadata(
+            results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
+            method=method,
+            artifact_name=method,
+            method_type="config",
+            model_key=method,
+        )
+
+    def test_register_converts_and_scopes(self, monkeypatch):
+        # Stub the heavy raw->methods conversion; register's job is the wiring + scoping.
+        im = self._im("NewA", datasets=("d1",))
+        monkeypatch.setattr(
+            "tabarena.nips2025_utils.end_to_end.EndToEnd.from_raw_to_methods",
+            lambda **kwargs: [im],
+        )
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        out = ctx.register(["raw"], new_result_prefix="[New] ")
+        assert out == [im]
+        assert "NewA" in ctx.methods
+        assert ctx.only_valid_tasks is True
+        assert ctx.task_metadata_collection.dataset_names() == ["d1"]  # d2 pruned
+
+    def test_register_without_scoping_keeps_full_task_metadata(self, monkeypatch):
+        im = self._im("NewA", datasets=("d1",))
+        monkeypatch.setattr(
+            "tabarena.nips2025_utils.end_to_end.EndToEnd.from_raw_to_methods",
+            lambda **kwargs: [im],
+        )
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        ctx.register(["raw"], scope_to_valid_tasks=False)
+        assert "NewA" in ctx.methods
+        assert ctx.only_valid_tasks is False
+        assert set(ctx.task_metadata_collection.dataset_names()) == {"d1", "d2"}
+
+
+class TestRunExperiments:
+    """`run_experiments` orchestrates make_experiment_batch_runner -> run_all -> register."""
+
+    class _FakeRunner:
+        def __init__(self):
+            self.ran = None
+
+        def run_all(self, experiments):
+            self.ran = experiments
+            return ["raw-result"]
+
+    def test_scopes_runner_and_registers(self, monkeypatch):
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        runner = self._FakeRunner()
+        captured: dict = {}
+        monkeypatch.setattr(
+            ctx,
+            "make_experiment_batch_runner",
+            lambda expname, **kwargs: captured.update(expname=expname, **kwargs) or runner,
+        )
+        monkeypatch.setattr(ctx, "register", lambda results, **kw: captured.update(registered=results, register_kw=kw))
+
+        out = ctx.run_experiments(
+            ["exp1"],
+            expname="run-dir",
+            subset="lite",
+            datasets=["d1"],
+            new_result_prefix="[New] ",
+            debug_mode=True,
+        )
+        assert out == ["raw-result"]
+        assert runner.ran == ["exp1"]  # experiments forwarded to run_all
+        assert captured["expname"] == "run-dir"
+        assert captured["subset"] == "lite"
+        assert captured["datasets"] == ["d1"]
+        assert captured["debug_mode"] is True  # runner_kwargs forwarded
+        assert captured["registered"] == ["raw-result"]
+        assert captured["register_kw"]["new_result_prefix"] == "[New] "
+
+    def test_register_false_skips_registration(self, monkeypatch):
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        monkeypatch.setattr(ctx, "make_experiment_batch_runner", lambda expname, **kwargs: self._FakeRunner())
+        called = {"register": False}
+        monkeypatch.setattr(ctx, "register", lambda *a, **k: called.__setitem__("register", True))
+
+        out = ctx.run_experiments(["exp1"], expname="run-dir", register=False)
+        assert out == ["raw-result"]
+        assert called["register"] is False
