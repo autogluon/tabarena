@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from autogluon.core.models import AbstractModel
 from autogluon.features import LabelEncoderFeatureGenerator
+
 from tabarena.benchmark.experiment import (
     ExperimentBatchRunner,
     TabArenaV0pt1ExperimentBundle,
@@ -26,6 +27,7 @@ from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 if TYPE_CHECKING:
     import pandas as pd
+
     from tabarena.utils.config_utils import ConfigGenerator
 
 
@@ -100,6 +102,7 @@ class CustomRandomForestModel(AbstractModel):
         list below). For a default-only run, pass the tuple ``(..., 0)`` in ``models``.
         """
         from autogluon.common.space import Int
+
         from tabarena.utils.config_utils import ConfigGenerator
 
         return ConfigGenerator(

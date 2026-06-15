@@ -104,7 +104,7 @@ if __name__ == "__main__":
         new_result_prefix="[New] ",
     )
     print("\n=== raw per-fold results ===")
-    print(df_results[["method", "dataset", "fold", "metric", "metric_error"]].to_string(index=False))
+    print(df_results[["method", "dataset", "fold", "metric", "metric_error"]].head().to_string(index=False))
 
     # 7: compare with cached baselines from BeyondArena
     beyond_context = BeyondArenaContext(task_metadata=task_collection)
@@ -113,5 +113,3 @@ if __name__ == "__main__":
         new_results=df_results,
         subset=subset,
     )
-    print("\n=== BeyondArena leaderboard ===")
-    print(beyond_leaderboard.to_string())

@@ -71,7 +71,7 @@ if __name__ == "__main__":
     bundle = BeyondArenaExperimentBundle(
         models=[(DummyPredictorModel.config_generator(), 0)],
         outer_experiments=True,
-        verbosity=3,
+        verbosity=3,  # set to log default preprocessing
     )
     experiments = bundle.build_experiments()
 
@@ -89,7 +89,7 @@ if __name__ == "__main__":
         new_result_prefix="[New] ",
     )
     print("\n=== raw per-fold results ===")
-    print(df_results[["method", "dataset", "fold", "metric", "metric_error"]].to_string(index=False))
+    print(df_results[["method", "dataset", "fold", "metric", "metric_error"]].head().to_string(index=False))
 
     # 7: compare against the BeyondArena baselines (same subsets, to restrict baselines to the
     # demo's tasks).
@@ -99,5 +99,3 @@ if __name__ == "__main__":
         new_results=df_results,
         subset=subset,
     )
-    print("\n=== BeyondArena leaderboard ===")
-    print(beyond_leaderboard.to_string())

@@ -21,6 +21,15 @@ from tabarena.benchmark.preprocessing.text_feature_generators import (
 )
 
 
+class ModelSpecificFeatureGenerator(BulkFeatureGenerator):
+    """A ``BulkFeatureGenerator`` renamed only so its logs read clearly.
+
+    Behaviourally identical to ``BulkFeatureGenerator``; the subclass exists so the
+    model-specific preprocessing logs ``Fitting ModelSpecificFeatureGenerator...`` instead of the
+    generic ``Fitting BulkFeatureGenerator...`` (the logged name is the class name).
+    """
+
+
 class TabArenaModelSpecificPreprocessing:
     """Model-specific preprocessing.
 
@@ -130,7 +139,7 @@ class TabArenaModelSpecificPreprocessing:
             verbosity=verbosity,
         )
 
-        return [(BulkFeatureGenerator, bulk_kwargs)]
+        return [(ModelSpecificFeatureGenerator, bulk_kwargs)]
 
 
 class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):

@@ -769,7 +769,7 @@ def _task_dir(file_path_key: str) -> str:
     (== ``tabarena_task_name``, e.g. ``"emscad-1790bb44ad91"``), so it must be
     treated as an opaque string rather than coerced to ``int``.
     """
-    return file_path_key.split("/")[0]
+    return file_path_key.split("/", maxsplit=1)[0]
 
 
 def _filter_file_paths_by_task_metadata(
