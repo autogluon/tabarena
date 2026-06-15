@@ -43,7 +43,7 @@ class TabArenaModelSpecificPreprocessing:
     use_pca: bool = False
 
     @staticmethod
-    def add_to_hyperparameters(hyperparameters: dict) -> dict:
+    def add_to_hyperparameters(hyperparameters: dict, verbosity: int = 2) -> dict:
         """Inject the model-specific preprocessing into a *single model's* parameter dict.
 
         ``hyperparameters`` is the parameter dict for **one model** (e.g. ``{}`` for
@@ -58,32 +58,41 @@ class TabArenaModelSpecificPreprocessing:
 
         Inside the TabArena experiment framework (``AGSingleWrapper``) this wrapping
         happens automatically.
+
+        ``verbosity`` is applied to both the model-specific feature generators and to the
+        ``BulkFeatureGenerator`` AutoGluon wraps them in (via ``init_kwargs``). The latter
+        matters: without it AutoGluon defaults that wrapper to ``verbosity=0``, which
+        silences the model-specific preprocessing logs even when the logger is at INFO — so
+        the model-specific step would never log while the model-agnostic one does. With the
+        default ``2`` it logs whenever the (AutoGluon) logger is at INFO, like every other
+        feature generator.
         """
         hyperparameters = deepcopy(hyperparameters)
         hp_key_kwargs = TabArenaModelSpecificPreprocessing.hp_key_kwargs
+        # `init_kwargs` sets the verbosity of the BulkFeatureGenerator AutoGluon wraps the
+        # model-specific generators in (see AbstractModel._get_preprocessor_single).
+        preprocessor_params = {
+            "feature_generators": [
+                TabArenaModelSpecificPreprocessing.get_model_specific_generator(verbosity=verbosity)
+            ],
+            "init_kwargs": {"verbosity": verbosity},
+        }
 
         if hp_key_kwargs not in hyperparameters:
-            hyperparameters[hp_key_kwargs] = {}
-        if (
+            hyperparameters[hp_key_kwargs] = preprocessor_params
+        elif (
             isinstance(hyperparameters[hp_key_kwargs], dict)
             and "feature_generators" not in hyperparameters[hp_key_kwargs]
         ):
-            hyperparameters[hp_key_kwargs]["feature_generators"] = [
-                (TabArenaModelSpecificPreprocessing.get_model_specific_generator())
-            ]
+            hyperparameters[hp_key_kwargs].update(preprocessor_params)
         else:
             if isinstance(hyperparameters[hp_key_kwargs], dict):
                 hyperparameters[hp_key_kwargs] = [hyperparameters[hp_key_kwargs]]
-            hyperparameters[hp_key_kwargs] = [
-                {
-                    "feature_generators": [TabArenaModelSpecificPreprocessing.get_model_specific_generator()],
-                },
-                *hyperparameters[hp_key_kwargs],
-            ]
+            hyperparameters[hp_key_kwargs] = [preprocessor_params, *hyperparameters[hp_key_kwargs]]
         return hyperparameters
 
     @staticmethod
-    def get_model_specific_generator() -> list:
+    def get_model_specific_generator(verbosity: int = 2) -> list:
         """Return a BulkFeatureGenerator that ordinal-encodes and reduces text embeddings.
 
         The three parallel generators inside the bulk group cover the full feature space:
@@ -118,7 +127,7 @@ class TabArenaModelSpecificPreprocessing:
 
         bulk_kwargs = dict(
             generators=generators,
-            verbosity=2,
+            verbosity=verbosity,
         )
 
         return [(BulkFeatureGenerator, bulk_kwargs)]

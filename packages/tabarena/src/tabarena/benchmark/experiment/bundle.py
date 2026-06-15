@@ -131,7 +131,7 @@ class TabArenaExperimentBundle:
     """If True, build no-validation 'outer' experiments instead of bagged ones: each model is
     fit directly on all the data (``AGModelWrapper``) with no train/val split, bagging, or
     ensemble. The bundle's other settings still apply. Useful for full-data
-    methods and quick no-validation runs. 
+    methods and quick no-validation runs.
     A pre-built ``Experiment`` passed in ``models`` is still used verbatim."""
     model_artifacts_base_path: str | Path | None = "/tmp"  # noqa: S108
     """Adapt the default temporary directory used for model artifacts in TabArena.
@@ -466,6 +466,9 @@ class TabArenaExperimentBundle:
                 method_kwargs={
                     "shuffle_features": pipeline_method_kwargs["shuffle_features"],
                     "fit_kwargs": outer_fit_kwargs,
+                    # Mirror the validation path's TabularPredictor verbosity so the feature
+                    # generator's preprocessing output is shown for outer fits too.
+                    "verbosity": self.verbosity,
                 },
                 preprocessing_pipeline=preprocessing_pipeline,
                 extra_model_hyperparameters=pipeline_method_kwargs.get("extra_model_hyperparameters") or None,

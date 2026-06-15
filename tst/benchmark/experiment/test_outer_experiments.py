@@ -93,6 +93,12 @@ class TestAGModelWrapperPipeline:
         )
         assert wrapper.fit_kwargs == {"num_cpus": 1, "num_gpus": 0, "time_limit": 60}
 
+    def test_verbosity_is_an_accepted_config_attr(self):
+        # `verbosity` controls the feature generator's logging; default None leaves it untouched.
+        assert AGModelWrapper(model_cls=_DummyModel, problem_type="binary", eval_metric=None).verbosity is None
+        wrapper = AGModelWrapper(model_cls=_DummyModel, verbosity=2, problem_type="binary", eval_metric=None)
+        assert wrapper.verbosity == 2
+
 
 class TestOuterGroupMetadata:
     """An outer (AGModelWrapper) experiment sources group columns from the task at run time."""
@@ -170,6 +176,8 @@ class TestBundleOuterMode:
         fit_kwargs = exp.method_kwargs["fit_kwargs"]
         assert "num_cpus" in fit_kwargs and "num_gpus" in fit_kwargs
         assert fit_kwargs["time_limit"] == bundle.DEFAULT_TIME_LIMIT
+        # The bundle's verbosity drives the feature generator's output for outer fits.
+        assert exp.method_kwargs["verbosity"] == bundle.verbosity
 
     def test_bagged_mode_is_unaffected(self):
         generator = ConfigGenerator(search_space={}, model_cls=_DummyModel, manual_configs=[{}])

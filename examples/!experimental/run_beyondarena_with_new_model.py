@@ -64,7 +64,7 @@ class DummyPredictorModel(AbstractModel):
 if __name__ == "__main__":
     # Output dirs, resolved next to this script so they don't depend on the working directory.
     here = Path(__file__).parent
-    run_name = "beyondarena_custom_model"
+    run_name = "beyondarena_new_model"
     results_dir = str(here / "experiments" / run_name)  # the runner's `expname`
     eval_dir = here / "eval" / run_name  # leaderboard `output_dir`
 

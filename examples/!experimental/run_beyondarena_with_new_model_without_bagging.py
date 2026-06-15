@@ -58,17 +58,20 @@ if __name__ == "__main__":
 
     # 1: suite metadata -> filter. Same subsets as the bagging example: small + first split
     # (`lite`) + no high-dimensional datasets. See `BeyondArenaContext.SUBSET_PREDICATES`.
-    task_collection = BeyondArenaTaskMetadataCollection().subset_tasks(subset=["small", "lite", "!high-dim"])
+    subset = ["lite", "tiny", "!high-dim"]
+    task_collection = BeyondArenaTaskMetadataCollection().subset_tasks(subset=subset)
 
     # 2: materialize -- ensure the relevant data is on the system.
     task_collection = task_collection.materialize()
 
     # 3: build the experiments. `outer_experiments=True` makes the bundle emit no-validation
     # `AGModelWrapper` fits (no train/val split, no bagging) for each model, instead of bagged
-    # experiments.
+    # experiments. `verbosity` is forwarded to each model's preprocessing feature generator, so
+    # its output is printed during fit (2 = the usual key prints, 3+ = more detail; default 2).
     bundle = BeyondArenaExperimentBundle(
         models=[(DummyPredictorModel.config_generator(), 0)],
         outer_experiments=True,
+        verbosity=3,
     )
     experiments = bundle.build_experiments()
 
@@ -94,7 +97,7 @@ if __name__ == "__main__":
     beyond_leaderboard = beyond_context.compare(
         output_dir=eval_dir,
         new_results=df_results,
-        subset=["small", "lite", "!high-dim"],
+        subset=subset,
     )
     print("\n=== BeyondArena leaderboard ===")
     print(beyond_leaderboard.to_string())
