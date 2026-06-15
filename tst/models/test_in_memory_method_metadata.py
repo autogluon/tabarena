@@ -448,16 +448,32 @@ class TestRunExperiments:
             subset="lite",
             datasets=["d1"],
             new_result_prefix="[New] ",
-            debug_mode=True,
+            debug_mode=True,  # an explicit runner_kwarg (overriding ExperimentBatchRunner's default)
         )
         assert out == ["raw-result"]
         assert runner.ran == ["exp1"]  # experiments forwarded to run_all
         assert captured["expname"] == "run-dir"
         assert captured["subset"] == "lite"
         assert captured["datasets"] == ["d1"]
+        assert captured["materialize"] is True  # runner is made runnable before run_all
         assert captured["debug_mode"] is True  # runner_kwargs forwarded
         assert captured["registered"] == ["raw-result"]
         assert captured["register_kw"]["new_result_prefix"] == "[New] "
+
+    def test_omitting_runner_kwargs_leaves_runner_defaults(self, monkeypatch):
+        # run_experiments forwards only what it is given; an unspecified debug_mode is not
+        # injected, so ExperimentBatchRunner keeps its own default (now False).
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        captured: dict = {}
+        monkeypatch.setattr(
+            ctx,
+            "make_experiment_batch_runner",
+            lambda expname, **kwargs: captured.update(kwargs) or self._FakeRunner(),
+        )
+        monkeypatch.setattr(ctx, "register", lambda *a, **k: None)
+
+        ctx.run_experiments(["exp1"], expname="run-dir")
+        assert "debug_mode" not in captured  # not forwarded -> runner uses its own default
 
     def test_register_false_skips_registration(self, monkeypatch):
         ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())

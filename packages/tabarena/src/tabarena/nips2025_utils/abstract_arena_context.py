@@ -183,12 +183,13 @@ class AbstractArenaContext:
 
         The single-hub entry point for the registration-first workflow (see
         ``examples/benchmarking/run_register_new_methods.py``): builds a runner scoped to the
-        selected ``(dataset, fold, repeat)`` triplets (via :meth:`make_experiment_batch_runner` —
-        ``subset`` / ``datasets`` / ``splits`` / ``folds`` / ``repeats`` have the same semantics
-        there), runs every selected split (``ExperimentBatchRunner.run_all``), and — when
-        ``register`` (the default) — registers the raw results back into this context via
-        :meth:`register` (pre-filtering ``task_metadata`` to the tasks just run, so a subsequent
-        :meth:`compare` is scoped to them with nothing extra).
+        selected ``(dataset, fold, repeat)`` triplets and materialized so it is runnable (via
+        :meth:`make_experiment_batch_runner` with ``materialize=True`` — ``subset`` / ``datasets``
+        / ``splits`` / ``folds`` / ``repeats`` have the same semantics there), runs every selected
+        split (``ExperimentBatchRunner.run_all``), and — when ``register`` (the default) —
+        registers the raw results back into this context via :meth:`register` (pre-filtering
+        ``task_metadata`` to the tasks just run, so a subsequent :meth:`compare` is scoped to them
+        with nothing extra).
 
         ``expname`` is the runner's results-cache directory. Extra ``**runner_kwargs`` (e.g.
         ``debug_mode``, ``cache_mode``) reach :class:`ExperimentBatchRunner`. Returns the raw
@@ -201,6 +202,7 @@ class AbstractArenaContext:
             splits=splits,
             folds=folds,
             repeats=repeats,
+            materialize=True,
             **runner_kwargs,
         )
         results = runner.run_all(experiments)
@@ -730,6 +732,7 @@ class AbstractArenaContext:
         folds: list[int] | None = None,
         repeats: list[int] | None = None,
         dataset_fold_repeats: list[tuple[str, int, int]] | None = None,
+        materialize: bool = False,
         **kwargs,
     ) -> ExperimentBatchRunner:
         """Create an `ExperimentBatchRunner` over this context's `task_metadata`.
@@ -754,10 +757,17 @@ class AbstractArenaContext:
 
         If no filters are given, `run_all` runs every split in `task_metadata`. Extra keyword
         arguments (``cache_mode``, ``debug_mode``, ...) are forwarded to `ExperimentBatchRunner`.
-        Omitting ``debug_mode`` inherits its default (``True``): a debugger-friendly local mode
-        that, for bagged AutoGluon models, fits folds in-process ("sequential_local") rather than
-        in parallel Ray workers. Pass ``debug_mode=False`` for large-scale benchmarking (parallel
-        fold fitting + recorded failure artifacts).
+        Omitting ``debug_mode`` inherits its default (``False``): large-scale benchmarking mode
+        (parallel fold fitting + recorded failure artifacts). Pass ``debug_mode=True`` for a
+        debugger-friendly local mode that, for bagged AutoGluon models, fits folds in-process
+        ("sequential_local") rather than in parallel Ray workers.
+
+        `materialize` (default False) makes the (already-scoped) collection runnable before the
+        runner is built — downloading + converting only the selected tasks for remote-backed
+        sources (e.g. BeyondArena / Data Foundry), whose per-task cache files the runner loads at
+        fit time. A no-op for already-local sources (e.g. TabArena v0.1, which downloads its
+        OpenML data on demand). Pass True whenever the runner will actually be run against a
+        remote-backed suite (`run_experiments` does this automatically).
         """
         from tabarena.benchmark.experiment import ExperimentBatchRunner
 
@@ -790,6 +800,11 @@ class AbstractArenaContext:
         collection = self.task_metadata_collection
         if dataset_fold_repeats is not None:
             collection = collection.subset(dataset_fold_repeats)
+        # Materialize (download + convert the selected tasks) before constructing the runner —
+        # the runner resolves each task's spec from `task_id_str` in __init__, which materialize
+        # updates for remote-backed sources.
+        if materialize:
+            collection = collection.materialize()
         return ExperimentBatchRunner(
             expname=expname,
             task_metadata=collection,

@@ -115,7 +115,7 @@ if __name__ == "__main__":
         subset="lite",
         datasets=DATASETS,
         register=False,
-        debug_mode=True,
+        # debug_mode=True,  # <-- For local debugger
     )
 
     # 3: register the run as InMemoryMethodMetadata, pre-filtering the context's task_metadata to

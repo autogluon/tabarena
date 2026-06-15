@@ -48,6 +48,23 @@ class TestMakeExperimentBatchRunner:
         assert runner.task_metadata_collection.dataset_fold_repeats() == [("small_ds", 0, 0), ("big_ds", 0, 0)]
         assert runner.cache_mode == "only"  # extra kwargs forwarded
 
+    def test_materialize_makes_the_scoped_collection_runnable(self, tmp_path, monkeypatch):
+        # materialize=True materializes the (scoped) collection before the runner is built.
+        from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+
+        calls: list[int] = []
+        orig = TaskMetadataCollection.materialize
+
+        def spy(self):
+            calls.append(len(self))
+            return orig(self)
+
+        monkeypatch.setattr(TaskMetadataCollection, "materialize", spy)
+        runner = _ctx().make_experiment_batch_runner(expname=str(tmp_path), subset="lite", materialize=True)
+        # Materialized exactly the scoped collection (2 lite tasks), and the runner still sees them.
+        assert calls == [2]
+        assert runner.task_metadata_collection.dataset_fold_repeats() == [("small_ds", 0, 0), ("big_ds", 0, 0)]
+
     def test_no_subset_leaves_full_grid(self, tmp_path):
         runner = _ctx().make_experiment_batch_runner(expname=str(tmp_path))
         # No filter -> the runner gets the full, unfiltered collection.
