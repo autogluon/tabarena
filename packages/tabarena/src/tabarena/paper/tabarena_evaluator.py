@@ -609,6 +609,7 @@ class TabArenaEvaluator:
         plot_pareto: bool = True,
         compute_fold_stability_curves: bool = False,
         compute_fold_similarity: bool = False,
+        fold_similarity_kwargs: dict | None = None,
         calibration_framework: str | None = "auto",
         average_seeds: bool = False,
         leaderboard_kwargs: dict | None = None,
@@ -893,7 +894,10 @@ class TabArenaEvaluator:
             save_pd.save(path=f"{self.output_dir}/fold_stability_curves.csv", df=fold_stability_curves)
 
         if compute_fold_similarity:
-            fold_similarity = tabarena.rank_datasets_by_fold_similarity(results_per_task=results_per_split)
+            fold_similarity = tabarena.rank_datasets_by_fold_similarity(
+                results_per_task=results_per_split,
+                **(fold_similarity_kwargs or {}),
+            )
             df_jitter, _ = tabarena.jitter_all_datasets(results_per_split)
             df_jitter = df_jitter.set_index("dataset")
             fold_similarity_df = fold_similarity["dataset_ranking"]

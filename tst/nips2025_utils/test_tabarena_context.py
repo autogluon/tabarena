@@ -265,3 +265,40 @@ class TestAbstractArenaContextStandalone:
             AbstractArenaContext(methods="tabarena", task_metadata=_ctx().task_metadata_collection)
         with pytest.raises(ValueError, match="defines no presets"):
             AbstractArenaContext(methods=[], task_metadata="tabarena")
+
+
+class TestCompareFoldSimilarityForwarding:
+    """compare(compute_fold_similarity=, fold_similarity_kwargs=) reaches the lower-level compare."""
+
+    @staticmethod
+    def _base_ctx() -> AbstractArenaContext:
+        return AbstractArenaContext(methods=[], task_metadata=_ctx().task_metadata_collection)
+
+    @staticmethod
+    def _capture(monkeypatch) -> dict:
+        import tabarena.nips2025_utils.compare as compare_mod
+
+        captured: dict = {}
+
+        def fake_compare(**kwargs):
+            captured.update(kwargs)
+            return pd.DataFrame()
+
+        monkeypatch.setattr(compare_mod, "compare", fake_compare)
+        return captured
+
+    def test_forwards_flag_and_kwargs(self, monkeypatch, tmp_path):
+        captured = self._capture(monkeypatch)
+        self._base_ctx().compare(
+            output_dir=tmp_path,
+            compute_fold_similarity=True,
+            fold_similarity_kwargs={"similarity": "pearson", "target_reliability": 0.95},
+        )
+        assert captured["compute_fold_similarity"] is True
+        assert captured["fold_similarity_kwargs"] == {"similarity": "pearson", "target_reliability": 0.95}
+
+    def test_defaults_are_off(self, monkeypatch, tmp_path):
+        captured = self._capture(monkeypatch)
+        self._base_ctx().compare(output_dir=tmp_path)
+        assert captured["compute_fold_similarity"] is False
+        assert captured["fold_similarity_kwargs"] is None
