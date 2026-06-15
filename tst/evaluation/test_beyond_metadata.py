@@ -46,9 +46,12 @@ def test_max_train_rows_is_per_task_max_over_splits():
 def test_every_subset_predicate_is_usable_on_per_dataset_frame():
     frame = load_beyond_task_metadata_collection("BeyondArena").per_dataset_frame()
     for name, predicate in BeyondArenaContext.SUBSET_PREDICATES.items():
-        if name == "lite":
-            continue  # "lite" needs a per-fold "fold" column (only on df_results)
-        mask = predicate(frame)  # must not KeyError -> column present
+        # Split-level predicates (e.g. "lite", "core") declare a per-split "split" column that
+        # only a task grid / results frame carries — they are not applicable to a one-row-per-
+        # dataset frame, so skip them via their self-described required columns.
+        if any(col not in frame.columns for col in predicate.required_columns):
+            continue
+        mask = predicate.evaluate(frame, name=name)  # must not KeyError -> column present
         assert mask.dtype == bool
         assert len(mask) == len(frame)
 

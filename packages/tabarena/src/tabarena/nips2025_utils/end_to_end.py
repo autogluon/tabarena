@@ -305,6 +305,35 @@ class EndToEnd:
         )
 
     @classmethod
+    def from_raw_to_methods(
+        cls,
+        results_lst: list[BaselineResult | dict],
+        task_metadata: TaskMetadataCollection | None = None,
+        *,
+        new_result_prefix: str | None = None,
+        debug_mode: bool = True,
+        verbose: bool = True,
+    ) -> list:
+        """Turn raw experiment results into a list of ``InMemoryMethodMetadata`` (one per method).
+
+        The registration-first sibling of :meth:`from_raw_to_results_df`: instead of a tidy
+        results DataFrame you must thread into ``compare(new_results=...)``, this returns
+        method objects to register at context init via ``extra_methods=`` so they flow
+        through every context operation, not just ``compare``.
+        """
+        cache = not debug_mode
+        backend: Literal["ray", "native"] = "native" if debug_mode else "ray"
+        end_to_end = cls.from_raw(
+            results_lst=results_lst,
+            task_metadata=task_metadata,
+            cache=cache,
+            cache_raw=cache,
+            backend=backend,
+            verbose=verbose,
+        )
+        return end_to_end.to_results().to_method_metadata_lst(new_result_prefix=new_result_prefix)
+
+    @classmethod
     def from_raw_to_results_df(
         cls,
         results_lst: list[BaselineResult | dict],
@@ -509,6 +538,12 @@ class EndToEndResults:
             remove_imputed=remove_imputed,
             **kwargs,
         )
+
+    def to_method_metadata_lst(self, *, new_result_prefix: str | None = None) -> list:
+        """Vend each method as an :class:`InMemoryMethodMetadata` for context registration."""
+        return [
+            result.to_method_metadata(new_result_prefix=new_result_prefix) for result in self.end_to_end_results_lst
+        ]
 
     def get_results(
         self,

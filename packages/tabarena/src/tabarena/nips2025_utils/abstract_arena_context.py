@@ -79,6 +79,7 @@ class AbstractArenaContext:
         backend: Literal["ray", "native"] = "ray",
         fillna_method: str | None = None,
         calibration_method: str | None = None,
+        only_valid_tasks: bool = False,
     ):
         # A TaskMetadataCollection is the single source of truth; the legacy `task_metadata`
         # DataFrame view is derived from it on demand (see the `task_metadata` cached_property).
@@ -104,6 +105,18 @@ class AbstractArenaContext:
                 method_names.add(method_metadata.method)
 
         self.method_metadata_collection: MethodMetadataCollection = MethodMetadataCollection(method_metadata_lst)
+
+        # When True, pre-filter the context's task_metadata down to the tasks the registered
+        # in-memory ("new") methods actually ran, so it becomes the single source of truth for
+        # what is in scope — `compare` (which scopes results to `task_metadata` by default),
+        # the runner, plotting, and per-dataset tables all inherit the restriction without the
+        # caller repeating `only_valid_tasks=True` at each call site. (The counterpart to
+        # `compare(only_valid_tasks=True)`; see `run_register_new_methods.py`.)
+        self.only_valid_tasks = only_valid_tasks
+        if only_valid_tasks:
+            self.task_metadata_collection = self.task_metadata_collection.subset(
+                self._registered_valid_task_triplets(),
+            )
 
     # ------------------------------------------------------------------ arena-specific hooks
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
@@ -301,12 +314,113 @@ class AbstractArenaContext:
         )
 
     # ------------------------------------------------------------------ comparison / runner
+    def _registered_new_results(self) -> pd.DataFrame | None:
+        """Concatenated results of the registered in-memory (locally-produced) methods, or None.
+
+        These are the methods registered via ``methods=`` / ``extra_methods=`` whose results
+        live in memory (``is_in_memory``). ``compare`` treats them as the "new" results, so
+        ``only_valid_tasks=True`` can restrict the leaderboard to the tasks they ran without
+        the caller having to pass ``new_results`` (or list out method names) again.
+        """
+        frames = [
+            m.load_results()
+            for m in self.method_metadata_collection.method_metadata_lst
+            if getattr(m, "is_in_memory", False)
+        ]
+        return pd.concat(frames, ignore_index=True) if frames else None
+
+    def _registered_valid_task_triplets(self) -> list[tuple[str, int, int]]:
+        """``(dataset, fold, repeat)`` triplets the registered in-memory methods ran.
+
+        The valid-task scope used by ``__init__(only_valid_tasks=True)`` to pre-filter
+        :attr:`task_metadata_collection`. A results frame's ``fold`` column is the *split*
+        index (``n_folds * repeat + fold``), which the task grid carries as ``split``; this
+        maps each ``(dataset, split)`` the methods ran onto the collection's ``(fold, repeat)``.
+        Pairs absent from the grid are dropped (a method that ran a task outside this context's
+        universe does not widen it).
+        """
+        df_filter = self._registered_new_results()
+        if df_filter is None:
+            raise ValueError(
+                "only_valid_tasks=True needs registered in-memory methods "
+                "(e.g. extra_methods=EndToEnd.from_raw_to_methods(...)) to define the valid tasks.",
+            )
+        grid = self.task_metadata_collection.task_grid()
+        split_to_fold_repeat = {
+            (dataset, int(split)): (int(fold), int(repeat))
+            for dataset, split, fold, repeat in zip(
+                grid["dataset"], grid["split"], grid["fold"], grid["repeat"], strict=False
+            )
+        }
+        triplets: list[tuple[str, int, int]] = []
+        seen: set[tuple[str, int]] = set()
+        for dataset, split in zip(df_filter["dataset"], df_filter["fold"], strict=False):
+            key = (dataset, int(split))
+            if key in seen or key not in split_to_fold_repeat:
+                continue
+            seen.add(key)
+            fold, repeat = split_to_fold_repeat[key]
+            triplets.append((dataset, fold, repeat))
+        if not triplets:
+            raise ValueError(
+                "only_valid_tasks=True: the registered in-memory methods share no (dataset, split) "
+                "with this context's task_metadata, so there is nothing to scope to.",
+            )
+        return triplets
+
+    def _task_metadata_results_filter(self) -> pd.DataFrame:
+        """A ``(dataset, fold)`` frame of this context's task grid for ``filter_to_valid_tasks``.
+
+        A results frame's ``fold`` column is the *split* index, carried by the grid as
+        ``split`` — so the grid's ``split`` is renamed to ``fold`` here to line the two up.
+        """
+        grid = self.task_metadata_collection.task_grid()
+        return grid[["dataset", "split"]].rename(columns={"split": "fold"})
+
+    def _resolve_only_valid_tasks(
+        self,
+        only_valid_tasks: bool | str | list[str] | MethodMetadata | list[MethodMetadata],
+        new_results: pd.DataFrame | None,
+    ) -> tuple[pd.DataFrame | None, str | list[str] | None]:
+        """Resolve ``only_valid_tasks`` (see :meth:`compare`) to a ``(df_filter, names)`` pair.
+
+        Exactly one of the two is non-``None`` (or both ``None`` for "no restriction"):
+
+        * ``df_filter`` — a results frame whose ``(dataset, fold)`` pairs are the valid tasks
+          (applied here via ``filter_to_valid_tasks``). Used for ``True`` and ``MethodMetadata``.
+        * ``names`` — a method-column name / list handed to the lower-level compare, which
+          restricts to the tasks where each named method has results.
+        """
+        if isinstance(only_valid_tasks, (tuple, np.ndarray)):
+            only_valid_tasks = list(only_valid_tasks)
+        if isinstance(only_valid_tasks, MethodMetadata):
+            only_valid_tasks = [only_valid_tasks]
+
+        if isinstance(only_valid_tasks, list) and any(isinstance(m, MethodMetadata) for m in only_valid_tasks):
+            if not all(isinstance(m, MethodMetadata) for m in only_valid_tasks):
+                raise TypeError(
+                    "only_valid_tasks list must be all method-column names or all MethodMetadata, not mixed.",
+                )
+            return pd.concat([m.load_results() for m in only_valid_tasks], ignore_index=True), None
+        if isinstance(only_valid_tasks, (str, list)):
+            return None, only_valid_tasks
+        if only_valid_tasks is True:
+            df_filter = new_results if new_results is not None else self._registered_new_results()
+            if df_filter is None:
+                raise ValueError(
+                    "only_valid_tasks=True needs new_results or registered in-memory methods "
+                    "(e.g. extra_methods=EndToEnd.from_raw_to_methods(...)) to define the valid tasks.",
+                )
+            return df_filter, None
+        return None, None  # False / None -> no restriction
+
     def compare(
         self,
         output_dir: str | Path,
         new_results: pd.DataFrame | None = None,
         ta_results: pd.DataFrame | None = None,
-        only_valid_tasks: bool | str | list[str] = False,
+        only_valid_tasks: bool | str | list[str] | MethodMetadata | list[MethodMetadata] = False,
+        filter_to_task_metadata: bool = True,
         subset: str | list[str] | None = None,
         tasks: list[tuple[str, int]] | None = None,
         datasets: list[str] | None = None,
@@ -324,9 +438,28 @@ class AbstractArenaContext:
     ) -> pd.DataFrame:
         """Compute the leaderboard comparing ``new_results`` against this arena's baselines.
 
-        ``ta_results`` defaults to :meth:`load_results`; ``new_results`` (if given)
-        are concatenated to them. ``fillna`` / ``calibration_method`` resolve ``"auto"`` to
-        the context's settings.
+        ``ta_results`` defaults to :meth:`load_results` (which includes any registered
+        in-memory methods); ``new_results`` (if given) are concatenated to them.
+        ``fillna`` / ``calibration_method`` resolve ``"auto"`` to the context's settings.
+
+        ``filter_to_task_metadata`` (default ``True``) scopes the results to this context's
+        :attr:`task_metadata_collection`: rows whose ``(dataset, fold)`` is not a task of the
+        collection are dropped before scoring. For a full-suite context this is a no-op (the
+        results are already within the suite); for a context constructed with
+        ``only_valid_tasks=True`` (whose ``task_metadata`` was pre-filtered to the registered
+        in-memory methods' tasks) it is what restricts the leaderboard to those tasks — so the
+        pre-filtered context needs nothing more here. Pass ``False`` to evaluate ``ta_results``
+        / ``new_results`` exactly as given (the historical behaviour).
+
+        ``only_valid_tasks`` restricts the leaderboard to a subset of tasks:
+
+        * ``False`` (default) — no restriction.
+        * ``True`` — restrict to the tasks the "new" results ran: ``new_results`` if given,
+          else the registered in-memory methods (so a context built with
+          ``extra_methods=EndToEnd.from_raw_to_methods(...)`` needs nothing more here).
+        * a ``MethodMetadata`` (or list) — restrict to the tasks those registered methods ran.
+        * a method-column name (or list) — passed through to the lower-level compare, which
+          restricts to the tasks where each named method has results.
 
         ``compute_fold_similarity`` ranks datasets by how consistently their folds/seeds agree
         (and estimates folds-needed-for-stability), writing ``fold_similarity.csv`` to
@@ -356,16 +489,23 @@ class AbstractArenaContext:
 
         df_results = pd.concat([ta_results, new_results], ignore_index=True) if new_results is not None else ta_results
 
-        kwargs = kwargs.copy()
-        if isinstance(only_valid_tasks, (tuple, np.ndarray)):
-            only_valid_tasks = list(only_valid_tasks)
-        if isinstance(only_valid_tasks, (str, list)):
-            kwargs["only_valid_tasks"] = only_valid_tasks
-        elif only_valid_tasks and new_results is not None:
+        # Scope to the context's task_metadata (the single source of truth): the lower-level
+        # `compare` builds the leaderboard from `df_results` alone and never drops rows by
+        # task_metadata, so without this a pre-filtered task_metadata would not restrict the
+        # leaderboard. No-op for a full-suite context (results already ⊆ the grid). Skipped for
+        # an empty frame (no methods / new_results), which carries no dataset/fold columns.
+        if filter_to_task_metadata and not df_results.empty:
             df_results = filter_to_valid_tasks(
                 df_to_filter=df_results,
-                df_filter=new_results,
+                df_filter=self._task_metadata_results_filter(),
             )
+
+        kwargs = kwargs.copy()
+        df_filter, passthrough_names = self._resolve_only_valid_tasks(only_valid_tasks, new_results)
+        if passthrough_names is not None:
+            kwargs["only_valid_tasks"] = passthrough_names
+        if df_filter is not None:
+            df_results = filter_to_valid_tasks(df_to_filter=df_results, df_filter=df_filter)
 
         # Subset to the requested tasks here (with this context's subset predicates) — the
         # lower-level `compare` evaluates the results frame as-is.

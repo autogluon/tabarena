@@ -29,6 +29,13 @@ if TYPE_CHECKING:
 
 # FIXME: Implement `best` and `best-N`
 class MethodMetadata:
+    #: Whether this method's artifacts live in memory (no on-disk/S3 backing). False for the
+    #: disk-backed base class; True for :class:`InMemoryMethodMetadata`. Arena contexts treat
+    #: in-memory methods as the locally-produced "new" results (e.g. ``compare`` resolves
+    #: ``only_valid_tasks=True`` against them). A class attribute, so it stays out of
+    #: :meth:`to_info_dict` / the metadata info table.
+    is_in_memory: bool = False
+
     def __init__(
         self,
         method: str,
@@ -827,6 +834,14 @@ class MethodMetadata:
         df_results_best["ta_name"] = self.method
         df_results_best["ta_suite"] = self.artifact_name
         return df_results_best
+
+    def to_info_dict(self) -> dict:
+        """The flat field dict used to build the metadata info table / YAML.
+
+        Defaults to ``self.__dict__``; an overridable hook so subclasses that hold
+        non-serializable state (e.g. an in-memory results DataFrame) can exclude it.
+        """
+        return dict(self.__dict__)
 
     @property
     def path_metadata(self) -> Path:
