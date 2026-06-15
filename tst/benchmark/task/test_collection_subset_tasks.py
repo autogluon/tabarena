@@ -305,16 +305,18 @@ class TestSubsetPredicateFilter:
 class TestPresetDefaultPredicates:
     """`from_preset` attaches the suite's default subset predicates, resolved lazily."""
 
-    def test_beyond_arena_preset_uses_its_predicates_without_passing_them(self):
-        collection = TaskMetadataCollection.from_preset("BeyondArena")
-        # `text` is a BeyondArena-only predicate (column num_text_cols); resolving it without
-        # an explicit `predicates=` proves the preset default is used.
-        result = collection.subset_tasks(subset="text")
-        assert len(result.dataset_names()) > 0
-        assert len(result.dataset_names()) < len(collection.dataset_names())
+    # Use the TabArena-v0.1 preset here (not BeyondArena): it loads from committed metadata with
+    # no `data_foundry` dependency, so these run in CI. The BeyondArena provider is covered in
+    # test_beyond_arena_collection.py via the patched-data-foundry fixture.
+    def test_preset_uses_its_predicates_without_passing_them(self):
+        collection = TaskMetadataCollection.from_preset("TabArena-v0.1")
+        # Resolving a named predicate without an explicit `predicates=` proves the preset default
+        # provider is used.
+        result = collection.subset_tasks(subset="binary")
+        assert 0 < len(result.dataset_names()) < len(collection.dataset_names())
 
     def test_provider_is_lazy_and_survives_filtering(self):
-        collection = TaskMetadataCollection.from_preset("BeyondArena")
+        collection = TaskMetadataCollection.from_preset("TabArena-v0.1")
         # Set by from_preset as a thunk (not yet invoked), and propagated through filters.
         assert callable(collection._default_predicates_provider)
         filtered = collection.subset_tasks(problem_types=["binary"])
