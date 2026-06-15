@@ -178,9 +178,15 @@ class TestTabArenaModelSpecificPreprocessing:
     def test_get_model_specific_generator_contains_bulk_generator_tuple(self):
         from autogluon.features import BulkFeatureGenerator
 
+        from tabarena.benchmark.preprocessing.model_specific_default_preprocessing import (
+            ModelSpecificFeatureGenerator,
+        )
+
         gen = TabArenaModelSpecificPreprocessing.get_model_specific_generator()
         cls, _ = gen[0]
-        assert cls is BulkFeatureGenerator
+        # Renamed (for clearer logs) subclass of BulkFeatureGenerator.
+        assert cls is ModelSpecificFeatureGenerator
+        assert issubclass(cls, BulkFeatureGenerator)
 
     def test_get_model_specific_generator_kwargs_has_generators(self):
         _, kwargs = TabArenaModelSpecificPreprocessing.get_model_specific_generator()[0]
