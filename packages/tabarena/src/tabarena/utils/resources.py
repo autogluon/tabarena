@@ -15,3 +15,10 @@ def detect_memory_limit_gb() -> int:
     from autogluon.common.utils.resource_utils import ResourceManager
 
     return int(ResourceManager.get_memory_size(format="GB"))
+
+
+def detect_num_gpus() -> int:
+    """Detect the number of available GPUs on the current node (0 if none)."""
+    from autogluon.common.utils.resource_utils import ResourceManager
+
+    return ResourceManager.get_gpu_count()

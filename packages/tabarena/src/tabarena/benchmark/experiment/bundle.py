@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from tabarena.benchmark.experiment.experiment_constructor import Experiment
 from tabarena.benchmark.experiment.model_constraints import (
@@ -13,6 +13,9 @@ from tabarena.benchmark.experiment.model_constraints import (
     TABPFNV2_CONSTRAINTS,
     ModelConstraints,
 )
+
+if TYPE_CHECKING:
+    from tabarena.utils.config_utils import AGConfigGenerator
 
 
 def _experiment_ag_key(experiment: Experiment) -> str:
@@ -47,7 +50,7 @@ class TabArenaExperimentBundle:
     into each experiment so the resulting YAML is self-contained.
     """
 
-    models: list[tuple[str, int | str | dict]] = field(default_factory=list)
+    models: list[tuple[str | AGConfigGenerator, int | str | dict] | Experiment] = field(default_factory=list)
     """List of models to run in the benchmark with metadata.
     Metadata keys from left to right:
         - model name: str
@@ -56,6 +59,23 @@ class TabArenaExperimentBundle:
                 - If 0, only the default configuration is run.
                 - If "all", `n_random_configs`-many configurations are run.
                 - If dict, kwargs for AGExperiment
+
+    Custom (non-registry) models — two ways to include one:
+        - RECOMMENDED: pass a `(config_generator, n_configs)` tuple, where
+          `config_generator` is an `AGConfigGenerator` (e.g. `ConfigGenerator`)
+          wrapping your `model_cls`. This goes through the same path as a registry
+          name, so the bundle bakes in ALL its settings — compute resources,
+          `preprocessing_pipeline`, `dynamic_tabarena_validation_protocol`,
+          `time_limit`, fold-fitting strategy — exactly as for registry models. Use
+          `manual_configs=[{}]` (+ `n_configs=0`) for a default-only run, or a real
+          search space with `n_configs > 0` for HPO.
+        - Full manual control: pass a fully-built `Experiment` (e.g. an
+          `AGModelBagExperiment`) directly. It is used *verbatim* — the bundle does
+          NOT bake its resources / preprocessing / validation protocol into it, so
+          set those on the experiment yourself.
+      Either way, dataset-compatibility constraints are still resolved/attached like
+      any other (see `_attach_model_constraints`).
+
     Example usage:
         # Run all random configs for LightGBM, 10 random configs for Random Forest,
         and only the default for TabDPT.
@@ -140,6 +160,11 @@ class TabArenaExperimentBundle:
     skip incompatible `(model, dataset)` jobs.
     """
 
+    DEFAULT_TIME_LIMIT: ClassVar[int] = 3600
+    """Default per-model fit ``time_limit`` (seconds) when ``build_experiments`` is called
+    without one. 1 hour for the generic TabArena setup; subclasses override (BeyondArena
+    uses 4 hours)."""
+
     DEFAULT_MODEL_CONSTRAINTS: ClassVar[dict[str, ModelConstraints]] = {
         "TABICL": TABICL_CONSTRAINTS,
         "TA-TABICL": TABICL_CONSTRAINTS,
@@ -157,17 +182,19 @@ class TabArenaExperimentBundle:
         self,
         *,
         configs_path: str,
-        time_limit: int,
-        num_cpus: int | None,
-        num_gpus: int,
-        memory_limit: int | None,
-        time_limit_with_preprocessing: bool,
+        time_limit: int | None = None,
+        num_cpus: int | None = None,
+        num_gpus: int | None = None,
+        memory_limit: int | None = None,
+        time_limit_with_preprocessing: bool = False,
     ) -> list[dict]:
         """Build experiments, write them to `configs_path`, and return the parsed methods list.
 
         Compute resources (`num_cpus`/`num_gpus`/`memory_limit`/`time_limit`) are
         baked into each experiment alongside the model-specific overrides this
-        bundle owns (including `verbosity`).
+        bundle owns (including `verbosity`). All have defaults; see
+        :meth:`build_experiments` for how each is resolved (``None`` -> auto-detect
+        for resources, the bundle's :attr:`DEFAULT_TIME_LIMIT` for ``time_limit``).
         """
         import yaml
 
@@ -203,11 +230,11 @@ class TabArenaExperimentBundle:
     def build_experiments(
         self,
         *,
-        time_limit: int,
-        num_cpus: int | None,
-        num_gpus: int,
-        memory_limit: int | None,
-        time_limit_with_preprocessing: bool,
+        time_limit: int | None = None,
+        num_cpus: int | None = None,
+        num_gpus: int | None = None,
+        memory_limit: int | None = None,
+        time_limit_with_preprocessing: bool = False,
     ) -> list[Experiment]:
         """Build the full list of experiments (one per model x pipeline x random config).
 
@@ -216,7 +243,19 @@ class TabArenaExperimentBundle:
         :attr:`model_constraints` by AG model key) are attached to the experiment itself —
         so downstream consumers (``build_jobs``, ``run_jobs``, the SLURM dispatch) respect
         them without being handed a separate constraints mapping.
+
+        All arguments have defaults, so ``build_experiments()`` works with no arguments:
+
+        - ``time_limit``: ``None`` uses this bundle's :attr:`DEFAULT_TIME_LIMIT`
+          (1 hour for TabArena, 4 hours for BeyondArena).
+        - ``num_cpus`` / ``num_gpus`` / ``memory_limit``: ``None`` is baked into the
+          experiment as "auto-detect on whatever node runs it" — resolved to the running
+          machine's resources at fit time (see ``Experiment._apply_resources``).
+        - ``time_limit_with_preprocessing``: defaults to ``False`` (the ``time_limit``
+          bounds model fit only, excluding preprocessing).
         """
+        if time_limit is None:
+            time_limit = self.DEFAULT_TIME_LIMIT
         method_kwargs = self._init_base_method_kwargs(
             num_cpus=num_cpus,
             num_gpus=num_gpus,
@@ -253,7 +292,7 @@ class TabArenaExperimentBundle:
         self,
         *,
         num_cpus: int | None,
-        num_gpus: int,
+        num_gpus: int | None,
         memory_limit: int | None,
     ) -> dict:
         """Build the per-method kwargs: the bench-level base, plus this bundle's
@@ -276,8 +315,8 @@ class TabArenaExperimentBundle:
         if self.model_verbosity is not None:
             mk["extra_model_hyperparameters"]["ag.verbosity"] = self.model_verbosity
         # Bake compute resources into the experiment so the serialized config is
-        # self-contained. `None` num_cpus/memory_limit are auto-detected at run
-        # time by the Experiment (see `Experiment._apply_resources`).
+        # self-contained. `None` num_cpus/num_gpus/memory_limit are auto-detected at
+        # run time by the Experiment (see `Experiment._apply_resources`).
         mk["fit_kwargs"]["num_cpus"] = num_cpus
         mk["fit_kwargs"]["num_gpus"] = num_gpus
         mk["fit_kwargs"]["memory_limit"] = memory_limit
@@ -440,3 +479,6 @@ class BeyondArenaExperimentBundle(TabArenaExperimentBundle):
 
     n_random_configs: int = 25
     preprocessing_pipelines: list[str] = field(default_factory=lambda: ["tabarena_default"])
+
+    DEFAULT_TIME_LIMIT: ClassVar[int] = 4 * 3600
+    """BeyondArena used a 4-hour per-model fit time limit."""

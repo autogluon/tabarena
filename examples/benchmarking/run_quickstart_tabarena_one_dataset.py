@@ -16,8 +16,10 @@ if __name__ == "__main__":
     tabarena_dir = str(Path(__file__).parent / "experiments" / "one_dataset")
 
     # Get tasks and metadata (could also use custom dataset / metadata here as shown in other examples).
-    # Lite preset = the first split (r0f0) of each dataset; subset to one OpenML task id.
-    task_metadata = TaskMetadataCollection.from_preset("TabArena-v0.1-lite").subset_tasks(task_ids=[363621])
+    # `split_indices="lite"` keeps the first split (r0f0) of each dataset; subset to one OpenML task id.
+    task_metadata = TaskMetadataCollection.from_preset("TabArena-v0.1").subset_tasks(
+        task_ids=[363621], split_indices="lite"
+    )
     metadata = load_task_metadata()
 
     # This list of some methods we want fit sequentially on each task (dataset x fold)

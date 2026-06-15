@@ -70,7 +70,7 @@ def _task_meta(
         num_features=5,
         num_classes=2,
         num_instance_groups=100,
-        tabarena_task_name="test_task",
+        tabarena_task_name=dataset_name,
         task_id_str=task_id_str,
         **extra_fields,
     )
@@ -137,9 +137,9 @@ class TestFromPreset:
         with pytest.raises(ValueError, match="Unknown preset"):
             TaskMetadataCollection.from_preset("not-a-suite")
 
-    def test_tabarena_v0pt1_lite_is_one_split_per_dataset(self):
+    def test_lite_split_filter_is_one_split_per_dataset(self):
         full = TaskMetadataCollection.from_preset("TabArena-v0.1")
-        lite = TaskMetadataCollection.from_preset("TabArena-v0.1-lite")
+        lite = full.subset_tasks(split_indices="lite")
         assert len(lite) == len(lite.dataset_names())
         assert set(lite.dataset_names()) == set(full.dataset_names())
         assert all(t.split_index == "r0f0" for t in lite)
@@ -231,6 +231,108 @@ class TestSubsetTasks:
         assert len(result) == 1
         assert result[0].dataset_name == "a"
         assert result.source is collection.source
+
+
+# ---------------------------------------------------------------------------
+# subset_tasks — named subset predicates (the arena-context shorthand)
+# ---------------------------------------------------------------------------
+
+
+class TestSubsetPredicateFilter:
+    def _coll(self) -> TaskMetadataCollection:
+        return _collection(
+            [
+                _task_meta(dataset_name="bin_small", problem_type="binary", n_train=500),
+                _task_meta(dataset_name="reg_big", problem_type="regression", n_train=50_000),
+            ],
+        )
+
+    @staticmethod
+    def _custom_predicates():
+        from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
+
+        return {
+            "binary": SubsetPredicate(lambda df: df["problem_type"] == "binary", ("problem_type",)),
+            "big": SubsetPredicate(lambda df: df["max_train_rows"] > 1_000, ("max_train_rows",)),
+        }
+
+    def test_string_atom_filters_by_predicate(self):
+        result = self._coll().subset_tasks(subset="binary", predicates=self._custom_predicates())
+        assert [t.dataset_name for t in result] == ["bin_small"]
+
+    def test_negation(self):
+        result = self._coll().subset_tasks(subset="!big", predicates=self._custom_predicates())
+        assert [t.dataset_name for t in result] == ["bin_small"]
+
+    def test_union_within_expression_keeps_both(self):
+        result = self._coll().subset_tasks(subset="binary|big", predicates=self._custom_predicates())
+        assert {t.dataset_name for t in result} == {"bin_small", "reg_big"}
+
+    def test_list_is_anded(self):
+        result = self._coll().subset_tasks(subset=["binary", "!big"], predicates=self._custom_predicates())
+        assert [t.dataset_name for t in result] == ["bin_small"]
+
+    def test_invalid_name_raises(self):
+        with pytest.raises(ValueError, match="Invalid subset name"):
+            self._coll().subset_tasks(subset="nope", predicates=self._custom_predicates())
+
+    def test_beyond_arena_predicates_shorthand(self):
+        from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+
+        result = self._coll().subset_tasks(subset="regression", predicates=BeyondArenaContext.SUBSET_PREDICATES)
+        assert [t.dataset_name for t in result] == ["reg_big"]
+
+    def test_split_level_lite_predicate_keeps_first_split(self):
+        from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+
+        coll = _collection([_task_meta(dataset_name="a", n_splits=3, problem_type="binary", n_train=500)])
+        result = coll.subset_tasks(subset="lite", predicates=BeyondArenaContext.SUBSET_PREDICATES)
+        assert len(result) == 1
+        assert result[0].split_index == "r0f0"
+
+    def test_preserves_source(self):
+        collection = self._coll()
+        result = collection.subset_tasks(subset="binary", predicates=self._custom_predicates())
+        assert result.source is collection.source
+
+    def test_no_provider_falls_back_to_tabarena_defaults(self):
+        # A directly-built collection has no preset provider; "binary" must still resolve
+        # via the TabArenaContext default predicates.
+        result = self._coll().subset_tasks(subset="binary")
+        assert [t.dataset_name for t in result] == ["bin_small"]
+
+
+class TestPresetDefaultPredicates:
+    """`from_preset` attaches the suite's default subset predicates, resolved lazily."""
+
+    def test_beyond_arena_preset_uses_its_predicates_without_passing_them(self):
+        collection = TaskMetadataCollection.from_preset("BeyondArena")
+        # `text` is a BeyondArena-only predicate (column num_text_cols); resolving it without
+        # an explicit `predicates=` proves the preset default is used.
+        result = collection.subset_tasks(subset="text")
+        assert len(result.dataset_names()) > 0
+        assert len(result.dataset_names()) < len(collection.dataset_names())
+
+    def test_provider_is_lazy_and_survives_filtering(self):
+        collection = TaskMetadataCollection.from_preset("BeyondArena")
+        # Set by from_preset as a thunk (not yet invoked), and propagated through filters.
+        assert callable(collection._default_predicates_provider)
+        filtered = collection.subset_tasks(problem_types=["binary"])
+        assert filtered._default_predicates_provider is collection._default_predicates_provider
+
+    def test_directly_built_collection_has_no_provider(self):
+        collection = _collection([_task_meta()])
+        assert collection._default_predicates_provider is None
+
+    def test_prebuilt_tabarena_collection_matches_preset(self):
+        from tabarena.benchmark.task.metadata import TabArenaTaskMetadataCollection
+
+        prebuilt = TabArenaTaskMetadataCollection()
+        preset = TaskMetadataCollection.from_preset("TabArena-v0.1")
+        assert isinstance(prebuilt, TaskMetadataCollection)
+        assert prebuilt == preset
+        # Default predicates attached -> `subset=` works without `predicates=`.
+        assert len(prebuilt.subset_tasks(subset="binary").dataset_names()) > 0
 
 
 # ---------------------------------------------------------------------------

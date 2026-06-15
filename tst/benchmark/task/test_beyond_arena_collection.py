@@ -154,6 +154,18 @@ def test_dataset_names_filter(patched_data_foundry):
     assert [m.dataset_name for m in result] == ["ds_reg"]
 
 
+def test_prebuilt_collection_matches_preset_and_carries_predicates(patched_data_foundry):
+    """`BeyondArenaTaskMetadataCollection()` == `from_preset("BeyondArena")`, predicates attached."""
+    from tabarena.benchmark.task.metadata import BeyondArenaTaskMetadataCollection
+
+    result = BeyondArenaTaskMetadataCollection()
+    assert isinstance(result, TaskMetadataCollection)
+    assert {m.dataset_name for m in result} == {"ds_bin", "ds_reg"}
+    assert patched_data_foundry == []  # inspection only, still no download
+    # The suite's default predicates come attached -> `subset=` needs no `predicates=`.
+    assert [m.dataset_name for m in result.subset_tasks(subset="binary")] == ["ds_bin"]
+
+
 def test_custom_metadata_passthrough_skips_reference_and_materialization(patched_data_foundry):
     """Passing custom metadata bypasses the reference loader; non-DF tasks aren't materialized."""
     custom = _ref_task(dataset_name="my_custom")

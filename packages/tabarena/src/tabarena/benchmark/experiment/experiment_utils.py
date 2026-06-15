@@ -29,7 +29,13 @@ class ExperimentBatchRunner:
     ):
         """Parameters
         ----------
-        expname
+        expname: str
+            Base output directory for this run — the root under which every experiment's
+            results are cached, at ``{expname}/data/{method}/{task_id}/{repeat}_{fold}/results.pkl``
+            (it is a filesystem path, despite the name; relative or absolute). Reused across
+            runs: an existing cache here is what ``cache_mode="default"`` skips / ``"only"``
+            loads, so point repeated runs of the same sweep at the same ``expname`` to resume.
+            Ignored only when ``cache_cls`` is the in-memory dummy (nothing is written).
         task_metadata: TaskMetadataCollection
             The native task metadata, and the single source of truth for what `run_all`
             executes: `run_all` runs exactly this collection's splits (a non-rectangular set
@@ -39,8 +45,17 @@ class ExperimentBatchRunner:
             ``TaskMetadataCollection.from_legacy_df(df)`` (or build one with
             ``TaskMetadataCollection(tasks)``) so the lossy legacy conversion stays an
             explicit, opt-in step at the call site.
-        cache_cls
-        cache_cls_kwargs
+        cache_cls: type[AbstractCacheFunction] | None, default CacheFunctionPickle
+            The cache backend used to persist and load each experiment's results under
+            ``expname``. The default :class:`~tabarena.utils.cache.CacheFunctionPickle` writes
+            one pickle per (method, task, split). Pass ``None`` (or
+            :class:`~tabarena.utils.cache.CacheFunctionDummy`) for an in-memory, no-disk cache:
+            nothing is written or reused, and results live only in the list ``run_jobs`` returns
+            — handy for throwaway / test runs.
+        cache_cls_kwargs: dict | None, default None
+            Extra keyword arguments forwarded to ``cache_cls`` on construction. ``None``
+            defaults to ``{"include_self_in_call": True}`` (the runner passes itself into the
+            cached call). See the chosen ``cache_cls`` for accepted keys.
         cache_mode: {"default", "ignore", "only", "only_strict"}, default "default"
             How to handle the experiment cache:
                 - "default": skip an experiment if its cache exists, otherwise run it.
@@ -51,12 +66,17 @@ class ExperimentBatchRunner:
                     missing from the cache.
         debug_mode: bool, default True
             If True, will operate in a manner best suited for local model development.
-            This mode will be friendly to local debuggers and will avoid subprocesses/threads
-            and complex try/except logic.
+            This mode is friendly to local debuggers: it skips the failure-artifact capture
+            (so a fit exception propagates cleanly instead of being recorded), and it defaults
+            bagged AutoGluon models to in-process ("sequential_local") fold fitting rather than
+            parallel Ray workers — easier to step through, and required to run a model class
+            defined in ``__main__`` (Ray workers can't unpickle it). An experiment that pins its
+            own ``fold_fitting_strategy`` (e.g. via the bundle's ``sequential_local_fold_fitting``
+            or a model's ``ag_args_ensemble``) is left untouched.
 
             IF False, will operate in a manner best suited for large-scale benchmarking.
-            This mode will try to record information when method's fail
-            and might not work well with local debuggers.
+            This mode will try to record information when method's fail, leaves fold fitting at
+            AutoGluon's default (parallel), and might not work well with local debuggers.
         raise_on_failure: bool, default True
             If True, exceptions raised during an experiment propagate and stop the run.
             If False, failures are recorded and the remaining experiments continue.

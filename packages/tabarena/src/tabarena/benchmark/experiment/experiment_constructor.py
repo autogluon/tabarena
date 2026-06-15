@@ -236,7 +236,7 @@ class Experiment:
         task_cache_cm = self.task_cache_scope(task=task, cache_task_key=cache_task_key)
         try:
             with task_cache_cm:
-                fit_args = self.init_method_kwargs(task=task)
+                fit_args = self.init_method_kwargs(task=task, debug_mode=bool(experiment_kwargs.get("debug_mode")))
                 out = cacher.cache(
                     fun=self.experiment_cls.init_and_run,
                     fun_kwargs=dict(
@@ -310,7 +310,7 @@ class Experiment:
             mode="require",
         )
 
-    def init_method_kwargs(self, *, task: TaskWrapper) -> dict:
+    def init_method_kwargs(self, *, task: TaskWrapper, debug_mode: bool = False) -> dict:
         """Build the finalized ``method_kwargs`` (passed as ``fit_args``) for a single fit.
 
         Works on a fresh deep copy of ``self.method_kwargs`` (the experiment is never mutated),
@@ -320,13 +320,34 @@ class Experiment:
         1. the task's validation metadata, when the dynamic protocol is enabled
            (``_apply_validation_metadata``);
         2. any preprocessing pipeline (``_apply_preprocessing``);
-        3. any auto-detected compute resources (``_apply_resources``).
+        3. any auto-detected compute resources (``_apply_resources``);
+        4. in-process fold fitting when ``debug_mode`` (``_apply_debug_fold_fitting``).
         """
         method_kwargs = copy.deepcopy(self.method_kwargs)
         if self.dynamic_tabarena_validation_protocol:
             method_kwargs = self._apply_validation_metadata(method_kwargs, task_metadata=task.get_validation_metadata())
         method_kwargs = self._apply_preprocessing(method_kwargs)
-        return self._apply_resources(method_kwargs)
+        method_kwargs = self._apply_resources(method_kwargs)
+        if debug_mode:
+            method_kwargs = self._apply_debug_fold_fitting(method_kwargs)
+        return method_kwargs
+
+    def _apply_debug_fold_fitting(self, method_kwargs: dict) -> dict:
+        """In debug mode, default a bagged AG model to in-process fold fitting and return it.
+
+        Bagged AutoGluon models otherwise fit their folds in parallel Ray workers.
+
+        Only applies to :class:`AGSingleBagWrapper`-based experiments, and only when no
+        ``fold_fitting_strategy`` is already set (an explicit choice — e.g. from a model's
+        ``ag_args_ensemble`` or ``sequential_local_fold_fitting`` — always wins). No-op otherwise.
+        """
+        if not (isinstance(self.method_cls, type) and issubclass(self.method_cls, AGSingleBagWrapper)):
+            return method_kwargs
+        hyperparameters = method_kwargs.get("model_hyperparameters")
+        if not isinstance(hyperparameters, dict):
+            return method_kwargs
+        hyperparameters.setdefault("ag_args_ensemble", {}).setdefault("fold_fitting_strategy", "sequential_local")
+        return method_kwargs
 
     def _apply_preprocessing(self, method_kwargs: dict) -> dict:
         """Apply ``self.preprocessing_pipeline`` to ``method_kwargs`` and return it.
@@ -366,25 +387,29 @@ class Experiment:
     def _apply_resources(method_kwargs: dict) -> dict:
         """Return ``method_kwargs`` with any ``None`` compute resources auto-detected.
 
-        A serialized experiment can carry ``num_cpus=None`` / ``memory_limit=None``
-        to mean "detect on whatever node I run on", preserving per-node
-        auto-detection while keeping the experiment self-contained. Returns the
+        A serialized experiment can carry ``num_cpus=None`` / ``num_gpus=None`` /
+        ``memory_limit=None`` to mean "detect on whatever node I run on", preserving
+        per-node auto-detection while keeping the experiment self-contained. Returns the
         input unchanged when there is nothing to detect (no copy); otherwise a
         deep-copied ``method_kwargs`` with the detected values filled in.
         """
         fit_kwargs = method_kwargs.get("fit_kwargs") or {}
         detect_cpus = fit_kwargs.get("num_cpus", 0) is None
+        detect_gpus = fit_kwargs.get("num_gpus", 0) is None
         detect_memory = fit_kwargs.get("memory_limit", 0) is None
-        if not (detect_cpus or detect_memory):
+        if not (detect_cpus or detect_gpus or detect_memory):
             return method_kwargs
 
-        from tabarena.utils.resources import detect_memory_limit_gb, detect_num_cpus
+        from tabarena.utils.resources import detect_memory_limit_gb, detect_num_cpus, detect_num_gpus
 
         method_kwargs = copy.deepcopy(method_kwargs)
         fit_kwargs = method_kwargs["fit_kwargs"]
         if detect_cpus:
             fit_kwargs["num_cpus"] = detect_num_cpus()
             print(f"num_cpus not provided, using detected number of CPUs: {fit_kwargs['num_cpus']}")
+        if detect_gpus:
+            fit_kwargs["num_gpus"] = detect_num_gpus()
+            print(f"num_gpus not provided, using detected number of GPUs: {fit_kwargs['num_gpus']}")
         if detect_memory:
             fit_kwargs["memory_limit"] = detect_memory_limit_gb()
             print(f"memory_limit not provided, using detected memory size: {fit_kwargs['memory_limit']} GB")

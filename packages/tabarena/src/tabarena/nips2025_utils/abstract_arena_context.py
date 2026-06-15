@@ -478,6 +478,10 @@ class AbstractArenaContext:
 
         If no filters are given, `run_all` runs every split in `task_metadata`. Extra keyword
         arguments (``cache_mode``, ``debug_mode``, ...) are forwarded to `ExperimentBatchRunner`.
+        Omitting ``debug_mode`` inherits its default (``True``): a debugger-friendly local mode
+        that, for bagged AutoGluon models, fits folds in-process ("sequential_local") rather than
+        in parallel Ray workers. Pass ``debug_mode=False`` for large-scale benchmarking (parallel
+        fold fitting + recorded failure artifacts).
         """
         from tabarena.benchmark.experiment import ExperimentBatchRunner
 

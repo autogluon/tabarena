@@ -18,7 +18,7 @@ def run_tabarena_lite_for_custom_rf():
     the custom random forest model.
     """
     # TabArena-v0.1 Lite: the first split (r0f0) of each of the 51 datasets.
-    task_metadata = TaskMetadataCollection.from_preset("TabArena-v0.1-lite")
+    task_metadata = TaskMetadataCollection.from_preset("TabArena-v0.1").subset_tasks(split_indices="lite")
 
     # Gets 1 default and 1 random config = 2 configs
     model_experiments = get_configs_for_custom_rf(num_random_configs=1)

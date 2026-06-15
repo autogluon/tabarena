@@ -48,8 +48,9 @@ benchmark_plan = TabArenaBenchmarkPlan(
     ],
     # Scope to one tiny dataset so the demo is fast — the full Lite preset is 51
     # datasets. Add more names (e.g. "diabetes") to widen it.
-    tasks=TaskMetadataCollection.from_preset("TabArena-v0.1-lite").subset_tasks(
+    tasks=TaskMetadataCollection.from_preset("TabArena-v0.1").subset_tasks(
         dataset_names=["blood-transfusion-service-center"],
+        split_indices="lite",
     ),
     experiment_bundle=TabArenaV0pt1ExperimentBundle(),
     path_setup=PathSetup(

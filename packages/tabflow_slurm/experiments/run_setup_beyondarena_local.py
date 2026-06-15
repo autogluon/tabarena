@@ -29,8 +29,9 @@ benchmark_plan = TabArenaBenchmarkPlan(
     # Scope to the smallest dataset (155 rows) so the demo is fast — the full
     # BeyondArena preset is 142 datasets. Add more names to widen it; only the
     # selected datasets are downloaded.
-    tasks=TaskMetadataCollection.from_preset("BeyondArena-lite").subset_tasks(
+    tasks=TaskMetadataCollection.from_preset("BeyondArena").subset_tasks(
         dataset_names=["hepatitis_survival_prediction"],
+        split_indices="lite",
     ),
     experiment_bundle=BeyondArenaExperimentBundle(),
     path_setup=PathSetup(

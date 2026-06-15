@@ -304,6 +304,51 @@ class EndToEnd:
             end_to_end_results_lst=[end_to_end.to_results() for end_to_end in self.end_to_end_lst],
         )
 
+    @classmethod
+    def from_raw_to_results_df(
+        cls,
+        results_lst: list[BaselineResult | dict],
+        task_metadata: TaskMetadataCollection | None = None,
+        *,
+        new_result_prefix: str | None = None,
+        debug_mode: bool = True,
+        verbose: bool = True,
+    ) -> pd.DataFrame:
+        """Turn raw experiment results into a tidy per-(method, dataset, fold) results DataFrame.
+
+        One-call shorthand for the common
+        ``EndToEnd.from_raw(...).to_results().get_results(...)`` chain.
+
+        Args:
+            results_lst: Raw results, e.g. the list returned by
+                :meth:`ExperimentBatchRunner.run_jobs`.
+            task_metadata: The tasks the results were produced on (inferred from the results
+                if omitted).
+            new_result_prefix: Prefix added to each method name in the output (e.g. ``"[New] "``),
+                handy to distinguish your results from cached baselines when comparing.
+            debug_mode: If True (default), use the lightweight settings suited to local runs /
+                examples — no caching and the in-process ``"native"`` backend
+                (``cache=False``, ``cache_raw=False``, ``backend="native"``). If False, use the
+                cached, Ray-backed settings (``cache=True``, ``cache_raw=True``, ``backend="ray"``)
+                suited to large-scale benchmarking.
+            verbose: Whether to print progress.
+
+        Returns:
+            The results DataFrame. For finer control (e.g. ``fillna``,
+            ``use_model_results``) call ``from_raw(...).to_results().get_results(...)`` directly.
+        """
+        cache = not debug_mode
+        backend: Literal["ray", "native"] = "native" if debug_mode else "ray"
+        end_to_end = cls.from_raw(
+            results_lst=results_lst,
+            task_metadata=task_metadata,
+            cache=cache,
+            cache_raw=cache,
+            backend=backend,
+            verbose=verbose,
+        )
+        return end_to_end.to_results().get_results(new_result_prefix=new_result_prefix)
+
 
 class EndToEndResults:
     def __init__(

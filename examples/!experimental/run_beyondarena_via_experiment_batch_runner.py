@@ -8,8 +8,8 @@ the way the tabflow_slurm benchmark setup does it (see
 
 1. Load the suite's metadata with ``TaskMetadataCollection.from_preset`` (committed
    reference CSV, no downloads) and filter it with ``subset_tasks`` — here one tiny
-   dataset on its first split (the ``-lite`` preset keeps ``r0f0``; the full suite has
-   142 datasets x 20 repeats x 3 folds).
+   dataset on its first split (``split_indices="lite"`` keeps ``r0f0``; the full suite
+   has 142 datasets x 20 repeats x 3 folds).
 2. ``materialize()`` the surviving tasks: download them from the Data Foundry warehouse
    and convert each into a local OpenML ``UserTask`` pickle (only the filtered subset
    is fetched; cached after the first run).
@@ -60,8 +60,8 @@ if __name__ == "__main__":
     # dataset (155 rows, binary) so the demo is fast; add more names to widen it — only
     # the selected datasets are downloaded.
     task_collection = (
-        TaskMetadataCollection.from_preset("BeyondArena-lite")
-        .subset_tasks(dataset_names=["hepatitis_survival_prediction"])
+        TaskMetadataCollection.from_preset("BeyondArena")
+        .subset_tasks(dataset_names=["hepatitis_survival_prediction"], split_indices="lite")
         .materialize()
     )
 
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     )
 
     # 4: experiments x the collection's splits — the same enumerator the SLURM setup
-    # uses. With the lite preset this is one (dataset, fold=0, repeat=0) split.
+    # uses. With the lite split filter this is one (dataset, fold=0, repeat=0) split.
     jobs = build_jobs(experiments, task_collection)
 
     # 5: materialized UserTasks auto-resolve from the collection; nothing to register.
