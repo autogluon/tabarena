@@ -542,8 +542,7 @@ class EndToEndResults:
     def to_method_metadata_lst(self, *, new_result_prefix: str | None = None) -> list:
         """Vend each method as an :class:`InMemoryMethodMetadata` for context registration."""
         return [
-            result.to_method_metadata(new_result_prefix=new_result_prefix)
-            for result in self.end_to_end_results_lst
+            result.to_method_metadata(new_result_prefix=new_result_prefix) for result in self.end_to_end_results_lst
         ]
 
     def get_results(

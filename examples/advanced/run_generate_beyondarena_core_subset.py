@@ -38,7 +38,9 @@ if __name__ == "__main__":
     fold_similarity = pd.read_csv(save_path / "fold_similarity.csv")
     folds_needed_col = f"folds_needed_for_stability@{TARGET_RELIABILITY}"
     fold_similarity["folds_to_use"] = fold_similarity[[folds_needed_col, "num_folds"]].min(axis=1)
-    folds_to_use = {str(d): int(n) for d, n in zip(fold_similarity["dataset"], fold_similarity["folds_to_use"], strict=False)}
+    folds_to_use = {
+        str(d): int(n) for d, n in zip(fold_similarity["dataset"], fold_similarity["folds_to_use"], strict=False)
+    }
 
     # 3) expand to valid tasks: each dataset's first `folds_to_use` splits (lowest split indices).
     grid = tabarena_context.task_metadata_collection.task_grid()
