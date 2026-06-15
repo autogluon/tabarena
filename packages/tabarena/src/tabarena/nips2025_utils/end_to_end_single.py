@@ -649,6 +649,17 @@ class EndToEndResultsSingle:
             remove_imputed=remove_imputed,
         )
 
+    def to_method_metadata(self, *, new_result_prefix: str | None = None):
+        """Vend this method as an :class:`InMemoryMethodMetadata` (metadata + in-memory results).
+
+        The returned object can be passed to an arena context's ``methods=`` /
+        ``extra_methods=`` so the method is registered at init and flows through
+        ``compare`` and the leaderboard/website machinery like a cached baseline.
+        """
+        from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
+
+        return InMemoryMethodMetadata.from_results_single(self, new_result_prefix=new_result_prefix)
+
     def get_results(
         self,
         new_result_prefix: str | None = None,

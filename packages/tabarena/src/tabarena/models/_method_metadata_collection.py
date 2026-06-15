@@ -117,7 +117,7 @@ class MethodMetadataCollection:
     def info(self) -> pd.DataFrame:
         info_lst = []
         for method_metadata in self.method_metadata_lst:
-            cur_info = method_metadata.__dict__
+            cur_info = method_metadata.to_info_dict()
             info_lst.append(cur_info)
 
         return pd.DataFrame(info_lst)
