@@ -44,3 +44,31 @@ class SubsetPredicate:
                 f"available columns: {sorted(df.columns)}.",
             )
         return self.predicate(df)
+
+
+def tasks_in_frame(
+    valid_tasks: pd.DataFrame,
+    *,
+    dataset_col: str = "dataset",
+    split_col: str = "split",
+) -> SubsetPredicate:
+    """A :class:`SubsetPredicate` keeping grid rows whose ``(dataset, split)`` is in ``valid_tasks``.
+
+    Unlike the stateless column-comparison predicates in a context's ``SUBSET_PREDICATES`` (e.g.
+    ``"lite"`` == ``split == 0``), this one is *data-dependent*: it closes over an explicit set of
+    valid ``(dataset, split)`` tasks (e.g. read from a committed CSV). Use it to express filters a
+    single column lambda cannot, such as "the first N splits of each dataset" where N varies per
+    dataset. ``dataset_col`` / ``split_col`` name those columns in ``valid_tasks``; the grid it is
+    evaluated against must carry ``"dataset"`` and ``"split"``.
+    """
+    import pandas as pd
+
+    valid: set[tuple[str, int]] = set(
+        zip(valid_tasks[dataset_col].astype(str), valid_tasks[split_col].astype(int), strict=False),
+    )
+
+    def _mask(df: pd.DataFrame) -> pd.Series:
+        keys = zip(df["dataset"].astype(str), df["split"].astype(int), strict=False)
+        return pd.Series([key in valid for key in keys], index=df.index)
+
+    return SubsetPredicate(_mask, ("dataset", "split"))
