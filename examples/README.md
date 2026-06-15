@@ -23,12 +23,8 @@ TabArena's data.
 
 - **Folder:** `benchmarking/`
 - **Use Cases:**
-  - `run_quickstart_tabarena.py` - Reproduce running LightGBM and RealMLP on three datasets from TabArena
-  - `custom_tabarena_model/` - Implement your own model for TabArena and benchmark it on TabArena-Lite 
-  - `run_get_tabarena_datasets_from_openml.py` - Get the data used by TabArena from OpenML, without the TabArena framework
-  - `run_quickstart_tabarena_custom_datasets.py` - Benchmarking models with TabArena on your custom (private) datasets.
-  - `run_quickstart_tabarena_one_datasets.py` - Benchmarking and evaluating models with TabArena on one dataset.
-  -  `run_beta_tabpfn_end_to_end.py` - An example of how to load and compare new results artifacts using TabArena. 
+  - `run_quickstart_tabarena.py` - Benchmark a registry model and your own custom model on TabArena-Lite (incl. HPO) and compare to the leaderboard.
+  - `run_quickstart_tabarena_custom_datasets.py` - Benchmark TabArena models on your own (custom / private) datasets.
 
 ### 🚀 Using SOTA Tabular Models Benchmarked by TabArena
 
@@ -38,10 +34,20 @@ ML pipelines.
 
 - **Folder:** `running_tabarena_models/`
 - **Use Cases:**
-  - `run_default_model.py` - Minimal example for running a default model (with cross-validation bagging).
-  - `run_tuned_ensemble_model.py` - Minimal example for running a tuned (+ ensembled) model.
-  - `run_tabarena_realmlp.py` - Simple example for running TabArena's version of RealMLP.
-  - `run_autogluon_on_openml_task.py` - Minimal example for running AutoGluon on any OpenML task.
+  - `run_tabarena_model.py` - Use a TabArena model on your own data, three ways: a single fit, cross-validation bagging, and tuned + ensembled.
+
+### 🧪 Advanced and Specialized Usage
+
+Lower-level and specialized workflows: running on arbitrary OpenML tasks, plain AutoGluon
+on OpenML, and no-bagging foundation-model setups.
+
+- **Folder:** `advanced/`
+- **Use Cases:**
+  - `run_any_openml_task.py` - Benchmark TabArena models (full TabArena workflow) on any OpenML task, including tasks not in TabArena.
+  - `run_quickstart_tabarena_model_without_bagging.py` - Benchmark a model as an *outer* (no-bagging) experiment on TabArena (shown with TabICLv2: a default + an `n_estimators=1` config).
+  - `run_autogluon_on_openml_task.py` - Run AutoGluon on any OpenML task.
+  - `run_autogluon_on_openml_task_with_hpo_configs.py` - Run AutoGluon on an OpenML task using TabArena's model search spaces.
+  - `run_get_tabarena_datasets_from_openml.py` - Get the data used by TabArena from OpenML, without the TabArena framework.
 
 ### 🗃️ Analysing Metadata and Meta-Learning
 
@@ -54,6 +60,7 @@ and use it for insightful studies or meta-learning.
   - `inspect_processed_data.py` - Inspect the processed data from prior benchmarks.
   - `inspect_raw_data.py` - Inspect the raw data from prior benchmarks.
   - `run_download_raw.py` - Download all the raw data from prior benchmarks.
+  - `compare_task_metadata_sources.py` - Compare task metadata across its different sources.
 
 
 ### 📈 Generating Plots and Leaderboards
@@ -62,10 +69,12 @@ To inspect the results of TabArena benchmarks, we can use various plots and lead
 We share code to generate these visualizations from the raw benchmark results.
 
 - **Folder:** `plots/`
-- - **Use Cases:**
+- **Use Cases:**
   - `run_generate_main_leaderboard.py` - Generate the main leaderboard from TabArena results.
+  - `run_generate_beyondarena_leaderboard.py` - Generate the BeyondArena leaderboard.
   - `run_generate_paper_figures.py` - Generate the figures used in the TabArena NeurIPS'2025 paper.
   - `run_plot_pareto_over_tuning_time.py` - Generate the plots showing trade-offs of predictive performance and efficiency.
+  - `run_beta_tabpfn_end_to_end.py` - Load precomputed result artifacts and generate a leaderboard + figures comparing them to TabArena.
 
 ### 🔁 Reproducibility
 

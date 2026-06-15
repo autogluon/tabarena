@@ -26,7 +26,7 @@ benchmark_plan = TabArenaBenchmarkPlan(
         # Example for CPU model: no resource override, so it runs on the base CPU resources.
         ModelJob(models=("Linear", 1), name="cpu"),
     ],
-    tasks=TaskMetadataCollection.from_preset("TabArena-v0.1-lite"),
+    tasks=TaskMetadataCollection.from_preset("TabArena-v0.1").subset_tasks(split_indices="lite"),
     experiment_bundle=TabArenaV0pt1ExperimentBundle(),
     path_setup=PathSetup(
         workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",

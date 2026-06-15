@@ -173,6 +173,13 @@ class BaselineResult(AbstractResult):
         """
         if "metric_error_val" in self.result:
             self.result["metric_error_val"] = float(self.result["metric_error_val"])
+        # Canonicalize metric-name aliases for every result (e.g. AutoGluon's
+        # ``root_mean_squared_error`` == TabArena's ``rmse``), so downstream comparisons join
+        # on one name regardless of whether the result carries simulation artifacts.
+        if "metric" in self.result:
+            from tabarena.benchmark.task.metrics import normalize_eval_metric
+
+            self.result["metric"] = normalize_eval_metric(self.result["metric"])
         if "df_results" in self.result:
             self.result.pop("df_results")
         if "task_metadata" not in self.result:

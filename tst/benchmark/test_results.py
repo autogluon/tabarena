@@ -149,6 +149,15 @@ def test_result_baseline():
     assert repo.configs() == []
 
 
+def test_result_baseline_canonicalizes_metric_alias():
+    # A no-simulation-artifacts (e.g. outer/no-validation) result must canonicalize the
+    # metric alias so it joins the rmse-named baselines in `compare`.
+    result = _make_result_baseline()
+    result["metric"] = "root_mean_squared_error"
+    result["problem_type"] = "regression"
+    assert BaselineResult(result=result).result["metric"] == "rmse"
+
+
 def test_result_config():
     result = _make_result_config()
     ConfigResult(result=result)

@@ -9,9 +9,17 @@ from tabarena.benchmark.preprocessing.model_agnostic_default_preprocessing impor
 from tabarena.benchmark.preprocessing.model_specific_default_preprocessing import (
     TabArenaModelSpecificPreprocessing,
 )
+from tabarena.benchmark.preprocessing.pipeline import (
+    PreprocessingPipeline,
+    build_feature_generator,
+    resolve_preprocessing_pipeline,
+)
 
 __all__ = [
     "GroupAggregationFeatureGenerator",
+    "PreprocessingPipeline",
     "TabArenaModelAgnosticPreprocessing",
     "TabArenaModelSpecificPreprocessing",
+    "build_feature_generator",
+    "resolve_preprocessing_pipeline",
 ]

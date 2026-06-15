@@ -101,6 +101,14 @@ class AbstractExecModel:
     shuffle_features: bool = False
     """If True, deterministically permute the feature columns (per split) before fitting.
     Requires a ``split_seed`` in ``fit_custom``. See ``_shuffle_features``."""
+    verbosity: int | None = None
+    """Verbosity for the ``preprocess_data`` feature generator. ``None`` (default) leaves
+    AutoGluon's logger untouched — so a standalone fit (no ``TabularPredictor`` to configure
+    logging) stays silent, as before. An int turns logging on for the fit: it raises the
+    AutoGluon logger to the matching level (via ``set_logger_verbosity``) and sets the feature
+    generator's verbosity, so its preprocessing output is shown (2 = the usual key prints,
+    3+ = more detail). Wrappers that delegate preprocessing to ``TabularPredictor`` (which
+    handles its own verbosity) leave ``preprocess_data=False`` and are unaffected."""
 
     #: Config attributes (above) that ``__init__`` accepts as per-instance overrides.
     _CONFIG_ATTRS = (
@@ -110,6 +118,7 @@ class AbstractExecModel:
         "shuffle_seed",
         "reset_index_test",
         "shuffle_features",
+        "verbosity",
     )
 
     def __init__(
@@ -172,18 +181,36 @@ class AbstractExecModel:
             return self._feature_generator.transform(X)
         return X
 
+    def _make_feature_generator(self):
+        """Build the (unfitted) model-agnostic feature generator for ``preprocess_data``.
+
+        Default is AutoGluon's standard ``AutoMLPipelineFeatureGenerator``. Subclasses override
+        this to use a different model-agnostic pipeline (e.g. ``AGModelWrapper`` resolves the
+        TabArena ``tabarena_default`` generator), keeping the rest of the preprocessing flow shared.
+        """
+        return AutoMLPipelineFeatureGenerator()
+
     def _preprocess_fit_transform(self, X: pd.DataFrame, y: pd.Series):
         """Fit the label cleaner and (optionally) feature generator, then transform ``X``/``y``.
 
         Called once at the start of ``fit``. Sets ``self.label_cleaner`` and, when
-        ``preprocess_data`` is enabled, ``self._feature_generator``.
+        ``preprocess_data`` is enabled, ``self._feature_generator`` (built by
+        ``_make_feature_generator``).
         """
         if self.preprocess_label:
             self.label_cleaner = LabelCleaner.construct(problem_type=self.problem_type, y=y)
         else:
             self.label_cleaner = LabelCleanerDummy(problem_type=self.problem_type)
         if self.preprocess_data:
-            self._feature_generator = AutoMLPipelineFeatureGenerator()
+            self._feature_generator = self._make_feature_generator()
+            if self.verbosity is not None:
+                # Surface the feature generator's logs: raise AutoGluon's logger to the matching
+                # level (TabularPredictor does this in the validation path; a standalone fit does
+                # not) and set the generator's own verbosity.
+                from autogluon.common.utils.log_utils import set_logger_verbosity
+
+                set_logger_verbosity(self.verbosity)
+                self._feature_generator.set_verbosity(self.verbosity)
             X = self._feature_generator.fit_transform(X=X, y=y)
         y = self.transform_y(y)
         return X, y

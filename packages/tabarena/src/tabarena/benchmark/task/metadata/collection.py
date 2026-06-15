@@ -15,10 +15,38 @@ from tabarena.benchmark.task.metadata.schema import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
     from tabarena.benchmark.task.metadata.sources import TaskMetadataSource
+    from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
+
+
+def _preset_subset_predicates_provider(
+    suite_name: str,
+) -> Callable[[], dict[str, SubsetPredicate]] | None:
+    """Lazy provider of a suite's default subset predicates (``None`` for unknown suites).
+
+    Returns a zero-arg thunk so the (heavier) arena-context import happens only when the
+    subset filter actually runs — never at :meth:`TaskMetadataCollection.from_preset` time.
+    """
+    if suite_name == "BeyondArena":
+
+        def _beyond() -> dict[str, SubsetPredicate]:
+            from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+
+            return BeyondArenaContext.SUBSET_PREDICATES
+
+        return _beyond
+    if suite_name == "TabArena-v0.1":
+
+        def _tabarena() -> dict[str, SubsetPredicate]:
+            from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+
+            return TabArenaContext.SUBSET_PREDICATES
+
+        return _tabarena
+    return None
 
 
 class TaskMetadataCollection:
@@ -29,9 +57,10 @@ class TaskMetadataCollection:
     * **Construction** — :meth:`from_source` (any
       :class:`~tabarena.benchmark.task.metadata.sources.base.TaskMetadataSource`, suite
       literal, DataFrame, CSV path, or task list) and :meth:`from_preset` (the registered
-      benchmark suites, e.g. ``"TabArena-v0.1-lite"``).
+      benchmark suites, e.g. ``"TabArena-v0.1"``).
     * **Filtering** — :meth:`subset_tasks` (declarative filters: problem types, split
-      indices, dataset names, dtypes, train-set size) and :meth:`subset` (explicit
+      indices, dataset names, dtypes, train-set size, and named subset predicates such as
+      ``BeyondArenaContext.SUBSET_PREDICATES``) and :meth:`subset` (explicit
       ``(dataset, fold, repeat)`` triplets).
     * **Materialization** — :meth:`materialize` makes the (already-filtered) tasks
       runnable via the retained source (e.g. Data Foundry downloads only this
@@ -50,9 +79,19 @@ class TaskMetadataCollection:
     Equality compares the task lists (the source is provenance, not identity).
     """
 
-    def __init__(self, tasks: list[TabArenaTaskMetadata], *, source: TaskMetadataSource | None = None):
+    def __init__(
+        self,
+        tasks: list[TabArenaTaskMetadata],
+        *,
+        source: TaskMetadataSource | None = None,
+        default_predicates_provider: Callable[[], dict[str, SubsetPredicate]] | None = None,
+    ):
         self._tasks = list(tasks)
         self._source = source
+        # Lazy provider of this collection's default subset predicates (set by `from_preset`
+        # per suite family). A zero-arg thunk, called only when `subset_tasks(subset=...)`
+        # runs without an explicit `predicates=`, so the (heavier) context import stays lazy.
+        self._default_predicates_provider = default_predicates_provider
 
     # ------------------------------------------------------------------ construction
     @classmethod
@@ -85,17 +124,23 @@ class TaskMetadataCollection:
     def from_preset(cls, preset: str, *, verbose: bool = False) -> TaskMetadataCollection:
         """Load a registered benchmark suite by name (metadata only, no downloads).
 
-        Presets: ``"TabArena-v0.1"``, ``"BeyondArena"``, plus their ``"-lite"`` variants
-        (first split — ``r0f0`` — of each dataset). Unlike :meth:`from_source`, an
-        unknown name raises instead of being treated as a CSV path.
+        Presets: ``"TabArena-v0.1"``, ``"BeyondArena"``. Unlike :meth:`from_source`, an
+        unknown name raises instead of being treated as a CSV path. To run a single split
+        per dataset, filter the result with ``subset_tasks(split_indices="lite")`` (or
+        ``subset="lite"``).
+
+        The returned collection remembers the suite's default subset predicates, so
+        :meth:`subset_tasks` accepts ``subset=`` without an explicit ``predicates=``
+        (BeyondArena -> ``BeyondArenaContext.SUBSET_PREDICATES``, TabArena ->
+        ``TabArenaContext.SUBSET_PREDICATES``). The predicates are loaded lazily — only when
+        the subset filter actually runs.
         """
         suites = ("TabArena-v0.1", "BeyondArena")
-        base, lite = (preset[: -len("-lite")], True) if preset.endswith("-lite") else (preset, False)
-        if base not in suites:
-            options = [s + variant for s in suites for variant in ("", "-lite")]
-            raise ValueError(f"Unknown preset {preset!r}. Available presets: {options}.")
-        collection = cls.from_source(base, verbose=verbose)
-        return collection.subset_tasks(split_indices="lite") if lite else collection
+        if preset not in suites:
+            raise ValueError(f"Unknown preset {preset!r}. Available presets: {list(suites)}.")
+        collection = cls.from_source(preset, verbose=verbose)
+        collection._default_predicates_provider = _preset_subset_predicates_provider(preset)
+        return collection
 
     # ------------------------------------------------------------------ list-like
     @property
@@ -187,7 +232,7 @@ class TaskMetadataCollection:
             kept = {idx: s for idx, s in t.splits_metadata.items() if (s.fold, s.repeat) in wanted_splits}
             if kept:
                 new_tasks.append(replace(t, splits_metadata=kept))
-        return TaskMetadataCollection(new_tasks, source=self._source)
+        return self._with_tasks(new_tasks)
 
     def subset_tasks(
         self,
@@ -199,6 +244,8 @@ class TaskMetadataCollection:
         required_dtypes: list[str] | None = None,
         forbidden_dtypes: list[str] | None = None,
         n_train_samples: tuple[int | None, int | None] | None = None,
+        subset: str | list[str] | None = None,
+        predicates: dict[str, SubsetPredicate] | None = None,
         verbose: bool = False,
     ) -> TaskMetadataCollection:
         """A new collection restricted by declarative filters (``None`` = no filter).
@@ -220,6 +267,20 @@ class TaskMetadataCollection:
         * ``n_train_samples`` — ``(lower, upper)`` bounds on a split's number of training
           samples; lower is exclusive, upper inclusive, ``None`` means unbounded on that
           side. Splits outside the band are dropped (and tasks left with no splits).
+        * ``subset`` — named subset predicate expression(s) evaluated against
+          :meth:`task_grid` (the same predicates an arena context applies in ``compare``).
+          A single string is one expression; a list is AND-ed together. Within an
+          expression, ``|`` is a union (OR) and a leading ``!`` negates an atom — e.g.
+          ``"tiny"``, ``["classification", "!tiny"]``, ``"binary|multiclass"``. Splits not
+          matching are dropped (and tasks left with no splits), so split-level predicates
+          like ``"lite"`` work too. The predicate names come from ``predicates``; for a
+          collection built via :meth:`from_preset` these default to the suite's own (size
+          buckets ``tiny``/``small``/``medium``/``large``, ``iid``/``temporal``/``grouped``,
+          ``text``, ``low-dim`` … for BeyondArena), so you can pass just ``subset=`` there.
+        * ``predicates`` — the subset-name → :class:`SubsetPredicate` map ``subset`` resolves
+          against. ``None`` uses this collection's preset default (set by :meth:`from_preset`)
+          and otherwise falls back to ``TabArenaContext.SUBSET_PREDICATES``. Ignored when
+          ``subset`` is ``None``.
 
         The source ref is preserved, so the usual flow is filter-then-:meth:`materialize`
         (only the surviving tasks are downloaded). ``verbose`` prints how many tasks
@@ -251,6 +312,9 @@ class TaskMetadataCollection:
         if n_train_samples is not None:
             result = result._filter_train_samples(n_train_samples)
             steps.append(("Filter to dataset size", result))
+        if subset is not None:
+            result = result._filter_subset(subset, predicates=predicates)
+            steps.append(("Filter to subset predicates", result))
 
         if verbose:
             lines = [
@@ -262,8 +326,14 @@ class TaskMetadataCollection:
         return result
 
     def _with_tasks(self, tasks: list[TabArenaTaskMetadata]) -> TaskMetadataCollection:
-        """A new collection over ``tasks``, preserving this collection's source ref."""
-        return TaskMetadataCollection(tasks, source=self._source)
+        """A new collection over ``tasks``, preserving this collection's source ref and
+        default subset-predicate provider.
+        """
+        return TaskMetadataCollection(
+            tasks,
+            source=self._source,
+            default_predicates_provider=self._default_predicates_provider,
+        )
 
     def _filter_split_indices(self, split_indices: list[str] | Literal["lite"]) -> TaskMetadataCollection:
         """Keep only the splits whose ``split_index`` is listed; drop tasks left empty."""
@@ -305,6 +375,45 @@ class TaskMetadataCollection:
                 f"Available task ids: {sorted(available)}",
             )
         return self._with_tasks([t for t in self._tasks if str(t.task_id_str) in requested])
+
+    def _filter_subset(
+        self,
+        subset: str | list[str],
+        *,
+        predicates: dict[str, SubsetPredicate] | None,
+    ) -> TaskMetadataCollection:
+        """Keep splits matching the named subset predicate expression(s); drop tasks left empty.
+
+        Evaluates each expression against :meth:`task_grid` using the same evaluator the
+        arena contexts use (so ``|`` / ``!`` and context-defined names like ``"tiny"`` or
+        ``"iid"`` behave identically), intersecting the surviving ``(dataset, fold, repeat)``
+        splits across expressions.
+
+        When ``predicates`` is ``None``, the collection's default provider (set by
+        :meth:`from_preset`) is consulted lazily; if there is none either, the evaluator
+        falls back to ``TabArenaContext.SUBSET_PREDICATES``.
+        """
+        from tabarena.nips2025_utils.compare import _evaluate_subset_expression
+
+        if predicates is None and self._default_predicates_provider is not None:
+            predicates = self._default_predicates_provider()
+        expressions = [subset] if isinstance(subset, str) else list(subset)
+        grid = self.task_grid()
+        for expression in expressions:
+            mask = _evaluate_subset_expression(expression, grid, predicates=predicates)
+            grid = grid[mask.values]
+        surviving = {
+            (dataset, int(fold), int(repeat))
+            for dataset, fold, repeat in zip(grid["dataset"], grid["fold"], grid["repeat"], strict=False)
+        }
+        new_tasks = []
+        for t in self._tasks:
+            kept = {
+                idx: s for idx, s in t.splits_metadata.items() if (t.tabarena_task_name, s.fold, s.repeat) in surviving
+            }
+            if kept:
+                new_tasks.append(replace(t, splits_metadata=kept))
+        return self._with_tasks(new_tasks)
 
     def _filter_train_samples(self, n_train_samples: tuple[int | None, int | None]) -> TaskMetadataCollection:
         """Keep splits whose train size is in ``(lower, upper]``; drop tasks left empty."""
@@ -554,3 +663,46 @@ class TaskMetadataCollection:
         for t in self._tasks:
             out.setdefault(t.tabarena_task_name, tid_from_task_id_str(t.task_id_str))
         return out
+
+
+class _PresetTaskMetadataCollection(TaskMetadataCollection):
+    """Base for ready-to-use, suite-specific collections built from a registered preset.
+
+    Subclasses set ``_PRESET``; instantiating one is the importable shorthand for
+    :meth:`TaskMetadataCollection.from_preset` — metadata only (no downloads), with the
+    suite's subset predicates attached (so :meth:`subset_tasks` accepts ``subset=`` without
+    ``predicates=``). To run a single split per dataset, filter with
+    ``subset_tasks(split_indices="lite")``.
+    """
+
+    _PRESET: str
+
+    def __init__(self, *, verbose: bool = False) -> None:
+        loaded = TaskMetadataCollection.from_preset(self._PRESET, verbose=verbose)
+        super().__init__(
+            loaded._tasks,
+            source=loaded._source,
+            default_predicates_provider=loaded._default_predicates_provider,
+        )
+
+
+class TabArenaTaskMetadataCollection(_PresetTaskMetadataCollection):
+    """The TabArena-v0.1 suite as a ready-to-use collection.
+
+    ``TabArenaTaskMetadataCollection()`` == ``TaskMetadataCollection.from_preset("TabArena-v0.1")``.
+    Its default subset predicates are ``TabArenaContext.SUBSET_PREDICATES`` (loaded lazily on
+    first ``subset=`` use).
+    """
+
+    _PRESET = "TabArena-v0.1"
+
+
+class BeyondArenaTaskMetadataCollection(_PresetTaskMetadataCollection):
+    """The BeyondArena suite as a ready-to-use collection.
+
+    ``BeyondArenaTaskMetadataCollection()`` == ``TaskMetadataCollection.from_preset("BeyondArena")``.
+    Its default subset predicates are ``BeyondArenaContext.SUBSET_PREDICATES`` (loaded lazily on
+    first ``subset=`` use).
+    """
+
+    _PRESET = "BeyondArena"

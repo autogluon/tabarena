@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import gc
-import inspect
 import shutil
 from typing import TYPE_CHECKING
 
@@ -15,6 +14,7 @@ from loguru import logger
 from tabarena.benchmark.exec_models.autogluon_utils import resolve_validation_splits
 from tabarena.benchmark.exec_models.base import AbstractExecModel
 from tabarena.benchmark.exec_models.utils import _apply_inv_perm
+from tabarena.benchmark.preprocessing.pipeline import build_feature_generator, resolve_preprocessing_pipeline
 from tabarena.benchmark.task.metadata import ValidationMetadata
 
 if TYPE_CHECKING:
@@ -165,21 +165,21 @@ class AGWrapper(AbstractExecModel):
         """Instantiate ``feature_generator_cls`` into ``fit_kwargs["feature_generator"]`` (in place).
 
         No-op when ``feature_generator_cls`` is absent. Forwards any group/time split columns
-        from the validation metadata that the generator's ``__init__`` accepts.
+        from the validation metadata that the generator's ``__init__`` accepts, via the shared
+        :func:`~tabarena.benchmark.preprocessing.build_feature_generator`.
         """
         feature_generator_cls = fit_kwargs.pop("feature_generator_cls", None)
+        feature_generator_kwargs = fit_kwargs.pop("feature_generator_kwargs", {})
         if feature_generator_cls is None:
             return
 
-        feature_generator_kwargs = fit_kwargs.pop("feature_generator_kwargs", {})
-        accepted = inspect.signature(feature_generator_cls.__init__).parameters
-        group_params = {
-            "group_cols": self.validation_metadata.group_on,
-            "group_labels": self.validation_metadata.group_labels,
-            "group_time_on": self.validation_metadata.group_time_on,
-        }
-        feature_generator_kwargs.update({k: v for k, v in group_params.items() if k in accepted})
-        fit_kwargs["feature_generator"] = feature_generator_cls(**feature_generator_kwargs)
+        fit_kwargs["feature_generator"] = build_feature_generator(
+            feature_generator_cls,
+            feature_generator_kwargs,
+            group_cols=self.validation_metadata.group_on,
+            group_labels=self.validation_metadata.group_labels,
+            group_time_on=self.validation_metadata.group_time_on,
+        )
 
     def _attach_label(self, X: pd.DataFrame, y: pd.Series, *, label: str) -> pd.DataFrame:
         """Return ``X`` with ``y`` appended as the ``label`` column.
@@ -508,18 +508,73 @@ class AGModelWrapper(AbstractExecModel):
     split, no bagging, no ensemble). Used to benchmark methods that want to train on the
     full data (e.g. via ``AGModelOuterExperiment``). Unlike ``AGWrapper`` this does not
     carry the validation protocol and provides no OOF / metadata capabilities.
+
+    Preprocessing is shared with the validation path via a named ``preprocessing_pipeline``
+    (see :func:`~tabarena.benchmark.preprocessing.resolve_preprocessing_pipeline`): its
+    model-agnostic feature generator is applied through ``AbstractExecModel``'s
+    ``preprocess_data`` path (``_make_feature_generator``), and its model-specific step is
+    injected into ``hyperparameters`` (which the AutoGluon model applies in its own ``fit``).
+    ``None`` / ``"default"`` keeps AutoGluon's standard ``AutoMLPipelineFeatureGenerator``;
+    ``"tabarena_default"`` uses the TabArena pipeline — functionally the same preprocessing as
+    an ``AGWrapper`` configured with the same pipeline.
+
+    Parameters
+    ----------
+    model_cls: type[AbstractModel]
+        AutoGluon model class to fit.
+    hyperparameters: dict, optional
+        Model hyperparameters; the resolved pipeline's model-specific step is merged in.
+    preprocessing_pipeline: str | None, default None
+        Pipeline name passed to ``resolve_preprocessing_pipeline``.
+    group_cols / group_labels / group_time_on:
+        Optional grouped-task columns forwarded to the model-agnostic feature generator (only
+        those it accepts); analogous to what ``AGWrapper`` sources from validation metadata.
     """
 
     model: AbstractModel
     """The fitted single AutoGluon model (set by ``_fit``)."""
 
-    def __init__(self, model_cls: type[AbstractModel], hyperparameters: dict | None = None, **kwargs):
+    def __init__(
+        self,
+        model_cls: type[AbstractModel],
+        hyperparameters: dict | None = None,
+        *,
+        fit_kwargs: dict | None = None,
+        preprocessing_pipeline: str | None = None,
+        group_cols: str | list[str] | None = None,
+        group_labels=None,
+        group_time_on: str | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         assert issubclass(model_cls, AbstractModel)
         self.model_cls = model_cls
         if hyperparameters is None:
             hyperparameters = {}
-        self.hyperparameters = hyperparameters
+        # Passed straight to the model's `fit` (e.g. num_cpus / num_gpus / time_limit). The
+        # AutoGluon model applies/ignores each as appropriate.
+        self.fit_kwargs = fit_kwargs or {}
+
+        pipeline = resolve_preprocessing_pipeline(preprocessing_pipeline)
+        self.preprocessing_pipeline = preprocessing_pipeline
+        self._feature_generator_cls = pipeline.feature_generator_cls
+        self._feature_generator_kwargs = pipeline.feature_generator_kwargs
+        self._group_cols = group_cols
+        self._group_labels = group_labels
+        self._group_time_on = group_time_on
+        # Model-specific preprocessing rides on the model's hyperparameters (the AutoGluon model
+        # applies it in its own fit), so this works the same here as in the AGWrapper path.
+        self.hyperparameters = pipeline.apply_model_specific(hyperparameters)
+
+    def _make_feature_generator(self):
+        """Build the pipeline's model-agnostic feature generator (shared with ``AGWrapper``)."""
+        return build_feature_generator(
+            self._feature_generator_cls,
+            self._feature_generator_kwargs,
+            group_cols=self._group_cols,
+            group_labels=self._group_labels,
+            group_time_on=self._group_time_on,
+        )
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, **kwargs):
         """Instantiate ``model_cls`` and fit it directly on the (preprocessed) data."""
@@ -533,6 +588,7 @@ class AGModelWrapper(AbstractExecModel):
         self.model.fit(
             X=X,
             y=y,
+            **self.fit_kwargs,
         )
         return self
 

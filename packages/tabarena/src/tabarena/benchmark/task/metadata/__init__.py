@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+from tabarena.benchmark.task.metadata.collection import (
+    BeyondArenaTaskMetadataCollection,
+    TabArenaTaskMetadataCollection,
+    TaskMetadataCollection,
+)
 from tabarena.benchmark.task.metadata.compute import compute_task_metadata
 from tabarena.benchmark.task.metadata.schema import (
     GroupLabelTypes,
@@ -34,6 +38,7 @@ def default_task_metadata_collection() -> TaskMetadataCollection:
 
 
 __all__ = [
+    "BeyondArenaTaskMetadataCollection",
     "DataFoundryTaskMetadataSource",
     "GroupLabelTypes",
     "InMemoryTaskMetadataSource",
@@ -43,6 +48,7 @@ __all__ = [
     "SplitTimeHorizonTypes",
     "SplitTimeHorizonUnitTypes",
     "TabArenaTaskMetadata",
+    "TabArenaTaskMetadataCollection",
     "TabArenaV0pt1TaskMetadataSource",
     "TaskMetadataCollection",
     "TaskMetadataSource",

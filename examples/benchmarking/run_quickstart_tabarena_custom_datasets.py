@@ -1,194 +1,164 @@
+"""Quickstart: benchmark TabArena models on your own (custom / private) datasets.
+
+Same workflow as ``run_quickstart_tabarena.py`` (collection -> bundle -> build_jobs ->
+run_jobs -> EndToEnd -> compare); the tasks are datasets you define yourself rather than
+the committed TabArena suite:
+
+1. Implement each dataset as a ``UserTask`` (one classification, one regression);
+   ``create_task`` computes its native ``TabArenaTaskMetadata`` (problem type, sizes,
+   dtype flags, per-split stats) — no legacy task_metadata DataFrame anywhere.
+2. Cache them to disk (``save_task``) so they load locally at run time.
+3. Collect them into a ``TaskMetadataCollection`` and register them with the runner via
+   ``user_tasks=`` (so each dataset name resolves to the local task, not an OpenML download).
+4. Run a (non-rectangular) sweep: ``build_jobs`` pairs each experiment with exactly the
+   collection's splits, so the 3-fold classification task and the 1-fold regression task
+   each get the right number of jobs automatically.
+5. Aggregate with ``EndToEnd.from_raw_to_results_df``.
+6. Compute a leaderboard. Your own data has no TabArena baselines, so a generic
+   ``AbstractArenaContext`` (``methods=[]``) computes it purely from your results.
+
+Run with::
+
+    python examples/benchmarking/run_quickstart_tabarena_custom_datasets.py
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from sklearn.datasets import make_classification, make_regression
-from sklearn.model_selection import RepeatedStratifiedKFold, train_test_split
+from sklearn.model_selection import StratifiedKFold, train_test_split
 
-from tabarena.benchmark.experiment import ExperimentBatchRunner
+from tabarena.benchmark.experiment import (
+    ExperimentBatchRunner,
+    TabArenaV0pt1ExperimentBundle,
+    build_jobs,
+)
 from tabarena.benchmark.task import UserTask
-from tabarena.benchmark.task.metadata import TaskMetadataCollection
-from tabarena.models.utils import get_configs_generator_from_name
-from tabarena.nips2025_utils.compare import compare
+from tabarena.benchmark.task.metadata import TabArenaTaskMetadata, TaskMetadataCollection
+from tabarena.benchmark.task.user_task import from_sklearn_splits_to_user_task_splits
+from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 from tabarena.nips2025_utils.end_to_end import EndToEnd
-from tabarena.website.website_format import format_leaderboard
 
 
-def _legacy_metadata_row(task: UserTask, dataset: pd.DataFrame, *, problem_type: str, n_classes: int) -> dict:
-    """One legacy task_metadata row for a custom task (the columns from_legacy_df needs).
+def _toy_frame(*, classification: bool) -> pd.DataFrame:
+    """A tiny mixed numeric/categorical frame with a ``target`` column."""
+    maker = make_classification if classification else make_regression
+    kwargs = {"n_classes": 2} if classification else {}
+    X, y = maker(n_samples=120, n_features=8, n_informative=5, random_state=0, **kwargs)
+    df = pd.DataFrame(X, columns=[f"num_{i}" for i in range(X.shape[1])])
+    df["cat"] = pd.Categorical(["a"] * 40 + ["b"] * 40 + ["c"] * 40)
+    return df.assign(target=y)
 
-    n_folds / n_repeats are 1 here because the run below is TabArena-Lite (fold 0, repeat 0).
+
+def make_classification_task(task_cache_dir: Path) -> tuple[UserTask, TabArenaTaskMetadata]:
+    """A 3-fold classification ``UserTask`` plus its native ``TabArenaTaskMetadata``.
+
+    Steps 1 + 2: build the dataset and stratified splits, create the task (its exact
+    metadata — problem type, sizes, dtype flags, per-split stats, and the task's
+    identity — is computed by ``create_task``), then cache it to disk.
     """
-    return {
-        "tid": task.task_id,
-        "name": task.tabarena_task_name,
-        "dataset": task.tabarena_task_name,
-        "problem_type": problem_type,
-        "n_folds": 1,
-        "n_repeats": 1,
-        "n_features": dataset.shape[1] - 1,
-        "n_classes": n_classes,
-        "NumberOfInstances": len(dataset),
-        "n_samples_train_per_fold": int(len(dataset) * 0.67),
-        "n_samples_test_per_fold": int(len(dataset) * 0.33),
-        "target_feature": "target",
-    }
-
-
-def get_custom_classification_task(task_cache_dir: str) -> tuple[UserTask, dict]:
-    """Example for defining a classification task/dataset."""
-    # Create toy classification dataset
-    X, y = make_classification(
-        n_samples=100,
-        n_features=20,
-        n_informative=10,
-        n_classes=2,
-        random_state=42,
+    dataset = _toy_frame(classification=True)
+    n_splits = 3
+    splits = from_sklearn_splits_to_user_task_splits(
+        StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=0).split(
+            dataset.drop(columns="target"),
+            dataset["target"],
+        ),
+        n_splits=n_splits,
     )
-    X = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(X.shape[1])])
-    y = pd.Series(y)
-    # Add cat features
-    cats_1 = ["a"] * 25 + ["b"] * 25 + ["c"] * 25 + ["d"] * 25
-    cats_2 = ["x"] * 34 + ["y"] * 33 + ["z"] * 33
-    # Add nan values
-    cats_1[0] = np.nan
-    cats_1[49] = np.nan
-    X.iloc[0, 2] = np.nan
-    X.iloc[0, 3] = np.nan
-    X = X.assign(cat_1=pd.Categorical(cats_1), cat_2=pd.Categorical(cats_2))
-    dataset = pd.concat([X, y.rename("target")], axis=1)
 
-    # Create a stratified 10-repeated 3-fold split (any other split can be used as well)
-    n_repeats, n_splits = 10, 3
-    sklearn_splits = RepeatedStratifiedKFold(n_repeats=n_repeats, n_splits=n_splits, random_state=42).split(
-        X=dataset.drop(columns=["target"]),
-        y=dataset["target"],
-    )
-    # Transform the splits into a standard dictionary format expected by TabArena
-    splits = {}
-    for split_i, (train_idx, test_idx) in enumerate(sklearn_splits):
-        repeat_i = split_i // n_splits
-        fold_i = split_i % n_splits
-        if repeat_i not in splits:
-            splits[repeat_i] = {}
-        splits[repeat_i][fold_i] = (train_idx.tolist(), test_idx.tolist())
-
-    # Create the UserTask for TabArena
-    user_task = UserTask(
-        task_name="ToyClf",
-        task_cache_path=Path(task_cache_dir),
-    )
-    task_wrapper = user_task.create_task(
+    task = UserTask(task_name="toy_classification", task_cache_path=task_cache_dir)
+    task_wrapper = task.create_task(
         dataset=dataset,
         target_feature="target",
         problem_type="classification",
         splits=splits,
     )
-    user_task.save_task(task_wrapper)
-    return user_task, _legacy_metadata_row(user_task, dataset, problem_type="binary", n_classes=2)
+    task.save_task(task_wrapper)  # cache to disk
+    return task, task_wrapper.metadata
 
 
-def get_custom_regression_task(task_cache_dir: str) -> tuple[UserTask, dict]:
-    """Example for defining a custom regression task/dataset."""
-    X, y = make_regression(
-        n_samples=100,
-        n_features=20,
-        n_informative=10,
-        random_state=42,
+def make_regression_task(task_cache_dir: Path) -> tuple[UserTask, TabArenaTaskMetadata]:
+    """A 1-fold (holdout) regression ``UserTask`` plus its native ``TabArenaTaskMetadata``."""
+    dataset = _toy_frame(classification=False)
+    train_idx, test_idx = train_test_split(
+        list(range(len(dataset))),
+        test_size=0.33,
+        random_state=0,
+        shuffle=True,
     )
-    X = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(X.shape[1])])
-    y = pd.Series(y)
-    # Add cat features
-    cats_1 = ["a"] * 25 + ["b"] * 25 + ["c"] * 25 + ["d"] * 25
-    cats_2 = ["x"] * 34 + ["y"] * 33 + ["z"] * 33
-    # Add nan values
-    cats_1[0] = np.nan
-    cats_1[49] = np.nan
-    X.iloc[0, 2] = np.nan
-    X.iloc[0, 3] = np.nan
-    X = X.assign(cat_1=pd.Categorical(cats_1), cat_2=pd.Categorical(cats_2))
-    dataset = pd.concat([X, y.rename("target")], axis=1)
-
-    # Create a holdout split without repeats
-    train_idx, test_idx = train_test_split(list(range(len(dataset))), test_size=0.33, random_state=42, shuffle=True)
-    # Transform the splits into a standard dictionary format expected by TabArena
     splits = {0: {0: (train_idx, test_idx)}}
 
-    # Create the UserTask for TabArena
-    user_task = UserTask(
-        task_name="ToyReg",
-        task_cache_path=Path(task_cache_dir),
-    )
-    task_wrapper = user_task.create_task(
+    task = UserTask(task_name="toy_regression", task_cache_path=task_cache_dir)
+    task_wrapper = task.create_task(
         dataset=dataset,
         target_feature="target",
         problem_type="regression",
         splits=splits,
     )
-    user_task.save_task(task_wrapper)
-    return user_task, _legacy_metadata_row(user_task, dataset, problem_type="regression", n_classes=0)
+    task.save_task(task_wrapper)  # cache to disk
+    return task, task_wrapper.metadata
 
 
 if __name__ == "__main__":
-    # locations to experiment artifacts
-    tabarena_dir = str(Path(__file__).parent / "experiments" / "quickstart_custom_dataset")
-    eval_dir = Path(__file__).parent / "eval" / "quickstart_custom_dataset"
-    task_cache_dir = str(Path(__file__).parent / "task_cache" / "quickstart_custom_dataset")
+    # Output dirs, resolved next to this script so they don't depend on the working directory.
+    here = Path(__file__).parent
+    run_name = "quickstart_custom_datasets"
+    results_dir = str(here / "experiments" / run_name)  # the runner's `expname` (results cache)
+    eval_dir = here / "eval" / run_name  # leaderboard / figures `output_dir`
+    task_cache_dir = here / "task_cache" / run_name
 
-    # Get custom datasets and their metadata (see the functions above to write your own).
-    tasks_and_metadata = [
-        get_custom_classification_task(task_cache_dir=task_cache_dir),
-        get_custom_regression_task(task_cache_dir=task_cache_dir),
-    ]
-    tasks = [task for task, _ in tasks_and_metadata]
-    task_metadata = pd.DataFrame([meta for _, meta in tasks_and_metadata])
-    # ExperimentBatchRunner / EndToEnd / compare all consume the native collection.
-    task_collection = TaskMetadataCollection.from_legacy_df(task_metadata)
+    # 1 + 2: build and cache the two custom datasets, with native metadata throughout.
+    clf_task, clf_meta = make_classification_task(task_cache_dir)
+    reg_task, reg_meta = make_regression_task(task_cache_dir)
+    tasks = [clf_task, reg_task]
+    # 3: collect into the native collection that drives every consumer below.
+    task_collection = TaskMetadataCollection.from_source([clf_meta, reg_meta])
 
-    # This list of some methods we want fit sequentially on each task (dataset x fold)
-    # Checkout the available models in tabarena.benchmark.models.utils.get_configs_generator_from_name
-    model_names = [
-        "LightGBM",
-        "RandomForest",
-        "KNN",
-        "Linear",
-    ]
-    # Number of random search configs
-    num_random_configs = 1
+    # Sanity: the stored metadata matches each task as it will actually load at run time —
+    # validate_metadata recomputes the metadata from the loaded task and raises listing any
+    # diverging field.
+    for task, meta in [(clf_task, clf_meta), (reg_task, reg_meta)]:
+        task.with_task_metadata(meta).load().validate_metadata()
 
-    model_experiments = []
-    for model_name in model_names:
-        config_generator = get_configs_generator_from_name(model_name)
-        model_experiments.extend(
-            config_generator.generate_all_bag_experiments(
-                num_random_configs=num_random_configs,
-                fold_fitting_strategy="sequential_local",
-            ),
-        )
+    # 4: models to run, each at its default config. See `run_quickstart_tabarena.py` for
+    #    custom models + HPO. Registry names: `tabarena.models.utils.get_configs_generator_from_name`.
+    bundle = TabArenaV0pt1ExperimentBundle(
+        models=[
+            ("LightGBM", 0),
+            ("RandomForest", 0),
+        ],
+    )
+    experiments = bundle.build_experiments()
 
-    # Register the custom tasks so the runner resolves them to local UserTasks; the
-    # collection's splits (one r0f0 split per task, see the metadata rows) are run.
-    runner = ExperimentBatchRunner(expname=tabarena_dir, task_metadata=task_collection, user_tasks=tasks)
-    results_lst = runner.run_all(methods=model_experiments)
+    # 5: experiments x the collection's (non-rectangular) splits -> jobs. The clf task has 3
+    #    folds and the reg task has 1; build_jobs produces exactly those — no manual job loop.
+    jobs = build_jobs(experiments, task_collection)
 
-    # compute results
-    end_to_end = EndToEnd.from_raw(
+    # 6: run. Register the custom tasks via `user_tasks=` so the runner resolves each dataset
+    #    name to the local UserTask (rather than attempting an OpenML download).
+    runner = ExperimentBatchRunner(
+        expname=results_dir,
+        task_metadata=task_collection,
+        user_tasks=tasks,
+        debug_mode=True,
+    )
+    results_lst = runner.run_jobs(jobs)
+
+    # 7: aggregate the raw results into a tidy per-(method, dataset, fold) frame.
+    df_results = EndToEnd.from_raw_to_results_df(
         results_lst=results_lst,
         task_metadata=task_collection,
-        cache=False,
-        cache_raw=False,
+        new_result_prefix="[New] ",
     )
-    end_to_end_results = end_to_end.to_results()
-    df_results = end_to_end_results.get_results()
+    print("\n=== raw per-fold results ===")
+    print(df_results[["method", "dataset", "fold", "metric", "metric_error"]].to_string(index=False))
 
-    leaderboard: pd.DataFrame = compare(
-        df_results=df_results,
-        output_dir=eval_dir,
-        task_metadata=task_collection,
-        fillna="RF (default)",
-        calibration_framework="RF (default)",
-    )
-    leaderboard_website = format_leaderboard(df_leaderboard=leaderboard)
-    print(leaderboard_website.to_markdown(index=False))
+    # 8: leaderboard via a generic arena context (no TabArena presets / baselines): with
+    #    methods=[] the leaderboard is computed purely from the results passed as new_results.
+    context = AbstractArenaContext(task_metadata=task_collection, methods=[])
+    leaderboard = context.compare(output_dir=eval_dir, new_results=df_results)
+    print("\n=== leaderboard ===")
+    print(leaderboard.to_string())
