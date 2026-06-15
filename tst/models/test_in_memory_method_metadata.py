@@ -53,6 +53,21 @@ def _task_metadata() -> TaskMetadataCollection:
     return TaskMetadataCollection.from_legacy_df(legacy)
 
 
+class _DiskBackedMethod(MethodMetadata):
+    """A non-in-memory method whose results come from an in-test frame (stands in for disk).
+
+    ``is_in_memory`` stays False (inherited from ``MethodMetadata``), so this proves that
+    ``only_valid_tasks`` scopes by registration via ``extra_methods=`` — not by in-memory status.
+    """
+
+    def __init__(self, results: pd.DataFrame, **kwargs):
+        super().__init__(**kwargs)
+        self._results = results
+
+    def load_results(self) -> pd.DataFrame:
+        return self._results
+
+
 class TestInMemoryArtifacts:
     def test_is_in_memory_marker(self):
         assert MethodMetadata.is_in_memory is False
@@ -151,6 +166,15 @@ class TestContextRegistration:
             model_key=method,
         )
 
+    def _disk_backed(self, method: str, datasets) -> _DiskBackedMethod:
+        return _DiskBackedMethod(
+            results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
+            method=method,
+            artifact_name=method,
+            method_type="config",
+            model_key=method,
+        )
+
     def test_registered_method_is_listed_and_loadable(self):
         im = self._in_memory("NewA", datasets=("d1",))
         ctx = self._ctx(im)
@@ -158,14 +182,17 @@ class TestContextRegistration:
         loaded = ctx.load_results()
         assert set(loaded["method"]) == {"NewA (default)"}
 
-    def test_registered_new_results_concats_only_in_memory(self):
-        im_a = self._in_memory("NewA", datasets=("d1",))
-        im_b = self._in_memory("NewB", datasets=("d1", "d2"))
-        ctx = self._ctx(im_a, im_b)
+    def test_registered_new_results_concats_registered_new_methods(self):
+        # Both an in-memory and a disk-backed method registered via extra_methods= contribute;
+        # only_valid_tasks scopes by registration, not by in-memory status.
+        im = self._in_memory("NewA", datasets=("d1",))
+        disk = self._disk_backed("NewB", datasets=("d1", "d2"))
+        assert disk.is_in_memory is False
+        ctx = self._ctx(im, disk)
         new = ctx._registered_new_results()
         assert set(new["method"]) == {"NewA (default)", "NewB (default)"}
 
-    def test_registered_new_results_none_without_in_memory(self):
+    def test_registered_new_results_none_without_extra_methods(self):
         assert self._ctx()._registered_new_results() is None
 
 
@@ -263,6 +290,25 @@ class TestInitOnlyValidTasks:
         # The legacy DataFrame view derives from the (now filtered) collection.
         assert set(ctx.task_metadata["dataset"]) == {"d1"}
 
+    def test_prefilters_with_disk_backed_method(self):
+        # only_valid_tasks does not require in-memory methods: a disk-backed method registered
+        # via extra_methods= defines the valid tasks just the same.
+        disk = _DiskBackedMethod(
+            results=_results_frame("Disk (default)", datasets=("d1",), ta_name="Disk", ta_suite="Disk"),
+            method="Disk",
+            artifact_name="Disk",
+            method_type="config",
+            model_key="Disk",
+        )
+        assert disk.is_in_memory is False
+        ctx = AbstractArenaContext(
+            methods=[],
+            task_metadata=_task_metadata(),
+            extra_methods=[disk],
+            only_valid_tasks=True,
+        )
+        assert ctx.task_metadata_collection.dataset_names() == ["d1"]
+
     def test_results_filter_frame_tracks_prefilter(self):
         ctx = AbstractArenaContext(
             methods=[],
@@ -274,7 +320,7 @@ class TestInitOnlyValidTasks:
         df_filter = ctx._task_metadata_results_filter()
         assert set(zip(df_filter["dataset"], df_filter["fold"], strict=False)) == {("d1", 0)}
 
-    def test_without_in_memory_methods_raises(self):
+    def test_without_new_methods_raises(self):
         with pytest.raises(ValueError, match="only_valid_tasks=True needs"):
             AbstractArenaContext(methods=[], task_metadata=_task_metadata(), only_valid_tasks=True)
 
@@ -287,3 +333,49 @@ class TestInitOnlyValidTasks:
                 extra_methods=[self._im("Bad", datasets=("d3",))],
                 only_valid_tasks=True,
             )
+
+
+class TestFromNewMethodsFactory:
+    """`from_new_methods` pairs extra_methods + only_valid_tasks=True in one intent-revealing call."""
+
+    def _im(self, method: str, datasets) -> InMemoryMethodMetadata:
+        return InMemoryMethodMetadata(
+            results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
+            method=method,
+            artifact_name=method,
+            method_type="config",
+            model_key=method,
+        )
+
+    def test_registers_methods_and_prefilters_tasks(self):
+        ctx = AbstractArenaContext.from_new_methods(
+            [self._im("NewA", datasets=("d1",))],
+            methods=[],
+            task_metadata=_task_metadata(),
+        )
+        assert "NewA" in ctx.methods
+        assert ctx.only_valid_tasks is True
+        # d2 had no new-method results -> pruned (same as the explicit two-kwarg form).
+        assert ctx.task_metadata_collection.dataset_names() == ["d1"]
+
+    def test_returns_the_concrete_subclass(self):
+        ctx = AbstractArenaContext.from_new_methods(
+            [self._im("NewA", datasets=("d1",))],
+            methods=[],
+            task_metadata=_task_metadata(),
+        )
+        # Self return type: a factory on the base yields the base; subclasses yield themselves.
+        assert type(ctx) is AbstractArenaContext
+
+    def test_forwards_extra_kwargs(self):
+        ctx = AbstractArenaContext.from_new_methods(
+            [self._im("NewA", datasets=("d1",))],
+            methods=[],
+            task_metadata=_task_metadata(),
+            backend="native",
+        )
+        assert ctx.backend == "native"
+
+    def test_without_new_methods_raises(self):
+        with pytest.raises(ValueError, match="only_valid_tasks=True needs"):
+            AbstractArenaContext.from_new_methods([], methods=[], task_metadata=_task_metadata())

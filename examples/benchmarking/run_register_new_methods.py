@@ -2,10 +2,10 @@
 
 The counterpart to run_quickstart_tabarena.py: rather than threading a results DataFrame into
 ``compare(new_results=...)``, this converts the run into ``InMemoryMethodMetadata`` objects
-(``EndToEnd.from_raw_to_methods``) and registers them at context init via ``extra_methods=``.
-The new methods are then first-class — picked up automatically by ``compare`` (through
-``load_results``), restricted to their own tasks via ``only_valid_tasks=True`` at context init
-(which pre-filters ``task_metadata`` to the tasks they ran, so ``compare`` scopes to them with
+(``EndToEnd.from_raw_to_methods``) and registers them at context init via
+``TabArenaContext.from_new_methods(...)``. The new methods are then first-class — picked up
+automatically by ``compare`` (through ``load_results``), restricted to their own tasks (the
+factory pre-filters ``task_metadata`` to the tasks they ran, so ``compare`` scopes to them with
 nothing extra), and carried (with their metadata: hardware, verified, ...) into
 ``leaderboard_to_website_format``.
 
@@ -138,10 +138,11 @@ if __name__ == "__main__":
             f"config_type={m.config_type!r}  display_name={m.display_name!r}  type={type(m).__name__}",
         )
 
-    # only_valid_tasks=True pre-filters the context's task_metadata to the tasks the new
-    # methods ran, so `compare` (which scopes results to task_metadata) is already restricted
-    # to them — no need to repeat only_valid_tasks=True at the compare call.
-    ta_context = TabArenaContext(extra_methods=new_methods, only_valid_tasks=True)
+    # from_new_methods registers the new methods AND pre-filters the context's task_metadata to
+    # the tasks they ran, so `compare` (which scopes results to task_metadata) is already
+    # restricted to them — no only_valid_tasks=True needed at the compare call. It is shorthand
+    # for TabArenaContext(extra_methods=new_methods, only_valid_tasks=True).
+    ta_context = TabArenaContext.from_new_methods(new_methods)
 
     leaderboard = ta_context.compare(output_dir=eval_dir)
     print("\n=== leaderboard (raw) ===")

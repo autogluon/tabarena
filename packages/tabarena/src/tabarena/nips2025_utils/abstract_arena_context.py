@@ -26,7 +26,7 @@ from __future__ import annotations
 import copy
 import functools
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Self
 
 import numpy as np
 import pandas as pd
@@ -98,6 +98,11 @@ class AbstractArenaContext:
             method_metadata_lst = list(methods)
         method_names = {m.method for m in method_metadata_lst}
 
+        # The "new" methods registered on top of the baselines via `extra_methods=`. These
+        # define the valid-task scope for `only_valid_tasks` (whether their results live in
+        # memory or are loaded from disk); `methods=` baselines are the comparison set, not the
+        # scope. Tracked by name (method names are unique — asserted below).
+        self._new_method_names: set[str] = {m.method for m in extra_methods} if extra_methods else set()
         if extra_methods:
             for method_metadata in extra_methods:
                 assert method_metadata.method not in method_names, f"{method_metadata.method} already in methods..."
@@ -107,16 +112,35 @@ class AbstractArenaContext:
         self.method_metadata_collection: MethodMetadataCollection = MethodMetadataCollection(method_metadata_lst)
 
         # When True, pre-filter the context's task_metadata down to the tasks the registered
-        # in-memory ("new") methods actually ran, so it becomes the single source of truth for
-        # what is in scope — `compare` (which scopes results to `task_metadata` by default),
-        # the runner, plotting, and per-dataset tables all inherit the restriction without the
-        # caller repeating `only_valid_tasks=True` at each call site. (The counterpart to
+        # "new" methods actually ran, so it becomes the single source of truth for what is in
+        # scope — `compare` (which scopes results to `task_metadata` by default), the runner,
+        # plotting, and per-dataset tables all inherit the restriction without the caller
+        # repeating `only_valid_tasks=True` at each call site. (The counterpart to
         # `compare(only_valid_tasks=True)`; see `run_register_new_methods.py`.)
         self.only_valid_tasks = only_valid_tasks
         if only_valid_tasks:
             self.task_metadata_collection = self.task_metadata_collection.subset(
                 self._registered_valid_task_triplets(),
             )
+
+    @classmethod
+    def from_new_methods(cls, new_methods: list[MethodMetadata], **kwargs) -> Self:
+        """Build a context with ``new_methods`` registered and scoped to the tasks they ran.
+
+        The intent-revealing shorthand for the registration-first workflow (see
+        ``examples/benchmarking/run_register_new_methods.py``): equivalent to
+        ``cls(extra_methods=new_methods, only_valid_tasks=True, **kwargs)``, but pairs the two
+        co-dependent arguments in one call so neither can be forgotten — ``only_valid_tasks=True``
+        needs registered new methods to define the valid tasks, and registering new methods is
+        almost always meant to be evaluated only on their own tasks.
+
+        ``new_methods`` are the methods to register, typically the (in-memory) ones returned by
+        :meth:`~tabarena.nips2025_utils.end_to_end.EndToEnd.from_raw_to_methods`, though any
+        ``MethodMetadata`` works (in-memory or disk-backed). The baselines / task-metadata preset
+        and any other settings (``backend``, ``fillna_method``, ...) come from ``**kwargs`` (and
+        the concrete arena's constructor defaults).
+        """
+        return cls(extra_methods=new_methods, only_valid_tasks=True, **kwargs)
 
     # ------------------------------------------------------------------ arena-specific hooks
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
@@ -315,22 +339,23 @@ class AbstractArenaContext:
 
     # ------------------------------------------------------------------ comparison / runner
     def _registered_new_results(self) -> pd.DataFrame | None:
-        """Concatenated results of the registered in-memory (locally-produced) methods, or None.
+        """Concatenated results of the registered "new" methods, or None.
 
-        These are the methods registered via ``methods=`` / ``extra_methods=`` whose results
-        live in memory (``is_in_memory``). ``compare`` treats them as the "new" results, so
-        ``only_valid_tasks=True`` can restrict the leaderboard to the tasks they ran without
-        the caller having to pass ``new_results`` (or list out method names) again.
+        The "new" methods are those registered on top of the baselines via ``extra_methods=``,
+        regardless of whether their results live in memory or are loaded from disk. ``methods=``
+        baselines are the comparison set, not the scope. ``compare`` treats these as the "new"
+        results, so ``only_valid_tasks=True`` can restrict the leaderboard to the tasks they ran
+        without the caller having to pass ``new_results`` (or list out method names) again.
         """
         frames = [
             m.load_results()
             for m in self.method_metadata_collection.method_metadata_lst
-            if getattr(m, "is_in_memory", False)
+            if m.method in self._new_method_names
         ]
         return pd.concat(frames, ignore_index=True) if frames else None
 
     def _registered_valid_task_triplets(self) -> list[tuple[str, int, int]]:
-        """``(dataset, fold, repeat)`` triplets the registered in-memory methods ran.
+        """``(dataset, fold, repeat)`` triplets the registered new methods ran.
 
         The valid-task scope used by ``__init__(only_valid_tasks=True)`` to pre-filter
         :attr:`task_metadata_collection`. A results frame's ``fold`` column is the *split*
@@ -342,7 +367,7 @@ class AbstractArenaContext:
         df_filter = self._registered_new_results()
         if df_filter is None:
             raise ValueError(
-                "only_valid_tasks=True needs registered in-memory methods "
+                "only_valid_tasks=True needs new methods registered via extra_methods= "
                 "(e.g. extra_methods=EndToEnd.from_raw_to_methods(...)) to define the valid tasks.",
             )
         grid = self.task_metadata_collection.task_grid()
@@ -363,7 +388,7 @@ class AbstractArenaContext:
             triplets.append((dataset, fold, repeat))
         if not triplets:
             raise ValueError(
-                "only_valid_tasks=True: the registered in-memory methods share no (dataset, split) "
+                "only_valid_tasks=True: the registered new methods share no (dataset, split) "
                 "with this context's task_metadata, so there is nothing to scope to.",
             )
         return triplets
@@ -408,8 +433,9 @@ class AbstractArenaContext:
             df_filter = new_results if new_results is not None else self._registered_new_results()
             if df_filter is None:
                 raise ValueError(
-                    "only_valid_tasks=True needs new_results or registered in-memory methods "
-                    "(e.g. extra_methods=EndToEnd.from_raw_to_methods(...)) to define the valid tasks.",
+                    "only_valid_tasks=True needs new_results or new methods registered via "
+                    "extra_methods= (e.g. extra_methods=EndToEnd.from_raw_to_methods(...)) "
+                    "to define the valid tasks.",
                 )
             return df_filter, None
         return None, None  # False / None -> no restriction
@@ -439,7 +465,7 @@ class AbstractArenaContext:
         """Compute the leaderboard comparing ``new_results`` against this arena's baselines.
 
         ``ta_results`` defaults to :meth:`load_results` (which includes any registered
-        in-memory methods); ``new_results`` (if given) are concatenated to them.
+        methods); ``new_results`` (if given) are concatenated to them.
         ``fillna`` / ``calibration_method`` resolve ``"auto"`` to the context's settings.
 
         ``filter_to_task_metadata`` (default ``True``) scopes the results to this context's
@@ -447,7 +473,7 @@ class AbstractArenaContext:
         collection are dropped before scoring. For a full-suite context this is a no-op (the
         results are already within the suite); for a context constructed with
         ``only_valid_tasks=True`` (whose ``task_metadata`` was pre-filtered to the registered
-        in-memory methods' tasks) it is what restricts the leaderboard to those tasks — so the
+        new methods' tasks) it is what restricts the leaderboard to those tasks — so the
         pre-filtered context needs nothing more here. Pass ``False`` to evaluate ``ta_results``
         / ``new_results`` exactly as given (the historical behaviour).
 
@@ -455,7 +481,7 @@ class AbstractArenaContext:
 
         * ``False`` (default) — no restriction.
         * ``True`` — restrict to the tasks the "new" results ran: ``new_results`` if given,
-          else the registered in-memory methods (so a context built with
+          else the methods registered via ``extra_methods=`` (so a context built with
           ``extra_methods=EndToEnd.from_raw_to_methods(...)`` needs nothing more here).
         * a ``MethodMetadata`` (or list) — restrict to the tasks those registered methods ran.
         * a method-column name (or list) — passed through to the lower-level compare, which
