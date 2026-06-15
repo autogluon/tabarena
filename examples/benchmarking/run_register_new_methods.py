@@ -98,13 +98,6 @@ class CustomRandomForestModel(AbstractModel):
         )
 
 
-def lightgbm_baseline_metadata():
-    """The cached paper ``LightGBM`` MethodMetadata (the single baseline for this run)."""
-    metas = [m for m in tabarena_method_metadata_collection.method_metadata_lst if m.method == "LightGBM"]
-    assert len(metas) == 1, metas
-    return copy.deepcopy(metas[0])
-
-
 if __name__ == "__main__":
     here = Path(__file__).parent
     run_name = "register_new_methods"
@@ -132,7 +125,7 @@ if __name__ == "__main__":
     runner = ExperimentBatchRunner(expname=results_dir, task_metadata=task_collection, debug_mode=True)
     results_lst = runner.run_jobs(jobs)
 
-    # 4: NEW PATH — convert the run into registerable InMemoryMethodMetadata objects.
+    # 4: convert the run into registerable InMemoryMethodMetadata objects.
     new_methods = EndToEnd.from_raw_to_methods(
         results_lst=results_lst,
         task_metadata=task_collection,
@@ -145,17 +138,7 @@ if __name__ == "__main__":
             f"config_type={m.config_type!r}  display_name={m.display_name!r}  type={type(m).__name__}",
         )
 
-    # 5: register the new methods at init (alongside the cached LightGBM baseline). No
-    #    new_results= passed to compare; the methods are picked up via load_results(), and
-    #    only_valid_tasks=True restricts the leaderboard to the tasks they ran.
-    ta_context = TabArenaContext(
-        methods=[lightgbm_baseline_metadata()],
-        task_metadata=task_collection,
-        extra_methods=new_methods,
-        backend="native",
-        fillna_method=None,  # avoid needing the RandomForest fillna baseline
-        calibration_method=None,
-    )
+    ta_context = TabArenaContext(extra_methods=new_methods)
 
     leaderboard = ta_context.compare(
         output_dir=eval_dir,
