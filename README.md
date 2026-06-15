@@ -51,8 +51,9 @@ We share more details on various use cases of TabArena in our [examples](example
 
 * 📊 **Benchmarking Predictive Machine Learning Models**: please refer to [examples/benchmarking](examples/benchmarking).
 * 🚀 **Using SOTA Tabular Models Benchmarked by TabArena**: please refer to [examples/running_tabarena_models](examples/running_tabarena_models).
+* 🧪 **Advanced and Specialized Usage**: please refer to [examples/advanced](examples/advanced).
 * 🗃️ **Analysing Metadata and Meta-Learning**: please refer to [examples/meta](examples/meta).
-* 📈 **Generating Plots and Leaderboards**: please refer to [examples/plots_and_leaderboards](examples/plots_and_leaderboards).
+* 📈 **Generating Plots and Leaderboards**: please refer to [examples/plots](examples/plots).
 * 🔁 **Reproducibility**: we share instructions for reproducibility in [examples](examples).
 
 ### Datasets

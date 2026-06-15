@@ -172,18 +172,28 @@ class AbstractExecModel:
             return self._feature_generator.transform(X)
         return X
 
+    def _make_feature_generator(self):
+        """Build the (unfitted) model-agnostic feature generator for ``preprocess_data``.
+
+        Default is AutoGluon's standard ``AutoMLPipelineFeatureGenerator``. Subclasses override
+        this to use a different model-agnostic pipeline (e.g. ``AGModelWrapper`` resolves the
+        TabArena ``tabarena_default`` generator), keeping the rest of the preprocessing flow shared.
+        """
+        return AutoMLPipelineFeatureGenerator()
+
     def _preprocess_fit_transform(self, X: pd.DataFrame, y: pd.Series):
         """Fit the label cleaner and (optionally) feature generator, then transform ``X``/``y``.
 
         Called once at the start of ``fit``. Sets ``self.label_cleaner`` and, when
-        ``preprocess_data`` is enabled, ``self._feature_generator``.
+        ``preprocess_data`` is enabled, ``self._feature_generator`` (built by
+        ``_make_feature_generator``).
         """
         if self.preprocess_label:
             self.label_cleaner = LabelCleaner.construct(problem_type=self.problem_type, y=y)
         else:
             self.label_cleaner = LabelCleanerDummy(problem_type=self.problem_type)
         if self.preprocess_data:
-            self._feature_generator = AutoMLPipelineFeatureGenerator()
+            self._feature_generator = self._make_feature_generator()
             X = self._feature_generator.fit_transform(X=X, y=y)
         y = self.transform_y(y)
         return X, y

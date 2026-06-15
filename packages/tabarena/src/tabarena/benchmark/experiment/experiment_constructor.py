@@ -328,8 +328,33 @@ class Experiment:
             method_kwargs = self._apply_validation_metadata(method_kwargs, task_metadata=task.get_validation_metadata())
         method_kwargs = self._apply_preprocessing(method_kwargs)
         method_kwargs = self._apply_resources(method_kwargs)
+        method_kwargs = self._apply_outer_group_metadata(method_kwargs, task=task)
         if debug_mode:
             method_kwargs = self._apply_debug_fold_fitting(method_kwargs)
+        return method_kwargs
+
+    def _apply_outer_group_metadata(self, method_kwargs: dict, *, task: TaskWrapper) -> dict:
+        """Source a grouped task's group columns for an outer (``AGModelWrapper``) experiment.
+
+        The bagged/validation path forwards grouped-task columns to the model-agnostic feature
+        generator through its validation metadata; the no-validation path carries no validation
+        metadata, so here we read the same group columns straight from the task — decoupled from
+        any validation split — and hand them to the wrapper, so grouped-task feature aggregation
+        applies in *both* paths. Only columns the active feature generator accepts are used
+        downstream (see ``build_feature_generator``), and any user-set value is preserved. No-op
+        for non-``AGModelWrapper`` experiments (which already get groups via validation metadata).
+        """
+        if not (isinstance(self.method_cls, type) and issubclass(self.method_cls, AGModelWrapper)):
+            return method_kwargs
+        validation_metadata = task.get_validation_metadata()
+        group_params = {
+            "group_cols": validation_metadata.group_on,
+            "group_labels": validation_metadata.group_labels,
+            "group_time_on": validation_metadata.group_time_on,
+        }
+        for key, value in group_params.items():
+            if method_kwargs.get(key) is None:
+                method_kwargs[key] = value
         return method_kwargs
 
     def _apply_debug_fold_fitting(self, method_kwargs: dict) -> dict:
@@ -908,10 +933,18 @@ class AGModelOuterExperiment(Experiment):
         AutoGluon model class to fit.
     model_hyperparameters: dict
         AutoGluon model hyperparameters (stored as ``method_kwargs["hyperparameters"]``).
+    preprocessing_pipeline: str | None, default None
+        Named preprocessing pipeline forwarded to ``AGModelWrapper`` (``None`` / ``"default"``
+        or ``"tabarena_default"``). Unlike the ``AGWrapper`` family, this is resolved *inside*
+        the wrapper (``AbstractExecModel`` preprocessing), not via ``Experiment._apply_preprocessing``
+        — so the experiment-level preprocessing hook stays a no-op for outer experiments.
     method_kwargs: dict, optional
-        Extra kwargs for ``AGModelWrapper(...)`` — see that class for accepted keys.
+        Extra kwargs for ``AGModelWrapper(...)`` — see that class for accepted keys (e.g.
+        ``shuffle_features``, ``group_cols``).
     experiment_kwargs: dict, optional
         The kwargs passed to the runner (``experiment_cls``).
+    **kwargs:
+        Forwarded to ``Experiment.__init__`` (e.g. ``model_constraints``).
     """
 
     _method_cls = AGModelWrapper
@@ -924,21 +957,24 @@ class AGModelOuterExperiment(Experiment):
         model_cls: type[AbstractModel],
         model_hyperparameters: dict,
         *,
+        preprocessing_pipeline: str | None = None,
         method_kwargs: dict | None = None,
         experiment_kwargs: dict | None = None,
+        **kwargs,
     ):
-        if method_kwargs is None:
-            method_kwargs = {}
+        method_kwargs = copy.deepcopy(method_kwargs) if method_kwargs else {}
         super().__init__(
             name=name,
             method_cls=self._method_cls,
             method_kwargs={
                 "model_cls": model_cls,
                 "hyperparameters": model_hyperparameters,
+                "preprocessing_pipeline": preprocessing_pipeline,
                 **method_kwargs,
             },
             experiment_cls=self._experiment_cls,
             experiment_kwargs=experiment_kwargs,
+            **kwargs,
         )
 
 

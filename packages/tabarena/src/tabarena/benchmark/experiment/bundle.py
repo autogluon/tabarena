@@ -127,6 +127,12 @@ class TabArenaExperimentBundle:
     and force this behavior if True. If False the default strategy of running the
     local fold fitting is used, as determined by AutoGluon and the model's
     default_ag_args_ensemble parameters."""
+    outer_experiments: bool = False
+    """If True, build no-validation 'outer' experiments instead of bagged ones: each model is
+    fit directly on all the data (``AGModelWrapper``) with no train/val split, bagging, or
+    ensemble. The bundle's other settings still apply. Useful for full-data
+    methods and quick no-validation runs. 
+    A pre-built ``Experiment`` passed in ``models`` is still used verbatim."""
     model_artifacts_base_path: str | Path | None = "/tmp"  # noqa: S108
     """Adapt the default temporary directory used for model artifacts in TabArena.
         - If None, the default temporary directory is used: "./AutoGluonModels".
@@ -442,6 +448,29 @@ class TabArenaExperimentBundle:
             config_generator = get_configs_generator_from_name(model_name)
         else:
             config_generator = deepcopy(model_name)
+
+        if self.outer_experiments:
+            # No-validation path: one direct ``AGModelWrapper`` fit on all data, no bagging /
+            # ensemble. The compute resources + time_limit are forwarded to the model's `fit`,
+            # and the preprocessing pipeline + shuffle_features still apply (resolved inside the
+            # wrapper) — so the only thing dropped vs the bagged path is the validation/bagging.
+            base_fit_kwargs = pipeline_method_kwargs.get("fit_kwargs") or {}
+            outer_fit_kwargs = {
+                "num_cpus": base_fit_kwargs.get("num_cpus"),
+                "num_gpus": base_fit_kwargs.get("num_gpus"),
+                "time_limit": time_limit,
+            }
+            return config_generator.generate_all_outer_experiments(
+                num_random_configs=n_configs,
+                name_id_suffix=name_id_suffix,
+                method_kwargs={
+                    "shuffle_features": pipeline_method_kwargs["shuffle_features"],
+                    "fit_kwargs": outer_fit_kwargs,
+                },
+                preprocessing_pipeline=preprocessing_pipeline,
+                extra_model_hyperparameters=pipeline_method_kwargs.get("extra_model_hyperparameters") or None,
+            )
+
         return config_generator.generate_all_bag_experiments(
             num_random_configs=n_configs,
             add_seed=default_seed_config,

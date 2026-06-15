@@ -1,78 +1,166 @@
+"""Quickstart: benchmark registry + custom models on TabArena-Lite and compare to the leaderboard.
+
+The quickstart shows:
+  * running a registry model by name (e.g. ``"LightGBM"``),
+  * implementing and running your own custom model (``CustomRandomForestModel`` below),
+  * hyperparameter search (``num_random_configs`` > 0 via the model's search space),
+  * evaluating the run against the TabArena leaderboard.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
-import pandas as pd
-
-from tabarena.benchmark.experiment import AGModelBagExperiment
+import numpy as np
+from autogluon.core.models import AbstractModel
+from autogluon.features import LabelEncoderFeatureGenerator
+from tabarena.benchmark.experiment import (
+    ExperimentBatchRunner,
+    TabArenaV0pt1ExperimentBundle,
+    build_jobs,
+)
+from tabarena.benchmark.task.metadata import TabArenaTaskMetadataCollection
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
+if TYPE_CHECKING:
+    import pandas as pd
+    from tabarena.utils.config_utils import ConfigGenerator
+
+
+class CustomRandomForestModel(AbstractModel):
+    """Minimal custom model compatible with the scikit-learn API.
+
+    For details on implementing an AutoGluon ``AbstractModel`` see
+    https://auto.gluon.ai/stable/tutorials/tabular/advanced/tabular-custom-model.html
+    and the wrappers under ``tabarena/models/``. ``ag_key`` / ``ag_name`` are required by
+    ``ConfigGenerator`` (it uses them to name the generated configs, e.g. ``CustomRF_c1_BAG_L1``).
+
+    NOTE on the custom model class: it is defined here in ``__main__`` only because the runner
+    runs with ``debug_mode=True`` (in-process "native" backend). For large-scale, Ray-backed
+    runs (``debug_mode=False``) the model class MUST live in a separate importable module, since
+    Ray workers cannot unpickle a class defined in ``__main__``.
+    """
+
+    ag_key = "CRF"
+    ag_name = "CustomRF"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._feature_generator = None
+
+    def _preprocess(self, X: pd.DataFrame, is_train: bool = False, **kwargs) -> np.ndarray:
+        """Model-specific preprocessing: label-encode categoricals, fill NaNs, to float32."""
+        X = super()._preprocess(X, **kwargs)
+        if is_train:
+            self._feature_generator = LabelEncoderFeatureGenerator(verbosity=0)
+            self._feature_generator.fit(X=X)
+        if self._feature_generator.features_in:
+            X = X.copy()
+            X[self._feature_generator.features_in] = self._feature_generator.transform(X=X)
+        return X.fillna(0).to_numpy(dtype=np.float32)
+
+    def _fit(self, X: pd.DataFrame, y: pd.Series, num_cpus: int = 1, **kwargs) -> None:
+        if self.problem_type == "regression":
+            from sklearn.ensemble import RandomForestRegressor
+
+            model_cls = RandomForestRegressor
+        else:  # "binary" and "multiclass"
+            from sklearn.ensemble import RandomForestClassifier
+
+            model_cls = RandomForestClassifier
+
+        X = self.preprocess(X, y=y, is_train=True)
+        self.model = model_cls(**self._get_model_params())
+        self.model.fit(X, y)
+
+    # `_predict_proba` is inherited from AbstractModel and relies on the sklearn API.
+
+    def _set_default_params(self) -> None:
+        for param, val in {"n_estimators": 10, "n_jobs": -1, "random_state": 0}.items():
+            self._set_default_param_value(param, val)
+
+    def _get_default_auxiliary_params(self) -> dict:
+        # The model-agnostic preprocessor handles all other dtypes for us.
+        default_auxiliary_params = super()._get_default_auxiliary_params()
+        default_auxiliary_params.update({"valid_raw_types": ["int", "float", "category"]})
+        return default_auxiliary_params
+
+    @classmethod
+    def supported_problem_types(cls) -> list[str]:
+        return ["binary", "multiclass", "regression"]
+
+    @classmethod
+    def config_generator(cls) -> ConfigGenerator:
+        """Bundle entry for this model: the default config plus a search space for HPO.
+
+        ``manual_configs=[{}]`` always yields the default config; ``search_space`` is what
+        the bundle samples when it is asked for ``num_random_configs > 0`` (see the ``models``
+        list below). For a default-only run, pass the tuple ``(..., 0)`` in ``models``.
+        """
+        from autogluon.common.space import Int
+        from tabarena.utils.config_utils import ConfigGenerator
+
+        return ConfigGenerator(
+            model_cls=cls,
+            manual_configs=[{}],
+            search_space={"n_estimators": Int(4, 50)},
+        )
+
+
 if __name__ == "__main__":
-    expname = str(
-        Path(__file__).parent / "experiments" / "quickstart"
-    )  # folder location to save all experiment artifacts
-    eval_dir = Path(__file__).parent / "eval" / "quickstart"
-    ignore_cache = False  # set to True to overwrite existing caches and re-run experiments from scratch
+    # Output dirs, resolved next to this script so they don't depend on the working directory.
+    here = Path(__file__).parent
+    run_name = "quickstart_tabarena"
+    results_dir = str(here / "experiments" / run_name)  # the runner's `expname` (results cache)
+    eval_dir = here / "eval" / run_name  # leaderboard / figures `output_dir`
 
-    tabarena_context = TabArenaContext()
+    # 1: TabArena-Lite = the first split (r0f0) of every dataset in the v0.1 suite.
+    task_collection = TabArenaTaskMetadataCollection.subset_tasks(split_indices="lite")
+    task_collection = task_collection.materialize()
 
-    # Sample for a quick demo
-    datasets = ["anneal", "credit-g", "diabetes"]  # all: tabarena_context.task_metadata_collection.dataset_names()
-
-    # import your model classes
-    from autogluon.tabular.models import LGBModel
-
-    # This list of methods will be fit sequentially on each task (dataset x fold)
-    methods = [
-        # This will be a `config` in EvaluationRepository, because it computes out-of-fold predictions and thus can be used for post-hoc ensemble.
-        AGModelBagExperiment(  # Wrapper for fitting a single bagged model via AutoGluon
-            # The name you want the config to have
-            name="LightGBM_c1_BAG_L1_Reproduced",
-            # Supports any model that inherits from `autogluon.core.models.AbstractModel`
-            model_cls=LGBModel,
-            model_hyperparameters={
-                # "ag_args_ensemble": {"fold_fitting_strategy": "sequential_local"},  # uncomment to fit folds sequentially, allowing for use of a debugger
-            },  # The non-default model hyperparameters.
-            num_bag_folds=8,  # num_bag_folds=8 was used in the TabArena 2025 paper
-            time_limit=3600,  # time_limit=3600 was used in the TabArena 2025 paper
-        ),
-    ]
-
-    # Build a runner scoped to the demo tasks via the TabArenaContext factory: the 3
-    # datasets above at fold 0 / repeat 0. The "lite" subset keeps split 0
-    # (== fold 0, repeat 0; split = n_folds * repeat + fold), and `datasets` restricts to
-    # the demo datasets. `make_experiment_batch_runner` resolves these into the exact
-    # (dataset, fold, repeat) triplets that `run_all` executes.
-    exp_batch_runner = tabarena_context.make_experiment_batch_runner(
-        expname=expname,
-        datasets=datasets,
-        subset="lite",
-        cache_mode="ignore" if ignore_cache else "default",
+    # 2: pick the models to run. A registry model is named by string; a custom model is passed
+    #    as a `(config_generator, n_configs)` tuple. `n_configs` is the number of random HPO
+    #    configs on top of the default (0 = default only).
+    #    Registry names: see `tabarena.models.utils.get_configs_generator_from_name` (e.g.
+    #    "LightGBM", "RandomForest", "CatBoost", "RealMLP", "TabM", "TabPFNv2", ...).
+    bundle = TabArenaV0pt1ExperimentBundle(
+        models=[
+            ("Linear", 0),  # registry model, default config (reproduce TabArena's Linear)
+            (CustomRandomForestModel.config_generator(), 1),  # custom model: default + 1 HPO config
+        ],
     )
+    experiments = bundle.build_experiments()
 
-    # Get the run artifacts. Fits each method on each configured task.
-    results_lst: list[dict[str, Any]] = exp_batch_runner.run_all(methods=methods)
+    # 3: experiments x the collection's splits -> a flat list of jobs.
+    jobs = build_jobs(experiments, task_collection)
 
-    # compute results
-    end_to_end = EndToEnd.from_raw(
-        results_lst=results_lst, task_metadata=tabarena_context.task_metadata_collection, cache=False, cache_raw=False
+    # 4: run the jobs. `debug_mode=True` -> in-process native backend (see the module NOTE).
+    runner = ExperimentBatchRunner(
+        expname=results_dir,
+        task_metadata=task_collection,
+        debug_mode=True,
     )
-    end_to_end_results = end_to_end.to_results()
+    results_lst = runner.run_jobs(jobs)
 
-    print(f"New Configs Hyperparameters: {end_to_end.configs_hyperparameters()}")
-    with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
-        print(f"Results:\n{end_to_end_results.model_results.head(100)}")
-
-    new_results: pd.DataFrame = end_to_end_results.get_results(
-        new_result_prefix="Demo_",
-        use_model_results=True,  # If False: Will instead use the ensemble/HPO results
+    # 5: aggregate the raw results into a tidy per-(method, dataset, fold) frame.
+    df_results = EndToEnd.from_raw_to_results_df(
+        results_lst=results_lst,
+        task_metadata=task_collection,
+        new_result_prefix="[New] ",
     )
-    leaderboard: pd.DataFrame = tabarena_context.compare(
+    print("\n=== raw per-fold results ===")
+    print(df_results[["method", "dataset", "fold", "metric", "metric_error"]].to_string(index=False))
+
+    # 6: compare against the cached TabArena leaderboard baselines.
+    ta_context = TabArenaContext()
+    leaderboard = ta_context.compare(
         output_dir=eval_dir,
-        only_valid_tasks=new_results["method"].unique(),  # only compare on tasks ran in `results_lst`
-        new_results=new_results,
+        new_results=df_results,
+        only_valid_tasks=df_results["method"].unique(),  # only compare on tasks we ran
     )
-    leaderboard_website = tabarena_context.leaderboard_to_website_format(leaderboard)
+    leaderboard_website = ta_context.leaderboard_to_website_format(leaderboard=leaderboard)
+    print("\n=== TabArena leaderboard ===")
     print(leaderboard_website.to_markdown(index=False))
+    print(f"\nView saved figures in {eval_dir}")

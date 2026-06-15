@@ -10,6 +10,8 @@ import tabarena
 if TYPE_CHECKING:
     import pandas as pd
 
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
+
 
 def _get_n_repeats(n_instances: int, tabarena_lite: bool = False) -> int:
     """Get the number of n_repeats for the full benchmark run based on the 2025 paper.
@@ -123,6 +125,35 @@ def enrich_legacy_task_metadata(task_metadata: pd.DataFrame) -> pd.DataFrame:
         task_metadata["NumberOfInstances"] - task_metadata["n_samples_test_per_fold"]
     ).astype(int)
     return add_extra_task_metadata_info(task_metadata=task_metadata)
+
+
+def task_metadata_collection_from_openml(tids: list[int], *, verbose: bool = True) -> TaskMetadataCollection:
+    """Build a (lossy) ``TaskMetadataCollection`` for a list of OpenML task ids.
+
+    Prefers TabArena's cached committed task metadata; for any id not in it, falls back to
+    live OpenML (via :func:`~tabarena.nips2025_utils.method_processor.generate_task_metadata`,
+    enriched to the legacy schema by :func:`enrich_legacy_task_metadata`). The legacy frame is
+    wrapped via :meth:`TaskMetadataCollection.from_legacy_df`, which is lossy (rich fields become
+    ``None`` and per-fold sizes are the recorded averages) but sufficient for running and
+    comparing models on arbitrary OpenML tasks.
+
+    Note: when *every* requested id is already cached, the full cached collection is returned;
+    filter it to the requested tasks with ``.subset_tasks(task_ids=tids)``.
+    """
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
+
+    log = print if verbose else (lambda *a, **k: None)
+    task_metadata = load_task_metadata()
+    tids_cached = set(task_metadata["tid"].unique())
+
+    tids_missing = [tid for tid in tids if tid not in tids_cached]
+    if tids_missing:
+        from tabarena.nips2025_utils.method_processor import generate_task_metadata
+
+        log(f"Note: Missing {len(tids_missing)} tasks in the cached task_metadata...")
+        log("\tFetching task_metadata from OpenML... (this may take ~1 minute)")
+        task_metadata = enrich_legacy_task_metadata(generate_task_metadata(tids=tids))
+    return TaskMetadataCollection.from_legacy_df(task_metadata)
 
 
 def load_curated_task_metadata() -> pd.DataFrame:

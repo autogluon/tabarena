@@ -10,9 +10,8 @@ from autogluon.common.savers import save_pd
 from tabarena.benchmark.result import BaselineResult, ConfigResult
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.models._method_metadata import MethodMetadata
-from tabarena.nips2025_utils.fetch_metadata import enrich_legacy_task_metadata, load_task_metadata
+from tabarena.nips2025_utils.fetch_metadata import task_metadata_collection_from_openml
 from tabarena.nips2025_utils.method_processor import (
-    generate_task_metadata,
     load_all_artifacts,
     load_raw,
 )
@@ -437,21 +436,10 @@ class EndToEndSingle:
     def fetch_task_metadata(tids: list[int], verbose: bool = True) -> TaskMetadataCollection:
         """Auto-infer task metadata for ``tids`` as a (lossy) ``TaskMetadataCollection``.
 
-        Prefers the cached committed metadata; falls back to live OpenML for any missing tids
-        (enriched to the legacy schema first). The legacy frame is wrapped via
-        ``TaskMetadataCollection.from_legacy_df`` — lossy (rich fields become ``None``,
-        per-fold sizes are the recorded averages), which is acceptable for this path.
+        Thin wrapper around
+        :func:`~tabarena.nips2025_utils.fetch_metadata.task_metadata_collection_from_openml`.
         """
-        log = print if verbose else (lambda *a, **k: None)
-        task_metadata = load_task_metadata()
-        tids_cached = set(task_metadata["tid"].unique())
-
-        tids_missing = [tid for tid in tids if tid not in tids_cached]
-        if tids_missing:
-            log(f"Note: Missing {len(tids_missing)} tasks in the cached task_metadata...")
-            log("\tFetching task_metadata from OpenML... (this may take ~1 minute)")
-            task_metadata = enrich_legacy_task_metadata(generate_task_metadata(tids=tids))
-        return TaskMetadataCollection.from_legacy_df(task_metadata)
+        return task_metadata_collection_from_openml(tids=tids, verbose=verbose)
 
     @staticmethod
     def from_path_raw_to_results(
