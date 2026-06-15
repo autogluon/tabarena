@@ -158,14 +158,10 @@ class ConfigResult(BaselineResult):
         split_idx = self.result["task_metadata"]["split_idx"]
         framework = self.result["framework"]
 
-        # Canonicalize metric-name aliases (a task's explicit eval metric may use an
-        # AutoGluon alias, e.g. BeyondArena's root_mean_squared_error == rmse).
+        # The top-level ``metric`` is canonicalized by the base ``_align_result_input_format``
+        # (e.g. BeyondArena's root_mean_squared_error == rmse); here we only keep the simulation
+        # artifacts' metric fields consistent with it (below).
         from tabarena.benchmark.task.metrics import normalize_eval_metric
-
-        metric = normalize_eval_metric(self.result["metric"])
-        if metric != self.result["metric"]:
-            self.result["metric"] = metric
-            self.result["simulation_artifacts"]["metric"] = metric
 
         if list(self.result["simulation_artifacts"].keys()) == [dataset]:
             # if old format
