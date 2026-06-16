@@ -53,6 +53,21 @@ def _task_metadata() -> TaskMetadataCollection:
     return TaskMetadataCollection.from_legacy_df(legacy)
 
 
+class _DiskBackedMethod(MethodMetadata):
+    """A non-in-memory method whose results come from an in-test frame (stands in for disk).
+
+    ``is_in_memory`` stays False (inherited from ``MethodMetadata``), so this proves that
+    ``only_valid_tasks`` scopes by registration via ``extra_methods=`` — not by in-memory status.
+    """
+
+    def __init__(self, results: pd.DataFrame, **kwargs):
+        super().__init__(**kwargs)
+        self._results = results
+
+    def load_results(self) -> pd.DataFrame:
+        return self._results
+
+
 class TestInMemoryArtifacts:
     def test_is_in_memory_marker(self):
         assert MethodMetadata.is_in_memory is False
@@ -151,6 +166,15 @@ class TestContextRegistration:
             model_key=method,
         )
 
+    def _disk_backed(self, method: str, datasets) -> _DiskBackedMethod:
+        return _DiskBackedMethod(
+            results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
+            method=method,
+            artifact_name=method,
+            method_type="config",
+            model_key=method,
+        )
+
     def test_registered_method_is_listed_and_loadable(self):
         im = self._in_memory("NewA", datasets=("d1",))
         ctx = self._ctx(im)
@@ -158,14 +182,17 @@ class TestContextRegistration:
         loaded = ctx.load_results()
         assert set(loaded["method"]) == {"NewA (default)"}
 
-    def test_registered_new_results_concats_only_in_memory(self):
-        im_a = self._in_memory("NewA", datasets=("d1",))
-        im_b = self._in_memory("NewB", datasets=("d1", "d2"))
-        ctx = self._ctx(im_a, im_b)
+    def test_registered_new_results_concats_registered_new_methods(self):
+        # Both an in-memory and a disk-backed method registered via extra_methods= contribute;
+        # only_valid_tasks scopes by registration, not by in-memory status.
+        im = self._in_memory("NewA", datasets=("d1",))
+        disk = self._disk_backed("NewB", datasets=("d1", "d2"))
+        assert disk.is_in_memory is False
+        ctx = self._ctx(im, disk)
         new = ctx._registered_new_results()
         assert set(new["method"]) == {"NewA (default)", "NewB (default)"}
 
-    def test_registered_new_results_none_without_in_memory(self):
+    def test_registered_new_results_none_without_extra_methods(self):
         assert self._ctx()._registered_new_results() is None
 
 
@@ -263,6 +290,25 @@ class TestInitOnlyValidTasks:
         # The legacy DataFrame view derives from the (now filtered) collection.
         assert set(ctx.task_metadata["dataset"]) == {"d1"}
 
+    def test_prefilters_with_disk_backed_method(self):
+        # only_valid_tasks does not require in-memory methods: a disk-backed method registered
+        # via extra_methods= defines the valid tasks just the same.
+        disk = _DiskBackedMethod(
+            results=_results_frame("Disk (default)", datasets=("d1",), ta_name="Disk", ta_suite="Disk"),
+            method="Disk",
+            artifact_name="Disk",
+            method_type="config",
+            model_key="Disk",
+        )
+        assert disk.is_in_memory is False
+        ctx = AbstractArenaContext(
+            methods=[],
+            task_metadata=_task_metadata(),
+            extra_methods=[disk],
+            only_valid_tasks=True,
+        )
+        assert ctx.task_metadata_collection.dataset_names() == ["d1"]
+
     def test_results_filter_frame_tracks_prefilter(self):
         ctx = AbstractArenaContext(
             methods=[],
@@ -274,7 +320,7 @@ class TestInitOnlyValidTasks:
         df_filter = ctx._task_metadata_results_filter()
         assert set(zip(df_filter["dataset"], df_filter["fold"], strict=False)) == {("d1", 0)}
 
-    def test_without_in_memory_methods_raises(self):
+    def test_without_new_methods_raises(self):
         with pytest.raises(ValueError, match="only_valid_tasks=True needs"):
             AbstractArenaContext(methods=[], task_metadata=_task_metadata(), only_valid_tasks=True)
 
@@ -287,3 +333,154 @@ class TestInitOnlyValidTasks:
                 extra_methods=[self._im("Bad", datasets=("d3",))],
                 only_valid_tasks=True,
             )
+
+
+class TestFromNewMethodsFactory:
+    """`from_new_methods` pairs extra_methods + only_valid_tasks=True in one intent-revealing call."""
+
+    def _im(self, method: str, datasets) -> InMemoryMethodMetadata:
+        return InMemoryMethodMetadata(
+            results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
+            method=method,
+            artifact_name=method,
+            method_type="config",
+            model_key=method,
+        )
+
+    def test_registers_methods_and_prefilters_tasks(self):
+        ctx = AbstractArenaContext.from_new_methods(
+            [self._im("NewA", datasets=("d1",))],
+            methods=[],
+            task_metadata=_task_metadata(),
+        )
+        assert "NewA" in ctx.methods
+        assert ctx.only_valid_tasks is True
+        # d2 had no new-method results -> pruned (same as the explicit two-kwarg form).
+        assert ctx.task_metadata_collection.dataset_names() == ["d1"]
+
+    def test_returns_the_concrete_subclass(self):
+        ctx = AbstractArenaContext.from_new_methods(
+            [self._im("NewA", datasets=("d1",))],
+            methods=[],
+            task_metadata=_task_metadata(),
+        )
+        # Self return type: a factory on the base yields the base; subclasses yield themselves.
+        assert type(ctx) is AbstractArenaContext
+
+    def test_forwards_extra_kwargs(self):
+        ctx = AbstractArenaContext.from_new_methods(
+            [self._im("NewA", datasets=("d1",))],
+            methods=[],
+            task_metadata=_task_metadata(),
+            backend="native",
+        )
+        assert ctx.backend == "native"
+
+    def test_without_new_methods_raises(self):
+        with pytest.raises(ValueError, match="only_valid_tasks=True needs"):
+            AbstractArenaContext.from_new_methods([], methods=[], task_metadata=_task_metadata())
+
+
+class TestRegister:
+    """`register` adds run results post-construction and (by default) scopes task_metadata."""
+
+    def _im(self, method: str, datasets) -> InMemoryMethodMetadata:
+        return InMemoryMethodMetadata(
+            results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
+            method=method,
+            artifact_name=method,
+            method_type="config",
+            model_key=method,
+        )
+
+    def test_register_converts_and_scopes(self, monkeypatch):
+        # Stub the heavy raw->methods conversion; register's job is the wiring + scoping.
+        im = self._im("NewA", datasets=("d1",))
+        monkeypatch.setattr(
+            "tabarena.nips2025_utils.end_to_end.EndToEnd.from_raw_to_methods",
+            lambda **kwargs: [im],
+        )
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        out = ctx.register(["raw"], new_result_prefix="[New] ")
+        assert out == [im]
+        assert "NewA" in ctx.methods
+        assert ctx.only_valid_tasks is True
+        assert ctx.task_metadata_collection.dataset_names() == ["d1"]  # d2 pruned
+
+    def test_register_without_scoping_keeps_full_task_metadata(self, monkeypatch):
+        im = self._im("NewA", datasets=("d1",))
+        monkeypatch.setattr(
+            "tabarena.nips2025_utils.end_to_end.EndToEnd.from_raw_to_methods",
+            lambda **kwargs: [im],
+        )
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        ctx.register(["raw"], scope_to_valid_tasks=False)
+        assert "NewA" in ctx.methods
+        assert ctx.only_valid_tasks is False
+        assert set(ctx.task_metadata_collection.dataset_names()) == {"d1", "d2"}
+
+
+class TestRunExperiments:
+    """`run_experiments` orchestrates make_experiment_batch_runner -> run_all -> register."""
+
+    class _FakeRunner:
+        def __init__(self):
+            self.ran = None
+
+        def run_all(self, experiments):
+            self.ran = experiments
+            return ["raw-result"]
+
+    def test_scopes_runner_and_registers(self, monkeypatch):
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        runner = self._FakeRunner()
+        captured: dict = {}
+        monkeypatch.setattr(
+            ctx,
+            "make_experiment_batch_runner",
+            lambda expname, **kwargs: captured.update(expname=expname, **kwargs) or runner,
+        )
+        monkeypatch.setattr(ctx, "register", lambda results, **kw: captured.update(registered=results, register_kw=kw))
+
+        out = ctx.run_experiments(
+            ["exp1"],
+            expname="run-dir",
+            subset="lite",
+            datasets=["d1"],
+            new_result_prefix="[New] ",
+            debug_mode=True,  # an explicit runner_kwarg (overriding ExperimentBatchRunner's default)
+        )
+        assert out == ["raw-result"]
+        assert runner.ran == ["exp1"]  # experiments forwarded to run_all
+        assert captured["expname"] == "run-dir"
+        assert captured["subset"] == "lite"
+        assert captured["datasets"] == ["d1"]
+        assert captured["materialize"] is True  # runner is made runnable before run_all
+        assert captured["debug_mode"] is True  # runner_kwargs forwarded
+        assert captured["registered"] == ["raw-result"]
+        assert captured["register_kw"]["new_result_prefix"] == "[New] "
+
+    def test_omitting_runner_kwargs_leaves_runner_defaults(self, monkeypatch):
+        # run_experiments forwards only what it is given; an unspecified debug_mode is not
+        # injected, so ExperimentBatchRunner keeps its own default (now False).
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        captured: dict = {}
+        monkeypatch.setattr(
+            ctx,
+            "make_experiment_batch_runner",
+            lambda expname, **kwargs: captured.update(kwargs) or self._FakeRunner(),
+        )
+        monkeypatch.setattr(ctx, "register", lambda *a, **k: None)
+
+        ctx.run_experiments(["exp1"], expname="run-dir")
+        assert "debug_mode" not in captured  # not forwarded -> runner uses its own default
+
+    def test_register_false_skips_registration(self, monkeypatch):
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        monkeypatch.setattr(ctx, "make_experiment_batch_runner", lambda expname, **kwargs: self._FakeRunner())
+        called = {"register": False}
+        monkeypatch.setattr(ctx, "register", lambda *a, **k: called.__setitem__("register", True))
+
+        out = ctx.run_experiments(["exp1"], expname="run-dir", register=False)
+        assert out == ["raw-result"]
+        assert called["register"] is False

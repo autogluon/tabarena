@@ -23,7 +23,7 @@ class ExperimentBatchRunner:
         cache_cls: type[AbstractCacheFunction] | None = CacheFunctionPickle,
         cache_cls_kwargs: dict | None = None,
         cache_mode: Literal["default", "ignore", "only", "only_strict"] = "default",
-        debug_mode: bool = True,
+        debug_mode: bool = False,
         raise_on_failure: bool = True,
         user_tasks: list[UserTask] | None = None,
     ):
@@ -64,7 +64,7 @@ class ExperimentBatchRunner:
                     silently skip experiments whose cache is missing.
                 - "only_strict": like "only", but raise if any requested experiment is
                     missing from the cache.
-        debug_mode: bool, default True
+        debug_mode: bool, default False
             If True, will operate in a manner best suited for local model development.
             This mode is friendly to local debuggers: it skips the failure-artifact capture
             (so a fit exception propagates cleanly instead of being recorded), and it defaults
