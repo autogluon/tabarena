@@ -11,6 +11,7 @@ from tabarena.models._registry import (
 
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
+    from tabarena.models.chimeraboost.model import ChimeraBoostModel
     from tabarena.models.iltm.model import ILTMModel
     from tabarena.models.knn.model import KNNNewModel
     from tabarena.models.limix.model import LimiXModel
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 # repository transitive imports we don't want to charge every consumer for.
 _LAZY_CLASSES: dict[str, str] = {
     "MethodMetadata": "tabarena.models._method_metadata",
+    "ChimeraBoostModel": "tabarena.models.chimeraboost.model",
     "ILTMModel": "tabarena.models.iltm.model",
     "KNNNewModel": "tabarena.models.knn.model",
     "LimiXModel": "tabarena.models.limix.model",
