@@ -1,5 +1,4 @@
-"""Run TabPFN-3 on BeyondArena from non-default checkpoints, as an outer (no-bagging) experiment.
-"""
+"""Run TabPFN-3 on BeyondArena from non-default checkpoints, as an outer (no-bagging) experiment."""
 
 from __future__ import annotations
 
