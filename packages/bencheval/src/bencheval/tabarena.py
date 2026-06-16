@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 RANK = "rank"
 IMPROVABILITY = "improvability"
 LOSS_RESCALED = "loss_rescaled"
+FRONTIER_ADVANTAGE = "frontier_advantage"
 
 MetricDirection = Literal["min", "max"]
 MetricAlignment = Literal["row", "method"]
@@ -119,6 +120,7 @@ class TabArena:
         include_relative_error: bool = False,
         include_skill_score: bool = False,
         include_baseline_advantage: bool = False,
+        include_frontier_advantage: bool = False,
         baseline_method: str | None = None,
         relative_error_kwargs: dict | None = None,
         elo_kwargs: dict | None = None,
@@ -176,6 +178,8 @@ class TabArena:
                     baseline_method=baseline_method,
                 )
             )
+        if include_frontier_advantage:
+            results_lst.append(self.compute_frontier_advantage(results_per_task=results_per_task))
         if include_mrr:
             results_lst.append(self.compute_mrr(results_per_task=results_per_task).to_frame())
         if baseline_method is not None:
@@ -1042,6 +1046,61 @@ class TabArena:
         baseline_advantage.name = "baseline_advantage"
         baseline_advantage.index = results_per_task.index  # preserve original alignment
         return baseline_advantage
+
+    @staticmethod
+    def _loo_min(errors: pd.Series) -> np.ndarray:
+        """Leave-one-out minimum: for each entry, the smallest error among all *other* entries.
+
+        This is the group minimum for any row above the minimum, and the 2nd-smallest value for
+        the single row holding a unique minimum. When the minimum is tied, the 2nd-smallest equals
+        the minimum, so the tied rows correctly keep the minimum. Returns NaN for singleton groups
+        (a method with no competitor on the task).
+        """
+        arr = errors.to_numpy()
+        n = arr.shape[0]
+        if n < 2:
+            return np.full(n, np.nan)
+        order = np.argsort(arr, kind="stable")
+        smallest = arr[order[0]]
+        second = arr[order[1]]
+        return np.where(arr > smallest, smallest, second)
+
+    def compute_frontier_advantage_per(self, results_per_task: pd.DataFrame, task_groupby_cols: list[str]) -> pd.Series:
+        """Per-(task) frontier advantage: a method's signed margin over the best *other* method.
+
+        For method ``i`` on a task with error ``e_i`` and best-other ("best-in-hindsight ignoring
+        itself") error ``e_loo = min_{j != i} e_j`` — the performance frontier excluding ``i`` ::
+
+            frontier_advantage_i = (e_loo - e_i) / max(e_loo, e_i)
+
+        Bounded to ``[-1, 1]`` (higher is stronger). Positive means ``i`` is the unique best and the
+        value is its fractional margin over the runner-up; negative means ``i`` trails the best
+        method (there it equals ``-improvability``). Unlike ``rank`` / ``improvability``, it does not
+        saturate once a method is best — a method that wins by a wide margin scores higher than one
+        that barely edges the runner-up — so per-method frontier advantage sorts tasks from
+        strongest to weakest for that method.
+        """
+        e = results_per_task[self.error_col]
+        loo_best = results_per_task.groupby(task_groupby_cols, sort=False)[self.error_col].transform(self._loo_min)
+        denominator = pd.concat([e, loo_best], axis=1).max(axis=1).replace(0, pd.NA)
+        frontier_advantage = ((loo_best - e) / denominator).fillna(0)
+        frontier_advantage.name = FRONTIER_ADVANTAGE
+        return frontier_advantage
+
+    def compute_frontier_advantage(self, results_per_task: pd.DataFrame) -> pd.Series:
+        """Equal-task-weighted mean frontier advantage per method (higher is better)."""
+        task_groupby_cols = self._get_task_groupby_cols(results=results_per_task)
+        seed_col = self.seed_column if self.seed_column in task_groupby_cols else None
+        results_per_task = results_per_task.copy()
+        results_per_task[FRONTIER_ADVANTAGE] = self.compute_frontier_advantage_per(results_per_task, task_groupby_cols)
+        return compute_weighted_mean_by_task(
+            df=results_per_task,
+            value_col=FRONTIER_ADVANTAGE,
+            task_col=self.task_groupby_columns,
+            seed_col=seed_col,
+            method_col=self.method_col,
+            sort_asc=False,
+        )
 
     def compute_loss_rescaled_per(self, results_per_task: pd.DataFrame, task_groupby_cols: list[str]) -> pd.Series:
         best_error_per = results_per_task.groupby(task_groupby_cols)[self.error_col].transform("min")
