@@ -7,10 +7,11 @@ nothing from ``TabArenaContext``, whose only addition over the base is the TabAr
 
 * **Subset predicates** — size buckets keyed on ``max_train_rows``, plus split-regime
   (``iid``/``temporal``/``grouped``), feature-dimensionality, text and high-cardinality subsets.
-* **Task metadata** — sourced from the self-contained committed BeyondArena reference CSV (via
-  :func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata_collection`), whose tasks
-  already carry the warehouse fields inline, so no separate ``warehouse_metadata.csv`` merge is
-  needed.
+* **Task metadata** — the committed BeyondArena reference CSV, loaded as a
+  :class:`~tabarena.benchmark.task.metadata.BeyondArenaTaskMetadataCollection` (whose tasks already
+  carry the warehouse fields inline, so no separate ``warehouse_metadata.csv`` merge is needed). The
+  collection keeps a materializable Data Foundry source so ``run_experiments`` can download the
+  selected tasks.
 * **Method metadata** — the ``"BeyondArena"`` preset selects the Beyond-IID benchmark's method
   collection (artifact ``beyond_iid_benchmark_2026``; see
   :mod:`tabarena.nips2025_utils.artifacts._beyond_method_metadata`).
@@ -108,9 +109,9 @@ class BeyondArenaContext(AbstractArenaContext):
         Args:
             methods: ``"BeyondArena"`` (the Beyond-IID method collection) or an explicit
                 ``list[MethodMetadata]``.
-            task_metadata: ``"BeyondArena"`` (the committed reference CSV, loaded via
-                :func:`~tabarena.evaluation.beyond_metadata.load_beyond_task_metadata_collection`)
-                or a ready ``TaskMetadataCollection``.
+            task_metadata: ``"BeyondArena"`` (the committed reference CSV as a
+                :class:`~tabarena.benchmark.task.metadata.BeyondArenaTaskMetadataCollection`, which
+                retains a materializable Data Foundry source) or a ready ``TaskMetadataCollection``.
             extra_methods: Additional ``MethodMetadata`` appended to the resolved methods.
             backend: ``"ray"`` or ``"native"``, forwarded to :class:`AbstractArenaContext`.
             fillna_method: Imputed-method name forwarded to :class:`AbstractArenaContext`.
@@ -129,12 +130,22 @@ class BeyondArenaContext(AbstractArenaContext):
         )
 
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
-        """``"BeyondArena"`` -> the committed reference CSV (no downloads)."""
+        """``"BeyondArena"`` -> the committed reference CSV, with a Data Foundry source retained.
+
+        Returns a :class:`BeyondArenaTaskMetadataCollection` (== ``from_preset("BeyondArena")``):
+        the metadata still loads offline from the committed reference CSV (no dataset downloads at
+        construction), but unlike a plain directly-built collection it keeps a materializable
+        ``DataFoundryTaskMetadataSource``. That lets ``context.run_experiments(...)`` materialize
+        (download + convert) the selected tasks — which would otherwise be a silent no-op, since a
+        sourceless collection's :meth:`~TaskMetadataCollection.materialize` does nothing.
+
+        Note: building the source imports the optional ``data-foundry`` dependency at construction.
+        """
         if name != "BeyondArena":
             raise ValueError(f"Unknown task_metadata preset {name!r}; expected 'BeyondArena'.")
-        from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata_collection
+        from tabarena.benchmark.task.metadata import BeyondArenaTaskMetadataCollection
 
-        return load_beyond_task_metadata_collection(name)
+        return BeyondArenaTaskMetadataCollection()
 
     def _resolve_methods_preset(self, name: str) -> list[MethodMetadata]:
         """``"BeyondArena"`` -> the Beyond-IID method collection."""
