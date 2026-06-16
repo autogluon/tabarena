@@ -17,6 +17,8 @@ from tabarena.benchmark.task.metadata.schema import TabArenaTaskMetadata
 from tabarena.benchmark.task.metadata.sources.base import TaskMetadataSource
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from data_foundry.collections import DatasetCollection
 
 
@@ -31,8 +33,10 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
 
     def __init__(
         self,
-        collection: DatasetCollection,
+        collection: DatasetCollection | None = None,
         *,
+        collection_factory: Callable[[], DatasetCollection] | None = None,
+        name: str | None = None,
         cache_dir: str | None = None,
         force_download: bool = False,
         force_regenerate: bool = False,
@@ -41,8 +45,18 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
     ) -> None:
         """Initialize the source.
 
+        Supply the collection either eagerly (``collection``) or lazily (``collection_factory`` — a
+        zero-arg callable building it on first use). The lazy form, paired with an explicit
+        ``name``, keeps :meth:`load`'s committed/cached (offline) path free of the optional
+        ``data-foundry`` dependency: the collection is built only when a download is actually
+        needed (CSV regeneration or :meth:`materialize`).
+
         Args:
-            collection: The Data Foundry collection to load tasks from.
+            collection: The Data Foundry collection to load tasks from (built eagerly).
+            collection_factory: Zero-arg callable returning the collection, resolved lazily and
+                memoized on first use. Provide exactly one of ``collection`` / ``collection_factory``.
+            name: The collection name, used for the committed/cached CSV lookup without resolving
+                the collection. Defaults to the (possibly lazily-resolved) collection's ``name``.
             cache_dir: Optional override for the data_foundry download cache.
             force_download: Re-fetch + reconvert each container during
                 materialization even if its local task pickle already exists.
@@ -54,19 +68,51 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
                 text-cache "skipping" lines). Off by default to keep the materialize
                 progress bar clean.
         """
-        self.collection = collection
+        if (collection is None) == (collection_factory is None):
+            raise ValueError("Provide exactly one of `collection` or `collection_factory`.")
+        self._collection = collection
+        self._collection_factory = collection_factory
+        self._name = name
         self.cache_dir = cache_dir
         self.force_download = force_download
         self.force_regenerate = force_regenerate
         self.evaluation_metrics = evaluation_metrics
         self.verbose = verbose
 
+    def _get_collection(self) -> DatasetCollection:
+        """Resolve the Data Foundry collection, building + memoizing it on first use.
+
+        The single place that pulls in the optional ``data-foundry`` dependency — reached only for
+        downloads (CSV regeneration / :meth:`materialize`), never on the offline ``load`` path.
+        """
+        if self._collection is None:
+            self._collection = self._collection_factory()
+        return self._collection
+
+    @property
+    def collection(self) -> DatasetCollection:
+        """The Data Foundry collection (resolved lazily; importing data_foundry on first access)."""
+        return self._get_collection()
+
+    @property
+    def name(self) -> str:
+        """The collection name — explicit when provided, else the (resolved) collection's name."""
+        if self._name is not None:
+            return self._name
+        return self._get_collection().name
+
     def load(self, *, verbose: bool = False) -> list[TabArenaTaskMetadata]:
-        """Load the collection's reference metadata (no dataset downloads)."""
+        """Load the collection's reference metadata (no dataset downloads).
+
+        The committed/cached lookup keys on the collection *name*, so the common (committed-CSV)
+        path stays free of the optional ``data-foundry`` dependency; the collection is built (via
+        the lazy factory) only if the reference CSV must be regenerated.
+        """
         from tabarena.benchmark.task.data_foundry import load_reference_metadata
 
         metadata_df = load_reference_metadata(
-            collection=self.collection,
+            collection_name=self.name,
+            collection_factory=self._get_collection,
             cache_dir=self.cache_dir,
             force_regenerate=self.force_regenerate,
             verbose=verbose,

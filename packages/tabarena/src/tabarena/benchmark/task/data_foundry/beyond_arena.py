@@ -33,6 +33,8 @@ from tabarena.benchmark.task.data_foundry.adapter import (
 from tabarena.benchmark.task.data_foundry.metadata_cache import get_path_to_metadata_cache
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from data_foundry.collections import DatasetCollection
 
 
@@ -67,11 +69,13 @@ def _generated_metadata_cache_path(collection_name: str) -> Path:
 def load_reference_metadata(
     *,
     collection: DatasetCollection | None = None,
+    collection_name: str | None = None,
+    collection_factory: Callable[[], DatasetCollection] | None = None,
     cache_dir: str | None = None,
     force_regenerate: bool = False,
     verbose: bool = False,
 ) -> pd.DataFrame:
-    """Return the reference task-metadata DataFrame for ``collection``.
+    """Return the reference task-metadata DataFrame for a collection.
 
     Resolution order (unless ``force_regenerate``):
 
@@ -80,8 +84,18 @@ def load_reference_metadata(
     3. Regenerate by downloading + converting the whole collection, caching the
        result for next time.
 
+    The committed/cached lookup (1, 2) needs only the collection *name*: pass ``collection_name``
+    (optionally with a lazy ``collection_factory``) to keep that offline path free of the optional
+    ``data-foundry`` dependency — the collection object is built only when regeneration (3) is
+    actually required. Passing a ready ``collection`` directly also works (its ``name`` is used).
+
     Args:
-        collection: Collection to describe. Defaults to ``BeyondArena``.
+        collection: Collection to describe (built eagerly). Defaults to ``BeyondArena`` when
+            neither ``collection`` nor ``collection_factory`` is given.
+        collection_name: The collection name for the committed/cached lookup, avoiding a
+            (data_foundry-importing) collection build on the offline path.
+        collection_factory: Zero-arg callable building the collection, called only if regeneration
+            is needed.
         cache_dir: Optional data_foundry cache override used only when regenerating.
         force_regenerate: Skip both caches and rebuild from the source collection.
         verbose: Print which committed/regenerated CSV is being loaded. Off by default.
@@ -91,25 +105,32 @@ def load_reference_metadata(
         columns plus ``data_foundry_uri``. ``task_id_str`` uses the portable
         sentinel cache path (see :func:`localize_task_id_str`).
     """
-    if collection is None:
-        collection = get_beyond_arena_collection()
+
+    def _resolve_collection() -> DatasetCollection:
+        nonlocal collection
+        if collection is None:
+            collection = collection_factory() if collection_factory is not None else get_beyond_arena_collection()
+        return collection
+
+    if collection_name is None:
+        collection_name = collection.name if collection is not None else _resolve_collection().name
 
     if not force_regenerate:
-        committed = reference_metadata_package_path(collection.name)
+        committed = reference_metadata_package_path(collection_name)
         if committed.exists():
             if verbose:
-                print(f"Loading committed {collection.name} reference metadata from {committed}.")
+                print(f"Loading committed {collection_name} reference metadata from {committed}.")
             return pd.read_csv(committed)
 
-        cached = _generated_metadata_cache_path(collection.name)
+        cached = _generated_metadata_cache_path(collection_name)
         if cached.exists():
             if verbose:
-                print(f"Loading regenerated {collection.name} reference metadata from {cached}.")
+                print(f"Loading regenerated {collection_name} reference metadata from {cached}.")
             return pd.read_csv(cached)
 
     out_path = generate_reference_metadata(
-        collection=collection,
-        out_path=_generated_metadata_cache_path(collection.name),
+        collection=_resolve_collection(),
+        out_path=_generated_metadata_cache_path(collection_name),
         cache_dir=cache_dir,
         force_download=force_regenerate,
     )
