@@ -17,7 +17,6 @@ from tabarena.nips2025_utils.load_metadata_from_raw import load_from_raw_all_met
 from tabarena.nips2025_utils.method_processor import (
     load_all_artifacts,
 )
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.utils.ray_utils import ray_map_list
 
@@ -484,65 +483,25 @@ class EndToEndResults:
             leaderboard_kwargs=leaderboard_kwargs,
         )
 
-    def compare_on_tabarena(
+    def to_method_metadata_lst(
         self,
-        output_dir: str | Path,
         *,
-        only_valid_tasks: bool = False,
-        subset: str | None | list = None,
         new_result_prefix: str | None = None,
         use_artifact_name_in_prefix: bool | None = None,
         use_model_results: bool = False,
-        score_on_val: bool = False,
-        average_seeds: bool = False,
-        leaderboard_kwargs: dict | None = None,
-        tabarena_context_kwargs: dict | None = None,
-        extra_results: pd.DataFrame = None,
-        remove_imputed: bool = False,
-        **kwargs,
-    ) -> pd.DataFrame:
-        """Compare results on TabArena leaderboard.
+    ) -> list:
+        """Vend each method as an :class:`InMemoryMethodMetadata` for context registration.
 
-        Args:
-            output_dir (str | Path): Directory to save the results.
-            subset (str | None | list): Subset of tasks to evaluate on.
-                Options are "classification", "regression", "lite"  for TabArena-Lite,
-                "tabicl", "tabpfn", "tabpfn/tabicl", or None for all tasks.
-                Or a list of subset names to filter for.
-            new_result_prefix (str | None): If not None, add a prefix to the new
-                results to distinguish new results from the original TabArena results.
-                Use this, for example, if you re-run a model from TabArena.
+        ``use_artifact_name_in_prefix`` / ``use_model_results`` are forwarded to each method's
+        :meth:`EndToEndResultsSingle.to_method_metadata`.
         """
-        results = self.get_results(
-            new_result_prefix=new_result_prefix,
-            use_artifact_name_in_prefix=use_artifact_name_in_prefix,
-            use_model_results=use_model_results,
-            fillna=not only_valid_tasks,
-        )
-
-        # FIXME: TMP
-        if extra_results is not None:
-            results = pd.concat([results, extra_results], ignore_index=True)
-
-        if tabarena_context_kwargs is None:
-            tabarena_context_kwargs = {}
-        tabarena_context = TabArenaContext(**tabarena_context_kwargs)
-        return tabarena_context.compare(
-            output_dir=output_dir,
-            new_results=results,
-            only_valid_tasks=only_valid_tasks,
-            subset=subset,
-            score_on_val=score_on_val,
-            average_seeds=average_seeds,
-            leaderboard_kwargs=leaderboard_kwargs,
-            remove_imputed=remove_imputed,
-            **kwargs,
-        )
-
-    def to_method_metadata_lst(self, *, new_result_prefix: str | None = None) -> list:
-        """Vend each method as an :class:`InMemoryMethodMetadata` for context registration."""
         return [
-            result.to_method_metadata(new_result_prefix=new_result_prefix) for result in self.end_to_end_results_lst
+            result.to_method_metadata(
+                new_result_prefix=new_result_prefix,
+                use_artifact_name_in_prefix=use_artifact_name_in_prefix,
+                use_model_results=use_model_results,
+            )
+            for result in self.end_to_end_results_lst
         ]
 
     def get_results(
@@ -574,11 +533,14 @@ class EndToEndResults:
                 method, artifact_name = method
             else:
                 artifact_name = default_artifact_name
-            end_to_end_results = EndToEndResultsSingle.from_cache(
-                method=method,
-                artifact_name=artifact_name,
-            )
-            end_to_end_results_lst.append(end_to_end_results)
+            if isinstance(method, MethodMetadata):
+                method_metadata = method
+            else:
+                method_metadata = MethodMetadata.from_yaml(
+                    method=method,
+                    artifact_name=artifact_name if artifact_name is not None else method,
+                )
+            end_to_end_results_lst.append(EndToEndResultsSingle(method_metadata=method_metadata))
         return cls(end_to_end_results_lst=end_to_end_results_lst)
 
     def cache(self):

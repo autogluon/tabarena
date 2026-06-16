@@ -7,7 +7,8 @@ This module turns those raw artifacts into a TabArena leaderboard, reusing the s
 
 It implements the TabArena-v0.1 flow: post-process the raw results into the TabArena cache
 (shared with ``beyond_arena_eval`` via :mod:`tabarena.evaluation._eval_common`), then compare
-against the TabArena-v0.1 paper baselines via ``EndToEndResults.compare_on_tabarena``. Each method
+against the TabArena-v0.1 paper baselines by registering the run's methods on a
+``TabArenaContext`` (``extra_methods=``) and calling ``TabArenaContext.compare``. Each method
 can be renamed in the leaderboard via its ``result_suffix`` (e.g. to distinguish a re-run).
 
 For the data-foundry / BeyondArena flow (multiple runs, data-foundry subset predicates, no paper
@@ -90,15 +91,16 @@ class TabArenaEvalConfig:
         init_caches(self.tabarena_cache_path, self.openml_cache_path)
 
 
-def _compare_subset(results, subset: list[str], *, config: TabArenaEvalConfig, figure_output_dir: Path):
-    """Leaderboard for one subset (TabArena-v0.1 baselines via ``compare_on_tabarena``).
+def _compare_subset(context, subset: list[str], *, figure_output_dir: Path):
+    """Leaderboard for one subset: the run's registered methods vs the TabArena-v0.1 baselines.
 
-    The comparison seam that differs from the BeyondArena flow (which uses ``compare`` +
-    data-foundry subset predicates in :mod:`tabarena.evaluation.beyond_arena_eval`).
+    The comparison seam that differs from the BeyondArena flow (which uses data-foundry subset
+    predicates in :mod:`tabarena.evaluation.beyond_arena_eval`). ``context`` already has the run's
+    methods registered via ``extra_methods=``, so they flow through ``compare`` like cached baselines.
     """
     from tabarena.evaluation._eval_common import subset_label
 
-    return results.compare_on_tabarena(
+    return context.compare(
         output_dir=figure_output_dir / "subsets" / subset_label(subset),
         subset=subset or None,
     )
@@ -136,11 +138,18 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
     ]
     results = post_process_to_results(artifacts, task_metadata=None, num_cpus=config.num_cpus)
 
+    # Register the run's methods on a TabArena-v0.1 context (extra_methods=), so they flow through
+    # `compare` against the paper baselines exactly like cached methods (fill of missing tasks is
+    # handled by the context's fillna_method, as the old compare_on_tabarena did via get_results).
+    from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+
+    context = TabArenaContext(extra_methods=results.to_method_metadata_lst())
+
     figure_output_dir = Path(config.figure_output_dir)
     leaderboards: dict[str, pd.DataFrame] = {}
     for subset in config.subsets_to_run():
         label = subset_label(subset)
-        leaderboard = _compare_subset(results, subset, config=config, figure_output_dir=figure_output_dir)
+        leaderboard = _compare_subset(context, subset, figure_output_dir=figure_output_dir)
 
         print(f"\n##### Leaderboard [{label}]")
         print(format_leaderboard(leaderboard).to_markdown(index=False))
