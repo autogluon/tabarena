@@ -66,7 +66,7 @@ data-foundry = ["data-foundry>=0.0.3"]
 
 # Core model extras — installed together via the `benchmark` union below.
 tabpfn = [
-  "tabpfn>=8.0.3",
+  "tabpfn>=8.0.8",
   "tabpfn-extensions[many_class] @ git+https://github.com/PriorLabs/tabpfn-extensions.git",
 ]
 tabicl = ["tabicl>=2.0.0"]

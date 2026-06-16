@@ -57,7 +57,7 @@ class CustomRandomForestModel(AbstractModel):
         if self._feature_generator.features_in:
             X = X.copy()
             X[self._feature_generator.features_in] = self._feature_generator.transform(X=X)
-        return X.fillna(0).to_numpy(dtype=np.float32) # Only convert to numpy if needed!
+        return X.fillna(0).to_numpy(dtype=np.float32)  # Only convert to numpy if needed!
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, num_cpus: int = 1, **kwargs) -> None:
         """Fit logic. Only ``X`` / ``y`` are used here, but the runner passes much more via

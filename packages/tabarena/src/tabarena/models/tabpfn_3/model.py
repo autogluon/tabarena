@@ -21,6 +21,17 @@ class TabPFN3Model(AbstractTorchModel):
     default_classification_model: str | None = "tabpfn-v3-classifier-v3_default.ckpt"
     default_regression_model: str | None = "tabpfn-v3-regressor-v3_default.ckpt"
 
+    checkpoint_param_name: str = "checkpoint_per_problem_type"
+    """Name of the optional config hyperparameter that overrides the checkpoint per problem type.
+
+    Its value is a dict mapping a problem type to a checkpoint. Keys may be ``"binary"`` /
+    ``"multiclass"`` / ``"regression"``, or the ``"classification"`` umbrella (used for both
+    ``"binary"`` and ``"multiclass"`` unless a more specific key is given). Each value is a bare
+    filename (resolved in the tabpfn cache dir) or an absolute path to a ``.ckpt``. Problem types
+    not listed fall back to ``default_classification_model`` / ``default_regression_model``. It is
+    popped from the hyperparameters in :meth:`_fit` (it is not a tabpfn estimator argument).
+    """
+
     _categorical_indices: list[int] | None
     """The indices of the categorical features, detected during preprocessing."""
     fixed_random_state: int = 0
@@ -46,12 +57,30 @@ class TabPFN3Model(AbstractTorchModel):
 
         return TabPFNClassifier if is_classification else TabPFNRegressor
 
-    def _get_model_checkpoint(self):
+    def _resolve_checkpoint_for_problem_type(self, checkpoint_per_problem_type: dict[str, str] | None) -> str | None:
+        """Select this task's checkpoint name from an optional per-problem-type override.
+
+        Resolution order: the exact ``problem_type`` key (``"binary"`` / ``"multiclass"`` /
+        ``"regression"``) -> the ``"classification"`` umbrella key (for binary/multiclass only) ->
+        the ``default_classification_model`` / ``default_regression_model`` class attribute.
+        """
+        is_classification = self.problem_type in ["binary", "multiclass"]
+        overrides = checkpoint_per_problem_type or {}
+        model = overrides.get(self.problem_type)
+        if model is None and is_classification:
+            model = overrides.get("classification")
+        if model is None:
+            model = self.default_classification_model if is_classification else self.default_regression_model
+        return model
+
+    def _get_model_checkpoint(self, checkpoint_per_problem_type: dict[str, str] | None = None):
+        """Resolve the checkpoint to a full path: pick the name (see
+        :meth:`_resolve_checkpoint_for_problem_type`) then prepend the tabpfn cache dir (a no-op
+        for an absolute path).
+        """
         from tabpfn.model_loading import prepend_cache_path
 
-        is_classification = self.problem_type in ["binary", "multiclass"]
-        default_model = self.default_classification_model if is_classification else self.default_regression_model
-        return prepend_cache_path(default_model)
+        return prepend_cache_path(self._resolve_checkpoint_for_problem_type(checkpoint_per_problem_type))
 
     def _fit(
         self,
@@ -64,9 +93,10 @@ class TabPFN3Model(AbstractTorchModel):
         X = self.preprocess(X, y=y, is_train=True)
 
         # Set hyperparameters
-        hps = self._get_model_params()
+        hps = dict(self._get_model_params())
+        checkpoint_per_problem_type = hps.pop(self.checkpoint_param_name, None)
         default_hps = dict(
-            model_path=self._get_model_checkpoint(),
+            model_path=self._get_model_checkpoint(checkpoint_per_problem_type),
             device=self._resolve_tabpfn_device(num_gpus=num_gpus),
             n_jobs=num_cpus,
             categorical_features_indices=self._categorical_indices,
