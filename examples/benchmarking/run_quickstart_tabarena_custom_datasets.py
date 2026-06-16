@@ -1,25 +1,18 @@
 """Quickstart: benchmark TabArena models on your own (custom / private) datasets.
 
-Same workflow as ``run_quickstart_tabarena.py`` (collection -> bundle -> build_jobs ->
-run_jobs -> EndToEnd -> compare); the tasks are datasets you define yourself rather than
-the committed TabArena suite:
-
 1. Implement each dataset as a ``UserTask`` (one classification, one regression);
    ``create_task`` computes its native ``TabArenaTaskMetadata`` (problem type, sizes,
    dtype flags, per-split stats) — no legacy task_metadata DataFrame anywhere.
 2. Cache them to disk (``save_task``) so they load locally at run time.
-3. Collect them into a ``TaskMetadataCollection`` and register them with the runner via
-   ``user_tasks=`` (so each dataset name resolves to the local task, not an OpenML download).
-4. Run a (non-rectangular) sweep: ``build_jobs`` pairs each experiment with exactly the
-   collection's splits, so the 3-fold classification task and the 1-fold regression task
-   each get the right number of jobs automatically.
-5. Aggregate with ``EndToEnd.from_raw_to_results_df``.
-6. Compute a leaderboard. Your own data has no TabArena baselines, so a generic
-   ``AbstractArenaContext`` (``methods=[]``) computes it purely from your results.
-
-Run with::
-
-    python examples/benchmarking/run_quickstart_tabarena_custom_datasets.py
+3. Collect them into a ``TaskMetadataCollection`` and build a generic ``AbstractArenaContext``
+   over it. Your own data has no TabArena baselines, so ``methods=[]`` — the leaderboard is
+   computed purely from your results.
+4. ``context.run_experiments(..., user_tasks=tasks)`` runs the (non-rectangular) sweep —
+   ``user_tasks=`` resolves each dataset name to the local task (not an OpenML download), and
+   the runner runs exactly the collection's splits (so the 3-fold classification task and the
+   1-fold regression task each get the right number of jobs automatically) — then registers the
+   results as in-memory methods.
+5. ``compare`` computes the leaderboard from the registered methods.
 """
 
 from __future__ import annotations
@@ -30,16 +23,11 @@ import pandas as pd
 from sklearn.datasets import make_classification, make_regression
 from sklearn.model_selection import StratifiedKFold, train_test_split
 
-from tabarena.benchmark.experiment import (
-    ExperimentBatchRunner,
-    TabArenaV0pt1ExperimentBundle,
-    build_jobs,
-)
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task import UserTask
 from tabarena.benchmark.task.metadata import TabArenaTaskMetadata, TaskMetadataCollection
 from tabarena.benchmark.task.user_task import from_sklearn_splits_to_user_task_splits
 from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
-from tabarena.nips2025_utils.end_to_end import EndToEnd
 
 
 def _toy_frame(*, classification: bool) -> pd.DataFrame:
@@ -114,7 +102,7 @@ if __name__ == "__main__":
     clf_task, clf_meta = make_classification_task(task_cache_dir)
     reg_task, reg_meta = make_regression_task(task_cache_dir)
     tasks = [clf_task, reg_task]
-    # 3: collect into the native collection that drives every consumer below.
+    # 3: collect into the native collection that drives the context below.
     task_collection = TaskMetadataCollection.from_source([clf_meta, reg_meta])
 
     # Sanity: the stored metadata matches each task as it will actually load at run time —
@@ -125,40 +113,28 @@ if __name__ == "__main__":
 
     # 4: models to run, each at its default config. See `run_quickstart_tabarena.py` for
     #    custom models + HPO. Registry names: `tabarena.models.utils.get_configs_generator_from_name`.
-    bundle = TabArenaV0pt1ExperimentBundle(
+    experiments = TabArenaV0pt1ExperimentBundle(
         models=[
             ("LightGBM", 0),
             ("RandomForest", 0),
         ],
-    )
-    experiments = bundle.build_experiments()
+    ).build_experiments()
 
-    # 5: experiments x the collection's (non-rectangular) splits -> jobs. The clf task has 3
-    #    folds and the reg task has 1; build_jobs produces exactly those — no manual job loop.
-    jobs = build_jobs(experiments, task_collection)
-
-    # 6: run. Register the custom tasks via `user_tasks=` so the runner resolves each dataset
-    #    name to the local UserTask (rather than attempting an OpenML download).
-    runner = ExperimentBatchRunner(
-        expname=results_dir,
-        task_metadata=task_collection,
-        user_tasks=tasks,
-        debug_mode=True,
-    )
-    results_lst = runner.run_jobs(jobs)
-
-    # 7: aggregate the raw results into a tidy per-(method, dataset, fold) frame.
-    df_results = EndToEnd.from_raw_to_results_df(
-        results_lst=results_lst,
-        task_metadata=task_collection,
-        new_result_prefix="[New] ",
-    )
-    print("\n=== raw per-fold results ===")
-    print(df_results[["method", "dataset", "fold", "metric", "metric_error"]].to_string(index=False))
-
-    # 8: leaderboard via a generic arena context (no TabArena presets / baselines): with
-    #    methods=[] the leaderboard is computed purely from the results passed as new_results.
+    # 5: a generic arena context over the custom collection. `methods=[]` -> no TabArena presets /
+    #    baselines, so the leaderboard is computed purely from our own results.
     context = AbstractArenaContext(task_metadata=task_collection, methods=[])
-    leaderboard = context.compare(output_dir=eval_dir, new_results=df_results)
+
+    # 6: run + register.
+    context.run_experiments(
+        experiments,
+        expname=results_dir,
+        user_tasks=tasks,
+        new_result_prefix="[New] ",
+        debug_mode=True,  # <-- also lets you attach a local debugger
+    )
+
+    # 7: compute the leaderboard from the registered methods.
+    leaderboard = context.compare(output_dir=eval_dir)
     print("\n=== leaderboard ===")
-    print(leaderboard.to_string())
+    print(leaderboard.to_markdown())
+    print(f"\nView saved figures in {eval_dir}")
