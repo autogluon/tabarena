@@ -108,8 +108,7 @@ class AbstractArenaContext:
         # registered "new" methods actually ran, so it becomes the single source of truth for
         # what is in scope — `compare` (which scopes results to `task_metadata` by default), the
         # runner, plotting, and per-dataset tables all inherit the restriction without the caller
-        # repeating `only_valid_tasks=True` at each call site. (The counterpart to
-        # `compare(only_valid_tasks=True)`; see `run_register_new_methods.py`.)
+        # repeating `only_valid_tasks=True` at each call site.
         self.only_valid_tasks = False
         if extra_methods:
             self._register_methods(list(extra_methods), scope_to_valid_tasks=only_valid_tasks)
@@ -120,13 +119,6 @@ class AbstractArenaContext:
     @classmethod
     def from_new_methods(cls, new_methods: list[MethodMetadata], **kwargs) -> Self:
         """Build a context with ``new_methods`` registered and scoped to the tasks they ran.
-
-        The intent-revealing shorthand for the registration-first workflow (see
-        ``examples/benchmarking/run_register_new_methods.py``): equivalent to
-        ``cls(extra_methods=new_methods, only_valid_tasks=True, **kwargs)``, but pairs the two
-        co-dependent arguments in one call so neither can be forgotten — ``only_valid_tasks=True``
-        needs registered new methods to define the valid tasks, and registering new methods is
-        almost always meant to be evaluated only on their own tasks.
 
         ``new_methods`` are the methods to register, typically the (in-memory) ones returned by
         :meth:`~tabarena.nips2025_utils.end_to_end.EndToEnd.from_raw_to_methods`, though any
@@ -181,8 +173,7 @@ class AbstractArenaContext:
     ) -> list[BaselineResult]:
         """Run ``experiments`` over this context's task_metadata and register the results.
 
-        The single-hub entry point for the registration-first workflow (see
-        ``examples/benchmarking/run_register_new_methods.py``): builds a runner scoped to the
+        The single-hub entry point for the registration-first workflow: builds a runner scoped to the
         selected ``(dataset, fold, repeat)`` triplets and materialized so it is runnable (via
         :meth:`make_experiment_batch_runner` with ``materialize=True`` — ``subset`` / ``datasets``
         / ``splits`` / ``folds`` / ``repeats`` have the same semantics there), runs every selected

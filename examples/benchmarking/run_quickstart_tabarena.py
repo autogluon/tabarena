@@ -1,9 +1,9 @@
-"""Quickstart: benchmark registry + custom models on TabArena-Lite and compare to the leaderboard.
+"""Quickstart: benchmark registry + custom models on three datasets of TabArena-Lite and compare to the leaderboard.
 
-The quickstart shows:
-  * running a registry model by name (e.g. ``"LightGBM"``),
+Shows:
+  * running a registry model by name (e.g. ``"Linear"``),
   * implementing and running your own custom model (``CustomRandomForestModel`` below),
-  * hyperparameter search (``num_random_configs`` > 0 via the model's search space),
+  * hyperparameter search (``n_configs`` > 0 via the model's search space),
   * evaluating the run against the TabArena leaderboard.
 """
 
@@ -16,19 +16,15 @@ import numpy as np
 from autogluon.core.models import AbstractModel
 from autogluon.features import LabelEncoderFeatureGenerator
 
-from tabarena.benchmark.experiment import (
-    ExperimentBatchRunner,
-    TabArenaV0pt1ExperimentBundle,
-    build_jobs,
-)
-from tabarena.benchmark.task.metadata import TabArenaTaskMetadataCollection
-from tabarena.nips2025_utils.end_to_end import EndToEnd
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 if TYPE_CHECKING:
     import pandas as pd
 
     from tabarena.utils.config_utils import ConfigGenerator
+
+DATASETS = ["blood-transfusion-service-center", "QSAR_fish_toxicity", "anneal"]
 
 
 class CustomRandomForestModel(AbstractModel):
@@ -61,9 +57,17 @@ class CustomRandomForestModel(AbstractModel):
         if self._feature_generator.features_in:
             X = X.copy()
             X[self._feature_generator.features_in] = self._feature_generator.transform(X=X)
-        return X.fillna(0).to_numpy(dtype=np.float32)
+        return X.fillna(0).to_numpy(dtype=np.float32) # Only convert to numpy if needed!
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, num_cpus: int = 1, **kwargs) -> None:
+        """Fit logic. Only ``X`` / ``y`` are used here, but the runner passes much more via
+        ``**kwargs`` — pull out what your model can exploit (see ``AbstractModel._fit``):
+
+          * ``X_val`` / ``y_val`` — validation split (use it for early stopping / picking
+            iterations; ``None`` disables validation-based early stopping),
+          * ``time_limit`` — seconds to stay within; ideally early-stop before exceeding it,
+          * ``num_cpus`` / ``num_gpus`` — compute budget for this fit,
+        """
         if self.problem_type == "regression":
             from sklearn.ensemble import RandomForestRegressor
 
@@ -98,8 +102,8 @@ class CustomRandomForestModel(AbstractModel):
         """Bundle entry for this model: the default config plus a search space for HPO.
 
         ``manual_configs=[{}]`` always yields the default config; ``search_space`` is what
-        the bundle samples when it is asked for ``num_random_configs > 0`` (see the ``models``
-        list below). For a default-only run, pass the tuple ``(..., 0)`` in ``models``.
+        the bundle samples when it is asked for ``n_configs > 0`` (see the ``models`` list
+        below). For a default-only run, pass the tuple ``(..., 0)`` in ``models``.
         """
         from autogluon.common.space import Int
 
@@ -113,57 +117,37 @@ class CustomRandomForestModel(AbstractModel):
 
 
 if __name__ == "__main__":
-    # Output dirs, resolved next to this script so they don't depend on the working directory.
     here = Path(__file__).parent
     run_name = "quickstart_tabarena"
     results_dir = str(here / "experiments" / run_name)  # the runner's `expname` (results cache)
     eval_dir = here / "eval" / run_name  # leaderboard / figures `output_dir`
 
-    # 1: TabArena-Lite = the first split (r0f0) of every dataset in the v0.1 suite.
-    task_collection = TabArenaTaskMetadataCollection.subset_tasks(split_indices="lite")
-    task_collection = task_collection.materialize()
-
-    # 2: pick the models to run. A registry model is named by string; a custom model is passed
-    #    as a `(config_generator, n_configs)` tuple. `n_configs` is the number of random HPO
-    #    configs on top of the default (0 = default only).
+    # 1: the models to run — a registry model by name at its default config, and a custom model
+    #    passed as a `(config_generator, n_configs)` tuple with one extra random HPO config.
     #    Registry names: see `tabarena.models.utils.get_configs_generator_from_name` (e.g.
     #    "LightGBM", "RandomForest", "CatBoost", "RealMLP", "TabM", "TabPFNv2", ...).
-    bundle = TabArenaV0pt1ExperimentBundle(
+    experiments = TabArenaV0pt1ExperimentBundle(
         models=[
-            ("Linear", 0),  # registry model, default config (reproduce TabArena's Linear)
-            (CustomRandomForestModel.config_generator(), 1),  # custom model: default + 1 HPO config
+            ("Linear", 0),
+            (CustomRandomForestModel.config_generator(), 1),
         ],
-    )
-    experiments = bundle.build_experiments()
+    ).build_experiments()
 
-    # 3: experiments x the collection's splits -> a flat list of jobs.
-    jobs = build_jobs(experiments, task_collection)
-
-    # 4: run the jobs. `debug_mode=True` -> in-process native backend (see the module NOTE).
-    runner = ExperimentBatchRunner(
+    # 2: run_experiments scopes to the 3 small datasets' first split
+    context = TabArenaContext()
+    context.run_experiments(
+        experiments,
         expname=results_dir,
-        task_metadata=task_collection,
-        debug_mode=True,
-    )
-    results_lst = runner.run_jobs(jobs)
-
-    # 5: aggregate the raw results into a tidy per-(method, dataset, fold) frame.
-    df_results = EndToEnd.from_raw_to_results_df(
-        results_lst=results_lst,
-        task_metadata=task_collection,
+        subset="lite",
+        datasets=DATASETS,
         new_result_prefix="[New] ",
+        debug_mode=True,  # <-- also lets you attach a local debugger
     )
-    print("\n=== raw per-fold results ===")
-    print(df_results[["method", "dataset", "fold", "metric", "metric_error"]].to_string(index=False))
 
-    # 6: compare against the cached TabArena leaderboard baselines.
-    ta_context = TabArenaContext()
-    leaderboard = ta_context.compare(
-        output_dir=eval_dir,
-        new_results=df_results,
-        only_valid_tasks=df_results["method"].unique(),  # only compare on tasks we ran
-    )
-    leaderboard_website = ta_context.leaderboard_to_website_format(leaderboard=leaderboard)
-    print("\n=== TabArena leaderboard ===")
+    # 3: compare against the cached baselines; the registered new methods are picked up
+    #    automatically and carried into the website-format leaderboard with their metadata.
+    leaderboard = context.compare(output_dir=eval_dir)
+    leaderboard_website = context.leaderboard_to_website_format(leaderboard=leaderboard)
+    print("\n=== TabArena leaderboard (website format) ===")
     print(leaderboard_website.to_markdown(index=False))
     print(f"\nView saved figures in {eval_dir}")

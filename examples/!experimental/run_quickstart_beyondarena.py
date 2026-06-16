@@ -6,15 +6,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from autogluon.core.models import AbstractModel
-
-from tabarena.benchmark.experiment import (
-    BeyondArenaExperimentBundle,
-    ExperimentBatchRunner,
-    build_jobs,
-)
+from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
 from tabarena.benchmark.task.metadata import BeyondArenaTaskMetadataCollection
 from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
-from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.utils.config_utils import ConfigGenerator
 
 if TYPE_CHECKING:
@@ -26,6 +20,11 @@ class DummyPredictorModel(AbstractModel):
 
     ``ag_key`` / ``ag_name`` are required by ``ConfigGenerator`` (which uses them to name
     the generated configs, e.g. ``DummyPredictor_c1_BAG_L1``).
+
+    NOTE: it is defined here in ``__main__`` only because the runner runs with ``debug_mode=True``
+    (in-process "native" backend). For large-scale, Ray-backed runs (``debug_mode=False``) the
+    model class MUST live in a separate importable module, since Ray workers cannot unpickle a
+    class defined in ``__main__``.
     """
 
     ag_key = "DUMMYPREDICTOR"
@@ -80,36 +79,22 @@ if __name__ == "__main__":
     subset = ["lite", "tiny", "!high-dim"]
     task_collection = BeyondArenaTaskMetadataCollection().subset_tasks(subset=subset)
 
-    # 2: materializ, ensure all relevant data is on the system
-    task_collection = task_collection.materialize()
+    # 2: build the model experiment configs.
+    experiments = BeyondArenaExperimentBundle(
+        models=[(DummyPredictorModel.config_generator(), 0)],
+    ).build_experiments()
 
-    # 3: build the model experiment configs
-    bundle = BeyondArenaExperimentBundle(models=[(DummyPredictorModel.config_generator(), 0)])
-    experiments = bundle.build_experiments()
-    # 4: experiments x the collection's splits.
-    jobs = build_jobs(experiments, task_collection)
-
-    # 5: materialized UserTasks auto-resolve from the collection; nothing to register.
-    runner = ExperimentBatchRunner(
+    # 3: run_experiments materializes the selected tasks, runs the model
+    #    locally, and registers the results as in-memory methods
+    context = BeyondArenaContext(task_metadata=task_collection)
+    context.run_experiments(
+        experiments,
         expname=results_dir,
-        task_metadata=task_collection,
-        debug_mode=True,
-    )
-    results_lst = runner.run_jobs(jobs)
-
-    # 6: aggregate the raw results into a tidy per-(method, dataset, fold) frame.
-    df_results = EndToEnd.from_raw_to_results_df(
-        results_lst=results_lst,
-        task_metadata=task_collection,
         new_result_prefix="[New] ",
+        debug_mode=True,  # <-- also lets you attach a local debugger
     )
-    print("\n=== raw per-fold results ===")
-    print(df_results[["method", "dataset", "fold", "metric", "metric_error"]].head().to_string(index=False))
 
-    # 7: compare with cached baselines from BeyondArena
-    beyond_context = BeyondArenaContext(task_metadata=task_collection)
-    beyond_leaderboard = beyond_context.compare(
-        output_dir=eval_dir,
-        new_results=df_results,
-        subset=subset,
-    )
+    # 4: compare against the cached BeyondArena baselines; the registered method is picked up
+    #    automatically and the leaderboard is scoped to the tasks just run.
+    leaderboard = context.compare(output_dir=eval_dir)
+    print(leaderboard.to_markdown())
