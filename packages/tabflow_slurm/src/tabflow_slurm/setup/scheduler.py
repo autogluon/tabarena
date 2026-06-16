@@ -100,10 +100,13 @@ class SchedulerSetup:
         `_effective_bundle_size`; each job's dataset shape is looked up in
         `task_metadata`) so jobs with different effective sizes never share a
         task. Returns `(array_tasks, max_configs_per_job)` where each array task
-        is `{"items": [...]}` (JSON-serializable: the self-describing
-        `(experiment, dataset, fold, repeat)` coordinates the runner resolves
-        against the shipped `JobBatch`), and `max_configs_per_job` is the largest
-        bundle observed (used by schedulers to budget the per-task time limit).
+        is `{"bundle_size": <target size>, "items": [...]}`: `items` holds the
+        self-describing `(experiment, dataset, fold, repeat)` coordinates the
+        runner resolves against the shipped `JobBatch`, and `bundle_size` is a
+        scheduling-only hint (the target size this task was packed for) that the
+        scheduler groups on; it is stripped before the per-array JSON is written.
+        `max_configs_per_job` is the largest bundle observed (used by schedulers
+        to budget the per-task time limit).
         """
         split_index = {
             (ttm.tabarena_task_name, split.fold, split.repeat): split
@@ -123,6 +126,14 @@ class SchedulerSetup:
                 max_configs_per_job = max(max_configs_per_job, len(bundle))
                 array_tasks.append(
                     {
+                        # Scheduling-only hint: the target bundle size this task
+                        # was packed for. The last bundle of a size group is a
+                        # remainder (fewer items than `size`); tagging it lets the
+                        # scheduler keep it in its size group's array rather than
+                        # emitting a separate command for the odd length. Stripped
+                        # before the per-array JSON is written (see
+                        # `_write_job_batches_and_build_commands`).
+                        "bundle_size": size,
                         "items": [
                             {
                                 "experiment": job.experiment.name,
@@ -376,9 +387,13 @@ class SlurmSetup(SchedulerSetup):
         the JSON is written to `base_json_path`; otherwise the path is suffixed
         with `_size{n}` and/or `_batch{i}` so each array has its own file.
         """
+        # Group on the target bundle size, not the actual item count, so a size
+        # group's remainder bundle (fewer items than the target) stays in its own
+        # group instead of spawning a separate, near-empty array. Genuinely
+        # different target sizes (e.g. large datasets collapsed to 1) still split.
         jobs_by_size: dict[int, list] = {}
         for job in all_jobs:
-            jobs_by_size.setdefault(len(job["items"]), []).append(job)
+            jobs_by_size.setdefault(job["bundle_size"], []).append(job)
         multi_size = len(jobs_by_size) > 1
 
         run_commands: list[str] = []
@@ -395,8 +410,11 @@ class SlurmSetup(SchedulerSetup):
             for batch_idx, batch_jobs in enumerate(job_batches):
                 suffix = f"{f'_size{size}' if multi_size else ''}{f'_batch{batch_idx}' if multi_batch else ''}"
                 json_path = base_json_path.replace(".json", f"{suffix}.json") if suffix else base_json_path
+                # Drop the scheduling-only `bundle_size` hint so the shipped JSON
+                # keeps the `{"items": [...]}` shape the node runner expects.
+                shipped_jobs = [{"items": job["items"]} for job in batch_jobs]
                 with Path(json_path).open("w") as f:
-                    json.dump({"defaults": defaults, "jobs": batch_jobs}, f)
+                    json.dump({"defaults": defaults, "jobs": shipped_jobs}, f)
 
                 run_commands.append(
                     f"sbatch --array=0-{len(batch_jobs) - 1}%{self.array_job_limit} {base_command} {json_path}",

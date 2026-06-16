@@ -21,9 +21,9 @@ from tabflow_slurm import (
 benchmark_plan = TabArenaBenchmarkPlan(
     benchmark_name="benchmark_chimeraboost_16062026",
     model_jobs=[
-        ModelJob(models=("ChimeraBoost", 25)),
+        ModelJob(models=("ChimeraBoost", "all")),
     ],
-    tasks=TaskMetadataCollection.from_preset("TabArena-v0.1").subset_tasks(split_indices="lite"),
+    tasks=TaskMetadataCollection.from_preset("TabArena-v0.1"),
     experiment_bundle=TabArenaV0pt1ExperimentBundle(),
     path_setup=PathSetup(
         workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
@@ -33,7 +33,7 @@ benchmark_plan = TabArenaBenchmarkPlan(
     # -> None for these two values so node values are picked up
     # -> CPU partition: 16 vCPUs, 64 GB RAM, 0 GB VRAM
     resources_setup=TabArenaV0pt1ResourcesSetup(memory_limit=None, num_cpus=None),
-    scheduler_setup=GCPSlurmSetup(cpu_partition="cpun416mtspotinteractive"),
+    scheduler_setup=GCPSlurmSetup(bundle_size=10,cpu_partition="cpun416mtspotinteractive"),
 )
 
 benchmark_plan.setup_jobs()
