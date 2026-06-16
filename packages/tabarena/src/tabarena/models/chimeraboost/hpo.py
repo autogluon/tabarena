@@ -16,9 +16,9 @@ Search-space notes:
 * linear_leaves (regression wins; default only auto-on for binary) searched
   jointly with its regularizer linear_lambda.
 * ordered_boosting (CatBoost-style ordered target stats), default off.
-* Tuned configs use a fixed n_estimators=10000 + early stopping (searching a
-  budget cap under ES only adds noise; LR is pinned at 0.1 under ES so a high
-  cap is free headroom).
+* n_estimators is NOT searched — every config inherits the model default
+  (10000 cap + early stopping; LR is pinned at 0.1 under ES so a high cap is
+  free headroom, and searching a budget cap only adds noise).
 """
 from __future__ import annotations
 
@@ -28,7 +28,8 @@ from tabarena.models.chimeraboost.model import ChimeraBoostModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 _SEARCH_SPACE = {
-    "n_estimators": Categorical(10000),  # fixed budget for tuned configs (+ ES)
+    # n_estimators is not searched: the model default (10000 cap + early
+    # stopping) applies to every config; searching a budget cap only adds noise.
     "learning_rate": Real(0.03, 0.3, log=True),
     "depth": Int(4, 8),
     "l2_leaf_reg": Real(0.1, 10.0, log=True),
