@@ -20,6 +20,7 @@ Search-space notes:
   (10000 cap + early stopping; LR is pinned at 0.1 under ES so a high cap is
   free headroom, and searching a budget cap only adds noise).
 """
+
 from __future__ import annotations
 
 from autogluon.common.space import Categorical, Int, Real
@@ -57,8 +58,6 @@ if __name__ == "__main__":
 
     print(
         YamlExperimentSerializer.to_yaml_str(
-            experiments=gen_chimeraboost.generate_all_bag_experiments(
-                num_random_configs=0
-            ),
+            experiments=gen_chimeraboost.generate_all_bag_experiments(num_random_configs=0),
         ),
     )

@@ -6,4 +6,4 @@ from tabarena.models.chimeraboost.info import (
     chimeraboost_method_metadata,
 )
 
-__all__ = ["gen_chimeraboost", "chimeraboost_info", "chimeraboost_method_metadata"]
+__all__ = ["chimeraboost_info", "chimeraboost_method_metadata", "gen_chimeraboost"]

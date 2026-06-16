@@ -5,6 +5,7 @@ Drop this package at `tabarena/.../models/chimeraboost/` in a fork of
 autogluon/tabarena (see ../REGISTER.md). The model class MUST live in its own
 file (not the run script) because TabArena pickles it.
 """
+
 from __future__ import annotations
 
 import time
@@ -28,7 +29,8 @@ class ChimeraBoostModel(AbstractModel):
         """Pass the frame straight to ChimeraBoost with categoricals marked by
         name. ChimeraBoost factorizes them with its native ordered-target-
         statistics encoding and routes NaN to a dedicated missing bin, so we do
-        NOT label-encode or impute here (both would discard signal)."""
+        NOT label-encode or impute here (both would discard signal).
+        """
         X = super()._preprocess(X, **kwargs)
         if is_train:
             # category-dtype columns (AutoGluon marks them; valid_raw_types keeps
@@ -145,11 +147,11 @@ class ChimeraBoostModel(AbstractModel):
         n, p = int(X.shape[0]), int(X.shape[1])
         k = max(int(num_classes or 1), 1)
         cell = 8  # float64 / object-pointer width
-        data = n * p * cell          # input matrix (object array when cats present)
-        binned = n * p * 2           # quantized bin codes (uint8/uint16)
-        stats = n * k * cell * 6     # grad / hess / pred / weight / val buffers
-        hist = p * 256 * 2 * cell    # transient per-level histograms
-        baseline = 1_000_000_000     # python + numba + autogluon overhead
+        data = n * p * cell  # input matrix (object array when cats present)
+        binned = n * p * 2  # quantized bin codes (uint8/uint16)
+        stats = n * k * cell * 6  # grad / hess / pred / weight / val buffers
+        hist = p * 256 * 2 * cell  # transient per-level histograms
+        baseline = 1_000_000_000  # python + numba + autogluon overhead
         return int(baseline + 3 * data + binned + stats + hist)
 
     @classmethod
