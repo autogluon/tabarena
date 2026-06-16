@@ -77,6 +77,7 @@ The AutoGluon wrapper class. Use the template in `references/model_patterns.md` 
 - Inherit from `AbstractTorchModel` (GPU/torch models) or `AbstractModel` (CPU models)
 - Set `ag_key`, `ag_name`, `ag_priority = 65`, `seed_name = "random_state"`
 - Implement `_fit()`, `_set_default_params()`, `supported_problem_types()`
+- **Honor the `_fit` contract** (read `references/model_patterns.md` → "The `_fit` contract"). The most common review findings on new wrappers are: ignoring the provided `X_val`/`y_val` (and instead auto-splitting a second holdout), ignoring `time_limit`, hardcoding the thread count instead of wiring `num_cpus`, and label-encoding + `fillna(0)` categoricals when the library handles them natively. `models/realmlp/model.py` is the reference for all of these.
 - For GPU models: also implement `get_device()`, `_set_device()`, `_get_default_resources()`, `get_minimum_resources()`, `_get_default_ag_args_ensemble()` (with `fold_fitting_strategy: sequential_local`), `_class_tags()` (with `can_estimate_memory_usage_static: False`), `_more_tags()` (with `can_refit_full: True`)
 - Docstring must include: description, paper title, authors, codebase URL, license
 - Keep optional third-party imports (the wrapped library itself) inside `_fit` / per-method scope so importing this module never requires the optional dep at top-level
