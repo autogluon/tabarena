@@ -613,7 +613,7 @@ class TabArenaEvaluator:
         calibration_framework: str | None = "auto",
         average_seeds: bool = False,
         leaderboard_kwargs: dict | None = None,
-        plot_with_baselines: bool = False,
+        plot_with_baselines: bool = True,
         plot_tuning_kwargs: dict | None = None,
         banned_methods: list[str] | None = None,
         verbose: bool = True,
