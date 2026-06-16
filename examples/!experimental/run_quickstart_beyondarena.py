@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from autogluon.core.models import AbstractModel
+
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
 from tabarena.benchmark.task.metadata import BeyondArenaTaskMetadataCollection
 from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
@@ -74,9 +75,9 @@ if __name__ == "__main__":
     #   size bucket  : tiny, small, medium, large           (on max_train_rows)
     #   split regime : iid (== random), temporal, grouped
     #   features     : low-dim, high-dim, text, high-cardinality
-    #   split        : lite (first split == r0f0 of each dataset), all
-    # We run on all tiny, none high-dim datasets, and only the first split of each dataset (fold 0, repeat 0).
-    subset = ["lite", "tiny", "!high-dim"]
+    #   split        : core, lite (first split == r0f0 of each dataset), all
+    #       `core` is the recommended evaluation protocol.
+    subset = ["core", "tiny", "!high-dim"]
     task_collection = BeyondArenaTaskMetadataCollection().subset_tasks(subset=subset)
 
     # 2: build the model experiment configs.

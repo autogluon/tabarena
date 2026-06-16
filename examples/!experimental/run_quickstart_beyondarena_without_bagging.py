@@ -55,9 +55,8 @@ if __name__ == "__main__":
     results_dir = str(here / "experiments" / run_name)  # the runner's `expname`
     eval_dir = here / "eval" / run_name  # leaderboard `output_dir`
 
-    # 1: suite metadata -> filter. Same subsets as the bagging example: tiny + first split
-    # (`lite`) + no high-dimensional datasets. See `BeyondArenaContext.SUBSET_PREDICATES`.
-    subset = ["lite", "tiny", "!high-dim"]
+    # 1: suite metadata -> filter
+    subset = ["core", "tiny", "!high-dim"]
     task_collection = BeyondArenaTaskMetadataCollection().subset_tasks(subset=subset)
 
     # 2: build the experiments. `outer_experiments=True` makes the bundle emit no-validation
