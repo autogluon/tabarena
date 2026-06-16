@@ -418,12 +418,23 @@ def merge_metadata_frames(df_list: list[pd.DataFrame]) -> pd.DataFrame:
     if not df_list:
         return pd.DataFrame()
 
-    # Decide your instance keys here.
-    # This is often something like ['dataset', 'task', 'seed'] or similar.
-    # For now, we use columns shared by all frames:
-    join_cols = list(set.intersection(*(set(df.columns) for df in df_list)))
-    if not join_cols:
+    # Join only on the instance-identity key; every other shared column is descriptive
+    # metadata to coalesce (NaN-vs-value), NOT a join key. Using *all* shared columns as keys
+    # is wrong: a descriptive column such as `class_consistency_over_splits` is all-NaN
+    # (inferred float64) in a frame whose datasets are all regression, but populated (object)
+    # in another, and pandas refuses to merge on keys with mismatched float64/object dtypes.
+    # df_metadata is one row per dataset, so `dataset` is its identity (fall back to name/tid).
+    shared_cols = set.intersection(*(set(df.columns) for df in df_list))
+    if not shared_cols:
         raise ValueError("No common columns found to use as join keys.")
+    identity_priority = ("dataset", "name", "tid")
+    join_key = next((c for c in identity_priority if c in shared_cols), None)
+    if join_key is None:
+        raise ValueError(
+            f"No instance-identity key {identity_priority} found to merge metadata frames on "
+            f"(shared columns: {sorted(shared_cols)}).",
+        )
+    join_cols = [join_key]
 
     def merge_pair(left: pd.DataFrame, right: pd.DataFrame) -> pd.DataFrame:
         overlapping_non_keys = (set(left.columns) & set(right.columns)) - set(join_cols)
@@ -464,12 +475,11 @@ def merge_metadata_frames(df_list: list[pd.DataFrame]) -> pd.DataFrame:
                         f"Conflict detected in column '{col}' for some instances.\nExamples:\n{conflict_examples}",
                     )
 
-                # 2) coalesce WITHOUT combine_first to avoid FutureWarning
-                s_out = s_l.copy()
-                mask_na = s_out.isna()
-                # where left is NaN, take right
-                s_out[mask_na] = s_r[mask_na]
-                merged[col] = s_out
+                # 2) coalesce: keep left where present, else take right. `.where` upcasts to a
+                #    common dtype (e.g. filling an all-NaN float64 column from an object column
+                #    yields object) instead of tripping pandas' "incompatible dtype" assignment
+                #    warning that a masked item-assignment would.
+                merged[col] = s_l.where(s_l.notna(), s_r)
 
                 merged = merged.drop(columns=[col_l, col_r])
 
