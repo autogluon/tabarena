@@ -769,7 +769,7 @@ class AbstractArenaContext:
 
         derived = None
         if any(x is not None for x in (subset, datasets, splits, folds, repeats)):
-            derived = self._subset_dataset_fold_repeats(
+            derived = self.dataset_fold_repeats(
                 subset=subset,
                 datasets=datasets,
                 splits=splits,
@@ -802,7 +802,7 @@ class AbstractArenaContext:
             **kwargs,
         )
 
-    def _subset_dataset_fold_repeats(
+    def dataset_fold_repeats(
         self,
         subset: str | list[str] | None = None,
         datasets: list[str] | None = None,
@@ -810,7 +810,13 @@ class AbstractArenaContext:
         folds: list[int] | None = None,
         repeats: list[int] | None = None,
     ) -> list[tuple[str, int, int]]:
-        """Expand the task grid into (dataset, fold, repeat) triplets kept by the filters.
+        """Expand the task grid into the (dataset, fold, repeat) work units kept by the filters.
+
+        The public work-unit enumeration: given the same ``subset`` / ``datasets`` /
+        ``splits`` / ``folds`` / ``repeats`` filters that :meth:`make_experiment_batch_runner`
+        and :meth:`run_experiments` accept, return the exact ``(dataset, fold, repeat)`` triplets
+        those would run — without building a runner — so callers can plan, shard, or cost the work
+        up front.
 
         Evaluates the `subset` predicate expressions on the native task grid
         (:meth:`TaskMetadataCollection.task_grid` — one row per ``(dataset, fold, repeat, split)``),
@@ -840,6 +846,23 @@ class AbstractArenaContext:
             (dataset, int(fold), int(repeat))
             for dataset, fold, repeat in zip(grid["dataset"], grid["fold"], grid["repeat"], strict=False)
         ]
+
+    def _subset_dataset_fold_repeats(
+        self,
+        subset: str | list[str] | None = None,
+        datasets: list[str] | None = None,
+        splits: list[int] | None = None,
+        folds: list[int] | None = None,
+        repeats: list[int] | None = None,
+    ) -> list[tuple[str, int, int]]:
+        """Deprecated private alias for :meth:`dataset_fold_repeats` (kept for back-compat)."""
+        return self.dataset_fold_repeats(
+            subset=subset,
+            datasets=datasets,
+            splits=splits,
+            folds=folds,
+            repeats=repeats,
+        )
 
     # ------------------------------------------------------------------ artifacts / simulation / plotting
     # FIXME: Finish this, it is WIP

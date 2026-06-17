@@ -32,14 +32,19 @@ class TestSubsetDatasetFoldRepeats:
 
     def test_lite_keeps_split_zero_per_dataset(self):
         # "lite" == split 0 == (fold 0, repeat 0) for every dataset.
-        assert _ctx()._subset_dataset_fold_repeats("lite") == [("small_ds", 0, 0), ("big_ds", 0, 0)]
+        assert _ctx().dataset_fold_repeats("lite") == [("small_ds", 0, 0), ("big_ds", 0, 0)]
 
     def test_dataset_predicate_keeps_full_grid_of_matching_datasets(self):
         # "small" == max_train_rows <= 10000 -> only small_ds, all (fold, repeat).
-        assert _ctx()._subset_dataset_fold_repeats("small") == [("small_ds", 0, 0), ("small_ds", 1, 0)]
+        assert _ctx().dataset_fold_repeats("small") == [("small_ds", 0, 0), ("small_ds", 1, 0)]
 
     def test_predicates_are_anded(self):
-        assert _ctx()._subset_dataset_fold_repeats(["small", "lite"]) == [("small_ds", 0, 0)]
+        assert _ctx().dataset_fold_repeats(["small", "lite"]) == [("small_ds", 0, 0)]
+
+    def test_private_alias_delegates_to_public(self):
+        # `_subset_dataset_fold_repeats` is a back-compat alias for the public method.
+        ctx = _ctx()
+        assert ctx._subset_dataset_fold_repeats("lite") == ctx.dataset_fold_repeats("lite")
 
 
 class TestMakeExperimentBatchRunner:
@@ -232,12 +237,12 @@ def _ctx_collection() -> TabArenaContext:
 
 
 class TestNativeGridSubset:
-    """`_subset_dataset_fold_repeats` builds the grid natively from the collection's splits."""
+    """`dataset_fold_repeats` builds the grid natively from the collection's splits."""
 
     def test_full_grid_from_collection(self):
         ctx = _ctx_collection()
         assert ctx.task_metadata_collection is not None
-        assert set(ctx._subset_dataset_fold_repeats()) == {
+        assert set(ctx.dataset_fold_repeats()) == {
             ("small_ds", 0, 0),
             ("small_ds", 1, 0),
             ("big_ds", 0, 0),
@@ -245,14 +250,14 @@ class TestNativeGridSubset:
         }
 
     def test_lite_keeps_split_zero(self):
-        assert set(_ctx_collection()._subset_dataset_fold_repeats("lite")) == {
+        assert set(_ctx_collection().dataset_fold_repeats("lite")) == {
             ("small_ds", 0, 0),
             ("big_ds", 0, 0),
         }
 
     def test_small_predicate_keeps_small_dataset_full_grid(self):
         # "small" == max_train_rows <= 10000 -> only small_ds (n_train=100), both folds.
-        assert set(_ctx_collection()._subset_dataset_fold_repeats("small")) == {
+        assert set(_ctx_collection().dataset_fold_repeats("small")) == {
             ("small_ds", 0, 0),
             ("small_ds", 1, 0),
         }
