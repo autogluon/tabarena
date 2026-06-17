@@ -33,7 +33,7 @@ benchmark_plan = TabArenaBenchmarkPlan(
     # -> None for these two values so node values are picked up
     # -> CPU partition: 16 vCPUs, 64 GB RAM, 0 GB VRAM
     resources_setup=TabArenaV0pt1ResourcesSetup(memory_limit=None, num_cpus=None),
-    scheduler_setup=GCPSlurmSetup(bundle_size=10,cpu_partition="cpun416mtspotinteractive"),
+    scheduler_setup=GCPSlurmSetup(bundle_size=10, cpu_partition="cpun416mtspotinteractive"),
 )
 
 benchmark_plan.setup_jobs()
