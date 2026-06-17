@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import itertools
+import os
 
 import pandas as pd
 import pytest
 
 from bencheval.evaluator import BenchmarkEvaluator
+
+# Headless matplotlib for the plotting smoke tests (must be set before matplotlib import).
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 # ---------------------------------------------------------------------------
 # Deterministic, hand-computable fixture: 3 methods x 3 tasks, no ties.
@@ -35,6 +39,21 @@ def _make_data(seeds: list[int] | None = None) -> pd.DataFrame:
         if s is not None:
             row["seed"] = s
         rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def _make_analysis_data(n_seeds: int = 4, n_tasks: int = 4) -> pd.DataFrame:
+    """Seeded data with deterministic per-seed variation, for analysis/jitter/plot smoke tests."""
+    methods = ["A", "B", "C", "D"]
+    tasks = [f"t{i + 1}" for i in range(n_tasks)]
+    rows = []
+    for mi, m in enumerate(methods):
+        for ti, t in enumerate(tasks):
+            for s in range(n_seeds):
+                err = 0.1 * (mi + 1) + 0.05 * ti + 0.01 * ((mi * 7 + ti * 3 + s * 5) % 5)
+                rows.append(
+                    {"method": m, "task": t, "seed": s, "metric_error": err, "time_train_s": 1.0, "time_infer_s": 0.1}
+                )
     return pd.DataFrame(rows)
 
 
@@ -255,3 +274,133 @@ class TestValidation:
         assert len(a_t1) == 1
         # worst error on t1 among present rows is C = 0.4
         assert a_t1["metric_error"].iloc[0] == pytest.approx(0.4)
+
+
+class TestMetricRegistry:
+    def test_metrics_arg_equivalent_to_flags(self, ev, data):
+        # Selecting metrics via `metrics=` yields an identical leaderboard to the
+        # equivalent `include_*` flags (elo omitted: its bootstrap CI is not seeded).
+        keys = [
+            "winrate",
+            "improvability",
+            "mrr",
+            "rank_counts",
+            "baseline_advantage",
+            "frontier_advantage",
+            "relative_error",
+            "skill_score",
+        ]
+        by_flags = ev.leaderboard(
+            data,
+            include_elo=False,
+            include_winrate=True,
+            include_improvability=True,
+            include_mrr=True,
+            include_rank_counts=True,
+            include_baseline_advantage=True,
+            include_frontier_advantage=True,
+            include_relative_error=True,
+            include_skill_score=True,
+            baseline_method="A",
+        )
+        by_metrics = ev.leaderboard(data, metrics=keys, baseline_method="A")
+        pd.testing.assert_frame_equal(by_flags, by_metrics)
+
+    def test_metrics_overrides_flags(self, ev, data):
+        # `metrics=` takes precedence; the include_* flags are ignored for selection.
+        lb = ev.leaderboard(data, include_winrate=True, include_improvability=True, metrics=["elo"])
+        assert "elo" in lb.columns
+        assert "winrate" not in lb.columns
+        assert "improvability" not in lb.columns
+
+    def test_metrics_empty_keeps_only_rank(self, ev, data):
+        lb = ev.leaderboard(data, metrics=[])
+        assert "rank" in lb.columns  # rank is always emitted
+        for absent in ("elo", "winrate", "improvability", "mrr"):
+            assert absent not in lb.columns
+
+    def test_unknown_metric_raises(self, ev, data):
+        with pytest.raises(ValueError, match="Unknown leaderboard metric"):
+            ev.leaderboard(data, metrics=["bogus"])
+
+    def test_baseline_metric_skipped_without_baseline(self, ev, data):
+        # `relative_error` needs a baseline; without one it is silently skipped (parity
+        # with the legacy flag behaviour), while non-baseline metrics still appear.
+        lb = ev.leaderboard(data, metrics=["relative_error", "winrate"])
+        assert "winrate" in lb.columns
+        assert "relative_error" not in lb.columns
+
+
+class TestDatasetAnalysis:
+    """Smoke tests for the extracted DatasetAnalysisMixin (no prior coverage)."""
+
+    @pytest.fixture
+    def seeded(self):
+        ev = BenchmarkEvaluator(seed_column="seed")
+        rpt = ev.compute_results_per_task(_make_analysis_data(), include_seed_col=True)
+        return ev, rpt
+
+    def test_representativeness(self, seeded):
+        ev, rpt = seeded
+        out = ev.dataset_representativeness(rpt)
+        assert {
+            "representativeness",
+            "most_representative",
+            "least_representative",
+            "dataset_similarity_matrix",
+            "method_matrix",
+        } <= set(out)
+
+    def test_fold_similarity_and_ranking(self, seeded):
+        ev, rpt = seeded
+        fs = ev.dataset_fold_similarity(rpt, dataset="t1")
+        assert "fold_similarity_matrix" in fs and "fold_scores" in fs
+        ranking = ev.rank_datasets_by_fold_similarity(rpt)
+        assert "dataset_ranking" in ranking
+        assert len(ranking["dataset_ranking"]) == 4  # one row per task
+
+    def test_jitter(self, seeded):
+        ev, rpt = seeded
+        dj = ev.dataset_jitter(rpt, dataset="t1")
+        assert {"jitter_mean", "pairwise_jitter_mean", "num_folds", "num_methods"} <= set(dj)
+        df_all, _ = ev.jitter_all_datasets(rpt)
+        assert len(df_all) == 4
+        curve = ev.dataset_jitter_bootstrap_curve(rpt, dataset="t1", n_bootstrap=20)
+        assert "jitter_mean" in curve.columns and len(curve) >= 1
+        curves = ev.jitter_bootstrap_curve_all_datasets(rpt, n_bootstrap=10)
+        assert len(curves) >= 1
+
+    def test_estimate_folds_for_stable_ordering(self):
+        out = BenchmarkEvaluator.estimate_folds_for_stable_ordering(fold_agreement=0.8, num_folds=3)
+        assert out["k_required"] >= 1
+        assert 0 <= out["rel_at_num_folds"] <= 1
+
+
+class TestPlotting:
+    """Smoke tests for the extracted PlottingMixin (no prior coverage)."""
+
+    def test_plot_winrate_matrix(self, ev, data, tmp_path):
+        pytest.importorskip("matplotlib")
+        rpt = ev.compute_results_per_task(data)
+        wm = ev.compute_winrate_matrix(rpt)
+        out = tmp_path / "winrate.png"
+        ev.plot_winrate_matrix(wm, save_path=str(out))
+        assert out.exists()
+
+    def test_plot_dataset_metric_distribution(self, ev, data):
+        pytest.importorskip("plotly")
+        rpt = ev.compute_results_per_task(data)
+        # save_path=None avoids the optional kaleido image-export dependency.
+        fig, df_plot = ev.plot_dataset_metric_distribution(rpt, dataset="t1", save_path=None)
+        assert fig is not None
+        assert not df_plot.empty
+
+    def test_plot_critical_diagrams(self, tmp_path):
+        pytest.importorskip("autorank")
+        pytest.importorskip("matplotlib")
+        ev = BenchmarkEvaluator(seed_column="seed")
+        # autorank requires >= 5 rows (tasks), so use 6.
+        rpt = ev.compute_results_per_task(_make_analysis_data(n_tasks=6), include_seed_col=True)
+        out = tmp_path / "cd.png"
+        ev.plot_critical_diagrams(rpt, save_path=str(out))
+        assert out.exists()
