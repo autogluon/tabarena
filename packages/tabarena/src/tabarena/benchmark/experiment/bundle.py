@@ -132,7 +132,17 @@ class TabArenaExperimentBundle:
     fit directly on all the data (``AGModelWrapper``) with no train/val split, bagging, or
     ensemble. The bundle's other settings still apply. Useful for full-data
     methods and quick no-validation runs.
-    A pre-built ``Experiment`` passed in ``models`` is still used verbatim."""
+    A pre-built ``Experiment`` passed in ``models`` is still used verbatim.
+    Mutually exclusive with ``holdout_experiments``."""
+    holdout_experiments: bool = False
+    """If True, build holdout experiments instead of bagged ones: each model is fit once
+    through ``TabularPredictor`` (``AGSingleWrapper``) on a real train/val split, with no
+    bagging or weighted ensemble. Same code path and bundle settings as the bagged flavour,
+    minus the bagging — so it pairs with ``dynamic_tabarena_validation_protocol`` to adapt the
+    holdout split to the task. Useful for a faster, single-fit alternative to bagging that
+    (unlike ``outer_experiments``) still keeps a validation split.
+    A pre-built ``Experiment`` passed in ``models`` is still used verbatim.
+    Mutually exclusive with ``outer_experiments``."""
     model_artifacts_base_path: str | Path | None = "/tmp"  # noqa: S108
     """Adapt the default temporary directory used for model artifacts in TabArena.
         - If None, the default temporary directory is used: "./AutoGluonModels".
@@ -178,6 +188,13 @@ class TabArenaExperimentBundle:
         "TA-TABPFNV2": TABPFNV2_CONSTRAINTS,
         "MITRA": TABPFNV2_CONSTRAINTS,
     }
+
+    def __post_init__(self) -> None:
+        if self.outer_experiments and self.holdout_experiments:
+            raise ValueError(
+                "`outer_experiments` and `holdout_experiments` are mutually exclusive "
+                "(a model is fit as exactly one of bagged / holdout / outer); set at most one.",
+            )
 
     @property
     def model_constraints(self) -> dict[str, ModelConstraints]:
@@ -471,6 +488,27 @@ class TabArenaExperimentBundle:
                     "verbosity": self.verbosity,
                 },
                 preprocessing_pipeline=preprocessing_pipeline,
+                extra_model_hyperparameters=pipeline_method_kwargs.get("extra_model_hyperparameters") or None,
+            )
+
+        if self.holdout_experiments:
+            # Holdout path: one ``AGSingleWrapper`` fit per config through ``TabularPredictor`` with a
+            # real train/val split, but no bagging / weighted ensemble. Same code path as the bagged
+            # flavour — the bundle's compute resources, preprocessing, shuffle_features and validation
+            # protocol all apply identically; we just drop the bagging knobs (num_bag_folds/sets,
+            # seed/fold-fitting). ``extra_model_hyperparameters`` is consumed by the generator (merged
+            # into each model's hyperparameters), so it is not forwarded as a wrapper kwarg.
+            holdout_method_kwargs = {
+                key: value for key, value in pipeline_method_kwargs.items() if key != "extra_model_hyperparameters"
+            }
+            return config_generator.generate_all_holdout_experiments(
+                num_random_configs=n_configs,
+                name_id_suffix=name_id_suffix,
+                method_kwargs=holdout_method_kwargs,
+                time_limit=time_limit,
+                time_limit_with_preprocessing=time_limit_with_preprocessing,
+                preprocessing_pipeline=preprocessing_pipeline,
+                dynamic_tabarena_validation_protocol=self.dynamic_tabarena_validation_protocol,
                 extra_model_hyperparameters=pipeline_method_kwargs.get("extra_model_hyperparameters") or None,
             )
 
