@@ -629,7 +629,12 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
 
         if include_quantiles:
             assert bars_quantiles is not None
-            relative_to = bootstrap_median if use_bootstrap_median_for_quantiles else elo
+            # Center the bars on the bootstrap median only when it was actually computed;
+            # otherwise (e.g. BOOTSTRAP_ROUNDS <= 1) fall back to the point estimate so the
+            # bar widths collapse to 0 instead of raising on `bootstrap_median is None`.
+            relative_to = (
+                bootstrap_median if (use_bootstrap_median_for_quantiles and bootstrap_median is not None) else elo
+            )
             bars["elo+"] = bars_quantiles["upper"] - relative_to
             bars["elo-"] = relative_to - bars_quantiles["lower"]
 
@@ -889,9 +894,11 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
     def compute_loss_rescaled_per(self, results_per_task: pd.DataFrame, task_groupby_cols: list[str]) -> pd.Series:
         best_error_per = results_per_task.groupby(task_groupby_cols)[self.error_col].transform("min")
         worst_error_per = results_per_task.groupby(task_groupby_cols)[self.error_col].transform("max")
-        loss_rescaled = (results_per_task[self.error_col] - best_error_per) / (worst_error_per - best_error_per).fillna(
-            0
-        )
+        # fillna(0) must wrap the whole ratio: when worst == best (all methods tied on a
+        # task) the denominator is 0 and the ratio is 0/0 = NaN, which should rescale to 0.
+        loss_rescaled = (
+            (results_per_task[self.error_col] - best_error_per) / (worst_error_per - best_error_per)
+        ).fillna(0)
         loss_rescaled.name = LOSS_RESCALED
         return loss_rescaled
 

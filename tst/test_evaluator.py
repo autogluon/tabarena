@@ -404,3 +404,57 @@ class TestPlotting:
         out = tmp_path / "cd.png"
         ev.plot_critical_diagrams(rpt, save_path=str(out))
         assert out.exists()
+
+
+class TestBugFixes:
+    """Regression tests for specific fixed defects."""
+
+    def _tied_task_data(self) -> pd.DataFrame:
+        # t1: A and B tie (worst == best -> zero denominator); t2: a normal task.
+        return pd.DataFrame(
+            {
+                "method": ["A", "B", "A", "B"],
+                "task": ["t1", "t1", "t2", "t2"],
+                "metric_error": [0.5, 0.5, 0.1, 0.2],
+                "time_train_s": [1.0, 1.0, 1.0, 1.0],
+                "time_infer_s": [0.1, 0.1, 0.1, 0.1],
+            }
+        )
+
+    def test_loss_rescaled_zero_on_tied_task(self, ev):
+        # Bug: misplaced .fillna(0) on the denominator left a 0/0 = NaN; it must be 0.
+        rpt = ev.compute_results_per_task(self._tied_task_data()).set_index(["method", "task"])
+        loss = rpt.loc[[("A", "t1"), ("B", "t1")], "loss_rescaled"]
+        assert loss.notna().all()
+        assert (loss == 0.0).all()
+        # the normal task is unaffected: best -> 0, worst -> 1
+        assert rpt.loc[("A", "t2"), "loss_rescaled"] == pytest.approx(0.0)
+        assert rpt.loc[("B", "t2"), "loss_rescaled"] == pytest.approx(1.0)
+
+    def test_loss_rescaled_no_nan_in_leaderboard(self, ev):
+        lb = ev.leaderboard(self._tied_task_data(), include_rescaled_loss=True, include_elo=False)
+        assert lb["loss_rescaled"].notna().all()
+
+    def test_elo_quantiles_without_bootstrap_does_not_crash(self, ev):
+        # Bug: use_bootstrap_median_for_quantiles=True with no bootstrap median (BOOTSTRAP_ROUNDS<=1)
+        # raised `float - None`. It must fall back to the point estimate and give zero-width bars.
+        df = pd.DataFrame(
+            {
+                "method": ["A", "B", "A", "B"],
+                "task": ["t1", "t1", "t2", "t2"],
+                "metric_error": [0.1, 0.2, 0.1, 0.3],
+                "time_train_s": [1.0, 1.0, 1.0, 1.0],
+                "time_infer_s": [0.1, 0.1, 0.1, 0.1],
+            }
+        )
+        rpt = ev.compute_results_per_task(df)
+        bars = ev.compute_elo(
+            rpt,
+            BOOTSTRAP_ROUNDS=1,
+            include_quantiles=True,
+            use_bootstrap_median=False,
+            use_bootstrap_median_for_quantiles=True,
+        )
+        assert {"elo", "elo+", "elo-"} <= set(bars.columns)
+        assert (bars["elo+"] == 0).all()
+        assert (bars["elo-"] == 0).all()
