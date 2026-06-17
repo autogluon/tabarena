@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from bencheval.tabarena import TabArena
+from bencheval.evaluator import BenchmarkEvaluator
 
 from .paper_runner import PaperRun
 
@@ -48,7 +48,7 @@ class PaperRunTabArena(PaperRun):
             combined_data_cur_round = pd.concat(list(results_dict_cur_round.values()), ignore_index=True)
             combined_data = pd.concat([result_baselines, combined_data_cur_round], ignore_index=True)
 
-            arena = TabArena(
+            arena = BenchmarkEvaluator(
                 task_col="dataset",
                 groupby_columns=["problem_type", "metric"],
                 seed_column="fold",

@@ -80,7 +80,7 @@ Raw predictions → EvaluationRepository → Simulation/Portfolio → Results Da
 - **`AbstractExecModel`** (`packages/tabarena/src/tabarena/benchmark/exec_models/base.py`) — Base for the benchmark *execution* wrappers (the AutoGluon wrappers live in `benchmark/exec_models/autogluon.py`). New benchmarked models live in one folder per model at `packages/tabarena/src/tabarena/models/<model>/` (`model.py` = AutoGluon wrapper subclassing AG's `AbstractModel`/`AbstractTorchModel`, `hpo.py` = search-space generator, `info.py` = `ModelInfo`/`MethodMetadata` registry entry), auto-discovered by `packages/tabarena/src/tabarena/models/_registry.py::discover_models()` (which `packages/tabarena/src/tabarena/benchmark/exec_models/registry.py` then derives the AG registry from). Use the **`add-model` skill** — there is no `benchmark/models/ag/<model>/` layout for new models.
 - **`ExperimentRunner` / `ExperimentBatchRunner`** (`packages/tabarena/src/tabarena/benchmark/experiment/`) — Execute model fitting across tasks. Configured via YAML (`experiment_constructor.py`).
 - **`ZeroshotSimulatorContext`** (`packages/tabarena/src/tabarena/simulation/`) — Manages config rankings for HPO simulation and portfolio generation.
-- **`TabArena`** (`packages/bencheval/src/bencheval/tabarena.py`) — Leaderboard computation from results DataFrames. Independent of the core `tabarena` package.
+- **`BenchmarkEvaluator`** (`packages/bencheval/src/bencheval/evaluator.py`) — Leaderboard computation from results DataFrames. Independent of the core `tabarena` package.
 
 ### Data caching
 
@@ -104,4 +104,4 @@ Artifacts download to `~/.cache/tabarena/` by default; override with `TABARENA_C
 - Do not add `tests/` — use `tst/`.
 - Do not import optional model dependencies at the top of shared modules; lazy-import inside the wrapper.
 - Do not skip `from __future__ import annotations` — ruff will fail CI.
-- Do not change the public API of `EvaluationRepository`, `TabularModelPredictions`, or `bencheval.tabarena.TabArena` without explicit user direction; they are consumed by external scripts and artifacts.
+- Do not change the public API of `EvaluationRepository`, `TabularModelPredictions`, or `bencheval.evaluator.BenchmarkEvaluator` without explicit user direction; they are consumed by external scripts and artifacts.

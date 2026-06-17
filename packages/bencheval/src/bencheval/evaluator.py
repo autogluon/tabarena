@@ -42,8 +42,8 @@ class MetricSpec:
     name: str
     direction: MetricDirection
     alignment: MetricAlignment
-    compute: Callable[[TabArena, pd.DataFrame], pd.Series]
-    score: Callable[[TabArena, pd.DataFrame, pd.Series, str], float]
+    compute: Callable[[BenchmarkEvaluator, pd.DataFrame], pd.Series]
+    score: Callable[[BenchmarkEvaluator, pd.DataFrame, pd.Series, str], float]
     # Methods that must be present in any subset (e.g., Elo calibration framework)
     required_methods: frozenset[str] = frozenset()
     # What to do if required methods are missing from a subset
@@ -51,7 +51,7 @@ class MetricSpec:
 
 
 # TODO: Should "data" be an init arg? Probably not.
-class TabArena:
+class BenchmarkEvaluator:
     def __init__(
         self,
         method_col: str = "method",
@@ -1192,7 +1192,7 @@ class TabArena:
         sort_asc: bool,
     ) -> pd.Series:
         """Returns a per-method Series of weighted means using the same equal-task weighting
-        logic as other parts of TabArena.
+        logic as other parts of BenchmarkEvaluator.
         """
         seed_col = self._seed_col_if_present(df)
         return compute_weighted_mean_by_task(
@@ -1356,11 +1356,11 @@ class TabArena:
     def metric_spec_error(self) -> MetricSpec:
         """Lower is better. Score = weighted mean error (equal task weighting)."""
 
-        def compute(self: TabArena, df: pd.DataFrame) -> pd.Series:
+        def compute(self: BenchmarkEvaluator, df: pd.DataFrame) -> pd.Series:
             # row-aligned; no recomputation needed
             return df[self.error_col]
 
-        def score(self: TabArena, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+        def score(self: BenchmarkEvaluator, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
             groupby_columns = self._get_groupby_cols(df)
             tmp = df[groupby_columns].copy()
             tmp[self.error_col] = values.to_numpy()
@@ -1378,11 +1378,11 @@ class TabArena:
     def metric_spec_rank(self) -> MetricSpec:
         """Lower is better. Score = weighted mean rank."""
 
-        def compute(self: TabArena, df: pd.DataFrame) -> pd.Series:
+        def compute(self: BenchmarkEvaluator, df: pd.DataFrame) -> pd.Series:
             task_groupby_cols = self._get_task_groupby_cols(results=df)
             return self.compare_rank_per(df=df, task_groupby_cols=task_groupby_cols)
 
-        def score(self: TabArena, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+        def score(self: BenchmarkEvaluator, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
             groupby_columns = self._get_groupby_cols(df)
             tmp = df[groupby_columns].copy()
             tmp[RANK] = values.to_numpy()
@@ -1400,11 +1400,11 @@ class TabArena:
     def metric_spec_improvability(self) -> MetricSpec:
         """Lower is better (0 is ideal). Score = weighted mean improvability."""
 
-        def compute(self: TabArena, df: pd.DataFrame) -> pd.Series:
+        def compute(self: BenchmarkEvaluator, df: pd.DataFrame) -> pd.Series:
             task_groupby_cols = self._get_task_groupby_cols(results=df)
             return self.compute_improvability_per(results_per_task=df, task_groupby_cols=task_groupby_cols)
 
-        def score(self: TabArena, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+        def score(self: BenchmarkEvaluator, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
             groupby_columns = self._get_groupby_cols(df)
             tmp = df[groupby_columns].copy()
             tmp[IMPROVABILITY] = values.to_numpy()
@@ -1424,7 +1424,7 @@ class TabArena:
         calibration_framework = elo_kwargs.get("calibration_framework")
         required = frozenset([calibration_framework]) if calibration_framework else frozenset()
 
-        def compute(self: TabArena, df: pd.DataFrame) -> pd.Series:
+        def compute(self: BenchmarkEvaluator, df: pd.DataFrame) -> pd.Series:
             bars = self.compute_elo(
                 results_per_task=df,
                 include_quantiles=False,
@@ -1434,7 +1434,7 @@ class TabArena:
             # method-aligned Series
             return bars["elo"]
 
-        def score(self: TabArena, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+        def score(self: BenchmarkEvaluator, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
             return float(values.get(method_1, float("nan")))
 
         return MetricSpec(
@@ -1709,7 +1709,7 @@ class TabArena:
             if M.shape[0] == 0:
                 raise ValueError(f"No datasets have >= {min_methods} methods after filtering.")
 
-        # If you're using TabArena's verify_data_is_dense, M should be fully dense.
+        # If you're using BenchmarkEvaluator's verify_data_is_dense, M should be fully dense.
         # But we handle missingness by using pairwise corr + aligning vectors where needed.
 
         # 1) Dataset↔dataset similarity matrix (correlation across methods)
@@ -1822,7 +1822,7 @@ class TabArena:
             - "pairwise": pd.DataFrame (optional) columns [seed_i, seed_j, similarity]
         """
         if self.seed_column is None:
-            raise ValueError("TabArena.seed_column is None, but fold similarity requires a seed/fold column.")
+            raise ValueError("BenchmarkEvaluator.seed_column is None, but fold similarity requires a seed/fold column.")
         if self.seed_column not in results_per_task.columns:
             raise ValueError(
                 f"results_per_task must include seed column {self.seed_column!r}. "
@@ -2017,7 +2017,7 @@ class TabArena:
         import pandas as pd
 
         if self.seed_column is None:
-            raise ValueError("TabArena.seed_column is None, but fold similarity ranking requires a seed/fold column.")
+            raise ValueError("BenchmarkEvaluator.seed_column is None, but fold similarity ranking requires a seed/fold column.")
         if self.seed_column not in results_per_task.columns:
             raise ValueError(
                 f"results_per_task must include seed column {self.seed_column!r}. "

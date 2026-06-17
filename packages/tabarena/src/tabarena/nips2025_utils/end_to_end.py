@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal, Self
 
 import pandas as pd
 
-from bencheval.tabarena import TabArena
+from bencheval.evaluator import BenchmarkEvaluator
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.nips2025_utils.compare import compare
 from tabarena.nips2025_utils.end_to_end_single import (
@@ -414,7 +414,7 @@ class EndToEndResults:
             # fillna=False,
         )
 
-        tabarena = TabArena(
+        tabarena = BenchmarkEvaluator(
             method_col="method",
             task_col="dataset",
             seed_column="fold",
