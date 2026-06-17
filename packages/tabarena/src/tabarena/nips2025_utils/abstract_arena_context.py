@@ -616,8 +616,11 @@ class AbstractArenaContext:
         figure_file_type: str = "pdf",
         compute_fold_similarity: bool = False,
         fold_similarity_kwargs: dict | None = None,
+        return_results: bool = False,
+        new_methods_only: bool = False,
+        return_single: bool = False,
         **kwargs,
-    ) -> pd.DataFrame:
+    ) -> pd.DataFrame | pd.Series | tuple[pd.DataFrame | pd.Series, pd.DataFrame]:
         """Compute the leaderboard comparing ``new_results`` against this arena's baselines.
 
         ``ta_results`` defaults to :meth:`load_results` (which includes any registered
@@ -649,6 +652,23 @@ class AbstractArenaContext:
         :meth:`bencheval.tabarena.TabArena.rank_datasets_by_fold_similarity` (e.g.
         ``{"similarity": "pearson", "target_reliability": 0.95}``); ignored unless
         ``compute_fold_similarity`` is True.
+
+        Two flags shape the return:
+
+        * ``return_results`` (default ``False``) — also return the per-(method, dataset, fold)
+          results frame the leaderboard was scored from (columns ``method`` / ``dataset`` /
+          ``fold`` / ``metric_error`` / ...). The return becomes ``(leaderboard, results)``
+          instead of ``leaderboard``.
+        * ``new_methods_only`` (default ``False``) — restrict *both* the leaderboard and the
+          returned results to the registered "new" methods (matched by :attr:`_new_method_names`).
+          The leaderboard is still computed against all baselines (so elo / rank / win-rate are
+          meaningful), then filtered to the new method's row(s). Raises if no new methods are
+          registered.
+        * ``return_single`` (default ``False``) — like ``new_methods_only`` but asserts there is
+          *exactly one* matching new-method row and returns it as a single leaderboard **row**
+          (``pd.Series``) instead of a one-row frame — the "I evaluated one model" case. Raises if
+          zero or more than one new method is present. Composes with ``return_results`` (the
+          results are still the matched per-split frame).
         """
         # Deferred import: tabarena.nips2025_utils.compare imports TabArenaContext at module
         # level, which would be circular at import time.
@@ -705,7 +725,7 @@ class AbstractArenaContext:
         #  Pair with (method, artifact_name)
         method_rename_map = self.get_method_rename_map()
 
-        return compare(
+        leaderboard = compare(
             df_results=df_results,
             output_dir=Path(output_dir),
             task_metadata=self.task_metadata_collection,
@@ -721,6 +741,32 @@ class AbstractArenaContext:
             fold_similarity_kwargs=fold_similarity_kwargs,
             **kwargs,
         )
+        if new_methods_only or return_single:
+            if not self._new_method_names:
+                raise ValueError(
+                    "new_methods_only/return_single=True but no new methods are registered; register "
+                    "results first (e.g. via register() / extra_methods=).",
+                )
+            # The leaderboard was computed against all baselines; keep only the new method's row(s).
+            # `df_results` is pre-rename (the rename map applies only inside scoring), so its
+            # `method` column still holds the registered names tracked in `_new_method_names`.
+            leaderboard = self._select_new_methods(leaderboard)
+            df_results = self._select_new_methods(df_results)
+        if return_single:
+            if len(leaderboard) != 1:
+                raise ValueError(
+                    f"return_single=True but {len(leaderboard)} new-method row(s) matched the leaderboard "
+                    f"(registered new methods: {sorted(self._new_method_names)}); register exactly one new method.",
+                )
+            leaderboard = leaderboard.iloc[0]
+        if return_results:
+            return leaderboard, df_results.reset_index(drop=True)
+        return leaderboard
+
+    def _select_new_methods(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Rows of ``df`` whose method (a ``method`` column or the index) is a registered new method."""
+        methods = df["method"] if "method" in df.columns else df.index.to_series()
+        return df[methods.isin(self._new_method_names).to_numpy()]
 
     def compare_per_dataset(
         self,

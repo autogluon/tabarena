@@ -548,3 +548,110 @@ class TestBuildAndRunJobs:
             "debug_mode": True,
             "user_tasks": ["t"],
         }
+
+
+class TestCompareReturnFlags:
+    """`compare`'s `return_results` (also return df) and `new_methods_only` (scope lb + df) flags."""
+
+    @staticmethod
+    def _ctx_and_results(monkeypatch):
+        import tabarena.nips2025_utils.compare as compare_mod
+
+        # Stub the lower-level scoring with a leaderboard over baseline + new method.
+        monkeypatch.setattr(
+            compare_mod,
+            "compare",
+            lambda **kw: pd.DataFrame({"method": ["CatBoost", "[New] M"], "elo": [1000.0, 1100.0]}),
+        )
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        ctx._new_method_names = {"[New] M"}
+        new_results = pd.DataFrame(
+            {
+                "method": ["[New] M", "[New] M", "CatBoost"],
+                "dataset": ["d1", "d2", "d1"],
+                "fold": [0, 0, 0],
+                "metric_error": [0.1, 0.2, 0.3],
+            },
+        )
+        return ctx, new_results
+
+    def test_no_flags_returns_only_full_leaderboard(self, monkeypatch, tmp_path):
+        ctx, new_results = self._ctx_and_results(monkeypatch)
+        out = ctx.compare(output_dir=tmp_path, new_results=new_results, filter_to_task_metadata=False)
+        assert isinstance(out, pd.DataFrame)  # not a tuple
+        assert list(out["method"]) == ["CatBoost", "[New] M"]
+
+    def test_return_results_gives_full_lb_and_df(self, monkeypatch, tmp_path):
+        ctx, new_results = self._ctx_and_results(monkeypatch)
+        lb, results = ctx.compare(
+            output_dir=tmp_path, new_results=new_results, filter_to_task_metadata=False, return_results=True
+        )
+        assert list(lb["method"]) == ["CatBoost", "[New] M"]  # full leaderboard
+        assert list(results["method"]) == ["[New] M", "[New] M", "CatBoost"]  # full per-split frame
+
+    def test_new_methods_only_scopes_both_lb_and_df(self, monkeypatch, tmp_path):
+        ctx, new_results = self._ctx_and_results(monkeypatch)
+        lb, results = ctx.compare(
+            output_dir=tmp_path,
+            new_results=new_results,
+            filter_to_task_metadata=False,
+            return_results=True,
+            new_methods_only=True,
+        )
+        assert list(lb["method"]) == ["[New] M"]  # leaderboard scoped to the new method
+        assert list(results["method"]) == ["[New] M", "[New] M"]  # baseline rows dropped
+        assert list(results["metric_error"]) == [0.1, 0.2]
+
+    def test_new_methods_only_without_return_results_scopes_just_the_leaderboard(self, monkeypatch, tmp_path):
+        ctx, new_results = self._ctx_and_results(monkeypatch)
+        out = ctx.compare(
+            output_dir=tmp_path, new_results=new_results, filter_to_task_metadata=False, new_methods_only=True
+        )
+        assert isinstance(out, pd.DataFrame)  # still just the leaderboard
+        assert list(out["method"]) == ["[New] M"]
+
+    def test_new_methods_only_raises_when_no_new_methods_registered(self, monkeypatch, tmp_path):
+        ctx, new_results = self._ctx_and_results(monkeypatch)
+        ctx._new_method_names = set()  # nothing registered
+        with pytest.raises(ValueError, match="no new methods are registered"):
+            ctx.compare(
+                output_dir=tmp_path, new_results=new_results, filter_to_task_metadata=False, new_methods_only=True
+            )
+
+    def test_return_single_returns_the_one_row_and_results(self, monkeypatch, tmp_path):
+        ctx, new_results = self._ctx_and_results(monkeypatch)
+        row, results = ctx.compare(
+            output_dir=tmp_path,
+            new_results=new_results,
+            filter_to_task_metadata=False,
+            return_results=True,
+            return_single=True,
+        )
+        assert isinstance(row, pd.Series)  # a single leaderboard row, not a frame
+        assert row["method"] == "[New] M"
+        assert row["elo"] == 1100.0
+        assert list(results["method"]) == ["[New] M", "[New] M"]
+
+    def test_return_single_without_results_returns_just_the_row(self, monkeypatch, tmp_path):
+        ctx, new_results = self._ctx_and_results(monkeypatch)
+        row = ctx.compare(
+            output_dir=tmp_path, new_results=new_results, filter_to_task_metadata=False, return_single=True
+        )
+        assert isinstance(row, pd.Series)
+        assert row["method"] == "[New] M"
+
+    def test_return_single_raises_when_multiple_new_methods(self, monkeypatch, tmp_path):
+        import tabarena.nips2025_utils.compare as compare_mod
+
+        monkeypatch.setattr(
+            compare_mod,
+            "compare",
+            lambda **kw: pd.DataFrame({"method": ["[New] A", "[New] B"], "elo": [1.0, 2.0]}),
+        )
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        ctx._new_method_names = {"[New] A", "[New] B"}
+        new_results = pd.DataFrame(
+            {"method": ["[New] A", "[New] B"], "dataset": ["d1", "d1"], "fold": [0, 0], "metric_error": [0.1, 0.2]},
+        )
+        with pytest.raises(ValueError, match="return_single=True but 2 new-method row"):
+            ctx.compare(output_dir=tmp_path, new_results=new_results, filter_to_task_metadata=False, return_single=True)
