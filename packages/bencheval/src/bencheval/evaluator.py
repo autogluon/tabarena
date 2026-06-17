@@ -94,17 +94,14 @@ class BenchmarkEvaluator:
             required_input_columns.append(self.seed_column)
         return required_input_columns
 
-    def _get_task_groupby_cols(self, results: pd.DataFrame) -> list[str]:
-        task_groupby_cols = self.task_groupby_columns
-        if self.seed_column is not None and self.seed_column in results.columns:
-            task_groupby_cols = [*task_groupby_cols, self.seed_column]
-        return task_groupby_cols
+    def _resolve_groupby_columns(self, df: pd.DataFrame, *, task_only: bool = False) -> list[str]:
+        """Return the groupby columns, appending the seed column iff it is present in ``df``.
 
-    def _get_groupby_cols(self, results: pd.DataFrame) -> list[str]:
-        groupby_cols = self.groupby_columns
-        if self.seed_column is not None and self.seed_column in results.columns:
-            groupby_cols = [*groupby_cols, self.seed_column]
-        return groupby_cols
+        ``task_only=True`` returns the task-level columns (excluding ``method_col``).
+        """
+        base = self.task_groupby_columns if task_only else self.groupby_columns
+        seed_col = self._seed_col_if_present(df)
+        return [*base, seed_col] if seed_col is not None else base
 
     def leaderboard(
         self,
@@ -197,7 +194,7 @@ class BenchmarkEvaluator:
                 )
 
         if include_rank_counts:
-            results_lst.append(self.compute_ranks(results_per_task=results_per_task))
+            results_lst.append(self.compute_rank_counts(results_per_task=results_per_task))
 
         cols_to_use = [c for c in results_agg.columns if c != RANK]
         results_lst.append(results_agg[cols_to_use])
@@ -495,7 +492,7 @@ class BenchmarkEvaluator:
         # Combine mean and median
         return pd.concat([mean_df, median_df], axis=1)
 
-    def compute_ranks(self, results_per_task: pd.DataFrame) -> pd.DataFrame:
+    def compute_rank_counts(self, results_per_task: pd.DataFrame) -> pd.DataFrame:
         df = results_per_task.copy()
 
         group_cols = self.groupby_columns  # e.g., ["task"] or ["task", "seed"]
@@ -787,7 +784,7 @@ class BenchmarkEvaluator:
         baseline_method: str | None,
         use_optimal: bool = False,
     ):
-        task_groupby_cols = self._get_task_groupby_cols(results=results_per_task)
+        task_groupby_cols = self._resolve_groupby_columns(results_per_task, task_only=True)
         if use_optimal:
             baseline_result = results_per_task.groupby(task_groupby_cols)[self.error_col].min()
         else:
@@ -1004,7 +1001,7 @@ class BenchmarkEvaluator:
         results_per_task: pd.DataFrame,
         baseline_method: str,
     ) -> pd.Series:
-        task_groupby_cols = self._get_task_groupby_cols(results=results_per_task)
+        task_groupby_cols = self._resolve_groupby_columns(results_per_task, task_only=True)
         seed_col = self.seed_column if self.seed_column in task_groupby_cols else None
         results_per_task = results_per_task.copy()
         results_per_task["baseline_advantage"] = self.compute_baseline_advantage_per(
@@ -1089,7 +1086,7 @@ class BenchmarkEvaluator:
 
     def compute_frontier_advantage(self, results_per_task: pd.DataFrame) -> pd.Series:
         """Equal-task-weighted mean frontier advantage per method (higher is better)."""
-        task_groupby_cols = self._get_task_groupby_cols(results=results_per_task)
+        task_groupby_cols = self._resolve_groupby_columns(results_per_task, task_only=True)
         seed_col = self.seed_column if self.seed_column in task_groupby_cols else None
         results_per_task = results_per_task.copy()
         results_per_task[FRONTIER_ADVANTAGE] = self.compute_frontier_advantage_per(results_per_task, task_groupby_cols)
@@ -1127,10 +1124,6 @@ class BenchmarkEvaluator:
         )
         results_rank.name = RANK
         return results_rank
-
-    def dataset_outlier(self, results_per_task: pd.DataFrame):
-        # Compute how much of an outlier the results of a given dataset are (squared rank differential?)
-        raise NotImplementedError
 
     # TODO: Should plotting live in a separate class?
     def plot_critical_diagrams(
@@ -1361,7 +1354,7 @@ class BenchmarkEvaluator:
             return df[self.error_col]
 
         def score(self: BenchmarkEvaluator, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
-            groupby_columns = self._get_groupby_cols(df)
+            groupby_columns = self._resolve_groupby_columns(df)
             tmp = df[groupby_columns].copy()
             tmp[self.error_col] = values.to_numpy()
             per_method = self._score_weighted_mean_by_task(tmp, value_col=self.error_col, sort_asc=True)
@@ -1379,11 +1372,11 @@ class BenchmarkEvaluator:
         """Lower is better. Score = weighted mean rank."""
 
         def compute(self: BenchmarkEvaluator, df: pd.DataFrame) -> pd.Series:
-            task_groupby_cols = self._get_task_groupby_cols(results=df)
+            task_groupby_cols = self._resolve_groupby_columns(df, task_only=True)
             return self.compare_rank_per(df=df, task_groupby_cols=task_groupby_cols)
 
         def score(self: BenchmarkEvaluator, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
-            groupby_columns = self._get_groupby_cols(df)
+            groupby_columns = self._resolve_groupby_columns(df)
             tmp = df[groupby_columns].copy()
             tmp[RANK] = values.to_numpy()
             per_method = self._score_weighted_mean_by_task(tmp, value_col=RANK, sort_asc=True)
@@ -1401,11 +1394,11 @@ class BenchmarkEvaluator:
         """Lower is better (0 is ideal). Score = weighted mean improvability."""
 
         def compute(self: BenchmarkEvaluator, df: pd.DataFrame) -> pd.Series:
-            task_groupby_cols = self._get_task_groupby_cols(results=df)
+            task_groupby_cols = self._resolve_groupby_columns(df, task_only=True)
             return self.compute_improvability_per(results_per_task=df, task_groupby_cols=task_groupby_cols)
 
         def score(self: BenchmarkEvaluator, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
-            groupby_columns = self._get_groupby_cols(df)
+            groupby_columns = self._resolve_groupby_columns(df)
             tmp = df[groupby_columns].copy()
             tmp[IMPROVABILITY] = values.to_numpy()
             per_method = self._score_weighted_mean_by_task(tmp, value_col=IMPROVABILITY, sort_asc=True)
@@ -1515,8 +1508,6 @@ class BenchmarkEvaluator:
         df_plot : pd.DataFrame
             Filtered dataframe used for plotting (one row per observation).
         """
-        import os
-
         import plotly.express as px
 
         if metric_col is None:
@@ -2013,9 +2004,6 @@ class BenchmarkEvaluator:
             - "stability_params": dict
               Echo of stability configuration.
         """
-        import numpy as np
-        import pandas as pd
-
         if self.seed_column is None:
             raise ValueError(
                 "BenchmarkEvaluator.seed_column is None, but fold similarity ranking requires a seed/fold column."
@@ -2236,9 +2224,6 @@ class BenchmarkEvaluator:
         per_method : dict[str, dict] | None
             If return_per_method=True, a dict of per-dataset detailed outputs; else None.
         """
-        import numpy as np
-        import pandas as pd
-
         if self.seed_column is None:
             raise ValueError("seed_column must be set to compute fold jitter.")
         if self.seed_column not in results_per_task.columns:
@@ -2344,9 +2329,6 @@ class BenchmarkEvaluator:
         -------
         dict
         """
-        import numpy as np
-        import pandas as pd
-
         if metric not in ("winrate", "rank"):
             raise ValueError(f"metric must be 'winrate' or 'rank', got {metric!r}")
         if self.seed_column is None:
@@ -2456,9 +2438,6 @@ class BenchmarkEvaluator:
         Returns a DataFrame with mean/median/95% CI of jitter_k vs k, plus a
         ``metric`` column identifying which score was used.
         """
-        import numpy as np
-        import pandas as pd
-
         if metric not in ("winrate", "rank"):
             raise ValueError(f"metric must be 'winrate' or 'rank', got {metric!r}")
         if self.seed_column is None:
@@ -2564,9 +2543,6 @@ class BenchmarkEvaluator:
         seed: int = 0,
         drop_methods_with_any_missing: bool = True,
     ) -> pd.DataFrame:
-        import numpy as np
-        import pandas as pd
-
         datasets = list(pd.Index(results_per_task[self.task_col].unique()).sort_values())
         dfs: list[pd.DataFrame] = []
 
@@ -2721,35 +2697,3 @@ def get_bootstrap_result_lst(
             rows.append(func_(data_new, **func_kwargs))
     df = pd.DataFrame(rows)
     return df[df.median().sort_values(ascending=False).index]
-
-
-def _jitter_from_fold_method_matrix(
-    M: np.ndarray,  # shape (k_folds, n_methods)
-) -> tuple[float, float]:
-    """Compute:
-      - expected_rank_jitter relative to global (mean across folds)
-      - observed_avg_abs_rank_change between folds.
-
-    Parameters
-    ----------
-    M : np.ndarray
-        Fold x method matrix of ranks (or any scalar performance; ranks recommended).
-
-    Returns:
-    -------
-    expected_rank_jitter : float
-    observed_avg_abs_rank_change : float
-    """
-    k, _m = M.shape
-    global_rank = M.mean(axis=0, keepdims=True)  # (1, m)
-    expected_rank_jitter = float(np.abs(M - global_rank).mean())
-
-    if k < 2:
-        observed = float("nan")
-    else:
-        # Mean over pairs (i<j) and methods of |rank_i - rank_j|
-        diffs = np.abs(M[:, None, :] - M[None, :, :])  # (k, k, m)
-        iu = np.triu_indices(k, k=1)
-        observed = float(diffs[iu].mean())  # averages over pairs and methods
-
-    return expected_rank_jitter, observed
