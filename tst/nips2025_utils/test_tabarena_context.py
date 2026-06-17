@@ -46,6 +46,14 @@ class TestSubsetDatasetFoldRepeats:
         ctx = _ctx()
         assert ctx._subset_dataset_fold_repeats("lite") == ctx.dataset_fold_repeats("lite")
 
+    def test_no_filter_returns_full_grid(self):
+        assert set(_ctx().dataset_fold_repeats()) == {
+            ("small_ds", 0, 0),
+            ("small_ds", 1, 0),
+            ("big_ds", 0, 0),
+            ("big_ds", 1, 0),
+        }
+
 
 class TestMakeExperimentBatchRunner:
     def test_subset_forwarded_as_dataset_fold_repeats(self, tmp_path):
