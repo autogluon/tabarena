@@ -2017,7 +2017,9 @@ class BenchmarkEvaluator:
         import pandas as pd
 
         if self.seed_column is None:
-            raise ValueError("BenchmarkEvaluator.seed_column is None, but fold similarity ranking requires a seed/fold column.")
+            raise ValueError(
+                "BenchmarkEvaluator.seed_column is None, but fold similarity ranking requires a seed/fold column."
+            )
         if self.seed_column not in results_per_task.columns:
             raise ValueError(
                 f"results_per_task must include seed column {self.seed_column!r}. "
