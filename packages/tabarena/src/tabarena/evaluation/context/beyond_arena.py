@@ -10,7 +10,7 @@ nothing from ``TabArenaContext``, whose only addition over the base is the TabAr
 * **Task metadata** — the committed BeyondArena reference CSV, loaded as a
   :class:`~tabarena.benchmark.task.metadata.BeyondArenaTaskMetadataCollection` (whose tasks already
   carry the warehouse fields inline, so no separate ``warehouse_metadata.csv`` merge is needed). The
-  collection keeps a materializable Data Foundry source so ``run_experiments`` can download the
+  collection keeps a materializable Data Foundry source so ``run_jobs`` can download the
   selected tasks.
 * **Method metadata** — the ``"BeyondArena"`` preset selects the Beyond-IID benchmark's method
   collection (artifact ``beyond_iid_benchmark_2026``; see
@@ -135,7 +135,7 @@ class BeyondArenaContext(AbstractArenaContext):
         Returns a :class:`BeyondArenaTaskMetadataCollection` (== ``from_preset("BeyondArena")``):
         the metadata still loads offline from the committed reference CSV (no dataset downloads at
         construction), but unlike a plain directly-built collection it keeps a materializable
-        ``DataFoundryTaskMetadataSource``. That lets ``context.run_experiments(...)`` materialize
+        ``DataFoundryTaskMetadataSource``. That lets ``context.run_jobs(...)`` materialize
         (download + convert) the selected tasks — which would otherwise be a silent no-op, since a
         sourceless collection's :meth:`~TaskMetadataCollection.materialize` does nothing.
 

@@ -26,7 +26,7 @@ from __future__ import annotations
 import copy
 import functools
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 import numpy as np
 import pandas as pd
@@ -42,7 +42,7 @@ from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollec
 from tabarena.website.website_format import format_leaderboard
 
 if TYPE_CHECKING:
-    from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
+    from tabarena.benchmark.experiment import Experiment, Job
     from tabarena.benchmark.result import BaselineResult
     from tabarena.repository.abstract_repository import AbstractRepository
 
@@ -52,7 +52,7 @@ class AbstractArenaContext:
     runner, and leaderboard plumbing. Directly instantiable; subclasses add named presets.
     """
 
-    #: Subset-filter predicates available to `compare` / `make_experiment_batch_runner`, keyed by
+    #: Subset-filter predicates available to `compare` / `build_jobs`, keyed by
     #: name. Each :class:`SubsetPredicate` declares the grid columns it needs (validated before
     #: it runs). Subclasses override to add arena-specific filters (size buckets, split regimes,
     #: ...). Read via :attr:`subset_predicates` so subclass overrides take effect.
@@ -135,16 +135,7 @@ class AbstractArenaContext:
         new_result_prefix: str | None = None,
         scope_to_valid_tasks: bool = True,
     ) -> list[MethodMetadata]:
-        """Register externally-produced raw results into this context as new methods.
-
-        The post-construction counterpart to ``extra_methods=`` / :meth:`from_new_methods`:
-        converts ``results`` (e.g. from :meth:`run_experiments` or
-        ``ExperimentBatchRunner.run_all``) into in-memory methods via
-        :meth:`~tabarena.nips2025_utils.end_to_end.EndToEnd.from_raw_to_methods`, appends them as
-        "new" methods, and — when ``scope_to_valid_tasks`` (the default) — pre-filters
-        ``task_metadata`` to the tasks they ran so a subsequent :meth:`compare` is scoped to them
-        with nothing extra. Returns the registered methods.
-        """
+        """Register externally-produced raw results into this context as new methods."""
         # Deferred: tabarena.nips2025_utils.end_to_end imports TabArenaContext at module level,
         # which would be circular at import time.
         from tabarena.nips2025_utils.end_to_end import EndToEnd
@@ -157,49 +148,109 @@ class AbstractArenaContext:
         self._register_methods(new_methods, scope_to_valid_tasks=scope_to_valid_tasks)
         return new_methods
 
-    def run_experiments(
+    def build_jobs(self, experiments: list[Experiment], *, pre_materialize: bool = False, **subset_kwargs) -> list[Job]:
+        """Enumerate ``experiments`` x this context's task splits into a flat ``list[Job]``.
+
+        This context's :attr:`task_metadata_collection` is first scoped by
+        :meth:`TaskMetadataCollection.subset_tasks` — every keyword argument is forwarded
+        there (``subset``, ``dataset_names``, ``split_indices``, ``problem_types``,
+        ``task_ids``, ``n_train_samples``, ``required_dtypes``, ...). ``subset`` predicate
+        names resolve against this context's :attr:`subset_predicates` unless an explicit
+        ``predicates=`` is passed. The scoped collection is then expanded by the shared
+        :func:`~tabarena.benchmark.experiment.build_jobs` grid enumerator (each experiment x
+        each ``(dataset, fold, repeat)`` split, with constraint-violating pairs dropped).
+
+        Materialization (downloading + converting the scoped tasks for remote-backed suites
+        like BeyondArena / Data Foundry; a no-op for already-local sources) is lazy by default
+        — :meth:`run_jobs` does it right before running. Pass ``pre_materialize=True`` to do it
+        here instead, front-loading the network I/O; the download is disk-cached, so a later
+        :meth:`run_jobs` still re-materializes but hits the cache.
+
+        The result is ready for :meth:`run_jobs` (or :meth:`run_job` for a single unit).
+        """
+        from tabarena.benchmark.experiment import build_jobs as build_jobs_grid
+
+        subset_kwargs.setdefault("predicates", self.subset_predicates)
+        collection = self.task_metadata_collection.subset_tasks(**subset_kwargs)
+        if pre_materialize:
+            collection.materialize()
+        return build_jobs_grid(experiments, collection)
+
+    def run_jobs(
+        self,
+        jobs: list[Job],
+        *,
+        expname: str | Path,
+        register: bool = True,
+        new_result_prefix: str | None = None,
+        **runner_kwargs,
+    ) -> list[dict[str, Any]]:
+        """Run a ``list[Job]`` and register the results.
+
+        Scopes this context's task metadata to the jobs' ``(dataset, fold, repeat)`` splits
+        and materializes it (downloading + converting only those tasks for remote-backed
+        sources), builds an :class:`ExperimentBatchRunner` over it, and dispatches the jobs
+        via :meth:`ExperimentBatchRunner.run_jobs` in a single task-grouped pass (a task
+        shared by several experiments is loaded once). When ``register`` (the default), the
+        raw results are registered back into this context via :meth:`register` (pre-filtering
+        ``task_metadata`` to the tasks just run, so a subsequent :meth:`compare` is scoped to
+        them with nothing extra).
+
+        ``expname`` is the runner's results-cache directory. Extra ``**runner_kwargs`` (e.g.
+        ``debug_mode``, ``cache_mode``) reach :class:`ExperimentBatchRunner`. Returns the raw
+        per-split result dicts (also registered when ``register`` is True).
+        """
+        from tabarena.benchmark.experiment import ExperimentBatchRunner
+
+        if not jobs:
+            return []
+        # Scope-then-materialize: only the tasks the jobs actually touch are downloaded, and
+        # the collection itself is the single source of truth for what the runner resolves.
+        collection = self.task_metadata_collection.subset_to_jobs(jobs).materialize()
+        runner = ExperimentBatchRunner(expname=str(expname), task_metadata=collection, **runner_kwargs)
+        results = runner.run_jobs(jobs)
+        if register:
+            self.register(results, new_result_prefix=new_result_prefix)
+        return results
+
+    def run_job(self, job: Job, **kwargs) -> list[dict[str, Any]]:
+        """Run a single :class:`Job` — convenience for ``run_jobs([job], ...)``."""
+        return self.run_jobs([job], **kwargs)
+
+    def build_and_run_jobs(
         self,
         experiments: list[Experiment],
         *,
         expname: str | Path,
         subset: str | list[str] | None = None,
-        datasets: list[str] | None = None,
-        splits: list[int] | None = None,
-        folds: list[int] | None = None,
-        repeats: list[int] | None = None,
         register: bool = True,
         new_result_prefix: str | None = None,
+        pre_materialize: bool = False,
+        build_kwargs: dict | None = None,
         **runner_kwargs,
-    ) -> list[BaselineResult]:
-        """Run ``experiments`` over this context's task_metadata and register the results.
+    ) -> list[dict[str, Any]]:
+        """Build the jobs for ``experiments`` and run them — :meth:`build_jobs` then :meth:`run_jobs`.
 
-        The single-hub entry point for the registration-first workflow: builds a runner scoped to the
-        selected ``(dataset, fold, repeat)`` triplets and materialized so it is runnable (via
-        :meth:`make_experiment_batch_runner` with ``materialize=True`` — ``subset`` / ``datasets``
-        / ``splits`` / ``folds`` / ``repeats`` have the same semantics there), runs every selected
-        split (``ExperimentBatchRunner.run_all``), and — when ``register`` (the default) —
-        registers the raw results back into this context via :meth:`register` (pre-filtering
-        ``task_metadata`` to the tasks just run, so a subsequent :meth:`compare` is scoped to them
-        with nothing extra).
-
-        ``expname`` is the runner's results-cache directory. Extra ``**runner_kwargs`` (e.g.
-        ``debug_mode``, ``cache_mode``) reach :class:`ExperimentBatchRunner`. Returns the raw
-        results list (also registered when ``register`` is True).
+        The one-call path that avoids the two-step. Scoping goes to :meth:`build_jobs` — ``subset``
+        directly (the common case; predicate names resolve against this context's
+        :attr:`subset_predicates`), and any other :meth:`TaskMetadataCollection.subset_tasks` filter
+        via ``build_kwargs`` (e.g. ``{"dataset_names": [...], "split_indices": "lite"}``). Running
+        goes to :meth:`run_jobs` — ``expname`` / ``register`` / ``new_result_prefix`` and
+        ``**runner_kwargs`` (``debug_mode``, ``cache_mode``, ``user_tasks``, ...). To inspect or
+        slice the jobs before running, call :meth:`build_jobs` and :meth:`run_jobs` separately.
         """
-        runner = self.make_experiment_batch_runner(
-            expname=str(expname),
-            subset=subset,
-            datasets=datasets,
-            splits=splits,
-            folds=folds,
-            repeats=repeats,
-            materialize=True,
+        jobs = self.build_jobs(
+            experiments,
+            pre_materialize=pre_materialize,
+            **{"subset": subset, **(build_kwargs or {})},
+        )
+        return self.run_jobs(
+            jobs,
+            expname=expname,
+            register=register,
+            new_result_prefix=new_result_prefix,
             **runner_kwargs,
         )
-        results = runner.run_all(experiments)
-        if register:
-            self.register(results, new_result_prefix=new_result_prefix)
-        return results
 
     # ------------------------------------------------------------------ arena-specific hooks
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
@@ -712,134 +763,6 @@ class AbstractArenaContext:
                 predicates=self.subset_predicates,
             )
         return df_results
-
-    def make_experiment_batch_runner(
-        self,
-        expname: str,
-        *,
-        subset: str | list[str] | None = None,
-        datasets: list[str] | None = None,
-        splits: list[int] | None = None,
-        folds: list[int] | None = None,
-        repeats: list[int] | None = None,
-        dataset_fold_repeats: list[tuple[str, int, int]] | None = None,
-        materialize: bool = False,
-        **kwargs,
-    ) -> ExperimentBatchRunner:
-        """Create an `ExperimentBatchRunner` over this context's `task_metadata`.
-
-        The (dataset, fold, repeat) triplets the runner's `run_all` executes are
-        determined by the following filters (all default None):
-
-        - `subset`: predicate expressions (the same as `compare`, e.g. ``"lite"``,
-          ``"small"``, ``"binary"``, ``"!tiny"``) applied to the task grid, which carries an
-          explicit ``split`` column (``n_folds * repeat + fold``); ``"lite"`` keeps
-          ``split == 0`` == ``(fold 0, repeat 0)``.
-        - `datasets`: restrict to these dataset names.
-        - `splits`: restrict to these split indices (``n_folds * repeat + fold``).
-        - `folds` / `repeats`: restrict to these fold / repeat indices.
-        - `dataset_fold_repeats`: an explicit list of triplets. When given, the result is
-          the **intersection** of these and the triplets derived from `subset`/`datasets`
-          (so user triplets that fall outside the subset/datasets selection are dropped).
-
-        `subset`, `datasets`, and the split/fold/repeat filters compose (AND). Two
-        combinations are disallowed: `splits` together with `folds`/`repeats`, and
-        `dataset_fold_repeats` together with any of `splits`/`folds`/`repeats`.
-
-        If no filters are given, `run_all` runs every split in `task_metadata`. Extra keyword
-        arguments (``cache_mode``, ``debug_mode``, ...) are forwarded to `ExperimentBatchRunner`.
-        Omitting ``debug_mode`` inherits its default (``False``): large-scale benchmarking mode
-        (parallel fold fitting + recorded failure artifacts). Pass ``debug_mode=True`` for a
-        debugger-friendly local mode that, for bagged AutoGluon models, fits folds in-process
-        ("sequential_local") rather than in parallel Ray workers.
-
-        `materialize` (default False) makes the (already-scoped) collection runnable before the
-        runner is built — downloading + converting only the selected tasks for remote-backed
-        sources (e.g. BeyondArena / Data Foundry), whose per-task cache files the runner loads at
-        fit time. A no-op for already-local sources (e.g. TabArena v0.1, which downloads its
-        OpenML data on demand). Pass True whenever the runner will actually be run against a
-        remote-backed suite (`run_experiments` does this automatically).
-        """
-        from tabarena.benchmark.experiment import ExperimentBatchRunner
-
-        if splits is not None and (folds is not None or repeats is not None):
-            raise ValueError("Cannot specify `splits` together with `folds`/`repeats`.")
-        if dataset_fold_repeats is not None and any(x is not None for x in (splits, folds, repeats)):
-            raise ValueError("Cannot specify `dataset_fold_repeats` together with `splits`/`folds`/`repeats`.")
-
-        derived = None
-        if any(x is not None for x in (subset, datasets, splits, folds, repeats)):
-            derived = self._subset_dataset_fold_repeats(
-                subset=subset,
-                datasets=datasets,
-                splits=splits,
-                folds=folds,
-                repeats=repeats,
-            )
-
-        if dataset_fold_repeats is not None:
-            if derived is not None:
-                allowed = set(derived)
-                dataset_fold_repeats = [t for t in dataset_fold_repeats if t in allowed]
-            # else: no subset/datasets constraint -> use the user's triplets as-is.
-        else:
-            dataset_fold_repeats = derived
-
-        # The collection is the single source of truth for what `run_all` executes: pre-filter
-        # it to the selected triplets (when any filter was given) instead of passing a separate
-        # "allowed triplets" channel to the runner.
-        collection = self.task_metadata_collection
-        if dataset_fold_repeats is not None:
-            collection = collection.subset(dataset_fold_repeats)
-        # Materialize (download + convert the selected tasks) before constructing the runner —
-        # the runner resolves each task's spec from `task_id_str` in __init__, which materialize
-        # updates for remote-backed sources.
-        if materialize:
-            collection = collection.materialize()
-        return ExperimentBatchRunner(
-            expname=expname,
-            task_metadata=collection,
-            **kwargs,
-        )
-
-    def _subset_dataset_fold_repeats(
-        self,
-        subset: str | list[str] | None = None,
-        datasets: list[str] | None = None,
-        splits: list[int] | None = None,
-        folds: list[int] | None = None,
-        repeats: list[int] | None = None,
-    ) -> list[tuple[str, int, int]]:
-        """Expand the task grid into (dataset, fold, repeat) triplets kept by the filters.
-
-        Evaluates the `subset` predicate expressions on the native task grid
-        (:meth:`TaskMetadataCollection.task_grid` — one row per ``(dataset, fold, repeat, split)``),
-        then filters (AND) by an explicit `datasets` list and the `splits`/`folds`/`repeats` index
-        lists. ``"lite"`` keys on the grid's ``split`` column, so it keeps ``split == 0`` (i.e.
-        ``(fold 0, repeat 0)``).
-        """
-        from tabarena.nips2025_utils.compare import _evaluate_subset_expression
-
-        if isinstance(subset, str):
-            subset = [subset]
-
-        grid = self.task_metadata_collection.task_grid()
-        if subset:
-            for expression in subset:
-                mask = _evaluate_subset_expression(expression, grid, predicates=self.subset_predicates)
-                grid = grid[mask.values]
-        if datasets is not None:
-            grid = grid[grid["dataset"].isin(datasets)]
-        if splits is not None:
-            grid = grid[grid["split"].isin(splits)]
-        if folds is not None:
-            grid = grid[grid["fold"].isin(folds)]
-        if repeats is not None:
-            grid = grid[grid["repeat"].isin(repeats)]
-        return [
-            (dataset, int(fold), int(repeat))
-            for dataset, fold, repeat in zip(grid["dataset"], grid["fold"], grid["repeat"], strict=False)
-        ]
 
     # ------------------------------------------------------------------ artifacts / simulation / plotting
     # FIXME: Finish this, it is WIP

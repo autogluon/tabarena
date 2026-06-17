@@ -261,3 +261,30 @@ class TestSubset:
         c = TaskMetadataCollection([_task_meta(dataset_name="a", splits=[_split_meta(fold=0)])])
         with pytest.raises(ValueError, match="not splits of this collection"):
             c.subset([("a", 1, 0)])
+
+
+class TestSubsetToJobs:
+    class _StubExperiment:
+        model_constraints = None
+
+        def __init__(self, name: str):
+            self.name = name
+
+    def _job(self, name, dataset, fold, repeat=0):
+        from tabarena.benchmark.experiment.job import Job
+
+        return Job.create(self._StubExperiment(name), dataset, fold=fold, repeat=repeat)
+
+    def test_keeps_only_the_jobs_splits_deduped(self):
+        a = _task_meta(dataset_name="a", splits=[_split_meta(repeat=r, fold=f) for r in range(2) for f in range(2)])
+        b = _task_meta(dataset_name="b", splits=[_split_meta(fold=0)])
+        c = TaskMetadataCollection([a, b])
+        # Two experiments share (a, 0, 0); b is never touched, so it drops out.
+        jobs = [
+            self._job("e1", "a", 0, 0),
+            self._job("e2", "a", 0, 0),
+            self._job("e1", "a", 1, 1),
+        ]
+        sub = c.subset_to_jobs(jobs)
+        assert sub.dataset_names() == ["a"]
+        assert set(sub.dataset_fold_repeats()) == {("a", 0, 0), ("a", 1, 1)}

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
 
+    from tabarena.benchmark.experiment.job import Job
     from tabarena.benchmark.task.metadata.sources import TaskMetadataSource
     from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 
@@ -233,6 +234,17 @@ class TaskMetadataCollection:
             if kept:
                 new_tasks.append(replace(t, splits_metadata=kept))
         return self._with_tasks(new_tasks)
+
+    def subset_to_jobs(self, jobs: list[Job]) -> TaskMetadataCollection:
+        """A new collection restricted to the ``(dataset, fold, repeat)`` splits the ``jobs`` touch.
+
+        De-duplicates the jobs' splits (several experiments may share one) and delegates to
+        :meth:`subset`, so the result's :meth:`dataset_fold_repeats` is exactly the jobs' splits.
+        This is the collection a runner resolves against — scope to it (then :meth:`materialize`)
+        so only the tasks the jobs actually run are downloaded.
+        """
+        triples = list(dict.fromkeys(job.task.as_triple() for job in jobs))
+        return self.subset(triples)
 
     def subset_tasks(
         self,

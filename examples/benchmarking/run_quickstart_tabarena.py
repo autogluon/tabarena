@@ -133,13 +133,15 @@ if __name__ == "__main__":
         ],
     ).build_experiments()
 
-    # 2: run_experiments scopes to the 3 small datasets' first split
+    # 2: build_and_run_jobs scopes to the 3 small datasets' first split (subset="lite" +
+    #    dataset_names=DATASETS), pairs each config with each split, runs them locally, and
+    #    registers the new methods. `debug_mode=True` -> in-process native backend.
     context = TabArenaContext()
-    context.run_experiments(
+    context.build_and_run_jobs(
         experiments,
         expname=results_dir,
         subset="lite",
-        datasets=DATASETS,
+        build_kwargs={"dataset_names": DATASETS},  # extra subset_tasks filter beyond `subset`
         new_result_prefix="[New] ",
         debug_mode=True,  # <-- also lets you attach a local debugger
     )

@@ -420,67 +420,131 @@ class TestRegister:
         assert set(ctx.task_metadata_collection.dataset_names()) == {"d1", "d2"}
 
 
-class TestRunExperiments:
-    """`run_experiments` orchestrates make_experiment_batch_runner -> run_all -> register."""
+class _StubExperiment:
+    """Minimal Experiment stand-in: a Job only needs a `.name`-bearing experiment to carry."""
 
-    class _FakeRunner:
-        def __init__(self):
-            self.ran = None
+    model_constraints = None
 
-        def run_all(self, experiments):
-            self.ran = experiments
-            return ["raw-result"]
+    def __init__(self, name: str = "exp1"):
+        self.name = name
 
-    def test_scopes_runner_and_registers(self, monkeypatch):
+
+def _jobs(dataset: str = "d1"):
+    from tabarena.benchmark.experiment import Job
+
+    return [Job.create(_StubExperiment(), dataset, fold=0, repeat=0)]
+
+
+class TestRunJobs:
+    """`run_jobs` scopes+materializes the collection, runs the jobs, then registers."""
+
+    @staticmethod
+    def _patch_runner(monkeypatch, captured: dict, *, results):
+        import tabarena.benchmark.experiment as exp_mod
+
+        class FakeRunner:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+            def run_jobs(self, jobs):
+                captured["ran"] = jobs
+                return results
+
+        monkeypatch.setattr(exp_mod, "ExperimentBatchRunner", FakeRunner)
+
+    def test_scopes_runner_and_registers(self, monkeypatch, tmp_path):
         ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
-        runner = self._FakeRunner()
         captured: dict = {}
-        monkeypatch.setattr(
-            ctx,
-            "make_experiment_batch_runner",
-            lambda expname, **kwargs: captured.update(expname=expname, **kwargs) or runner,
-        )
+        self._patch_runner(monkeypatch, captured, results=["raw-result"])
         monkeypatch.setattr(ctx, "register", lambda results, **kw: captured.update(registered=results, register_kw=kw))
 
-        out = ctx.run_experiments(
-            ["exp1"],
-            expname="run-dir",
-            subset="lite",
-            datasets=["d1"],
+        jobs = _jobs("d1")
+        out = ctx.run_jobs(
+            jobs,
+            expname=str(tmp_path),
             new_result_prefix="[New] ",
             debug_mode=True,  # an explicit runner_kwarg (overriding ExperimentBatchRunner's default)
         )
         assert out == ["raw-result"]
-        assert runner.ran == ["exp1"]  # experiments forwarded to run_all
-        assert captured["expname"] == "run-dir"
-        assert captured["subset"] == "lite"
-        assert captured["datasets"] == ["d1"]
-        assert captured["materialize"] is True  # runner is made runnable before run_all
+        assert captured["ran"] == jobs  # jobs forwarded to runner.run_jobs
+        assert captured["expname"] == str(tmp_path)
         assert captured["debug_mode"] is True  # runner_kwargs forwarded
+        # The runner is built over the collection scoped to (and materialized for) the jobs' splits.
+        assert captured["task_metadata"].dataset_fold_repeats() == [("d1", 0, 0)]
         assert captured["registered"] == ["raw-result"]
         assert captured["register_kw"]["new_result_prefix"] == "[New] "
 
-    def test_omitting_runner_kwargs_leaves_runner_defaults(self, monkeypatch):
-        # run_experiments forwards only what it is given; an unspecified debug_mode is not
-        # injected, so ExperimentBatchRunner keeps its own default (now False).
+    def test_omitting_runner_kwargs_leaves_runner_defaults(self, monkeypatch, tmp_path):
+        # run_jobs forwards only what it is given; an unspecified debug_mode is not injected,
+        # so ExperimentBatchRunner keeps its own default (False).
         ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
         captured: dict = {}
-        monkeypatch.setattr(
-            ctx,
-            "make_experiment_batch_runner",
-            lambda expname, **kwargs: captured.update(kwargs) or self._FakeRunner(),
-        )
+        self._patch_runner(monkeypatch, captured, results=[])
         monkeypatch.setattr(ctx, "register", lambda *a, **k: None)
 
-        ctx.run_experiments(["exp1"], expname="run-dir")
+        ctx.run_jobs(_jobs(), expname=str(tmp_path))
         assert "debug_mode" not in captured  # not forwarded -> runner uses its own default
 
-    def test_register_false_skips_registration(self, monkeypatch):
+    def test_register_false_skips_registration(self, monkeypatch, tmp_path):
         ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
-        monkeypatch.setattr(ctx, "make_experiment_batch_runner", lambda expname, **kwargs: self._FakeRunner())
+        self._patch_runner(monkeypatch, {}, results=["raw-result"])
         called = {"register": False}
         monkeypatch.setattr(ctx, "register", lambda *a, **k: called.__setitem__("register", True))
 
-        out = ctx.run_experiments(["exp1"], expname="run-dir", register=False)
+        out = ctx.run_jobs(_jobs(), expname=str(tmp_path), register=False)
         assert out == ["raw-result"]
         assert called["register"] is False
+
+    def test_empty_jobs_short_circuits(self, monkeypatch, tmp_path):
+        # No runner construction and no registration for an empty job list.
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        monkeypatch.setattr(ctx, "register", lambda *a, **k: pytest.fail("should not register"))
+        assert ctx.run_jobs([], expname=str(tmp_path)) == []
+
+    def test_run_job_delegates_to_run_jobs(self, monkeypatch):
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        seen: dict = {}
+        monkeypatch.setattr(ctx, "run_jobs", lambda jobs, **kw: seen.update(jobs=jobs, kw=kw) or ["r"])
+        job = _jobs()[0]
+        assert ctx.run_job(job, expname="x") == ["r"]
+        assert seen["jobs"] == [job]
+        assert seen["kw"] == {"expname": "x"}
+
+
+class TestBuildAndRunJobs:
+    """`build_and_run_jobs` = build_jobs(subset=..., **build_kwargs) then run_jobs(...) in one call.
+
+    Scoping (`subset` + `build_kwargs`) reaches build_jobs; `**runner_kwargs` reach run_jobs.
+    """
+
+    def test_routes_scoping_to_build_and_runner_kwargs_to_run(self, monkeypatch, tmp_path):
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        seen: dict = {}
+        sentinel = [_jobs()[0]]
+        monkeypatch.setattr(
+            ctx,
+            "build_jobs",
+            lambda experiments, **kw: seen.update(build_experiments=experiments, build_kw=kw) or sentinel,
+        )
+        monkeypatch.setattr(ctx, "run_jobs", lambda jobs, **kw: seen.update(run_jobs=jobs, run_kw=kw) or ["raw"])
+
+        out = ctx.build_and_run_jobs(
+            ["exp"],
+            expname=str(tmp_path),
+            subset="lite",
+            build_kwargs={"dataset_names": ["d1"]},  # extra build-time filter -> build_jobs
+            new_result_prefix="[New] ",
+            debug_mode=True,  # a runner kwarg -> run_jobs
+            user_tasks=["t"],  # a runner kwarg -> run_jobs
+        )
+        assert out == ["raw"]
+        assert seen["build_experiments"] == ["exp"]
+        assert seen["build_kw"] == {"subset": "lite", "dataset_names": ["d1"], "pre_materialize": False}
+        assert seen["run_jobs"] is sentinel
+        assert seen["run_kw"] == {
+            "expname": str(tmp_path),
+            "register": True,
+            "new_result_prefix": "[New] ",
+            "debug_mode": True,
+            "user_tasks": ["t"],
+        }

@@ -26,15 +26,13 @@ def test_task_grid_exposes_warehouse_columns(ctx):
         assert col in grid.columns
 
 
-def test_warehouse_subset_predicates_run(ctx, tmp_path):
+def test_warehouse_subset_predicates_run(ctx):
     # "temporal" / "text" need warehouse columns the base task_grid did not expose before.
-    temporal = ctx._subset_dataset_fold_repeats(subset="temporal")
-    assert all(isinstance(t[0], str) for t in temporal)
-    runner = ctx.make_experiment_batch_runner(expname=str(tmp_path), subset="text")
-    # every kept split is a real split of the (filtered) collection
-    assert set(runner.task_metadata_collection.dataset_fold_repeats()).issubset(
-        set(ctx.task_metadata_collection.dataset_fold_repeats()),
-    )
+    temporal = ctx.task_metadata_collection.subset_tasks(subset="temporal", predicates=ctx.subset_predicates)
+    assert all(isinstance(t[0], str) for t in temporal.dataset_fold_repeats())
+    text = ctx.task_metadata_collection.subset_tasks(subset="text", predicates=ctx.subset_predicates)
+    # every kept split is a real split of the unfiltered collection
+    assert set(text.dataset_fold_repeats()).issubset(set(ctx.task_metadata_collection.dataset_fold_repeats()))
 
 
 class TestPresets:

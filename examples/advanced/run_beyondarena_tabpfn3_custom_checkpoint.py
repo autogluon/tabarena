@@ -45,11 +45,11 @@ if __name__ == "__main__":
         outer_experiments=True,
     ).build_experiments()
 
-    # 4: run_experiments scopes the context's BeyondArena task metadata to `subset`, materializes
-    #    the selected tasks, runs the model locally, and registers the results as in-memory methods
-    #    (pre-filtering task_metadata to the tasks just run).
+    # 4: build_and_run_jobs scopes the context's BeyondArena task metadata to `subset`, pairs each
+    #    config with each split, materializes the selected tasks, runs the model locally, and registers
+    #    the results as in-memory methods (pre-filtering task_metadata to the tasks just run).
     context = BeyondArenaContext()
-    context.run_experiments(
+    context.build_and_run_jobs(
         experiments,
         expname=results_dir,
         subset=subset,

@@ -7,11 +7,11 @@
 3. Collect them into a ``TaskMetadataCollection`` and build a generic ``AbstractArenaContext``
    over it. Your own data has no TabArena baselines, so ``methods=[]`` — the leaderboard is
    computed purely from your results.
-4. ``context.run_experiments(..., user_tasks=tasks)`` runs the (non-rectangular) sweep —
-   ``user_tasks=`` resolves each dataset name to the local task (not an OpenML download), and
-   the runner runs exactly the collection's splits (so the 3-fold classification task and the
-   1-fold regression task each get the right number of jobs automatically) — then registers the
-   results as in-memory methods.
+4. ``context.build_and_run_jobs(experiments, user_tasks=tasks)`` pairs each experiment with every
+   split of the collection (so the 3-fold classification task and the 1-fold regression task each
+   get the right number of jobs automatically) and runs the (non-rectangular) sweep —
+   ``user_tasks=`` resolves each dataset name to the local task (not an OpenML download) — then
+   registers the results as in-memory methods.
 5. ``compare`` computes the leaderboard from the registered methods.
 """
 
@@ -124,8 +124,8 @@ if __name__ == "__main__":
     #    baselines, so the leaderboard is computed purely from our own results.
     context = AbstractArenaContext(task_metadata=task_collection, methods=[])
 
-    # 6: run + register.
-    context.run_experiments(
+    # 6: build the jobs (experiments x the collection's splits) and run + register them.
+    context.build_and_run_jobs(
         experiments,
         expname=results_dir,
         user_tasks=tasks,
