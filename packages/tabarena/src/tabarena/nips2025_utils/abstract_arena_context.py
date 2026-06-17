@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
 
@@ -193,7 +194,7 @@ class AbstractArenaContext:
         self,
         jobs: list[Job],
         *,
-        expname: str | Path,
+        expname: str | Path | None,
         register: bool = True,
         new_result_prefix: str | None = None,
         **runner_kwargs,
@@ -209,9 +210,11 @@ class AbstractArenaContext:
         ``task_metadata`` to the tasks just run, so a subsequent :meth:`compare` is scoped to
         them with nothing extra).
 
-        ``expname`` is the runner's results-cache directory. Extra ``**runner_kwargs`` (e.g.
-        ``debug_mode``, ``cache_mode``) reach :class:`ExperimentBatchRunner`. Returns the raw
-        per-split result dicts (also registered when ``register`` is True).
+        ``expname`` is the runner's results-cache directory (a real path), or ``None`` to cache to
+        a throwaway temp dir (cleaned up after) when you only want the returned results and don't
+        need a persistent / resumable cache. There is no default; pass a path or ``None``. Extra
+        ``**runner_kwargs`` (e.g. ``debug_mode``, ``cache_mode``) reach :class:`ExperimentBatchRunner`.
+        Returns the raw per-split result dicts (also registered when ``register`` is True).
         """
         from tabarena.benchmark.experiment import ExperimentBatchRunner
 
@@ -220,8 +223,19 @@ class AbstractArenaContext:
         # Scope-then-materialize: only the tasks the jobs actually touch are downloaded, and
         # the collection itself is the single source of truth for what the runner resolves.
         collection = self.task_metadata_collection.subset_to_jobs(jobs).materialize()
-        runner = ExperimentBatchRunner(expname=str(expname), task_metadata=collection, **runner_kwargs)
-        results = runner.run_jobs(jobs)
+        # `expname=None` -> a throwaway cache: the returned result dicts are in memory, so the
+        # cache dir is only needed while the runner runs and is discarded right after.
+        tmp_expname = tempfile.TemporaryDirectory() if expname is None else None
+        try:
+            runner = ExperimentBatchRunner(
+                expname=str(tmp_expname.name if tmp_expname is not None else expname),
+                task_metadata=collection,
+                **runner_kwargs,
+            )
+            results = runner.run_jobs(jobs)
+        finally:
+            if tmp_expname is not None:
+                tmp_expname.cleanup()
         if register:
             self.register(results, new_result_prefix=new_result_prefix)
         return results
@@ -234,7 +248,7 @@ class AbstractArenaContext:
         self,
         experiments: list[Experiment],
         *,
-        expname: str | Path,
+        expname: str | Path | None,
         subset: str | list[str] | None = None,
         register: bool = True,
         new_result_prefix: str | None = None,
@@ -598,7 +612,7 @@ class AbstractArenaContext:
 
     def compare(
         self,
-        output_dir: str | Path,
+        output_dir: str | Path | None,
         new_results: pd.DataFrame | None = None,
         ta_results: pd.DataFrame | None = None,
         only_valid_tasks: bool | str | list[str] | MethodMetadata | list[MethodMetadata] = False,
@@ -622,6 +636,10 @@ class AbstractArenaContext:
         **kwargs,
     ) -> pd.DataFrame | pd.Series | tuple[pd.DataFrame | pd.Series, pd.DataFrame]:
         """Compute the leaderboard comparing ``new_results`` against this arena's baselines.
+
+        ``output_dir`` is where the leaderboard figures / CSVs are written (a real path), or
+        ``None`` when you only want the returned DataFrame — figures then go to a throwaway temp
+        dir that is cleaned up before returning. There is no default; pass a path or ``None``.
 
         ``ta_results`` defaults to :meth:`load_results` (which includes any registered
         methods); ``new_results`` (if given) are concatenated to them.
@@ -725,22 +743,30 @@ class AbstractArenaContext:
         #  Pair with (method, artifact_name)
         method_rename_map = self.get_method_rename_map()
 
-        leaderboard = compare(
-            df_results=df_results,
-            output_dir=Path(output_dir),
-            task_metadata=self.task_metadata_collection,
-            fillna=fillna,
-            calibration_framework=calibration_method,
-            score_on_val=score_on_val,
-            average_seeds=average_seeds,
-            remove_imputed=remove_imputed,
-            leaderboard_kwargs=leaderboard_kwargs,
-            method_rename_map=method_rename_map,
-            figure_file_type=figure_file_type,
-            compute_fold_similarity=compute_fold_similarity,
-            fold_similarity_kwargs=fold_similarity_kwargs,
-            **kwargs,
-        )
+        # `output_dir=None` means "I only want the leaderboard": write the figures / CSVs to a
+        # throwaway temp dir (cleaned up after) instead of persisting them. The dir is only needed
+        # while the lower-level `compare` runs; the post-processing below never touches it.
+        tmp_output_dir = tempfile.TemporaryDirectory() if output_dir is None else None
+        try:
+            leaderboard = compare(
+                df_results=df_results,
+                output_dir=Path(tmp_output_dir.name if tmp_output_dir is not None else output_dir),
+                task_metadata=self.task_metadata_collection,
+                fillna=fillna,
+                calibration_framework=calibration_method,
+                score_on_val=score_on_val,
+                average_seeds=average_seeds,
+                remove_imputed=remove_imputed,
+                leaderboard_kwargs=leaderboard_kwargs,
+                method_rename_map=method_rename_map,
+                figure_file_type=figure_file_type,
+                compute_fold_similarity=compute_fold_similarity,
+                fold_similarity_kwargs=fold_similarity_kwargs,
+                **kwargs,
+            )
+        finally:
+            if tmp_output_dir is not None:
+                tmp_output_dir.cleanup()
         if new_methods_only or return_single:
             if not self._new_method_names:
                 raise ValueError(

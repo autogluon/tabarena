@@ -655,3 +655,48 @@ class TestCompareReturnFlags:
         )
         with pytest.raises(ValueError, match="return_single=True but 2 new-method row"):
             ctx.compare(output_dir=tmp_path, new_results=new_results, filter_to_task_metadata=False, return_single=True)
+
+
+class TestTempDir:
+    """`output_dir=None` / `expname=None` use a throwaway temp dir, created for the call and removed after."""
+
+    def test_compare_temp_dir_is_used_and_cleaned(self, monkeypatch):
+        import os
+
+        import tabarena.nips2025_utils.compare as compare_mod
+
+        seen: dict = {}
+
+        def fake_compare(**kw):
+            seen["path"] = str(kw["output_dir"])
+            seen["existed_during"] = os.path.isdir(seen["path"])
+            return pd.DataFrame({"method": ["X"]})
+
+        monkeypatch.setattr(compare_mod, "compare", fake_compare)
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        out = ctx.compare(output_dir=None, filter_to_task_metadata=False)
+        assert isinstance(out, pd.DataFrame)
+        assert seen["existed_during"] is True  # a real temp dir existed during the call
+        assert not os.path.isdir(seen["path"])  # and was cleaned up afterwards
+
+    def test_run_jobs_temp_dir_is_used_and_cleaned(self, monkeypatch):
+        import os
+
+        import tabarena.benchmark.experiment as exp_mod
+
+        seen: dict = {}
+
+        class FakeRunner:
+            def __init__(self, **kwargs):
+                seen["expname"] = kwargs["expname"]
+
+            def run_jobs(self, jobs):
+                seen["existed_during"] = os.path.isdir(seen["expname"])
+                return []
+
+        monkeypatch.setattr(exp_mod, "ExperimentBatchRunner", FakeRunner)
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        monkeypatch.setattr(ctx, "register", lambda *a, **k: None)
+        ctx.run_jobs(_jobs(), expname=None)
+        assert seen["existed_during"] is True
+        assert not os.path.isdir(seen["expname"])  # cleaned up after the run
