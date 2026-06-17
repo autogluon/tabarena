@@ -16,7 +16,7 @@ from .mean_utils import compute_weighted_mean_by_task
 from .winrate_utils import compute_winrate, compute_winrate_matrix
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Sequence
 
 RANK = "rank"
 IMPROVABILITY = "improvability"
@@ -48,6 +48,133 @@ class MetricSpec:
     required_methods: frozenset[str] = frozenset()
     # What to do if required methods are missing from a subset
     invalid_subset_policy: InvalidSubsetPolicy = "raise"
+
+
+@dataclass
+class _LeaderboardContext:
+    """Mutable state threaded through the leaderboard metric producers.
+
+    ``results_agg`` may be replaced by a producer (e.g. ``improvability`` pops its own
+    column out of the aggregate and re-emits it with bootstrap CI bars), so the trailing
+    aggregate block is read from the context *after* every producer has run.
+    """
+
+    evaluator: BenchmarkEvaluator
+    results_per_task: pd.DataFrame
+    results_agg: pd.DataFrame
+    baseline_method: str | None
+    elo_kwargs: dict
+    relative_error_kwargs: dict
+
+
+@dataclass(frozen=True)
+class _LeaderboardMetric:
+    """One column-group of a leaderboard, produced from a ``_LeaderboardContext``.
+
+    ``produce`` returns the list of Series/DataFrames to concatenate (in order) for this
+    metric. Adding a leaderboard column is a single registry entry plus a selector key —
+    no new ``leaderboard()`` parameter or ``if`` branch.
+    """
+
+    key: str
+    produce: Callable[[_LeaderboardContext], list]
+    requires_baseline: bool = False
+    always_on: bool = False
+
+
+def _lb_elo(ctx: _LeaderboardContext) -> list:
+    return [ctx.evaluator.compute_elo(results_per_task=ctx.results_per_task, **ctx.elo_kwargs)]
+
+
+def _lb_rank(ctx: _LeaderboardContext) -> list:
+    return [ctx.results_agg[RANK]]
+
+
+def _lb_winrate(ctx: _LeaderboardContext) -> list:
+    return [ctx.evaluator.compute_winrate(results_per_task=ctx.results_per_task).to_frame()]
+
+
+def _lb_improvability(ctx: _LeaderboardContext) -> list:
+    ev = ctx.evaluator
+    tasks = list(ctx.results_per_task[ev.task_col].unique())
+    results_per_task_avg = ctx.results_per_task.groupby(ev.groupby_columns)[IMPROVABILITY].mean().reset_index()
+    improvability_bootstrap = get_bootstrap_result_lst(
+        data=tasks,
+        func_=ev._weighted_groupby_mean,
+        func_kwargs={"data": results_per_task_avg, "agg_column": IMPROVABILITY},
+        num_round=100,
+    )
+    improvability = ctx.results_agg[IMPROVABILITY]
+    ctx.results_agg = ctx.results_agg.drop(columns=[IMPROVABILITY])
+    improvability_quantiles = pd.DataFrame(
+        {
+            f"{IMPROVABILITY}+": improvability_bootstrap.quantile(0.975) - improvability,
+            f"{IMPROVABILITY}-": improvability - improvability_bootstrap.quantile(0.025),
+        }
+    )
+    return [improvability, improvability_quantiles]
+
+
+def _lb_baseline_advantage(ctx: _LeaderboardContext) -> list:
+    return [ctx.evaluator.compute_baseline_advantage(ctx.results_per_task, baseline_method=ctx.baseline_method)]
+
+
+def _lb_frontier_advantage(ctx: _LeaderboardContext) -> list:
+    return [ctx.evaluator.compute_frontier_advantage(results_per_task=ctx.results_per_task)]
+
+
+def _lb_mrr(ctx: _LeaderboardContext) -> list:
+    return [ctx.evaluator.compute_mrr(results_per_task=ctx.results_per_task).to_frame()]
+
+
+def _lb_relative_error(ctx: _LeaderboardContext) -> list:
+    return [
+        ctx.evaluator.compute_relative_error(
+            results_per_task=ctx.results_per_task,
+            baseline_method=ctx.baseline_method,
+            **ctx.relative_error_kwargs,
+        ).to_frame()
+    ]
+
+
+def _lb_skill_score(ctx: _LeaderboardContext) -> list:
+    return [
+        ctx.evaluator.compute_skill_score(results_per_task=ctx.results_per_task, baseline_method=ctx.baseline_method)
+    ]
+
+
+def _lb_rank_counts(ctx: _LeaderboardContext) -> list:
+    return [ctx.evaluator.compute_rank_counts(results_per_task=ctx.results_per_task)]
+
+
+# Ordered registry: the leaderboard emits these column-groups in this order. ``always_on``
+# metrics are always emitted; the rest are selected via ``leaderboard(metrics=...)`` (or the
+# legacy ``include_*`` flags). ``requires_baseline`` metrics are skipped when no baseline is set.
+_LEADERBOARD_METRICS: tuple[_LeaderboardMetric, ...] = (
+    _LeaderboardMetric("elo", _lb_elo),
+    _LeaderboardMetric("rank", _lb_rank, always_on=True),
+    _LeaderboardMetric("winrate", _lb_winrate),
+    _LeaderboardMetric("improvability", _lb_improvability),
+    _LeaderboardMetric("baseline_advantage", _lb_baseline_advantage, requires_baseline=True),
+    _LeaderboardMetric("frontier_advantage", _lb_frontier_advantage),
+    _LeaderboardMetric("mrr", _lb_mrr),
+    _LeaderboardMetric("relative_error", _lb_relative_error, requires_baseline=True),
+    _LeaderboardMetric("skill_score", _lb_skill_score, requires_baseline=True),
+    _LeaderboardMetric("rank_counts", _lb_rank_counts),
+)
+
+# Maps the legacy ``include_*`` flags onto registry keys (back-compat selector layer).
+_LEADERBOARD_FLAG_TO_KEY = {
+    "include_elo": "elo",
+    "include_winrate": "winrate",
+    "include_improvability": "improvability",
+    "include_mrr": "mrr",
+    "include_rank_counts": "rank_counts",
+    "include_relative_error": "relative_error",
+    "include_skill_score": "skill_score",
+    "include_baseline_advantage": "baseline_advantage",
+    "include_frontier_advantage": "frontier_advantage",
+}
 
 
 # TODO: Should "data" be an init arg? Probably not.
@@ -122,7 +249,19 @@ class BenchmarkEvaluator:
         relative_error_kwargs: dict | None = None,
         elo_kwargs: dict | None = None,
         sort_by: str | list[str] | None = "rank",
+        metrics: Sequence[str] | None = None,
     ):
+        """Build a per-method leaderboard.
+
+        Metric columns are produced by the ordered registry ``_LEADERBOARD_METRICS``.
+        Select them either with the legacy ``include_*`` flags or, equivalently, by passing
+        ``metrics`` — an iterable of metric keys (e.g. ``["elo", "winrate", "mrr"]``) which,
+        when given, overrides the flags. ``rank`` is always included. ``baseline_method`` is
+        required for ``baseline_advantage`` / ``relative_error`` / ``skill_score`` (they are
+        silently skipped without it). ``include_error`` / ``include_rescaled_loss`` toggle
+        columns carried over from the aggregate, and ``average_seeds`` controls per-seed
+        handling.
+        """
         if elo_kwargs is None:
             elo_kwargs = {}
         if relative_error_kwargs is None:
@@ -130,74 +269,49 @@ class BenchmarkEvaluator:
         if baseline_method is None:
             baseline_method = elo_kwargs.get("calibration_framework")
 
+        enabled = self._resolve_leaderboard_metrics(
+            metrics,
+            {
+                "include_elo": include_elo,
+                "include_winrate": include_winrate,
+                "include_improvability": include_improvability,
+                "include_mrr": include_mrr,
+                "include_rank_counts": include_rank_counts,
+                "include_relative_error": include_relative_error,
+                "include_skill_score": include_skill_score,
+                "include_baseline_advantage": include_baseline_advantage,
+                "include_frontier_advantage": include_frontier_advantage,
+            },
+        )
+
         self.verify_data(data=data)
 
-        if average_seeds:
-            # average each method's task error across the seeds
-            # Calculate all metrics on the averaged error for the task.
-            results_per_task = self.compute_results_per_task(data=data)
-        else:
-            # Keep each method's task error for each seed, don't average the error.
-            # Calculate all metrics on each seed, then average across seeds to get the metric value for the task.
-            results_per_task = self.compute_results_per_task(data=data, include_seed_col=True)
+        # average_seeds=True averages each method's per-task error across seeds first;
+        # otherwise metrics are computed per seed and averaged afterwards.
+        results_per_task = self.compute_results_per_task(data=data, include_seed_col=not average_seeds)
 
-        results_agg = self.aggregate(results_by_dataset=results_per_task)
+        ctx = _LeaderboardContext(
+            evaluator=self,
+            results_per_task=results_per_task,
+            results_agg=self.aggregate(results_by_dataset=results_per_task),
+            baseline_method=baseline_method,
+            elo_kwargs=elo_kwargs,
+            relative_error_kwargs=relative_error_kwargs,
+        )
+
         results_lst = []
+        for metric in _LEADERBOARD_METRICS:
+            if not metric.always_on and metric.key not in enabled:
+                continue
+            if metric.requires_baseline and baseline_method is None:
+                continue
+            results_lst.extend(metric.produce(ctx))
 
-        if include_elo:
-            results_lst.append(self.compute_elo(results_per_task=results_per_task, **elo_kwargs))
-        results_lst.append(results_agg[RANK])
-        if include_winrate:
-            results_lst.append(self.compute_winrate(results_per_task=results_per_task).to_frame())
-        if include_improvability:
-            tasks = list(results_per_task[self.task_col].unique())
-            results_per_task_avg = results_per_task.groupby(self.groupby_columns)[IMPROVABILITY].mean().reset_index()
-            improvability_bootstrap = get_bootstrap_result_lst(
-                data=tasks,
-                func_=self._weighted_groupby_mean,
-                func_kwargs={"data": results_per_task_avg, "agg_column": IMPROVABILITY},
-                num_round=100,
-            )
-            improvability = results_agg[IMPROVABILITY]
-            results_agg = results_agg.drop(columns=[IMPROVABILITY])
-            improvability_quantiles = pd.DataFrame(
-                {
-                    f"{IMPROVABILITY}+": improvability_bootstrap.quantile(0.975) - improvability,
-                    f"{IMPROVABILITY}-": improvability - improvability_bootstrap.quantile(0.025),
-                }
-            )
-
-            results_lst += [improvability, improvability_quantiles]
-        if include_baseline_advantage and baseline_method is not None:
-            results_lst.append(
-                self.compute_baseline_advantage(
-                    results_per_task,
-                    baseline_method=baseline_method,
-                )
-            )
-        if include_frontier_advantage:
-            results_lst.append(self.compute_frontier_advantage(results_per_task=results_per_task))
-        if include_mrr:
-            results_lst.append(self.compute_mrr(results_per_task=results_per_task).to_frame())
-        if baseline_method is not None:
-            if include_relative_error:
-                results_lst.append(
-                    self.compute_relative_error(
-                        results_per_task=results_per_task,
-                        baseline_method=baseline_method,
-                        **relative_error_kwargs,
-                    ).to_frame(),
-                )
-            if include_skill_score:
-                results_lst.append(
-                    self.compute_skill_score(results_per_task=results_per_task, baseline_method=baseline_method),
-                )
-
-        if include_rank_counts:
-            results_lst.append(self.compute_rank_counts(results_per_task=results_per_task))
-
-        cols_to_use = [c for c in results_agg.columns if c != RANK]
-        results_lst.append(results_agg[cols_to_use])
+        # Trailing block: every aggregated column except rank (emitted above). A producer may
+        # have popped its own column out of ctx.results_agg (e.g. improvability), so read it
+        # here, after the loop.
+        cols_to_use = [c for c in ctx.results_agg.columns if c != RANK]
+        results_lst.append(ctx.results_agg[cols_to_use])
 
         results = pd.concat(results_lst, axis=1)
 
@@ -207,11 +321,30 @@ class BenchmarkEvaluator:
             results = results.drop(columns=[self.error_col])
         if not include_rescaled_loss:
             results = results.drop(columns=[LOSS_RESCALED])
-        if not include_improvability:
+        if "improvability" not in enabled:
             results = results.drop(columns=[IMPROVABILITY])
         results.index.name = self.method_col
 
         return results
+
+    @staticmethod
+    def _resolve_leaderboard_metrics(metrics: Sequence[str] | None, include_flags: dict[str, bool]) -> set[str]:
+        """Resolve the set of enabled metric keys from ``metrics`` or the ``include_*`` flags.
+
+        ``metrics`` (when not ``None``) takes precedence and is validated against the registry;
+        otherwise the legacy boolean flags select the keys. ``rank`` is always emitted and is
+        not part of this set.
+        """
+        all_keys = {m.key for m in _LEADERBOARD_METRICS}
+        if metrics is not None:
+            requested = set(metrics)
+            unknown = requested - all_keys
+            if unknown:
+                raise ValueError(
+                    f"Unknown leaderboard metric(s): {sorted(unknown)}. Available: {sorted(all_keys)}.",
+                )
+            return requested
+        return {_LEADERBOARD_FLAG_TO_KEY[flag] for flag, on in include_flags.items() if on}
 
     def verify_data(self, data: pd.DataFrame):
         assert isinstance(data, pd.DataFrame)

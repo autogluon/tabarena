@@ -255,3 +255,58 @@ class TestValidation:
         assert len(a_t1) == 1
         # worst error on t1 among present rows is C = 0.4
         assert a_t1["metric_error"].iloc[0] == pytest.approx(0.4)
+
+
+class TestMetricRegistry:
+    def test_metrics_arg_equivalent_to_flags(self, ev, data):
+        # Selecting metrics via `metrics=` yields an identical leaderboard to the
+        # equivalent `include_*` flags (elo omitted: its bootstrap CI is not seeded).
+        keys = [
+            "winrate",
+            "improvability",
+            "mrr",
+            "rank_counts",
+            "baseline_advantage",
+            "frontier_advantage",
+            "relative_error",
+            "skill_score",
+        ]
+        by_flags = ev.leaderboard(
+            data,
+            include_elo=False,
+            include_winrate=True,
+            include_improvability=True,
+            include_mrr=True,
+            include_rank_counts=True,
+            include_baseline_advantage=True,
+            include_frontier_advantage=True,
+            include_relative_error=True,
+            include_skill_score=True,
+            baseline_method="A",
+        )
+        by_metrics = ev.leaderboard(data, metrics=keys, baseline_method="A")
+        pd.testing.assert_frame_equal(by_flags, by_metrics)
+
+    def test_metrics_overrides_flags(self, ev, data):
+        # `metrics=` takes precedence; the include_* flags are ignored for selection.
+        lb = ev.leaderboard(data, include_winrate=True, include_improvability=True, metrics=["elo"])
+        assert "elo" in lb.columns
+        assert "winrate" not in lb.columns
+        assert "improvability" not in lb.columns
+
+    def test_metrics_empty_keeps_only_rank(self, ev, data):
+        lb = ev.leaderboard(data, metrics=[])
+        assert "rank" in lb.columns  # rank is always emitted
+        for absent in ("elo", "winrate", "improvability", "mrr"):
+            assert absent not in lb.columns
+
+    def test_unknown_metric_raises(self, ev, data):
+        with pytest.raises(ValueError, match="Unknown leaderboard metric"):
+            ev.leaderboard(data, metrics=["bogus"])
+
+    def test_baseline_metric_skipped_without_baseline(self, ev, data):
+        # `relative_error` needs a baseline; without one it is silently skipped (parity
+        # with the legacy flag behaviour), while non-baseline metrics still appear.
+        lb = ev.leaderboard(data, metrics=["relative_error", "winrate"])
+        assert "winrate" in lb.columns
+        assert "relative_error" not in lb.columns
