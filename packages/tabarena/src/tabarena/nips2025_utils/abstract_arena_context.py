@@ -667,7 +667,7 @@ class AbstractArenaContext:
         ``compute_fold_similarity`` ranks datasets by how consistently their folds/seeds agree
         (and estimates folds-needed-for-stability), writing ``fold_similarity.csv`` to
         ``output_dir``. ``fold_similarity_kwargs`` is forwarded to
-        :meth:`bencheval.tabarena.TabArena.rank_datasets_by_fold_similarity` (e.g.
+        :meth:`bencheval.evaluator.BenchmarkEvaluator.rank_datasets_by_fold_similarity` (e.g.
         ``{"similarity": "pearson", "target_reliability": 0.95}``); ignored unless
         ``compute_fold_similarity`` is True.
 

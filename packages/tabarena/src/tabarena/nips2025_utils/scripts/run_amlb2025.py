@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 from autogluon.tabular import TabularDataset
 
-from bencheval.tabarena import TabArena
+from bencheval.evaluator import BenchmarkEvaluator
 
 if __name__ == "__main__":
     amlb2025_prefix = "s3://neerick-autogluon/tabarena/benchmarks/amlb2025/"
@@ -71,7 +71,7 @@ if __name__ == "__main__":
         }
     )
 
-    arena = TabArena(
+    arena = BenchmarkEvaluator(
         method_col="method",
         task_col="task",
         error_col="metric_error",
