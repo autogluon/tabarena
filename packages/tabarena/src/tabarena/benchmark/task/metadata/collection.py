@@ -275,7 +275,7 @@ class TaskMetadataCollection:
         required_dtypes: list[str] | None = None,
         forbidden_dtypes: list[str] | None = None,
         n_train_samples: tuple[int | None, int | None] | None = None,
-        subset: str | list[str] | None = None,
+        subset: str | list[str] | list[str | list[str]] | None = None,
         predicates: dict[str, SubsetPredicate] | None = None,
         verbose: bool = False,
     ) -> TaskMetadataCollection:
@@ -300,11 +300,15 @@ class TaskMetadataCollection:
           side. Splits outside the band are dropped (and tasks left with no splits).
         * ``subset`` — named subset predicate expression(s) evaluated against
           :meth:`task_grid` (the same predicates an arena context applies in ``compare``).
-          A single string is one expression; a list is AND-ed together. Within an
-          expression, ``|`` is a union (OR) and a leading ``!`` negates an atom — e.g.
-          ``"tiny"``, ``["classification", "!tiny"]``, ``"binary|multiclass"``. Splits not
-          matching are dropped (and tasks left with no splits), so split-level predicates
-          like ``"lite"`` work too. The predicate names come from ``predicates``; for a
+          A single string is one expression; a flat list of strings is AND-ed together.
+          Within an expression, ``|`` is a union (OR) and a leading ``!`` negates an atom —
+          e.g. ``"tiny"``, ``["classification", "!tiny"]``, ``"binary|multiclass"``. A *list
+          of lists* is a union (OR) across views — each element is one view (a string, or a
+          string-list AND-ed together) and its surviving splits are unioned, so
+          ``[["lite", "classification"], ["regression"]]`` keeps the lite classification
+          splits plus every regression split. Splits not matching are dropped (and tasks
+          left with no splits), so split-level predicates like ``"lite"`` work too. The
+          predicate names come from ``predicates``; for a
           collection built via :meth:`from_preset` these default to the suite's own (size
           buckets ``tiny``/``small``/``medium``/``large``, ``iid``/``temporal``/``grouped``,
           ``text``, ``low-dim`` … for BeyondArena), so you can pass just ``subset=`` there.
@@ -409,7 +413,7 @@ class TaskMetadataCollection:
 
     def _filter_subset(
         self,
-        subset: str | list[str],
+        subset: str | list[str] | list[str | list[str]],
         *,
         predicates: dict[str, SubsetPredicate] | None,
     ) -> TaskMetadataCollection:
@@ -417,8 +421,10 @@ class TaskMetadataCollection:
 
         Evaluates each expression against :meth:`task_grid` using the same evaluator the
         arena contexts use (so ``|`` / ``!`` and context-defined names like ``"tiny"`` or
-        ``"iid"`` behave identically), intersecting the surviving ``(dataset, fold, repeat)``
-        splits across expressions.
+        ``"iid"`` behave identically). A string or flat string-list is one view, whose
+        expressions intersect (AND) into one surviving ``(dataset, fold, repeat)`` set. A
+        list containing any inner list is a union of views — each view's surviving set is
+        computed independently, then OR-ed together.
 
         When ``predicates`` is ``None``, the collection's default provider (set by
         :meth:`from_preset`) is consulted lazily; if there is none either, the evaluator
@@ -428,15 +434,28 @@ class TaskMetadataCollection:
 
         if predicates is None and self._default_predicates_provider is not None:
             predicates = self._default_predicates_provider()
-        expressions = [subset] if isinstance(subset, str) else list(subset)
         grid = self.task_grid()
-        for expression in expressions:
-            mask = _evaluate_subset_expression(expression, grid, predicates=predicates)
-            grid = grid[mask.values]
-        surviving = {
-            (dataset, int(fold), int(repeat))
-            for dataset, fold, repeat in zip(grid["dataset"], grid["fold"], grid["repeat"], strict=False)
-        }
+
+        def _surviving_for_view(view: str | list[str]) -> set[tuple[str, int, int]]:
+            """The splits surviving one view: a string expression, or string-list AND-ed."""
+            expressions = [view] if isinstance(view, str) else list(view)
+            view_grid = grid
+            for expression in expressions:
+                mask = _evaluate_subset_expression(expression, view_grid, predicates=predicates)
+                view_grid = view_grid[mask.values]
+            return {
+                (dataset, int(fold), int(repeat))
+                for dataset, fold, repeat in zip(
+                    view_grid["dataset"], view_grid["fold"], view_grid["repeat"], strict=False
+                )
+            }
+
+        if isinstance(subset, list) and any(isinstance(view, list) for view in subset):
+            surviving: set[tuple[str, int, int]] = set()
+            for view in subset:
+                surviving |= _surviving_for_view(view)
+        else:
+            surviving = _surviving_for_view(subset)
         new_tasks = []
         for t in self._tasks:
             kept = {
