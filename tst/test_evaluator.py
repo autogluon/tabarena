@@ -406,6 +406,30 @@ class TestPlotting:
         assert out.exists()
 
 
+class TestRelativeErrorZeroBaseline:
+    """relative_error against a perfect (zero-error) baseline."""
+
+    def test_inf_when_baseline_perfect_and_method_not(self, ev):
+        # t1: baseline A is perfect (0.0), B is not -> B's relative error is +inf (intended).
+        # t2: a normal task.
+        df = pd.DataFrame(
+            {
+                "method": ["A", "B", "A", "B"],
+                "task": ["t1", "t1", "t2", "t2"],
+                "metric_error": [0.0, 0.2, 0.1, 0.3],
+                "time_train_s": [1.0, 1.0, 1.0, 1.0],
+                "time_infer_s": [0.1, 0.1, 0.1, 0.1],
+            }
+        )
+        rpt = ev.compute_results_per_task(df)
+        rel = ev.compute_relative_error_per(rpt, baseline_method="A").to_numpy()
+        s = rpt.assign(rel=rel).set_index(["method", "task"])["rel"]
+        assert s.loc[("A", "t1")] == 1.0  # 0/0 (both perfect) -> tie
+        assert s.loc[("B", "t1")] == float("inf")  # positive error vs perfect baseline -> inf
+        assert s.loc[("A", "t2")] == pytest.approx(1.0)
+        assert s.loc[("B", "t2")] == pytest.approx(3.0)
+
+
 class TestBugFixes:
     """Regression tests for specific fixed defects."""
 

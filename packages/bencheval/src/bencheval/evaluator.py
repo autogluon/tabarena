@@ -701,7 +701,16 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         # Map (join) the baseline error back onto every row of its task group
         results_per_task = results_per_task.merge(baseline_result, on=task_groupby_cols, how="left")
 
-        relative_error = results_per_task[self.error_col] / results_per_task["baseline_error"]
+        # `relative_error = error / baseline_error` is a deliberate, unbounded ratio. When the
+        # baseline is perfect (baseline_error == 0) but a method is not, the ratio is +inf, and
+        # that +inf is intended: a positive error is infinitely large *relative* to a zero-error
+        # baseline. It is NOT clamped (unlike the bounded baseline/frontier advantage metrics).
+        # The only genuinely undefined case is 0 / 0 — method and baseline both perfect on the
+        # task — which we treat as a tie, i.e. relative error 1.0.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            relative_error = results_per_task[self.error_col] / results_per_task["baseline_error"]
+        both_zero = (results_per_task[self.error_col] == 0) & (results_per_task["baseline_error"] == 0)
+        relative_error = relative_error.mask(both_zero, 1.0)
         relative_error.name = "relative_error"
         return relative_error
 
