@@ -246,6 +246,25 @@ class TaskMetadataCollection:
         triples = list(dict.fromkeys(job.task.as_triple() for job in jobs))
         return self.subset(triples)
 
+    def metadata_for_jobs(self, jobs: list[Job]) -> list[TabArenaTaskMetadata]:
+        """The :class:`TabArenaTaskMetadata` for each job — one per job, aligned to ``jobs`` order.
+
+        Each entry carries *only that job's split* in ``splits_metadata`` (unrolled to its
+        ``(fold, repeat)``), so a single typed object exposes both the dataset-level fields
+        (``num_features``, ``num_classes``, ``problem_type``, ``eval_metric``, ...) and the
+        per-split :class:`SplitMetadata` (``num_instances_train``, ``num_features_train``, ...).
+        """
+        index: dict[tuple[str, int, int], TabArenaTaskMetadata] = {}
+        for task in self._tasks:
+            for single in task.unroll_splits():
+                split = next(iter(single.splits_metadata.values()))
+                index[(single.tabarena_task_name, split.fold, split.repeat)] = single
+        keys = [job.task.as_triple() for job in jobs]
+        missing = sorted({key for key in keys if key not in index})
+        if missing:
+            raise ValueError(f"{len(missing)} job split(s) are not splits of this collection: {missing}")
+        return [index[key] for key in keys]
+
     def subset_tasks(
         self,
         *,

@@ -44,6 +44,7 @@ from tabarena.website.website_format import format_leaderboard
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import Experiment, Job
     from tabarena.benchmark.result import BaselineResult
+    from tabarena.benchmark.task.metadata.schema import TabArenaTaskMetadata
     from tabarena.repository.abstract_repository import AbstractRepository
 
 
@@ -175,6 +176,18 @@ class AbstractArenaContext:
         if pre_materialize:
             collection.materialize()
         return build_jobs_grid(experiments, collection)
+
+    def metadata_for_jobs(self, jobs: list[Job]) -> list[TabArenaTaskMetadata]:
+        """The :class:`TabArenaTaskMetadata` for each job — one per job, in ``jobs`` order.
+
+        Delegates to :meth:`TaskMetadataCollection.metadata_for_jobs`: each entry carries only
+        that job's split in ``splits_metadata``, so one typed object exposes both the dataset-level
+        fields (``num_features``, ``problem_type``, ...) and the per-split :class:`SplitMetadata`.
+        Lets a caller derive a per-job quantity (e.g. a backend load-balancing cost
+        ``split.num_instances_train * meta.num_features``); pair entries with jobs via
+        ``zip(jobs, metas)``.
+        """
+        return self.task_metadata_collection.metadata_for_jobs(jobs)
 
     def run_jobs(
         self,

@@ -288,3 +288,25 @@ class TestSubsetToJobs:
         sub = c.subset_to_jobs(jobs)
         assert sub.dataset_names() == ["a"]
         assert set(sub.dataset_fold_repeats()) == {("a", 0, 0), ("a", 1, 1)}
+
+    def test_metadata_for_jobs_one_per_job_in_order(self):
+        a = _task_meta(dataset_name="a", num_features=7, splits=[_split_meta(repeat=0, fold=f) for f in range(2)])
+        b = _task_meta(dataset_name="b", splits=[_split_meta(fold=0)])
+        c = TaskMetadataCollection([a, b])
+        # Out-of-order, with a split shared by two jobs -> one TabArenaTaskMetadata per job, aligned.
+        jobs = [self._job("e1", "b", 0, 0), self._job("e1", "a", 1, 0), self._job("e2", "a", 1, 0)]
+        metas = c.metadata_for_jobs(jobs)
+
+        triples = []
+        for m in metas:
+            assert len(m.splits_metadata) == 1  # unrolled to exactly the job's split
+            (split,) = m.splits_metadata.values()
+            triples.append((m.tabarena_task_name, split.fold, split.repeat))
+        assert triples == [("b", 0, 0), ("a", 1, 0), ("a", 1, 0)]
+        # dataset-level fields are on the same typed object
+        assert metas[1].num_features == 7
+
+    def test_metadata_for_jobs_unknown_split_raises(self):
+        c = TaskMetadataCollection([_task_meta(dataset_name="a", splits=[_split_meta(fold=0)])])
+        with pytest.raises(ValueError, match="not splits of this collection"):
+            c.metadata_for_jobs([self._job("e1", "a", 0, 0), self._job("e1", "a", 9, 0)])
