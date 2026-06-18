@@ -33,6 +33,48 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-06-16 — benchmark_chimeraboost_16062026
+
+- **Model(s):** ChimeraBoost (all configs)
+- **Git SHA:** `68c1919d`
+- **Purpose:** ChimeraBoost on TabArena-v0.1 tasks, single-node GCP CPU run.
+- **Notes:** CPU partition `cpun416mtspotinteractive` (16 vCPUs, 64 GB RAM, 0 GB VRAM);
+  `memory_limit`/`num_cpus` left `None` so the node's values are picked up. Bundle size 10.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaBenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+benchmark_plan = TabArenaBenchmarkPlan(
+    benchmark_name="benchmark_chimeraboost_16062026",
+    model_jobs=[
+        ModelJob(models=("ChimeraBoost", "all")),
+    ],
+    tasks=TaskMetadataCollection.from_preset("TabArena-v0.1"),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/beyondarena_27052026/bin/python",
+    ),
+    # Run on GCP
+    # -> None for these two values so node values are picked up
+    # -> CPU partition: 16 vCPUs, 64 GB RAM, 0 GB VRAM
+    resources_setup=TabArenaV0pt1ResourcesSetup(memory_limit=None, num_cpus=None),
+    scheduler_setup=GCPSlurmSetup(bundle_size=10, cpu_partition="cpun416mtspotinteractive"),
+)
+
+benchmark_plan.setup_jobs()
+```
+
+---
+
 ## 2026-05-22 — benchmark_tabpfn_wide_22052026
 
 - **Model(s):** TabPFN-Wide (0 — default config only)

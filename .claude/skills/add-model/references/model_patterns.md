@@ -166,9 +166,22 @@ class {ClassName}Model(AbstractModel):
     ag_priority = 65
     seed_name = "random_state"
 
-    def _fit(self, X, y, num_cpus=1, num_gpus=0, **kwargs):
+    def _fit(
+        self,
+        X,
+        y,
+        X_val=None,
+        y_val=None,
+        time_limit=None,
+        num_cpus=1,
+        num_gpus=0,
+        **kwargs,
+    ):
+        # See "The _fit contract" section below — use X_val/y_val, time_limit, and
+        # num_cpus rather than ignoring them. This skeleton only shows the minimum.
         from {pip_module} import {ModelClass}
         hps = self._get_model_params()
+        hps["n_jobs"] = num_cpus  # wire the CPU budget to the library's thread arg
         self.model = {ModelClass}(**hps)
         X = self.preprocess(X, y=y)
         self.model.fit(X=X, y=y)
@@ -189,6 +202,100 @@ class {ClassName}Model(AbstractModel):
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
 ```
+
+---
+
+## The `_fit` contract: use what TabArena hands you
+
+> These rules come straight from real PR review feedback. They are the
+> mistakes new wrappers most often make. `_fit` receives `X_val`, `y_val`, `time_limit`,
+> `num_cpus`, and `num_gpus` — **use them**, don't ignore them and don't re-derive them. Read
+> `models/realmlp/model.py` as the canonical GPU/CPU reference for all four.
+
+### 1. Validation split — use the provided `X_val`/`y_val`, don't carve your own
+
+TabArena has already split off a validation set for early stopping. If the wrapped library supports
+early stopping with an eval set, pass `X_val`/`y_val` straight through. **Do not** let the library
+auto-split a second holdout out of the training data, and **do not** call `generate_train_test_split`
+when a val set was provided — both shrink the training data and hurt performance.
+
+```python
+eval_set = None
+if X_val is not None and y_val is not None:
+    X_val = self.preprocess(X_val)
+    eval_set = (X_val, y_val)
+# ... model.fit(X, y, eval_set=eval_set, ...)
+```
+
+Only generate a split yourself when `X_val is None` (see "Handling missing validation split" below).
+
+### 2. `num_cpus` / `num_gpus` — wire them to the library, never hardcode a default
+
+The scheduler allocates a CPU/GPU budget and passes it into `_fit`. Route it to the library's
+thread/device argument (e.g. RealMLP does `n_threads=num_cpus`). **Do not** set the thread count
+(`thread_count=-1`, `n_jobs=-1`, …) as a default in `_set_default_params()` — that ignores the
+budget and oversubscribes when folds run in parallel.
+
+```python
+params["thread_count"] = num_cpus   # set from the _fit arg, not _set_default_params
+```
+
+### 3. `time_limit` — honor it, with a little headroom
+
+A wrapper that ignores `time_limit` is not fully TabArena-compatible. Pass the remaining budget to
+the library (a `time_to_fit_in_seconds=...` argument, or a wall-clock early-stop callback) and
+subtract the time already spent. Leave **~5% headroom** so prediction/cleanup finishes inside the
+budget. RealMLP (`realmlp/model.py`, the `time_to_fit_in_seconds=time_limit - (time.time() - start_time)`
+line) is the reference.
+
+```python
+start_time = time.time()
+...
+remaining = (time_limit - (time.time() - start_time)) * 0.95 if time_limit is not None else None
+```
+
+### 4. `random_state` — set `seed_name`, don't hardcode the seed
+
+Set the class attribute `seed_name = "random_state"` (or whatever the library's seed kwarg is).
+AutoGluon then injects the *framework* seed there so every model uses the same seeding strategy.
+**Do not** hardcode `random_state=0` in `_set_default_params()`.
+
+---
+
+## Categorical & missing-value handling — prefer the library's native path
+
+A frequent review finding: wrappers needlessly label-encode categoricals, impute with `fillna(0)`,
+and cast to a NumPy object array — all of which **destroy signal** when the library has native
+categorical/missing handling (CatBoost-style models, EBM, RealMLP, etc.).
+
+Decision order:
+
+1. **Does the library accept a DataFrame and handle categoricals/NaN natively?** Then pass the
+   frame through unchanged. Read the categorical columns from the dtypes (AutoGluon keeps them as
+   `category` when `valid_raw_types` allows) and pass their names — don't re-encode:
+   ```python
+   def _preprocess(self, X, is_train=False, **kwargs):
+       X = super()._preprocess(X, **kwargs)
+       if is_train:
+           self._cat_col_names = list(X.select_dtypes(include="category").columns)
+       return X
+   # in _fit: model.fit(X, y, cat_features=self._cat_col_names or None, ...)
+   ```
+   Let the library route NaN to its own missing bin — **do not** `fillna(0)` (0 collides with a real
+   value and is not "missing").
+2. **Only if the library needs purely numeric input** should you label-encode (e.g. via
+   `LabelEncoderFeatureGenerator`) and impute — and then impute deliberately, not blindly with 0.
+
+---
+
+## Memory estimation — implement it for CPU models that fan out across folds
+
+`can_estimate_memory_usage_static: False` with a `# TODO` is fine to *ship*, but for CPU models a
+real estimate is what lets the scheduler safely fit cross-validation folds in parallel — a big
+usability win that reviewers will ask for. When you can estimate peak memory from
+`(n_rows, n_features, n_classes, …)`, implement `_estimate_memory_usage` / a static
+`_estimate_memory_usage_static` and flip the tag to `True`. Reference:
+`autogluon/tabular/src/autogluon/tabular/models/ebm/ebm_model.py` (`_estimate_memory_usage_static`).
 
 ---
 
@@ -235,6 +342,17 @@ gen_{ModelKey} = ConfigGenerator(
     manual_configs=[{}],
 )
 ```
+
+### Iterative / boosting models (n_estimators)
+
+For gradient-boosting-style models with early stopping (and a provided val set — see the `_fit`
+contract above):
+
+- Set a **high** `n_estimators` cap in `_set_default_params()` — other boosting models use ~10000,
+  not a few hundred. Early stopping picks the real count; the cap is just headroom.
+- **Don't also put `n_estimators` in the HPO search space** once it's a fixed high cap in the
+  defaults. Searching a budget that early stopping already controls only adds noise and duplicates a
+  value that's pinned elsewhere.
 
 ---
 

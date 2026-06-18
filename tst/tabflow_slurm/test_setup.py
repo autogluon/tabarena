@@ -516,9 +516,17 @@ class TestBuildSbatchPrefix:
 # ---------------------------------------------------------------------------
 
 
-def _job(size: int) -> dict:
-    """An array-task bundle with `size` (placeholder) items."""
-    return {"items": [{"experiment": f"cfg_{i}", "dataset": "d", "fold": 0, "repeat": 0} for i in range(size)]}
+def _job(size: int, bundle_size: int | None = None) -> dict:
+    """An array-task bundle with `size` (placeholder) items.
+
+    `bundle_size` is the target size the scheduler groups on; it defaults to
+    `size` (a full bundle). Pass a larger `bundle_size` to model a remainder
+    bundle (fewer items than the size group it belongs to).
+    """
+    return {
+        "bundle_size": size if bundle_size is None else bundle_size,
+        "items": [{"experiment": f"cfg_{i}", "dataset": "d", "fold": 0, "repeat": 0} for i in range(size)],
+    }
 
 
 def _build_commands(jobs: list[dict], *, tmp_path, time_limit=3600, time_limit_overhead=1, **slurm_kw) -> list[str]:
@@ -560,6 +568,20 @@ class TestWriteJobBatches:
         _build_commands([_job(1), _job(1), _job(5)], tmp_path=tmp_path)
         with (tmp_path / "jobs_size1.json").open() as f:
             assert len(json.load(f)["jobs"]) == 2
+
+    def test_remainder_bundle_stays_in_its_size_group(self, tmp_path):
+        # Two full size-10 bundles + one size-10 remainder holding only 8 items:
+        # grouping is by target bundle size, so it is a single array, not two.
+        cmds = _build_commands([_job(10), _job(10), _job(8, bundle_size=10)], tmp_path=tmp_path)
+        assert len(cmds) == 1
+        assert str(tmp_path / "jobs.json") in cmds[0]
+        # Budgeted for the 10-config target (11h), and the remainder over-allocates.
+        assert "--time=11:00:00" in cmds[0]
+        # All three tasks land in the one shipped file, stripped of the hint.
+        with (tmp_path / "jobs.json").open() as f:
+            shipped = json.load(f)["jobs"]
+        assert len(shipped) == 3
+        assert all(set(job) == {"items"} for job in shipped)
 
     def test_oversized_single_size_splits_into_batches(self, tmp_path):
         cmds = _build_commands([_job(5) for _ in range(3)], tmp_path=tmp_path, max_array_size=2)
