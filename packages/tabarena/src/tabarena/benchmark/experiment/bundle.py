@@ -50,7 +50,11 @@ class TabArenaExperimentBundle:
     into each experiment so the resulting YAML is self-contained.
     """
 
-    models: list[tuple[str | AGConfigGenerator, int | str | dict] | Experiment] = field(default_factory=list)
+    models: list[
+        tuple[str | AGConfigGenerator, int | str | dict]
+        | tuple[str | AGConfigGenerator, int | str | dict, dict]
+        | Experiment
+    ] = field(default_factory=list)
     """List of models to run in the benchmark with metadata.
     Metadata keys from left to right:
         - model name: str
@@ -59,6 +63,16 @@ class TabArenaExperimentBundle:
                 - If 0, only the default configuration is run.
                 - If "all", `n_random_configs`-many configurations are run.
                 - If dict, kwargs for AGExperiment
+        - (optional) per-model hyperparameters: dict
+            A 3rd tuple element with model hyperparameters merged into EVERY config of
+            this model — the default config and any sampled HPO configs alike — keeping
+            all other bundle logic (preprocessing, validation protocol, resources, ...).
+            Use it to pin a hyperparameter without writing a custom search space, e.g.
+            `("LightGBM", 0, {"num_boost_round": 100})` runs the default LightGBM config
+            with `num_boost_round=100`. The keys must not collide with a config's own
+            hyperparameters (asserted at build time), so it suits fixed hyperparameters
+            outside the search space. Not supported for full `AutoGluon...` entries (put
+            those in the AGExperiment kwargs dict instead).
 
     Custom (non-registry) models — two ways to include one:
         - RECOMMENDED: pass a `(config_generator, n_configs)` tuple, where
@@ -78,11 +92,12 @@ class TabArenaExperimentBundle:
 
     Example usage:
         # Run all random configs for LightGBM, 10 random configs for Random Forest,
-        and only the default for TabDPT.
+        # only the default for TabDPT, and the default XGBoost with n_estimators pinned to 100.
         default_factory=lambda: [
                 ("LightGBM", "all"),
                 ("RandomForest", 10),
                 ("TabDPT", 0),
+                ("XGBoost", 0, {"n_estimators": 100}),
             ]
         )
 
@@ -401,7 +416,16 @@ class TabArenaExperimentBundle:
         if isinstance(model, Experiment):
             return [model]
         model_name, n_configs_or_kwargs = model[0], model[1]
+        # Optional 3rd tuple element: per-model hyperparameters merged into every config of this
+        # model (e.g. ``("LightGBM", 0, {"num_boost_round": 100})``).
+        model_hyperparameters = model[2] if len(model) > 2 else None
         if isinstance(model_name, str) and model_name.startswith("AutoGluon"):
+            if model_hyperparameters is not None:
+                raise ValueError(
+                    "Per-model hyperparameters (the 3rd tuple element) are not supported for full "
+                    "`AutoGluon...` entries; pass model hyperparameters inside the AGExperiment "
+                    "kwargs dict (the 2nd tuple element) instead.",
+                )
             return self._generate_autogluon_config(
                 model_name=model_name,
                 agexp_kwargs=n_configs_or_kwargs,
@@ -416,17 +440,28 @@ class TabArenaExperimentBundle:
             preprocessing_pipeline=preprocessing_pipeline,
             time_limit=time_limit,
             time_limit_with_preprocessing=time_limit_with_preprocessing,
+            model_hyperparameters=model_hyperparameters,
         )
 
-    @staticmethod
     def _generate_autogluon_config(
+        self,
         *,
         model_name: str,
         agexp_kwargs: dict,
         pipeline_method_kwargs: dict,
         time_limit: int,
     ) -> list:
-        """Parse the AutoGluon config from the models."""
+        """Build a full-AutoGluon ``AGExperiment`` (a complete ``TabularPredictor`` run).
+
+        Unlike the per-config path, the entry's ``agexp_kwargs`` are passed to ``AGExperiment``
+        more or less verbatim (with the bundle's ``init_kwargs`` / ``fit_kwargs`` and ``time_limit``
+        merged in). The bundle's ``dynamic_tabarena_validation_protocol`` is forwarded too, so a
+        full-AutoGluon run gets the SAME grouped/temporal validation-split handling as the config
+        experiments (resolved at fit time by the ``AGWrapper`` from the task metadata); the caller
+        can override it per-entry. The per-config ``preprocessing_pipelines`` (e.g.
+        ``tabarena_default``) are NOT applied here: they augment a single model's hyperparameters,
+        which has no analogue for a multi-model predictor.
+        """
         from tabarena.benchmark.experiment.experiment_constructor import (
             AGExperiment,
         )
@@ -440,8 +475,25 @@ class TabArenaExperimentBundle:
             if key in pipeline_method_kwargs:
                 agexp_kwargs[key].update(pipeline_method_kwargs[key])
         agexp_kwargs["fit_kwargs"]["time_limit"] = time_limit
+        # Apply the bundle's non-IID validation protocol (same grouped/temporal split handling as
+        # the config experiments) unless the entry set it explicitly.
+        agexp_kwargs.setdefault("dynamic_tabarena_validation_protocol", self.dynamic_tabarena_validation_protocol)
 
         return [AGExperiment(name=model_name, **agexp_kwargs)]
+
+    @staticmethod
+    def _merge_extra_model_hyperparameters(
+        bundle_extra: dict | None,
+        model_hyperparameters: dict | None,
+    ) -> dict:
+        """Merge bundle-level extra hyperparameters with per-model overrides (per-model wins).
+
+        ``bundle_extra`` holds the model-agnostic extras the bundle adds to every model (e.g.
+        ``ag.verbosity`` / ``ag.max_batch_size``); ``model_hyperparameters`` are the per-model
+        overrides from a ``(model_name, n_configs, model_hyperparameters)`` entry. Both default to
+        empty; on a key collision the per-model value takes precedence.
+        """
+        return {**(bundle_extra or {}), **(model_hyperparameters or {})}
 
     def _generate_model_configs(
         self,
@@ -453,6 +505,7 @@ class TabArenaExperimentBundle:
         preprocessing_pipeline: str | None,
         time_limit: int,
         time_limit_with_preprocessing: bool,
+        model_hyperparameters: dict | None = None,
         default_seed_config: str = "fold-config-wise",
     ) -> list:
         from tabarena.models.utils import get_configs_generator_from_name
@@ -467,6 +520,14 @@ class TabArenaExperimentBundle:
             config_generator = get_configs_generator_from_name(model_name)
         else:
             config_generator = deepcopy(model_name)
+
+        # Merge the bundle-level extra hyperparameters (e.g. ``ag.verbosity``) with any per-model
+        # overrides; the result is merged into every config of this model (default + sampled). It
+        # must not collide with a config's own hyperparameters (asserted downstream).
+        extra_model_hyperparameters = self._merge_extra_model_hyperparameters(
+            pipeline_method_kwargs.get("extra_model_hyperparameters"),
+            model_hyperparameters,
+        )
 
         if self.outer_experiments:
             # No-validation path: one direct ``AGModelWrapper`` fit on all data, no bagging /
@@ -490,7 +551,7 @@ class TabArenaExperimentBundle:
                     "verbosity": self.verbosity,
                 },
                 preprocessing_pipeline=preprocessing_pipeline,
-                extra_model_hyperparameters=pipeline_method_kwargs.get("extra_model_hyperparameters") or None,
+                extra_model_hyperparameters=extra_model_hyperparameters or None,
             )
 
         if self.holdout_experiments:
@@ -511,14 +572,17 @@ class TabArenaExperimentBundle:
                 time_limit_with_preprocessing=time_limit_with_preprocessing,
                 preprocessing_pipeline=preprocessing_pipeline,
                 dynamic_tabarena_validation_protocol=self.dynamic_tabarena_validation_protocol,
-                extra_model_hyperparameters=pipeline_method_kwargs.get("extra_model_hyperparameters") or None,
+                extra_model_hyperparameters=extra_model_hyperparameters or None,
             )
 
+        # The bagged path consumes ``extra_model_hyperparameters`` via ``method_kwargs``; replace the
+        # bundle-level value with the per-model merge so 3-tuple overrides take effect here too.
+        bag_method_kwargs = {**pipeline_method_kwargs, "extra_model_hyperparameters": extra_model_hyperparameters}
         return config_generator.generate_all_bag_experiments(
             num_random_configs=n_configs,
             add_seed=default_seed_config,
             name_id_suffix=name_id_suffix,
-            method_kwargs=pipeline_method_kwargs,
+            method_kwargs=bag_method_kwargs,
             time_limit=time_limit,
             time_limit_with_preprocessing=time_limit_with_preprocessing,
             preprocessing_pipeline=preprocessing_pipeline,
