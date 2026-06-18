@@ -539,7 +539,12 @@ class TestBuildAndRunJobs:
         )
         assert out == ["raw"]
         assert seen["build_experiments"] == ["exp"]
-        assert seen["build_kw"] == {"subset": "lite", "dataset_names": ["d1"], "pre_materialize": False}
+        assert seen["build_kw"] == {
+            "task_subset": None,
+            "subset": "lite",
+            "dataset_names": ["d1"],
+            "pre_materialize": False,
+        }
         assert seen["run_jobs"] is sentinel
         assert seen["run_kw"] == {
             "expname": str(tmp_path),
