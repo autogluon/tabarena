@@ -7,7 +7,8 @@ import sys
 from pathlib import Path
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
-from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
 from tabflow_slurm import (
     BeyondArenaResourcesSetup,
     LocalSequentialSetup,
@@ -26,12 +27,14 @@ benchmark_plan = TabArenaBenchmarkPlan(
         ModelJob(models=("RandomForest", 0), name="cpu"),  # default config only
         ModelJob(models=("Linear", 1), name="cpu"),  # default + 1 random config
     ],
-    # Scope to the smallest dataset (155 rows) so the demo is fast — the full
-    # BeyondArena preset is 142 datasets. Add more names to widen it; only the
+    # The BeyondArena context owns the Data Foundry collection; `task_subset` scopes
+    # `context.build_jobs`. Scope to the smallest dataset (155 rows) so the demo is fast
+    # — the full BeyondArena suite is 142 datasets. Add more names to widen it; only the
     # selected datasets are downloaded.
-    tasks=TaskMetadataCollection.from_preset("BeyondArena").subset_tasks(
+    context=BeyondArenaContext(),
+    task_subset=TaskSubset(
         dataset_names=["hepatitis_survival_prediction"],
-        split_indices="lite",
+        subset="lite",
     ),
     experiment_bundle=BeyondArenaExperimentBundle(),
     path_setup=PathSetup(

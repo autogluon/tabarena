@@ -5,17 +5,19 @@ from __future__ import annotations
 import os
 import shutil
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 import ray
 
-from tabarena.benchmark.experiment import JobBatch, build_jobs, job_cache_exists_batch
+from tabarena.benchmark.experiment import JobBatch, job_cache_exists_batch
+from tabarena.benchmark.task.metadata import TaskSubset
 from tabarena.utils.ray_utils import ray_map_list, to_batch_list
 
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import Job, TabArenaExperimentBundle
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
+    from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
     from tabflow_slurm.setup.scheduler import SchedulerSetup
@@ -23,7 +25,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class TabArenaBenchmarkSetup:
-    """A single homogeneous benchmark run (one resources/scheduler/tasks/experiment).
+    """A single homogeneous benchmark run (one resources/scheduler/context/experiment).
 
     Internal engine — not part of the public API. Construct and drive it via
     `TabArenaBenchmarkPlan` (see `tabflow_slurm.setup.plan`), which resolves
@@ -33,10 +35,11 @@ class TabArenaBenchmarkSetup:
     benchmark_name: str
     """Unique name of the benchmark; determines where output artifacts are stored."""
 
-    tasks: TaskMetadataCollection
-    """The tasks (dataset x split) to run in the benchmark — already filtered
-    (see `TaskMetadataCollection.subset_tasks`) but not necessarily materialized;
-    `get_jobs_to_run` materializes it (downloads only this collection's tasks)."""
+    context: AbstractArenaContext
+    """The arena context (e.g. `TabArenaContext` / `BeyondArenaContext`) that owns the
+    task-metadata collection and its subset predicates. `get_jobs_to_run` enumerates the
+    sweep through `context.build_jobs` (scoped by `build_kwargs`) and materializes only the
+    tasks the resulting jobs touch — the same path the local/context workflow uses."""
     experiment_bundle: TabArenaExperimentBundle
     """Defines which models / experiments to run in the benchmark and builds them
     (models, per-model config counts, preprocessing pipelines, fold fitting,
@@ -53,6 +56,12 @@ class TabArenaBenchmarkSetup:
 
     # Misc Settings
     # -------------
+    task_subset: TaskSubset = field(default_factory=TaskSubset)
+    """Typed scope forwarded (via `as_kwargs()`) to `context.build_jobs`, i.e.
+    `TaskMetadataCollection.subset_tasks`: a `subset` predicate expression plus any other
+    filter (`dataset_names`, `split_indices`, `n_train_samples`, ...). An empty `TaskSubset()`
+    runs the context's full collection. Set per group by `TabArenaBenchmarkPlan` (its
+    plan-level `task_subset` merged with the job's `tasks`)."""
     parallel_safe_benchmark_name: str | None = None
     """Per-run name for the job-batch/job-JSON setup artifacts, so parallel runs
     of the same `benchmark_name` don't overwrite each other (SLURM output and
@@ -84,23 +93,25 @@ class TabArenaBenchmarkSetup:
 
         Pipeline:
             1. Create the output / log / setup / OpenML-cache directories if missing.
-            2. Materialize the task collection (download only its tasks) and build
-               the experiments from the bundle (which attaches each experiment's
+            2. Build the experiments from the bundle (which attaches each experiment's
                `ModelConstraints`).
-            3. Enumerate the sweep via the core `build_jobs` (experiments x splits;
-               constraint-violating pairs are dropped during enumeration).
-            4. Drop cache hits in parallel via Ray (the core `job_cache_exists_batch`),
+            3. Enumerate the sweep via `context.build_jobs` (scopes the context's collection
+               by `task_subset`, then expands experiments x splits; constraint-violating
+               pairs are dropped during enumeration).
+            4. Scope the context's collection to the tasks these jobs touch and materialize
+               it (download only those tasks; a no-op for local sources). This is the single
+               source of truth the cache check, `JobBatch`, and bundling resolve against.
+            5. Drop cache hits in parallel via Ray (the core `job_cache_exists_batch`),
                unless `ignore_cache`.
-            5. Persist the surviving jobs as a self-contained `JobBatch` artifact
+            6. Persist the surviving jobs as a self-contained `JobBatch` artifact
                (experiments + task metadata + job coordinates) for the compute nodes.
-            6. Bundle the survivors into array tasks via `scheduler_setup.bundle_items`.
+            7. Bundle the survivors into array tasks via `scheduler_setup.bundle_items`.
 
         Returns `(jobs, max_configs_per_job)`: `jobs` is a list of
         `{"items": [...]}` per array task; `max_configs_per_job` is the
         largest bundle observed and is used to budget the per-task time limit.
         """
         self.path_setup.ensure_runtime_dirs(self.benchmark_name)
-        collection = self.tasks.materialize()
         experiments = self.experiment_bundle.build_experiments(
             time_limit=self.resources_setup.time_limit,
             num_cpus=self.resources_setup.num_cpus,
@@ -109,10 +120,17 @@ class TabArenaBenchmarkSetup:
             time_limit_with_preprocessing=self.resources_setup.time_limit_with_model_agnostic_preprocessing,
         )
 
-        # Constraint-violating (experiment, split) pairs are dropped by build_jobs itself
-        # (the bundle attached each experiment's ModelConstraints at build time).
-        runnable_jobs = build_jobs(experiments, collection)
-        if not self.ignore_cache:
+        # The context owns the task metadata + subset predicates; build_jobs scopes its
+        # collection by the task_subset (subset + any subset_tasks filter) and enumerates
+        # experiments x splits, dropping constraint-violating pairs during enumeration.
+        jobs_in_scope = self.context.build_jobs(experiments, task_subset=self.task_subset)
+        # Scope the context's collection to the tasks these jobs touch and materialize it
+        # (downloads only those datasets — e.g. data-foundry tasks — and assigns each
+        # task_id_str; a no-op for already-local sources). Mirrors `context.run_jobs`.
+        collection = self.context.task_metadata_collection.subset_to_jobs(jobs_in_scope).materialize()
+
+        runnable_jobs = jobs_in_scope
+        if runnable_jobs and not self.ignore_cache:
             runnable_jobs = self._drop_cache_hits_via_ray(runnable_jobs, collection)
 
         self._save_job_batch(runnable_jobs, collection)

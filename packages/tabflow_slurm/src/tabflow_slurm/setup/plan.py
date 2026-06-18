@@ -8,7 +8,7 @@ orchestration layer on top: define a base/default setup plus a list of
 expands them into the matching `TabArenaBenchmarkSetup`s and aggregates their
 run commands.
 
-Jobs whose effective `(resources, scheduler, tasks, experiment-minus-models)`
+Jobs whose effective `(resources, scheduler, task_subset, experiment-minus-models)`
 are identical are auto-merged into one run (one configs YAML + one set of array
 tasks); `name` only labels the `parallel_benchmark_name`.
 """
@@ -20,11 +20,12 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 from tabarena.benchmark.experiment import Experiment
+from tabarena.benchmark.task.metadata import TaskSubset
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
 
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import TabArenaExperimentBundle
-    from tabarena.benchmark.task.metadata import TaskMetadataCollection
+    from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
     from tabflow_slurm.setup.scheduler import SchedulerSetup
@@ -99,9 +100,11 @@ class ModelJob:
 
     `models` is normalized in `__post_init__` to a list of `SingleModel`
     (tuples/strings resolved via `SingleModel.from_input`), with pre-built
-    `Experiment` objects passed through unchanged. The four override dicts are
-    applied onto the plan's corresponding base setup via `dataclasses.replace`
-    (see `_apply_overrides`); empty dicts leave the base untouched.
+    `Experiment` objects passed through unchanged. The `resources`/`scheduler`/
+    `experiment` override dicts are applied onto the plan's corresponding base setup
+    via `dataclasses.replace` (see `_apply_overrides`); empty dicts leave the base
+    untouched. `tasks` is normalized to a typed `TaskSubset` and merged onto the
+    plan's `task_subset` (see `_group_jobs`).
     """
 
     models: ModelEntry | list[ModelEntry]
@@ -116,11 +119,13 @@ class ModelJob:
     scheduler: dict[str, Any] = field(default_factory=dict)
     """Field overrides applied to the plan's base `SchedulerSetup`
     (e.g. `gpu_partition`, `bundle_size`, `array_job_limit`)."""
-    tasks: dict[str, Any] = field(default_factory=dict)
-    """Filter kwargs applied to the plan's base `TaskMetadataCollection` via
-    `subset_tasks` (e.g. `n_train_samples`, `dataset_names`, `split_indices`).
-    Note these *compose with* (further restrict) the base collection rather than
-    replacing its filters."""
+    tasks: TaskSubset | dict[str, Any] | None = None
+    """Per-job scoping merged on top of the plan's `task_subset` and forwarded to
+    `context.build_jobs` (i.e. `TaskMetadataCollection.subset_tasks`). A `TaskSubset`
+    (or a dict that resolves to one) — e.g. `TaskSubset(n_train_samples=(0, 10_000))`.
+    Fields set here override the plan-level `task_subset` for the same field (the job
+    wins); fields left unset fall back to the plan. Normalized to a `TaskSubset` in
+    `__post_init__`. Jobs differing in `tasks` are not merged into one group."""
     experiment: dict[str, Any] = field(default_factory=dict)
     """Field overrides applied to the plan's base `TabArenaExperimentBundle`
     (e.g. `model_agnostic_preprocessing`). The `models` key is forbidden here —
@@ -132,6 +137,7 @@ class ModelJob:
     def __post_init__(self) -> None:
         models = self.models if isinstance(self.models, list) else [self.models]
         self.models = [m if isinstance(m, Experiment) else SingleModel.from_input(m) for m in models]
+        self.tasks = TaskSubset.from_input(self.tasks)
 
     def _model_entries(self) -> list:
         """The bundle-ready `models` list: `SingleModel` -> tuple, `Experiment` -> itself."""
@@ -176,9 +182,11 @@ class TabArenaBenchmarkPlan:
     """The models to run, each with optional per-model overrides."""
 
     # Base / default building blocks (the same objects TabArenaBenchmarkSetup takes).
-    tasks: TaskMetadataCollection
-    """Default tasks (a loaded, filtered-as-desired collection). Per-job `tasks`
-    filter kwargs are applied on top via `subset_tasks`."""
+    context: AbstractArenaContext
+    """The arena context that owns the task-metadata collection + subset predicates
+    (e.g. `TabArenaContext()` / `BeyondArenaContext()`). Jobs are enumerated through
+    `context.build_jobs`. Scope it with `build_kwargs` below rather than pre-filtering
+    the collection, so the context's named subset predicates stay available."""
     experiment_bundle: TabArenaExperimentBundle
     """Default experiment settings. Its `models` field is ignored (a template);
     each group's models come from its `ModelJob`s. Per-job `experiment`
@@ -189,6 +197,11 @@ class TabArenaBenchmarkPlan:
     """Default scheduler. Per-job `scheduler` overrides are applied on top."""
     resources_setup: ResourcesSetup
     """Default resources. Per-job `resources` overrides are applied on top."""
+    task_subset: TaskSubset | dict[str, Any] | None = None
+    """Plan-level scoping forwarded (via `as_kwargs()`) to `context.build_jobs`, i.e.
+    `TaskMetadataCollection.subset_tasks`. A `TaskSubset` (or a dict that resolves to one) —
+    e.g. `TaskSubset(subset="lite", dataset_names=[...])`. `None`/empty runs the context's full
+    collection. Each `ModelJob.tasks` is merged on top per group (the job wins per field)."""
     prefetch_model_weights: bool = True
     """If True, `setup_jobs` warms the weights of any selected foundation models on this (head)
     node before emitting jobs, so parallel/offline compute nodes find them cached. Set False to
@@ -197,7 +210,7 @@ class TabArenaBenchmarkPlan:
     def build_setups(self, num_ray_cpus: int | Literal["auto"] = "auto") -> list[TabArenaBenchmarkSetup]:
         """Expand the model jobs into one `TabArenaBenchmarkSetup` per group.
 
-        Jobs are grouped by their effective `(resources, scheduler, tasks,
+        Jobs are grouped by their effective `(resources, scheduler, task_subset,
         experiment-minus-models, ignore_cache)` signature (compared by value);
         models from merged jobs are concatenated. See module docstring for the
         merge rule. `num_ray_cpus` is the CPU budget each generated setup uses
@@ -212,7 +225,8 @@ class TabArenaBenchmarkPlan:
                 TabArenaBenchmarkSetup(
                     benchmark_name=self.benchmark_name,
                     parallel_safe_benchmark_name=f"{self.benchmark_name}_{group_name}",
-                    tasks=group["tasks"],
+                    context=self.context,
+                    task_subset=group["task_subset"],
                     experiment_bundle=experiment_bundle,
                     path_setup=self.path_setup,
                     scheduler_setup=group["scheduler"],
@@ -227,7 +241,7 @@ class TabArenaBenchmarkPlan:
         """Resolve each job's overrides and merge jobs with equal signatures.
 
         Returns a list of group dicts (in first-appearance order) holding the
-        effective `resources`/`scheduler`/`tasks`/`experiment` (with empty
+        effective `resources`/`scheduler`/`task_subset`/`experiment` (with empty
         `models`), the concatenated bundle-ready `models`, and the reconciled
         `name`.
         """
@@ -239,14 +253,14 @@ class TabArenaBenchmarkPlan:
                 )
             resources = _apply_overrides(self.resources_setup, job.resources, "resources")
             scheduler = _apply_overrides(self.scheduler_setup, job.scheduler, "scheduler")
-            # Tasks compose (further restrict the base collection) instead of replacing
-            # fields: an empty dict short-circuits to the identical base object so the
-            # signature comparison can match on equality across jobs.
-            tasks = self.tasks.subset_tasks(**job.tasks) if job.tasks else self.tasks
+            # Per-job `tasks` scoping (a TaskSubset) is layered on top of the plan-level
+            # `task_subset` (job fields win) and forwarded to `context.build_jobs`. Equal
+            # merged TaskSubsets compare equal, so jobs with the same scoping share one group.
+            task_subset = TaskSubset.from_input(self.task_subset).merged_with(job.tasks)
             # Zero out models so only non-model settings define the signature.
             experiment = _apply_overrides(self.experiment_bundle, {**job.experiment, "models": []}, "experiment")
 
-            signature = (resources, scheduler, tasks, experiment, job.ignore_cache)
+            signature = (resources, scheduler, task_subset, experiment, job.ignore_cache)
             match = next((g for g in groups if g["signature"] == signature), None)
             if match is None:
                 groups.append(
@@ -254,7 +268,7 @@ class TabArenaBenchmarkPlan:
                         "signature": signature,
                         "resources": resources,
                         "scheduler": scheduler,
-                        "tasks": tasks,
+                        "task_subset": task_subset,
                         "experiment": experiment,
                         "ignore_cache": job.ignore_cache,
                         "models": list(job._model_entries()),

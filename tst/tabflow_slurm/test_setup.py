@@ -19,6 +19,7 @@ import pytest
 
 from tabarena.benchmark.experiment import TabArenaExperimentBundle
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 
 # Import a real submodule (not the bare `tabflow_slurm` namespace): when the package
 # is not installed, the repo-root workspace dir is importable as an empty namespace
@@ -326,10 +327,15 @@ class TestTimeLimitPerConfig:
 # ---------------------------------------------------------------------------
 
 
+def _context(tasks: TaskMetadataCollection | None = None) -> AbstractArenaContext:
+    """A minimal, baseline-free arena context over the given (or empty) collection."""
+    return AbstractArenaContext(methods=[], task_metadata=tasks if tasks is not None else TaskMetadataCollection([]))
+
+
 def _benchmark_setup(**kwargs) -> TabArenaBenchmarkSetup:
     defaults = {
         "benchmark_name": "my_bench",
-        "tasks": TaskMetadataCollection([]),
+        "context": _context(),
         "experiment_bundle": TabArenaExperimentBundle(n_random_configs=0, preprocessing_pipelines=["default"]),
         "path_setup": PathSetup(workspace="/ws", python_path="/py"),
         "scheduler_setup": _slurm(),
@@ -393,7 +399,7 @@ class TestGetJobsToRun:
         from tabarena.benchmark.experiment import JobBatch
 
         bs = _benchmark_setup(
-            tasks=_two_dataset_collection(),
+            context=_context(_two_dataset_collection()),
             experiment_bundle=TabArenaExperimentBundle(
                 models=[_passthrough_experiment("exp_a")],
                 n_random_configs=0,

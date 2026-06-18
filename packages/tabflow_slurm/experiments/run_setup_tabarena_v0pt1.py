@@ -9,7 +9,8 @@ RandomForest on a CPU node. The differing `num_gpus` puts them in two groups, so
 from __future__ import annotations
 
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
-from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabflow_slurm import (
     GCPSlurmSetup,
     ModelJob,
@@ -26,7 +27,10 @@ benchmark_plan = TabArenaBenchmarkPlan(
         # Example for CPU model: no resource override, so it runs on the base CPU resources.
         ModelJob(models=("Linear", 1), name="cpu"),
     ],
-    tasks=TaskMetadataCollection.from_preset("TabArena-v0.1").subset_tasks(split_indices="lite"),
+    # The TabArena-v0.1 context owns the task metadata + subset predicates; `task_subset`
+    # scopes `context.build_jobs` (here `subset="lite"` keeps each dataset's first split).
+    context=TabArenaContext(),
+    task_subset=TaskSubset(subset="lite"),
     experiment_bundle=TabArenaV0pt1ExperimentBundle(),
     path_setup=PathSetup(
         workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",

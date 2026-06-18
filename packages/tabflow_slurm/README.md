@@ -41,7 +41,8 @@ A setup script composes a `TabArenaBenchmarkPlan` and calls `setup_jobs()`. Mini
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
-from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabflow_slurm import (
     GCPSlurmSetup, ModelJob, PathSetup, TabArenaBenchmarkPlan, TabArenaV0pt1ResourcesSetup,
 )
@@ -52,8 +53,9 @@ plan = TabArenaBenchmarkPlan(
         ModelJob(models=("TabPFN-3", 0), name="gpu", resources={"num_gpus": 1}),  # GPU model
         ModelJob(models=("Linear", 1), name="cpu"),                                # CPU model, 1 random config
     ],
-    tasks=TaskMetadataCollection.from_preset("TabArena-v0.1-lite"),  # which tasks (from tabarena)
-    experiment_bundle=TabArenaV0pt1ExperimentBundle(),      # how to build the models (from tabarena)
+    context=TabArenaContext(),                          # owns the tasks + subset predicates (from tabarena)
+    task_subset=TaskSubset(subset="lite"),              # typed scope for context.build_jobs (first split only)
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(),  # how to build the models (from tabarena)
     path_setup=PathSetup(workspace="/shared/workspace", python_path="/shared/venv/bin/python"),
     resources_setup=TabArenaV0pt1ResourcesSetup(),
     scheduler_setup=GCPSlurmSetup(),
@@ -61,6 +63,15 @@ plan = TabArenaBenchmarkPlan(
 
 plan.setup_jobs()   # prints the sbatch command(s) to launch
 ```
+
+> **BeyondArena:** swap in `from tabarena.evaluation.context.beyond_arena import BeyondArenaContext`,
+> pass `context=BeyondArenaContext()`, and scope with e.g. `task_subset=TaskSubset(dataset_names=[...])`
+> (omit `task_subset` to run the full suite).
+
+`TaskSubset` (from `tabarena`) is the typed, single source of truth for the scope filters — the same
+fields `TaskMetadataCollection.subset_tasks` / `context.build_jobs` accept (`subset`, `dataset_names`,
+`split_indices`, `problem_types`, `n_train_samples`, ...). A plain dict still works (it resolves to a
+`TaskSubset`, with unknown keys rejected).
 
 Run the script on the **head node** (it materializes tasks + checks the cache locally), then run the
 printed `sbatch` command(s) to launch the jobs. When they finish, evaluate with a
@@ -77,15 +88,16 @@ printed `sbatch` command(s) to launch the jobs. When they finish, evaluate with 
    PathSetup ─┐                  TabArenaBenchmarkPlan ──── ModelJob[] (per-model overrides)
    ResourcesSetup ─┤  building     │  setup_jobs()
    SchedulerSetup ─┤  blocks       │
-   task collection ┤ (from         ├─ (optional) prefetch foundation-model weights on this node
+   arena context ──┤ (from         ├─ (optional) prefetch foundation-model weights on this node
    experiment bundle) tabarena)    ├─ group ModelJobs by effective settings  ──►  one
-                                   │                                            TabArenaBenchmarkSetup
+   (+ TaskSubset)                  │                                            TabArenaBenchmarkSetup
                                    │                                            per group (internal)
                                    ▼
-                       per group: materialize tasks → build experiments →
-                       build_jobs (experiments × splits) → filter constraint
-                       violations → Ray-filter cache hits → write JobBatch
-                       artifact → bundle into array tasks → write job JSON
+                       per group: build experiments → context.build_jobs
+                       (experiments × splits, scoped by the TaskSubset;
+                       constraint violations dropped) → materialize the jobs'
+                       tasks → Ray-filter cache hits → write JobBatch artifact
+                       → bundle into array tasks → write job JSON
                                    │
                                    ▼
                        prints:  sbatch --array=0-K%N … submit_template.sh <job.json>
@@ -109,21 +121,23 @@ The package is `tabflow_slurm/` with a `setup/` subpackage. `TabArenaBenchmarkPl
 public entry point**; everything below is re-exported from the top-level package for convenience.
 
 ### `TabArenaBenchmarkPlan` — `setup/plan.py`
-The thing you construct. A base setup (paths / resources / scheduler / tasks / experiment) plus a
-list of `ModelJob`s. `setup_jobs()`:
+The thing you construct. A base setup (paths / resources / scheduler / **arena context** /
+experiment) plus an optional plan-level `task_subset` (a `TaskSubset`) and a list of `ModelJob`s.
+`setup_jobs()`:
 - optionally **prefetches foundation-model weights** for the selected models on the head node
   (`prefetch_model_weights=True`), so offline/parallel compute nodes find them cached;
-- **groups** `ModelJob`s whose *effective* `(resources, scheduler, tasks, experiment-minus-models,
-  ignore_cache)` are identical into one run — so e.g. a GPU job and a CPU job become two separate
-  `sbatch` commands automatically;
+- **groups** `ModelJob`s whose *effective* `(resources, scheduler, task_subset,
+  experiment-minus-models, ignore_cache)` are identical into one run — so e.g. a GPU job and a CPU
+  job become two separate `sbatch` commands automatically;
 - builds one internal `TabArenaBenchmarkSetup` per group, runs it, and prints **one consolidated
   summary** plus all the commands to launch.
 
 ### `ModelJob` / `SingleModel` — `setup/plan.py`
-- **`ModelJob`** — one or more models that share a set of per-job **overrides** (dicts) on the base
-  setup: `resources`, `scheduler`, `tasks`, `experiment`. `name` labels the group's
-  `parallel_benchmark_name`; `ignore_cache` forces a rerun. Overrides are applied with
-  `dataclasses.replace`, and unknown keys raise (listing valid field names).
+- **`ModelJob`** — one or more models that share a set of per-job **overrides** on the base setup:
+  `resources` / `scheduler` / `experiment` (dicts applied with `dataclasses.replace`; unknown keys
+  raise) plus `tasks` (a `TaskSubset` — or dict — merged onto the plan's `task_subset`, the job
+  winning per field). `name` labels the group's `parallel_benchmark_name`; `ignore_cache` forces a
+  rerun.
 - **`SingleModel`** — the typed form of the `(name, n_configs)` tuples that experiment bundles
   accept. `n_configs`: `int` (that many random configs; `0` = default only), `"all"`, or a `dict`
   (AutoGluon full-pipeline kwargs). Pre-built `Experiment` objects can also be passed and pass
@@ -168,10 +182,12 @@ Presets: **`TabArenaV0pt1ResourcesSetup`** (8 CPU / 32 GB / 1h) and **`BeyondAre
 
 ### `TabArenaBenchmarkSetup` — `setup/benchmark.py` *(internal)*
 The per-run engine for one homogeneous run. Not part of the public API — the plan builds and drives
-it. `get_jobs_to_run()` is the core pipeline: ensure dirs → materialize the task collection →
-build the experiments (the bundle attaches each experiment's `ModelConstraints`) → core
-`build_jobs` (experiments × splits; constraint-violating pairs are dropped during enumeration) →
-Ray cache check (tabarena core's writer-aligned `job_cache_exists_batch`, fanned out over plain
+it. `get_jobs_to_run()` is the core pipeline: ensure dirs → build the experiments (the bundle
+attaches each experiment's `ModelConstraints`) → `context.build_jobs(experiments,
+task_subset=...)` (scopes the context's collection by the `TaskSubset`, then enumerates experiments
+× splits; constraint-violating pairs are dropped during enumeration) → scope the context's
+collection to the jobs' tasks and `materialize()` them (download only those) → Ray cache check
+(tabarena core's writer-aligned `job_cache_exists_batch`, fanned out over plain
 `(method, task_id_str, fold, repeat)` tuples) → persist the surviving sweep as a self-contained
 `JobBatch` artifact (experiments.yaml + task_metadata.csv + jobs.json) → bundle.
 

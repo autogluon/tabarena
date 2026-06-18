@@ -14,6 +14,7 @@ from tabarena.benchmark.task.metadata import (
     SplitMetadata,
     TabArenaTaskMetadata,
     TaskMetadataCollection,
+    TaskSubset,
 )
 from tabarena.benchmark.task.metadata.sources import load_tabarena_v0_1_task_metadata
 
@@ -605,3 +606,61 @@ class TestTabArenaV0pt1Conversion:
         assert ttm.domain is None
         assert ttm.dataset_year is None
         assert ttm.source is None
+
+
+# ---------------------------------------------------------------------------
+# TaskSubset — the typed single source of truth for the subset filters
+# ---------------------------------------------------------------------------
+
+
+class TestTaskSubset:
+    def _two(self) -> TaskMetadataCollection:
+        return _collection(
+            [
+                _task_meta(problem_type="binary", dataset_name="b"),
+                _task_meta(problem_type="regression", dataset_name="r"),
+            ],
+        )
+
+    def test_as_kwargs_drops_none(self):
+        assert TaskSubset(subset="lite").as_kwargs() == {"subset": "lite"}
+        assert TaskSubset().as_kwargs() == {}
+
+    def test_merged_with_other_wins_per_field(self):
+        base = TaskSubset(subset="lite", problem_types=["binary"])
+        merged = base.merged_with(TaskSubset(subset="tiny"))
+        # `other` overrides the shared field; the field it leaves unset falls back to base.
+        assert merged == TaskSubset(subset="tiny", problem_types=["binary"])
+
+    def test_from_input_none_is_empty(self):
+        assert TaskSubset.from_input(None) == TaskSubset()
+
+    def test_from_input_task_subset_is_passthrough(self):
+        spec = TaskSubset(subset="lite")
+        assert TaskSubset.from_input(spec) is spec
+
+    def test_from_input_dict_constructs(self):
+        assert TaskSubset.from_input({"subset": "lite"}) == TaskSubset(subset="lite")
+
+    def test_from_input_unknown_key_raises(self):
+        with pytest.raises(ValueError, match="Unknown TaskSubset field"):
+            TaskSubset.from_input({"not_a_filter": 1})
+
+    def test_from_input_bad_type_raises(self):
+        with pytest.raises(TypeError):
+            TaskSubset.from_input(123)
+
+    def test_subset_tasks_accepts_spec_equivalent_to_kwargs(self):
+        via_spec = self._two().subset_tasks(TaskSubset(problem_types=["binary"]))
+        via_kwargs = self._two().subset_tasks(problem_types=["binary"])
+        assert via_spec == via_kwargs
+        assert [t.dataset_name for t in via_spec] == ["b"]
+
+    def test_subset_tasks_loose_kwargs_override_spec(self):
+        # The passed spec says regression; the loose keyword overrides it to binary.
+        result = self._two().subset_tasks(TaskSubset(problem_types=["regression"]), problem_types=["binary"])
+        assert [t.dataset_name for t in result] == ["b"]
+
+    def test_subset_tasks_unknown_loose_kwarg_raises(self):
+        with pytest.raises(ValueError, match="Unknown TaskSubset field"):
+            self._two().subset_tasks(not_a_filter=1)

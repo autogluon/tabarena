@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 import numpy as np
 import pandas as pd
 
-from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection, TaskSubset
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
@@ -150,15 +150,25 @@ class AbstractArenaContext:
         self._register_methods(new_methods, scope_to_valid_tasks=scope_to_valid_tasks)
         return new_methods
 
-    def build_jobs(self, experiments: list[Experiment], *, pre_materialize: bool = False, **subset_kwargs) -> list[Job]:
+    def build_jobs(
+        self,
+        experiments: list[Experiment],
+        *,
+        task_subset: TaskSubset | dict | None = None,
+        pre_materialize: bool = False,
+        **subset_kwargs,
+    ) -> list[Job]:
         """Enumerate ``experiments`` x this context's task splits into a flat ``list[Job]``.
 
         This context's :attr:`task_metadata_collection` is first scoped by
-        :meth:`TaskMetadataCollection.subset_tasks` — every keyword argument is forwarded
-        there (``subset``, ``dataset_names``, ``split_indices``, ``problem_types``,
-        ``task_ids``, ``n_train_samples``, ``required_dtypes``, ...). ``subset`` predicate
-        names resolve against this context's :attr:`subset_predicates` unless an explicit
-        ``predicates=`` is passed. The scoped collection is then expanded by the shared
+        :meth:`TaskMetadataCollection.subset_tasks`. Express the scope with a typed
+        :class:`~tabarena.benchmark.task.metadata.collection.TaskSubset` via ``task_subset=``
+        (the source of truth for the available filters), or pass the same filters as loose
+        keyword arguments (``subset``, ``dataset_names``, ``split_indices``, ``problem_types``,
+        ``task_ids``, ``n_train_samples``, ``required_dtypes``, ...) — loose keywords override
+        ``task_subset`` per field. ``subset`` predicate names resolve against this context's
+        :attr:`subset_predicates` unless an explicit ``predicates=`` is passed. The scoped
+        collection is then expanded by the shared
         :func:`~tabarena.benchmark.experiment.build_jobs` grid enumerator (each experiment x
         each ``(dataset, fold, repeat)`` split, with constraint-violating pairs dropped).
 
@@ -172,8 +182,8 @@ class AbstractArenaContext:
         """
         from tabarena.benchmark.experiment import build_jobs as build_jobs_grid
 
-        subset_kwargs.setdefault("predicates", self.subset_predicates)
-        collection = self.task_metadata_collection.subset_tasks(**subset_kwargs)
+        predicates = subset_kwargs.pop("predicates", self.subset_predicates)
+        collection = self.task_metadata_collection.subset_tasks(task_subset, predicates=predicates, **subset_kwargs)
         if pre_materialize:
             collection.materialize()
         return build_jobs_grid(experiments, collection)
@@ -249,6 +259,7 @@ class AbstractArenaContext:
         experiments: list[Experiment],
         *,
         expname: str | Path | None,
+        task_subset: TaskSubset | dict | None = None,
         subset: str | list[str] | None = None,
         register: bool = True,
         new_result_prefix: str | None = None,
@@ -258,16 +269,21 @@ class AbstractArenaContext:
     ) -> list[dict[str, Any]]:
         """Build the jobs for ``experiments`` and run them — :meth:`build_jobs` then :meth:`run_jobs`.
 
-        The one-call path that avoids the two-step. Scoping goes to :meth:`build_jobs` — ``subset``
-        directly (the common case; predicate names resolve against this context's
-        :attr:`subset_predicates`), and any other :meth:`TaskMetadataCollection.subset_tasks` filter
-        via ``build_kwargs`` (e.g. ``{"dataset_names": [...], "split_indices": "lite"}``). Running
-        goes to :meth:`run_jobs` — ``expname`` / ``register`` / ``new_result_prefix`` and
-        ``**runner_kwargs`` (``debug_mode``, ``cache_mode``, ``user_tasks``, ...). To inspect or
-        slice the jobs before running, call :meth:`build_jobs` and :meth:`run_jobs` separately.
+        The one-call path that avoids the two-step. Scoping goes to :meth:`build_jobs`: pass a typed
+        :class:`~tabarena.benchmark.task.metadata.collection.TaskSubset` via ``task_subset`` (the
+        recommended way — the single source of truth for the available filters), and/or the
+        conveniences ``subset`` (a predicate expression; names resolve against this context's
+        :attr:`subset_predicates`) and ``build_kwargs`` (any other
+        :meth:`TaskMetadataCollection.subset_tasks` filter, e.g.
+        ``{"dataset_names": [...], "split_indices": "lite"}``). The conveniences are merged onto
+        ``task_subset`` and win per field. Running goes to :meth:`run_jobs` — ``expname`` /
+        ``register`` / ``new_result_prefix`` and ``**runner_kwargs`` (``debug_mode``,
+        ``cache_mode``, ``user_tasks``, ...). To inspect or slice the jobs before running, call
+        :meth:`build_jobs` and :meth:`run_jobs` separately.
         """
         jobs = self.build_jobs(
             experiments,
+            task_subset=task_subset,
             pre_materialize=pre_materialize,
             **{"subset": subset, **(build_kwargs or {})},
         )

@@ -10,7 +10,8 @@ from __future__ import annotations
 import pytest
 
 from tabarena.benchmark.experiment import TabArenaExperimentBundle
-from tabarena.benchmark.task.metadata import SplitMetadata, TabArenaTaskMetadata, TaskMetadataCollection
+from tabarena.benchmark.task.metadata import TaskMetadataCollection, TaskSubset
+from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 
 # Import a real submodule (see test_setup.py for why a bare namespace won't skip).
 pytest.importorskip("tabflow_slurm.setup", reason="tabflow_slurm is not installed")
@@ -41,50 +42,16 @@ def _resources(**kw) -> ResourcesSetup:
     return ResourcesSetup(**kw)
 
 
-def _task_meta(dataset_name: str, *, n_train: int = 80) -> TabArenaTaskMetadata:
-    sm = SplitMetadata(
-        repeat=0,
-        fold=0,
-        num_instances_train=n_train,
-        num_instances_test=20,
-        num_instance_groups_train=n_train,
-        num_instance_groups_test=20,
-        num_classes_train=2,
-        num_classes_test=2,
-        num_features_train=5,
-        num_features_test=5,
-    )
-    return TabArenaTaskMetadata(
-        dataset_name=dataset_name,
-        problem_type="binary",
-        is_classification=True,
-        target_name="target",
-        eval_metric="roc_auc",
-        splits_metadata={sm.split_index: sm},
-        split_time_horizon=None,
-        split_time_horizon_unit=None,
-        stratify_on=None,
-        time_on=None,
-        group_on=None,
-        group_time_on=None,
-        group_labels=None,
-        multiclass_min_n_classes_over_splits=2,
-        multiclass_max_n_classes_over_splits=2,
-        class_consistency_over_splits=True,
-        num_instances=100,
-        num_features=5,
-        num_classes=2,
-        num_instance_groups=100,
-        tabarena_task_name=dataset_name,
-        task_id_str="360",
-    )
+def _context(tasks: TaskMetadataCollection | None = None) -> AbstractArenaContext:
+    """A minimal, baseline-free arena context over the given (or empty) collection."""
+    return AbstractArenaContext(methods=[], task_metadata=tasks if tasks is not None else TaskMetadataCollection([]))
 
 
 def _plan(model_jobs: list[ModelJob], **kwargs) -> TabArenaBenchmarkPlan:
     defaults = {
         "benchmark_name": "my_bench",
         "model_jobs": model_jobs,
-        "tasks": TaskMetadataCollection([]),
+        "context": _context(),
         "experiment_bundle": TabArenaExperimentBundle(n_random_configs=0, preprocessing_pipelines=["default"]),
         "path_setup": PathSetup(workspace="/ws", python_path="/py"),
         "scheduler_setup": _slurm(),
@@ -141,6 +108,13 @@ class TestModelJobNormalization:
         job = ModelJob(models=[("X", 5), "Y"])
         assert job._model_entries() == [("X", 5), ("Y", 0)]
 
+    def test_tasks_default_is_empty_task_subset(self):
+        assert ModelJob(models="X").tasks == TaskSubset()
+
+    def test_tasks_dict_normalized_to_task_subset(self):
+        job = ModelJob(models="X", tasks={"subset": "lite"})
+        assert job.tasks == TaskSubset(subset="lite")
+
 
 # ---------------------------------------------------------------------------
 # _apply_overrides
@@ -193,27 +167,48 @@ class TestBuildSetups:
         assert setup.scheduler_setup.gpu_partition == "X"
         assert plan.scheduler_setup.gpu_partition == "gpu_part"
 
-    def test_tasks_override_filters_base_collection(self):
-        base_tasks = TaskMetadataCollection([_task_meta("small", n_train=500), _task_meta("big", n_train=50_000)])
-        plan = _plan(
-            [ModelJob(models=("A", 0), tasks={"n_train_samples": (0, 1000)})],
-            tasks=base_tasks,
-        )
+    def test_tasks_override_becomes_setup_task_subset(self):
+        # A dict `tasks` resolves to a TaskSubset (ModelJob.__post_init__).
+        plan = _plan([ModelJob(models=("A", 0), tasks={"n_train_samples": (0, 1000)})])
         setup = plan.build_setups()[0]
-        assert [t.dataset_name for t in setup.tasks] == ["small"]
-        assert len(plan.tasks) == 2  # base collection untouched
+        assert setup.task_subset == TaskSubset(n_train_samples=(0, 1000))
+        assert setup.context is plan.context  # the context is shared, not pre-filtered
+
+    def test_plan_task_subset_merges_with_job_tasks(self):
+        plan = _plan(
+            [ModelJob(models=("A", 0), tasks=TaskSubset(dataset_names=["x"]))],
+            task_subset=TaskSubset(subset="lite"),
+        )
+        # Plan-level scope + the job's scope are combined per field into the group's task_subset.
+        assert plan.build_setups()[0].task_subset == TaskSubset(subset="lite", dataset_names=["x"])
+
+    def test_job_tasks_field_overrides_plan_task_subset(self):
+        # Same field on both -> the job wins; other plan fields are kept.
+        plan = _plan(
+            [ModelJob(models=("A", 0), tasks=TaskSubset(subset="tiny"))],
+            task_subset=TaskSubset(subset="lite", problem_types=["binary"]),
+        )
+        assert plan.build_setups()[0].task_subset == TaskSubset(subset="tiny", problem_types=["binary"])
 
     def test_equal_task_filters_merge_into_one_setup(self):
-        base_tasks = TaskMetadataCollection([_task_meta("small", n_train=500), _task_meta("big", n_train=50_000)])
         plan = _plan(
             [
                 ModelJob(models=("A", 0), tasks={"n_train_samples": (0, 1000)}),
                 ModelJob(models=("B", 0), tasks={"n_train_samples": (0, 1000)}),
             ],
-            tasks=base_tasks,
         )
         setups = plan.build_setups()
-        assert len(setups) == 1  # equal filtered collections compare equal -> merged
+        assert len(setups) == 1  # equal task_subsets compare equal -> merged
+        assert setups[0].task_subset == TaskSubset(n_train_samples=(0, 1000))
+
+    def test_differing_task_filters_split_into_two_setups(self):
+        plan = _plan(
+            [
+                ModelJob(models=("A", 0), tasks={"n_train_samples": (0, 1000)}),
+                ModelJob(models=("B", 0), tasks={"n_train_samples": (0, 5000)}),
+            ],
+        )
+        assert len(plan.build_setups()) == 2  # differing task_subsets -> separate groups
 
     def test_experiment_override_lands_and_models_preserved(self):
         plan = _plan([ModelJob(models=("A", 0), experiment={"model_agnostic_preprocessing": False})])

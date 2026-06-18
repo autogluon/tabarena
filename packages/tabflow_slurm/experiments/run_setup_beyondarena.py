@@ -1,17 +1,16 @@
 """Code for running the BeyondArena benchmark on a full node in a GCP cluster.
 
-The tasks come from the Data Foundry ``BeyondArena`` collection via
-`TaskMetadataCollection.from_preset("BeyondArena")`: it loads reference metadata
-(no downloads); the benchmark setup later materializes (downloads + converts)
-only the surviving datasets into local OpenML tasks on this head node. Chain
-`.subset_tasks(dataset_names=[...])` to run a chosen subset and only those
-datasets are fetched.
+The tasks come from the Data Foundry ``BeyondArena`` collection, which the
+``BeyondArenaContext`` owns: it loads reference metadata (no downloads); the
+benchmark setup later materializes (downloads + converts) only the surviving
+datasets into local OpenML tasks on this head node. Scope a chosen subset with
+``task_subset=TaskSubset(dataset_names=[...])`` and only those datasets are fetched.
 """
 
 from __future__ import annotations
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
-from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
 from tabflow_slurm import (
     BeyondArenaResourcesSetup,
     GCPSlurmSetup,
@@ -33,7 +32,9 @@ benchmark_plan = TabArenaBenchmarkPlan(
             },
         ),
     ],
-    tasks=TaskMetadataCollection.from_preset("BeyondArena"),
+    # The BeyondArena context owns the Data Foundry collection. No `task_subset` here
+    # runs the full suite; scope it with e.g. `task_subset=TaskSubset(dataset_names=[...])`.
+    context=BeyondArenaContext(),
     experiment_bundle=BeyondArenaExperimentBundle(),
     path_setup=PathSetup(
         workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",

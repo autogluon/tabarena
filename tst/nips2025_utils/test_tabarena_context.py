@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.benchmark.task.metadata import TaskMetadataCollection, TaskSubset
 from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
@@ -79,6 +79,29 @@ class TestBuildJobs:
             ("a", "big_ds", 0, 0),
             ("b", "big_ds", 0, 0),
         ]
+
+    def test_task_subset_object_scopes_like_subset_kwarg(self):
+        # A typed TaskSubset is equivalent to the loose `subset=` keyword.
+        jobs = _ctx().build_jobs([_StubExperiment()], task_subset=TaskSubset(subset="lite"))
+        assert [j.task.as_triple() for j in jobs] == [("small_ds", 0, 0), ("big_ds", 0, 0)]
+
+    def test_task_subset_dict_resolves(self):
+        jobs = _ctx().build_jobs([_StubExperiment()], task_subset={"dataset_names": ["small_ds"]})
+        assert [j.task.as_triple() for j in jobs] == [("small_ds", 0, 0), ("small_ds", 1, 0)]
+
+    def test_task_subset_object_and_loose_kwarg_combine_per_field(self):
+        # Different fields combine: the spec scopes datasets, the loose `subset` adds the split filter.
+        jobs = _ctx().build_jobs(
+            [_StubExperiment()],
+            task_subset=TaskSubset(dataset_names=["small_ds"]),
+            subset="lite",
+        )
+        assert [j.task.as_triple() for j in jobs] == [("small_ds", 0, 0)]
+
+    def test_loose_kwarg_overrides_task_subset_same_field(self):
+        # Same field: the loose `subset="lite"` overrides the spec's `subset="small"`.
+        jobs = _ctx().build_jobs([_StubExperiment()], task_subset=TaskSubset(subset="small"), subset="lite")
+        assert [j.task.as_triple() for j in jobs] == [("small_ds", 0, 0), ("big_ds", 0, 0)]
 
 
 def _complete_legacy_df() -> pd.DataFrame:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import re
-from dataclasses import replace
-from typing import TYPE_CHECKING, Literal
+from dataclasses import dataclass, fields, replace
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 import pandas as pd
 
@@ -267,88 +267,68 @@ class TaskMetadataCollection:
 
     def subset_tasks(
         self,
+        task_subset: TaskSubset | dict[str, Any] | None = None,
         *,
-        problem_types: list[str] | None = None,
-        split_indices: list[str] | Literal["lite"] | None = None,
-        dataset_names: list[str] | None = None,
-        task_ids: list[str | int] | None = None,
-        required_dtypes: list[str] | None = None,
-        forbidden_dtypes: list[str] | None = None,
-        n_train_samples: tuple[int | None, int | None] | None = None,
-        subset: str | list[str] | list[str | list[str]] | None = None,
         predicates: dict[str, SubsetPredicate] | None = None,
         verbose: bool = False,
+        **filters: Any,
     ) -> TaskMetadataCollection:
-        """A new collection restricted by declarative filters (``None`` = no filter).
+        """A new collection restricted by the filters of a :class:`TaskSubset` (``None`` = no filter).
 
-        The filters (applied in this order, each on the previous result):
+        :class:`TaskSubset` is the single source of truth for *which* filters exist and what each
+        one means — see its field docstrings for the per-filter semantics. Specify the scope either
+        as a ``TaskSubset`` (or a dict that resolves
+        to one) passed as ``task_subset``, or as the same filters given as loose keyword arguments
+        (e.g. ``subset_tasks(split_indices="lite")``). Loose keywords are validated against the
+        ``TaskSubset`` fields (unknown names raise) and override the passed ``task_subset`` per
+        field — so the field set lives in exactly one place.
 
-        * ``problem_types`` — keep tasks whose ``problem_type`` is listed
-          (options: ``"binary"``, ``"multiclass"``, ``"regression"``).
-        * ``split_indices`` — keep only the listed splits (``"r{repeat}f{fold}"`` strings,
-          e.g. ``["r0f0", "r0f1"]``); ``"lite"`` keeps only the first split (``r0f0``).
-          Tasks left with no splits are dropped.
-        * ``dataset_names`` — keep tasks whose ``dataset_name`` is listed; raises if a
-          requested name is not in this collection.
-        * ``task_ids`` — keep tasks whose ``task_id_str`` is listed (ints are accepted
-          for OpenML task ids); raises if a requested id is not in this collection.
-        * ``required_dtypes`` / ``forbidden_dtypes`` — keep datasets with at least one /
-          no column of the given dtypes (options: ``"numeric"``, ``"categorical"``,
-          ``"text"``, ``"datetime"``).
-        * ``n_train_samples`` — ``(lower, upper)`` bounds on a split's number of training
-          samples; lower is exclusive, upper inclusive, ``None`` means unbounded on that
-          side. Splits outside the band are dropped (and tasks left with no splits).
-        * ``subset`` — named subset predicate expression(s) evaluated against
-          :meth:`task_grid` (the same predicates an arena context applies in ``compare``).
-          A single string is one expression; a flat list of strings is AND-ed together.
-          Within an expression, ``|`` is a union (OR) and a leading ``!`` negates an atom —
-          e.g. ``"tiny"``, ``["classification", "!tiny"]``, ``"binary|multiclass"``. A *list
-          of lists* is a union (OR) across views — each element is one view (a string, or a
-          string-list AND-ed together) and its surviving splits are unioned, so
-          ``[["lite", "classification"], ["regression"]]`` keeps the lite classification
-          splits plus every regression split. Splits not matching are dropped (and tasks
-          left with no splits), so split-level predicates like ``"lite"`` work too. The
-          predicate names come from ``predicates``; for a
-          collection built via :meth:`from_preset` these default to the suite's own (size
-          buckets ``tiny``/``small``/``medium``/``large``, ``iid``/``temporal``/``grouped``,
-          ``text``, ``low-dim`` … for BeyondArena), so you can pass just ``subset=`` there.
-        * ``predicates`` — the subset-name → :class:`SubsetPredicate` map ``subset`` resolves
-          against. ``None`` uses this collection's preset default (set by :meth:`from_preset`)
-          and otherwise falls back to ``TabArenaContext.SUBSET_PREDICATES``. Ignored when
-          ``subset`` is ``None``.
+        The filters are applied in a fixed order, each on the previous result: ``problem_types`` →
+        ``split_indices`` → ``dataset_names`` → ``task_ids`` → ``required_dtypes`` /
+        ``forbidden_dtypes`` → ``n_train_samples`` → ``subset``. Split-level filters drop tasks
+        left with no splits.
 
-        The source ref is preserved, so the usual flow is filter-then-:meth:`materialize`
-        (only the surviving tasks are downloaded). ``verbose`` prints how many tasks
-        survived each filter step.
+        ``predicates`` (orthogonal to the spec) is the subset-name → :class:`SubsetPredicate` map
+        the ``subset`` expression resolves against: ``None`` uses this collection's preset default
+        (set by :meth:`from_preset`) and otherwise falls back to
+        ``TabArenaContext.SUBSET_PREDICATES``; ignored when ``subset`` is ``None``. The source ref
+        is preserved, so the usual flow is filter-then-:meth:`materialize` (only the surviving tasks
+        are downloaded). ``verbose`` prints how many tasks survived each filter step.
         """
+        # TaskSubset owns the field set; loose **filters are folded into a spec (validated there)
+        # and override the passed task_subset per field, so both call styles share one definition.
+        spec = TaskSubset.from_input(task_subset).merged_with(TaskSubset.from_input(filters))
         steps: list[tuple[str, TaskMetadataCollection]] = [("Starting", self)]
         result = self
-        if problem_types is not None:
-            result = result._with_tasks([t for t in result if t.problem_type in problem_types])
+        if spec.problem_types is not None:
+            result = result._with_tasks([t for t in result if t.problem_type in spec.problem_types])
             steps.append(("Filter to problem types", result))
-        if split_indices is not None:
-            result = result._filter_split_indices(split_indices)
+        if spec.split_indices is not None:
+            result = result._filter_split_indices(spec.split_indices)
             steps.append(("Filter to splits", result))
-        if dataset_names is not None:
-            result = result._filter_dataset_names(dataset_names)
+        if spec.dataset_names is not None:
+            result = result._filter_dataset_names(spec.dataset_names)
             steps.append(("Filter to dataset names", result))
-        if task_ids is not None:
-            result = result._filter_task_ids(task_ids)
+        if spec.task_ids is not None:
+            result = result._filter_task_ids(spec.task_ids)
             steps.append(("Filter to task ids", result))
-        if required_dtypes is not None or forbidden_dtypes is not None:
+        if spec.required_dtypes is not None or spec.forbidden_dtypes is not None:
             result = result._with_tasks(
                 [
                     t
                     for t in result
-                    if t.has_supported_dtypes(required_dtypes=required_dtypes, forbidden_dtypes=forbidden_dtypes)
+                    if t.has_supported_dtypes(
+                        required_dtypes=spec.required_dtypes,
+                        forbidden_dtypes=spec.forbidden_dtypes,
+                    )
                 ],
             )
             steps.append(("Filter to dtypes", result))
-        if n_train_samples is not None:
-            result = result._filter_train_samples(n_train_samples)
+        if spec.n_train_samples is not None:
+            result = result._filter_train_samples(spec.n_train_samples)
             steps.append(("Filter to dataset size", result))
-        if subset is not None:
-            result = result._filter_subset(subset, predicates=predicates)
+        if spec.subset is not None:
+            result = result._filter_subset(spec.subset, predicates=predicates)
             steps.append(("Filter to subset predicates", result))
 
         if verbose:
@@ -713,6 +693,99 @@ class TaskMetadataCollection:
         for t in self._tasks:
             out.setdefault(t.tabarena_task_name, tid_from_task_id_str(t.task_id_str))
         return out
+
+
+@dataclass
+class TaskSubset:
+    """Typed, declarative scope over a :class:`TaskMetadataCollection` (``None`` field = no filter).
+
+    The single source of truth for *which* subset filters exist and what each one means:
+    :meth:`TaskMetadataCollection.subset_tasks` (and therefore
+    :meth:`~tabarena.nips2025_utils.abstract_arena_context.AbstractArenaContext.build_jobs`) is
+    expressed in terms of these fields rather than re-declaring them. Pass a ``TaskSubset`` directly,
+    or splat it back into either call via :meth:`as_kwargs`::
+
+        spec = TaskSubset(subset="lite", dataset_names=["anneal"])
+        collection.subset_tasks(spec)                 # or: subset_tasks(**spec.as_kwargs())
+        context.build_jobs(experiments, task_subset=spec)
+
+    A plain dict (e.g. ``{"subset": "lite"}``) resolves to a ``TaskSubset`` via :meth:`from_input`,
+    with unknown keys rejected up front — so dict-based call sites keep working but gain validation.
+    The predicate registry (``predicates``) and ``verbose`` are intentionally *not* fields: they are
+    orthogonal knobs of ``subset_tasks`` (a caller / arena context supplies its own ``predicates``),
+    not part of *which* tasks to keep.
+    """
+
+    subset: str | list[str] | list[str | list[str]] | None = None
+    """Named subset-predicate expression(s) evaluated against :meth:`TaskMetadataCollection.task_grid`
+    (the same predicates an arena context applies in ``compare``). A single string is one expression;
+    a flat list of strings is AND-ed together. Within an expression, ``|`` is a union (OR) and a
+    leading ``!`` negates an atom — e.g. ``"tiny"``, ``["classification", "!tiny"]``,
+    ``"binary|multiclass"``. A *list of lists* is a union (OR) across views — each element is one view
+    (a string, or a string-list AND-ed together) and its surviving splits are unioned, so
+    ``[["lite", "classification"], ["regression"]]`` keeps the lite classification splits plus every
+    regression split. Splits not matching are dropped (and tasks left with no splits), so split-level
+    predicates like ``"lite"`` work too. Names resolve against ``subset_tasks``'s ``predicates``."""
+    problem_types: list[str] | None = None
+    """Keep tasks whose ``problem_type`` is listed (``"binary"`` / ``"multiclass"`` / ``"regression"``)."""
+    split_indices: list[str] | Literal["lite"] | None = None
+    """Keep only the listed splits (``"r{repeat}f{fold}"`` strings, e.g. ``["r0f0", "r0f1"]``);
+    ``"lite"`` keeps only the first split (``r0f0``). Tasks left with no splits are dropped."""
+    dataset_names: list[str] | None = None
+    """Keep tasks whose ``dataset_name`` is listed; raises if a requested name is not present."""
+    task_ids: list[str | int] | None = None
+    """Keep tasks whose ``task_id_str`` is listed (ints accepted for OpenML task ids); raises if a
+    requested id is not present."""
+    required_dtypes: list[str] | None = None
+    """Keep datasets with at least one column of the given dtypes (``"numeric"`` / ``"categorical"``
+    / ``"text"`` / ``"datetime"``)."""
+    forbidden_dtypes: list[str] | None = None
+    """Keep datasets with no column of the given dtypes (same options as ``required_dtypes``)."""
+    n_train_samples: tuple[int | None, int | None] | None = None
+    """``(lower, upper]`` bounds on a split's number of training samples (lower exclusive, upper
+    inclusive, ``None`` = unbounded that side). Splits outside the band are dropped (and tasks left
+    with no splits)."""
+
+    def as_kwargs(self) -> dict[str, Any]:
+        """The non-``None`` fields as a ``subset_tasks`` / ``build_jobs`` keyword dict.
+
+        ``None`` fields (no filter) are dropped, so ``TaskSubset().as_kwargs() == {}`` runs the
+        full collection. The result is meant to be splatted: ``subset_tasks(**spec.as_kwargs())``.
+        """
+        return {f.name: getattr(self, f.name) for f in fields(self) if getattr(self, f.name) is not None}
+
+    def merged_with(self, other: TaskSubset) -> TaskSubset:
+        """A new ``TaskSubset`` with ``other``'s set (non-``None``) fields layered on top of this one.
+
+        Per-field override (``other`` wins where it sets a field; this one's value is kept where
+        ``other`` leaves it ``None``) — the typed counterpart of ``{**self_kwargs, **other_kwargs}``.
+        Used to combine a base/plan-level scope with a per-job scope.
+        """
+        return replace(self, **other.as_kwargs())
+
+    @classmethod
+    def from_input(cls, value: TaskSubset | dict[str, Any] | None) -> Self:
+        """Normalize a ``TaskSubset`` / dict / ``None`` into a ``TaskSubset``.
+
+        ``None`` -> an empty spec (no filter); a ``TaskSubset`` is returned as-is; a dict is
+        validated (unknown keys raise, listing the valid field names) and constructed.
+        """
+        if value is None:
+            return cls()
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, dict):
+            valid = {f.name for f in fields(cls)}
+            unknown = set(value) - valid
+            if unknown:
+                raise ValueError(
+                    f"Unknown TaskSubset field(s) {sorted(unknown)}. Valid fields: {sorted(valid)}.",
+                )
+            return cls(**value)
+        raise TypeError(
+            f"Cannot interpret {value!r} as a TaskSubset. Expected a TaskSubset, a dict of "
+            f"subset_tasks filters, or None.",
+        )
 
 
 class _PresetTaskMetadataCollection(TaskMetadataCollection):

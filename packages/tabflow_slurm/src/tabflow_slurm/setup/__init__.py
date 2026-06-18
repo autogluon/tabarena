@@ -1,8 +1,8 @@
 """Benchmark setup building blocks.
 
 `TabArenaBenchmarkPlan` is the single public entry point: compose it from the
-building blocks below (`PathSetup`, `SlurmSetup`, `ResourcesSetup`, a
-`TaskMetadataCollection`, an experiment bundle) plus a list of `ModelJob`s, then
+building blocks below (`PathSetup`, `SlurmSetup`, `ResourcesSetup`, an arena
+context, an experiment bundle) plus a list of `ModelJob`s, then
 call `.setup_jobs()` to generate the `JobBatch` artifact, the SLURM job JSON,
 and the `sbatch` command(s) to launch. The per-run engine
 (`tabflow_slurm.setup.benchmark.TabArenaBenchmarkSetup`) is internal — the plan

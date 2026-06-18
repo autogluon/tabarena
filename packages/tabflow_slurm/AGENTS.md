@@ -44,17 +44,19 @@ tabflow_slurm/                      ← this folder (docs, examples, history, py
 ## Mental model of `setup_jobs()`
 
 1. `plan.setup_jobs()` → `_prefetch_model_weights()` (head node) → `build_setups()`.
-2. `build_setups()` → `_group_jobs()`: each `ModelJob`'s dict overrides are applied to the base
-   building blocks via `dataclasses.replace` (its `tasks` dict instead *filters* the base
-   `TaskMetadataCollection` via `subset_tasks`); jobs are **merged** when their
-   `(resources, scheduler, tasks, experiment-with-models-zeroed, ignore_cache)` signature matches
-   (collections compare by value). One `TabArenaBenchmarkSetup` per group.
-3. Each setup's `get_jobs_to_run()`: ensure dirs → `tasks.materialize()` (downloads only the
-   collection's tasks) → `experiment_bundle.build_experiments()` (attaches each experiment's
-   `ModelConstraints`) → core `build_jobs` (experiments × splits; constraint-violating pairs are
-   dropped during enumeration) → Ray cache check (core `job_cache_exists_batch` over plain
-   coordinate tuples) → persist the surviving sweep as a `JobBatch` artifact
-   (experiments.yaml + task_metadata.csv + jobs.json) → `scheduler.bundle_items()`.
+2. `build_setups()` → `_group_jobs()`: each `ModelJob`'s `resources`/`scheduler`/`experiment` dict
+   overrides are applied to the base building blocks via `dataclasses.replace`; its `tasks` (a
+   `TaskSubset`) is merged onto the plan's `task_subset` (job wins per field). Jobs are **merged**
+   when their `(resources, scheduler, task_subset, experiment-with-models-zeroed, ignore_cache)`
+   signature matches (compared by value). One `TabArenaBenchmarkSetup` per group.
+3. Each setup's `get_jobs_to_run()`: ensure dirs → `experiment_bundle.build_experiments()`
+   (attaches each experiment's `ModelConstraints`) → `context.build_jobs(experiments,
+   task_subset=...)` (scopes the context's collection by the `TaskSubset`, then enumerates
+   experiments × splits; constraint-violating pairs are dropped during enumeration) → scope the
+   context's collection to the jobs' tasks and `materialize()` (downloads only those) → Ray cache
+   check (core `job_cache_exists_batch` over plain coordinate tuples) → persist the surviving sweep
+   as a `JobBatch` artifact (experiments.yaml + task_metadata.csv + jobs.json) →
+   `scheduler.bundle_items()`.
 4. `scheduler.get_run_commands()` writes the job JSON (splitting at `max_array_size`) and returns the
    `sbatch` command(s). The plan prints one consolidated summary.
 
@@ -104,8 +106,10 @@ Then: `sbatch … submit_template.sh <job.json>` → array task picks `jobs[SLUR
   (bundle iteration); these two move together.
 - New hardware preset → a `ResourcesSetup` subclass in `setup/resources.py`.
 - The model **selection / config counts / preprocessing / constraints** come from `tabarena`'s
-  `TabArenaExperimentBundle`, and the tasks from a `TaskMetadataCollection`
-  (`from_preset` / `from_source` + `subset_tasks`), **not** here — this package only schedules.
+  `TabArenaExperimentBundle`, and the tasks from an **arena context** (`TabArenaContext` /
+  `BeyondArenaContext`) scoped by a `TaskSubset`, **not** here — this package only schedules. The
+  scope filters are defined once on `tabarena`'s `TaskSubset` (the source of truth for
+  `subset_tasks` / `build_jobs`); don't re-declare them in this package.
 
 ## Tests & lint
 

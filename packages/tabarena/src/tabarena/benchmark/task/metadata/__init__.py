@@ -6,6 +6,7 @@ from tabarena.benchmark.task.metadata.collection import (
     BeyondArenaTaskMetadataCollection,
     TabArenaTaskMetadataCollection,
     TaskMetadataCollection,
+    TaskSubset,
 )
 from tabarena.benchmark.task.metadata.compute import compute_task_metadata
 from tabarena.benchmark.task.metadata.schema import (
@@ -52,6 +53,7 @@ __all__ = [
     "TabArenaV0pt1TaskMetadataSource",
     "TaskMetadataCollection",
     "TaskMetadataSource",
+    "TaskSubset",
     "ValidationMetadata",
     "compute_task_metadata",
     "default_task_metadata_collection",
