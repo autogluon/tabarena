@@ -390,11 +390,15 @@ class Experiment:
                 TabArenaModelSpecificPreprocessing,
             )
 
+            # Model-agnostic step: a feature generator AutoGluon applies to all data. Set the same
+            # way for every flavour; ``AGWrapper`` builds it from these keys (forwarding the task's
+            # group/time split columns) for both the single-model wrappers and the full predictor.
             method_kwargs["fit_kwargs"]["feature_generator_cls"] = TabArenaModelAgnosticPreprocessing
             method_kwargs["fit_kwargs"]["feature_generator_kwargs"] = {}
-            method_kwargs["model_hyperparameters"] = TabArenaModelSpecificPreprocessing.add_to_hyperparameters(
-                method_kwargs["model_hyperparameters"]
-            )
+            # Model-specific step: augments each model's hyperparameters. The shape differs by
+            # experiment type (single ``model_hyperparameters`` vs a full predictor's per-model
+            # ``hyperparameters`` dict), so it is delegated to an overridable hook.
+            self._apply_model_specific_preprocessing(method_kwargs, TabArenaModelSpecificPreprocessing)
             return method_kwargs
 
         if pipeline.startswith("FSBench__"):
@@ -407,6 +411,17 @@ class Experiment:
             return apply_fs_bench_preprocessing(preprocessing_name=pipeline, experiment=self).method_kwargs
 
         raise ValueError(f"Preprocessing pipeline name '{pipeline}' not recognized.")
+
+    def _apply_model_specific_preprocessing(self, method_kwargs: dict, model_specific_cls) -> None:
+        """Augment the model hyperparameters in place with the model-specific preprocessing.
+
+        Default (single-model config experiments — ``AGModelExperiment`` / ``AGModelBagExperiment``):
+        wrap the single ``method_kwargs["model_hyperparameters"]``. ``AGExperiment`` (a full
+        ``TabularPredictor`` run) overrides this to walk its per-model ``hyperparameters`` dict.
+        """
+        method_kwargs["model_hyperparameters"] = model_specific_cls.add_to_hyperparameters(
+            method_kwargs["model_hyperparameters"],
+        )
 
     @staticmethod
     def _apply_resources(method_kwargs: dict) -> dict:
@@ -670,6 +685,28 @@ class AGExperiment(Experiment):
                         val = kwargs["fit_kwargs"]["hyperparameters"].pop(model)
                         kwargs["fit_kwargs"]["hyperparameters"][tabarena_model_registry.key_to_cls(model)] = val
         return cls(**kwargs)
+
+    def _apply_model_specific_preprocessing(self, method_kwargs: dict, model_specific_cls) -> None:
+        """Augment a full predictor's per-model hyperparameters with model-specific preprocessing.
+
+        A full ``TabularPredictor`` run has no single ``model_hyperparameters``; its
+        ``fit_kwargs["hyperparameters"]`` maps each model key to a config dict *or a list of config
+        dicts*. Every config is wrapped, so single- and multi-model AutoGluon experiments both get
+        the same model-specific preprocessing as the single-model config experiments. A no-op when
+        there is no ``hyperparameters`` dict (e.g. a preset-driven run) — the model-agnostic feature
+        generator still applies.
+        """
+        hyperparameters = method_kwargs.get("fit_kwargs", {}).get("hyperparameters")
+        if not isinstance(hyperparameters, dict):
+            return
+        for model_key, configs in hyperparameters.items():
+            if isinstance(configs, list):
+                hyperparameters[model_key] = [
+                    model_specific_cls.add_to_hyperparameters(config) if isinstance(config, dict) else config
+                    for config in configs
+                ]
+            elif isinstance(configs, dict):
+                hyperparameters[model_key] = model_specific_cls.add_to_hyperparameters(configs)
 
 
 class AGModelExperiment(Experiment):

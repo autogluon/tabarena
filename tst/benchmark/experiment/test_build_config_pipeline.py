@@ -172,3 +172,50 @@ def test_bundle_model_constraints_merges_defaults_and_custom():
     effective = bundle.model_constraints
     assert effective["MYMODEL"] is custom  # custom override present
     assert "TABICL" in effective  # default policy preserved
+
+
+# ---------------------------------------------------------------------------
+# tabarena_default applied to a full AutoGluon experiment (AGExperiment)
+# ---------------------------------------------------------------------------
+_MODEL_SPECIFIC_KEY = "ag.model_specific_feature_generator_kwargs"
+
+
+def _apply_tabarena_default(fit_kwargs: dict) -> dict:
+    """Build an AGExperiment with tabarena_default and return its `_apply_preprocessing` output."""
+    from tabarena.benchmark.experiment import AGExperiment
+
+    exp = AGExperiment(name="AutoGluon_x", fit_kwargs=fit_kwargs, preprocessing_pipeline="tabarena_default")
+    return exp._apply_preprocessing(copy.deepcopy(exp.method_kwargs))
+
+
+def _has_model_specific(config) -> bool:
+    return isinstance(config, dict) and _MODEL_SPECIFIC_KEY in config
+
+
+def test_autogluon_experiment_tabarena_default_single_model():
+    """A single-model AutoGluon experiment gets the model-agnostic generator + the single model's
+    hyperparameters wrapped with the model-specific preprocessing (matching the config path).
+    """
+    rmk = _apply_tabarena_default({"hyperparameters": {"GBM": {"num_boost_round": 10}}})
+    assert rmk["fit_kwargs"]["feature_generator_cls"] is TabArenaModelAgnosticPreprocessing
+    assert rmk["fit_kwargs"]["feature_generator_kwargs"] == {}
+    assert _has_model_specific(rmk["fit_kwargs"]["hyperparameters"]["GBM"])
+
+
+def test_autogluon_experiment_tabarena_default_multi_model():
+    """Every model (and every config in a per-model list) is wrapped for a multi-model predictor."""
+    rmk = _apply_tabarena_default(
+        {"hyperparameters": {"GBM": [{"num_boost_round": 10}, {"learning_rate": 0.05}], "CAT": {}, "XGB": {}}},
+    )
+    assert rmk["fit_kwargs"]["feature_generator_cls"] is TabArenaModelAgnosticPreprocessing
+    hp = rmk["fit_kwargs"]["hyperparameters"]
+    assert all(_has_model_specific(c) for c in hp["GBM"])  # list of configs, each wrapped
+    assert _has_model_specific(hp["CAT"])
+    assert _has_model_specific(hp["XGB"])
+
+
+def test_autogluon_experiment_tabarena_default_preset_only_applies_model_agnostic():
+    """With no `hyperparameters` dict (e.g. preset-driven), only the model-agnostic step applies."""
+    rmk = _apply_tabarena_default({"presets": "medium_quality"})
+    assert rmk["fit_kwargs"]["feature_generator_cls"] is TabArenaModelAgnosticPreprocessing
+    assert "hyperparameters" not in rmk["fit_kwargs"]  # nothing to wrap; no crash

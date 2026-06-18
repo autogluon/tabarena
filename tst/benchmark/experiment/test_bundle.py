@@ -280,3 +280,19 @@ def test_autogluon_experiment_protocol_off_when_bundle_disables_it():
         dynamic_tabarena_validation_protocol=False,
     )
     assert exp.dynamic_tabarena_validation_protocol is False
+
+
+def test_autogluon_experiment_inherits_preprocessing_pipeline():
+    """A full AutoGluon experiment inherits the bundle's preprocessing pipeline (BeyondArena uses
+    tabarena_default), so it gets the same preprocessing as the config experiments.
+    """
+    exp = _build_single_autogluon(agexp_kwargs={"fit_kwargs": {"hyperparameters": {"GBM": {}}}})
+    assert exp.preprocessing_pipeline == "tabarena_default"
+
+
+def test_autogluon_experiment_preprocessing_override_is_respected():
+    """An explicit per-entry preprocessing_pipeline wins over the bundle default."""
+    exp = _build_single_autogluon(
+        agexp_kwargs={"fit_kwargs": {"hyperparameters": {"GBM": {}}}, "preprocessing_pipeline": "default"},
+    )
+    assert exp.preprocessing_pipeline == "default"
