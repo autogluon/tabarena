@@ -430,6 +430,7 @@ class TabArenaExperimentBundle:
                 model_name=model_name,
                 agexp_kwargs=n_configs_or_kwargs,
                 pipeline_method_kwargs=pipeline_method_kwargs,
+                preprocessing_pipeline=preprocessing_pipeline,
                 time_limit=time_limit,
             )
         return self._generate_model_configs(
@@ -449,18 +450,19 @@ class TabArenaExperimentBundle:
         model_name: str,
         agexp_kwargs: dict,
         pipeline_method_kwargs: dict,
+        preprocessing_pipeline: str | None,
         time_limit: int,
     ) -> list:
         """Build a full-AutoGluon ``AGExperiment`` (a complete ``TabularPredictor`` run).
 
         Unlike the per-config path, the entry's ``agexp_kwargs`` are passed to ``AGExperiment``
         more or less verbatim (with the bundle's ``init_kwargs`` / ``fit_kwargs`` and ``time_limit``
-        merged in). The bundle's ``dynamic_tabarena_validation_protocol`` is forwarded too, so a
-        full-AutoGluon run gets the SAME grouped/temporal validation-split handling as the config
-        experiments (resolved at fit time by the ``AGWrapper`` from the task metadata); the caller
-        can override it per-entry. The per-config ``preprocessing_pipelines`` (e.g.
-        ``tabarena_default``) are NOT applied here: they augment a single model's hyperparameters,
-        which has no analogue for a multi-model predictor.
+        merged in). The bundle's ``dynamic_tabarena_validation_protocol`` and the active
+        ``preprocessing_pipeline`` are forwarded too (each overridable per-entry), so a
+        full-AutoGluon run gets the SAME grouped/temporal validation-split handling AND the same
+        preprocessing as the config experiments — ``AGExperiment._apply_preprocessing`` applies the
+        ``tabarena_default`` model-agnostic generator and wraps every model in its (single- or
+        multi-model) ``hyperparameters`` dict with the model-specific preprocessing.
         """
         from tabarena.benchmark.experiment.experiment_constructor import (
             AGExperiment,
@@ -475,9 +477,11 @@ class TabArenaExperimentBundle:
             if key in pipeline_method_kwargs:
                 agexp_kwargs[key].update(pipeline_method_kwargs[key])
         agexp_kwargs["fit_kwargs"]["time_limit"] = time_limit
-        # Apply the bundle's non-IID validation protocol (same grouped/temporal split handling as
-        # the config experiments) unless the entry set it explicitly.
+        # Apply the bundle's non-IID validation protocol + preprocessing pipeline (same handling as
+        # the config experiments) unless the entry set them explicitly.
         agexp_kwargs.setdefault("dynamic_tabarena_validation_protocol", self.dynamic_tabarena_validation_protocol)
+        if preprocessing_pipeline is not None:
+            agexp_kwargs.setdefault("preprocessing_pipeline", preprocessing_pipeline)
 
         return [AGExperiment(name=model_name, **agexp_kwargs)]
 
