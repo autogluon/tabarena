@@ -138,9 +138,11 @@ class TabArenaExperimentBundle:
     """If True, build holdout experiments instead of bagged ones: each model is fit once
     through ``TabularPredictor`` (``AGSingleWrapper``) on a real train/val split, with no
     bagging or weighted ensemble. Same code path and bundle settings as the bagged flavour,
-    minus the bagging — so it pairs with ``dynamic_tabarena_validation_protocol`` to adapt the
-    holdout split to the task. Useful for a faster, single-fit alternative to bagging that
-    (unlike ``outer_experiments``) still keeps a validation split.
+    minus the bagging — so it pairs with ``dynamic_tabarena_validation_protocol``, which adapts
+    the single holdout split to the task: a group-disjoint / forward-in-time / stratified split
+    (built by ``resolve_holdout_split`` and fed to ``TabularPredictor`` as ``tuning_data``),
+    matching the grouped/temporal protocol the bagged folds use. Useful for a faster, single-fit
+    alternative to bagging that (unlike ``outer_experiments``) still keeps a validation split.
     A pre-built ``Experiment`` passed in ``models`` is still used verbatim.
     Mutually exclusive with ``outer_experiments``."""
     model_artifacts_base_path: str | Path | None = "/tmp"  # noqa: S108

@@ -11,7 +11,7 @@ from autogluon.core.data.label_cleaner import LabelCleanerMulticlassToBinary
 from autogluon.core.models import AbstractModel
 from loguru import logger
 
-from tabarena.benchmark.exec_models.autogluon_utils import resolve_validation_splits
+from tabarena.benchmark.exec_models.autogluon_utils import resolve_holdout_split, resolve_validation_splits
 from tabarena.benchmark.exec_models.base import AbstractExecModel
 from tabarena.benchmark.exec_models.utils import _apply_inv_perm
 from tabarena.benchmark.preprocessing.pipeline import build_feature_generator, resolve_preprocessing_pipeline
@@ -32,8 +32,11 @@ class AGWrapper(AbstractExecModel):
     (the validation metadata's ``target_name``, else ``"__label__"``).
 
     When ``use_task_specific_validation`` is set, the task-specific validation split is built
-    during ``_fit`` via ``resolve_validation_splits`` against ``self.validation_metadata``;
-    only the AutoGluon predictor path consumes that configuration.
+    during ``_fit`` against ``self.validation_metadata``. The bagged path (``num_bag_folds > 1``)
+    uses ``resolve_validation_splits`` to produce ``k`` group/time-aware folds (re-injected as
+    ``ag_args_ensemble['custom_splits']``); the non-bagged holdout path uses
+    ``resolve_holdout_split`` to produce a single group/time-aware train/validation split, fed to
+    ``TabularPredictor`` as ``tuning_data`` (a single model does not consume ``custom_splits``).
 
     Parameters
     ----------
@@ -103,9 +106,12 @@ class AGWrapper(AbstractExecModel):
            validation protocol (``resolve_validation_splits``), which may adjust the fold /
            repeat counts and/or produce explicit ``custom_splits`` (re-injected into
            ``ag_args_ensemble``).
-        2. If ``feature_generator_cls`` is given, instantiate it (forwarding any group/time
+        2. On the non-bagged (holdout) path, carve a single task-aware validation split off the
+           training data (``_apply_task_specific_holdout``) and hand it to ``TabularPredictor`` as
+           explicit ``tuning_data`` — a single model does not consume the bagged ``custom_splits``.
+        3. If ``feature_generator_cls`` is given, instantiate it (forwarding any group/time
            split columns it accepts) into ``fit_kwargs["feature_generator"]``.
-        3. Assemble ``train_data`` by appending the label column; attach tuning/validation
+        4. Assemble ``train_data`` by appending the label column; attach tuning/validation
            data when provided.
 
         Returns:
@@ -121,7 +127,9 @@ class AGWrapper(AbstractExecModel):
         label = self.validation_metadata.target_name or "__label__"
         init_kwargs["label"] = label
 
-        self._apply_validation_splits(fit_kwargs, X=X, y=y)
+        num_folds = self._apply_validation_splits(fit_kwargs, X=X, y=y)
+        if X_val is None:
+            X, y, X_val, y_val = self._apply_task_specific_holdout(X=X, y=y, num_folds=num_folds)
         self._apply_feature_generator(fit_kwargs)
 
         # TODO: think about if we can reset the index here without breaking simulation artifacts
@@ -131,12 +139,15 @@ class AGWrapper(AbstractExecModel):
 
         return train_data, init_kwargs, fit_kwargs
 
-    def _apply_validation_splits(self, fit_kwargs: dict, *, X: pd.DataFrame, y: pd.Series) -> None:
+    def _apply_validation_splits(self, fit_kwargs: dict, *, X: pd.DataFrame, y: pd.Series) -> int | None:
         """Resolve the fold/repeat counts (+ any custom splits) into ``fit_kwargs`` in place.
 
         Pops the requested ``num_bag_folds`` / ``num_bag_sets``; when task-specific validation
         is enabled they run through ``resolve_validation_splits`` (which may adjust them and/or
         produce explicit ``custom_splits``), then are written back.
+
+        Returns the effective ``num_folds`` — ``None`` (or ``<= 1``) signals the non-bagged
+        holdout path, which ``_build_predictor_args`` then handles via a single task-aware split.
         """
         num_folds = fit_kwargs.pop("num_bag_folds", None)
         num_repeats = fit_kwargs.pop("num_bag_sets", None)
@@ -160,6 +171,55 @@ class AGWrapper(AbstractExecModel):
         if custom_splits is not None:
             logger.info("Using custom_splits for validation protocol.")
             fit_kwargs.setdefault("ag_args_ensemble", {})["custom_splits"] = custom_splits
+
+        return num_folds
+
+    def _apply_task_specific_holdout(
+        self,
+        *,
+        X: pd.DataFrame,
+        y: pd.Series,
+        num_folds: int | None,
+    ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame | None, pd.Series | None]:
+        """Carve a single task-aware (group/temporal) validation split off the training data.
+
+        Non-bagged counterpart of the bagged ``custom_splits`` path: a single ``TabularPredictor``
+        fit does not consume ``ag_args_ensemble['custom_splits']`` (that is read only by the bagged
+        ensemble), so the resolved holdout rows are returned as explicit ``X_val`` / ``y_val`` and
+        fed to ``TabularPredictor`` as ``tuning_data`` instead.
+
+        Only acts on the holdout path — task-specific validation enabled and no bagging
+        (``num_folds`` is ``None`` / ``<= 1``). Otherwise, or when the task carries no
+        grouped/temporal structure (``resolve_holdout_split`` returns ``None``), returns the data
+        unchanged with ``X_val=None`` so AutoGluon's built-in holdout is used.
+
+        Returns ``(X_train, y_train, X_val, y_val)``; rows keep their original index.
+        """
+        if not self.use_task_specific_validation or (num_folds is not None and num_folds > 1):
+            return X, y, None, None
+
+        split = resolve_holdout_split(
+            self.validation_metadata,
+            X=X.reset_index(drop=True),
+            y=y.reset_index(drop=True),
+        )
+        if split is None:
+            return X, y, None, None
+
+        train_idx, val_idx = split
+        logger.info(
+            f"Using task-specific holdout split as tuning_data: {len(train_idx)} train / "
+            f"{len(val_idx)} validation rows.",
+        )
+        # Return standalone copies (not ``.iloc`` views): ``_attach_label`` may set the label
+        # column on these in place (``_can_use_data_in_place``), which would otherwise raise a
+        # pandas ``SettingWithCopyWarning`` on a slice. The original index is preserved.
+        return (
+            X.iloc[train_idx].copy(),
+            y.iloc[train_idx].copy(),
+            X.iloc[val_idx].copy(),
+            y.iloc[val_idx].copy(),
+        )
 
     def _apply_feature_generator(self, fit_kwargs: dict) -> None:
         """Instantiate ``feature_generator_cls`` into ``fit_kwargs["feature_generator"]`` (in place).

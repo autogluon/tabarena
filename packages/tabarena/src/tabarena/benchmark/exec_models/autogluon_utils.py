@@ -3,8 +3,10 @@
 The AutoGluon wrappers can adapt their internal validation splitting to a task's structure
 (tiny-data fold counts, group-wise / time-based splits). That logic lives here as a set of
 plain functions keyed off a :class:`~tabarena.benchmark.task.metadata.ValidationMetadata`
-(the task-derived config), rather than as a mixin on the wrapper. The single entry point is
-:func:`resolve_validation_splits`; everything else is a helper it calls.
+(the task-derived config), rather than as a mixin on the wrapper. There are two entry points:
+:func:`resolve_validation_splits` for the bagged path (``k`` cross-validation folds) and
+:func:`resolve_holdout_split` for the non-bagged path (a single train/validation split);
+everything else is a helper they call.
 """
 
 from __future__ import annotations
@@ -138,50 +140,210 @@ def resolve_validation_splits(
 
     # Sanity checks for custom splits
     if custom_splits is not None:
-        for train_idx, test_idx in custom_splits:
-            assert len(train_idx) > 0, "Train split is empty!"
-            assert len(test_idx) > 0, "Test split is empty!"
-
-            if stratify_on_data is not None:
-                stratify_values = set(stratify_on_data.unique())
-                train_stratify_values = set(stratify_on_data.iloc[train_idx].unique())
-                test_stratify_values = set(stratify_on_data.iloc[test_idx].unique())
-
-                assert train_stratify_values == stratify_values, (
-                    "[Missing Train Stratification Values] "
-                    "Stratification values in train split do not match overall stratification values!"
-                    f"\n\tOverall stratification values: {stratify_values}"
-                    f"\n\tTrain stratification values: {train_stratify_values}"
-                )
-                assert test_stratify_values.issubset(train_stratify_values), (
-                    "[Unseen Test Stratification Values] "
-                    "Stratification values in test split are not a subset of train stratification values!"
-                    f"\n\tTrain stratification values: {train_stratify_values}"
-                    f"\n\tTest stratification values: {test_stratify_values}"
-                )
-
-                if train_stratify_values != stratify_values:
-                    # Check if test has all labels for binary, as metrics require it.
-                    if len(stratify_values) == 2:
-                        raise ValueError(
-                            "[Binary Metric Missing Stratification Values in Test] "
-                            "Stratification values in train and test splits do not match!"
-                            f"\n\tOverall stratification values: {stratify_values}"
-                            f"\n\tTrain stratification values: {train_stratify_values}"
-                            f"\n\tTest stratification values: {test_stratify_values}",
-                        )
-
-                    # For multi-stratify values, we do not allow missing a stratify value in the test split
-                    logger.warning(
-                        "[Stratification Value Missing in Test Data] "
-                        "Stratification values in train and test splits are not identical."
-                        "This means the validation data is likely missing some classes."
-                        f"\n\tOverall stratification values: {stratify_values}"
-                        f"\n\tTrain stratification values: {train_stratify_values}"
-                        f"\n\tTest stratification values: {test_stratify_values}",
-                    )
+        _validate_stratified_splits(custom_splits, stratify_on_data=stratify_on_data)
 
     return custom_splits, num_folds, num_repeats
+
+
+def resolve_holdout_split(
+    metadata: ValidationMetadata,
+    *,
+    X: pd.DataFrame,
+    y: pd.Series,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Build a single task-aware holdout ``(train_idx, val_idx)`` split.
+
+    The single-split counterpart of :func:`resolve_validation_splits` for the non-bagged
+    (holdout) path. Instead of ``k`` bagging folds it returns ONE train/validation split that
+    still respects the task's structure:
+
+    - ``group_on``: a group-disjoint split (no group spans train and validation), optionally
+      stratified — via ``data_foundry``'s single grouped split.
+    - ``time_on``: a *forward* holdout — the latest contiguous block of time (~one fold's worth)
+      is held out for validation and everything earlier is used for training. This mirrors the
+      benchmark's train->test temporal gap (the test set is the latest time horizon); a random
+      fold would instead leak future information into training.
+    - neither (plain IID, with or without stratification): returns ``None`` — the caller leaves
+      AutoGluon's built-in (label-stratified) holdout untouched, as there is no leakage to fix.
+
+    The validation size targets ``1 / num_folds`` of the data, reusing the same fold-count policy
+    (:meth:`ValidationMetadata.resolve_number_of_splits`) as the bagged path, so a holdout
+    validation set is sized like a single bagging fold. Indices are positional into the given
+    (reset-index) ``X`` — assumed to be a ``RangeIndex`` (the wrapper resets it before calling).
+
+    Assumes task-specific validation is wanted (the caller gates on ``use_task_specific_validation``
+    and on this being the non-bagged path).
+    """
+    if (metadata.time_on is not None) and (metadata.group_on is not None):
+        raise NotImplementedError
+
+    if (metadata.time_on is None) and (metadata.group_on is None):
+        # No grouped/temporal structure to honor; AutoGluon's default holdout is appropriate.
+        return None
+
+    num_group_instances = get_num_group_instances(metadata, X=X)
+    num_folds, _ = metadata.resolve_number_of_splits(
+        num_folds=metadata.default_num_folds,
+        num_repeats=metadata.default_num_repeats,
+        num_group_instances=num_group_instances,
+    )
+    val_size = max(1, round(len(X) / num_folds))
+    logger.info(
+        "\n=== Building task-specific holdout split!"
+        f"\n\tRows: {len(X)}; target validation rows (~1/{num_folds}): {val_size}"
+        f"\n\tStratify_on: {metadata.stratify_on}"
+        f"\n\tGroup_on: {metadata.group_on}"
+        f"\n\tTime_on: {metadata.time_on}",
+    )
+
+    if metadata.time_on is not None:
+        # Forward holdout: hold out the latest time block. Stratification is not meaningful across
+        # a temporal cut, so it is intentionally not applied here.
+        stratify_on_data = None
+        train_idx, val_idx = _resolve_temporal_holdout_split(X=X, time_on=metadata.time_on, num_folds=num_folds)
+    else:
+        stratify_on_data = None
+        if metadata.stratify_on is not None:
+            stratify_on_data = X[metadata.stratify_on] if metadata.stratify_on in X.columns else y
+            # Enforce categorical dtype for stratification column, as some splitting logic relies on it.
+            stratify_on_data = stratify_on_data.astype("category")
+        train_idx, val_idx = _resolve_group_holdout_split(
+            metadata=metadata,
+            X=X,
+            val_size=val_size,
+            stratify_on_data=stratify_on_data,
+        )
+
+    _validate_stratified_splits([(train_idx, val_idx)], stratify_on_data=stratify_on_data)
+    return train_idx, val_idx
+
+
+def _resolve_temporal_holdout_split(
+    *,
+    X: pd.DataFrame,
+    time_on: str,
+    num_folds: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Forward holdout: hold out the latest time interval, train on all earlier rows.
+
+    Reuses :func:`time_on_to_groups_data` to bucket rows into contiguous, time-ordered intervals
+    (larger label == later in time), then validates on the latest interval. ``num_folds`` sets the
+    number of intervals, so the latest one is ~``1 / num_folds`` of the rows.
+    """
+    groups_data, _n_intervals = time_on_to_groups_data(X=X, time_on=time_on, num_folds=num_folds)
+    latest_interval = int(groups_data.max())
+    is_val = (groups_data == latest_interval).to_numpy()
+    positions = np.arange(len(X))
+    return positions[~is_val], positions[is_val]
+
+
+def _resolve_group_holdout_split(
+    metadata: ValidationMetadata,
+    *,
+    X: pd.DataFrame,
+    val_size: int,
+    stratify_on_data: pd.Series | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Single group-disjoint holdout split (optionally stratified) for the ``group_on`` column(s).
+
+    The single-split analogue of :func:`_resolve_group_splits`: ``data_foundry``'s
+    ``get_recommended_grouped_splits`` is asked for one train/test split of approximately
+    ``val_size`` validation rows, honoring ``group_labels`` and any stratification column.
+    """
+    from data_foundry.curation_recommendations import get_recommended_grouped_splits
+
+    groups_data = group_on_to_groups_data(X=X, group_on=metadata.group_on)
+    assert not groups_data.isna().any(), (
+        "Group column(s) contain NaN values, which is not allowed for group-wise splitting!"
+    )
+    if metadata.group_labels not in [
+        GroupLabelTypes.PER_GROUP,
+        GroupLabelTypes.PER_SAMPLE,
+    ]:
+        raise ValueError(f"Invalid group_labels value: {metadata.group_labels}")
+
+    splits_data = pd.DataFrame({"group": groups_data.to_numpy()})
+    stratify_on = None
+    if stratify_on_data is not None:
+        splits_data["stratify"] = stratify_on_data.to_numpy()
+        stratify_on = "stratify"
+
+    splits = get_recommended_grouped_splits(
+        dataset=splits_data,
+        group_on="group",
+        stratify_on=stratify_on,
+        n_splits=1,
+        n_repeats=1,
+        test_size=val_size,
+        group_labels=metadata.group_labels,
+    )
+    train_idx, val_idx = _first_split(splits)
+    return np.asarray(train_idx), np.asarray(val_idx)
+
+
+def _first_split(splits: dict) -> tuple[list[int], list[int]]:
+    """Extract the single ``(train_idx, test_idx)`` pair from a ``{repeat: {fold: split}}`` dict."""
+    first_repeat = next(iter(splits.values()))
+    return next(iter(first_repeat.values()))
+
+
+def _validate_stratified_splits(
+    splits: list[tuple[np.ndarray, np.ndarray]],
+    *,
+    stratify_on_data: pd.Series | None,
+) -> None:
+    """Sanity-check each ``(train_idx, test_idx)`` split: non-empty, and (if stratifying) coverage.
+
+    When ``stratify_on_data`` is given, asserts the train split carries every stratification value
+    and the test split's values are a subset of the train's, raising for the binary case (metrics
+    need both classes) and warning for the multiclass case when a value is missing from test.
+    Shared by :func:`resolve_validation_splits` (bagging folds) and :func:`resolve_holdout_split`
+    (single holdout). Indices are positional into ``stratify_on_data``.
+    """
+    for train_idx, test_idx in splits:
+        assert len(train_idx) > 0, "Train split is empty!"
+        assert len(test_idx) > 0, "Test split is empty!"
+
+        if stratify_on_data is None:
+            continue
+
+        stratify_values = set(stratify_on_data.unique())
+        train_stratify_values = set(stratify_on_data.iloc[train_idx].unique())
+        test_stratify_values = set(stratify_on_data.iloc[test_idx].unique())
+
+        assert train_stratify_values == stratify_values, (
+            "[Missing Train Stratification Values] "
+            "Stratification values in train split do not match overall stratification values!"
+            f"\n\tOverall stratification values: {stratify_values}"
+            f"\n\tTrain stratification values: {train_stratify_values}"
+        )
+        assert test_stratify_values.issubset(train_stratify_values), (
+            "[Unseen Test Stratification Values] "
+            "Stratification values in test split are not a subset of train stratification values!"
+            f"\n\tTrain stratification values: {train_stratify_values}"
+            f"\n\tTest stratification values: {test_stratify_values}"
+        )
+
+        if train_stratify_values != stratify_values:
+            # Check if test has all labels for binary, as metrics require it.
+            if len(stratify_values) == 2:
+                raise ValueError(
+                    "[Binary Metric Missing Stratification Values in Test] "
+                    "Stratification values in train and test splits do not match!"
+                    f"\n\tOverall stratification values: {stratify_values}"
+                    f"\n\tTrain stratification values: {train_stratify_values}"
+                    f"\n\tTest stratification values: {test_stratify_values}",
+                )
+
+            # For multi-stratify values, we do not allow missing a stratify value in the test split
+            logger.warning(
+                "[Stratification Value Missing in Test Data] "
+                "Stratification values in train and test splits are not identical."
+                "This means the validation data is likely missing some classes."
+                f"\n\tOverall stratification values: {stratify_values}"
+                f"\n\tTrain stratification values: {train_stratify_values}"
+                f"\n\tTest stratification values: {test_stratify_values}",
+            )
 
 
 def _resolve_group_splits(

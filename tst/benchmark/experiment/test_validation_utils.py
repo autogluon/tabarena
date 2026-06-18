@@ -10,6 +10,7 @@ from tabarena.benchmark.exec_models import autogluon_utils
 from tabarena.benchmark.exec_models.autogluon_utils import (
     get_num_group_instances,
     group_on_to_groups_data,
+    resolve_holdout_split,
     resolve_validation_splits,
     split_time_index_into_intervals,
     time_on_to_groups_data,
@@ -936,3 +937,230 @@ def test_resolve_validation_splits_time_on_passes_interval_labels_as_groups(monk
     # Temporal ordering: labels must not decrease as time increases
     sorted_by_time = groups.iloc[np.argsort(X["time"].to_numpy())]
     assert (sorted_by_time.diff().dropna() >= 0).all()
+
+
+# ===========================================================================
+# resolve_holdout_split — single task-aware holdout split (non-bagged path)
+# ===========================================================================
+
+
+def test_resolve_holdout_split_none_when_no_structure():
+    """Plain IID (no group_on / time_on) → None, so AutoGluon's default holdout is used."""
+    protocol = ValidationMetadata()
+    X = _make_X(600)
+    y = pd.Series(np.zeros(600))
+    assert resolve_holdout_split(protocol, X=X, y=y) is None
+
+
+def test_resolve_holdout_split_none_when_only_stratify():
+    """stratify_on alone (no group/time) is left to AutoGluon's label-stratified holdout → None."""
+    protocol = ValidationMetadata(stratify_on="strat")
+    n = 600
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "strat": [i % 2 for i in range(n)]})
+    y = pd.Series([i % 2 for i in range(n)])
+    assert resolve_holdout_split(protocol, X=X, y=y) is None
+
+
+def test_resolve_holdout_split_time_and_group_raises():
+    """Simultaneous time_on and group_on is explicitly not implemented (mirrors the bagged path)."""
+    protocol = ValidationMetadata(time_on="time", group_on="group")
+    n = 10
+    X = pd.DataFrame({"feature": range(n), "time": range(n), "group": ["g"] * n})
+    y = pd.Series(np.zeros(n))
+    with pytest.raises(NotImplementedError):
+        resolve_holdout_split(protocol, X=X, y=y)
+
+
+def test_resolve_holdout_split_temporal_is_forward_holdout():
+    """time_on → the validation rows are the latest contiguous time block (forward holdout)."""
+    n = 600  # > 500 so the non-tiny fold policy (8 folds) applies
+    protocol = ValidationMetadata(time_on="time")
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
+    y = pd.Series(np.zeros(n))
+
+    split = resolve_holdout_split(protocol, X=X, y=y)
+    assert split is not None
+    train_idx, val_idx = split
+
+    # Disjoint and covering all rows.
+    assert set(train_idx).isdisjoint(set(val_idx))
+    assert sorted([*train_idx.tolist(), *val_idx.tolist()]) == list(range(n))
+    assert len(train_idx) > 0 and len(val_idx) > 0
+
+    # Forward holdout: every validation timestamp is strictly later than every training one.
+    train_times = X["time"].to_numpy()[train_idx]
+    val_times = X["time"].to_numpy()[val_idx]
+    assert train_times.max() < val_times.min()
+    # The held-out block is roughly one fold's worth (the latest of 8 intervals), not half the data.
+    assert len(val_idx) < n // 2
+
+
+def test_resolve_holdout_split_temporal_holds_out_latest_block_unsorted():
+    """The forward-holdout property holds even when rows are not pre-sorted by time."""
+    n = 600
+    protocol = ValidationMetadata(time_on="time")
+    rng = np.random.default_rng(0)
+    order = rng.permutation(n)
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": order})
+    y = pd.Series(np.zeros(n))
+
+    train_idx, val_idx = resolve_holdout_split(protocol, X=X, y=y)
+    train_times = X["time"].to_numpy()[train_idx]
+    val_times = X["time"].to_numpy()[val_idx]
+    assert train_times.max() < val_times.min()
+
+
+@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
+def test_resolve_holdout_split_grouped_per_sample_is_group_disjoint():
+    """group_on (PER_SAMPLE) → no group spans train and validation; all rows are covered."""
+    n = 600
+    group_values = [f"g{i % 20}" for i in range(n)]
+    protocol = ValidationMetadata(group_on="grp", group_labels=GroupLabelTypes.PER_SAMPLE)
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values})
+    y = pd.Series(np.zeros(n))
+
+    train_idx, val_idx = resolve_holdout_split(protocol, X=X, y=y)
+    assert set(train_idx).isdisjoint(set(val_idx))
+    assert sorted([*train_idx.tolist(), *val_idx.tolist()]) == list(range(n))
+
+    groups = np.asarray(group_values)
+    train_groups = set(groups[train_idx])
+    val_groups = set(groups[val_idx])
+    assert train_groups.isdisjoint(val_groups), "A group appears in both train and validation!"
+    assert train_groups.union(val_groups) == set(group_values)
+
+
+@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
+def test_resolve_holdout_split_grouped_per_group_is_group_disjoint():
+    """group_on (PER_GROUP) → group-disjoint single split via the index-based grouped splitter."""
+    n = 600
+    group_values = [f"g{i % 20}" for i in range(n)]
+    protocol = ValidationMetadata(group_on="grp", group_labels=GroupLabelTypes.PER_GROUP)
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values})
+    y = pd.Series(np.zeros(n))
+
+    train_idx, val_idx = resolve_holdout_split(protocol, X=X, y=y)
+    groups = np.asarray(group_values)
+    assert set(groups[train_idx]).isdisjoint(set(groups[val_idx]))
+
+
+@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
+def test_resolve_holdout_split_grouped_stratified_keeps_all_train_classes():
+    """group_on + stratify_on (binary) → group-disjoint split with all classes present in train.
+
+    A successful return implies ``_validate_stratified_splits`` accepted the split; we also
+    re-check the group-disjointness and class coverage explicitly.
+    """
+    n = 600
+    group_values = [f"g{i % 30}" for i in range(n)]
+    # Assign a class per group so PER_SAMPLE stratification has a clean per-group label.
+    strat = [int(g[1:]) % 2 for g in group_values]
+    protocol = ValidationMetadata(
+        group_on="grp",
+        group_labels=GroupLabelTypes.PER_SAMPLE,
+        stratify_on="strat",
+    )
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values, "strat": strat})
+    y = pd.Series(strat)
+
+    train_idx, val_idx = resolve_holdout_split(protocol, X=X, y=y)
+    groups = np.asarray(group_values)
+    assert set(groups[train_idx]).isdisjoint(set(groups[val_idx]))
+    strat_arr = np.asarray(strat)
+    assert set(strat_arr[train_idx]) == set(strat_arr)  # train carries every class
+
+
+# ===========================================================================
+# AGWrapper._apply_task_specific_holdout — wiring the split into tuning_data
+# ===========================================================================
+
+
+def _make_holdout_wrapper(validation_metadata: dict | None, *, use_task_specific_validation: bool = True):
+    """Build a bare ``AGWrapper`` (no fit) for exercising the holdout carve-out logic."""
+    from tabarena.benchmark.exec_models.autogluon import AGWrapper
+
+    return AGWrapper(
+        problem_type="regression",
+        eval_metric=None,
+        validation_metadata=validation_metadata,
+        use_task_specific_validation=use_task_specific_validation,
+    )
+
+
+@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
+def test_apply_task_specific_holdout_grouped_produces_disjoint_val():
+    """Non-bagged grouped holdout → explicit X_val that is group-disjoint from X_train."""
+    n = 600
+    group_values = [f"g{i % 20}" for i in range(n)]
+    wrapper = _make_holdout_wrapper({"group_on": "grp", "group_labels": GroupLabelTypes.PER_SAMPLE})
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values})
+    y = pd.Series(np.zeros(n))
+
+    X_train, _y_train, X_val, _y_val = wrapper._apply_task_specific_holdout(X=X, y=y, num_folds=None)
+    assert X_val is not None
+    assert set(X_train["grp"]).isdisjoint(set(X_val["grp"]))
+
+
+def test_apply_task_specific_holdout_skips_when_bagged():
+    """A bagged fit (num_folds > 1) must not carve a holdout — bagging owns the splits."""
+    wrapper = _make_holdout_wrapper({"group_on": "grp", "group_labels": GroupLabelTypes.PER_SAMPLE})
+    X = pd.DataFrame({"feature": np.arange(10, dtype=float), "grp": [f"g{i}" for i in range(10)]})
+    y = pd.Series(np.zeros(10))
+    X_train, _y, X_val, _yv = wrapper._apply_task_specific_holdout(X=X, y=y, num_folds=8)
+    assert X_val is None
+    assert X_train is X
+
+
+def test_apply_task_specific_holdout_skips_when_task_specific_disabled():
+    """Without task-specific validation, the default AutoGluon holdout is used (X_val=None)."""
+    wrapper = _make_holdout_wrapper(
+        {"group_on": "grp", "group_labels": GroupLabelTypes.PER_SAMPLE},
+        use_task_specific_validation=False,
+    )
+    X = pd.DataFrame({"feature": np.arange(10, dtype=float), "grp": [f"g{i}" for i in range(10)]})
+    y = pd.Series(np.zeros(10))
+    _X, _y, X_val, _yv = wrapper._apply_task_specific_holdout(X=X, y=y, num_folds=None)
+    assert X_val is None
+
+
+def test_apply_task_specific_holdout_none_when_no_structure():
+    """Plain IID holdout → resolve_holdout_split returns None → X_val=None (AG default holdout)."""
+    wrapper = _make_holdout_wrapper(None)
+    X = _make_X(600)
+    y = pd.Series(np.zeros(600))
+    _X, _y, X_val, _yv = wrapper._apply_task_specific_holdout(X=X, y=y, num_folds=None)
+    assert X_val is None
+
+
+def test_apply_task_specific_holdout_preserves_original_index():
+    """The carved train/val slices keep X's original index (simulation artifacts rely on it)."""
+    n = 600
+    wrapper = _make_holdout_wrapper({"time_on": "time"})
+    index = pd.RangeIndex(1000, 1000 + n)  # non-default index
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)}, index=index)
+    y = pd.Series(np.zeros(n), index=index)
+
+    X_train, y_train, X_val, y_val = wrapper._apply_task_specific_holdout(X=X, y=y, num_folds=None)
+    assert X_val is not None
+    # Indices are drawn from the original (offset) index, not reset to 0..k.
+    assert set(X_train.index).issubset(set(index))
+    assert set(X_val.index).issubset(set(index))
+    assert X_train.index.equals(y_train.index)
+    assert X_val.index.equals(y_val.index)
+    assert set(X_train.index).isdisjoint(set(X_val.index))
+
+
+@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
+def test_build_predictor_args_sets_tuning_data_for_grouped_holdout():
+    """End to end: a grouped holdout fit routes the task-aware split into fit_kwargs['tuning_data']."""
+    n = 600
+    group_values = [f"g{i % 20}" for i in range(n)]
+    wrapper = _make_holdout_wrapper({"group_on": "grp", "group_labels": GroupLabelTypes.PER_SAMPLE})
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values})
+    y = pd.Series(np.zeros(n))
+
+    train_data, _init_kwargs, fit_kwargs = wrapper._build_predictor_args(X=X, y=y, X_val=None, y_val=None)
+    assert "tuning_data" in fit_kwargs
+    tuning_data = fit_kwargs["tuning_data"]
+    # Train and validation frames must not share a group.
+    assert set(train_data["grp"]).isdisjoint(set(tuning_data["grp"]))
