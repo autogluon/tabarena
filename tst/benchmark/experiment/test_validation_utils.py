@@ -1075,8 +1075,17 @@ def test_resolve_holdout_split_grouped_stratified_keeps_all_train_classes():
 # ===========================================================================
 
 
-def _make_holdout_wrapper(validation_metadata: dict | None, *, use_task_specific_validation: bool = True):
-    """Build a bare ``AGWrapper`` (no fit) for exercising the holdout carve-out logic."""
+def _make_holdout_wrapper(
+    validation_metadata: dict | None,
+    *,
+    use_task_specific_validation: bool = True,
+    fit_kwargs: dict | None = None,
+):
+    """Build a bare ``AGWrapper`` (no fit) for exercising the validation-split logic.
+
+    ``fit_kwargs`` lets a test choose the validation mode the way a full ``TabularPredictor`` run
+    would: include ``num_bag_folds`` (>= 2) for the bagged path, or omit it for the holdout path.
+    """
     from tabarena.benchmark.exec_models.autogluon import AGWrapper
 
     return AGWrapper(
@@ -1084,6 +1093,7 @@ def _make_holdout_wrapper(validation_metadata: dict | None, *, use_task_specific
         eval_metric=None,
         validation_metadata=validation_metadata,
         use_task_specific_validation=use_task_specific_validation,
+        fit_kwargs=fit_kwargs,
     )
 
 
@@ -1164,3 +1174,73 @@ def test_build_predictor_args_sets_tuning_data_for_grouped_holdout():
     tuning_data = fit_kwargs["tuning_data"]
     # Train and validation frames must not share a group.
     assert set(train_data["grp"]).isdisjoint(set(tuning_data["grp"]))
+
+
+# ===========================================================================
+# AGWrapper validation dispatch: bagging (custom_splits) vs holdout (tuning_data)
+#
+# A full AutoGluon `TabularPredictor` run (AGWrapper) validates via bagging or holdout depending on
+# its settings. Both must get the task-aware (grouped/temporal) non-IID split. `num_bag_folds >= 2`
+# -> grouped/temporal `custom_splits` (no `tuning_data`); otherwise a single grouped/temporal
+# `tuning_data` holdout (no `custom_splits`). The two are mutually exclusive.
+# ===========================================================================
+
+
+def _custom_splits(fit_kwargs: dict):
+    return fit_kwargs.get("ag_args_ensemble", {}).get("custom_splits")
+
+
+@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
+def test_build_predictor_args_grouped_bagging_uses_custom_splits_not_tuning_data():
+    """Bagged grouped fit -> group-disjoint custom_splits folds, and NOT a tuning_data holdout."""
+    n = 600
+    group_values = [f"g{i % 20}" for i in range(n)]
+    wrapper = _make_holdout_wrapper(
+        {"group_on": "grp", "group_labels": GroupLabelTypes.PER_SAMPLE},
+        fit_kwargs={"num_bag_folds": 8, "num_bag_sets": 1},
+    )
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "grp": group_values})
+    y = pd.Series(np.arange(n, dtype=float))
+
+    _train_data, _init_kwargs, fit_kwargs = wrapper._build_predictor_args(X=X, y=y, X_val=None, y_val=None)
+
+    # Bagging path: custom_splits, no holdout tuning_data, fold count preserved.
+    assert "tuning_data" not in fit_kwargs
+    splits = _custom_splits(fit_kwargs)
+    assert splits is not None and len(splits) == 8
+    assert fit_kwargs.get("num_bag_folds") == 8
+    groups = np.asarray(group_values)
+    for train_idx, val_idx in splits:
+        assert set(groups[train_idx]).isdisjoint(set(groups[val_idx])), "a group spans a bagged fold"
+
+
+def test_build_predictor_args_temporal_bagging_uses_custom_splits_not_tuning_data():
+    """Bagged temporal fit -> non-empty time-based custom_splits folds, and no tuning_data."""
+    n = 600
+    wrapper = _make_holdout_wrapper({"time_on": "time"}, fit_kwargs={"num_bag_folds": 8, "num_bag_sets": 1})
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
+    y = pd.Series(np.arange(n, dtype=float))
+
+    _train_data, _init_kwargs, fit_kwargs = wrapper._build_predictor_args(X=X, y=y, X_val=None, y_val=None)
+
+    assert "tuning_data" not in fit_kwargs
+    splits = _custom_splits(fit_kwargs)
+    assert splits is not None and len(splits) > 0
+    for train_idx, val_idx in splits:
+        assert len(train_idx) > 0 and len(val_idx) > 0
+
+
+def test_build_predictor_args_temporal_holdout_is_forward_and_has_no_custom_splits():
+    """Non-bagged temporal fit -> forward tuning_data holdout (latest block), no custom_splits."""
+    n = 600
+    wrapper = _make_holdout_wrapper({"time_on": "time"})  # no num_bag_folds -> holdout
+    X = pd.DataFrame({"feature": np.arange(n, dtype=float), "time": np.arange(n)})
+    y = pd.Series(np.arange(n, dtype=float))
+
+    train_data, _init_kwargs, fit_kwargs = wrapper._build_predictor_args(X=X, y=y, X_val=None, y_val=None)
+
+    assert _custom_splits(fit_kwargs) is None
+    assert "tuning_data" in fit_kwargs
+    tuning_data = fit_kwargs["tuning_data"]
+    # Forward holdout: every validation timestamp is later than every training one.
+    assert train_data["time"].max() < tuning_data["time"].min()
