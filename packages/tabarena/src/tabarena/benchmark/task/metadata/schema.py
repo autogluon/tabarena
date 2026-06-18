@@ -192,6 +192,18 @@ class TabArenaTaskMetadata:
             )
         return self.split_indices[0]
 
+    @property
+    def split_metadata(self) -> SplitMetadata:
+        """Get the split metadata for the task.
+        This is only supported for tasks with one split.
+        """
+        if self.n_splits != 1:
+            raise ValueError(
+                f"Cannot get split metadata for task with {self.n_splits} splits. "
+                "This is only supported for tasks with exactly one split.",
+            )
+        return self.splits_metadata[self.split_index]
+
     def has_supported_dtypes(self, *, required_dtypes: list[str] | None, forbidden_dtypes: list[str] | None) -> bool:
         """Check if the dataset contains only allowed dtypes based on the feature dtype flags."""
         flag_by_dtype = {

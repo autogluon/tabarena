@@ -11,7 +11,7 @@ import pandas as pd
 import seaborn as sns
 from autogluon.common.loaders import load_pd
 
-from bencheval.tabarena import TabArena
+from bencheval.evaluator import BenchmarkEvaluator
 from tabarena.nips2025_utils.compare import subset_tasks
 from tabarena.nips2025_utils.eval_all import (
     get_all_subset_combinations,
@@ -629,12 +629,12 @@ def compute_tuning_trajectories_leaderboard(
         seed_column="fold",
     )
 
-    arena = TabArena(
+    arena = BenchmarkEvaluator(
         **tabarena_init_kwargs,
         error_col="metric_error",
     )
 
-    arena_val = TabArena(
+    arena_val = BenchmarkEvaluator(
         **tabarena_init_kwargs,
         error_col="metric_error_val",
     )

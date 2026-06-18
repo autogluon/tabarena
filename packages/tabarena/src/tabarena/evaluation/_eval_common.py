@@ -3,7 +3,8 @@
 Both runners follow the same skeleton — init caches/env, post-process each method's raw
 artifacts into the cache (or load it), then run a per-subset compare/leaderboard loop. The
 pieces that are identical across flavors live here so the two runners stay thin and consistent;
-the *comparison* step differs (v0.1 compares against paper baselines via ``compare_on_tabarena``;
+the *comparison* step differs (v0.1 registers the run's methods on a ``TabArenaContext`` via
+``extra_methods=`` and compares against the paper baselines with ``TabArenaContext.compare``;
 BeyondArena uses ``compare`` + data-foundry subset predicates) and is kept in each runner.
 
 Heavy imports (``end_to_end*``, model registry) are deferred to call time so importing

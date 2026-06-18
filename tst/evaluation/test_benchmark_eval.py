@@ -52,6 +52,7 @@ class TestConfig:
 def test_run_eval_orchestration(tmp_path, monkeypatch):
     import tabarena.nips2025_utils.end_to_end as ee
     import tabarena.nips2025_utils.end_to_end_single as ees
+    import tabarena.nips2025_utils.tabarena_context as tc
     import tabarena.website.website_format as wf
 
     post_calls: list[dict] = []
@@ -62,12 +63,23 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     )
 
     compare_calls: list[tuple] = []
+    context_init_calls: list = []
+    methods_sentinel = [object()]
 
     class _FakeResults:
         """Stands in for the EndToEndResults re-loaded from cache (phase 2)."""
 
-        def compare_on_tabarena(self, output_dir, *, subset=None, tabarena_context_kwargs=None, **_kw):
-            compare_calls.append((Path(output_dir), subset, tabarena_context_kwargs))
+        def to_method_metadata_lst(self, **_kw):
+            return methods_sentinel
+
+    class _FakeContext:
+        """Stands in for the TabArenaContext the run's methods are registered on."""
+
+        def __init__(self, *, extra_methods=None, **_kw):
+            context_init_calls.append(extra_methods)
+
+        def compare(self, output_dir, *, subset=None, **_kw):
+            compare_calls.append((Path(output_dir), subset))
             return pd.DataFrame({"method": ["m"], "metric": [1.0]})
 
     # Phase 2 re-loads every method from the cache via EndToEndResults.from_cache; capture the args.
@@ -77,6 +89,8 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
         "from_cache",
         classmethod(lambda _cls, methods, **kw: from_cache_calls.append(methods) or _FakeResults()),
     )
+    # The run's vended methods are registered on a TabArenaContext (extra_methods=) and compared.
+    monkeypatch.setattr(tc, "TabArenaContext", _FakeContext)
 
     class _FakeLB:
         def to_markdown(self, **_kwargs):
@@ -106,11 +120,13 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     # Phase 2: every method is re-loaded from cache as (ag_name, artifact_name), exactly once.
     assert from_cache_calls == [[("AG_A", "bench"), ("AG_B", "bench")]]
 
-    # One comparison per subset, with the expected output dir + subset + context.
+    # The context is built once, with the run's vended methods registered via extra_methods=.
+    assert context_init_calls == [methods_sentinel]
+
+    # One comparison per subset, with the expected output dir + subset.
     figs = Path(cfg.figure_output_dir)
     assert [c[0] for c in compare_calls] == [figs / "subsets" / "full", figs / "subsets" / "regression"]
     assert [c[1] for c in compare_calls] == [None, ["regression"]]
-    assert compare_calls[0][2] is None
 
     # Leaderboards returned + saved as CSV.
     assert set(out) == {"full", "regression"}

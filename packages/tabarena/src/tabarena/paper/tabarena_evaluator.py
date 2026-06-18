@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 from autogluon.common.savers import save_pd
 
-from bencheval.tabarena import TabArena
+from bencheval.evaluator import BenchmarkEvaluator
 from tabarena.benchmark.task.metadata import TaskMetadataCollection, default_task_metadata_collection
 from tabarena.paper.paper_utils import get_f_map_suffix_plots, get_framework_type_method_names, get_method_rename_map
 from tabarena.plot.dataset_analysis import plot_train_time_deep_dive
@@ -613,7 +613,7 @@ class TabArenaEvaluator:
         calibration_framework: str | None = "auto",
         average_seeds: bool = False,
         leaderboard_kwargs: dict | None = None,
-        plot_with_baselines: bool = False,
+        plot_with_baselines: bool = True,
         plot_tuning_kwargs: dict | None = None,
         banned_methods: list[str] | None = None,
         verbose: bool = True,
@@ -794,7 +794,7 @@ class TabArenaEvaluator:
             BOOTSTRAP_ROUNDS=self.elo_bootstrap_rounds,
         )
 
-        tabarena = TabArena(
+        tabarena = BenchmarkEvaluator(
             method_col=self.method_col,
             task_col="dataset",
             seed_column="fold",

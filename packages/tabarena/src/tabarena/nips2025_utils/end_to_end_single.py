@@ -583,82 +583,30 @@ class EndToEndResultsSingle:
         self.model_results = model_results
         self.hpo_results = hpo_results
 
-    @classmethod
-    def from_cache(cls, method: str | MethodMetadata, artifact_name: str | None = None) -> Self:
-        if isinstance(method, MethodMetadata):
-            method_metadata = method
-        else:
-            if artifact_name is None:
-                artifact_name = method
-            method_metadata = MethodMetadata.from_yaml(
-                method=method,
-                artifact_name=artifact_name,
-            )
-        return cls(method_metadata=method_metadata)
-
-    def compare_on_tabarena(
+    def to_method_metadata(
         self,
-        output_dir: str | Path,
         *,
-        only_valid_tasks: bool = False,
-        subset: str | None | list = None,
         new_result_prefix: str | None = None,
         use_artifact_name_in_prefix: bool | None = None,
         use_model_results: bool = False,
-        score_on_val: bool = False,
-        average_seeds: bool = False,
-        leaderboard_kwargs: dict | None = None,
-        extra_results: pd.DataFrame = None,
-        tabarena_context_kwargs: dict | None = None,
-        remove_imputed: bool = False,
-    ) -> pd.DataFrame:
-        """Compare results on TabArena leaderboard.
-
-        Args:
-            output_dir (str | Path): Directory to save the results.
-            subset (str | None | list): Subset of tasks to evaluate on.
-                Options are "classification", "regression", "lite"  for TabArena-Lite,
-                "tabicl", "tabpfn", "tabpfn/tabicl", or None for all tasks.
-                Or a list of subset names to filter for.
-            new_result_prefix (str | None): If not None, add a prefix to the new
-                results to distinguish new results from the original TabArena results.
-                Use this, for example, if you re-run a model from TabArena.
-        """
-        results = self.get_results(
-            new_result_prefix=new_result_prefix,
-            use_artifact_name_in_prefix=use_artifact_name_in_prefix,
-            use_model_results=use_model_results,
-            fillna=not only_valid_tasks,
-        )
-
-        # FIXME: TMP
-        if extra_results is not None:
-            results = pd.concat([results, extra_results], ignore_index=True)
-
-        if tabarena_context_kwargs is None:
-            tabarena_context_kwargs = {}
-        tabarena_context = TabArenaContext(**tabarena_context_kwargs)
-        return tabarena_context.compare(
-            output_dir=output_dir,
-            new_results=results,
-            only_valid_tasks=only_valid_tasks,
-            subset=subset,
-            score_on_val=score_on_val,
-            average_seeds=average_seeds,
-            leaderboard_kwargs=leaderboard_kwargs,
-            remove_imputed=remove_imputed,
-        )
-
-    def to_method_metadata(self, *, new_result_prefix: str | None = None):
+    ):
         """Vend this method as an :class:`InMemoryMethodMetadata` (metadata + in-memory results).
 
         The returned object can be passed to an arena context's ``methods=`` /
         ``extra_methods=`` so the method is registered at init and flows through
         ``compare`` and the leaderboard/website machinery like a cached baseline.
+
+        ``use_artifact_name_in_prefix`` / ``use_model_results`` mirror
+        :meth:`get_results` (forwarded through :meth:`InMemoryMethodMetadata.from_results_single`).
         """
         from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
 
-        return InMemoryMethodMetadata.from_results_single(self, new_result_prefix=new_result_prefix)
+        return InMemoryMethodMetadata.from_results_single(
+            self,
+            new_result_prefix=new_result_prefix,
+            use_artifact_name_in_prefix=use_artifact_name_in_prefix,
+            use_model_results=use_model_results,
+        )
 
     def get_results(
         self,

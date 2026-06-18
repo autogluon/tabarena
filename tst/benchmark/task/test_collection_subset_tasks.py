@@ -272,6 +272,39 @@ class TestSubsetPredicateFilter:
         result = self._coll().subset_tasks(subset=["binary", "!big"], predicates=self._custom_predicates())
         assert [t.dataset_name for t in result] == ["bin_small"]
 
+    def test_list_of_lists_unions_views(self):
+        # A list of lists is OR across views: binary datasets OR big datasets keeps both,
+        # whereas the flat (AND) list ["binary", "big"] keeps neither (none is both).
+        coll, preds = self._coll(), self._custom_predicates()
+        assert {t.dataset_name for t in coll.subset_tasks(subset=["binary", "big"], predicates=preds)} == set()
+        union = coll.subset_tasks(subset=[["binary"], ["big"]], predicates=preds)
+        assert {t.dataset_name for t in union} == {"bin_small", "reg_big"}
+
+    def test_list_of_lists_ands_within_each_view(self):
+        # Within a view the inner list is AND-ed, across views OR-ed: (binary AND not-big)
+        # OR (big) -> bin_small (via view 1) plus reg_big (via view 2).
+        result = self._coll().subset_tasks(subset=[["binary", "!big"], ["big"]], predicates=self._custom_predicates())
+        assert {t.dataset_name for t in result} == {"bin_small", "reg_big"}
+
+    def test_list_of_lists_unions_at_split_level(self):
+        from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+
+        coll = _collection(
+            [
+                _task_meta(dataset_name="ds_bin", problem_type="binary", n_splits=3),
+                _task_meta(dataset_name="ds_reg", problem_type="regression", n_splits=3),
+            ],
+        )
+        # lite -> r0f0 of every dataset; regression -> all splits of ds_reg. The union keeps
+        # ds_bin's single lite split plus all three ds_reg splits.
+        result = coll.subset_tasks(subset=[["lite"], ["regression"]], predicates=BeyondArenaContext.SUBSET_PREDICATES)
+        assert sorted((t.dataset_name, t.split_index) for t in result) == [
+            ("ds_bin", "r0f0"),
+            ("ds_reg", "r0f0"),
+            ("ds_reg", "r0f1"),
+            ("ds_reg", "r0f2"),
+        ]
+
     def test_invalid_name_raises(self):
         with pytest.raises(ValueError, match="Invalid subset name"):
             self._coll().subset_tasks(subset="nope", predicates=self._custom_predicates())

@@ -33,10 +33,16 @@ if TYPE_CHECKING:
 
 
 def _beyond_arena_source() -> TaskMetadataSource:
-    """Build the default source for the official ``BeyondArena`` collection."""
+    """Build the default source for the official ``BeyondArena`` collection.
+
+    The collection is passed as a lazy factory (+ explicit ``name``) so merely *loading* the
+    reference metadata — e.g. constructing a ``BeyondArenaContext`` for offline leaderboard
+    compare — does not import the optional ``data-foundry`` dependency; the collection is built
+    only when a download is needed (CSV regeneration / materialization).
+    """
     from tabarena.benchmark.task.data_foundry import get_beyond_arena_collection
 
-    return DataFoundryTaskMetadataSource(get_beyond_arena_collection())
+    return DataFoundryTaskMetadataSource(collection_factory=get_beyond_arena_collection, name="BeyondArena")
 
 
 # Registered suite literals -> factory. Factories are lazy so optional deps

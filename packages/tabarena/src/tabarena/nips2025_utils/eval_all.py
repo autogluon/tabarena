@@ -234,6 +234,10 @@ def evaluate_single(
         include_norm_score=True,
         plot_times=True,
         average_seeds=average_seeds,
+        # Keep baselines out of evaluate_all's Pareto plots: TabArenaEvaluator.eval now
+        # defaults plot_with_baselines=True for the compare paths, but the paper-figure /
+        # website-artifact outputs produced here should preserve the prior (baseline-free) plots.
+        plot_with_baselines=False,
         **eval_kwargs,
     )
 

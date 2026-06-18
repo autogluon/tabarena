@@ -133,9 +133,9 @@ if __name__ == "__main__":
 
     calibration_framework = "RF (default)"
 
-    from bencheval.tabarena import TabArena
+    from bencheval.evaluator import BenchmarkEvaluator
 
-    tabarena = TabArena(
+    tabarena = BenchmarkEvaluator(
         method_col="method",
         task_col="dataset",
         seed_column="fold",
