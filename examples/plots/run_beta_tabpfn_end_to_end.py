@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tabarena.models._method_metadata import MethodMetadata
 from tabarena.nips2025_utils.artifacts.download_utils import download_and_extract_zip
-from tabarena.nips2025_utils.end_to_end_single import EndToEndResultsSingle, EndToEndSingle
+from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
+from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 if __name__ == "__main__":
     method = "BetaTabPFN"
@@ -38,6 +40,7 @@ if __name__ == "__main__":
     1. Generates figures and leaderboard using the TabArena methods and the user's method
     2. Missing values are imputed to default RandomForest.
     """
-    end_to_end_results = EndToEndResultsSingle.from_cache(method=method)
-    leaderboard = end_to_end_results.compare_on_tabarena(output_dir=fig_output_dir)
+    method_metadata = MethodMetadata.from_yaml(method=method, artifact_name=method)
+    context = TabArenaContext(extra_methods=[method_metadata])
+    leaderboard = context.compare(output_dir=fig_output_dir)
     print(leaderboard)

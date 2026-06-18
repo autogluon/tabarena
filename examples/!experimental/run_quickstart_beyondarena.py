@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 from autogluon.core.models import AbstractModel
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
-from tabarena.benchmark.task.metadata import BeyondArenaTaskMetadataCollection
 from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
 from tabarena.utils.config_utils import ConfigGenerator
 
@@ -78,19 +77,20 @@ if __name__ == "__main__":
     #   split        : core, lite (first split == r0f0 of each dataset), all
     #       `core` is the recommended evaluation protocol.
     subset = ["core", "tiny", "!high-dim"]
-    task_collection = BeyondArenaTaskMetadataCollection().subset_tasks(subset=subset)
 
     # 2: build the model experiment configs.
     experiments = BeyondArenaExperimentBundle(
         models=[(DummyPredictorModel.config_generator(), 0)],
     ).build_experiments()
 
-    # 3: run_experiments materializes the selected tasks, runs the model
-    #    locally, and registers the results as in-memory methods
-    context = BeyondArenaContext(task_metadata=task_collection)
-    context.run_experiments(
+    # 3: build_and_run_jobs scopes the context's BeyondArena task metadata to `subset`, pairs each
+    #    config with each split, materializes the selected tasks, runs the model locally, and registers
+    #    the results as in-memory methods
+    context = BeyondArenaContext()
+    context.build_and_run_jobs(
         experiments,
         expname=results_dir,
+        subset=subset,
         new_result_prefix="[New] ",
         debug_mode=True,  # <-- also lets you attach a local debugger
     )

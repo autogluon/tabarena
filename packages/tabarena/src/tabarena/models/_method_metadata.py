@@ -62,6 +62,7 @@ class MethodMetadata:
         upload_as_public: bool = False,
         reference_url: str | None = None,
         cache_type: Literal["s3", "r2", "local"] = "s3",
+        cache_root: str | Path | None = None,
     ):
         self.method = method
         if artifact_name is None:
@@ -91,6 +92,13 @@ class MethodMetadata:
         self.upload_as_public = upload_as_public
         self.reference_url = reference_url
         self.cache_type = cache_type
+        # Optional override pointing at a self-contained, *flat* method directory
+        # (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``), used to load a
+        # method's committed artifacts from an arbitrary location (e.g. a repo's ``data/`` folder)
+        # without touching the global TabArena cache root. ``None`` => derive paths from the cache
+        # root as usual. Kept out of ``to_info_dict`` (see below) so this local path is never
+        # serialized into the committed ``metadata.yaml`` or the metadata info table.
+        self.cache_root = Path(cache_root) if cache_root is not None else None
 
         assert isinstance(self.method, str)
         assert len(self.method) > 0
@@ -341,6 +349,10 @@ class MethodMetadata:
 
     @property
     def path(self) -> Path:
+        # When ``cache_root`` is set, artifacts live in a flat ``<cache_root>/<method>/`` dir
+        # (no ``artifacts/<artifact_name>/methods/`` infix) so committed copies stay shallow.
+        if self.cache_root is not None:
+            return self.cache_root / self.method
         return self._path_root / self.artifact_name / "methods" / self.method
 
     @property
@@ -838,10 +850,14 @@ class MethodMetadata:
     def to_info_dict(self) -> dict:
         """The flat field dict used to build the metadata info table / YAML.
 
-        Defaults to ``self.__dict__``; an overridable hook so subclasses that hold
-        non-serializable state (e.g. an in-memory results DataFrame) can exclude it.
+        Defaults to ``self.__dict__`` minus the runtime-only ``cache_root`` override (a local
+        path that must not leak into committed YAML or the info table); an overridable hook so
+        subclasses that hold non-serializable state (e.g. an in-memory results DataFrame) can
+        exclude that too.
         """
-        return dict(self.__dict__)
+        info = dict(self.__dict__)
+        info.pop("cache_root", None)
+        return info
 
     @property
     def path_metadata(self) -> Path:
@@ -853,7 +869,7 @@ class MethodMetadata:
         assert str(path).endswith(".yaml")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as outfile:
-            yaml.dump(self.__dict__, outfile, default_flow_style=False)
+            yaml.dump(self.to_info_dict(), outfile, default_flow_style=False)
 
     def to_yaml_fileobj(self) -> io.BytesIO:
         """Serialize this object to YAML and return a BytesIO buffer suitable for
@@ -865,7 +881,7 @@ class MethodMetadata:
             Buffer positioned at start containing UTF-8 encoded YAML.
         """
         yaml_str = yaml.safe_dump(
-            self.__dict__,
+            self.to_info_dict(),
             default_flow_style=False,
             sort_keys=False,
             allow_unicode=True,
@@ -880,16 +896,60 @@ class MethodMetadata:
         path: Path | str | None = None,
         method: str | None = None,
         artifact_name: str | None = None,
+        *,
+        cache_root: str | Path | None = None,
+        relative_cache: bool | Literal["auto"] = "auto",
     ) -> Self:
+        """Load a method's metadata from YAML.
+
+        ``cache_root`` points the loaded method at a self-contained, flat artifact directory
+        (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``) instead of the
+        global TabArena cache — e.g. to load committed results from a repo's ``data/`` folder.
+        When given alongside an explicit ``path``, the two must describe the same location
+        (``<cache_root>/<method>/metadata.yaml``); a mismatch raises so layout typos surface early.
+
+        ``relative_cache=True`` infers ``cache_root`` from ``path`` itself (as ``path.parent.parent``,
+        i.e. the directory containing the ``<method>/`` folder), so callers loading a method from an
+        explicit ``path`` need only pass ``path`` — no separately-computed ``cache_root``. Requires
+        an explicit ``path`` and is mutually exclusive with ``cache_root``.
+
+        The default ``"auto"`` applies that inference exactly when it is safe and unambiguous: an
+        explicit ``path`` is given and no ``cache_root`` was passed. It is a no-op for the
+        ``method``/``artifact_name`` lookup forms (so those callers are unaffected), and the
+        inference is correct for both the flat committed layout and the global cache layout, since
+        in both the yaml's parent directory is named ``<method>``.
+        """
+        if relative_cache == "auto":
+            relative_cache = path is not None and cache_root is None
+
+        if relative_cache:
+            if path is None:
+                raise ValueError("relative_cache=True requires an explicit `path`.")
+            if cache_root is not None:
+                raise ValueError("Pass either `cache_root` or `relative_cache=True`, not both.")
+            cache_root = Path(path).parent.parent
+
         if path is None:
             assert method is not None, "method must be specified if path is not specified"
             assert artifact_name is not None, "artifact_name must be specified if path is not specified"
-            path = get_tabarena_cache_root() / "artifacts" / artifact_name / "methods" / method / "metadata.yaml"
+            if cache_root is not None:
+                path = Path(cache_root) / method / "metadata.yaml"
+            else:
+                path = get_tabarena_cache_root() / "artifacts" / artifact_name / "methods" / method / "metadata.yaml"
 
         assert str(path).endswith(".yaml")
         with open(path) as file:
             kwargs = yaml.safe_load(file)
-        return cls(**kwargs)
+        if cache_root is not None:
+            kwargs["cache_root"] = cache_root
+        method_metadata = cls(**kwargs)
+        if cache_root is not None and Path(method_metadata.path_metadata).resolve() != Path(path).resolve():
+            raise ValueError(
+                f"cache_root/method layout mismatch: with cache_root={cache_root!r} the metadata for "
+                f"method={method_metadata.method!r} is expected at {method_metadata.path_metadata}, "
+                f"but it was loaded from {path}. Lay artifacts out as <cache_root>/<method>/metadata.yaml.",
+            )
+        return method_metadata
 
     @classmethod
     def from_s3_cache(

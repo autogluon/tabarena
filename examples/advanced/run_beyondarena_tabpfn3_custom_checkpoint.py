@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
-from tabarena.benchmark.task.metadata import BeyondArenaTaskMetadataCollection
 from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
 from tabarena.models import TabPFN3Model
 from tabarena.utils.config_utils import ConfigGenerator
@@ -19,7 +18,6 @@ if __name__ == "__main__":
     # 1: suite metadata -> filter. `core` = the recommended protocol (each dataset's first
     #    `folds_to_use` splits); bounded to the tiny, non-high-dim datasets to keep it fast.
     subset = ["core", "tiny", "!high-dim"]
-    task_collection = BeyondArenaTaskMetadataCollection().subset_tasks(subset=subset)
 
     # 2: a config generator for TabPFN-3 with non-default checkpoints. `checkpoint_per_problem_type`
     #    maps each problem type to a checkpoint (a bare filename resolved in the tabpfn cache dir, or
@@ -47,12 +45,14 @@ if __name__ == "__main__":
         outer_experiments=True,
     ).build_experiments()
 
-    # 4: run_experiments materializes the selected tasks, runs the model locally, and registers
+    # 4: build_and_run_jobs scopes the context's BeyondArena task metadata to `subset`, pairs each
+    #    config with each split, materializes the selected tasks, runs the model locally, and registers
     #    the results as in-memory methods (pre-filtering task_metadata to the tasks just run).
-    context = BeyondArenaContext(task_metadata=task_collection)
-    context.run_experiments(
+    context = BeyondArenaContext()
+    context.build_and_run_jobs(
         experiments,
         expname=results_dir,
+        subset=subset,
         new_result_prefix="[New] ",
     )
 

@@ -42,12 +42,13 @@ if __name__ == "__main__":
         outer_experiments=True,
     ).build_experiments()
 
-    # 3: the context is the hub. run_experiments scopes to the small datasets' first split
-    #    (subset=["small", "lite"] == r0f0), runs locally, and registers the config as an in-memory
-    #    method (pre-filtering task_metadata to the tasks just run, so `compare` scopes to them with
-    #    nothing extra). debug_mode=True -> in-process native backend (also lets you attach a debugger).
+    # 3: the context is the hub. build_and_run_jobs scopes to the small datasets' first split
+    #    (subset=["small", "lite"] == r0f0), pairs the config with each split, runs them locally,
+    #    and registers the config as an in-memory method (pre-filtering task_metadata to the tasks
+    #    just run, so `compare` scopes to them with nothing extra). debug_mode=True -> in-process
+    #    native backend (also lets you attach a debugger).
     context = TabArenaContext()
-    context.run_experiments(
+    context.build_and_run_jobs(
         experiments,
         expname=results_dir,
         subset=["small", "lite"],

@@ -11,11 +11,15 @@ Its ``generate_all_*_experiments`` methods turn those configs into ready-to-run
 flavour, which differ only in how the model is validated:
 
 * **bag** — :class:`~...AGModelBagExperiment`: cross-validated bagging (the TabArena default).
+* **holdout** — :class:`~...AGModelExperiment`: a single model fit through ``TabularPredictor``
+  with a real train/val split, but no bagging or weighted ensemble.
 * **outer** — :class:`~...AGModelOuterExperiment`: no validation, train on all the data.
 
-Both flavours share the per-config naming (``{ag_name}{name_suffix}{bag_suffix}``) and iteration via
+All flavours share the per-config naming (``{ag_name}{name_suffix}{bag_suffix}``) and iteration via
 :func:`_build_experiments`; each ``config`` carries its display suffix under ``ag_args`` and any
-validation/bagging settings under ``ag_args_ensemble`` (see the config-dict helpers below).
+validation/bagging settings under ``ag_args_ensemble`` (see the config-dict helpers below). The bagged
+and holdout flavours append a distinguishing suffix (``_BAG_L1`` / ``_HOLDOUT``); the full-data outer
+flavour keeps the plain ``{ag_name}{name_suffix}`` name.
 """
 
 from __future__ import annotations
@@ -25,7 +29,11 @@ from typing import TYPE_CHECKING, Literal
 
 from autogluon.core.searcher.local_random_searcher import LocalRandomSearcher
 
-from tabarena.benchmark.experiment import AGModelBagExperiment, AGModelOuterExperiment
+from tabarena.benchmark.experiment import (
+    AGModelBagExperiment,
+    AGModelExperiment,
+    AGModelOuterExperiment,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -203,6 +211,45 @@ class AGConfigGenerator:
             add_seed=add_seed,
             method_kwargs=method_kwargs,
             fold_fitting_strategy=fold_fitting_strategy,
+            **kwargs,
+        )
+
+    def generate_all_holdout_experiments(
+        self,
+        num_random_configs: int,
+        name_id_suffix: str = "",
+        method_kwargs: dict | None = None,
+        extra_model_hyperparameters: dict | None = None,
+        **kwargs,
+    ) -> list[AGModelExperiment]:
+        """Build a holdout (:class:`AGModelExperiment`) experiment per config.
+
+        Each config becomes a single model fit through ``TabularPredictor`` with a real
+        train/val split but no bagging or weighted ensemble — same code path as the bagged
+        flavour, minus the bagging. Pair with ``dynamic_tabarena_validation_protocol=True``
+        (forwarded via ``**kwargs``) to adapt the holdout split to the task at run time.
+
+        Parameters
+        ----------
+        num_random_configs / name_id_suffix:
+            As in :meth:`generate_all_bag_experiments`.
+        method_kwargs:
+            Extra kwargs forwarded to each experiment (e.g. ``init_kwargs`` / ``fit_kwargs`` /
+            ``shuffle_features``). Unlike the bagged path, must not carry bagging-only settings.
+        extra_model_hyperparameters:
+            Hyperparameters merged into every model's hyperparameters (they must not collide).
+        **kwargs:
+            Forwarded to :func:`generate_holdout_experiments` / :class:`AGModelExperiment`
+            (e.g. ``time_limit``, ``preprocessing_pipeline``,
+            ``dynamic_tabarena_validation_protocol``).
+        """
+        configs = self.generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
+        return generate_holdout_experiments(
+            model_cls=self.model_cls,
+            configs=configs,
+            name_suffix_from_ag_args=True,
+            method_kwargs=method_kwargs,
+            extra_model_hyperparameters=extra_model_hyperparameters,
             **kwargs,
         )
 
@@ -410,6 +457,55 @@ def generate_bag_experiments(
         configs,
         build_experiment=build_experiment,
         name_bag_suffix=name_bag_suffix,
+        name_suffix_from_ag_args=name_suffix_from_ag_args,
+        name_id_prefix=name_id_prefix,
+        name_id_suffix=name_id_suffix,
+        add_name_suffix_to_params=add_name_suffix_to_params,
+    )
+
+
+def generate_holdout_experiments(
+    model_cls: type[AbstractModel],
+    configs: list[dict],
+    time_limit: float | None = 3600,
+    name_suffix_from_ag_args: bool = False,
+    name_id_prefix: str = "r",
+    name_id_suffix: str = "",
+    name_holdout_suffix: str = "_HOLDOUT",
+    add_name_suffix_to_params: bool = True,
+    extra_model_hyperparameters: dict | None = None,
+    **kwargs,
+) -> list[AGModelExperiment]:
+    """Build a holdout :class:`AGModelExperiment` per config (single fit, real train/val split, no bag).
+
+    The single-model counterpart of :func:`generate_bag_experiments`: it goes through the same
+    ``TabularPredictor`` / ``AGSingleWrapper`` code path but fits no bag and no weighted ensemble,
+    so each config yields one model validated on a holdout split. Experiments are named
+    ``{ag_name}{name_suffix}{name_holdout_suffix}`` — the ``_HOLDOUT`` tag mirrors the bagged path's
+    ``_BAG_L1`` so holdout methods are distinguishable from bagged / outer ones. Each config's
+    ``ag_args`` is kept (``TabularPredictor`` consumes it for naming); ``extra_model_hyperparameters``
+    are merged into the model hyperparameters (they must not collide). ``**kwargs`` are forwarded to
+    :class:`AGModelExperiment` (e.g. ``preprocessing_pipeline``, ``dynamic_tabarena_validation_protocol``,
+    ``time_limit_with_preprocessing``).
+    """
+    extra_model_hyperparameters = extra_model_hyperparameters or {}
+
+    def build_experiment(name: str, config: dict) -> AGModelExperiment:
+        overlapping = set(extra_model_hyperparameters).intersection(config)
+        assert not overlapping, f"extra_model_hyperparameters overlap with model hyperparameters: {overlapping}"
+        return AGModelExperiment(
+            name=name,
+            model_cls=model_cls,
+            model_hyperparameters={**config, **extra_model_hyperparameters},
+            time_limit=time_limit,
+            **kwargs,
+        )
+
+    return _build_experiments(
+        model_cls,
+        configs,
+        build_experiment=build_experiment,
+        name_bag_suffix=name_holdout_suffix,
         name_suffix_from_ag_args=name_suffix_from_ag_args,
         name_id_prefix=name_id_prefix,
         name_id_suffix=name_id_suffix,

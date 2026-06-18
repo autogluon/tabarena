@@ -1,7 +1,7 @@
 """Benchmark a model on TabArena as an *outer* (no-bagging) experiment — shown with TabICLv2.
 
 Same single-hub formula as ``benchmarking/run_quickstart_tabarena.py`` (bundle ->
-context.run_experiments -> compare), but ``outer_experiments=True`` makes the bundle fit each
+context.build_and_run_jobs -> compare), but ``outer_experiments=True`` makes the bundle fit each
 model directly on all the training data (an ``AGModelWrapper``: no train/val split, bagging, or
 ensemble).
 """
@@ -38,12 +38,13 @@ if __name__ == "__main__":
         outer_experiments=True,
     ).build_experiments()
 
-    # 2: the context is the hub. run_experiments scopes to the small datasets' first split
-    #    (subset=["small", "lite"] == r0f0), runs locally, and registers the configs as in-memory
-    #    methods (pre-filtering task_metadata to the tasks just run, so `compare` scopes to them
-    #    with nothing extra). debug_mode=True -> in-process native backend.
+    # 2: the context is the hub. build_and_run_jobs scopes to the small datasets' first split
+    #    (subset=["small", "lite"] == r0f0), pairs each config with each split, runs them locally,
+    #    and registers the configs as in-memory methods (pre-filtering task_metadata to the tasks
+    #    just run, so `compare` scopes to them with nothing extra). debug_mode=True -> in-process
+    #    native backend.
     context = TabArenaContext()
-    context.run_experiments(
+    context.build_and_run_jobs(
         experiments,
         expname=results_dir,
         subset=["small", "lite"],

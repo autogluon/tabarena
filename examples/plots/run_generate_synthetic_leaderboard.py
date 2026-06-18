@@ -3,7 +3,7 @@
 This script:
 1) Creates synthetic long-form results with columns:
    method, task, seed, metric_error, time_train_s, time_infer_s
-2) Runs TabArena.leaderboard() with average_seeds=True and False
+2) Runs BenchmarkEvaluator.leaderboard() with average_seeds=True and False
 3) Computes and (optionally) plots a win-rate matrix
 
 Notes:
@@ -17,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from bencheval.tabarena import TabArena
+from bencheval.evaluator import BenchmarkEvaluator
 
 
 def make_synthetic_results(
@@ -33,7 +33,7 @@ def make_synthetic_results(
     - Each seed adds small noise.
     - Includes time_train_s and time_infer_s.
 
-    Returns a long-form DataFrame suitable for TabArena.
+    Returns a long-form DataFrame suitable for BenchmarkEvaluator.
     """
     rng = np.random.default_rng(rng_seed)
 
@@ -58,7 +58,7 @@ def make_synthetic_results(
                 base = 0.20  # baseline error floor
                 error = base * task_difficulty[task] * method_skill[method]
                 error *= float(1.0 + shared_noise + rng.normal(0.0, 0.06))
-                error = max(0.0, error)  # must be >= 0 per TabArena.verify_error
+                error = max(0.0, error)  # must be >= 0 per BenchmarkEvaluator.verify_error
 
                 # times: better methods might be slower (arbitrary example)
                 time_train_s = float(
@@ -107,7 +107,7 @@ def main() -> None:
     # Provide seed_column to enable average_seeds=True/False behavior.
     # Keep defaults for:
     #   method_col="method", task_col="task", error_col="metric_error"
-    arena = TabArena(seed_column="seed")
+    arena = BenchmarkEvaluator(seed_column="seed")
 
     # ----------------------------
     # 3) Compute leaderboard

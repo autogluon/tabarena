@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import pickle
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -209,39 +208,6 @@ class CacheFunctionPickle(AbstractCacheFunction[object]):
         return load_pickle(self.cache_file)
 
 
-# TODO: Delete and use CacheFunctionPickle
-def cache_function(
-    fun: Callable[[], object],
-    cache_name: str,
-    ignore_cache: bool = False,
-    cache_path: Path | str | None = None,
-):
-    f"""
-    :param fun: a function whose result obtained `fun()` will be cached, the output of the function must be serializable.
-    :param cache_name: the cache of the function result is written into `{cache_path}/{cache_name}.pkl`
-    :param ignore_cache: whether to recompute even if the cache is present
-    :param cache_path: folder where to write cache files, default to ~/cache-zeroshot/
-    :return: result of fun()
-    """
-    if cache_path is None:
-        cache_path = default_cache_path
-    cache_file = Path(cache_path) / (cache_name + ".pkl")
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    if cache_file.exists() and not ignore_cache:
-        print(f"Loading cache {cache_file}")
-        with open(cache_file, "rb") as f:
-            return pickle.loads(f.read())
-    else:
-        print(f"Cache {cache_file} not found or ignore_cache set to True, regenerating the file")
-        with catchtime("Evaluate function."):
-            res = fun()
-            with open(cache_file, "wb") as f:
-                cache = pickle.dumps(res)
-                print(f"Writing cache with size {round(sys.getsizeof(cache) / 1e6, 3)} MB")
-                f.write(cache)
-            return res
-
-
 class CacheFunctionDF(AbstractCacheFunction[pd.DataFrame]):
     _load_after_cache = (
         True  # Loading from cache is necessary because .to_csv loses information from the original DataFrame
@@ -338,18 +304,3 @@ class SaveLoadMixin:
         obj = load_pkl.load(path=path)
         assert isinstance(obj, cls)
         return obj
-
-
-if __name__ == "__main__":
-
-    def f():
-        import time
-
-        time.sleep(0.5)
-        return [1, 2, 3]
-
-    res = cache_function(f, "f", ignore_cache=True)
-    assert res == [1, 2, 3]
-
-    res = cache_function(f, "f", ignore_cache=False)
-    assert res == [1, 2, 3]

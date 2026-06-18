@@ -33,6 +33,7 @@ EXPECTED_FIELD_NAMES = {
     "max_predict_batch_size",
     "sequential_local_fold_fitting",
     "outer_experiments",
+    "holdout_experiments",
     "model_artifacts_base_path",
     "verbosity",
     "model_verbosity",
@@ -50,6 +51,7 @@ COMMON_INHERITED_DEFAULTS = {
     "max_predict_batch_size": None,
     "sequential_local_fold_fitting": False,
     "outer_experiments": False,
+    "holdout_experiments": False,
     "model_artifacts_base_path": "/tmp",  # noqa: S108
     "verbosity": 2,
     "model_verbosity": 4,

@@ -56,6 +56,8 @@ class InMemoryMethodMetadata(MethodMetadata):
         results_single: EndToEndResultsSingle,
         *,
         new_result_prefix: str | None = None,
+        use_artifact_name_in_prefix: bool | None = None,
+        use_model_results: bool = False,
     ) -> Self:
         """Build from an ``EndToEndResultsSingle`` (its ``method_metadata`` + in-memory results).
 
@@ -63,12 +65,30 @@ class InMemoryMethodMetadata(MethodMetadata):
         both to the results frame (via ``EndToEndResultsSingle.get_results``) and to the
         metadata's name fields, so the website leaderboard merge on ``(ta_name, ta_suite)``
         still matches.
+
+        ``use_artifact_name_in_prefix`` / ``use_model_results`` are forwarded to
+        :meth:`EndToEndResultsSingle.get_results` (``None`` resolves to the method's own
+        ``use_artifact_name_in_prefix``). When the artifact-name prefix is applied, the same
+        ``[artifact_name] `` segment get_results prepends to the frame's identity columns is
+        baked into the metadata identity here too, so the website merge still matches.
         """
         base = results_single.method_metadata
-        results = results_single.get_results(new_result_prefix=new_result_prefix)
+        if use_artifact_name_in_prefix is None:
+            use_artifact_name_in_prefix = base.use_artifact_name_in_prefix
+        results = results_single.get_results(
+            new_result_prefix=new_result_prefix,
+            use_artifact_name_in_prefix=use_artifact_name_in_prefix,
+            use_model_results=use_model_results,
+        )
+
+        # The total prefix get_results prepended to the frame's method/config_type/ta_name/
+        # ta_suite columns, mirrored so the metadata identity stays in lock-step.
+        identity_prefix = new_result_prefix or ""
+        if use_artifact_name_in_prefix:
+            identity_prefix = identity_prefix + f"[{base.artifact_name}] "
 
         kwargs = base.to_info_dict()
-        if new_result_prefix:
+        if identity_prefix:
             # Bake the prefix into identity so it matches the (already-prefixed) frame:
             #   * method/artifact_name -> ta_name/ta_suite (the website merge key)
             #   * model_key            -> config_type (the rename-map / family key)
@@ -76,13 +96,15 @@ class InMemoryMethodMetadata(MethodMetadata):
             for field in ("method", "artifact_name", "model_key", "display_name"):
                 value = kwargs.get(field)
                 if isinstance(value, str):
-                    kwargs[field] = new_result_prefix + value
+                    kwargs[field] = identity_prefix + value
 
         return cls(results=results, repo=results_single_repo(results_single), **kwargs)
 
     # ------------------------------------------------------------------ serialization
     def to_info_dict(self) -> dict:
-        return {k: v for k, v in self.__dict__.items() if k not in self._IN_MEMORY_SLOTS}
+        # Build on the base exclusion (drops the runtime-only ``cache_root`` override), then
+        # also drop the in-memory artifact slots so no DataFrame/repo lands in the info table.
+        return {k: v for k, v in super().to_info_dict().items() if k not in self._IN_MEMORY_SLOTS}
 
     # ------------------------------------------------------------------ in-memory artifacts
     def load_results(self) -> pd.DataFrame:
