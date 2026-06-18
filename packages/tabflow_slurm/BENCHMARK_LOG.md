@@ -33,6 +33,53 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-06-18 — nori_regression_18062026
+
+- **Model(s):** Nori (0 — default config only)
+- **Git SHA:** `f2eca5c3`
+- **Purpose:** Nori (regression-only GPU foundation model) on the TabArena-v0.1 regression subset, single-node GCP GPU run.
+- **Notes:** GPU partition `gpurtxpro6000spotinteractive`, 1 GPU. Scoped to the `regression`
+  task subset via `task_subset=TaskSubset(subset="regression")` — every regression task/split.
+  Empty search space, so it runs its single default config (0 random configs).
+  `num_cpus`/`memory_limit` left `None` so the node's values are picked up.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaBenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+benchmark_plan = TabArenaBenchmarkPlan(
+    benchmark_name="nori_regression_18062026",
+    model_jobs=[
+        # Nori is a regression-only GPU foundation model with an empty search space,
+        # so it runs its single default config (0 random configs) on a GPU node.
+        ModelJob(models=("Nori", 0), name="gpu", resources={"num_gpus": 1}),
+    ],
+    # The TabArena-v0.1 context owns the task metadata + subset predicates; `task_subset`
+    # scopes `context.build_jobs`. `subset="regression"` keeps every regression task/split.
+    context=TabArenaContext(),
+    task_subset=TaskSubset(subset="regression"),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_18062026/bin/python",
+    ),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000spotinteractive"),
+)
+
+benchmark_plan.setup_jobs()
+```
+
+---
+
 ## 2026-06-16 — benchmark_chimeraboost_16062026
 
 - **Model(s):** ChimeraBoost (all configs)
