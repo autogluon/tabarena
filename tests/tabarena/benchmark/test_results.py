@@ -172,15 +172,9 @@ def test_result_config_calibrate():
     result = _make_result_config()
     result_obj = ConfigResult(result=result)
 
-    try:
-        import torch  # noqa: F401
-    except ImportError as err:
-        pytest.skip(
-            f"Import Error, skipping test... "
-            f"Ensure you have the proper dependencies installed to run this test:\n"
-            f"{err}",
-        )
-    result_obj_calibrated = result_obj.generate_calibrated()
+    # Use the opt-in torch-free "v2_numpy" temperature scaler so this runs without
+    # torch (the default "v2" path requires torch).
+    result_obj_calibrated = result_obj.generate_calibrated(method="v2_numpy")
     assert result_obj_calibrated.framework == "m1_CAL"
 
 
@@ -202,15 +196,8 @@ def test_result_ag_bag_calibrate():
     result = _make_result_ag_bag()
     result_obj = AGBagResult(result=result)
 
-    try:
-        import torch  # noqa: F401
-    except ImportError as err:
-        pytest.skip(
-            f"Import Error, skipping test... "
-            f"Ensure you have the proper dependencies installed to run this test:\n"
-            f"{err}",
-        )
-    result_obj_calibrated = result_obj.generate_calibrated()
+    # See test_result_config_calibrate: torch-free via the opt-in "v2_numpy" scaler.
+    result_obj_calibrated = result_obj.generate_calibrated(method="v2_numpy")
     assert result_obj_calibrated.framework == "m1_CAL"
 
 

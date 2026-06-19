@@ -287,6 +287,18 @@ class ConfigResult(BaselineResult):
         init_val = 1.0
         max_iter = 200
         lr = 0.1
+
+        if method == "v2_numpy":
+            # Opt-in torch-free temperature scaling (numpy), numerically equivalent
+            # to "v2". Must be requested explicitly (e.g. on the minimal CPU/eval
+            # install without torch) — it is NOT a silent fallback, so the torch
+            # methods below still raise loudly when torch is missing.
+            from tabarena.utils.temp_scaling.numpy_calibrators import NumpyTemperatureScalingCalibrator
+
+            calibrator = NumpyTemperatureScalingCalibrator(max_iter=max_iter, lr=lr)
+            calibrator.fit(X=y_pred_proba_val, y=y_val)
+            return calibrator
+
         from tabarena.utils.temp_scaling.calibrators import (
             AutoGluonTemperatureScalingCalibrator,
             AutoGluonTemperatureScalingCalibratorFixed,
