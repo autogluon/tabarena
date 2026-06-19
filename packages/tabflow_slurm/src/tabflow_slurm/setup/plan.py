@@ -19,9 +19,12 @@ import dataclasses
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
-from tabarena.benchmark.experiment import Experiment
+from tabarena.benchmark.experiment import BeyondArenaExperimentBundle, Experiment
 from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
+from tabflow_slurm.setup.resources import BeyondArenaResourcesSetup
+from tabflow_slurm.setup.scheduler import GCPSlurmSetup
 
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import TabArenaExperimentBundle
@@ -166,7 +169,7 @@ def _format_partition(scheduler: SchedulerSetup, resources: ResourcesSetup) -> s
     return getattr(scheduler, attr, None) or type(scheduler).__name__
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TabArenaBenchmarkPlan:
     """A base benchmark setup plus per-model jobs that override parts of it.
 
@@ -367,3 +370,29 @@ class TabArenaBenchmarkPlan:
         else:
             print("\nNothing to launch — all runs are already cached / filtered out.\n")
         return all_commands
+
+
+@dataclass(kw_only=True)
+class BeyondArenaBenchmarkPlan(TabArenaBenchmarkPlan):
+    """:class:`TabArenaBenchmarkPlan` pre-wired with the BeyondArena building blocks.
+
+    Every BeyondArena launch script pairs the same four pieces: the data-foundry
+    :class:`~tabarena.evaluation.context.beyond_arena.BeyondArenaContext`, a
+    :class:`~tabarena.benchmark.experiment.BeyondArenaExperimentBundle` template, the
+    :class:`~tabflow_slurm.setup.scheduler.GCPSlurmSetup` scheduler, and
+    :class:`~tabflow_slurm.setup.resources.BeyondArenaResourcesSetup`. This subclass
+    supplies them as defaults (via ``default_factory`` so each plan gets its own
+    instances), so a launch script only states what is actually being run —
+    ``benchmark_name``, ``model_jobs``, ``path_setup``, and an optional ``task_subset``.
+
+    Any default is still overridable by passing the field explicitly
+    (e.g. ``scheduler_setup=GCPSlurmSetup(bundle_size=2)``). Mirrors the preset-subclass
+    idiom already used for the building blocks themselves (``GCPSlurmSetup``,
+    ``BeyondArenaResourcesSetup``). Construction builds a ``BeyondArenaContext`` only when
+    ``context`` is omitted, which imports the optional ``data-foundry`` dependency.
+    """
+
+    context: AbstractArenaContext = field(default_factory=BeyondArenaContext)
+    experiment_bundle: TabArenaExperimentBundle = field(default_factory=BeyondArenaExperimentBundle)
+    scheduler_setup: SchedulerSetup = field(default_factory=GCPSlurmSetup)
+    resources_setup: ResourcesSetup = field(default_factory=BeyondArenaResourcesSetup)

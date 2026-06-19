@@ -15,6 +15,7 @@ locations (these are also the defaults used by `PathSetup`).
 from __future__ import annotations
 
 from tabflow_slurm.setup import (
+    BeyondArenaBenchmarkPlan,
     BeyondArenaResourcesSetup,
     GCPSlurmSetup,
     LocalSequentialSetup,
@@ -31,6 +32,7 @@ from tabflow_slurm.setup import (
 )
 
 __all__ = [
+    "BeyondArenaBenchmarkPlan",
     "BeyondArenaResourcesSetup",
     "GCPSlurmSetup",
     "LocalSequentialSetup",

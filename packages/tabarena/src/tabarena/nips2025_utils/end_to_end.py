@@ -312,7 +312,7 @@ class EndToEnd:
         new_result_prefix: str | None = None,
         debug_mode: bool = True,
         verbose: bool = True,
-    ) -> list:
+    ) -> list[MethodMetadata]:
         """Turn raw experiment results into a list of ``InMemoryMethodMetadata`` (one per method).
 
         The registration-first sibling of :meth:`from_raw_to_results_df`: instead of a tidy

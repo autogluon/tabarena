@@ -137,21 +137,53 @@ class AbstractArenaContext:
 
     def register(
         self,
-        results: list[BaselineResult | dict],
+        results: list[BaselineResult | dict] | list[MethodMetadata],
         *,
         new_result_prefix: str | None = None,
         scope_to_valid_tasks: bool = True,
     ) -> list[MethodMetadata]:
-        """Register externally-produced raw results into this context as new methods."""
-        # Deferred: tabarena.nips2025_utils.end_to_end imports TabArenaContext at module level,
-        # which would be circular at import time.
-        from tabarena.nips2025_utils.end_to_end import EndToEnd
+        """Register externally-produced results into this context as new methods.
 
-        new_methods = EndToEnd.from_raw_to_methods(
-            results_lst=results,
-            task_metadata=self.task_metadata_collection,
-            new_result_prefix=new_result_prefix,
-        )
+        ``results`` is either:
+
+        * raw results (``list[BaselineResult | dict]``, e.g. what
+          :meth:`~tabarena.benchmark.experiment.ExperimentBatchRunner.run_jobs` returns) —
+          converted to methods via :meth:`EndToEnd.from_raw_to_methods`, honoring
+          ``new_result_prefix``; or
+        * already-built methods (``list[MethodMetadata]``, e.g. from
+          ``EndToEnd.from_path_raw_to_results(...).to_method_metadata_lst(...)`` or
+          :meth:`EndToEnd.from_raw_to_methods`) — registered as-is. The prefix is baked in when
+          the methods are built, so ``new_result_prefix`` must be ``None`` here (raises
+          otherwise).
+
+        Either way the methods are appended via :meth:`_register_methods` (which tracks them as
+        "new" methods and, when ``scope_to_valid_tasks``, pre-filters ``task_metadata`` to their
+        tasks). Returns the registered ``MethodMetadata`` list.
+        """
+        is_method = [isinstance(r, MethodMetadata) for r in results]
+        if results and any(is_method):
+            if not all(is_method):
+                raise TypeError(
+                    "register() received a mix of MethodMetadata and raw results; pass either a "
+                    "list of raw results or a list of MethodMetadata, not both.",
+                )
+            if new_result_prefix is not None:
+                raise ValueError(
+                    "new_result_prefix only applies to raw results; it is baked into "
+                    "MethodMetadata when they are built. Pass new_result_prefix to "
+                    "to_method_metadata_lst / from_raw_to_methods instead.",
+                )
+            new_methods = list(results)
+        else:
+            # Deferred: tabarena.nips2025_utils.end_to_end imports TabArenaContext at module
+            # level, which would be circular at import time.
+            from tabarena.nips2025_utils.end_to_end import EndToEnd
+
+            new_methods = EndToEnd.from_raw_to_methods(
+                results_lst=results,
+                task_metadata=self.task_metadata_collection,
+                new_result_prefix=new_result_prefix,
+            )
         self._register_methods(new_methods, scope_to_valid_tasks=scope_to_valid_tasks)
         return new_methods
 
