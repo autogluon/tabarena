@@ -54,6 +54,11 @@ class AbstractArenaContext:
     runner, and leaderboard plumbing. Directly instantiable; subclasses add named presets.
     """
 
+    #: Human-readable benchmark name, vended to plot titles (e.g. ``"Arena-large Pareto
+    #: Frontier"``). Subclasses override (``TabArenaContext`` -> ``"TabArena"``,
+    #: ``BeyondArenaContext`` -> ``"BeyondArena"``).
+    benchmark_name: str = "Arena"
+
     #: Subset-filter predicates available to `compare` / `build_jobs`, keyed by
     #: name. Each :class:`SubsetPredicate` declares the grid columns it needs (validated before
     #: it runs). Subclasses override to add arena-specific filters (size buckets, split regimes,
@@ -366,6 +371,64 @@ class AbstractArenaContext:
             df_results_lst.append(df_results)
 
         return pd.concat(df_results_lst, ignore_index=True)
+
+    def load_model_results(
+        self,
+        methods: list[str] | None = None,
+        *,
+        configs: list[str] | None = None,
+        download_results: str | bool = "auto",
+    ) -> pd.DataFrame:
+        """Load the raw per-config ``model_results`` of this arena's methods (downloading on miss).
+
+        Unlike :meth:`load_results` — which returns each method's leaderboard-style rows (for a
+        ``config`` method, the aggregated default / tuned / tuned+ensemble entries) — this returns
+        the per-config rows from each method's ``model_results.parquet``: one row per
+        ``(dataset, fold, config)`` carrying that individual config's own ``time_train_s`` /
+        ``time_infer_s``. Useful for inspecting the configs a portfolio selected (whose ids live in
+        the returned frame's ``method`` column, e.g. ``"CatBoost_r8_BAG_L1"``).
+
+        Args:
+            methods: methods to load (defaults to all of this context's methods).
+            configs: if given, keep only rows whose config id (the ``method`` column) is in this
+                set.
+            download_results: ``"auto"`` (download on cache miss), ``True`` (download first), or
+                ``False`` (never download — raise on a cache miss).
+        """
+        if methods is None:
+            methods = self.methods
+        if not methods:
+            return pd.DataFrame()
+
+        df_results_lst = []
+        for method in methods:
+            method_metadata = self.method_metadata(method=method)
+            if isinstance(download_results, bool) and download_results:
+                method_metadata.method_downloader().download_results()
+
+            try:
+                df_results = method_metadata.load_model_results()
+            except FileNotFoundError as err:
+                if isinstance(download_results, str) and download_results == "auto":
+                    print(
+                        f"Missing local model_results for method! Attempting to download from s3 "
+                        f'and retry... (method="{method_metadata.method}")',
+                    )
+                    method_metadata.method_downloader().download_results()
+                    df_results = method_metadata.load_model_results()
+                else:
+                    print(
+                        f"Missing local model_results for method {method_metadata.method}! "
+                        f"Try setting `download_results=True` to get the required files.",
+                    )
+                    raise err
+            df_results_lst.append(df_results)
+
+        df_model_results = pd.concat(df_results_lst, ignore_index=True)
+        if configs is not None:
+            df_model_results = df_model_results[df_model_results["method"].isin(set(configs))]
+            df_model_results = df_model_results.reset_index(drop=True)
+        return df_model_results
 
     # ------------------------------------------------------------------ metadata views
     def _resolve_task_metadata_collection(
@@ -778,6 +841,7 @@ class AbstractArenaContext:
                 figure_file_type=figure_file_type,
                 compute_fold_similarity=compute_fold_similarity,
                 fold_similarity_kwargs=fold_similarity_kwargs,
+                benchmark_name=self.benchmark_name,
                 **kwargs,
             )
         finally:
@@ -880,7 +944,17 @@ class AbstractArenaContext:
         save_website_leaderboard: bool = False,
         website_leaderboard_kwargs: dict | None = None,
         website_leaderboard_filename: str = "leaderboard_website.csv",
+        trajectory_extra_results: pd.DataFrame | None = None,
     ) -> None:
+        """Generate the compare / tuning-trajectory / runtime figures for each subset.
+
+        ``new_results`` are the new methods compared in the leaderboard (``plot_compare``) and, by
+        default, also the ``extra_results`` overlaid on the tuning-trajectory plots
+        (``plot_tuning_trajectories``). Pass ``trajectory_extra_results`` to give the trajectory
+        pass a *different* frame than the compare pass — e.g. show full per-config trajectories
+        (multiple ``n_configs`` rows per method) on the trajectory plot while the leaderboard keeps
+        the single-point method results — in one call instead of two.
+        """
         if compare_kwargs is None:
             compare_kwargs = {}
         if tuning_trajectory_kwargs is None:
@@ -889,6 +963,7 @@ class AbstractArenaContext:
             website_leaderboard_kwargs = {}
         if subsets == "auto":
             subsets = self._default_subsets
+        output_dir = Path(output_dir)
         for subset in subsets:
             output_suffix = None
             if subset is None:
@@ -928,7 +1003,7 @@ class AbstractArenaContext:
                 self.plot_tuning_trajectories(
                     save_path=output_dir_subset / "tuning_trajectories",
                     subset=subset,
-                    extra_results=new_results,
+                    extra_results=trajectory_extra_results if trajectory_extra_results is not None else new_results,
                     **tuning_trajectory_kwargs,
                 )
             if plot_runtime_per_method:
@@ -1102,6 +1177,95 @@ class AbstractArenaContext:
         hpo_trajectory["display_name"] = display_name
 
         return hpo_trajectory
+
+    def generate_portfolio_trajectories_per(
+        self,
+        portfolios: dict[str, list[str]],
+        *,
+        name: str,
+        config_fallback: str | None = None,
+        n_configs: list[int | None] | str = "auto",
+        seeds: int | list[int] = 1,
+        n_iterations: int = 40,
+        fit_order: Literal["original", "random"] = "original",
+        time_limit: float | None = None,
+        repo: EvaluationRepository | None = None,
+        folds: list[int] | None = None,
+        ta_name: str | None = None,
+        ta_suite: str | None = None,
+        display_name: str | None = None,
+        **kwargs,
+    ) -> pd.DataFrame:
+        """Per-dataset analogue of :meth:`generate_portfolio_trajectories`.
+
+        Where :meth:`generate_portfolio_trajectories` takes a single global ordered ``configs``
+        list, this takes a per-dataset mapping ``portfolios`` (dataset -> ordered config list, e.g.
+        the leave-one-out portfolio each dataset selected). For each ``N`` in ``n_configs`` it
+        evaluates every dataset's *first ``N``* configs as an ensemble (via
+        :meth:`simulate_portfolio_from_configs_per`) and tags the result with ``n_configs=N``.
+
+        All ``N`` share the same ``method`` (== ``name``), so the rows form a single tuning
+        trajectory under the ``extra_results`` convention consumed by ``plot_tuning_trajectories``
+        (each point ensembles a prefix of the order — first config, first two, ...). Because the
+        ensemble's ``time_train_s`` is the cumulative cost of the considered configs, the trajectory
+        directly reflects the config *ordering* — which is what makes two orderings of the same set
+        (identical final point, different anytime curve) comparable.
+        """
+        if n_configs == "auto":
+            n_configs = [1, 2, 5, 10, 25, 50, 100, 150, None]
+        if isinstance(seeds, int):
+            seeds = list(range(seeds))
+
+        datasets = list(portfolios)
+        all_configs = sorted({config for configs in portfolios.values() for config in configs})
+
+        if repo is None:
+            repo = self.load_repo(config_fallback=config_fallback)
+
+        configs_w_fallback = list(all_configs)
+        if config_fallback is not None:
+            if config_fallback not in configs_w_fallback:
+                configs_w_fallback.append(config_fallback)
+            repo.set_config_fallback(config_fallback=config_fallback)
+        repo = repo.subset(configs=configs_w_fallback, datasets=datasets, folds=folds)
+
+        max_n_configs = max(len(configs) for configs in portfolios.values())
+        n_configs = [n_config if n_config is not None else max_n_configs for n_config in n_configs]
+        n_configs = sorted({min(n_config, max_n_configs) for n_config in n_configs})
+
+        # The (dataset, fold) tasks to evaluate, taken from the (subset) repo.
+        dataset_folds = [(dataset, fold) for dataset in datasets for fold in repo.dataset_to_folds(dataset)]
+
+        df_trajectory_lst = []
+        for n_config in n_configs:
+            print(f"Running n_config={n_config}")
+            for seed in seeds:
+                df_info = pd.DataFrame(
+                    [
+                        {"dataset": dataset, "fold": fold, "configs": portfolios[dataset][:n_config]}
+                        for dataset, fold in dataset_folds
+                    ]
+                )
+                df_results = self.simulate_portfolio_from_configs_per(
+                    df_info=df_info,
+                    repo=repo,
+                    n_iterations=n_iterations,
+                    fit_order=fit_order,
+                    seed=seed,
+                    time_limit=time_limit,
+                    **kwargs,
+                )
+                df_results["n_configs"] = n_config
+                df_results["n_iterations"] = n_iterations
+                df_results["seed"] = seed
+                df_trajectory_lst.append(df_results)
+
+        trajectory = pd.concat(df_trajectory_lst, ignore_index=True)
+        trajectory["method"] = name
+        trajectory["ta_name"] = ta_name
+        trajectory["ta_suite"] = ta_suite
+        trajectory["display_name"] = display_name
+        return trajectory
 
     def combine_hpo(
         self,

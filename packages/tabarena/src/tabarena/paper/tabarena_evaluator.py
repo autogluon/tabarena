@@ -102,6 +102,7 @@ class TabArenaEvaluator:
         keep_best: bool = False,
         figure_file_type: str = "pdf",
         use_latex: bool = False,
+        benchmark_name: str = "Arena",
         tabarena_context=None,  # FIXME: Remove this and refactor after leaderboard v0.2 upload, this is purely to get things working fast
     ):
         """Parameters
@@ -132,6 +133,7 @@ class TabArenaEvaluator:
         self.error_col = error_col
         self.config_types = config_types
         self.figure_file_type = figure_file_type
+        self.benchmark_name = benchmark_name
         self.banned_pareto_methods = banned_pareto_methods
         self._method_rename_map = method_rename_map
 
@@ -643,9 +645,9 @@ class TabArenaEvaluator:
         # prefix (aggregate / no-meaningful-subset case).
         if show_tuning_impact_title and "title" not in plot_tuning_kwargs:
             if subset_label and subset_label != "all":
-                plot_tuning_kwargs["title"] = f"TabArena-{subset_label} Leaderboard"
+                plot_tuning_kwargs["title"] = f"{self.benchmark_name}-{subset_label} Leaderboard"
             else:
-                plot_tuning_kwargs["title"] = "TabArena Leaderboard"
+                plot_tuning_kwargs["title"] = f"{self.benchmark_name} Leaderboard"
 
         if calibration_framework is not None and calibration_framework == "auto":
             calibration_framework = "RF (default)"
@@ -1008,9 +1010,9 @@ class TabArenaEvaluator:
                 winrate_title: str | None = None
                 if show_winrate_title:
                     if subset_label and subset_label != "all":
-                        winrate_title = f"TabArena-{subset_label} Win-rate Matrix"
+                        winrate_title = f"{self.benchmark_name}-{subset_label} Win-rate Matrix"
                     else:
-                        winrate_title = "TabArena Win-rate Matrix"
+                        winrate_title = f"{self.benchmark_name} Win-rate Matrix"
                 try:
                     tabarena.plot_winrate_matrix(
                         winrate_matrix=winrate_matrix,
