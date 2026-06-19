@@ -1097,8 +1097,17 @@ class TestSemanticTextFeatureGeneratorCacheRoundTrip:
         assert X_out.shape == (4, self.EMB_DIM)
         assert not X_out.isnull().any().any()
 
+    @pytest.mark.network
     def test_full_pipeline_cache_roundtrip_with_e5_model(self, tmp_path, monkeypatch):
-        """End-to-end via TabArenaModelAgnosticPreprocessing with intfloat/e5-small-v2."""
+        """End-to-end via TabArenaModelAgnosticPreprocessing with intfloat/e5-small-v2.
+
+        Marked ``network``: downloads a real sentence-transformers model from
+        Hugging Face. Deselected from the default ``pytest`` run (see ``addopts``
+        in the root ``pyproject.toml``) and exercised by the nightly
+        ``.github/workflows/nightly.yml`` job, which retries on transient HF
+        connection failures. The parquet cache save/load/transform logic itself
+        is covered offline by the deterministic tests above.
+        """
         from sentence_transformers import SentenceTransformer
 
         # Monkey patch Small model for tests
