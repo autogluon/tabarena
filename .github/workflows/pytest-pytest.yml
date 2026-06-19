@@ -46,9 +46,11 @@ jobs:
           # Upgrade build backends first
           uv pip install --system --upgrade setuptools wheel
 
-          # Allow prerelease versions of AutoGluon
-          # Install your package in editable/develop mode
-          uv pip install --system --prerelease=allow -e ./packages/tabarena
+          # Allow prerelease versions of AutoGluon. Install editable with the [plot] and
+          # [preprocessing] extras so the plotting/skrub unit tests run. We intentionally
+          # do NOT install [text]/[benchmark] here: those pull torch + model libs, keeping
+          # this job fast. Model-fitting tests run in the nightly workflow.
+          uv pip install --system --prerelease=allow -e "./packages/tabarena[plot,preprocessing]"
 
           # Optional tools
           uv pip install --system pytest

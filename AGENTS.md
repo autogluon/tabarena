@@ -25,9 +25,16 @@ for the pre-release AutoGluon dependency. From the repo root, after creating/act
 (`uv venv --seed --python 3.12 && source .venv/bin/activate`):
 
 ```bash
-uv pip install --prerelease=allow -e "./packages/tabarena"               # Evaluation-only (leaderboard/metrics)
-uv pip install --prerelease=allow -e "./packages/tabarena[benchmark]"    # Full install including model fitting
+uv pip install --prerelease=allow -e "./packages/tabarena"               # Minimal: evaluation/leaderboard/metrics only
+uv pip install --prerelease=allow -e "./packages/tabarena[plot]"         # + leaderboard/result plotting
+uv pip install --prerelease=allow -e "./packages/tabarena[text]"         # + semantic text features (sentence-transformers; pulls torch)
+uv pip install --prerelease=allow -e "./packages/tabarena[preprocessing]" # + skrub datetime/statistical-text feature generators
+uv pip install --prerelease=allow -e "./packages/tabarena[benchmark]"    # Full install (models + plot + text + preprocessing)
 ```
+
+The core install is intentionally minimal (issue #323): it depends on `autogluon.tabular`
+(not the full `autogluon` meta-package) and leaves plotting, text embeddings, and skrub
+feature generators to the extras above (all imported lazily). `[benchmark]` is the union.
 
 For editable AutoGluon development (one directory up):
 

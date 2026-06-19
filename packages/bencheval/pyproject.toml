@@ -15,6 +15,13 @@ dependencies = [
     "tqdm",
     "typing-extensions>=4.11,<5",  # used for `Self` type hint
     "scikit-learn",
+]
+
+# Plotting is optional: the `bencheval._plotting` mixin imports matplotlib/seaborn/plotly
+# lazily, so metrics/leaderboard computation works from the minimal install. Install
+# `bencheval[plot]` (or `tabarena[plot]`, which includes the same libs) to render plots.
+[project.optional-dependencies]
+plot = [
     "seaborn==0.13.2",
     "matplotlib==3.10.1",
     "plotly>=6.3.0",
