@@ -52,6 +52,8 @@ dependencies = [
   "huggingface-hub",
   "numpy",
   "pandas",
+  "loguru",
+  "ray>=2.43,<2.54",  # range matches autogluon.core
 ]
 
 [project.optional-dependencies]
