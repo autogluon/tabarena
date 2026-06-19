@@ -25,6 +25,6 @@ nori_info = ModelInfo(
     model_cls=NoriModel,
     search_space=gen_nori,
     method_metadata=nori_method_metadata,
-    pip_extra=("synthefy-nori>=0.6.0",),
+    pip_extra=("synthefy-nori>=0.7.0",),
     prefetch_weights=NoriModel.prefetch_weights,
 )

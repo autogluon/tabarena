@@ -95,7 +95,7 @@ limix = [
 tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.13.0"]
-nori = ["synthefy-nori>=0.6.0"]
+nori = ["synthefy-nori>=0.7.0"]
 
 # Core benchmark set: the always-on models for benchmarking. Self-references avoid duplicating package specs.
 benchmark = [
