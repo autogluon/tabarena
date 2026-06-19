@@ -62,7 +62,7 @@ class TabMModel(AbstractTorchModel):
             # imports various dependencies such as torch
             from torch.cuda import is_available
 
-            from ._tabm_internal import TabMImplementation
+            from ._internal._tabm_internal import TabMImplementation
         except ImportError as err:
             logger.log(
                 40,
