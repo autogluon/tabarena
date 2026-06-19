@@ -1,3 +1,15 @@
+"""Maintainer-only: regenerate and publish the tabarena.ai website artifacts.
+
+This is the publishing pipeline behind the live leaderboard, **not** a user
+example. It (1) regenerates every per-subset figure/table + tuning trajectory
+(time-consuming), (2) converts them into the website's folder/file layout, and
+(3) zips the result. The artifacts are then manually copied into the HuggingFace
+Space ``data/`` directory and committed (see the steps at the bottom).
+
+Users who just want a leaderboard should run
+``examples/plots/run_generate_main_leaderboard.py`` instead.
+"""
+
 from __future__ import annotations
 
 import shutil
