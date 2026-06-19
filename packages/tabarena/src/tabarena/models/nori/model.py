@@ -73,12 +73,6 @@ class NoriModel(AbstractTorchModel):
         import torch
         from synthefy_nori import NoriRegressor
 
-        from tabarena.models.nori._patch import ensure_picklable_preprocessing
-
-        # Nori's fitted preprocessing pipeline uses local lambdas that the stdlib pickle
-        # AutoGluon saves models with cannot serialize; patch before fit builds the pipeline.
-        ensure_picklable_preprocessing()
-
         if self.problem_type != "regression":
             raise AssertionError(f"{self.ag_name} only supports regression, got problem_type={self.problem_type!r}.")
 

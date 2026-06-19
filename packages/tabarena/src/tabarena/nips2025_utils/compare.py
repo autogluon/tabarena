@@ -294,10 +294,10 @@ def subset_tasks(
         ``TabArenaContext`` (or subclass) should pass ``context.subset_predicates``
         so context-specific subset definitions take effect.
     """
-    from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
+    from tabarena.benchmark.task.metadata import default_task_metadata_collection
 
     if task_metadata_og is None:
-        task_metadata_og = load_task_metadata()
+        task_metadata_og = default_task_metadata_collection()
 
     df_results = df_results.copy(deep=True)
     if subset:

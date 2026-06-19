@@ -1,0 +1,69 @@
+# Nightly run of the `network`-marked tests, which are deselected from the
+# per-PR `pytest-pytest.yml` run because they hit the network (e.g. download a
+# model from Hugging Face) and are flaky on transient connection failures.
+#
+# The schedule is read from this file on the default branch only. Times are
+# UTC and best-effort (scheduled runs can be delayed under load), so we avoid
+# the top of the hour. `workflow_dispatch` allows manual runs from the Actions
+# tab or `gh workflow run nightly.yml`.
+
+name: Nightly (network tests)
+
+on:
+  schedule:
+    - cron: "7 3 * * *"  # 03:07 UTC daily
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  network-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          uv --version
+
+      - name: Install dependencies with uv
+        run: |
+          # Upgrade build backends first
+          uv pip install --system --upgrade setuptools wheel
+
+          # Allow prerelease versions of AutoGluon; install in editable mode
+          uv pip install --system --prerelease=allow -e ./packages/tabarena
+
+          # Optional tools
+          uv pip install --system pytest
+
+      - name: Run network tests (retried)
+        env:
+          # The "couldn't connect" OSError is usually the metadata HEAD request
+          # timing out (default 10s); give HF more room before retrying.
+          HF_HUB_ETAG_TIMEOUT: "30"
+          HF_HUB_DOWNLOAD_TIMEOUT: "60"
+        run: |
+          # A command-line `-m` overrides the `-m 'not network'` default in
+          # pyproject.toml, so this selects exactly the network-marked tests.
+          for attempt in 1 2 3; do
+            echo "::group::pytest -m network (attempt ${attempt}/3)"
+            if pytest -m network; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "Attempt ${attempt} failed (likely a transient HF connection error); retrying after backoff..."
+            sleep 15
+          done
+          echo "All 3 attempts failed."
+          exit 1

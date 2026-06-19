@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING
 
 from autogluon.common.loaders import load_pd
 
-import tabarena
-
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -47,57 +45,6 @@ def _get_problem_type_from_n_classes(n_classes: int) -> str:
     raise ValueError(f"Invalid n_classes: {n_classes}")
 
 
-def load_task_metadata(paper: bool = True, subset: str | None = None, path: str | None = None) -> pd.DataFrame:
-    """Load the task metadata for all datasets in the TabArena benchmark.
-
-    Parameters
-    ----------
-    paper: bool, default True
-        If True, returns the task_metadata for the 51 NeurIPS 2025 TabArena paper datasets
-        If False, returns the task_metadata for 61 datasets prior to filtering down to 51 datasets for the paper.
-    subset: {None, "TabPFNv2", "TabICL"}, default None
-        If None, returns all tasks.
-        If "TabPFNv2", filters to tasks compatible with TabPFNv2:
-            <=10k samples, <=500 features, <=10 classes
-            33/51 datasets
-        If "TabICL", filters to tasks compatible with TabICL:
-            <=100k samples, <=500 features, classification
-            36/51 datasets
-
-    Returns:
-    -------
-    task_metadata: pd.DataFrame
-        Metadata about each dataset in the benchmark.
-
-    """
-    if path is None:
-        tabrepo_root = str(Path(tabarena.__file__).parent.parent)
-        if paper:
-            path = f"{tabrepo_root}/tabarena/nips2025_utils/metadata/task_metadata_tabarena51.csv"
-        else:
-            raise ValueError("paper == True is required")
-    task_metadata = load_pd.load(path=path)
-    task_metadata = enrich_legacy_task_metadata(task_metadata)
-
-    return subset_task_metadata(task_metadata=task_metadata, subset=subset)
-
-
-def subset_task_metadata(task_metadata, subset: str | None = None) -> pd.DataFrame:
-    if subset is None:
-        pass
-    elif subset == "TabPFNv2":
-        task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 10000]
-        task_metadata = task_metadata[task_metadata["n_features"] <= 500]
-        task_metadata = task_metadata[task_metadata["NumberOfClasses"] <= 10]
-    elif subset == "TabICL":
-        task_metadata = task_metadata[task_metadata["n_samples_train_per_fold"] <= 100000]
-        task_metadata = task_metadata[task_metadata["n_features"] <= 500]
-        task_metadata = task_metadata[task_metadata["NumberOfClasses"] > 0]
-    else:
-        raise AssertionError(f"Unknown subset: {subset}")
-    return task_metadata
-
-
 def add_extra_task_metadata_info(task_metadata: pd.DataFrame) -> pd.DataFrame:
     task_metadata["n_features"] = (task_metadata["NumberOfFeatures"] - 1).astype(int)
 
@@ -113,8 +60,8 @@ def enrich_legacy_task_metadata(task_metadata: pd.DataFrame) -> pd.DataFrame:
     derived schema columns (``n_features``/``n_classes``/``problem_type``/``dataset``) that the
     legacy ``task_metadata`` format — and :meth:`TaskMetadataCollection.from_legacy_df` — expect,
     starting from a raw OpenML-style frame (needs ``NumberOfInstances``/``NumberOfFeatures``/
-    ``NumberOfClasses``/``name``). Used by :func:`load_task_metadata` and to make the OpenML
-    ``generate_task_metadata`` fallback convertible to a ``TaskMetadataCollection``.
+    ``NumberOfClasses``/``name``). Used to make the OpenML ``generate_task_metadata`` fallback
+    convertible to a ``TaskMetadataCollection`` (see :func:`task_metadata_collection_from_openml`).
     """
     task_metadata["n_folds"] = 3
     task_metadata["n_repeats"] = task_metadata["NumberOfInstances"].apply(_get_n_repeats)
@@ -140,19 +87,21 @@ def task_metadata_collection_from_openml(tids: list[int], *, verbose: bool = Tru
     Note: when *every* requested id is already cached, the full cached collection is returned;
     filter it to the requested tasks with ``.subset_tasks(task_ids=tids)``.
     """
-    from tabarena.benchmark.task.metadata import TaskMetadataCollection
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection, default_task_metadata_collection
 
     log = print if verbose else (lambda *a, **k: None)
-    task_metadata = load_task_metadata()
-    tids_cached = set(task_metadata["tid"].unique())
+    cached = default_task_metadata_collection()
+    tids_cached = set(cached.to_legacy_df()["tid"].unique())
 
     tids_missing = [tid for tid in tids if tid not in tids_cached]
-    if tids_missing:
-        from tabarena.nips2025_utils.method_processor import generate_task_metadata
+    if not tids_missing:
+        return cached
 
-        log(f"Note: Missing {len(tids_missing)} tasks in the cached task_metadata...")
-        log("\tFetching task_metadata from OpenML... (this may take ~1 minute)")
-        task_metadata = enrich_legacy_task_metadata(generate_task_metadata(tids=tids))
+    from tabarena.nips2025_utils.method_processor import generate_task_metadata
+
+    log(f"Note: Missing {len(tids_missing)} tasks in the cached task_metadata...")
+    log("\tFetching task_metadata from OpenML... (this may take ~1 minute)")
+    task_metadata = enrich_legacy_task_metadata(generate_task_metadata(tids=tids))
     return TaskMetadataCollection.from_legacy_df(task_metadata)
 
 

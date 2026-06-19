@@ -4,3 +4,14 @@ members = ["packages/tabarena", "packages/bencheval", "packages/tabflow_slurm"]
 [tool.uv.sources]
 tabarena = { workspace = true }
 bencheval = { workspace = true }
+
+# Pytest reads this file as the rootdir config when `pytest` is run from the
+# repo root (it searches upward from the cwd, never down into packages/).
+[tool.pytest.ini_options]
+markers = [
+  "network: test requires internet access (e.g. downloads a model from Hugging Face)",
+]
+# Skip network-dependent tests by default to keep PR CI deterministic. The
+# nightly workflow opts back in with `pytest -m network` (a command-line `-m`
+# overrides this one). Run them locally the same way.
+addopts = "-m 'not network'"
