@@ -6,8 +6,8 @@ src = [
     "packages/tabarena/src",
     "packages/bencheval/src",
     "packages/tabflow_slurm/src",
+    "tests",
     "examples",
-    "tst",
 ]
 
 # File-discovery exclusions. MUST be top-level (not under [lint]): top-level `extend-exclude`
@@ -160,9 +160,9 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-# Tests don't need module/class docstrings, and test packages are intentionally
-# implicit namespace packages (no __init__.py).
-"tst/**" = [
+# Tests don't need module/class docstrings; INP001 covers any test dir without
+# an __init__.py.
+"tests/**" = [
     "D100", # Missing docstring in public module
     "D101", # Missing docstring in public class
     "INP001", # File is part of an implicit namespace package

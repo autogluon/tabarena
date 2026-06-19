@@ -1,13 +1,16 @@
-# Nightly run of the `network`-marked tests, which are deselected from the
-# per-PR `pytest-pytest.yml` run because they hit the network (e.g. download a
-# model from Hugging Face) and are flaky on transient connection failures.
+# Nightly run of the tests deselected from the fast per-PR `pytest-pytest.yml`
+# run (its default `-m 'not network and not models'`):
+#   - network-tests: `@pytest.mark.network` tests that hit the network (e.g.
+#     download a model from Hugging Face) and are flaky on transient failures.
+#   - model-tests:   `@pytest.mark.models` tests that fit real models via
+#     AutoGluon's FitHelper (need the model extras; slow).
 #
 # The schedule is read from this file on the default branch only. Times are
 # UTC and best-effort (scheduled runs can be delayed under load), so we avoid
 # the top of the hour. `workflow_dispatch` allows manual runs from the Actions
 # tab or `gh workflow run nightly.yml`.
 
-name: Nightly (network tests)
+name: Nightly (network + model tests)
 
 on:
   schedule:
@@ -19,6 +22,7 @@ permissions:
 
 jobs:
   network-tests:
+    name: Network tests (retried)
     runs-on: ubuntu-latest
 
     steps:
@@ -37,13 +41,9 @@ jobs:
 
       - name: Install dependencies with uv
         run: |
-          # Upgrade build backends first
           uv pip install --system --upgrade setuptools wheel
-
-          # Allow prerelease versions of AutoGluon; install in editable mode
-          uv pip install --system --prerelease=allow -e ./packages/tabarena
-
-          # Optional tools
+          # [text] provides sentence-transformers, which the network test downloads.
+          uv pip install --system --prerelease=allow -e "./packages/tabarena[text]"
           uv pip install --system pytest
 
       - name: Run network tests (retried)
@@ -53,8 +53,8 @@ jobs:
           HF_HUB_ETAG_TIMEOUT: "30"
           HF_HUB_DOWNLOAD_TIMEOUT: "60"
         run: |
-          # A command-line `-m` overrides the `-m 'not network'` default in
-          # pyproject.toml, so this selects exactly the network-marked tests.
+          # A command-line `-m` overrides the `-m 'not network and not models'`
+          # default in pyproject.toml, selecting exactly the network-marked tests.
           for attempt in 1 2 3; do
             echo "::group::pytest -m network (attempt ${attempt}/3)"
             if pytest -m network; then
@@ -67,3 +67,34 @@ jobs:
           done
           echo "All 3 attempts failed."
           exit 1
+
+  model-tests:
+    name: Model-fit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          uv --version
+
+      - name: Install dependencies with uv
+        run: |
+          uv pip install --system --upgrade setuptools wheel
+          # [benchmark] installs the always-on benchmark models. The runner is
+          # CPU-only, so GPU-compute models (compute='gpu') skip themselves; the
+          # `extended` models are not installed and skip on ImportError.
+          uv pip install --system --prerelease=allow -e "./packages/tabarena[benchmark]"
+          uv pip install --system pytest
+
+      - name: Run model-fit tests
+        # No retry: a model-fit failure is a real failure, not transient.
+        run: pytest -m models

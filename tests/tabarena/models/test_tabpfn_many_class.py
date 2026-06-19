@@ -3,29 +3,13 @@ from __future__ import annotations
 import pytest
 
 
-def test_tabpfn26():
-    try:
-        from autogluon.tabular.testing import FitHelper
-
-        from tabarena.models.tabpfnv2_5.model import (
-            TabPFNv26Model,
-        )
-
-        model_cls = TabPFNv26Model
-        FitHelper.verify_model(
-            model_cls=model_cls,
-            model_hyperparameters={
-                "n_estimators": 1,
-            },
-        )
-    except ImportError as err:
-        pytest.skip(
-            f"Import Error, skipping test... Ensure you have the proper dependencies installed to run this test:\n{err}",
-        )
-
-
+@pytest.mark.models
 def test_tabpfnv26_many_class(tmp_path):
-    """Test that RealTabPFNv25 handles >10 classes via ManyClassClassifier."""
+    """TabPFN-v2.6 must handle >10 classes via the ManyClassClassifier wrapper.
+
+    This is a model-specific *behaviour* test (not a generic smoke test), so it
+    lives outside the parametrized ``test_all_models`` sweep.
+    """
     try:
         import numpy as np
         import pandas as pd

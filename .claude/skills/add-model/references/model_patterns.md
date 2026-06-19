@@ -419,31 +419,29 @@ __all__ = ["gen_{ModelKey}", "{ModelKey}_info", "{ModelKey}_method_metadata"]
 
 ---
 
-## Test template
+## Test config (no per-model test file)
 
-Tests for `packages/tabarena/src/tabarena/models/{ModelKey}/model.py` live at `tst/models/test_{ModelKey}.py`.
+Models are fit-tested by the single registry-driven `tests/tabarena/models/test_all_models.py`,
+which parametrizes over `get_model_registry()` and calls `FitHelper.verify_model(...)` per model.
+A new model is picked up automatically once its `info.py` is discoverable — **do not write a
+`test_{ModelKey}.py`**.
+
+Only add a speed-up override to `tests/tabarena/models/smoke_configs.py` if the default
+(empty hyperparameters, all problem types) is too slow or unsupported. Key by the model's
+`MethodMetadata.method` (the registry key):
 
 ```python
-from __future__ import annotations
-
-import pytest
-
-
-def test_{ModelKey}():
-    try:
-        from autogluon.tabular.testing import FitHelper
-        from tabarena.models.{ModelKey}.model import {ClassName}Model
-
-        model_cls = {ClassName}Model
-        # Add a speed-up hyperparameter if the model supports one (e.g. max_epochs=1)
-        FitHelper.verify_model(model_cls=model_cls, model_hyperparameters={})
-    except ImportError as err:
-        pytest.skip(
-            f"Import Error, skipping test... "
-            f"Ensure you have the proper dependencies installed to run this test:\n"
-            f"{err}"
-        )
+# tests/tabarena/models/smoke_configs.py -> SMOKE_OVERRIDES
+SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
+    ...
+    "{ModelName}": ModelSmokeTest({"max_epochs": 1}),          # faster toy fit
+    # or, for a regression-only model:
+    # "{ModelName}": ModelSmokeTest(problem_types=("regression",)),
+}
 ```
+
+GPU-only models (`MethodMetadata.compute == "gpu"`) are skipped automatically when no CUDA
+device is available, and any model is skipped when its optional dependency isn't installed.
 
 ---
 

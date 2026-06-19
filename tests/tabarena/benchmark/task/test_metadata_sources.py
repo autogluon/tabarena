@@ -133,11 +133,12 @@ def test_openml_source_honors_custom_cache_dir(monkeypatch, tmp_path):
     import openml
 
     set_dirs: list[str] = []
-    monkeypatch.setattr(
-        openml.config,
-        "set_root_cache_directory",
-        lambda root_cache_directory: set_dirs.append(root_cache_directory),
-    )
+
+    def _record_root_cache_dir(root_cache_directory):
+        # A plain def (not a lambda) so the call site's keyword arg works and to satisfy PLW0108.
+        set_dirs.append(root_cache_directory)
+
+    monkeypatch.setattr(openml.config, "set_root_cache_directory", _record_root_cache_dir)
     monkeypatch.setattr(openml.config, "get_cache_directory", lambda: str(tmp_path))
     monkeypatch.setattr(openml.tasks, "get_task", lambda task_id, **_: None)
 
