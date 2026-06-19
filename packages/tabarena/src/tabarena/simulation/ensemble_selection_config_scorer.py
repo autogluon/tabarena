@@ -230,6 +230,26 @@ class EnsembleScorer:
     def get_ensemble_method_kwargs_for_task(self, dataset: str, fold: int, models: list[str]) -> dict:
         return copy.deepcopy(self.ensemble_method_kwargs)
 
+    def subsample_val_data(
+        self,
+        *,
+        dataset: str,
+        fold: int,
+        problem_type: str,
+        y_val: np.ndarray,
+        pred_val: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Restrict the validation data available for post-hoc ensemble decisions. No-op by default.
+
+        Subclasses may return a subset of ``(y_val, pred_val)`` — the *same* rows for both, selected
+        along the validation-sample axis (``y_val[idx]`` and ``pred_val[:, idx]``, where ``pred_val``
+        is ``(n_models, n_rows)`` or ``(n_models, n_rows, n_classes)``). The returned data is used
+        both to fit the weighted ensemble (when ``optimize_on='val'``) and to compute
+        ``metric_error_val``. The test set is never touched here, so ``metric_error`` always reflects
+        the full test data.
+        """
+        return y_val, pred_val
+
     # -------------------------
     # Metrics helpers
     # -------------------------
@@ -316,6 +336,15 @@ class EnsembleScorer:
         models, models_filtered_idx = self._get_models_filtered_idx(models=models, models_filtered=models_filtered)
 
         pred_val, pred_test = self.get_preds_from_models(dataset=dataset, fold=fold, models=models)
+
+        # Restrict the validation data used for post-hoc ensemble decisions (no-op by default).
+        y_val, pred_val = self.subsample_val_data(
+            dataset=dataset,
+            fold=fold,
+            problem_type=problem_type,
+            y_val=y_val,
+            pred_val=pred_val,
+        )
 
         y_train, pred_train = self._get_train(y_val=y_val, pred_val=pred_val, y_test=y_test, pred_test=pred_test)
 
