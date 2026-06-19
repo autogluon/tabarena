@@ -1,3 +1,16 @@
+"""Reproduce all tables and figures from the TabArena NeurIPS 2025 paper.
+
+Loads the raw benchmark results (downloaded to ``~/.cache/tabarena/`` on first
+run) and regenerates every paper artifact under ``save_path`` via
+``evaluate_all()``, optionally including the tuning-trajectory plots. Use
+``elo_bootstrap_rounds=200`` (paper setting) for final figures; ``1`` is a fast
+toy run. Set ``use_latex=True`` only if you have the LaTeX packages installed.
+
+The results are optionally zipped (``zip_results``) and uploaded to S3
+(``upload_to_s3``) -- leave the upload off unless you are a maintainer
+publishing artifacts.
+"""
+
 from __future__ import annotations
 
 import shutil
