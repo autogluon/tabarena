@@ -9,8 +9,7 @@ from tabarena import EvaluationRepository, Evaluator
 from tabarena.benchmark.exec_models import AGWrapper
 from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
 from tabarena.benchmark.result import ExperimentResults
-from tabarena.benchmark.task.metadata import TaskMetadataCollection
-from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
+from tabarena.benchmark.task.metadata import TaskMetadataCollection, default_task_metadata_collection
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 
@@ -54,7 +53,7 @@ if __name__ == "__main__":
     )  # Load the repo later via `EvaluationRepository.from_dir(repo_dir)`
     ignore_cache = False  # set to True to overwrite existing caches and re-run experiments from scratch
 
-    task_metadata = load_task_metadata()
+    task_metadata = default_task_metadata_collection().to_legacy_df()
 
     # Sample for a quick demo
     datasets = ["anneal", "credit-g", "diabetes"]  # datasets = list(task_metadata["name"])

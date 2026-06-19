@@ -9,7 +9,7 @@ SLURM workers don't each re-download — replacing the old manual download step.
 Cache location: tasks are cached into OpenML's root cache directory. By default
 that is whatever the ambient ``openml.config`` is set to — in the SLURM pipeline
 this is configured by ``PathSetup.ensure_runtime_dirs`` (which honors the run's
-``openml_cache``) before ``load_task_metadata`` runs, and otherwise falls back to
+``openml_cache``) before the task metadata loads, and otherwise falls back to
 ``~/.cache/openml``. Pass ``openml_cache_dir`` to override it explicitly (mirrors
 the old pre-download ``--directory`` flag).
 """

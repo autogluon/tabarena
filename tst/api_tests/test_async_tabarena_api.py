@@ -37,17 +37,17 @@ from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
 from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 from tabarena.utils.config_utils import ConfigGenerator
 
-# The debug script tags its in-memory method with this prefix, then picks its row out of the
+# The example script tags its in-memory method with this prefix, then picks its row out of the
 # leaderboard via ``return_single``.
 _NEW_RESULT_PREFIX = "[New] "
 
-# Columns the debug script's ``TabArenaEvalResult.from_compare_output`` reads off the
-# ``compare(return_results=True)`` frame; the structural contract this test pins.
+# Columns the example script reads off the ``compare(return_results=True)`` frame to surface its
+# per-split table; the structural contract this test pins.
 _RESULT_COLS = ["dataset", "fold", "method", "metric_error"]
 
-# Leaderboard column -> scalar key, mirroring ``TabArenaEvalResult._SCALAR_COLUMNS`` (subset). The
-# extraction "degrades gracefully" — only columns actually present are emitted — so this test does
-# not assert any *value*, only that pulling them off the single row works the same way.
+# Leaderboard column -> scalar key (a subset of the leaderboard row's columns). The extraction
+# "degrades gracefully" — only columns actually present are emitted — so this test does not assert
+# any *value*, only that pulling them off the single row works the same way.
 _SCALAR_COLUMNS = {"elo": "elo", "rank": "rank", "winrate": "winrate", "mrr": "mrr"}
 
 
@@ -59,7 +59,7 @@ class _Future:
 
 
 class _LocalBackend:
-    """Single-process twin of the debug script's ``LocalBackend``.
+    """Single-process twin of the example script's ``LocalBackend``.
 
     Mirrors the future-based surface the real adapter fans jobs across (``run`` -> a future,
     ``wait_for_futures`` -> the results in submission order).
@@ -126,7 +126,7 @@ def _make_regression_task(task_cache_dir) -> tuple[UserTask, TabArenaTaskMetadat
 def _comparison_baseline(collection: TaskMetadataCollection) -> InMemoryMethodMetadata:
     """One in-memory baseline with a result on every (dataset, split) of ``collection``.
 
-    The debug script scores its candidate against TabArena's *downloaded* baseline suite, which
+    The example script scores its candidate against TabArena's *downloaded* baseline suite, which
     is what makes the leaderboard's pairwise metrics (elo / rank / win-rate) computable. A toy
     local context has no such suite, so this synthesizes a single stand-in baseline straight from
     the collection's task grid (so its tasks line up with the candidate's). ``return_single`` then
@@ -177,7 +177,7 @@ def test_async_tabarena_api(tmp_path):
     # downloaded suite; the registered candidate stays the one "new" method ``return_single`` picks.
     context = AbstractArenaContext(methods=[_comparison_baseline(collection)], task_metadata=collection)
 
-    # Step 1: the single candidate model under eval, built exactly as the debug script builds it
+    # Step 1: the single candidate model under eval, built exactly as the example script builds it
     # (empty search space + a single manual default config; outer_experiments -> no bagging).
     generator = ConfigGenerator(search_space={}, model_cls=DummyModel, manual_configs=[{}])
     experiments = TabArenaV0pt1ExperimentBundle(models=[(generator, 0)], outer_experiments=True).build_experiments()
@@ -189,7 +189,7 @@ def test_async_tabarena_api(tmp_path):
     assert all(isinstance(job, Job) for job in jobs)
     assert len(jobs) == 4
 
-    # Step 3: the backend load-balancing cost loop, verbatim from the debug script — pins that
+    # Step 3: the backend load-balancing cost loop, verbatim from the example script — pins that
     # metadata_for_jobs yields one per-job metadata exposing a single split's
     # num_instances_train / num_features_train.
     metas = context.metadata_for_jobs(jobs)
@@ -226,10 +226,10 @@ def test_async_tabarena_api(tmp_path):
         return_single=True,
     )
 
-    # return_single collapses to exactly one leaderboard row, as a Series — what
-    # TabArenaEvalResult.from_compare_output consumes for its scalars.
+    # return_single collapses to exactly one leaderboard row, as a Series — what the example
+    # script returns and reads its scalars off.
     assert isinstance(leaderboard_row, pd.Series)
-    # The per-split frame carries the columns the debug script surfaces, scoped to our one method.
+    # The per-split frame carries the columns the example script surfaces, scoped to our one method.
     assert set(_RESULT_COLS).issubset(new_results.columns)
     assert not new_results.empty
     assert set(new_results["method"]) == {leaderboard_row["method"]}

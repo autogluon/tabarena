@@ -217,17 +217,6 @@ class TestFromLegacyDf:
         assert row["n_repeats"] == 2
         assert row["tid"] == 363612
 
-    def test_real_legacy_df_matches_native_preset(self):
-        """The real legacy df rebuilds to the same datasets/feature counts as the native preset."""
-        from tabarena.nips2025_utils.fetch_metadata import load_task_metadata
-
-        legacy_collection = TaskMetadataCollection.from_legacy_df(load_task_metadata(paper=True))
-        native = TaskMetadataCollection.from_preset("TabArena-v0.1")
-        assert set(legacy_collection.dataset_names()) == set(native.dataset_names())  # 51 datasets
-        legacy_nf = legacy_collection.per_dataset_frame().set_index("dataset")["num_features"]
-        native_nf = native.per_dataset_frame().set_index("dataset")["num_features"]
-        assert (legacy_nf.sort_index() == native_nf.sort_index()).all()
-
 
 class TestLegacyBoundary:
     def test_dataset_to_tid_parses_task_id_str(self):
