@@ -1,17 +1,4 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-import pandas as pd
-
-from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
-
-if TYPE_CHECKING:
-    from tabarena import EvaluationRepository
-
-"""
-TabArena Processed-Artifact Quickstart
-=====================================
+"""TabArena Processed-Artifact Quickstart.
 
 This script demonstrates how to:
 1) Discover available tabular ML **methods** integrated into TabArena.
@@ -41,7 +28,7 @@ Data Volume Tips
 ----------------
 - For a very small, fast download use: `method = "Mitra_GPU"`.
   This is great for connectivity checks and a quick end-to-end smoke test,
-  but it has only a single config (so it won’t showcase multi-config features).
+  but it has only a single config (so it won't showcase multi-config features).
 - For a richer demonstration (multiple configs), try `method = "LightGBM"`.
 
 Outputs at a Glance
@@ -54,6 +41,17 @@ Outputs at a Glance
 - Reports the mean ensemble weight per config (top 10).
 
 """
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import pandas as pd
+
+from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
+
+if TYPE_CHECKING:
+    from tabarena import EvaluationRepository
 
 
 if __name__ == "__main__":
@@ -131,7 +129,7 @@ if __name__ == "__main__":
     config_type = repo.config_type(config=config)
     config_hyperparameters = repo.config_hyperparameters(config=config)
 
-    # You can pass the below autogluon_hyperparameters into AutoGluon’s TabularPredictor.fit
+    # You can pass the below autogluon_hyperparameters into AutoGluon's TabularPredictor.fit
     # to train this exact config on your own dataset:
     #
     # from autogluon.tabular import TabularPredictor

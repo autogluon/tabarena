@@ -1,3 +1,41 @@
+"""TabArena Raw-Artifact Quickstart (+ OpenML split verification).
+
+Purpose
+-------
+This script shows how to load and read TabArena's **raw artifacts** for a single
+method, and -- as an integrity check along the way -- verifies that the recorded
+train/validation/test split indices match OpenML's canonical splits.
+
+Raw artifacts are the richest tier: unlike the processed data
+(see ``inspect_processed_data.py``), they expose per-child / inner-fold model
+predictions in addition to the overall bagged-ensemble predictions.
+
+What it does
+------------
+1. Lists available TabArena methods (so you can pick one).
+2. Selects one method (default: "Mitra_GPU", a single config -> fast).
+3. Ensures raw artifacts for that method are available locally (downloads if needed).
+4. Iterates through each ``AGBagResult`` and, for each run, shows how to:
+   - read the run metadata (framework, dataset, fold/repeat/sample),
+   - access predictions as numpy (``y_pred_proba_val`` / ``y_pred_proba_test``),
+   - access predictions as pandas with the correct index/columns (``*_as_pd``),
+   - access per-child (inner-fold) predictions (``val_idx_child``, ``*_child_as_pd``).
+   Along the way it verifies (via assertions) that:
+   - problem type and label are consistent with OpenML,
+   - the recorded train/val/test indices match OpenML's reference splits.
+
+Outputs / Side Effects
+----------------------
+- May download raw artifacts to the local TabArena cache if not present.
+- Prints a Markdown table of available methods and per-run metadata lines.
+
+Glossary
+--------
+- **fold/repeat/sample**: OpenML's CV scheme parameters.
+- **child**: A child model inside an AutoGluon bag/ensemble; predictions can be
+  examined per child via the provided accessors.
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -10,44 +48,6 @@ from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collectio
 
 if TYPE_CHECKING:
     import numpy as np
-
-"""
-TabArena → OpenML Split Verification Script
-===========================================
-
-Purpose
--------
-This utility loads precomputed TabArena artifacts for a single method and verifies
-that the recorded train/validation/test split indices match the canonical splits
-returned by `OpenMLTaskWrapper`. It is intended as a quick integrity check that
-TabArena's cached runs (fold/repeat/sample) align with OpenML's official split
-definition for each task.
-
-What it does
-------------
-1. Lists available TabArena methods (so you can pick one to test).
-2. Selects one method (default: "Mitra_GPU").
-3. Ensures raw artifacts for that method are available locally (downloads if needed).
-4. Iterates through each `AGBagResult` in the artifacts and for each run:
-   - Prints key metadata (framework, dataset, fold/repeat/sample).
-   - Fetches the OpenML split indices for the same (fold, repeat, sample).
-   - Asserts:
-       * problem type and label are consistent
-       * train/val/test indices match
-   - Demonstrates how to access per-child validation/test predictions.
-
-Outputs / Side Effects
-----------------------
-- May download raw artifacts to the local TabArena cache if not present.
-- Prints a Markdown table of available methods and per-run metadata lines.
-
-Glossary
---------
-- **fold/repeat/sample**: OpenML's CV scheme parameters.
-- **child**: A child model inside an AutoGluon bag/ensemble; predictions can be
-  examined per child via the provided accessors.
-
-"""
 
 
 if __name__ == "__main__":

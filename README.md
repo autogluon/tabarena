@@ -171,7 +171,7 @@ TabArena caches predictions, results, and leaderboards as downloadable artifacts
 
 | Tier | Contents | Size / method | Example |
 |---|---|---|---|
-| **Raw data** | Per-child test predictions, full metadata, system info | ~100 GB | [`inspect_raw_data.py`](examples/meta/inspect_raw_data.py) |
+| **Raw data** | Per-child test predictions, full metadata, system info | ~100 GB | [`inspect_raw_data_and_verify_splits.py`](examples/meta/inspect_raw_data_and_verify_splits.py) |
 | **Processed data** | Minimal data for HPO simulation, portfolios, leaderboards | ~10 GB | [`inspect_processed_data.py`](examples/meta/inspect_processed_data.py) |
 | **Results** | Per-config / HPO DataFrames (test error, val error, train time, inference time) | <1 MB | [`run_generate_main_leaderboard.py`](examples/plots/run_generate_main_leaderboard.py) |
 | **Leaderboards** | Aggregated ELO, win-rate, average rank, improvability | <1 MB | — |

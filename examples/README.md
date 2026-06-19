@@ -58,9 +58,8 @@ and use it for insightful studies or meta-learning.
 - **Folder:** `meta/`
 - **Use Cases:**
   - `inspect_processed_data.py` - Inspect the processed data from prior benchmarks.
-  - `inspect_raw_data.py` - Inspect the raw data from prior benchmarks.
-  - `run_download_raw.py` - Download all the raw data from prior benchmarks.
-  - `compare_task_metadata_sources.py` - Compare task metadata across its different sources.
+  - `inspect_raw_data_and_verify_splits.py` - Inspect the raw data (incl. per-child predictions) and verify the splits match OpenML.
+  - `run_download_all_artifacts.py` - Download all artifact tiers (raw + processed + results) for all methods.
 
 
 ### 📈 Generating Plots and Leaderboards
