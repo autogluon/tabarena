@@ -1214,6 +1214,7 @@ def test_build_predictor_args_grouped_bagging_uses_custom_splits_not_tuning_data
         assert set(groups[train_idx]).isdisjoint(set(groups[val_idx])), "a group spans a bagged fold"
 
 
+@pytest.mark.skipif(not _DATA_FOUNDRY_AVAILABLE, reason="data_foundry not installed")
 def test_build_predictor_args_temporal_bagging_uses_custom_splits_not_tuning_data():
     """Bagged temporal fit -> non-empty time-based custom_splits folds, and no tuning_data."""
     n = 600
