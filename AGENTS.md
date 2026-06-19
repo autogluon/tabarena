@@ -86,8 +86,9 @@ The default `pytest` deselects two slow/fragile groups via `addopts`
   the whole sweep with `pytest -m models` (needs `tabarena[benchmark]`).
 
 Both groups run in the nightly workflow. CI's per-PR job (`.github/workflows/pytest-pytest.yml`)
-runs `pytest` on Python 3.11 against `./packages/tabarena[plot,preprocessing]`,
-so it stays fast (no model fitting, no torch).
+runs `pytest` on Python 3.11 against `./packages/tabarena[plot,preprocessing,data-foundry]`
+plus the editable `tabflow_slurm` package (so its tests and the data_foundry-gated tests run),
+but **not** `[text]`/`[benchmark]` — so it stays fast (no model fitting, no torch).
 
 ## Architecture
 
