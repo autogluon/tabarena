@@ -52,6 +52,8 @@ def _core_subset_predicate() -> SubsetPredicate:
 class BeyondArenaContext(AbstractArenaContext):
     """Evaluation context for the data-foundry BeyondArena benchmark."""
 
+    benchmark_name: str = "BeyondArena"
+
     SUBSET_PREDICATES: dict[str, SubsetPredicate] = {
         "all": SubsetPredicate(lambda df: pd.Series(True, index=df.index)),
         # problem_type

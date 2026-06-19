@@ -66,6 +66,8 @@ class TabArenaContext(AbstractArenaContext):
     results), and adds the paper's ``evaluate_all`` reproduction workflow.
     """
 
+    benchmark_name: str = "TabArena"
+
     SUBSET_PREDICATES: dict[str, SubsetPredicate] = {
         "all": SubsetPredicate(lambda df: pd.Series(True, index=df.index)),
         # problem_type

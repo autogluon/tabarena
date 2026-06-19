@@ -1277,6 +1277,22 @@ def _plot_tuning_trajectories_from_prepared(
             base_meta: dict[str, str] = dict(dataset_metadata or {})
             base_meta.setdefault("Datasets", f"{n_datasets:,}")
             base_meta.setdefault("Tasks", f"{n_tasks:,}")
+
+            # Max/Median/Min per-dataset training-set size (mean over folds) across the datasets
+            # actually present in this subset, taken from the collection's split metadata (keyed by
+            # tabarena_task_name == combined_data["dataset"]).
+            present_datasets = set(filtered["dataset"].unique())
+            train_sizes_per_dataset: dict[str, list[float]] = {}
+            for ttm in tabarena_context.task_metadata_collection:
+                if ttm.tabarena_task_name not in present_datasets:
+                    continue
+                for split in ttm.splits_metadata.values():
+                    train_sizes_per_dataset.setdefault(ttm.tabarena_task_name, []).append(split.num_instances_train)
+            n_train_per_dataset = [sum(sizes) / len(sizes) for sizes in train_sizes_per_dataset.values()]
+            if n_train_per_dataset:
+                base_meta.setdefault("Max train samples", f"{round(max(n_train_per_dataset)):,}")
+                base_meta.setdefault("Median train samples", f"{round(float(np.median(n_train_per_dataset))):,}")
+                base_meta.setdefault("Min train samples", f"{round(min(n_train_per_dataset)):,}")
             subset_dataset_metadata = base_meta
 
         if show_titles:
@@ -1301,6 +1317,7 @@ def _plot_tuning_trajectories_from_prepared(
             show_titles=show_titles,
             title_prefix=subset_title_prefix,
             use_elo_method_order=use_elo_method_order,
+            benchmark_name=getattr(tabarena_context, "benchmark_name", "Arena"),
         )
 
 
@@ -1411,6 +1428,7 @@ def plot_tuning_trajectories_from_leaderboard(
     show_titles: bool = False,
     title_prefix: str | None = None,
     use_elo_method_order: bool = True,
+    benchmark_name: str = "Arena",
 ):
     if plot_kwargs is None:
         plot_kwargs = {}
@@ -1421,15 +1439,15 @@ def plot_tuning_trajectories_from_leaderboard(
     plot_kwargs["dataset_metadata"] = dataset_metadata
 
     # Single shared title across every ``plot_hpo`` call in this set.
-    # ``TabArena-<subset>`` prefix matches the format used by the winrate
+    # ``<benchmark_name>-<subset>`` prefix matches the format used by the winrate
     # matrix and tuning-impact bar plots so the three surfaces read as
     # one report. ``None`` and ``"all"`` collapse to the unsuffixed
-    # ``TabArena`` prefix (aggregate / no-meaningful-subset case).
+    # ``<benchmark_name>`` prefix (aggregate / no-meaningful-subset case).
     if show_titles:
         if title_prefix and title_prefix != "all":
-            plot_kwargs["title"] = f"TabArena-{title_prefix} Pareto Frontier"
+            plot_kwargs["title"] = f"{benchmark_name}-{title_prefix} Pareto Frontier"
         else:
-            plot_kwargs["title"] = "TabArena Pareto Frontier"
+            plot_kwargs["title"] = f"{benchmark_name} Pareto Frontier"
 
     # Pin a single canonical method ordering for every plot in this set so
     # colors and legend positions stay identical across the err / improvability

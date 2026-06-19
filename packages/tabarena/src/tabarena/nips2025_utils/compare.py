@@ -30,6 +30,7 @@ def compare(
     figure_file_type: str = "pdf",
     add_dataset_count: bool = False,
     elo_ymin: float | None = None,
+    benchmark_name: str = "Arena",
     **kwargs,
 ):
     """Evaluate ``df_results`` (already subset to the tasks of interest) into a leaderboard.
@@ -62,6 +63,7 @@ def compare(
         error_col=error_col,
         method_rename_map=method_rename_map,
         figure_file_type=figure_file_type,
+        benchmark_name=benchmark_name,
         **evaluator_kwargs,
     )
 
