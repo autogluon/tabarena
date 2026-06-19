@@ -34,30 +34,48 @@ classifiers = [
 # NOTE: To allow pre-release resolution of AutoGluon with uv, install with:
 #   uv pip install --prerelease=allow .
 dependencies = [
-  # TODO: To use `uv`, you need to do `uv pip install --prerelease=allow .` so it recognizes pre-release AutoGluon
-  "autogluon>=1.5,<1.6",  # TODO: Remove after moving `benchmark` code elsewhere
+  # Minimal evaluation/leaderboard core. Heavier capabilities live in
+  # the optional extras below: plotting -> [plot], text embeddings -> [text],
+  # skrub feature generators -> [preprocessing], model fitting -> [benchmark].
+  #
+  # We depend on `autogluon.tabular` (the tabular distribution) rather than the full
+  # `autogluon` meta-package, which would also pull in `autogluon.multimodal` /
+  # `autogluon.timeseries` (torch, transformers, ...). `autogluon.tabular` transitively
+  # provides `autogluon.{common,core,features}`, which is everything the code uses.
+  # To use `uv`, you need to do `uv pip install --prerelease=allow .` so it recognizes pre-release AutoGluon.
+  "autogluon.tabular>=1.5,<1.6",
   "bencheval",
-  "openml>=0.14.1",  # consider making optional
+  "openml>=0.14.1",
   "pyyaml",
-  "pytest",
   "tqdm",
   "typing-extensions>=4.11,<5",  # used for `Self` type hint
   "huggingface-hub",
   "numpy",
   "pandas",
-  "sentence_transformers>=5.4",
-  "skrub",
-
-  # TODO: For 2025 paper, consider making optional
-  "tueplots",
-  "autorank==1.2.1",
-  "seaborn==0.13.2",
-  "matplotlib==3.10.1",
-  "plotly>=6.3.0",
-  "adjusttext",  # for pareto front plots
+  "loguru",
+  "ray>=2.43,<2.54",  # range matches autogluon.core
 ]
 
 [project.optional-dependencies]
+
+# Plotting / leaderboard visualization (the `tabarena.plot` modules + bencheval plots).
+# All plotting imports are lazy, so the core install never requires these.
+plot = [
+  "matplotlib==3.10.1",
+  "seaborn==0.13.2",
+  "plotly>=6.3.0",
+  "tueplots",
+  "autorank==1.2.1",
+  "adjusttext",  # for pareto front plots
+]
+
+# Semantic text features: the sentence-transformers embedding model used by the
+# tabarena_default preprocessing. Heavy (pulls torch); imported lazily at encode time.
+text = ["sentence_transformers>=5.4"]
+
+# skrub-based feature generators (datetime + statistical-text) used by the
+# tabarena_default preprocessing. Light; imported lazily inside the generators.
+preprocessing = ["skrub"]
 
 # Data Foundry integration: lets `tabarena.benchmark.task.data_foundry` convert
 # curated containers into TabArena UserTasks. Included in the `benchmark` union.
@@ -97,7 +115,9 @@ iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.13.0"]
 nori = ["synthefy-nori>=0.7.0"]
 
-# Core benchmark set: the always-on models for benchmarking. Self-references avoid duplicating package specs.
+# Core benchmark set: the always-on models for benchmarking, plus the plotting and
+# preprocessing capabilities split out of the core install. Self-references avoid
+# duplicating package specs.
 benchmark = [
   "tabarena[tabpfn]",
   "tabarena[tabicl]",
@@ -107,6 +127,9 @@ benchmark = [
   "tabarena[tabdpt]",
   "tabarena[tabm]",
   "tabarena[data-foundry]",
+  "tabarena[plot]",
+  "tabarena[text]",
+  "tabarena[preprocessing]",
 ]
 
 # Extended set: extra models layered on top of `benchmark` when needed.

@@ -14,7 +14,7 @@ This repo is a **uv workspace** (root `pyproject.toml`). Its installable package
 - `packages/bencheval/` — Standalone lightweight metrics/leaderboard package (ELO, win-rates, ranks, improvability). Computes leaderboards from results DataFrames. No dependency on `tabarena`.
 - `packages/tabflow_slurm/` — Package (own `pyproject.toml`, a uv-workspace member) for running experiments on SLURM clusters. Depends on `tabarena`. See `packages/tabflow_slurm/README.md` and `packages/tabflow_slurm/AGENTS.md`.
 - `examples/` — Usage examples for benchmarking, plotting, meta-learning, custom models.
-- `tst/` — Tests (note: `tst/`, **not** `tests/`).
+- `tests/` — All tests, grouped by package (`tests/tabarena/`, `tests/bencheval/`, `tests/tabflow_slurm/`, mirroring each package's `src/` layout) plus `tests/integration/` for cross-package tests.
 
 ## Setup Commands
 
@@ -25,9 +25,16 @@ for the pre-release AutoGluon dependency. From the repo root, after creating/act
 (`uv venv --seed --python 3.12 && source .venv/bin/activate`):
 
 ```bash
-uv pip install --prerelease=allow -e "./packages/tabarena"               # Evaluation-only (leaderboard/metrics)
-uv pip install --prerelease=allow -e "./packages/tabarena[benchmark]"    # Full install including model fitting
+uv pip install --prerelease=allow -e "./packages/tabarena"               # Minimal: evaluation/leaderboard/metrics only
+uv pip install --prerelease=allow -e "./packages/tabarena[plot]"         # + leaderboard/result plotting
+uv pip install --prerelease=allow -e "./packages/tabarena[text]"         # + semantic text features (sentence-transformers; pulls torch)
+uv pip install --prerelease=allow -e "./packages/tabarena[preprocessing]" # + skrub datetime/statistical-text feature generators
+uv pip install --prerelease=allow -e "./packages/tabarena[benchmark]"    # Full install (models + plot + text + preprocessing)
 ```
+
+The core install is intentionally minimal (issue #323): it depends on `autogluon.tabular`
+(not the full `autogluon` meta-package) and leaves plotting, text embeddings, and skrub
+feature generators to the extras above (all imported lazily). `[benchmark]` is the union.
 
 For editable AutoGluon development (one directory up):
 
@@ -55,15 +62,33 @@ After that, `git commit` runs ruff on staged files; if a hook reformats or fixes
 
 ## Testing
 
+Tests live in a single top-level `tests/` dir, organized to mirror `src/`
+(tabarena areas as subfolders — `metrics/`, `repository/`, `benchmark/`, `models/`,
+… — plus `tests/bencheval/` and `tests/tabflow_slurm/` for the other two packages).
+The root `pyproject.toml` `[tool.pytest.ini_options]` sets `testpaths = ["tests"]`,
+so a bare `pytest` from the repo root runs the whole suite.
+
 ```bash
-pytest                                    # All tests
-pytest tst/test_metrics.py                # Single file
-pytest tst/test_metrics.py::test_name -x  # Single test, stop on failure
+pytest                                      # All tests
+pytest tests/metrics/test_metrics.py        # Single file
+pytest -k test_name -x                      # Single test, stop on failure
+pytest tests/bencheval                      # One package's tests
 ```
 
-CI (`.github/workflows/`) runs `pytest` on Python 3.11 against an editable install of `./packages/tabarena`.
+The default `pytest` deselects two slow/fragile groups via `addopts`
+(`-m 'not network and not models'`):
 
-**Avoid running `tst/models/` in bulk** unless your change would likely impact a specific model: these tests fit real models (slow, and some need GPUs/licenses/network), and they are only affected by changes to the model files under `packages/tabarena/src/tabarena/models/<model>/`. When you touch a model, run just its test (`pytest tst/models/test_<model>.py`).
+- **`network`** — tests that hit the network (e.g. download a Hugging Face model).
+- **`models`** — `test_all_models.py`, which fits every registered model via
+  AutoGluon's `FitHelper`. It is parametrized over the model registry and skips
+  models whose optional deps aren't installed (`ImportError`) or that need a GPU
+  (`compute='gpu'`, no CUDA). Run one model with `pytest -m models -k TabM`, or
+  the whole sweep with `pytest -m models` (needs `tabarena[benchmark]`).
+
+Both groups run in the nightly workflow. CI's per-PR job (`.github/workflows/pytest-pytest.yml`)
+runs `pytest` on Python 3.11 against `./packages/tabarena[plot,preprocessing,data-foundry]`
+plus the editable `tabflow_slurm` package (so its tests and the data_foundry-gated tests run),
+but **not** `[text]`/`[benchmark]` — so it stays fast (no model fitting, no torch).
 
 ## Architecture
 
@@ -88,7 +113,7 @@ Artifacts download to `~/.cache/tabarena/` by default; override with `TABARENA_C
 
 ## Conventions
 
-- **Add a new model**: create one folder `packages/tabarena/src/tabarena/models/<model>/` (`model.py`, `hpo.py`, `info.py`, `__init__.py`), then edit `models/__init__.py` (lazy class entry), `models/utils.py` (name→generator map), and `packages/tabarena/pyproject.toml` (a per-model extra), plus a `tst/models/test_<model>.py`. The registry auto-discovers the model from its `info.py` — no manual registry edit. **Use the `add-model` skill**, which encodes this and points to reference implementations (foundation / torch / sklearn).
+- **Add a new model**: create one folder `packages/tabarena/src/tabarena/models/<model>/` (`model.py`, `hpo.py`, `info.py`, `__init__.py`), then edit `models/__init__.py` (lazy class entry), `models/utils.py` (name→generator map), and `packages/tabarena/pyproject.toml` (a per-model extra). The registry auto-discovers the model from its `info.py`, and `tests/tabarena/models/test_all_models.py` then fits it automatically — there is **no per-model test file**. Only add an entry to `tests/tabarena/models/smoke_configs.py` if the smoke fit needs faster toy hyperparameters or a restricted problem-type set (keyed by the model's `MethodMetadata.method`). **Use the `add-model` skill**, which encodes this and points to reference implementations (foundation / torch / sklearn).
 - **Imports**: `from __future__ import annotations` must be the first import in every `.py` file. Use absolute imports rooted at the package (e.g., `from tabarena.repository import EvaluationRepository`).
 - **Optional dependencies**: each model has its own pyproject extra under `packages/tabarena/pyproject.toml`; the `benchmark` extra is the union. Heavy/optional libs must never be imported at module top-level in core paths — import inside the model wrapper.
 - **No new top-level docs files** unless the user asks. Edit existing files in place.
@@ -101,7 +126,7 @@ Artifacts download to `~/.cache/tabarena/` by default; override with `TABARENA_C
 
 ## Things to Avoid
 
-- Do not add `tests/` — use `tst/`.
+- Do not add a `tst/` dir or per-package `tests/` dirs — all tests live in the single top-level `tests/`, grouped by package (`tests/tabarena/`, `tests/bencheval/`, `tests/tabflow_slurm/`, `tests/integration/`).
 - Do not import optional model dependencies at the top of shared modules; lazy-import inside the wrapper.
 - Do not skip `from __future__ import annotations` — ruff will fail CI.
 - Do not change the public API of `EvaluationRepository`, `TabularModelPredictions`, or `bencheval.evaluator.BenchmarkEvaluator` without explicit user direction; they are consumed by external scripts and artifacts.

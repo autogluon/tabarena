@@ -1,5 +1,6 @@
-# Verify that `tabarena[benchmark]` resolves and installs end-to-end.
-# This complements pytest-pytest.yml, which only installs the eval-only extras.
+# Verify both ends of the install spectrum (issue #323):
+#  - install-minimal:   bare `tabarena` core imports without pulling heavy optional deps.
+#  - install-benchmark: `tabarena[benchmark]` resolves and installs end-to-end.
 
 name: install-benchmark
 
@@ -14,6 +15,49 @@ permissions:
   contents: read
 
 jobs:
+  install-minimal:
+    name: Install tabarena (minimal core)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          uv --version
+
+      - name: Install tabarena (no extras)
+        run: |
+          uv pip install --system --upgrade setuptools wheel
+          uv pip install --system --prerelease=allow -e ./packages/tabarena
+
+      - name: Verify minimal import pulls no heavy optional deps
+        run: |
+          python - <<'PY'
+          import sys
+          import tabarena  # noqa: F401
+          from tabarena.models import get_model_registry
+          from tabarena.repository import EvaluationRepository  # noqa: F401
+
+          get_model_registry()
+
+          # Guard the #323 boundary: importing the core must not eagerly pull optional libs.
+          optional = (
+              "matplotlib", "seaborn", "plotly", "tueplots", "autorank", "adjusttext",
+              "sentence_transformers", "skrub", "torch",
+          )
+          leaked = sorted(m for m in optional if m in sys.modules)
+          assert not leaked, f"Minimal install eagerly imported optional deps: {leaked}"
+          print("minimal tabarena import OK; no heavy optional deps pulled")
+          PY
+
   install-benchmark:
     name: Install tabarena[benchmark]
     runs-on: ubuntu-latest

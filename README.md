@@ -86,10 +86,12 @@ source .venv/bin/activate
 Then pick the install path that matches what you want to do:
 
 <details>
-<summary><b>📊 Evaluation only</b> — leaderboards & metrics, no model fitting</summary>
+<summary><b>📊 Evaluation only</b> — leaderboards, metrics & plots, no model fitting</summary>
+
+Loads cached results and computes/plots leaderboards & metrics (ELO, win-rates, ranks). Depends on `autogluon.tabular` (not the full AutoGluon meta-package) — no model-fitting libraries and no torch.
 
 ```bash
-uv pip install --prerelease=allow -e "./packages/tabarena"
+uv pip install --prerelease=allow -e "./packages/tabarena[plot]"
 ```
 </details>
 

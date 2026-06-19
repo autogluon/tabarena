@@ -1,3 +1,19 @@
+"""Generate TabArena's main (living) leaderboard.
+
+Builds the leaderboard from the *latest* results for every benchmarked method
+(the default ``TabArenaContext()`` method collection, which grows as new methods
+and results land). Use this to see where methods stand on the current TabArena
+suite.
+
+For the *frozen* NeurIPS 2025 leaderboard from the paper, see
+``examples/reproducibility/run_generate_main_leaderboard_neurips2025.py``.
+
+Results download to ``~/.cache/tabarena/`` on first run. ``compare()`` writes all
+figures/tables under ``output_dir`` and returns the leaderboard DataFrame;
+``leaderboard_to_website_format()`` reshapes it into the columns shown on the
+website.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

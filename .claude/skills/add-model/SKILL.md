@@ -1,6 +1,6 @@
 ---
 name: add-model
-description: Add a new ML model to the TabArena benchmark system. Use this skill whenever the user wants to integrate a new tabular ML model into TabArena — even if they just say "add X model", "integrate X", "support X", or "wrap X for the benchmark". Creates all required files: the AutoGluon model wrapper, the search-space generator, the per-model `info.py`, a test, and the `pyproject.toml` extra. Reads existing similar models for inspiration and optionally fetches documentation URLs to understand the new model's API.
+description: Add a new ML model to the TabArena benchmark system. Use this skill whenever the user wants to integrate a new tabular ML model into TabArena — even if they just say "add X model", "integrate X", "support X", or "wrap X for the benchmark". Creates all required files: the AutoGluon model wrapper, the search-space generator, the per-model `info.py`, and the `pyproject.toml` extra (the model is fit-tested automatically by the registry-driven `test_all_models.py` — no per-model test file). Reads existing similar models for inspiration and optionally fetches documentation URLs to understand the new model's API.
 argument-hint: <ModelName> [<pip-package>] [<doc-url>]
 user-invocable: true
 ---
@@ -11,7 +11,7 @@ This skill integrates a new tabular ML model into the TabArena benchmark.
 
 Every model lives in **one folder** at `packages/tabarena/src/tabarena/models/<ModelKey>/`. That folder contains the wrapper, the HPO generator, and the metadata — and is auto-discovered by `tabarena.models._registry.discover_models()`. There is no separate `benchmark/models/ag/` layout anymore.
 
-Per model, you create up to 5 source files plus one test file, then edit two existing files.
+Per model, you create up to 5 source files, then edit two existing files. There is no per-model test file — the model is fit-tested automatically by the registry-driven `tests/tabarena/models/test_all_models.py`.
 
 ## Step 0: Gather inputs
 
@@ -53,7 +53,7 @@ Choose the most similar existing model to read for detailed inspiration:
 
 Read the reference model file now (use the Read tool). Use it as a structural guide — you will adapt rather than copy.
 
-Also read the annotated patterns in `references/model_patterns.md` — it contains templates for `model.py`, `hpo.py`, `info.py`, and the test file.
+Also read the annotated patterns in `references/model_patterns.md` — it contains templates for `model.py`, `hpo.py`, and `info.py`.
 
 ## Step 3: Create new files
 
@@ -99,9 +99,18 @@ If the wrapper needs helper modules (preprocessors, vendored upstream code, larg
 
 Both subfolders need their own empty `__init__.py`. Import them from `model.py` via absolute paths, e.g. `from tabarena.models.{ModelKey}._internal.preprocessing import Preprocessor`.
 
-### 3f. `tst/models/test_{ModelKey}.py`
+### 3f. Test config (no per-model test file)
 
-See template in `references/model_patterns.md` section "Test template". Include a minimal `FitHelper.verify_model()` call with `model_hyperparameters={}` (add a speed-up param if the model has one like `max_epochs=1`). Wrap the import in `try/except ImportError` and `pytest.skip(...)` so the test is automatically skipped when the optional dependency isn't installed.
+There is **no per-model test file**. `tests/tabarena/models/test_all_models.py`
+is parametrized over the model registry, so it fits the new model automatically once
+its `info.py` is discoverable. It skips on `ImportError` (optional dep missing) and for
+GPU-only models without CUDA.
+
+Only touch `tests/tabarena/models/smoke_configs.py` if the model's toy fit needs
+a speed-up: add one entry to `SMOKE_OVERRIDES`, keyed by the model's `MethodMetadata.method`
+(the registry key), e.g. `"{ModelName}": ModelSmokeTest({"max_epochs": 1})`, or
+`ModelSmokeTest(problem_types=("regression",))` for a regression-only model. If the model
+fits fine with default hyperparameters on all problem types, add nothing.
 
 ## Step 4: Edit existing files
 
@@ -168,9 +177,9 @@ These pieces pick up the new model automatically once Step 3 lands — do not ed
 
 ## Step 6: Lint
 
-Run ruff on the new files:
+Run ruff on the new files (add `tests/tabarena/models/smoke_configs.py` only if you edited it):
 ```bash
-ruff check --fix packages/tabarena/src/tabarena/models/{ModelKey}/ tst/models/test_{ModelKey}.py
+ruff check --fix packages/tabarena/src/tabarena/models/{ModelKey}/
 ```
 
 Fix any reported issues.

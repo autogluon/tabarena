@@ -45,6 +45,7 @@ on OpenML, and no-bagging foundation-model setups.
 - **Use Cases:**
   - `run_any_openml_task.py` - Benchmark TabArena models (full TabArena workflow) on any OpenML task, including tasks not in TabArena.
   - `run_quickstart_tabarena_model_without_bagging.py` - Benchmark a model as an *outer* (no-bagging) experiment on TabArena (shown with TabICLv2: a default + an `n_estimators=1` config).
+  - `run_tabarena_tabpfn3_custom_checkpoint.py` - Run TabPFN-3 on TabArena from non-default checkpoints, as an outer (no-bagging) experiment.
   - `run_autogluon_on_openml_task.py` - Run AutoGluon on any OpenML task.
   - `run_autogluon_on_openml_task_with_hpo_configs.py` - Run AutoGluon on an OpenML task using TabArena's model search spaces.
   - `run_get_tabarena_datasets_from_openml.py` - Get the data used by TabArena from OpenML, without the TabArena framework.
@@ -69,19 +70,23 @@ We share code to generate these visualizations from the raw benchmark results.
 
 - **Folder:** `plots/`
 - **Use Cases:**
-  - `run_generate_main_leaderboard.py` - Generate the main leaderboard from TabArena results.
-  - `run_generate_beyondarena_leaderboard.py` - Generate the BeyondArena leaderboard.
-  - `run_generate_paper_figures.py` - Generate the figures used in the TabArena NeurIPS'2025 paper.
-  - `run_plot_pareto_over_tuning_time.py` - Generate the plots showing trade-offs of predictive performance and efficiency.
-  - `run_beta_tabpfn_end_to_end.py` - Load precomputed result artifacts and generate a leaderboard + figures comparing them to TabArena.
+  - `run_generate_custom_leaderboard.py` - Compute a leaderboard (ranks, Elo, win-rates) from your own results table with `bencheval` - a no-download starting point for the evaluation API.
+  - `run_generate_main_leaderboard.py` - Generate the main (living) leaderboard from the latest TabArena results.
+  - `run_plot_pareto_over_tuning_time.py` - Plot the predictive-performance vs. tuning-time Pareto trade-offs.
+  - `run_end_to_end_from_raw.py` - Run the full raw -> processed -> results pipeline on a method's raw artifacts and compare it to the leaderboard (demoed on TabPFN-3's public raw artifacts).
 
 ### 🔁 Reproducibility
+
+The `reproducibility/` folder regenerates the *frozen* artifacts from the TabArena
+NeurIPS 2025 paper (pinned to the camera-ready method set), using the raw results data.
+
+- **Folder:** `reproducibility/`
+- **Use Cases:**
+  - `run_generate_main_leaderboard_neurips2025.py` - Reproduce the frozen NeurIPS 2025 paper leaderboard.
+  - `run_generate_paper_figures_neurips2025.py` - Reproduce all tables and figures from the NeurIPS 2025 paper.
 
 To locally reproduce individual configurations and compare with the TabArena results of 
 those configurations, refer to `benchmarking/run_quickstart_tabarena.py`.
 
-To locally reproduce all tables and figures in the paper using the raw results data, 
-run `plots/run_generate_paper_figures.py`.
-
-To locally generate the latest results leaderboard, run 
+To locally generate the latest (living) results leaderboard, run 
 `plots/run_generate_main_leaderboard.py`.

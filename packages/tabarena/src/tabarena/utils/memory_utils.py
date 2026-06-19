@@ -5,7 +5,6 @@ import threading
 import time
 
 import psutil
-import torch
 
 
 class CpuMemoryTracker:
@@ -105,8 +104,16 @@ class GpuMemoryTracker:
         """
         self.interval = interval
 
+        # torch is optional (GPU-only): import it lazily so CPU-only installs and
+        # CPU model fits don't require it. Without torch, GPU tracking is disabled.
+        try:
+            import torch
+        except ImportError:
+            torch = None
+        self._torch = torch
+
         # Detect whether GPU tracking is possible
-        self.enabled = torch.cuda.is_available()
+        self.enabled = torch is not None and torch.cuda.is_available()
 
         if self.enabled:
             # Validate device index
@@ -136,6 +143,7 @@ class GpuMemoryTracker:
     # Helpers
     # ----------------------------
     def _sample_gpu_memory(self):
+        torch = self._torch
         allocated = torch.cuda.memory_allocated(self.device)
         reserved = torch.cuda.memory_reserved(self.device)
         return allocated, reserved
@@ -168,6 +176,7 @@ class GpuMemoryTracker:
             # If disabled, return a tracker with all fields staying None
             return self
 
+        torch = self._torch
         torch.cuda.synchronize(self.device)
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(self.device)
@@ -196,6 +205,7 @@ class GpuMemoryTracker:
         if self._sampler_thread is not None:
             self._sampler_thread.join()
 
+        torch = self._torch
         torch.cuda.synchronize(self.device)
 
         # Update peak values from PyTorch internal counters

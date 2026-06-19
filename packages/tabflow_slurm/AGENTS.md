@@ -113,7 +113,8 @@ Then: `sbatch … submit_template.sh <job.json>` → array task picks `jobs[SLUR
 
 ## Tests & lint
 
-Tests live in `../tst/tabflow_slurm/` (repo convention: `tst/`, mirroring the package path). Run
-`ruff check .` / `ruff format .` from the repo root (config `../ruff.toml`; `from __future__ import
-annotations` is required). After touching this package, also smoke-test a setup script's
+Tests live in the repo's top-level `tests/` dir, under `tests/tabflow_slurm/`; run them with
+`pytest tests/tabflow_slurm` (or a bare `pytest` from the repo root for the whole suite). Run
+`ruff check .` / `ruff format .` from the repo root (config `../../ruff.toml`;
+`from __future__ import annotations` is required). After touching this package, also smoke-test a setup script's
 `setup_jobs()` (it runs Ray + materialization locally).
