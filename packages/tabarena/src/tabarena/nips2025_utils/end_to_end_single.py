@@ -689,10 +689,19 @@ class EndToEndResultsSingle:
                 method_metadata_other.is_bag = True
 
             if method_metadata.config_default != method_metadata_other.config_default:
-                if method_metadata.config_default is None:
-                    method_metadata.config_default = method_metadata_other.config_default
-                elif method_metadata_other.config_default is None:
-                    method_metadata_other.config_default = method_metadata.config_default
+                # The two sides disagree on the default config. Either one already spans multiple
+                # configs (config_default None), or — when merging per-task results from partially
+                # completed runs — different tasks each finished a single, *different* config, which
+                # MethodMetadata.from_raw infers as that task's config_default. Across the merged
+                # set the method therefore has multiple configs and no single default: defer it to
+                # None (resolved later via get_config_default(use_first_if_missing=True)) and mark
+                # the method HPO-capable. This matches what a single-pass from_path_raw over all of
+                # the method's files produces, and keeps the merge order-independent (a later
+                # single-config task can never overwrite the deferred None).
+                method_metadata.config_default = None
+                method_metadata_other.config_default = None
+                method_metadata.can_hpo = True
+                method_metadata_other.can_hpo = True
             if method_metadata.can_hpo != method_metadata_other.can_hpo:
                 method_metadata.can_hpo = True
                 method_metadata_other.can_hpo = True
