@@ -18,12 +18,15 @@ filtering (``subset_tasks``), the source owns loading + materialization.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 
 import pandas as pd
 
 from tabarena.benchmark.task.metadata.schema import TabArenaTaskMetadata
+
+logger = logging.getLogger(__name__)
 
 
 def committed_metadata_dir() -> Path:
@@ -88,7 +91,7 @@ class InMemoryTaskMetadataSource(TaskMetadataSource):
         data = self.data
         if isinstance(data, (str, Path)):
             if verbose:
-                print(f"Loading task metadata from {data}...")
+                logger.info("Loading task metadata from %s...", data)
             data = pd.read_csv(data, index_col=False)
         if isinstance(data, pd.DataFrame):
             data = [TabArenaTaskMetadata.from_row(row) for _, row in data.iterrows()]

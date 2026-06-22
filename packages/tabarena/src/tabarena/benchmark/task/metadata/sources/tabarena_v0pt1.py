@@ -11,6 +11,7 @@ backward compatibility and is what :func:`generate_tabarena_v0_1_reference_metad
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -18,6 +19,8 @@ import pandas as pd
 from tabarena.benchmark.task.metadata.schema import SplitMetadata, TabArenaTaskMetadata, derive_task_type
 from tabarena.benchmark.task.metadata.sources.base import committed_metadata_path as _committed_metadata_path
 from tabarena.benchmark.task.metadata.sources.openml import OpenMLTaskMetadataSource
+
+logger = logging.getLogger(__name__)
 
 #: Surface suite name used for the committed reference CSV and the source registry.
 TABARENA_V0PT1_NAME = "TabArena-v0.1"
@@ -172,7 +175,7 @@ class TabArenaV0pt1TaskMetadataSource(OpenMLTaskMetadataSource):
         path = committed_metadata_path()
         if path.exists():
             if verbose:
-                print(f"Loading committed TabArena v0.1 reference metadata from {path}.")
+                logger.info("Loading committed TabArena v0.1 reference metadata from %s.", path)
             metadata_df = pd.read_csv(path)
             return [TabArenaTaskMetadata.from_row(row) for _, row in metadata_df.iterrows()]
 

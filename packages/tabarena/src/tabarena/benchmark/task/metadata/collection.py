@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, fields, replace
 from typing import TYPE_CHECKING, Any, Literal, Self
@@ -21,6 +22,8 @@ if TYPE_CHECKING:
     from tabarena.benchmark.experiment.job import Job
     from tabarena.benchmark.task.metadata.sources import TaskMetadataSource
     from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
+
+logger = logging.getLogger(__name__)
 
 
 def _preset_subset_predicates_provider(
@@ -337,7 +340,7 @@ class TaskMetadataCollection:
                 "\tTask Filter History:",
                 *(f"\t({i}) {label}: {len(coll)}." for i, (label, coll) in enumerate(steps, start=1)),
             ]
-            print("\n".join(lines))
+            logger.info("\n".join(lines))
         return result
 
     def _with_tasks(self, tasks: list[TabArenaTaskMetadata]) -> TaskMetadataCollection:
