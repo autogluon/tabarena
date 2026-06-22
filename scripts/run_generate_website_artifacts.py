@@ -25,6 +25,9 @@ Prerequisites (set up once, before pushing):
       hf auth login --add-to-git-credential
   (the legacy ``huggingface-cli login`` still works but warns it is deprecated).
 
+- Note: If you want to do a safe preview of a leaderboard release, use the private `leaderboard-testing` repo:
+https://huggingface.co/spaces/TabArena/leaderboard-testing/tree/main
+
 Steps:
 1. Run this script to generate the 'raw_website_artifacts' folder
    (time-consuming, with 192 cores it takes a few minutes) and then the
