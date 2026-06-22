@@ -4,8 +4,10 @@ import io
 import json
 import os
 import warnings
+from dataclasses import dataclass, fields
+from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, ClassVar, Literal, Self
 
 import pandas as pd
 import yaml
@@ -27,93 +29,104 @@ if TYPE_CHECKING:
     from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
 
 
+class MethodType(StrEnum):
+    """Canonical set of valid ``MethodMetadata.method_type`` values.
+
+    A ``str`` mixin so members compare equal to (and serialize as) their plain-string value
+    — ``MethodType.CONFIG == "config"`` — which keeps YAML and round-trip behavior unchanged.
+    This is the single source of truth for the ``method_type`` values the
+    :class:`MethodMetadata` constructor accepts (see :meth:`values`).
+    """
+
+    CONFIG = "config"
+    BASELINE = "baseline"
+    PORTFOLIO = "portfolio"
+
+    @classmethod
+    def values(cls) -> list[str]:
+        """The valid ``method_type`` strings, in declaration order."""
+        return [m.value for m in cls]
+
+
 # FIXME: Implement `best` and `best-N`
+@dataclass(eq=False)
 class MethodMetadata:
+    """Identity, artifact layout, and storage/transport config for one benchmarked method.
+
+    A ``@dataclass`` (``eq=False`` to preserve identity-based equality/hashing, matching the
+    pre-dataclass class): the field declarations below are the canonical schema, and
+    :meth:`to_info_dict` derives the serialized YAML / info-table surface from those fields (an
+    allowlist) rather than from ``self.__dict__``. :meth:`__post_init__` fills the derived
+    defaults (``artifact_name`` <- ``method``, ``model_key`` <- ``ag_key``, ``can_hpo`` <-
+    ``method_type``, ``display_name``) and validates the inputs.
+    """
+
     #: Whether this method's artifacts live in memory (no on-disk/S3 backing). False for the
     #: disk-backed base class; True for :class:`InMemoryMethodMetadata`. Arena contexts treat
     #: in-memory methods as the locally-produced "new" results (e.g. ``compare`` resolves
-    #: ``only_valid_tasks=True`` against them). A class attribute, so it stays out of
-    #: :meth:`to_info_dict` / the metadata info table.
-    is_in_memory: bool = False
+    #: ``only_valid_tasks=True`` against them). A ``ClassVar`` (not a dataclass field), so it
+    #: stays out of :meth:`to_info_dict` / the metadata info table.
+    is_in_memory: ClassVar[bool] = False
 
-    def __init__(
-        self,
-        method: str,
-        *,
-        artifact_name: str | None = None,
-        date: str | None = None,
-        method_type: Literal["config", "baseline", "portfolio"] = "config",
-        display_name: str | None = None,
-        name: str | None = None,
-        name_suffix: str | None = None,
-        ag_key: str | None = None,
-        model_key: str | None = None,
-        config_default: str | None = None,
-        can_hpo: bool | None = None,
-        compute: Literal["cpu", "gpu"] = "cpu",
-        is_bag: bool = False,
-        has_raw: bool = False,
-        has_processed: bool = False,
-        has_results: bool = False,
-        verified: bool = False,
-        use_artifact_name_in_prefix: bool = False,
-        s3_bucket: str | None = None,
-        s3_prefix: str | None = None,
-        upload_as_public: bool = False,
-        reference_url: str | None = None,
-        cache_type: Literal["s3", "r2", "local"] = "s3",
-        cache_root: str | Path | None = None,
-    ):
-        self.method = method
-        if artifact_name is None:
-            artifact_name = method
-        self.artifact_name = artifact_name
-        self.date = date
-        self.method_type = method_type
-        self.ag_key = ag_key
-        if model_key is None:
-            model_key = ag_key
-        self.model_key = model_key
-        self.name = name
-        self.name_suffix = name_suffix
-        self.config_default = config_default
-        self.compute = compute
-        self.is_bag = is_bag
-        self.has_raw = has_raw
-        self.has_processed = has_processed
-        self.has_results = has_results
-        self.verified = verified
-        self.use_artifact_name_in_prefix = use_artifact_name_in_prefix
-        if can_hpo is None:
-            can_hpo = self.method_type == "config"
-        self.can_hpo = can_hpo
-        self.s3_bucket = s3_bucket
-        self.s3_prefix = s3_prefix
-        self.upload_as_public = upload_as_public
-        self.reference_url = reference_url
-        self.cache_type = cache_type
-        # Optional override pointing at a self-contained, *flat* method directory
-        # (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``), used to load a
-        # method's committed artifacts from an arbitrary location (e.g. a repo's ``data/`` folder)
-        # without touching the global TabArena cache root. ``None`` => derive paths from the cache
-        # root as usual. Kept out of ``to_info_dict`` (see below) so this local path is never
-        # serialized into the committed ``metadata.yaml`` or the metadata info table.
-        self.cache_root = Path(cache_root) if cache_root is not None else None
+    method: str
+    artifact_name: str | None = None
+    date: str | None = None
+    method_type: str = "config"
+    ag_key: str | None = None
+    model_key: str | None = None
+    name: str | None = None
+    name_suffix: str | None = None
+    config_default: str | None = None
+    compute: Literal["cpu", "gpu"] = "cpu"
+    is_bag: bool = False
+    has_raw: bool = False
+    has_processed: bool = False
+    has_results: bool = False
+    verified: bool = False
+    use_artifact_name_in_prefix: bool = False
+    can_hpo: bool | None = None
+    s3_bucket: str | None = None
+    s3_prefix: str | None = None
+    upload_as_public: bool = False
+    reference_url: str | None = None
+    cache_type: Literal["s3", "r2", "local"] = "s3"
+    #: Optional override pointing at a self-contained, *flat* method directory
+    #: (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``), used to load a
+    #: method's committed artifacts from an arbitrary location (e.g. a repo's ``data/`` folder)
+    #: without touching the global TabArena cache root. ``None`` => derive paths from the cache
+    #: root as usual. Kept out of ``to_info_dict`` so this local path is never serialized into
+    #: the committed ``metadata.yaml`` or the metadata info table.
+    cache_root: str | Path | None = None
+    display_name: str | None = None
+
+    def __post_init__(self):
+        if self.artifact_name is None:
+            self.artifact_name = self.method
+        if self.model_key is None:
+            self.model_key = self.ag_key
+        if self.can_hpo is None:
+            self.can_hpo = self.method_type == "config"
+        self.cache_root = Path(self.cache_root) if self.cache_root is not None else None
 
         assert isinstance(self.method, str)
         assert len(self.method) > 0
         assert isinstance(self.artifact_name, str)
         assert len(self.artifact_name) > 0
-        assert self.method_type in ["config", "baseline", "portfolio"]
+        # Accept a MethodType member or its plain string, normalize to the string for storage,
+        # then validate against the canonical set (the constructor's previous hardcoded list).
+        if isinstance(self.method_type, MethodType):
+            self.method_type = self.method_type.value
+        assert self.method_type in MethodType.values(), (
+            f"Unknown method_type: {self.method_type!r}. Valid values: {MethodType.values()}"
+        )
         assert self.compute in ["cpu", "gpu"]
         if self.name is not None and self.method_type == "config":
             raise AssertionError("Cannot specify `name` for method_type: 'config'.")
         if self.name is not None and self.name_suffix is not None:
             raise AssertionError("Must only specify one of `name` and `name_suffix`.")
 
-        if display_name is None:
-            display_name = self._compute_display_name()
-        self.display_name = display_name
+        if self.display_name is None:
+            self.display_name = self._compute_display_name()
 
         assert isinstance(self.display_name, str)
         assert len(self.display_name) > 0
@@ -850,12 +863,14 @@ class MethodMetadata:
     def to_info_dict(self) -> dict:
         """The flat field dict used to build the metadata info table / YAML.
 
-        Defaults to ``self.__dict__`` minus the runtime-only ``cache_root`` override (a local
-        path that must not leak into committed YAML or the info table); an overridable hook so
-        subclasses that hold non-serializable state (e.g. an in-memory results DataFrame) can
-        exclude that too.
+        Derived from the declared dataclass fields (an allowlist), in declaration order, minus
+        the runtime-only ``cache_root`` override — a local path that must not leak into committed
+        YAML or the info table. Field-driven rather than ``self.__dict__``-driven so that
+        non-field instance state never lands in the info table (e.g.
+        :class:`InMemoryMethodMetadata`'s in-memory results frame, set as a plain attribute,
+        not a field). Remains an overridable hook for subclasses.
         """
-        info = dict(self.__dict__)
+        info = {f.name: getattr(self, f.name) for f in fields(self)}
         info.pop("cache_root", None)
         return info
 
