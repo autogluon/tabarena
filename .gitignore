@@ -157,6 +157,7 @@ AutogluonModels/
 /examples/**/*.png
 /examples/**/*.tex
 /examples/**/*.zip
+/scripts/generated_website_artifacts/
 
 /tmp_scripts/
 
