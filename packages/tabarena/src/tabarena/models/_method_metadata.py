@@ -345,8 +345,6 @@ class MethodMetadata:
             has_raw=True,
             has_processed=True,
             has_results=True,
-            # Preserve the historical default now that the field default is "r2".
-            cache_type="s3",
         )
 
     @classmethod
