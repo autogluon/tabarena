@@ -4,12 +4,13 @@ import io
 import json
 import os
 import warnings
+from dataclasses import dataclass, fields
+from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, ClassVar, Literal, Self
 
 import pandas as pd
 import yaml
-from autogluon.common.savers import save_pd
 from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
 from tabarena.loaders import get_tabarena_cache_root
@@ -27,93 +28,106 @@ if TYPE_CHECKING:
     from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
 
 
+class MethodType(StrEnum):
+    """Canonical set of valid ``MethodMetadata.method_type`` values.
+
+    A ``str`` mixin so members compare equal to (and serialize as) their plain-string value
+    — ``MethodType.CONFIG == "config"`` — which keeps YAML and round-trip behavior unchanged.
+    This is the single source of truth for the ``method_type`` values the
+    :class:`MethodMetadata` constructor accepts (see :meth:`values`).
+    """
+
+    CONFIG = "config"
+    BASELINE = "baseline"
+    PORTFOLIO = "portfolio"
+
+    @classmethod
+    def values(cls) -> list[str]:
+        """The valid ``method_type`` strings, in declaration order."""
+        return [m.value for m in cls]
+
+
 # FIXME: Implement `best` and `best-N`
+@dataclass(eq=False)
 class MethodMetadata:
+    """Identity, artifact layout, and storage/transport config for one benchmarked method.
+
+    A ``@dataclass`` (``eq=False`` to preserve identity-based equality/hashing, matching the
+    pre-dataclass class): the field declarations below are the canonical schema, and
+    :meth:`to_info_dict` derives the serialized YAML / info-table surface from those fields (an
+    allowlist) rather than from ``self.__dict__``. :meth:`__post_init__` fills the derived
+    defaults (``artifact_name`` <- ``method``, ``model_key`` <- ``ag_key``, ``can_hpo`` <-
+    ``method_type``, ``display_name``) and validates the inputs.
+    """
+
     #: Whether this method's artifacts live in memory (no on-disk/S3 backing). False for the
     #: disk-backed base class; True for :class:`InMemoryMethodMetadata`. Arena contexts treat
     #: in-memory methods as the locally-produced "new" results (e.g. ``compare`` resolves
-    #: ``only_valid_tasks=True`` against them). A class attribute, so it stays out of
-    #: :meth:`to_info_dict` / the metadata info table.
-    is_in_memory: bool = False
+    #: ``only_valid_tasks=True`` against them). A ``ClassVar`` (not a dataclass field), so it
+    #: stays out of :meth:`to_info_dict` / the metadata info table.
+    is_in_memory: ClassVar[bool] = False
 
-    def __init__(
-        self,
-        method: str,
-        *,
-        artifact_name: str | None = None,
-        date: str | None = None,
-        method_type: Literal["config", "baseline", "portfolio"] = "config",
-        display_name: str | None = None,
-        name: str | None = None,
-        name_suffix: str | None = None,
-        ag_key: str | None = None,
-        model_key: str | None = None,
-        config_default: str | None = None,
-        can_hpo: bool | None = None,
-        compute: Literal["cpu", "gpu"] = "cpu",
-        is_bag: bool = False,
-        has_raw: bool = False,
-        has_processed: bool = False,
-        has_results: bool = False,
-        verified: bool = False,
-        use_artifact_name_in_prefix: bool = False,
-        s3_bucket: str | None = None,
-        s3_prefix: str | None = None,
-        upload_as_public: bool = False,
-        reference_url: str | None = None,
-        cache_type: Literal["s3", "r2", "local"] = "s3",
-        cache_root: str | Path | None = None,
-    ):
-        self.method = method
-        if artifact_name is None:
-            artifact_name = method
-        self.artifact_name = artifact_name
-        self.date = date
-        self.method_type = method_type
-        self.ag_key = ag_key
-        if model_key is None:
-            model_key = ag_key
-        self.model_key = model_key
-        self.name = name
-        self.name_suffix = name_suffix
-        self.config_default = config_default
-        self.compute = compute
-        self.is_bag = is_bag
-        self.has_raw = has_raw
-        self.has_processed = has_processed
-        self.has_results = has_results
-        self.verified = verified
-        self.use_artifact_name_in_prefix = use_artifact_name_in_prefix
-        if can_hpo is None:
-            can_hpo = self.method_type == "config"
-        self.can_hpo = can_hpo
-        self.s3_bucket = s3_bucket
-        self.s3_prefix = s3_prefix
-        self.upload_as_public = upload_as_public
-        self.reference_url = reference_url
-        self.cache_type = cache_type
-        # Optional override pointing at a self-contained, *flat* method directory
-        # (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``), used to load a
-        # method's committed artifacts from an arbitrary location (e.g. a repo's ``data/`` folder)
-        # without touching the global TabArena cache root. ``None`` => derive paths from the cache
-        # root as usual. Kept out of ``to_info_dict`` (see below) so this local path is never
-        # serialized into the committed ``metadata.yaml`` or the metadata info table.
-        self.cache_root = Path(cache_root) if cache_root is not None else None
+    method: str
+    artifact_name: str | None = None
+    date: str | None = None
+    method_type: str = "config"
+    ag_key: str | None = None
+    model_key: str | None = None
+    name: str | None = None
+    name_suffix: str | None = None
+    config_default: str | None = None
+    compute: Literal["cpu", "gpu"] = "cpu"
+    is_bag: bool = False
+    has_raw: bool = False
+    has_processed: bool = False
+    has_results: bool = False
+    verified: bool = False
+    use_artifact_name_in_prefix: bool = False
+    can_hpo: bool | None = None
+    s3_bucket: str | None = None
+    s3_prefix: str | None = None
+    upload_as_public: bool = False
+    reference_url: str | None = None
+    #: Storage backend for this method's artifacts. Defaults to ``"r2"`` (the public TabArena
+    #: data bucket); methods whose artifacts predate this default explicitly pass ``"s3"``.
+    cache_type: Literal["s3", "r2", "local"] = "r2"
+    #: Optional override pointing at a self-contained, *flat* method directory
+    #: (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``), used to load a
+    #: method's committed artifacts from an arbitrary location (e.g. a repo's ``data/`` folder)
+    #: without touching the global TabArena cache root. ``None`` => derive paths from the cache
+    #: root as usual. Kept out of ``to_info_dict`` so this local path is never serialized into
+    #: the committed ``metadata.yaml`` or the metadata info table.
+    cache_root: str | Path | None = None
+    display_name: str | None = None
+
+    def __post_init__(self):
+        if self.artifact_name is None:
+            self.artifact_name = self.method
+        if self.model_key is None:
+            self.model_key = self.ag_key
+        if self.can_hpo is None:
+            self.can_hpo = self.method_type == "config"
+        self.cache_root = Path(self.cache_root) if self.cache_root is not None else None
 
         assert isinstance(self.method, str)
         assert len(self.method) > 0
         assert isinstance(self.artifact_name, str)
         assert len(self.artifact_name) > 0
-        assert self.method_type in ["config", "baseline", "portfolio"]
+        # Accept a MethodType member or its plain string, normalize to the string for storage,
+        # then validate against the canonical set (the constructor's previous hardcoded list).
+        if isinstance(self.method_type, MethodType):
+            self.method_type = self.method_type.value
+        assert self.method_type in MethodType.values(), (
+            f"Unknown method_type: {self.method_type!r}. Valid values: {MethodType.values()}"
+        )
         assert self.compute in ["cpu", "gpu"]
         if self.name is not None and self.method_type == "config":
             raise AssertionError("Cannot specify `name` for method_type: 'config'.")
         if self.name is not None and self.name_suffix is not None:
             raise AssertionError("Must only specify one of `name` and `name_suffix`.")
 
-        if display_name is None:
-            display_name = self._compute_display_name()
-        self.display_name = display_name
+        if self.display_name is None:
+            self.display_name = self._compute_display_name()
 
         assert isinstance(self.display_name, str)
         assert len(self.display_name) > 0
@@ -217,6 +231,8 @@ class MethodMetadata:
             has_raw=True,
             has_processed=True,
             has_results=True,
+            # Preserve the historical default now that the field default is "r2".
+            cache_type="s3",
         )
 
     @classmethod
@@ -329,6 +345,43 @@ class MethodMetadata:
             has_raw=True,
             has_processed=True,
             has_results=True,
+        )
+
+    @classmethod
+    def tabarena_public(
+        cls,
+        *,
+        method: str,
+        artifact_name: str,
+        has_raw: bool = True,
+        has_processed: bool = True,
+        has_results: bool = True,
+        upload_as_public: bool = True,
+        s3_bucket: str = "tabarena",
+        s3_prefix: str = "cache",
+        **kwargs,
+    ) -> Self:
+        """Build a :class:`MethodMetadata` for a method whose artifacts live in the public
+        TabArena store.
+
+        Fills the boilerplate shared by every public TabArena artifact — the ``tabarena`` /
+        ``cache`` S3 location, ``upload_as_public=True``, and a fully-cached
+        ``has_raw``/``has_processed``/``has_results`` — so callers specify only what is
+        method-specific. Any of these defaults can be overridden via keyword (e.g.
+        ``has_raw=False`` for a portfolio with no raw artifacts, or ``s3_prefix=...`` for a
+        non-standard prefix). The single source of truth for the public-artifact preset that the
+        per-artifact ``_common_*_kwargs`` dicts used to re-declare.
+        """
+        return cls(
+            method=method,
+            artifact_name=artifact_name,
+            has_raw=has_raw,
+            has_processed=has_processed,
+            has_results=has_results,
+            upload_as_public=upload_as_public,
+            s3_bucket=s3_bucket,
+            s3_prefix=s3_prefix,
+            **kwargs,
         )
 
     @property
@@ -579,20 +632,6 @@ class MethodMetadata:
             verbose=verbose,
         )
 
-    # FIXME: TMP, pre-calculate and cache this in MethodMetadata!
-    def get_config_default(self, repo: EvaluationRepository | None = None):
-        if repo is None:
-            repo = self.load_processed()
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
-
-        if self.config_type is None:
-            config_types = repo.config_types()
-            assert len(config_types) == 1
-            config_type = repo.config_types()[0]
-        else:
-            config_type = self.config_type
-        return PaperRunTabArena(repo=repo)._config_default(config_type=config_type, use_first_if_missing=True)
-
     def generate_repo(
         self,
         results_lst: list[BaselineResult] | None = None,
@@ -633,181 +672,6 @@ class MethodMetadata:
             name_suffix=self.name_suffix,
         )
 
-    def generate_results(
-        self,
-        repo: EvaluationRepository | None = None,
-        backend: Literal["ray", "native"] = "ray",
-        cache: bool = False,
-    ) -> tuple[pd.DataFrame | None, pd.DataFrame]:
-        save_file = str(self.path_results_hpo())
-        save_file_model = str(self.path_results_model())
-        if repo is None:
-            repo = self.load_processed()
-
-        if self.method_type == "config":
-            model_types = repo.config_types()
-            assert len(model_types) == 1
-            model_type = model_types[0]
-        else:
-            model_type = None
-
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
-
-        simulator = PaperRunTabArena(repo=repo, backend=backend)
-
-        if self.method_type == "config":
-            hpo_results = simulator.run_minimal_single(model_type=model_type, tune=self.can_hpo)
-            hpo_results["ta_name"] = self.method
-            hpo_results["ta_suite"] = self.artifact_name
-            hpo_results = hpo_results.rename(
-                columns={"framework": "method"}
-            )  # FIXME: Don't do this, make it method by default
-            if cache:
-                save_pd.save(path=save_file, df=hpo_results)
-            config_results = simulator.run_config_family(config_type=model_type)
-            baseline_results = None
-        else:
-            hpo_results = None
-            config_results = None
-            baseline_results = simulator.run_baselines()
-
-        results_lst = [config_results, baseline_results]
-        results_lst = [r for r in results_lst if r is not None]
-        model_results = pd.concat(results_lst, ignore_index=True)
-
-        model_results["ta_name"] = self.method
-        model_results["ta_suite"] = self.artifact_name
-        model_results = model_results.rename(
-            columns={"framework": "method"}
-        )  # FIXME: Don't do this, make it method by default
-        if cache:
-            save_pd.save(path=save_file_model, df=model_results)
-
-        return hpo_results, model_results
-
-    def generate_hpo_result(
-        self,
-        repo: EvaluationRepository = None,
-        n_iterations: int = 40,
-        n_configs: int | None = None,
-        time_limit: float | None = None,
-        fixed_configs: list[str] | None = None,
-        fit_order: Literal["original", "random"] = "random",
-        config_type: str | list[str] | None = None,
-        backend: Literal["ray", "native"] = "ray",
-        seed: int = 0,
-        **kwargs,
-    ) -> pd.DataFrame:
-        if repo is None:
-            repo = self.load_processed()
-        if config_type is None:
-            assert self.config_type is not None
-            config_type = self.config_type
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
-
-        simulator = PaperRunTabArena(repo=repo, backend=backend)
-        df_results_hpo = simulator.run_ensemble_config_type(
-            config_type=config_type,
-            n_iterations=n_iterations,
-            n_configs=n_configs,
-            time_limit=time_limit,
-            fixed_configs=fixed_configs,
-            fit_order=fit_order,
-            seed=seed,
-            **kwargs,
-        )
-        df_results_hpo = df_results_hpo.rename(
-            columns={
-                "framework": "method",
-            }
-        )
-        df_results_hpo["method"] = f"HPO-N{n_configs}-{config_type}"
-        df_results_hpo["n_configs"] = n_configs
-        df_results_hpo["n_iterations"] = n_iterations
-        df_results_hpo["seed"] = seed
-        df_results_hpo["ta_name"] = self.method
-        df_results_hpo["ta_suite"] = self.artifact_name
-        return df_results_hpo
-
-    def generate_hpo_trajectories(
-        self,
-        n_configs: list[int | None] | str = "auto",
-        seeds: int | list[int] = 20,
-        n_iterations: int = 40,
-        fixed_configs: list[str] | None = None,
-        always_include_default: bool = True,
-        fit_order: Literal["original", "random"] = "random",
-        time_limit: float | None = None,
-        backend: Literal["ray", "native"] = "ray",
-        config_type: str | list[str] | None = None,
-        repo: EvaluationRepository | None = None,
-        cache: bool = False,
-    ) -> pd.DataFrame:
-        if n_configs == "auto":
-            n_configs = [
-                1,
-                2,
-                5,
-                10,
-                25,
-                50,
-                100,
-                150,
-                None,  # all configs
-            ]
-        if isinstance(seeds, int):
-            seeds = list(range(seeds))
-
-        df_results_hpo_lst = []
-        if repo is None:
-            repo = self.load_processed()
-
-        # FIXME: Needed for TabPFN-2.5
-        repo.set_config_fallback(config_fallback=self.config_default)
-
-        n_config_total = repo.n_configs()
-
-        n_configs = [n_config if n_config is not None else n_config_total for n_config in n_configs]
-        n_configs = [n_config for n_config in n_configs if n_config <= n_config_total]
-        n_configs = sorted(set(n_configs))
-
-        if always_include_default and fixed_configs is None:
-            config_default = self.config_default
-            assert config_default is not None
-            fixed_configs = [config_default]
-
-        for n_config in n_configs:
-            print(f"Running n_config={n_config} ({self.method})")
-            assert n_config <= n_config_total
-            # The trajectory is independent of `seed` whenever no random config
-            # selection occurs: either the single config is a fixed one (e.g. the
-            # always-included default) or every config is included. In those cases
-            # `seed` only shuffles configs that are then either discarded (n_config
-            # == 1) or fully retained (n_config == n_config_total), so every seed
-            # yields an identical result -- run a single seed to avoid redundant work.
-            seed_invariant = (n_config == 1 and fixed_configs) or n_config == n_config_total
-            seeds_for_n_config = seeds[:1] if seed_invariant else seeds
-            for seed in seeds_for_n_config:
-                df_results_hpo = self.generate_hpo_result(
-                    repo=repo,
-                    n_configs=n_config,
-                    seed=seed,
-                    n_iterations=n_iterations,
-                    fixed_configs=fixed_configs,
-                    fit_order=fit_order,
-                    time_limit=time_limit,
-                    backend=backend,
-                    config_type=config_type,
-                )
-                df_results_hpo["always_include_default"] = always_include_default
-                df_results_hpo_lst.append(df_results_hpo)
-        df_results_hpo_combined = pd.concat(df_results_hpo_lst, ignore_index=True)
-
-        if cache:
-            save_pd.save(path=self.path_results_hpo_trajectories(), df=df_results_hpo_combined)
-
-        return df_results_hpo_combined
-
     def load_hpo_trajectories(self, download: bool | str = "auto") -> pd.DataFrame:
         path_local = self.path_results_hpo_trajectories()
         if download == "auto":
@@ -818,44 +682,17 @@ class MethodMetadata:
             self.method_downloader().download_results_hpo_trajectories()
         return pd.read_parquet(path=path_local)
 
-    def generate_best(
-        self,
-        repo: EvaluationRepository = None,
-        n_configs: int = 1,
-        n_iterations: int = 40,
-        backend: Literal["ray", "native"] = "ray",
-        time_limit: float | None = None,
-        **kwargs,
-    ):
-        if repo is None:
-            repo = self.load_processed()
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
-
-        simulator = PaperRunTabArena(repo=repo, backend=backend)
-        df_results_best = simulator.run_zs(
-            n_portfolios=n_configs,
-            n_ensemble=n_iterations,
-            n_ensemble_in_name=True,
-            time_limit=time_limit,
-            **kwargs,
-        )
-        df_results_best["method"] = f"{self.config_type} (best)"
-        df_results_best["method_subtype"] = "best"
-        df_results_best["n_configs"] = n_configs
-        df_results_best["n_iterations"] = n_iterations
-        df_results_best["ta_name"] = self.method
-        df_results_best["ta_suite"] = self.artifact_name
-        return df_results_best
-
     def to_info_dict(self) -> dict:
         """The flat field dict used to build the metadata info table / YAML.
 
-        Defaults to ``self.__dict__`` minus the runtime-only ``cache_root`` override (a local
-        path that must not leak into committed YAML or the info table); an overridable hook so
-        subclasses that hold non-serializable state (e.g. an in-memory results DataFrame) can
-        exclude that too.
+        Derived from the declared dataclass fields (an allowlist), in declaration order, minus
+        the runtime-only ``cache_root`` override — a local path that must not leak into committed
+        YAML or the info table. Field-driven rather than ``self.__dict__``-driven so that
+        non-field instance state never lands in the info table (e.g.
+        :class:`InMemoryMethodMetadata`'s in-memory results frame, set as a plain attribute,
+        not a field). Remains an overridable hook for subclasses.
         """
-        info = dict(self.__dict__)
+        info = {f.name: getattr(self, f.name) for f in fields(self)}
         info.pop("cache_root", None)
         return info
 
@@ -942,6 +779,9 @@ class MethodMetadata:
             kwargs = yaml.safe_load(file)
         if cache_root is not None:
             kwargs["cache_root"] = cache_root
+        if "cache_type" not in kwargs:
+            # yaml created before the cache_type default flipped to "r2"; preserve old "s3" default
+            kwargs["cache_type"] = "s3"
         method_metadata = cls(**kwargs)
         if cache_root is not None and Path(method_metadata.path_metadata).resolve() != Path(path).resolve():
             raise ValueError(
@@ -987,6 +827,9 @@ class MethodMetadata:
         if "s3_prefix" not in kwargs:
             # yaml created before s3_prefix existed
             kwargs["s3_prefix"] = s3_prefix
+        if "cache_type" not in kwargs:
+            # yaml created before the cache_type default flipped to "r2"; preserve old "s3" default
+            kwargs["cache_type"] = "s3"
 
         return cls(**kwargs)
 
@@ -1025,3 +868,41 @@ class MethodMetadata:
         if self.method_type == "config":
             file_names.append(self.path_results_hpo())
         return file_names
+
+
+@dataclass(frozen=True)
+class ModelDescriptor:
+    """Run-independent, *intrinsic* facts about a model: how it is displayed and cited, its
+    compute class, and whether it bags.
+
+    Declared once per model (in its ``models/<key>/info.py``) and reused by every
+    :class:`MethodMetadata` that benchmarks the model — the TabArena run in that ``info.py``
+    *and* the Beyond-IID re-run in
+    :mod:`tabarena.nips2025_utils.artifacts._beyond_method_metadata` — instead of being
+    re-typed per artifact. It carries only the fields that are identical across those runs;
+    everything run-specific (``method`` name, ``ag_key``, ``artifact_name``, ``config_default``,
+    ``can_hpo``, ``date``, storage) is supplied per call to :meth:`method_metadata`.
+    """
+
+    display_name: str
+    compute: Literal["cpu", "gpu"] = "cpu"
+    is_bag: bool = False
+    reference_url: str | None = None
+
+    def method_metadata(self, *, method: str, **kwargs) -> MethodMetadata:
+        """Build a :class:`MethodMetadata` for one benchmark run of this model.
+
+        The descriptor's intrinsic fields (``display_name``, ``compute``, ``is_bag``,
+        ``reference_url``) are supplied as defaults; pass any of them in ``**kwargs`` to
+        override for a variant (e.g. a CPU build of a GPU model, which keeps the same paper
+        but a different ``display_name`` and ``compute``). All other (run-specific)
+        :class:`MethodMetadata` fields come from ``**kwargs``.
+        """
+        fields_from_descriptor = dict(
+            display_name=self.display_name,
+            compute=self.compute,
+            is_bag=self.is_bag,
+            reference_url=self.reference_url,
+        )
+        # Caller-provided values win, so a variant can override an intrinsic default.
+        return MethodMetadata(method=method, **{**fields_from_descriptor, **kwargs})

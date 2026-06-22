@@ -43,16 +43,12 @@ common_kwargs = dict(
     artifact_name="tabarena-2025-06-12",
     date="2025-06-12",
     method_type="config",
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
     # FIXME: technically GBDTs and baselines are not verified
     verified=True,
 )
 
 s3_cache_kwargs = dict(
-    s3_bucket="tabarena",
-    s3_prefix="cache",
+    cache_type="s3",
 )
 
 cpu_kwargs = dict(
@@ -311,7 +307,7 @@ for method in methods:
 
     method_kwargs = copy.deepcopy(method_kwargs)
 
-    method_metadata = MethodMetadata(
+    method_metadata = MethodMetadata.tabarena_public(
         method=method,
         config_default=config_default,
         display_name=display_name,

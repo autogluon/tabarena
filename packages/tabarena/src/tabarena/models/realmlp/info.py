@@ -1,24 +1,28 @@
 from __future__ import annotations
 
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import ModelDescriptor
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.realmlp.hpo import gen_realmlp
 from tabarena.models.realmlp.model import RealMLPModel
 
-realmlp_method_metadata = MethodMetadata(
-    method="RealMLP_GPU",
-    method_type="config",
+realmlp_descriptor = ModelDescriptor(
     display_name="RealMLP",
     compute="gpu",
+    is_bag=True,
+    reference_url="https://arxiv.org/abs/2407.04491",
+)
+
+realmlp_method_metadata = realmlp_descriptor.method_metadata(
+    method="RealMLP_GPU",
+    method_type="config",
     date="2025-09-03",
     ag_key="TA-REALMLP",
     model_key="REALMLP_GPU",
     config_default="RealMLP_GPU_c1_BAG_L1",
     can_hpo=True,
-    is_bag=True,
     verified=True,
-    reference_url="https://arxiv.org/abs/2407.04491",
     artifact_name="tabarena-2025-09-03",
+    cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
     upload_as_public=True,
@@ -30,7 +34,7 @@ realmlp_method_metadata = MethodMetadata(
 
 
 # CPU variant — same model class, same search space, different compute target.
-realmlp_cpu_method_metadata = MethodMetadata(
+realmlp_cpu_method_metadata = realmlp_descriptor.method_metadata(
     method="RealMLP",
     method_type="config",
     display_name="RealMLP (CPU)",
@@ -39,10 +43,9 @@ realmlp_cpu_method_metadata = MethodMetadata(
     ag_key="REALMLP",
     config_default="RealMLP_c1_BAG_L1",
     can_hpo=True,
-    is_bag=True,
     verified=True,
-    reference_url="https://arxiv.org/abs/2407.04491",
     artifact_name="tabarena-2025-06-12",
+    cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
     upload_as_public=True,

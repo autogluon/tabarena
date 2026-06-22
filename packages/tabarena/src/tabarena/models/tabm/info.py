@@ -1,54 +1,58 @@
 from __future__ import annotations
 
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import ModelDescriptor
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabm.hpo import gen_tabm
 from tabarena.models.tabm.model import TabMModel
 
-tabm_method_metadata = MethodMetadata(
+tabm_descriptor = ModelDescriptor(
+    display_name="TabM",
+    compute="gpu",
+    is_bag=True,
+    reference_url="https://arxiv.org/abs/2410.24210",
+)
+
+# CPU variant — same model class, same search space, different compute target.
+tabm_method_metadata = tabm_descriptor.method_metadata(
     method="TabM",
-    method_type="config",
     display_name="TabM (CPU)",
     compute="cpu",
+    method_type="config",
     date="2025-06-12",
     ag_key="TABM",
     config_default="TabM_c1_BAG_L1",
     can_hpo=True,
-    is_bag=True,
     has_raw=True,
     has_processed=True,
     has_results=True,
     artifact_name="tabarena-2025-06-12",
+    cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
     upload_as_public=True,
     name_suffix=None,
     verified=True,
-    reference_url="https://arxiv.org/abs/2410.24210",
 )
 
 
-tabm_gpu_method_metadata = MethodMetadata(
+tabm_gpu_method_metadata = tabm_descriptor.method_metadata(
     method="TabM_GPU",
     method_type="config",
-    display_name="TabM",
-    compute="gpu",
     date="2025-06-12",
     ag_key="TABM",
     model_key="TABM",
     config_default="TabM_GPU_c1_BAG_L1",
     can_hpo=True,
-    is_bag=True,
     has_raw=True,
     has_processed=True,
     has_results=True,
     artifact_name="tabarena-2025-06-12",
+    cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
     upload_as_public=True,
     name_suffix="_GPU",
     verified=True,
-    reference_url="https://arxiv.org/abs/2410.24210",
 )
 
 

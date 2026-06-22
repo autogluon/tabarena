@@ -10,6 +10,7 @@ from autogluon.common.savers import save_pd
 from tabarena.benchmark.result import BaselineResult, ConfigResult
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_simulator import MethodSimulator
 from tabarena.nips2025_utils.fetch_metadata import task_metadata_collection_from_openml
 from tabarena.nips2025_utils.method_processor import (
     load_all_artifacts,
@@ -285,7 +286,7 @@ class EndToEndSingle:
             repo = method_metadata.load_processed()
 
         log("\tSimulating HPO...")
-        hpo_results, model_results = method_metadata.generate_results(
+        hpo_results, model_results = MethodSimulator(method_metadata).generate_results(
             repo=repo,
             cache=cache,
             backend=backend,
@@ -294,7 +295,7 @@ class EndToEndSingle:
         if cache_hpo_trajectories:
             if method_metadata.method_type == "config":
                 log("\tGenerating and caching HPO trajectories...")
-                method_metadata.generate_hpo_trajectories(
+                MethodSimulator(method_metadata).generate_hpo_trajectories(
                     repo=repo,
                     backend=backend,
                     cache=True,

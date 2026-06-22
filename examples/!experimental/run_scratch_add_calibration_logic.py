@@ -2,29 +2,33 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
+from autogluon.common import TabularDataset
 
+from tabarena import EvaluationRepository
+from tabarena.models._method_simulator import MethodSimulator
 from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
 from tabarena.nips2025_utils.tabarena_context import TabArenaContext
-from tabarena import EvaluationRepository
 from tabarena.simulation.ensemble_scorer_calibrated import EnsembleScorerCalibrated, EnsembleScorerCalibratedCV
 from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer
-from autogluon.common import TabularDataset
-from tabarena.models._method_metadata import MethodMetadata
+
+if TYPE_CHECKING:
+    from tabarena.models._method_metadata import MethodMetadata
 
 
 def run_cal(
     method_metadata: MethodMetadata,
     name_suffix: str,
     ensemble_cls,
-    ensemble_kwargs: dict = None,
+    ensemble_kwargs: dict | None = None,
     **shared_kwargs,
 ):
     if ensemble_kwargs is None:
         ensemble_kwargs = {}
     ts = time.time()
-    df_results = method_metadata.generate_hpo_result(
+    df_results = MethodSimulator(method_metadata).generate_hpo_result(
         ensemble_cls=ensemble_cls,
         ensemble_kwargs=ensemble_kwargs,
         **shared_kwargs,
@@ -36,7 +40,7 @@ def run_cal(
     return df_results, time_total
 
 
-def simulate_calibration(method_metadata, run_toy: bool = False, problem_types: list[str] = None):
+def simulate_calibration(method_metadata, run_toy: bool = False, problem_types: list[str] | None = None):
     if problem_types is None:
         problem_types = ["multiclass"]
     if not method_metadata.path_processed_exists:
@@ -118,7 +122,7 @@ def simulate_calibration(method_metadata, run_toy: bool = False, problem_types: 
         },
     )
 
-    conf_temp = dict(
+    dict(
         name_suffix="-CAL-TEMPERATURE",
         ensemble_cls=EnsembleScorerCalibrated,
         ensemble_kwargs={
@@ -129,7 +133,7 @@ def simulate_calibration(method_metadata, run_toy: bool = False, problem_types: 
         },
     )
 
-    conf_cal_both = dict(
+    dict(
         name_suffix="-CAL-LOGISTIC-BOTH",
         ensemble_cls=EnsembleScorerCalibrated,
         ensemble_kwargs={
@@ -140,7 +144,7 @@ def simulate_calibration(method_metadata, run_toy: bool = False, problem_types: 
         },
     )
 
-    conf_cal_both_cv = dict(
+    dict(
         name_suffix="-CAL-LOGISTIC-BOTH-CV",
         ensemble_cls=EnsembleScorerCalibratedCV,
         ensemble_kwargs={
@@ -193,7 +197,7 @@ def simulate_calibration(method_metadata, run_toy: bool = False, problem_types: 
         print(leaderboard_new_results)
 
     print(
-        f"Simulation Runtimes:"
+        "Simulation Runtimes:"
     )
     for name_suffix, runtime in time_dict.items():
         print(f"\t{name_suffix}:\t {runtime:.1f}s")

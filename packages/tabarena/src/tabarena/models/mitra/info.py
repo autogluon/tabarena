@@ -33,6 +33,7 @@ mitra_method_metadata = MethodMetadata(
     verified=True,
     reference_url="https://arxiv.org/abs/2510.21204",
     artifact_name="tabarena-2025-09-03",
+    cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
     upload_as_public=True,
