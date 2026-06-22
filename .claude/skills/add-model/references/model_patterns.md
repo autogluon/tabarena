@@ -260,6 +260,29 @@ Set the class attribute `seed_name = "random_state"` (or whatever the library's 
 AutoGluon then injects the *framework* seed there so every model uses the same seeding strategy.
 **Do not** hardcode `random_state=0` in `_set_default_params()`.
 
+### 5. Leave *global* torch state unchanged — snapshot & restore in a `finally`
+
+The model fit-test (`autogluon.core.testing.global_context_snapshot.GlobalContextSnapshot`) asserts
+that `_fit` does **not** leak changes into global torch state — it guards
+`torch.get_num_threads()`, `torch.backends.cudnn.{benchmark,deterministic,enabled}`, the TF32 flags,
+and the default dtype. Many libraries mutate these as a side effect: `torch.set_num_threads(...)`,
+or seeding helpers that set `torch.backends.cudnn.deterministic = True` (LightAutoML's
+`seed_everything` does exactly this). If your wrapper (or the lib it calls) touches any guarded
+field, snapshot it before fitting and restore it in a `finally`:
+
+```python
+original_num_threads = torch.get_num_threads()
+original_cudnn_deterministic = torch.backends.cudnn.deterministic
+try:
+    ...  # build + fit the inner model (may call set_num_threads / seed_everything)
+finally:
+    torch.set_num_threads(original_num_threads)
+    torch.backends.cudnn.deterministic = original_cudnn_deterministic
+```
+
+`models/denselight/model.py` is the reference. Symptom if you forget: the smoke test fails with
+`AssertionError: Global context changed across operation: - torch_cudnn_deterministic changed`.
+
 ---
 
 ## Categorical & missing-value handling — prefer the library's native path
@@ -375,8 +398,8 @@ from tabarena.models.{ModelKey}.model import {ClassName}Model
     display_name="{ModelName}",
     compute="gpu",                          # or "cpu"
     date="YYYY-MM-DD",                     # date of the benchmarking run (or planning date if unbenchmarked)
-    ag_key="{ag_key_without_TA}",          # e.g. "TABSTAR" (matches {ClassName}Model.ag_key without the TA- prefix)
-    model_key="{ag_key_without_TA}",
+    ag_key="{ag_key}",                     # MUST equal {ClassName}Model.ag_key EXACTLY, incl. any "TA-" prefix (e.g. "TA-DENSELIGHT")
+    model_key="{MODEL_KEY_UPPER}",         # short upper-case key (e.g. "DENSELIGHT"), commonly ag_key without the "TA-" prefix
     config_default="{ModelName}_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,
@@ -457,12 +480,7 @@ _LAZY_CLASSES = {
     ...
 }
 
-# Add to __all__ (keep sorted):
-__all__ = [
-    ...
-    "{ClassName}Model",
-    ...
-]
+# `__all__` is auto-derived from `_LAZY_CLASSES` + `_EAGER_EXPORTS` — do NOT edit it by hand.
 
 # Add to the TYPE_CHECKING block (keep sorted):
 if TYPE_CHECKING:
@@ -470,13 +488,8 @@ if TYPE_CHECKING:
     from tabarena.models.{ModelKey}.model import {ClassName}Model
 ```
 
-### `packages/tabarena/src/tabarena/models/utils.py` — `name_to_import_map` entry
-
-Used by `get_configs_generator_from_name()`. The key is the friendly model name (typically same as `ModelName`):
-
-```python
-"{ModelName}": lambda: importlib.import_module("tabarena.models.{ModelKey}.hpo").gen_{ModelKey},
-```
+`utils.py` needs no edit: `get_configs_generator_from_name()` resolves the search space from the
+auto-discovered `MODEL_REGISTRY`, so there is no `name_to_import_map` to update.
 
 ### `packages/tabarena/pyproject.toml`
 
