@@ -6,6 +6,7 @@ _common_kwargs = dict(
     artifact_name="tabarena-2025-10-20",
     s3_bucket="tabarena",
     s3_prefix="cache",
+    cache_type="s3",
     upload_as_public=True,
     has_results=True,
     name_suffix=None,

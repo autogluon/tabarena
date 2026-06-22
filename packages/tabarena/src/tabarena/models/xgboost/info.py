@@ -24,6 +24,7 @@ xgboost_method_metadata = xgboost_descriptor.method_metadata(
     has_processed=True,
     has_results=True,
     artifact_name="tabarena-2025-06-12",
+    cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
     upload_as_public=True,

@@ -33,6 +33,7 @@ tabprep_gbm_metadata = MethodMetadata(
     is_bag=True,
     s3_bucket="tabarena",
     s3_prefix="cache",
+    cache_type="s3",
     verified=True,
 )
 
@@ -56,6 +57,7 @@ tabprep_lr_metadata = MethodMetadata(
     is_bag=True,
     s3_bucket="tabarena",
     s3_prefix="cache",
+    cache_type="s3",
     verified=True,
 )
 
@@ -79,6 +81,7 @@ tabprep_tabm_metadata = MethodMetadata(
     is_bag=True,
     s3_bucket="tabarena",
     s3_prefix="cache",
+    cache_type="s3",
     verified=True,
 )
 
@@ -102,5 +105,6 @@ tabprep_realtabpfnv250_metadata = MethodMetadata(
     is_bag=False,
     s3_bucket="tabarena",
     s3_prefix="cache",
+    cache_type="s3",
     verified=True,
 )

@@ -23,6 +23,7 @@ tabdpt_method_metadata = tabdpt_descriptor.method_metadata(
     has_raw=True,
     has_processed=True,
     artifact_name="tabarena-2025-10-20",
+    cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
     upload_as_public=True,

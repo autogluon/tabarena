@@ -89,7 +89,9 @@ class MethodMetadata:
     s3_prefix: str | None = None
     upload_as_public: bool = False
     reference_url: str | None = None
-    cache_type: Literal["s3", "r2", "local"] = "s3"
+    #: Storage backend for this method's artifacts. Defaults to ``"r2"`` (the public TabArena
+    #: data bucket); methods whose artifacts predate this default explicitly pass ``"s3"``.
+    cache_type: Literal["s3", "r2", "local"] = "r2"
     #: Optional override pointing at a self-contained, *flat* method directory
     #: (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``), used to load a
     #: method's committed artifacts from an arbitrary location (e.g. a repo's ``data/`` folder)
@@ -230,6 +232,8 @@ class MethodMetadata:
             has_raw=True,
             has_processed=True,
             has_results=True,
+            # Preserve the historical default now that the field default is "r2".
+            cache_type="s3",
         )
 
     @classmethod
@@ -342,6 +346,8 @@ class MethodMetadata:
             has_raw=True,
             has_processed=True,
             has_results=True,
+            # Preserve the historical default now that the field default is "r2".
+            cache_type="s3",
         )
 
     @property
@@ -957,6 +963,9 @@ class MethodMetadata:
             kwargs = yaml.safe_load(file)
         if cache_root is not None:
             kwargs["cache_root"] = cache_root
+        if "cache_type" not in kwargs:
+            # yaml created before the cache_type default flipped to "r2"; preserve old "s3" default
+            kwargs["cache_type"] = "s3"
         method_metadata = cls(**kwargs)
         if cache_root is not None and Path(method_metadata.path_metadata).resolve() != Path(path).resolve():
             raise ValueError(
@@ -1002,6 +1011,9 @@ class MethodMetadata:
         if "s3_prefix" not in kwargs:
             # yaml created before s3_prefix existed
             kwargs["s3_prefix"] = s3_prefix
+        if "cache_type" not in kwargs:
+            # yaml created before the cache_type default flipped to "r2"; preserve old "s3" default
+            kwargs["cache_type"] = "s3"
 
         return cls(**kwargs)
 

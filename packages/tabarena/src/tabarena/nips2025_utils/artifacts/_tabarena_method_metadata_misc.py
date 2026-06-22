@@ -22,6 +22,7 @@ gbm_aio_0808_metadata = MethodMetadata(
     is_bag=True,
     s3_bucket="tabarena",
     s3_prefix="cache_aio",
+    cache_type="s3",
     verified=False,
 )
 
@@ -45,5 +46,6 @@ prep_gbm_v6_metadata = MethodMetadata(
     is_bag=True,
     s3_bucket="tabarena",
     s3_prefix="cache_aio",
+    cache_type="s3",
     verified=True,
 )

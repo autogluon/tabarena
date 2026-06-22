@@ -13,6 +13,7 @@ from tabarena.models._method_metadata import MethodMetadata
 _s3_cache_kwargs = dict(
     s3_bucket="tabarena",
     s3_prefix="cache",
+    cache_type="s3",
 )
 
 

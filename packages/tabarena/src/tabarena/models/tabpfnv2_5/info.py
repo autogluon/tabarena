@@ -34,6 +34,7 @@ realtabpfnv25_method_metadata = realtabpfnv25_descriptor.method_metadata(
     has_raw=True,
     has_processed=True,
     artifact_name="tabarena-2025-11-12",
+    cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
     upload_as_public=True,

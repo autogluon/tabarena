@@ -19,6 +19,7 @@ sap_rpt_oss_method_metadata = MethodMetadata(
     has_raw=True,
     has_processed=True,
     artifact_name="tabarena-2025-11-25",
+    cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
     upload_as_public=True,

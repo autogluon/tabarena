@@ -19,6 +19,7 @@ xrfm_method_metadata = MethodMetadata(
     verified=True,
     reference_url="https://arxiv.org/abs/2508.10053",
     artifact_name="tabarena-2025-09-03",
+    cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
     upload_as_public=True,
