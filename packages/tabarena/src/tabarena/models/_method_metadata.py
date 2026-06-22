@@ -24,8 +24,8 @@ from tabarena.utils.s3_utils import s3_get_object
 if TYPE_CHECKING:
     from tabarena.benchmark.result import BaselineResult
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
-    from tabarena.models._artifacts.downloader_s3 import MethodDownloaderS3
-    from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
+    from tabarena.models._artifacts.downloader import MethodDownloader
+    from tabarena.models._artifacts.uploader import MethodUploader
 
 
 class MethodType(StrEnum):
@@ -461,12 +461,12 @@ class MethodMetadata:
         self,
         cache_type: str = "auto",
         verbose: bool = False,
-    ) -> MethodDownloaderS3:
+    ) -> MethodDownloader:
         if cache_type == "auto":
             cache_type = self.cache_type
         if not self.has_s3_cache:
             raise AssertionError(
-                f"Tried to get MethodDownloaderS3 from MethodMetadata, "
+                f"Tried to get MethodDownloader from MethodMetadata, "
                 f"but s3_bucket and/or s3_prefix were not specified!"
                 f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
                 f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
@@ -495,12 +495,12 @@ class MethodMetadata:
             )
         raise ValueError(f"Invalid cache_type for downloads: {cache_type}")
 
-    def method_uploader(self, cache_type: str = "auto") -> MethodUploaderS3:
+    def method_uploader(self, cache_type: str = "auto") -> MethodUploader:
         if cache_type == "auto":
             cache_type = self.cache_type
         if not self.has_s3_cache:
             raise AssertionError(
-                f"Tried to get MethodUploaderS3 from MethodMetadata, "
+                f"Tried to get MethodUploader from MethodMetadata, "
                 f"but s3_bucket and/or s3_prefix were not specified!"
                 f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
                 f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
