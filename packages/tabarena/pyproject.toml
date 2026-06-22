@@ -115,6 +115,14 @@ iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.13.0"]
 nori = ["synthefy-nori>=0.7.0"]
 
+# DenseLight (LightAutoML's default tabular neural net). Standalone extra, intentionally NOT wired
+# into `extended`/`all`: only LightAutoML's DenseLight training stack is used, whose import path
+# needs just torch/numpy/pandas/scikit-learn (already TabArena deps). Install WITHOUT LightAutoML's
+# heavy, conflict-prone transitive tree (catboost, statsmodels, networkx, autowoe, seaborn,
+# SQLAlchemy, tabm, tabicl, ...):
+#   pip install lightautoml --no-deps
+denselight = ["lightautoml"]
+
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
 # duplicating package specs.

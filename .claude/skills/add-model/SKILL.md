@@ -128,12 +128,12 @@ _LAZY_CLASSES = {
 ```
 Also add `"{ClassName}Model"` to `__all__` and (under `TYPE_CHECKING`) to the static `from tabarena.models.{ModelKey}.model import {ClassName}Model` block, both kept alphabetised.
 
-### 4b. `packages/tabarena/src/tabarena/models/utils.py`
+### 4b. `packages/tabarena/src/tabarena/models/utils.py` — no edit needed
 
-Add to the `name_to_import_map` dict in `get_configs_generator_from_name()`. The key is the friendly model name (often the same as `ModelName`):
-```python
-"{ModelName}": lambda: importlib.import_module("tabarena.models.{ModelKey}.hpo").gen_{ModelKey},
-```
+**No longer required** (auto-registry). `get_configs_generator_from_name()` now resolves the
+search space from the auto-discovered `MODEL_REGISTRY` (via `get_model_info_from_name`); there is
+no `name_to_import_map` dict to update. Creating `info.py` (Step 3d) is what makes the model
+resolvable by name. Leave `utils.py` untouched.
 
 ### 4c. `packages/tabarena/pyproject.toml`
 
@@ -157,8 +157,23 @@ Always declare the pip spec exactly once in the per-model extra, then reference 
 | **Default**: new extended model | Add `"tabarena[{ModelKey}]"` to the `extended` extra. |
 | Core benchmark model (only if user explicitly says so) | Add `"tabarena[{ModelKey}]"` to the `benchmark` extra. |
 | Model has known dependency conflicts (rare, like `probmetrics`) | Skip both `benchmark` and `extended`; add `"tabarena[{ModelKey}]"` to `all` only. |
+| We reuse only a slice of a heavy library's code (`--no-deps` pattern, like `denselight` reusing LightAutoML's NN stack) | Declare the per-model extra, but leave it OUT of `benchmark`/`extended`/`all` and document the `--no-deps` install (see below). |
 
 After this, users can install the model alone (`uv sync --extra benchmark --extra {ModelKey}`), as part of the extended set (`uv sync --extra benchmark --extra extended`), or via `--extra all`.
+
+**`--no-deps` minimal-reuse pattern.** Sometimes the goal is to reuse only a small part of a large
+library (e.g. one model class + its training loop) without pulling that library's heavy,
+conflict-prone transitive tree. If the *specific* modules you import resolve using only packages
+TabArena already ships (`torch`, `numpy`, `pandas`, `scikit-learn`, `catboost`, `lightgbm`,
+`xgboost`, `tqdm`), then the library can be installed with `pip install <lib> --no-deps`. To check:
+clone the upstream repo and trace the import chain of *exactly* the modules your wrapper imports
+(package `__init__.py`s that only declare `__all__` without eager submodule imports are the enabler —
+they let you reach a deep submodule without triggering the whole package). The pip extra (`{ModelKey}
+= ["<lib>"]`) still names the library so the drift checker passes, but a plain `pip install
+tabarena[{ModelKey}]` would pull the full tree — so keep it out of the union extras and document
+the `--no-deps` install in the wrapper docstring + the pyproject comment. `denselight` is the
+reference example. Keep all `<lib>` imports lazy (inside `_fit` / a private `_internal/` runner)
+so model discovery never needs the optional dep.
 
 **Step 3 — verify the per-model extra matches `info.py`** with the drift checker:
 
