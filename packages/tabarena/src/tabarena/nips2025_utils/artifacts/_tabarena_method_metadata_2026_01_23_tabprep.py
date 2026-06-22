@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from tabarena.models._method_metadata import MethodMetadata
 
-tabprep_gbm_metadata = MethodMetadata(
+tabprep_gbm_metadata = MethodMetadata.tabarena_public(
     method="PrepLightGBM",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepLightGBM",
@@ -25,19 +25,13 @@ tabprep_gbm_metadata = MethodMetadata(
     # config_default="PrepLightGBM_c1_BAG_L1",  # FIXME
     config_default="prep_LightGBM_icml_v3_c1_BAG_L1",
     name_suffix=None,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    upload_as_public=True,
     can_hpo=True,
     is_bag=True,
-    s3_bucket="tabarena",
-    s3_prefix="cache",
     cache_type="s3",
     verified=True,
 )
 
-tabprep_lr_metadata = MethodMetadata(
+tabprep_lr_metadata = MethodMetadata.tabarena_public(
     method="PrepLinearModel",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepLinear",
@@ -49,20 +43,14 @@ tabprep_lr_metadata = MethodMetadata(
     # config_default="PrepLinearModel_c1_BAG_L1",  # FIXME
     config_default="prep_LinearModel_icml_v3_c1_BAG_L1",
     name_suffix=None,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    upload_as_public=True,
     can_hpo=True,
     is_bag=True,
-    s3_bucket="tabarena",
-    s3_prefix="cache",
     cache_type="s3",
     verified=True,
 )
 
 
-tabprep_tabm_metadata = MethodMetadata(
+tabprep_tabm_metadata = MethodMetadata.tabarena_public(
     method="PrepTabM",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepTabM",
@@ -73,20 +61,14 @@ tabprep_tabm_metadata = MethodMetadata(
     model_key="PREP_TABM",
     config_default="prep_TabM_c1_BAG_L1",  # FIXME
     name_suffix=None,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    upload_as_public=True,
     can_hpo=True,
     is_bag=True,
-    s3_bucket="tabarena",
-    s3_prefix="cache",
     cache_type="s3",
     verified=True,
 )
 
 
-tabprep_realtabpfnv250_metadata = MethodMetadata(
+tabprep_realtabpfnv250_metadata = MethodMetadata.tabarena_public(
     method="PrepRealTabPFN-v2.5",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepRealTabPFN-2.5",
@@ -97,14 +79,8 @@ tabprep_realtabpfnv250_metadata = MethodMetadata(
     model_key="PREP_REALTABPFN-V2.5",
     config_default="prep_RealTabPFN-v2.5_c1_BAG_L1",  # FIXME
     name_suffix=None,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    upload_as_public=True,
     can_hpo=True,
     is_bag=False,
-    s3_bucket="tabarena",
-    s3_prefix="cache",
     cache_type="s3",
     verified=True,
 )

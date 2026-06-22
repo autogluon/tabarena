@@ -14,18 +14,12 @@ from tabarena.models._method_metadata import MethodMetadata
 
 _common_kwargs = dict(
     artifact_name="tabarena-2025-09-03",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
     cache_type="s3",
-    upload_as_public=True,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
     name_suffix=None,
 )
 
 # New methods (tabarena-2025-09-03)
-ag_140_metadata = MethodMetadata(
+ag_140_metadata = MethodMetadata.tabarena_public(
     method="AutoGluon_v140",
     method_type="baseline",
     display_name="AutoGluon 1.4 (4h)",
@@ -35,7 +29,7 @@ ag_140_metadata = MethodMetadata(
     reference_url="https://arxiv.org/abs/2003.06505",
     **_common_kwargs,
 )
-limix_metadata = MethodMetadata(
+limix_metadata = MethodMetadata.tabarena_public(
     method="LimiX_GPU",
     method_type="config",
     display_name="LimiX",
@@ -50,7 +44,7 @@ limix_metadata = MethodMetadata(
     reference_url="https://arxiv.org/abs/2509.03505",
     **_common_kwargs,
 )
-tabflex_metadata = MethodMetadata(
+tabflex_metadata = MethodMetadata.tabarena_public(
     method="TabFlex_GPU",
     method_type="config",
     display_name="TabFlex",
@@ -65,7 +59,7 @@ tabflex_metadata = MethodMetadata(
     reference_url="https://arxiv.org/abs/2506.05584",
     **_common_kwargs,
 )
-betatabpfn_metadata = MethodMetadata(
+betatabpfn_metadata = MethodMetadata.tabarena_public(
     method="BetaTabPFN_GPU",
     method_type="config",
     display_name="BetaTabPFN",

@@ -10,36 +10,23 @@ from __future__ import annotations
 
 from tabarena.models._method_metadata import MethodMetadata
 
-_s3_cache_kwargs = dict(
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    cache_type="s3",
-)
-
-
-ag_130_metadata = MethodMetadata(
+ag_130_metadata = MethodMetadata.tabarena_public(
     method="AutoGluon_v130",
     name="AutoGluon 1.3 (best, 4h)",
     artifact_name="tabarena-2025-06-12",
     date="2025-06-12",
     method_type="baseline",
     compute="cpu",
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    upload_as_public=True,
-    **_s3_cache_kwargs,
+    cache_type="s3",
 )
 
 
-portfolio_metadata = MethodMetadata(
+portfolio_metadata = MethodMetadata.tabarena_public(
     method="Portfolio-N200-4h",
     artifact_name="tabarena-2025-06-12",
     date="2025-06-12",
     method_type="portfolio",
     has_raw=False,
     has_processed=False,
-    has_results=True,
-    upload_as_public=True,
-    **_s3_cache_kwargs,
+    cache_type="s3",
 )

@@ -35,6 +35,7 @@ import pandas as pd
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection, TaskSubset
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
+from tabarena.models._method_simulator import MethodSimulator
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
 from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
@@ -1124,7 +1125,7 @@ class AbstractArenaContext:
                 if method.method == default_method:
                     default_method = method
                     break
-        hpo_trajectory = default_method.generate_hpo_trajectories(
+        hpo_trajectory = MethodSimulator(default_method).generate_hpo_trajectories(
             n_configs=n_configs,
             repo=repo,
             seeds=seeds,
@@ -1467,7 +1468,7 @@ class AbstractArenaContext:
         for m in self.method_metadata_collection.method_metadata_lst:
             if m.method_type != "config":
                 continue
-            config_defaults.append(m.get_config_default())
+            config_defaults.append(MethodSimulator(m).get_config_default())
         return config_defaults
 
     def simulate_portfolio_from_configs(

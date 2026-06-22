@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, ClassVar, Literal, Self
 
 import pandas as pd
 import yaml
-from autogluon.common.savers import save_pd
 from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
 from tabarena.loaders import get_tabarena_cache_root
@@ -350,6 +349,43 @@ class MethodMetadata:
             cache_type="s3",
         )
 
+    @classmethod
+    def tabarena_public(
+        cls,
+        *,
+        method: str,
+        artifact_name: str,
+        has_raw: bool = True,
+        has_processed: bool = True,
+        has_results: bool = True,
+        upload_as_public: bool = True,
+        s3_bucket: str = "tabarena",
+        s3_prefix: str = "cache",
+        **kwargs,
+    ) -> Self:
+        """Build a :class:`MethodMetadata` for a method whose artifacts live in the public
+        TabArena store.
+
+        Fills the boilerplate shared by every public TabArena artifact — the ``tabarena`` /
+        ``cache`` S3 location, ``upload_as_public=True``, and a fully-cached
+        ``has_raw``/``has_processed``/``has_results`` — so callers specify only what is
+        method-specific. Any of these defaults can be overridden via keyword (e.g.
+        ``has_raw=False`` for a portfolio with no raw artifacts, or ``s3_prefix=...`` for a
+        non-standard prefix). The single source of truth for the public-artifact preset that the
+        per-artifact ``_common_*_kwargs`` dicts used to re-declare.
+        """
+        return cls(
+            method=method,
+            artifact_name=artifact_name,
+            has_raw=has_raw,
+            has_processed=has_processed,
+            has_results=has_results,
+            upload_as_public=upload_as_public,
+            s3_bucket=s3_bucket,
+            s3_prefix=s3_prefix,
+            **kwargs,
+        )
+
     @property
     def has_s3_cache(self) -> bool:
         return self.s3_bucket is not None and self.s3_prefix is not None
@@ -598,20 +634,6 @@ class MethodMetadata:
             verbose=verbose,
         )
 
-    # FIXME: TMP, pre-calculate and cache this in MethodMetadata!
-    def get_config_default(self, repo: EvaluationRepository | None = None):
-        if repo is None:
-            repo = self.load_processed()
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
-
-        if self.config_type is None:
-            config_types = repo.config_types()
-            assert len(config_types) == 1
-            config_type = repo.config_types()[0]
-        else:
-            config_type = self.config_type
-        return PaperRunTabArena(repo=repo)._config_default(config_type=config_type, use_first_if_missing=True)
-
     def generate_repo(
         self,
         results_lst: list[BaselineResult] | None = None,
@@ -652,181 +674,6 @@ class MethodMetadata:
             name_suffix=self.name_suffix,
         )
 
-    def generate_results(
-        self,
-        repo: EvaluationRepository | None = None,
-        backend: Literal["ray", "native"] = "ray",
-        cache: bool = False,
-    ) -> tuple[pd.DataFrame | None, pd.DataFrame]:
-        save_file = str(self.path_results_hpo())
-        save_file_model = str(self.path_results_model())
-        if repo is None:
-            repo = self.load_processed()
-
-        if self.method_type == "config":
-            model_types = repo.config_types()
-            assert len(model_types) == 1
-            model_type = model_types[0]
-        else:
-            model_type = None
-
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
-
-        simulator = PaperRunTabArena(repo=repo, backend=backend)
-
-        if self.method_type == "config":
-            hpo_results = simulator.run_minimal_single(model_type=model_type, tune=self.can_hpo)
-            hpo_results["ta_name"] = self.method
-            hpo_results["ta_suite"] = self.artifact_name
-            hpo_results = hpo_results.rename(
-                columns={"framework": "method"}
-            )  # FIXME: Don't do this, make it method by default
-            if cache:
-                save_pd.save(path=save_file, df=hpo_results)
-            config_results = simulator.run_config_family(config_type=model_type)
-            baseline_results = None
-        else:
-            hpo_results = None
-            config_results = None
-            baseline_results = simulator.run_baselines()
-
-        results_lst = [config_results, baseline_results]
-        results_lst = [r for r in results_lst if r is not None]
-        model_results = pd.concat(results_lst, ignore_index=True)
-
-        model_results["ta_name"] = self.method
-        model_results["ta_suite"] = self.artifact_name
-        model_results = model_results.rename(
-            columns={"framework": "method"}
-        )  # FIXME: Don't do this, make it method by default
-        if cache:
-            save_pd.save(path=save_file_model, df=model_results)
-
-        return hpo_results, model_results
-
-    def generate_hpo_result(
-        self,
-        repo: EvaluationRepository = None,
-        n_iterations: int = 40,
-        n_configs: int | None = None,
-        time_limit: float | None = None,
-        fixed_configs: list[str] | None = None,
-        fit_order: Literal["original", "random"] = "random",
-        config_type: str | list[str] | None = None,
-        backend: Literal["ray", "native"] = "ray",
-        seed: int = 0,
-        **kwargs,
-    ) -> pd.DataFrame:
-        if repo is None:
-            repo = self.load_processed()
-        if config_type is None:
-            assert self.config_type is not None
-            config_type = self.config_type
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
-
-        simulator = PaperRunTabArena(repo=repo, backend=backend)
-        df_results_hpo = simulator.run_ensemble_config_type(
-            config_type=config_type,
-            n_iterations=n_iterations,
-            n_configs=n_configs,
-            time_limit=time_limit,
-            fixed_configs=fixed_configs,
-            fit_order=fit_order,
-            seed=seed,
-            **kwargs,
-        )
-        df_results_hpo = df_results_hpo.rename(
-            columns={
-                "framework": "method",
-            }
-        )
-        df_results_hpo["method"] = f"HPO-N{n_configs}-{config_type}"
-        df_results_hpo["n_configs"] = n_configs
-        df_results_hpo["n_iterations"] = n_iterations
-        df_results_hpo["seed"] = seed
-        df_results_hpo["ta_name"] = self.method
-        df_results_hpo["ta_suite"] = self.artifact_name
-        return df_results_hpo
-
-    def generate_hpo_trajectories(
-        self,
-        n_configs: list[int | None] | str = "auto",
-        seeds: int | list[int] = 20,
-        n_iterations: int = 40,
-        fixed_configs: list[str] | None = None,
-        always_include_default: bool = True,
-        fit_order: Literal["original", "random"] = "random",
-        time_limit: float | None = None,
-        backend: Literal["ray", "native"] = "ray",
-        config_type: str | list[str] | None = None,
-        repo: EvaluationRepository | None = None,
-        cache: bool = False,
-    ) -> pd.DataFrame:
-        if n_configs == "auto":
-            n_configs = [
-                1,
-                2,
-                5,
-                10,
-                25,
-                50,
-                100,
-                150,
-                None,  # all configs
-            ]
-        if isinstance(seeds, int):
-            seeds = list(range(seeds))
-
-        df_results_hpo_lst = []
-        if repo is None:
-            repo = self.load_processed()
-
-        # FIXME: Needed for TabPFN-2.5
-        repo.set_config_fallback(config_fallback=self.config_default)
-
-        n_config_total = repo.n_configs()
-
-        n_configs = [n_config if n_config is not None else n_config_total for n_config in n_configs]
-        n_configs = [n_config for n_config in n_configs if n_config <= n_config_total]
-        n_configs = sorted(set(n_configs))
-
-        if always_include_default and fixed_configs is None:
-            config_default = self.config_default
-            assert config_default is not None
-            fixed_configs = [config_default]
-
-        for n_config in n_configs:
-            print(f"Running n_config={n_config} ({self.method})")
-            assert n_config <= n_config_total
-            # The trajectory is independent of `seed` whenever no random config
-            # selection occurs: either the single config is a fixed one (e.g. the
-            # always-included default) or every config is included. In those cases
-            # `seed` only shuffles configs that are then either discarded (n_config
-            # == 1) or fully retained (n_config == n_config_total), so every seed
-            # yields an identical result -- run a single seed to avoid redundant work.
-            seed_invariant = (n_config == 1 and fixed_configs) or n_config == n_config_total
-            seeds_for_n_config = seeds[:1] if seed_invariant else seeds
-            for seed in seeds_for_n_config:
-                df_results_hpo = self.generate_hpo_result(
-                    repo=repo,
-                    n_configs=n_config,
-                    seed=seed,
-                    n_iterations=n_iterations,
-                    fixed_configs=fixed_configs,
-                    fit_order=fit_order,
-                    time_limit=time_limit,
-                    backend=backend,
-                    config_type=config_type,
-                )
-                df_results_hpo["always_include_default"] = always_include_default
-                df_results_hpo_lst.append(df_results_hpo)
-        df_results_hpo_combined = pd.concat(df_results_hpo_lst, ignore_index=True)
-
-        if cache:
-            save_pd.save(path=self.path_results_hpo_trajectories(), df=df_results_hpo_combined)
-
-        return df_results_hpo_combined
-
     def load_hpo_trajectories(self, download: bool | str = "auto") -> pd.DataFrame:
         path_local = self.path_results_hpo_trajectories()
         if download == "auto":
@@ -836,35 +683,6 @@ class MethodMetadata:
         if download:
             self.method_downloader().download_results_hpo_trajectories()
         return pd.read_parquet(path=path_local)
-
-    def generate_best(
-        self,
-        repo: EvaluationRepository = None,
-        n_configs: int = 1,
-        n_iterations: int = 40,
-        backend: Literal["ray", "native"] = "ray",
-        time_limit: float | None = None,
-        **kwargs,
-    ):
-        if repo is None:
-            repo = self.load_processed()
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
-
-        simulator = PaperRunTabArena(repo=repo, backend=backend)
-        df_results_best = simulator.run_zs(
-            n_portfolios=n_configs,
-            n_ensemble=n_iterations,
-            n_ensemble_in_name=True,
-            time_limit=time_limit,
-            **kwargs,
-        )
-        df_results_best["method"] = f"{self.config_type} (best)"
-        df_results_best["method_subtype"] = "best"
-        df_results_best["n_configs"] = n_configs
-        df_results_best["n_iterations"] = n_iterations
-        df_results_best["ta_name"] = self.method
-        df_results_best["ta_suite"] = self.artifact_name
-        return df_results_best
 
     def to_info_dict(self) -> dict:
         """The flat field dict used to build the metadata info table / YAML.
