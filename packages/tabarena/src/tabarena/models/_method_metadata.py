@@ -1040,3 +1040,41 @@ class MethodMetadata:
         if self.method_type == "config":
             file_names.append(self.path_results_hpo())
         return file_names
+
+
+@dataclass(frozen=True)
+class ModelDescriptor:
+    """Run-independent, *intrinsic* facts about a model: how it is displayed and cited, its
+    compute class, and whether it bags.
+
+    Declared once per model (in its ``models/<key>/info.py``) and reused by every
+    :class:`MethodMetadata` that benchmarks the model — the TabArena run in that ``info.py``
+    *and* the Beyond-IID re-run in
+    :mod:`tabarena.nips2025_utils.artifacts._beyond_method_metadata` — instead of being
+    re-typed per artifact. It carries only the fields that are identical across those runs;
+    everything run-specific (``method`` name, ``ag_key``, ``artifact_name``, ``config_default``,
+    ``can_hpo``, ``date``, storage) is supplied per call to :meth:`method_metadata`.
+    """
+
+    display_name: str
+    compute: Literal["cpu", "gpu"] = "cpu"
+    is_bag: bool = False
+    reference_url: str | None = None
+
+    def method_metadata(self, *, method: str, **kwargs) -> MethodMetadata:
+        """Build a :class:`MethodMetadata` for one benchmark run of this model.
+
+        The descriptor's intrinsic fields (``display_name``, ``compute``, ``is_bag``,
+        ``reference_url``) are supplied as defaults; pass any of them in ``**kwargs`` to
+        override for a variant (e.g. a CPU build of a GPU model, which keeps the same paper
+        but a different ``display_name`` and ``compute``). All other (run-specific)
+        :class:`MethodMetadata` fields come from ``**kwargs``.
+        """
+        fields_from_descriptor = dict(
+            display_name=self.display_name,
+            compute=self.compute,
+            is_bag=self.is_bag,
+            reference_url=self.reference_url,
+        )
+        # Caller-provided values win, so a variant can override an intrinsic default.
+        return MethodMetadata(method=method, **{**fields_from_descriptor, **kwargs})

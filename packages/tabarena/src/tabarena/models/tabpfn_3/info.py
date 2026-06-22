@@ -1,24 +1,27 @@
 from __future__ import annotations
 
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import ModelDescriptor
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabpfn_3.hpo import gen_tabpfn_3
 from tabarena.models.tabpfn_3.model import TabPFN3Model, prefetch_weights
 
-tabpfn_3_method_metadata = MethodMetadata(
-    method="TabPFN-3",
-    method_type="config",
+tabpfn_3_descriptor = ModelDescriptor(
     display_name="TabPFN-3",
     compute="gpu",
+    is_bag=False,
+    reference_url="https://arxiv.org/abs/2605.13986",
+)
+
+tabpfn_3_method_metadata = tabpfn_3_descriptor.method_metadata(
+    method="TabPFN-3",
+    method_type="config",
     ag_key="TA-TABPFN-3",
     config_default="TabPFN-3_c1_BAG_L1",
     can_hpo=False,
-    is_bag=False,
     has_raw=True,
     has_processed=True,
     has_results=True,
     date="2026-05-13",
-    reference_url="https://arxiv.org/abs/2605.13986",
     cache_type="r2",
     artifact_name="tabarena-2026-05-13",
     s3_bucket="tabarena",

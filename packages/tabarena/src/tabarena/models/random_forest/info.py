@@ -2,20 +2,24 @@ from __future__ import annotations
 
 from autogluon.tabular.models import RFModel
 
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import ModelDescriptor
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.random_forest.hpo import gen_randomforest
 
-random_forest_method_metadata = MethodMetadata(
-    method="RandomForest",
-    method_type="config",
+random_forest_descriptor = ModelDescriptor(
     display_name="RandomForest",
     compute="cpu",
+    is_bag=True,
+    reference_url="https://link.springer.com/article/10.1023/A:1010933404324",
+)
+
+random_forest_method_metadata = random_forest_descriptor.method_metadata(
+    method="RandomForest",
+    method_type="config",
     date="2025-06-12",
     ag_key="RF",
     config_default="RandomForest_c1_BAG_L1",
     can_hpo=True,
-    is_bag=True,
     has_raw=True,
     has_processed=True,
     has_results=True,
@@ -26,7 +30,6 @@ random_forest_method_metadata = MethodMetadata(
     name_suffix=None,
     # FIXME: technically baselines are not verified
     verified=True,
-    reference_url="https://link.springer.com/article/10.1023/A:1010933404324",
 )
 
 

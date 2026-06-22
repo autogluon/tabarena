@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import ModelDescriptor
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabpfnv2_5.hpo import gen_realtabpfnv25, gen_tabpfnv26
 from tabarena.models.tabpfnv2_5.model import (
@@ -9,17 +9,28 @@ from tabarena.models.tabpfnv2_5.model import (
     prefetch_weights,
 )
 
-realtabpfnv25_method_metadata = MethodMetadata(
-    method="RealTabPFN-v2.5",
-    method_type="config",
+realtabpfnv25_descriptor = ModelDescriptor(
     display_name="RealTabPFN-2.5",
     compute="gpu",
+    is_bag=False,
+    reference_url="https://arxiv.org/abs/2511.08667",
+)
+
+tabpfnv26_descriptor = ModelDescriptor(
+    display_name="TabPFN-2.6",
+    compute="gpu",
+    is_bag=False,
+    reference_url="https://arxiv.org/abs/2511.08667",
+)
+
+realtabpfnv25_method_metadata = realtabpfnv25_descriptor.method_metadata(
+    method="RealTabPFN-v2.5",
+    method_type="config",
     date="2025-11-12",
     ag_key="REALTABPFN-V2.5",
     model_key="REALTABPFN-V2.5",
     config_default="RealTabPFN-v2.5_c1_BAG_L1",
     can_hpo=True,
-    is_bag=False,
     has_raw=True,
     has_processed=True,
     artifact_name="tabarena-2025-11-12",
@@ -29,21 +40,17 @@ realtabpfnv25_method_metadata = MethodMetadata(
     has_results=True,
     name_suffix=None,
     verified=True,
-    reference_url="https://arxiv.org/abs/2511.08667",
 )
 
 
-tabpfnv26_method_metadata = MethodMetadata(
+tabpfnv26_method_metadata = tabpfnv26_descriptor.method_metadata(
     method="TabPFN-v2.6",
     method_type="config",
-    display_name="TabPFN-2.6",
-    compute="gpu",
     date="2026-03-25",
     ag_key="TABPFN-V2.6",
     model_key="TABPFN-V2.6",
     config_default="TabPFN-v2.6_c1_BAG_L1",
     can_hpo=False,
-    is_bag=False,
     has_raw=True,
     has_processed=True,
     artifact_name="tabarena-2026-03-18",
@@ -53,7 +60,6 @@ tabpfnv26_method_metadata = MethodMetadata(
     has_results=True,
     name_suffix=None,
     verified=True,
-    reference_url="https://arxiv.org/abs/2511.08667",
     cache_type="r2",
 )
 
