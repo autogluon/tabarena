@@ -594,6 +594,48 @@ class TabArenaEvaluator:
             plt.close(fig)
         # TODO: Get rank 1 method per task/split, include alongside as column w/ value for comparison
 
+    @staticmethod
+    def _plot_only_to_hidden_methods(
+        plot_only: list[str],
+        *,
+        framework_types: list[str],
+        baselines: list[str],
+        f_map_type_name: dict[str, str],
+        existing_hidden: list[str] | None = None,
+    ) -> list[str]:
+        """Translate a ``plot_only`` allowlist into the ``hidden_methods`` denylist.
+
+        ``plot_only`` lists method *display names* — the long config display name
+        for config methods (e.g. ``"LightGBM"``, ``"TabM"``) and the method name
+        for baselines (e.g. ``"TabPFN-3"``). This is the same surface
+        ``hidden_methods`` already matches on across every plot (Elo bar plot,
+        win-rate matrix, Pareto frontier, LaTeX table), so the allowlist is
+        implemented purely as its complement: every plotted method *not* in
+        ``plot_only`` is added to the returned hidden list (unioned with any
+        ``existing_hidden``).
+
+        Because this only feeds ``hidden_methods`` — consumed exclusively by the
+        plotting helpers — it never touches the leaderboard / Elo computation,
+        which runs over the full method set. Names in ``plot_only`` that match no
+        plotted method are reported (typo / wrong-name guard) and otherwise
+        ignored.
+        """
+        config_display = {f_map_type_name.get(ft, ft) for ft in framework_types}
+        baseline_display = {f_map_type_name.get(b, b) for b in baselines}
+        universe = config_display | baseline_display
+
+        plot_only_set = set(plot_only)
+        unknown = sorted(plot_only_set - universe)
+        if unknown:
+            print(
+                f"WARNING: `plot_only` contains names that match no plotted method: {unknown}\n"
+                f"\tThese are ignored. Valid method display names are: {sorted(universe)}",
+            )
+
+        hidden = set(existing_hidden or [])
+        hidden |= {m for m in universe if m not in plot_only_set}
+        return sorted(hidden)
+
     def eval(
         self,
         df_results: pd.DataFrame,
@@ -623,7 +665,27 @@ class TabArenaEvaluator:
         show_tuning_impact_title: bool = False,
         subset_label: str | None = None,
         winrate_method_rename: dict[str, str] | None = None,
+        plot_only: list[str] | None = None,
+        method_color_overrides: dict[str, str] | None = None,
     ) -> pd.DataFrame:
+        """Compute the leaderboard for ``df_results`` and render the TabArena figures.
+
+        ``plot_only`` (default ``None`` -> show everything) restricts the *plots*
+        to a subset of methods without affecting any numbers: the leaderboard,
+        Elo, win-rates and the saved ``tabarena_leaderboard.csv`` are always
+        computed over the full method set, and only the figures (Elo bar plot,
+        win-rate matrix, Pareto frontier, LaTeX table) are filtered down. Pass
+        method *display names* — the long config display name for config methods
+        (e.g. ``"LightGBM"``, ``"TabM"``) and the method name for baselines (e.g.
+        ``"TabPFN-3"``); see :meth:`_plot_only_to_hidden_methods`. Implemented as
+        the complement of the existing ``hidden_methods`` denylist (carried in
+        ``plot_tuning_kwargs``), so the two compose — anything hidden stays hidden.
+
+        ``method_color_overrides`` (default ``None``) pins a fixed color per method in both the Elo
+        bar plot (recolors that method's bar) and the Pareto plots (colors its points) — a
+        ``{display_name: color}`` map (e.g. ``{"SAP-RPT-OSS": "#009DE0"}``). Methods not listed keep
+        their default color (tune-type palette in the bar plot, auto palette in Pareto).
+        """
         if banned_methods is not None:
             df_results = df_results[~df_results["method"].isin(banned_methods)]
         if leaderboard_kwargs is None:
@@ -690,6 +752,21 @@ class TabArenaEvaluator:
         _f_map, f_map_type, _f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
         )
+
+        # `plot_only` is a plotting-only allowlist: keep the leaderboard / Elo over
+        # the full method set, but restrict every figure to the requested methods. It is realized
+        # as the complement of `hidden_methods` (already honored by all plot helpers), so the two
+        # compose. Computed here because it needs the display-name surface (framework_types /
+        # baselines / f_map_type_name), and injected into plot_tuning_kwargs which every plotting
+        # call below threads through.
+        if plot_only is not None:
+            plot_tuning_kwargs["hidden_methods"] = self._plot_only_to_hidden_methods(
+                plot_only,
+                framework_types=framework_types,
+                baselines=baselines,
+                f_map_type_name=f_map_type_name,
+                existing_hidden=plot_tuning_kwargs.get("hidden_methods"),
+            )
 
         df_results_rank_compare = df_results_rank_compare[
             (~df_results_rank_compare[self.method_col].map(f_map_type).isna())
@@ -863,6 +940,7 @@ class TabArenaEvaluator:
             plot_tune_types=plot_tune_types,
             use_y=True,
             show=False,
+            method_color_overrides=method_color_overrides,
             **plot_tuning_kwargs,
         )
 
@@ -879,6 +957,7 @@ class TabArenaEvaluator:
             imputed_names=imputed_names,
             plot_tune_types=plot_tune_types,
             show=False,
+            method_color_overrides=method_color_overrides,
             **plot_tuning_kwargs,
         )
 
@@ -1048,6 +1127,7 @@ class TabArenaEvaluator:
                 framework_types=framework_types,
                 with_baselines=plot_with_baselines,
                 plot_tuning_kwargs=plot_tuning_kwargs,
+                method_color_overrides=method_color_overrides,
             )
 
         return leaderboard
@@ -1139,6 +1219,7 @@ class TabArenaEvaluator:
         framework_types: list[str],
         with_baselines: bool = True,
         plot_tuning_kwargs: dict | None = None,
+        method_color_overrides: dict[str, str] | None = None,
     ):
         _f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
@@ -1176,6 +1257,15 @@ class TabArenaEvaluator:
                     method_order = [display_name_map.get(m, m) for m in method_order]
             if "title" in plot_tuning_kwargs:
                 plot_pareto_kwargs["title"] = plot_tuning_kwargs["title"]
+
+        # Per-method color overrides (display name -> matplotlib color). Pins a fixed color for
+        # specific method families instead of letting seaborn auto-assign from the palette, so a
+        # method keeps the same color across runs / subsets. Keyed by the long display name in the
+        # "Method" column (e.g. "TabM", "TabPFN-3"). A standalone arg (not a `plot_tuning_kwargs`
+        # key) because `plot_tuning_kwargs` is splatted into `plot_tuning_impact`, which would
+        # reject an unknown keyword.
+        if method_color_overrides is not None:
+            plot_pareto_kwargs["color_overrides"] = method_color_overrides
 
         leaderboard_pareto[self.method_col] = leaderboard_pareto["Method"] + leaderboard_pareto["suffix"]
         fig_rename_dict = {
@@ -1217,6 +1307,7 @@ class TabArenaEvaluator:
         leaderboard: pd.DataFrame,
         method_order: list[str] | None = None,
         title: str | None = "auto",
+        color_overrides: dict[str, str] | None = None,
     ):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_elo_vs_time_train.{self.figure_file_type}")
@@ -1246,6 +1337,7 @@ class TabArenaEvaluator:
             show=False,
             aspect=4 / 3,
             legend_first=method_order,
+            color_overrides=color_overrides,
         )
 
     def plot_pareto_elo_vs_time_infer(
@@ -1253,6 +1345,7 @@ class TabArenaEvaluator:
         leaderboard: pd.DataFrame,
         method_order: list[str] | None = None,
         title: str | None = "auto",
+        color_overrides: dict[str, str] | None = None,
     ):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_elo_vs_time_infer.{self.figure_file_type}")
@@ -1282,6 +1375,7 @@ class TabArenaEvaluator:
             show=False,
             aspect=4 / 3,
             legend_first=method_order,
+            color_overrides=color_overrides,
         )
 
     def plot_pareto_improvability_vs_time_infer(
@@ -1289,6 +1383,7 @@ class TabArenaEvaluator:
         leaderboard: pd.DataFrame,
         method_order: list[str] | None = None,
         title: str | None = "auto",
+        color_overrides: dict[str, str] | None = None,
     ):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_improvability_vs_time_infer.{self.figure_file_type}")
@@ -1319,6 +1414,7 @@ class TabArenaEvaluator:
             show=False,
             aspect=4 / 3,
             legend_first=method_order,
+            color_overrides=color_overrides,
         )
 
     def plot_pareto_improvability_vs_time_train(
@@ -1326,6 +1422,7 @@ class TabArenaEvaluator:
         leaderboard: pd.DataFrame,
         method_order: list[str] | None = None,
         title: str | None = "auto",
+        color_overrides: dict[str, str] | None = None,
     ):
         save_prefix = Path(self.output_dir)
         save_path = str(save_prefix / f"pareto_front_improvability_vs_time_train.{self.figure_file_type}")
@@ -1356,6 +1453,7 @@ class TabArenaEvaluator:
             show=False,
             aspect=4 / 3,
             legend_first=method_order,
+            color_overrides=color_overrides,
         )
 
     def get_method_rename_map(self) -> dict[str, str]:
@@ -1599,6 +1697,7 @@ class TabArenaEvaluator:
         bar_width: float | None = None,
         title: str | None = None,
         tune_method_overrides: list[TuneMethodOverride] | None = None,
+        method_color_overrides: dict[str, str] | None = None,
     ):
         import matplotlib.patheffects as PathEffects
         import matplotlib.pyplot as plt
@@ -2137,6 +2236,28 @@ class TabArenaEvaluator:
                     if category in imputed_names:
                         has_imputed = True
                         bar.set_hatch("xx")
+
+                # ----- recolor bars for methods with an explicit color override -----
+                # Pins specific framework-type bars to a caller-chosen color (display name ->
+                # color), overriding the tune-type palette for just those methods. Reuses the same
+                # position -> category mapping as the imputed-bar loop above, and resolves override
+                # keys through f_map_type_name / display_name_map so callers can pass either the
+                # short config_type or the long (possibly style-renamed) display name.
+                if method_color_overrides:
+                    color_lookup: dict[str, str] = {}
+                    for raw_key, color in method_color_overrides.items():
+                        for key in {
+                            raw_key,
+                            f_map_type_name.get(raw_key, raw_key),
+                            display_name_map.get(raw_key, raw_key),
+                        }:
+                            color_lookup[key] = color
+                    for bar in boxplot.patches:
+                        pos = bar.get_y() + bar.get_height() / 2 if use_y else bar.get_x() + bar.get_width() / 2
+                        category = label_lookup.get(round(pos))
+                        override_color = color_lookup.get(category)
+                        if override_color is not None:
+                            bar.set_facecolor(override_color)
 
                 if not use_y:
                     # ----- alternate rows of x tick labels -----

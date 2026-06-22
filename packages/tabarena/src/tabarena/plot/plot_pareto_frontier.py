@@ -130,6 +130,7 @@ def plot_pareto(
     force_labels: list[str] | None = None,
     y_percent_format: bool = False,
     legend_first: list[str] | None = None,
+    color_overrides: dict[str, str] | None = None,
 ):
     import matplotlib.patheffects as PathEffects
     import matplotlib.pyplot as plt
@@ -207,6 +208,14 @@ def plot_pareto(
         colors = base_palette[: len(hue_levels)]
     colors = [colors[i % len(colors)] for i in range(len(hue_levels))]
     palette_map = dict(zip(hue_levels, colors, strict=False))
+
+    # Pin specific hue categories (method families) to a caller-chosen color instead of the
+    # auto-assigned palette entry. Applied before the label color map is derived so both the
+    # scatter (`palette=palette_map`) and the per-point text labels pick up the override.
+    if color_overrides:
+        for hue_value, color in color_overrides.items():
+            if hue_value in palette_map:
+                palette_map[hue_value] = color
 
     label_to_hue_dict = data.set_index(label_col)[hue].to_dict()
     label_to_color_dict = {l: palette_map[h] for l, h in label_to_hue_dict.items()}

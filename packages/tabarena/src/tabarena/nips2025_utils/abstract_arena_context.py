@@ -744,6 +744,8 @@ class AbstractArenaContext:
         return_results: bool = False,
         new_methods_only: bool = False,
         return_single: bool = False,
+        plot_only: list[str] | None = None,
+        method_color_overrides: dict[str, str] | None = None,
         **kwargs,
     ) -> pd.DataFrame | pd.Series | tuple[pd.DataFrame | pd.Series, pd.DataFrame]:
         """Compute the leaderboard comparing ``new_results`` against this arena's baselines.
@@ -798,6 +800,17 @@ class AbstractArenaContext:
           (``pd.Series``) instead of a one-row frame — the "I evaluated one model" case. Raises if
           zero or more than one new method is present. Composes with ``return_results`` (the
           results are still the matched per-split frame).
+
+        ``plot_only`` (default ``None`` -> plot everything) restricts the *figures* to a subset of
+        methods without changing any numbers: the leaderboard, Elo, win-rates and the saved
+        ``tabarena_leaderboard.csv`` are always computed over the full method set, and only the
+        plots (Elo bar plot, win-rate matrix, Pareto frontier, LaTeX table) are filtered down. Pass
+        method *display names* — the long config display name for config methods (e.g.
+        ``"LightGBM"``, ``"TabM"``) and the method name for baselines (e.g. ``"TabPFN-3"``). It
+        composes with a ``hidden_methods`` denylist (anything hidden stays hidden).
+
+        ``method_color_overrides`` (default ``None``) pins a fixed color per method family in the
+        Pareto plots — a ``{display_name: color}`` map (e.g. ``{"TabPFN-3": "midnightblue"}``).
         """
         # Deferred import: tabarena.nips2025_utils.compare imports TabArenaContext at module
         # level, which would be circular at import time.
@@ -832,6 +845,13 @@ class AbstractArenaContext:
             )
 
         kwargs = kwargs.copy()
+        # Plotting-only method allowlist (forwarded to the lower-level compare -> TabArenaEvaluator
+        # .eval, which translates it into the hidden_methods complement). Does not affect scoring.
+        if plot_only is not None:
+            kwargs["plot_only"] = plot_only
+        # Per-method Pareto colors (also plotting-only); forwarded to eval the same way.
+        if method_color_overrides is not None:
+            kwargs["method_color_overrides"] = method_color_overrides
         df_filter, passthrough_names = self._resolve_only_valid_tasks(only_valid_tasks, new_results)
         if passthrough_names is not None:
             kwargs["only_valid_tasks"] = passthrough_names
