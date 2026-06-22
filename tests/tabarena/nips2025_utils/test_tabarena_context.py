@@ -254,3 +254,35 @@ class TestCompareFoldSimilarityForwarding:
         self._base_ctx().compare(output_dir=tmp_path)
         assert captured["compute_fold_similarity"] is False
         assert captured["fold_similarity_kwargs"] is None
+
+
+class TestComparePlotOnlyForwarding:
+    """compare(plot_only=) reaches the lower-level compare (and thus eval) via kwargs."""
+
+    @staticmethod
+    def _base_ctx() -> AbstractArenaContext:
+        return AbstractArenaContext(methods=[], task_metadata=_ctx().task_metadata_collection)
+
+    @staticmethod
+    def _capture(monkeypatch) -> dict:
+        import tabarena.nips2025_utils.compare as compare_mod
+
+        captured: dict = {}
+
+        def fake_compare(**kwargs):
+            captured.update(kwargs)
+            return pd.DataFrame()
+
+        monkeypatch.setattr(compare_mod, "compare", fake_compare)
+        return captured
+
+    def test_plot_only_forwarded(self, monkeypatch, tmp_path):
+        captured = self._capture(monkeypatch)
+        self._base_ctx().compare(output_dir=tmp_path, plot_only=["LightGBM", "TabM"])
+        assert captured["plot_only"] == ["LightGBM", "TabM"]
+
+    def test_plot_only_absent_by_default(self, monkeypatch, tmp_path):
+        # Not passed -> not injected into kwargs (lower compare keeps its own default).
+        captured = self._capture(monkeypatch)
+        self._base_ctx().compare(output_dir=tmp_path)
+        assert "plot_only" not in captured

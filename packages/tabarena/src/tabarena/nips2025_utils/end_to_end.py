@@ -457,7 +457,16 @@ class EndToEndResults:
         score_on_val: bool = False,
         average_seeds: bool = False,
         leaderboard_kwargs: dict | None = None,
+        plot_only: list[str] | None = None,
     ):
+        """Compute the TabArena leaderboard for these results and render the figures.
+
+        ``plot_only`` (default ``None`` -> plot everything) restricts the *figures* to a subset of
+        methods without affecting any numbers — the leaderboard / Elo / win-rates are still
+        computed over the full method set, and only the plots are filtered. Pass method display
+        names (e.g. ``["CustomRF", "RandomForest", "CatBoost", "TabPFN-2.6"]``); see
+        :meth:`tabarena.paper.tabarena_evaluator.TabArenaEvaluator.eval`.
+        """
         results = self.get_results(
             new_result_prefix=new_result_prefix,
             use_artifact_name_in_prefix=use_artifact_name_in_prefix,
@@ -472,6 +481,9 @@ class EndToEndResults:
 
             task_metadata = default_task_metadata_collection()
 
+        # `plot_only` flows through the lower-level compare's **kwargs into TabArenaEvaluator.eval,
+        # which applies it to plots only (scoring stays over the full method set).
+        extra_kwargs = {} if plot_only is None else {"plot_only": plot_only}
         return compare(
             df_results=results,
             output_dir=output_dir,
@@ -481,6 +493,7 @@ class EndToEndResults:
             score_on_val=score_on_val,
             average_seeds=average_seeds,
             leaderboard_kwargs=leaderboard_kwargs,
+            **extra_kwargs,
         )
 
     def to_method_metadata_lst(
