@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, ClassVar, Literal, Self
 
 import pandas as pd
 import yaml
-from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
 from tabarena.loaders import get_tabarena_cache_root
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_results_lst
@@ -24,8 +23,8 @@ from tabarena.utils.s3_utils import s3_get_object
 if TYPE_CHECKING:
     from tabarena.benchmark.result import BaselineResult
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
-    from tabarena.models._artifacts.downloader_s3 import MethodDownloaderS3
-    from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
+    from tabarena.models._artifacts.downloader import MethodDownloader
+    from tabarena.models._artifacts.uploader import MethodUploader
 
 
 class MethodType(StrEnum):
@@ -231,8 +230,6 @@ class MethodMetadata:
             has_raw=True,
             has_processed=True,
             has_results=True,
-            # Preserve the historical default now that the field default is "r2".
-            cache_type="s3",
         )
 
     @classmethod
@@ -453,20 +450,16 @@ class MethodMetadata:
     def relative_to_method(self, path: Path) -> Path:
         return path.relative_to(self.path)
 
-    def to_s3_cache_loc(self, path: Path, s3_cache_root: str) -> str:
-        path_suffix: str = self.relative_to_cache_root(path=path).as_posix()
-        return f"{s3_cache_root}/{path_suffix}"
-
     def method_downloader(
         self,
         cache_type: str = "auto",
         verbose: bool = False,
-    ) -> MethodDownloaderS3:
+    ) -> MethodDownloader:
         if cache_type == "auto":
             cache_type = self.cache_type
         if not self.has_s3_cache:
             raise AssertionError(
-                f"Tried to get MethodDownloaderS3 from MethodMetadata, "
+                f"Tried to get MethodDownloader from MethodMetadata, "
                 f"but s3_bucket and/or s3_prefix were not specified!"
                 f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
                 f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
@@ -495,12 +488,12 @@ class MethodMetadata:
             )
         raise ValueError(f"Invalid cache_type for downloads: {cache_type}")
 
-    def method_uploader(self, cache_type: str = "auto") -> MethodUploaderS3:
+    def method_uploader(self, cache_type: str = "auto") -> MethodUploader:
         if cache_type == "auto":
             cache_type = self.cache_type
         if not self.has_s3_cache:
             raise AssertionError(
-                f"Tried to get MethodUploaderS3 from MethodMetadata, "
+                f"Tried to get MethodUploader from MethodMetadata, "
                 f"but s3_bucket and/or s3_prefix were not specified!"
                 f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
                 f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
@@ -804,9 +797,9 @@ class MethodMetadata:
             artifact_name=artifact_name,
         )
         path_local = Path(metadata.path_metadata)
-        s3_cache_root = f"s3://{s3_bucket}/{s3_prefix}"
-        s3_path_loc = metadata.to_s3_cache_loc(path=Path(path_local), s3_cache_root=s3_cache_root)
-        _, s3_key = s3_path_to_bucket_prefix(s3_path_loc)
+        # The remote key is just the prefix joined with the path's location relative to the cache
+        # root — computed directly rather than by building and re-parsing an "s3://..." URI.
+        s3_key = (Path(s3_prefix) / metadata.relative_to_cache_root(path_local)).as_posix()
         # Stream into memory
         try:
             obj = s3_get_object(Bucket=s3_bucket, Key=s3_key)
