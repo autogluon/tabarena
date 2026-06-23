@@ -4,7 +4,7 @@ import io
 import json
 import os
 import warnings
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Literal, Self
@@ -110,7 +110,11 @@ class MethodMetadata:
     cache_type: Literal["s3", "r2", "local"] = "r2"
     s3_bucket: str | None = None
     s3_prefix: str | None = None
-    upload_as_public: bool = False
+    #: Extra ``cache_type``-specific arguments, forwarded as ``**cache_kwargs`` to the uploader for
+    #: this method's backend (see :meth:`method_uploader`). Keeps backend-specific knobs out of the
+    #: core schema. For the ``"s3"`` backend: ``{"upload_as_public": True}`` to set a public-read
+    #: ACL on uploaded objects. Empty for backends with no such knobs (e.g. ``"r2"``).
+    cache_kwargs: dict = field(default_factory=dict)
     #: Optional override pointing at a self-contained, *flat* method directory
     #: (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``), used to load a
     #: method's committed artifacts from an arbitrary location (e.g. a repo's ``data/`` folder)
@@ -462,9 +466,9 @@ class MethodMetadata:
         TabArena store.
 
         Fills the boilerplate shared by every public TabArena artifact — the ``tabarena`` /
-        ``cache`` S3 location, ``upload_as_public=True``, and a fully-cached
-        ``has_raw``/``has_processed``/``has_results`` — so callers specify only what is
-        method-specific. Any of these defaults can be overridden via keyword (e.g.
+        ``cache`` S3 location, the public-read ACL (``cache_kwargs={"upload_as_public": True}``),
+        and a fully-cached ``has_raw``/``has_processed``/``has_results`` — so callers specify only
+        what is method-specific. Any of these defaults can be overridden via keyword (e.g.
         ``has_raw=False`` for a portfolio with no raw artifacts, or ``s3_prefix=...`` for a
         non-standard prefix). The single source of truth for the public-artifact preset that the
         per-artifact ``_common_*_kwargs`` dicts used to re-declare.
@@ -475,7 +479,7 @@ class MethodMetadata:
             has_raw=has_raw,
             has_processed=has_processed,
             has_results=has_results,
-            upload_as_public=upload_as_public,
+            cache_kwargs={"upload_as_public": upload_as_public},
             s3_bucket=s3_bucket,
             s3_prefix=s3_prefix,
             **kwargs,
@@ -630,6 +634,7 @@ class MethodMetadata:
                 r2_prefix=self.s3_prefix,
                 r2_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
                 r2_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+                **self.cache_kwargs,
             )
         if cache_type == "s3":
             from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
@@ -638,7 +643,7 @@ class MethodMetadata:
                 method_metadata=self,
                 s3_bucket=self.s3_bucket,
                 s3_prefix=self.s3_prefix,
-                upload_as_public=self.upload_as_public,
+                **self.cache_kwargs,
             )
         raise ValueError(f"Invalid cache_type for uploads: {cache_type}")
 
@@ -827,8 +832,13 @@ class MethodMetadata:
         handling for the on-disk format lives here:
 
         - ``use_artifact_name_in_prefix``: field removed from the schema; drop it if present.
+        - ``upload_as_public``: moved into ``cache_kwargs`` (an s3-specific public-read ACL knob).
+          Fold a ``True`` value into ``cache_kwargs`` only when ``cache_type == "s3"``; otherwise
+          (e.g. ``"r2"``) drop it regardless of value, since it is not a valid key there.
         """
         kwargs.pop("use_artifact_name_in_prefix", None)
+        if kwargs.pop("upload_as_public", False) and kwargs.get("cache_type") == "s3":
+            kwargs.setdefault("cache_kwargs", {}).setdefault("upload_as_public", True)
         return kwargs
 
     @classmethod

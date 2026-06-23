@@ -25,7 +25,7 @@ lr_method_metadata = lr_descriptor.method_metadata(
     cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
-    upload_as_public=True,
+    cache_kwargs={"upload_as_public": True},
     has_results=True,
     name_suffix=None,
     # FIXME: technically LR is not verified
