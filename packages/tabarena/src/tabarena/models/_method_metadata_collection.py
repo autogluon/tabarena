@@ -16,17 +16,15 @@ class MethodMetadataCollection:
         self,
         method: str,
         artifact_name: str | None = None,
-        s3_bucket: str | None = None,
-        s3_prefix: str | None = None,
     ) -> MethodMetadata:
         """Return the unique MethodMetadata that matches the provided identifiers.
 
-        The full unique key is (method, artifact_name, s3_bucket, s3_prefix).
-        This function accepts a *partial* key: it filters using only the
-        provided (non-None) fields. If that partial key matches exactly one
-        item, that item is returned. If it matches zero or multiple items,
-        an informative exception is raised. In the multiple-match case, a
-        pandas DataFrame of indistinguishable candidates is included.
+        The full unique key is (method, artifact_name). This function accepts a
+        *partial* key: it filters using only the provided (non-None) fields. If
+        that partial key matches exactly one item, that item is returned. If it
+        matches zero or multiple items, an informative exception is raised. In the
+        multiple-match case, a pandas DataFrame of indistinguishable candidates is
+        included.
 
         Parameters
         ----------
@@ -34,10 +32,6 @@ class MethodMetadataCollection:
             Method name to match (required).
         artifact_name
             Optional artifact name to further constrain the search.
-        s3_bucket
-            Optional S3 bucket to further constrain the search.
-        s3_prefix
-            Optional S3 prefix to further constrain the search.
 
         Returns:
         -------
@@ -66,14 +60,7 @@ class MethodMetadataCollection:
             )
 
         # 2) Apply only the provided (non-None) fields.
-        def ok(m: MethodMetadata) -> bool:
-            if artifact_name is not None and m.artifact_name != artifact_name:
-                return False
-            if s3_bucket is not None and m.s3_bucket != s3_bucket:
-                return False
-            return not (s3_prefix is not None and m.s3_prefix != s3_prefix)
-
-        candidates = [m for m in by_method if ok(m)]
+        candidates = [m for m in by_method if artifact_name is None or m.artifact_name == artifact_name]
 
         # 3) Resolve outcomes without building any DataFrame unless necessary.
         if len(candidates) == 1:
@@ -85,8 +72,6 @@ class MethodMetadataCollection:
                 {
                     "method": getattr(m, "method", None),
                     "artifact_name": getattr(m, "artifact_name", None),
-                    "s3_bucket": getattr(m, "s3_bucket", None),
-                    "s3_prefix": getattr(m, "s3_prefix", None),
                 }
                 for m in objs
             ]
@@ -98,8 +83,7 @@ class MethodMetadataCollection:
             df = _candidates_df(by_method)
             raise LookupError(
                 "No MethodMetadata matches the provided filters.\n"
-                f"Filters used: method={method!r}, artifact_name={artifact_name!r}, "
-                f"s3_bucket={s3_bucket!r}, s3_prefix={s3_prefix!r}\n"
+                f"Filters used: method={method!r}, artifact_name={artifact_name!r}\n"
                 "Available candidates for this method:\n"
                 f"{df.to_string(index=False)}",
             )
@@ -108,8 +92,7 @@ class MethodMetadataCollection:
         df = _candidates_df(candidates)
         raise ValueError(
             "Provided filters are insufficient to uniquely identify a MethodMetadata.\n"
-            f"Filters used: method={method!r}, artifact_name={artifact_name!r}, "
-            f"s3_bucket={s3_bucket!r}, s3_prefix={s3_prefix!r}\n"
+            f"Filters used: method={method!r}, artifact_name={artifact_name!r}\n"
             "Indistinguishable candidates:\n"
             f"{df.to_string(index=False)}",
         )
