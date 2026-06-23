@@ -226,7 +226,7 @@ class MethodMetadata:
     # method_type, so a caller is never presented with fields that belong to a different type.
     # Each sets ``method_type`` and forwards the shared fields (identity, ``compute``, ``has_*``,
     # storage/transport, informative) via ``**kwargs``; ``__post_init__`` still validates the
-    # result. Orthogonal to :meth:`tabarena_public`, which is the public-store *storage* preset.
+    # result. Orthogonal to :meth:`tabarena_legacy_s3`, the legacy public-s3 *storage* preset.
 
     @classmethod
     def config(
@@ -467,7 +467,7 @@ class MethodMetadata:
         )
 
     @classmethod
-    def tabarena_public(
+    def tabarena_legacy_s3(
         cls,
         *,
         method: str,
@@ -475,20 +475,19 @@ class MethodMetadata:
         has_raw: bool = True,
         has_processed: bool = True,
         has_results: bool = True,
-        upload_as_public: bool = True,
         s3_bucket: str = "tabarena",
         s3_prefix: str = "cache",
         **kwargs,
     ) -> Self:
-        """Build a :class:`MethodMetadata` for a method whose artifacts live in the public
-        TabArena store.
+        """Build a :class:`MethodMetadata` for a method whose artifacts live in the legacy public
+        TabArena **S3** store.
 
-        Fills the boilerplate shared by every public TabArena artifact — the ``tabarena`` /
-        ``cache`` S3 location, the public-read ACL (``cache_kwargs={"upload_as_public": True}``),
-        and a fully-cached ``has_raw``/``has_processed``/``has_results`` — so callers specify only
-        what is method-specific. Any of these defaults can be overridden via keyword (e.g.
-        ``has_raw=False`` for a portfolio with no raw artifacts, or ``s3_prefix=...`` for a
-        non-standard prefix). The single source of truth for the public-artifact preset that the
+        Fills the boilerplate shared by every such artifact — the ``tabarena`` / ``cache`` S3
+        location, ``cache_type="s3"``, the public-read ACL (``cache_kwargs={"upload_as_public":
+        True}``), and a fully-cached ``has_raw``/``has_processed``/``has_results`` — so callers
+        specify only what is method-specific. ``cache_type`` and the ACL are fixed (this preset is
+        s3-and-public by definition); ``has_*`` and ``s3_bucket``/``s3_prefix`` can be overridden
+        via keyword. The single source of truth for the public-artifact preset that the
         per-artifact ``_common_*_kwargs`` dicts used to re-declare.
         """
         return cls(
@@ -497,7 +496,8 @@ class MethodMetadata:
             has_raw=has_raw,
             has_processed=has_processed,
             has_results=has_results,
-            cache_kwargs={"upload_as_public": upload_as_public},
+            cache_type="s3",
+            cache_kwargs={"upload_as_public": True},
             s3_bucket=s3_bucket,
             s3_prefix=s3_prefix,
             **kwargs,
