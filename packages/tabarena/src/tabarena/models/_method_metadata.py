@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, ClassVar, Literal, Self
 
 import pandas as pd
 import yaml
-from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
 from tabarena.loaders import get_tabarena_cache_root
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_results_lst
@@ -804,9 +803,9 @@ class MethodMetadata:
             artifact_name=artifact_name,
         )
         path_local = Path(metadata.path_metadata)
-        s3_cache_root = f"s3://{s3_bucket}/{s3_prefix}"
-        s3_path_loc = metadata.to_s3_cache_loc(path=Path(path_local), s3_cache_root=s3_cache_root)
-        _, s3_key = s3_path_to_bucket_prefix(s3_path_loc)
+        # The remote key is just the prefix joined with the path's location relative to the cache
+        # root — computed directly rather than by building and re-parsing an "s3://..." URI.
+        s3_key = (Path(s3_prefix) / metadata.relative_to_cache_root(path_local)).as_posix()
         # Stream into memory
         try:
             obj = s3_get_object(Bucket=s3_bucket, Key=s3_key)
