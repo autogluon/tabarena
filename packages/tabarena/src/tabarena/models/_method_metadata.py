@@ -452,10 +452,6 @@ class MethodMetadata:
     def relative_to_method(self, path: Path) -> Path:
         return path.relative_to(self.path)
 
-    def to_s3_cache_loc(self, path: Path, s3_cache_root: str) -> str:
-        path_suffix: str = self.relative_to_cache_root(path=path).as_posix()
-        return f"{s3_cache_root}/{path_suffix}"
-
     def method_downloader(
         self,
         cache_type: str = "auto",
