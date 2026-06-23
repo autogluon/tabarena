@@ -7,16 +7,16 @@ from tabarena.models.tabstar.model import TabSTARModel, prefetch_weights
 
 tabstar_method_metadata = MethodMetadata.config(
     method="TabSTAR",
-    display_name="TabSTAR",
-    compute="gpu",
-    date="2026-03-02",
+    artifact_name="tabarena-2026-03-18",
     ag_key="TABSTAR",
     config_default="TabSTAR_c1_BAG_L1",
+    compute="gpu",
     is_bag=True,
-    artifact_name="tabarena-2026-03-18",
-    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
-    reference_url="https://arxiv.org/abs/2505.18125",
     cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+    date="2026-03-02",
+    reference_url="https://arxiv.org/abs/2505.18125",
+    display_name="TabSTAR",
 )
 
 

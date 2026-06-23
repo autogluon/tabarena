@@ -15,12 +15,12 @@ catboost_descriptor = ModelDescriptor(
 
 catboost_method_metadata = catboost_descriptor.method_metadata(
     method="CatBoost",
-    date="2025-06-12",
+    artifact_name="tabarena-2025-06-12",
     ag_key="CAT",
     config_default="CatBoost_c1_BAG_L1",
-    artifact_name="tabarena-2025-06-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-06-12",
     # FIXME: technically GBDTs are not verified
 )
 

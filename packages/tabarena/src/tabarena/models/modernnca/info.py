@@ -7,32 +7,32 @@ from tabarena.models.modernnca.model import ModernNCAModel
 
 modernnca_method_metadata = MethodMetadata.config(
     method="ModernNCA",
-    display_name="ModernNCA (CPU)",
-    compute="cpu",
-    date="2025-06-12",
+    artifact_name="tabarena-2025-06-12",
     ag_key="MNCA",
     config_default="ModernNCA_c1_BAG_L1",
+    compute="cpu",
     is_bag=True,
-    artifact_name="tabarena-2025-06-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-06-12",
     reference_url="https://arxiv.org/abs/2407.03257",
+    display_name="ModernNCA (CPU)",
 )
 
 
 modernnca_gpu_method_metadata = MethodMetadata.config(
     method="ModernNCA_GPU",
-    display_name="ModernNCA",
-    compute="gpu",
-    date="2025-06-12",
+    artifact_name="tabarena-2025-06-12",
     ag_key="MNCA",
     config_default="ModernNCA_GPU_c1_BAG_L1",
+    compute="gpu",
     is_bag=True,
-    artifact_name="tabarena-2025-06-12",
+    name_suffix="_GPU",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix="_GPU",
+    date="2025-06-12",
     reference_url="https://arxiv.org/abs/2407.03257",
+    display_name="ModernNCA",
 )
 
 

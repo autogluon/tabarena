@@ -7,14 +7,14 @@ from tabarena.models.chimeraboost.model import ChimeraBoostModel
 
 chimeraboost_method_metadata = MethodMetadata.config(
     method="ChimeraBoost",
-    display_name="ChimeraBoost",
-    compute="cpu",
-    date="2026-06-15",
     ag_key="CHIMERA",
     config_default="ChimeraBoost_c1_BAG_L1",
+    compute="cpu",
     is_bag=False,
-    verified=False,
+    date="2026-06-15",
     reference_url="https://github.com/bbstats/chimeraboost",
+    display_name="ChimeraBoost",
+    verified=False,
     # Not yet hosted: bucket/prefix/cache_type are set by the maintainers once the result
     # artifacts land in the official pool; until then cache_type infers "local" (no remote
     # location set). has_raw/has_processed/has_results stay True — a config has all three

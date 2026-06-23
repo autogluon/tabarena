@@ -7,17 +7,17 @@ from tabarena.models.xrfm.model import XRFMModel
 
 xrfm_method_metadata = MethodMetadata.config(
     method="xRFM_GPU",
-    display_name="xRFM",
-    compute="gpu",
-    date="2025-09-03",
+    artifact_name="tabarena-2025-09-03",
     ag_key="XRFM",
     model_key="XRFM_GPU",
     config_default="xRFM_GPU_c1_BAG_L1",
+    compute="gpu",
     is_bag=True,
-    reference_url="https://arxiv.org/abs/2508.10053",
-    artifact_name="tabarena-2025-09-03",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-09-03",
+    reference_url="https://arxiv.org/abs/2508.10053",
+    display_name="xRFM",
 )
 
 

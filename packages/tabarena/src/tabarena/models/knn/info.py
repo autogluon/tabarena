@@ -7,16 +7,16 @@ from tabarena.models.knn.model import KNNNewModel
 
 knn_method_metadata = MethodMetadata.config(
     method="KNeighbors",
-    display_name="KNN",
-    compute="cpu",
-    date="2025-10-20",
+    artifact_name="tabarena-2025-10-20",
     ag_key="KNN",
     config_default="KNeighbors_c1_BAG_L1",
+    compute="cpu",
     is_bag=False,
-    reference_url="https://scikit-learn.org/stable/modules/neighbors.html",
-    artifact_name="tabarena-2025-10-20",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-10-20",
+    reference_url="https://scikit-learn.org/stable/modules/neighbors.html",
+    display_name="KNN",
     # FIXME: technically kNN is not verified
 )
 

@@ -8,16 +8,16 @@ from tabarena.models.nn_torch.hpo import gen_nn_torch
 
 nn_torch_method_metadata = MethodMetadata.config(
     method="NeuralNetTorch",
-    display_name="TorchMLP",
-    compute="cpu",
-    date="2025-06-12",
+    artifact_name="tabarena-2025-06-12",
     ag_key="NN_TORCH",
     config_default="NeuralNetTorch_c1_BAG_L1",
+    compute="cpu",
     is_bag=True,
-    artifact_name="tabarena-2025-06-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-06-12",
     reference_url="https://arxiv.org/abs/2003.06505",
+    display_name="TorchMLP",
 )
 
 

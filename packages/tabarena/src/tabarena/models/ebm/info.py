@@ -8,16 +8,16 @@ from tabarena.models.ebm.hpo import gen_ebm
 
 ebm_method_metadata = MethodMetadata.config(
     method="ExplainableBM",
-    display_name="EBM",
-    compute="cpu",
-    date="2025-09-03",
+    artifact_name="tabarena-2025-09-03",
     ag_key="EBM",
     config_default="ExplainableBM_c1_BAG_L1",
+    compute="cpu",
     is_bag=True,
-    reference_url="https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
-    artifact_name="tabarena-2025-09-03",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-09-03",
+    reference_url="https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
+    display_name="EBM",
 )
 
 

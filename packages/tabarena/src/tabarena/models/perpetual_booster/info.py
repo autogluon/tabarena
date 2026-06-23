@@ -9,16 +9,16 @@ from tabarena.models.perpetual_booster.model import (
 
 perpetual_booster_method_metadata = MethodMetadata.config(
     method="PerpetualBooster",
-    display_name="PerpetualBooster",
-    compute="cpu",
-    date="2026-03-06",
+    artifact_name="tabarena-2026-03-18",
     ag_key="PB",
     config_default="PerpetualBooster_c1_BAG_L1",
+    compute="cpu",
     is_bag=True,
-    artifact_name="tabarena-2026-03-18",
-    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
-    reference_url="https://perpetual-ml.com/",
     cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+    date="2026-03-06",
+    reference_url="https://perpetual-ml.com/",
+    display_name="PerpetualBooster",
 )
 
 

@@ -7,18 +7,18 @@ from tabarena.models.tabpfnwide.model import TabPFNWideModel
 
 tabpfnwide_method_metadata = MethodMetadata.config(
     method="TabPFN-Wide",
-    display_name="TabPFN-Wide",
-    compute="gpu",
-    date="2026-05-13",
+    artifact_name="tabarena-2026-05-13",
     ag_key="TA-TABPFN-WIDE",
     config_default="TabPFN-Wide_c1_BAG_L1",
     can_hpo=False,
+    compute="gpu",
     is_bag=False,
-    verified=False,
-    reference_url="https://arxiv.org/abs/2510.06162",
     cache_type="r2",
-    artifact_name="tabarena-2026-05-13",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+    date="2026-05-13",
+    reference_url="https://arxiv.org/abs/2510.06162",
+    display_name="TabPFN-Wide",
+    verified=False,
 )
 
 

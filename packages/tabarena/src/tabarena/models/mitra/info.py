@@ -21,18 +21,18 @@ def prefetch_weights() -> None:
 
 mitra_method_metadata = MethodMetadata.config(
     method="Mitra_GPU",
-    display_name="Mitra",
-    compute="gpu",
-    date="2025-09-03",
+    artifact_name="tabarena-2025-09-03",
     ag_key="MITRA",
     model_key="MITRA_GPU",
     config_default="Mitra_GPU_c1_BAG_L1",
     can_hpo=False,
+    compute="gpu",
     is_bag=True,
-    reference_url="https://arxiv.org/abs/2510.21204",
-    artifact_name="tabarena-2025-09-03",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-09-03",
+    reference_url="https://arxiv.org/abs/2510.21204",
+    display_name="Mitra",
 )
 
 
