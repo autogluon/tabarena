@@ -69,9 +69,7 @@ class EnsembleScorerValSubsample(EnsembleScorerMaxModels):
 
     def _task_seed(self, dataset: str, fold: int) -> int:
         """Deterministic per-task seed (stable across processes, unlike ``hash()``)."""
-        digest = hashlib.md5(
-            f"{dataset}|{fold}|{self.val_subsample_seed}".encode(), usedforsecurity=False
-        ).hexdigest()
+        digest = hashlib.md5(f"{dataset}|{fold}|{self.val_subsample_seed}".encode(), usedforsecurity=False).hexdigest()
         return int(digest[:8], 16)
 
     def _class_counts(self, y_val: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -157,8 +155,6 @@ class EnsembleScorerValSubsample(EnsembleScorerMaxModels):
                 f"pred_val row axis ({pred_val.shape[1]}) does not match y_val length "
                 f"({len(y_val)}) for ({dataset}, fold {fold}).",
             )
-        idx = self._select_indices(
-            y_val=y_val, problem_type=problem_type, seed=self._task_seed(dataset, fold)
-        )
+        idx = self._select_indices(y_val=y_val, problem_type=problem_type, seed=self._task_seed(dataset, fold))
         # pred_val is (n_models, n_rows) or (n_models, n_rows, n_classes); subsample the row axis.
         return y_val[idx], pred_val[:, idx]
