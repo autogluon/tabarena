@@ -24,8 +24,6 @@ tabm_method_metadata = tabm_descriptor.method_metadata(
     artifact_name="tabarena-2025-06-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
-    verified=True,
 )
 
 
@@ -39,7 +37,6 @@ tabm_gpu_method_metadata = tabm_descriptor.method_metadata(
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     name_suffix="_GPU",
-    verified=True,
 )
 
 

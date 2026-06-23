@@ -14,7 +14,6 @@ from tabarena.models._method_metadata import MethodMetadata
 
 _common_kwargs = dict(
     artifact_name="tabarena-2025-09-03",
-    name_suffix=None,
 )
 
 # New methods (tabarena-2025-09-03)
@@ -24,7 +23,6 @@ ag_140_metadata = MethodMetadata.tabarena_legacy_s3(
     display_name="AutoGluon 1.4 (4h)",
     compute="gpu",
     date="2025-09-03",
-    verified=True,
     reference_url="https://arxiv.org/abs/2003.06505",
     **_common_kwargs,
 )

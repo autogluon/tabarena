@@ -15,7 +15,6 @@ iltm_method_metadata = MethodMetadata.config(
     config_default="iLTM_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,
-    verified=True,
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     cache_type="r2",
     reference_url="https://arxiv.org/abs/2511.15941",

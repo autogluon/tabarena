@@ -32,8 +32,6 @@ realtabpfnv25_method_metadata = realtabpfnv25_descriptor.method_metadata(
     artifact_name="tabarena-2025-11-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
-    verified=True,
 )
 
 
@@ -45,8 +43,6 @@ tabpfnv26_method_metadata = tabpfnv26_descriptor.method_metadata(
     can_hpo=False,
     artifact_name="tabarena-2026-03-18",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
-    name_suffix=None,
-    verified=True,
     cache_type="r2",
 )
 

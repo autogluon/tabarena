@@ -5,9 +5,7 @@ from tabarena.models._method_metadata import MethodMetadata
 _common_kwargs = dict(
     artifact_name="tabarena-2025-11-01",
     method_type="baseline",
-    name_suffix=None,
     date="2025-11-01",
-    verified=True,
     reference_url="https://arxiv.org/abs/2003.06505",
 )
 

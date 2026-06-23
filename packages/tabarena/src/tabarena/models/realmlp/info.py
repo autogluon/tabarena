@@ -19,11 +19,9 @@ realmlp_method_metadata = realmlp_descriptor.method_metadata(
     model_key="REALMLP_GPU",
     config_default="RealMLP_GPU_c1_BAG_L1",
     can_hpo=True,
-    verified=True,
     artifact_name="tabarena-2025-09-03",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
 )
 
 
@@ -36,11 +34,9 @@ realmlp_cpu_method_metadata = realmlp_descriptor.method_metadata(
     ag_key="REALMLP",
     config_default="RealMLP_c1_BAG_L1",
     can_hpo=True,
-    verified=True,
     artifact_name="tabarena-2025-06-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
 )
 
 

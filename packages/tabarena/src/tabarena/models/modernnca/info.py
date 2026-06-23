@@ -17,8 +17,6 @@ modernnca_method_metadata = MethodMetadata.config(
     artifact_name="tabarena-2025-06-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
-    verified=True,
     reference_url="https://arxiv.org/abs/2407.03257",
 )
 
@@ -36,7 +34,6 @@ modernnca_gpu_method_metadata = MethodMetadata.config(
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     name_suffix="_GPU",
-    verified=True,
     reference_url="https://arxiv.org/abs/2407.03257",
 )
 

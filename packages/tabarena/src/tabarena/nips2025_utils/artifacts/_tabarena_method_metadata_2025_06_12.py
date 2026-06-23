@@ -43,13 +43,10 @@ common_kwargs = dict(
     artifact_name="tabarena-2025-06-12",
     date="2025-06-12",
     method_type="config",
-    # FIXME: technically GBDTs and baselines are not verified
-    verified=True,
 )
 
 cpu_kwargs = dict(
     compute="cpu",
-    name_suffix=None,
     **common_kwargs,
 )
 

@@ -16,8 +16,6 @@ tabstar_method_metadata = MethodMetadata.config(
     is_bag=True,
     artifact_name="tabarena-2026-03-18",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
-    name_suffix=None,
-    verified=True,
     reference_url="https://arxiv.org/abs/2505.18125",
     cache_type="r2",
 )
