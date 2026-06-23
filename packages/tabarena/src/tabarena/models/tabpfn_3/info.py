@@ -23,8 +23,7 @@ tabpfn_3_method_metadata = tabpfn_3_descriptor.method_metadata(
     date="2026-05-13",
     cache_type="r2",
     artifact_name="tabarena-2026-05-13",
-    bucket="tabarena",
-    prefix="cache",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     verified=True,
 )
 

@@ -23,9 +23,7 @@ lr_method_metadata = lr_descriptor.method_metadata(
     has_processed=True,
     artifact_name="tabarena-2025-10-20",
     cache_type="s3",
-    bucket="tabarena",
-    prefix="cache",
-    cache_kwargs={"upload_as_public": True},
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     has_results=True,
     name_suffix=None,
     # FIXME: technically LR is not verified

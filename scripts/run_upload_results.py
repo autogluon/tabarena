@@ -110,7 +110,8 @@ def _destination(method_metadata: MethodMetadata) -> str:
 
     Uses ``s3://bucket/prefix`` semantics, which is what both the S3 and R2 backends use.
     """
-    root = f"s3://{method_metadata.bucket}/{method_metadata.prefix}"
+    ck = method_metadata.cache_kwargs
+    root = f"s3://{ck.get('bucket')}/{ck.get('prefix')}"
     try:
         rel = method_metadata.relative_to_cache_root(method_metadata.path).as_posix()
         return f"{root}/{rel}"

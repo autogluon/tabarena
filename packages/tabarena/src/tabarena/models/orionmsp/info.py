@@ -19,8 +19,7 @@ orionmsp_method_metadata = MethodMetadata.config(
     has_processed=True,
     has_results=True,
     verified=False,
-    bucket="tabarena",
-    prefix="cache",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     cache_type="r2",
     reference_url="https://arxiv.org/abs/2511.02818",
 )

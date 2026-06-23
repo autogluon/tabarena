@@ -21,8 +21,7 @@ tabpfnwide_method_metadata = MethodMetadata.config(
     reference_url="https://arxiv.org/abs/2510.06162",
     cache_type="r2",
     artifact_name="tabarena-2026-05-13",
-    bucket="tabarena",
-    prefix="cache",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 
