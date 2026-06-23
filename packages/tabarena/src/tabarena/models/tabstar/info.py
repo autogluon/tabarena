@@ -11,7 +11,6 @@ tabstar_method_metadata = MethodMetadata.config(
     compute="gpu",
     date="2026-03-02",
     ag_key="TABSTAR",
-    model_key="TABSTAR",
     config_default="TabSTAR_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,

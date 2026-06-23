@@ -36,7 +36,6 @@ tabm_gpu_method_metadata = tabm_descriptor.method_metadata(
     method="TabM_GPU",
     date="2025-06-12",
     ag_key="TABM",
-    model_key="TABM",
     config_default="TabM_GPU_c1_BAG_L1",
     can_hpo=True,
     has_raw=True,
