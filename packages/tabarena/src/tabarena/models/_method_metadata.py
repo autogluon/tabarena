@@ -188,12 +188,14 @@ class MethodMetadata:
         assert len(self.display_name) > 0
 
         # Resolve the storage backend: None infers "r2" when an s3 location is set, else "local".
+        # (Uses the raw s3_bucket/s3_prefix here, not has_remote_cache, which keys off cache_type.)
+        has_s3_location = self.s3_bucket is not None and self.s3_prefix is not None
         if self.cache_type is None:
-            self.cache_type = "r2" if self.has_s3_cache else "local"
+            self.cache_type = "r2" if has_s3_location else "local"
         assert self.cache_type in ("s3", "r2", "local"), f"Unknown `cache_type`: {self.cache_type!r}"
         # s3/r2 require an s3 location (bucket + prefix); local must not have one.
         if self.cache_type in ("s3", "r2"):
-            if not self.has_s3_cache:
+            if not has_s3_location:
                 raise AssertionError(
                     f"cache_type={self.cache_type!r} requires both s3_bucket and s3_prefix to be set "
                     f"(method={self.method!r}, s3_bucket={self.s3_bucket!r}, s3_prefix={self.s3_prefix!r})."
@@ -504,8 +506,12 @@ class MethodMetadata:
         )
 
     @property
-    def has_s3_cache(self) -> bool:
-        return self.s3_bucket is not None and self.s3_prefix is not None
+    def has_remote_cache(self) -> bool:
+        """Whether this method's artifacts live in a remote store (an ``"s3"``/``"r2"`` backend)
+        rather than ``cache_type="local"`` (no remote backing). ``__post_init__`` guarantees a
+        remote backend always has an s3 location (``s3_bucket`` + ``s3_prefix``).
+        """
+        return self.cache_type in ("s3", "r2")
 
     @property
     def has_configs_hyperparameters(self) -> bool:
@@ -579,13 +585,12 @@ class MethodMetadata:
     ) -> MethodDownloader:
         if cache_type == "auto":
             cache_type = self.cache_type
-        if not self.has_s3_cache:
+        if not self.has_remote_cache:
             raise AssertionError(
-                f"Tried to get MethodDownloader from MethodMetadata, "
-                f"but s3_bucket and/or s3_prefix were not specified!"
-                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
-                f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
-                f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact download.",
+                f"Tried to get MethodDownloader from MethodMetadata, but cache_type={self.cache_type!r} "
+                f"has no remote store to download from."
+                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, cache_type={self.cache_type})"
+                f"\nUse a remote backend ('s3'/'r2') with s3_bucket + s3_prefix to enable artifact download.",
             )
 
         if cache_type == "r2":
@@ -613,13 +618,12 @@ class MethodMetadata:
     def method_uploader(self, cache_type: str = "auto") -> MethodUploader:
         if cache_type == "auto":
             cache_type = self.cache_type
-        if not self.has_s3_cache:
+        if not self.has_remote_cache:
             raise AssertionError(
-                f"Tried to get MethodUploader from MethodMetadata, "
-                f"but s3_bucket and/or s3_prefix were not specified!"
-                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
-                f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
-                f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact upload.",
+                f"Tried to get MethodUploader from MethodMetadata, but cache_type={self.cache_type!r} "
+                f"has no remote store to upload to."
+                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, cache_type={self.cache_type})"
+                f"\nUse a remote backend ('s3'/'r2') with s3_bucket + s3_prefix to enable artifact upload.",
             )
 
         if cache_type == "r2":
