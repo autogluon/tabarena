@@ -14,7 +14,6 @@ realmlp_descriptor = ModelDescriptor(
 
 realmlp_method_metadata = realmlp_descriptor.method_metadata(
     method="RealMLP_GPU",
-    method_type="config",
     date="2025-09-03",
     ag_key="TA-REALMLP",
     model_key="REALMLP_GPU",
@@ -36,7 +35,6 @@ realmlp_method_metadata = realmlp_descriptor.method_metadata(
 # CPU variant — same model class, same search space, different compute target.
 realmlp_cpu_method_metadata = realmlp_descriptor.method_metadata(
     method="RealMLP",
-    method_type="config",
     display_name="RealMLP (CPU)",
     compute="cpu",
     date="2025-06-12",

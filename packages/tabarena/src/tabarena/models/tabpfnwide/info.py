@@ -5,9 +5,8 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabpfnwide.hpo import gen_tabpfnwide
 from tabarena.models.tabpfnwide.model import TabPFNWideModel
 
-tabpfnwide_method_metadata = MethodMetadata(
+tabpfnwide_method_metadata = MethodMetadata.config(
     method="TabPFN-Wide",
-    method_type="config",
     display_name="TabPFN-Wide",
     compute="gpu",
     date="2026-05-13",

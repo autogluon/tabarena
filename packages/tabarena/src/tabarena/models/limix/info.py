@@ -5,9 +5,8 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.limix.hpo import gen_limix
 from tabarena.models.limix.model import LimiXModel
 
-limix_method_metadata = MethodMetadata(
+limix_method_metadata = MethodMetadata.config(
     method="LimiX",
-    method_type="config",
     display_name="LimiX",
     compute="gpu",
     date="2026-05-13",

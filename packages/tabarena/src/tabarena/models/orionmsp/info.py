@@ -5,11 +5,10 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.orionmsp.hpo import gen_orionmsp
 from tabarena.models.orionmsp.model import OrionMSPModel, prefetch_weights
 
-orionmsp_method_metadata = MethodMetadata(
+orionmsp_method_metadata = MethodMetadata.config(
     method="OrionMSP",
     artifact_name="tabarena-2026-05-13",
     display_name="OrionMSP",
-    method_type="config",
     compute="gpu",
     date="2026-05-13",
     ag_key="TA-ORION-MSP",

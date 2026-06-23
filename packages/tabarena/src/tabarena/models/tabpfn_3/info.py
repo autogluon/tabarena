@@ -14,7 +14,6 @@ tabpfn_3_descriptor = ModelDescriptor(
 
 tabpfn_3_method_metadata = tabpfn_3_descriptor.method_metadata(
     method="TabPFN-3",
-    method_type="config",
     ag_key="TA-TABPFN-3",
     config_default="TabPFN-3_c1_BAG_L1",
     can_hpo=False,

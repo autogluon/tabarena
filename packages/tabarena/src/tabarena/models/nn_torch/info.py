@@ -6,9 +6,8 @@ from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.nn_torch.hpo import gen_nn_torch
 
-nn_torch_method_metadata = MethodMetadata(
+nn_torch_method_metadata = MethodMetadata.config(
     method="NeuralNetTorch",
-    method_type="config",
     display_name="TorchMLP",
     compute="cpu",
     date="2025-06-12",

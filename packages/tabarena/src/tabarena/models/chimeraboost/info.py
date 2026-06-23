@@ -5,10 +5,9 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.chimeraboost.hpo import gen_chimeraboost
 from tabarena.models.chimeraboost.model import ChimeraBoostModel
 
-chimeraboost_method_metadata = MethodMetadata(
+chimeraboost_method_metadata = MethodMetadata.config(
     method="ChimeraBoost",
     display_name="ChimeraBoost",
-    method_type="config",
     compute="cpu",
     date="2026-06-15",
     ag_key="CHIMERA",

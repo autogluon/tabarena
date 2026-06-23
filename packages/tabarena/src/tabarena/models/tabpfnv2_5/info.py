@@ -25,7 +25,6 @@ tabpfnv26_descriptor = ModelDescriptor(
 
 realtabpfnv25_method_metadata = realtabpfnv25_descriptor.method_metadata(
     method="RealTabPFN-v2.5",
-    method_type="config",
     date="2025-11-12",
     ag_key="REALTABPFN-V2.5",
     model_key="REALTABPFN-V2.5",
@@ -46,7 +45,6 @@ realtabpfnv25_method_metadata = realtabpfnv25_descriptor.method_metadata(
 
 tabpfnv26_method_metadata = tabpfnv26_descriptor.method_metadata(
     method="TabPFN-v2.6",
-    method_type="config",
     date="2026-03-25",
     ag_key="TABPFN-V2.6",
     model_key="TABPFN-V2.6",

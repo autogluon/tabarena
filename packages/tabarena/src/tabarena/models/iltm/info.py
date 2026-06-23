@@ -5,11 +5,10 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.iltm.hpo import gen_iltm
 from tabarena.models.iltm.model import ILTMModel
 
-iltm_method_metadata = MethodMetadata(
+iltm_method_metadata = MethodMetadata.config(
     method="iLTM",
     date="2026-05-29",
     artifact_name="tabarena-2026-05-13",
-    method_type="config",
     display_name="iLTM",
     compute="gpu",
     ag_key="TA-ILTM",

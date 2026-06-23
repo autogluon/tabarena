@@ -326,14 +326,10 @@ class MethodMetadata:
         if artifact_name is None:
             artifact_name = method
 
-        return cls(
+        return cls.baseline(
             method=method,
             artifact_name=artifact_name,
-            method_type=method_type,
             compute=compute,
-            config_default=None,
-            can_hpo=False,
-            is_bag=False,
             has_raw=True,
             has_processed=True,
             has_results=True,
@@ -437,10 +433,9 @@ class MethodMetadata:
         if artifact_name is None:
             artifact_name = method
 
-        return cls(
+        return cls.config(
             method=method,
             artifact_name=artifact_name,
-            method_type=method_type,
             compute=compute,
             config_default=config_default,
             ag_key=ag_key,
@@ -997,7 +992,16 @@ class ModelDescriptor:
         override for a variant (e.g. a CPU build of a GPU model, which keeps the same paper
         but a different ``display_name`` and ``compute``). All other (run-specific)
         :class:`MethodMetadata` fields come from ``**kwargs``.
+
+        A descriptor always describes a ``config`` method, so this routes through
+        :meth:`MethodMetadata.config`; an explicit ``method_type="config"`` is accepted (and
+        dropped) for back-compat, but any other ``method_type`` is rejected.
         """
+        method_type = kwargs.pop("method_type", "config")
+        if method_type != "config":
+            raise ValueError(
+                f"ModelDescriptor describes config methods; got method_type={method_type!r} (method={method!r})."
+            )
         fields_from_descriptor = dict(
             display_name=self.display_name,
             compute=self.compute,
@@ -1005,4 +1009,4 @@ class ModelDescriptor:
             reference_url=self.reference_url,
         )
         # Caller-provided values win, so a variant can override an intrinsic default.
-        return MethodMetadata(method=method, **{**fields_from_descriptor, **kwargs})
+        return MethodMetadata.config(method=method, **{**fields_from_descriptor, **kwargs})
