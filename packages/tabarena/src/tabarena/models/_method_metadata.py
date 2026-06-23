@@ -46,6 +46,12 @@ class MethodType(StrEnum):
         return [m.value for m in cls]
 
 
+#: String form of :class:`MethodType`, for annotating ``method_type`` fields and parameters.
+#: Mirrors the enum members above (kept honest at runtime by the ``MethodType.values()`` check in
+#: :meth:`MethodMetadata.__post_init__`).
+MethodTypeLiteral = Literal["config", "baseline", "portfolio"]
+
+
 # FIXME: Implement `best` and `best-N`
 @dataclass(eq=False)
 class MethodMetadata:
@@ -78,12 +84,16 @@ class MethodMetadata:
     #: inspector) from the raw result frame, so they can be left to inference when authoring from
     #: raw artifacts. ``model_key`` and ``can_hpo`` have no independent raw signal and are derived
     #: in :meth:`__post_init__` (from ``ag_key`` and ``method_type`` respectively).
-    method_type: str = "config"
+    method_type: MethodTypeLiteral = "config"
     ag_key: str | None = None
     model_key: str | None = None
     config_default: str | None = None
     can_hpo: bool | None = None
     compute: Literal["cpu", "gpu"] = "cpu"
+    #: Whether the model was trained with bagging (cross-validation across folds). When ``True``,
+    #: the raw data contains per-fold test *and* validation predictions, and the reported test
+    #: predictions are the average of the per-fold test predictions. Config-only by convention
+    #: (enforced in :meth:`__post_init__`) — baselines/portfolios are recorded as ``False``.
     is_bag: bool = False
     has_raw: bool = False
     has_processed: bool = False
@@ -140,10 +150,32 @@ class MethodMetadata:
             f"Unknown method_type: {self.method_type!r}. Valid values: {MethodType.values()}"
         )
         assert self.compute in ["cpu", "gpu"]
+        # Guard against arguments that belong to a different method_type, so a mismatched field is
+        # surfaced at construction rather than silently ignored. `name` is the baseline/portfolio
+        # display-name override; `ag_key` / `model_key` / `config_default` / `name_suffix` are
+        # config-only, as are `can_hpo=True` and `is_bag=True` (only configs are bagged by
+        # convention). (Checks run after the derived defaults above.)
         if self.name is not None and self.method_type == "config":
             raise AssertionError("Cannot specify `name` for method_type: 'config'.")
         if self.name is not None and self.name_suffix is not None:
             raise AssertionError("Must only specify one of `name` and `name_suffix`.")
+        if self.method_type != "config":
+            config_only_set = [
+                field
+                for field in ("ag_key", "model_key", "config_default", "name_suffix")
+                if getattr(self, field) is not None
+            ]
+            if config_only_set:
+                raise AssertionError(
+                    f"Fields {config_only_set} are only valid for method_type='config', but "
+                    f"method_type={self.method_type!r} (method={self.method!r})."
+                )
+            for flag in ("can_hpo", "is_bag"):
+                if getattr(self, flag):
+                    raise AssertionError(
+                        f"{flag}=True is only valid for method_type='config', but "
+                        f"method_type={self.method_type!r} (method={self.method!r})."
+                    )
 
         if self.display_name is None:
             self.display_name = self._compute_display_name()
@@ -168,6 +200,61 @@ class MethodMetadata:
         if self.name_suffix is not None:
             return f"{self.model_key}{self.name_suffix}"
         return self.model_key
+
+    # -- type-specific constructors -----------------------------------------------------------
+    # Thin wrappers over the dataclass constructor that expose only the arguments relevant to each
+    # method_type, so a caller is never presented with fields that belong to a different type.
+    # Each sets ``method_type`` and forwards the shared fields (identity, ``compute``, ``has_*``,
+    # storage/transport, informative) via ``**kwargs``; ``__post_init__`` still validates the
+    # result. Orthogonal to :meth:`tabarena_public`, which is the public-store *storage* preset.
+
+    @classmethod
+    def config(
+        cls,
+        *,
+        method: str,
+        ag_key: str | None = None,
+        model_key: str | None = None,
+        config_default: str | None = None,
+        name_suffix: str | None = None,
+        can_hpo: bool | None = None,
+        is_bag: bool = False,
+        **kwargs,
+    ) -> Self:
+        """A ``config`` method (a tunable model with one or more configs; the default type).
+
+        Exposes the config-only fields (``ag_key`` / ``model_key`` / ``config_default`` /
+        ``name_suffix`` / ``can_hpo`` / ``is_bag``); ``name`` is rejected (it is
+        baseline/portfolio-only).
+        """
+        return cls(
+            method=method,
+            method_type="config",
+            ag_key=ag_key,
+            model_key=model_key,
+            config_default=config_default,
+            name_suffix=name_suffix,
+            can_hpo=can_hpo,
+            is_bag=is_bag,
+            **kwargs,
+        )
+
+    @classmethod
+    def baseline(cls, *, method: str, name: str | None = None, **kwargs) -> Self:
+        """A ``baseline`` method (e.g. an AutoGluon preset).
+
+        Exposes ``name`` (the display-name override); the config-only fields are rejected.
+        """
+        return cls(method=method, method_type="baseline", name=name, **kwargs)
+
+    @classmethod
+    def portfolio(cls, *, method: str, name: str | None = None, has_raw: bool = False, **kwargs) -> Self:
+        """A ``portfolio`` method (a fixed selection/ensemble over configs).
+
+        Exposes ``name`` and defaults ``has_raw=False`` (portfolios usually have no raw
+        artifacts); the config-only fields are rejected.
+        """
+        return cls(method=method, method_type="portfolio", name=name, has_raw=has_raw, **kwargs)
 
     # TODO: Also support baseline methods
     @classmethod
@@ -239,14 +326,10 @@ class MethodMetadata:
         if artifact_name is None:
             artifact_name = method
 
-        return cls(
+        return cls.baseline(
             method=method,
             artifact_name=artifact_name,
-            method_type=method_type,
             compute=compute,
-            config_default=None,
-            can_hpo=False,
-            is_bag=False,
             has_raw=True,
             has_processed=True,
             has_results=True,
@@ -350,10 +433,9 @@ class MethodMetadata:
         if artifact_name is None:
             artifact_name = method
 
-        return cls(
+        return cls.config(
             method=method,
             artifact_name=artifact_name,
-            method_type=method_type,
             compute=compute,
             config_default=config_default,
             ag_key=ag_key,
@@ -910,7 +992,16 @@ class ModelDescriptor:
         override for a variant (e.g. a CPU build of a GPU model, which keeps the same paper
         but a different ``display_name`` and ``compute``). All other (run-specific)
         :class:`MethodMetadata` fields come from ``**kwargs``.
+
+        A descriptor always describes a ``config`` method, so this routes through
+        :meth:`MethodMetadata.config`; an explicit ``method_type="config"`` is accepted (and
+        dropped) for back-compat, but any other ``method_type`` is rejected.
         """
+        method_type = kwargs.pop("method_type", "config")
+        if method_type != "config":
+            raise ValueError(
+                f"ModelDescriptor describes config methods; got method_type={method_type!r} (method={method!r})."
+            )
         fields_from_descriptor = dict(
             display_name=self.display_name,
             compute=self.compute,
@@ -918,4 +1009,4 @@ class ModelDescriptor:
             reference_url=self.reference_url,
         )
         # Caller-provided values win, so a variant can override an intrinsic default.
-        return MethodMetadata(method=method, **{**fields_from_descriptor, **kwargs})
+        return MethodMetadata.config(method=method, **{**fields_from_descriptor, **kwargs})

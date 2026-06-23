@@ -17,7 +17,6 @@ tabm_method_metadata = tabm_descriptor.method_metadata(
     method="TabM",
     display_name="TabM (CPU)",
     compute="cpu",
-    method_type="config",
     date="2025-06-12",
     ag_key="TABM",
     config_default="TabM_c1_BAG_L1",
@@ -37,7 +36,6 @@ tabm_method_metadata = tabm_descriptor.method_metadata(
 
 tabm_gpu_method_metadata = tabm_descriptor.method_metadata(
     method="TabM_GPU",
-    method_type="config",
     date="2025-06-12",
     ag_key="TABM",
     model_key="TABM",

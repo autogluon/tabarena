@@ -15,7 +15,6 @@ catboost_descriptor = ModelDescriptor(
 
 catboost_method_metadata = catboost_descriptor.method_metadata(
     method="CatBoost",
-    method_type="config",
     date="2025-06-12",
     ag_key="CAT",
     config_default="CatBoost_c1_BAG_L1",

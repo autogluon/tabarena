@@ -6,9 +6,8 @@ from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.ebm.hpo import gen_ebm
 
-ebm_method_metadata = MethodMetadata(
+ebm_method_metadata = MethodMetadata.config(
     method="ExplainableBM",
-    method_type="config",
     display_name="EBM",
     compute="cpu",
     date="2025-09-03",

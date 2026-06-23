@@ -5,9 +5,8 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.xrfm.hpo import gen_xrfm
 from tabarena.models.xrfm.model import XRFMModel
 
-xrfm_method_metadata = MethodMetadata(
+xrfm_method_metadata = MethodMetadata.config(
     method="xRFM_GPU",
-    method_type="config",
     display_name="xRFM",
     compute="gpu",
     date="2025-09-03",

@@ -15,7 +15,6 @@ random_forest_descriptor = ModelDescriptor(
 
 random_forest_method_metadata = random_forest_descriptor.method_metadata(
     method="RandomForest",
-    method_type="config",
     date="2025-06-12",
     ag_key="RF",
     config_default="RandomForest_c1_BAG_L1",

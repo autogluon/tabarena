@@ -5,9 +5,8 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.sap_rpt_oss.hpo import gen_sap_rpt_oss
 from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel, prefetch_weights
 
-sap_rpt_oss_method_metadata = MethodMetadata(
+sap_rpt_oss_method_metadata = MethodMetadata.config(
     method="SAP-RPT-OSS",
-    method_type="config",
     display_name="SAP-RPT-OSS",
     compute="gpu",
     date="2025-11-25",

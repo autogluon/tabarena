@@ -15,7 +15,6 @@ extra_trees_descriptor = ModelDescriptor(
 
 extra_trees_method_metadata = extra_trees_descriptor.method_metadata(
     method="ExtraTrees",
-    method_type="config",
     date="2025-06-12",
     ag_key="XT",
     config_default="ExtraTrees_c1_BAG_L1",

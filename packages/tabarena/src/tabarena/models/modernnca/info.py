@@ -5,9 +5,8 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.modernnca.hpo import gen_modernnca
 from tabarena.models.modernnca.model import ModernNCAModel
 
-modernnca_method_metadata = MethodMetadata(
+modernnca_method_metadata = MethodMetadata.config(
     method="ModernNCA",
-    method_type="config",
     display_name="ModernNCA (CPU)",
     compute="cpu",
     date="2025-06-12",
@@ -29,9 +28,8 @@ modernnca_method_metadata = MethodMetadata(
 )
 
 
-modernnca_gpu_method_metadata = MethodMetadata(
+modernnca_gpu_method_metadata = MethodMetadata.config(
     method="ModernNCA_GPU",
-    method_type="config",
     display_name="ModernNCA",
     compute="gpu",
     date="2025-06-12",

@@ -24,7 +24,6 @@ tabiclv2_descriptor = ModelDescriptor(
 
 tabicl_method_metadata = tabicl_descriptor.method_metadata(
     method="TabICL_GPU",
-    method_type="config",
     date="2025-06-12",
     ag_key="TABICL",
     model_key="TABICL",
@@ -45,7 +44,6 @@ tabicl_method_metadata = tabicl_descriptor.method_metadata(
 
 tabiclv2_method_metadata = tabiclv2_descriptor.method_metadata(
     method="TabICLv2",
-    method_type="config",
     date="2026-02-16",
     ag_key="TABICLV2",
     model_key="TABICLV2",

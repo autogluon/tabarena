@@ -15,7 +15,6 @@ lightgbm_descriptor = ModelDescriptor(
 
 lightgbm_method_metadata = lightgbm_descriptor.method_metadata(
     method="LightGBM",
-    method_type="config",
     date="2025-06-12",
     ag_key="GBM",
     config_default="LightGBM_c1_BAG_L1",

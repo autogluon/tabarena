@@ -5,10 +5,9 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.nori.hpo import gen_nori
 from tabarena.models.nori.model import NoriModel
 
-nori_method_metadata = MethodMetadata(
+nori_method_metadata = MethodMetadata.config(
     method="Nori",
     display_name="Nori",
-    method_type="config",
     compute="gpu",
     date="2026-06-18",
     ag_key="TA-NORI",

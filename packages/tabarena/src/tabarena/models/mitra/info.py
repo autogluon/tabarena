@@ -19,9 +19,8 @@ def prefetch_weights() -> None:
         hf_hub_download(repo_id=repo_id, filename="model.safetensors")
 
 
-mitra_method_metadata = MethodMetadata(
+mitra_method_metadata = MethodMetadata.config(
     method="Mitra_GPU",
-    method_type="config",
     display_name="Mitra",
     compute="gpu",
     date="2025-09-03",

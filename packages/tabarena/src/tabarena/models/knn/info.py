@@ -5,9 +5,8 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.knn.hpo import gen_knn
 from tabarena.models.knn.model import KNNNewModel
 
-knn_method_metadata = MethodMetadata(
+knn_method_metadata = MethodMetadata.config(
     method="KNeighbors",
-    method_type="config",
     display_name="KNN",
     compute="cpu",
     date="2025-10-20",

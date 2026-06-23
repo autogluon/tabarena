@@ -6,9 +6,8 @@ from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.fastai.hpo import gen_fastai
 
-fastai_method_metadata = MethodMetadata(
+fastai_method_metadata = MethodMetadata.config(
     method="NeuralNetFastAI",
-    method_type="config",
     display_name="FastaiMLP",
     compute="cpu",
     date="2025-06-12",

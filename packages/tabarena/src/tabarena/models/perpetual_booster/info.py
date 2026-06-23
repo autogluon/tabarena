@@ -7,9 +7,8 @@ from tabarena.models.perpetual_booster.model import (
     PerpetualBoosterModel,
 )
 
-perpetual_booster_method_metadata = MethodMetadata(
+perpetual_booster_method_metadata = MethodMetadata.config(
     method="PerpetualBooster",
-    method_type="config",
     display_name="PerpetualBooster",
     compute="cpu",
     date="2026-03-06",

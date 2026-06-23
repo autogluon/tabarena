@@ -5,9 +5,8 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabstar.hpo import gen_tabstar
 from tabarena.models.tabstar.model import TabSTARModel, prefetch_weights
 
-tabstar_method_metadata = MethodMetadata(
+tabstar_method_metadata = MethodMetadata.config(
     method="TabSTAR",
-    method_type="config",
     display_name="TabSTAR",
     compute="gpu",
     date="2026-03-02",

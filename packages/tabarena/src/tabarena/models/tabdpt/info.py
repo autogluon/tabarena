@@ -14,7 +14,6 @@ tabdpt_descriptor = ModelDescriptor(
 
 tabdpt_method_metadata = tabdpt_descriptor.method_metadata(
     method="TabDPT_GPU",
-    method_type="config",
     date="2025-10-20",
     ag_key="TABDPT",
     model_key="TABDPT_GPU",

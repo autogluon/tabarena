@@ -15,7 +15,6 @@ lr_descriptor = ModelDescriptor(
 
 lr_method_metadata = lr_descriptor.method_metadata(
     method="LinearModel",
-    method_type="config",
     date="2025-10-20",
     ag_key="LR",
     config_default="LinearModel_c1_BAG_L1",
