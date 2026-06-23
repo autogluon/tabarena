@@ -66,30 +66,43 @@ class MethodMetadata:
     #: stays out of :meth:`to_info_dict` / the metadata info table.
     is_in_memory: ClassVar[bool] = False
 
+    # Fields are grouped by how a method author supplies them: (1) required, (2) inferable from
+    # raw results, (3) manual, (4) purely informative. Order is otherwise free — every caller
+    # constructs MethodMetadata by keyword, and to_info_dict is field-driven.
+
+    # -- (1) Required -------------------------------------------------------------------------
     method: str
-    artifact_name: str | None = None
-    date: str | None = None
+
+    # -- (2) Inferable from raw results -------------------------------------------------------
+    #: Populated automatically by :meth:`from_raw` (and the ``run_process_local_raw_data.py``
+    #: inspector) from the raw result frame, so they can be left to inference when authoring from
+    #: raw artifacts. ``model_key`` and ``can_hpo`` have no independent raw signal and are derived
+    #: in :meth:`__post_init__` (from ``ag_key`` and ``method_type`` respectively).
     method_type: str = "config"
     ag_key: str | None = None
     model_key: str | None = None
-    name: str | None = None
-    name_suffix: str | None = None
     config_default: str | None = None
+    can_hpo: bool | None = None
     compute: Literal["cpu", "gpu"] = "cpu"
     is_bag: bool = False
     has_raw: bool = False
     has_processed: bool = False
     has_results: bool = False
-    verified: bool = False
+
+    # -- (3) Manual (not inferable) -----------------------------------------------------------
+    #: Must be specified by hand when relevant: artifact identity/naming, on-disk prefix layout,
+    #: and storage/transport config (where and how artifacts are cached and uploaded).
+    #: ``artifact_name`` defaults to ``method`` but is normally the dated artifact set
+    #: (e.g. ``"tabarena-2026-05-13"``) and is part of the cache/S3 path.
+    artifact_name: str | None = None
+    name: str | None = None
+    name_suffix: str | None = None
     use_artifact_name_in_prefix: bool = False
-    can_hpo: bool | None = None
+    #: Storage backend for this method's artifacts.
+    cache_type: Literal["s3", "r2", "local"] = "r2"
     s3_bucket: str | None = None
     s3_prefix: str | None = None
     upload_as_public: bool = False
-    reference_url: str | None = None
-    #: Storage backend for this method's artifacts. Defaults to ``"r2"`` (the public TabArena
-    #: data bucket); methods whose artifacts predate this default explicitly pass ``"s3"``.
-    cache_type: Literal["s3", "r2", "local"] = "r2"
     #: Optional override pointing at a self-contained, *flat* method directory
     #: (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``), used to load a
     #: method's committed artifacts from an arbitrary location (e.g. a repo's ``data/`` folder)
@@ -97,7 +110,14 @@ class MethodMetadata:
     #: root as usual. Kept out of ``to_info_dict`` so this local path is never serialized into
     #: the committed ``metadata.yaml`` or the metadata info table.
     cache_root: str | Path | None = None
+
+    # -- (4) Purely informative ---------------------------------------------------------------
+    #: Descriptive only — no effect on behavior, paths, or loading. ``verified`` is a manual
+    #: trust flag that is not (yet) read anywhere in code.
+    date: str | None = None
+    reference_url: str | None = None
     display_name: str | None = None
+    verified: bool = False
 
     def __post_init__(self):
         if self.artifact_name is None:
