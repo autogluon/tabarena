@@ -6,8 +6,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import IO, TYPE_CHECKING
 
-from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
-
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
 
@@ -48,16 +46,22 @@ class MethodDownloader(ABC):
     # -- remote location ----------------------------------------------------------------------
     @property
     def remote_cache_root(self) -> str:
-        """The cache root as an ``s3://bucket/prefix`` URI. The ``s3://`` scheme is a parsing
-        convention for :func:`s3_path_to_bucket_prefix` (used to derive object keys), not an AWS
-        endpoint — it is correct for any S3-compatible backend (e.g. Cloudflare R2).
+        """The cache root as a human-readable ``s3://bucket/prefix`` URI (for logging/display).
+
+        The ``s3://`` scheme is just a label — correct for any S3-compatible backend (e.g.
+        Cloudflare R2) — and is not used to derive object keys (see :meth:`local_to_key`).
         """
         return f"s3://{self.bucket}/{self.prefix}"
 
-    def local_to_s3_path(self, path_local: str | Path) -> str:
-        s3_path_loc = self.method_metadata.to_s3_cache_loc(path=Path(path_local), s3_cache_root=self.remote_cache_root)
-        _, key = s3_path_to_bucket_prefix(s3_path_loc)
-        return key
+    def local_to_key(self, path_local: str | Path) -> str:
+        """Remote object key for a local cache path: ``prefix`` joined with the path's location
+        relative to the cache root.
+
+        Computed directly (no ``s3://`` URI is built or parsed), the same way :attr:`key_prefix`
+        is — keeping it consistent with the raw/processed zip keys.
+        """
+        rel = self.method_metadata.relative_to_cache_root(Path(path_local))
+        return (Path(self.prefix) / rel).as_posix()
 
     # -- artifact downloads -------------------------------------------------------------------
     def download_all(self):
@@ -68,7 +72,7 @@ class MethodDownloader(ABC):
 
     def download_metadata(self):
         path_local = Path(self.method_metadata.path_metadata)
-        self._download_to_local_if_exists(key=self.local_to_s3_path(path_local), path_local=path_local)
+        self._download_to_local_if_exists(key=self.local_to_key(path_local), path_local=path_local)
 
     def download_raw(self):
         dest_dir = Path(self.method_metadata.path_raw)
@@ -82,16 +86,16 @@ class MethodDownloader(ABC):
 
     def download_configs_hyperparameters(self):
         path_local = Path(self.method_metadata.path_configs_hyperparameters())
-        self._download_to_local_if_exists(key=self.local_to_s3_path(path_local), path_local=path_local)
+        self._download_to_local_if_exists(key=self.local_to_key(path_local), path_local=path_local)
 
     def download_results(self):
         for path_local in self.method_metadata.path_results_files():
             path_local = Path(path_local)
-            self._download_to_local_if_exists(key=self.local_to_s3_path(path_local), path_local=path_local)
+            self._download_to_local_if_exists(key=self.local_to_key(path_local), path_local=path_local)
 
     def download_results_hpo_trajectories(self):
         path_local = Path(self.method_metadata.path_results_hpo_trajectories())
-        self._download_to_local_if_exists(key=self.local_to_s3_path(path_local), path_local=path_local)
+        self._download_to_local_if_exists(key=self.local_to_key(path_local), path_local=path_local)
 
     # -- shared helpers -----------------------------------------------------------------------
     def _log(self, msg: str):

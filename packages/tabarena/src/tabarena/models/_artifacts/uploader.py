@@ -4,8 +4,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
-
 from tabarena.models._artifacts.uploader_utils import zip_in_memory
 
 if TYPE_CHECKING:
@@ -56,16 +54,22 @@ class MethodUploader(ABC):
     # -- remote location ----------------------------------------------------------------------
     @property
     def remote_cache_root(self) -> str:
-        """The cache root as an ``s3://bucket/prefix`` URI. The ``s3://`` scheme is a parsing
-        convention for :func:`s3_path_to_bucket_prefix` (used to derive object keys), not an AWS
-        endpoint — it is correct for any S3-compatible backend (e.g. Cloudflare R2).
+        """The cache root as a human-readable ``s3://bucket/prefix`` URI (for logging/display).
+
+        The ``s3://`` scheme is just a label — correct for any S3-compatible backend (e.g.
+        Cloudflare R2) — and is not used to derive object keys (see :meth:`local_to_key`).
         """
         return f"s3://{self.bucket}/{self.prefix}"
 
-    def local_to_s3_path(self, path_local: str | Path) -> str:
-        s3_path_loc = self.method_metadata.to_s3_cache_loc(path=Path(path_local), s3_cache_root=self.remote_cache_root)
-        _, key = s3_path_to_bucket_prefix(s3_path_loc)
-        return key
+    def local_to_key(self, path_local: str | Path) -> str:
+        """Remote object key for a local cache path: ``prefix`` joined with the path's location
+        relative to the cache root.
+
+        Computed directly (no ``s3://`` URI is built or parsed), the same way :attr:`key_prefix`
+        is — keeping it consistent with the raw/processed zip keys.
+        """
+        rel = self.method_metadata.relative_to_cache_root(Path(path_local))
+        return (Path(self.prefix) / rel).as_posix()
 
     # -- artifact uploads ---------------------------------------------------------------------
     def upload_all(self):
@@ -78,7 +82,7 @@ class MethodUploader(ABC):
 
     def upload_metadata(self):
         fileobj = self.method_metadata.to_yaml_fileobj()
-        key = self.local_to_s3_path(path_local=self.method_metadata.path_metadata)
+        key = self.local_to_key(path_local=self.method_metadata.path_metadata)
         self._upload_fileobj(fileobj=fileobj, key=key)
 
     def upload_raw(self):
@@ -124,7 +128,7 @@ class MethodUploader(ABC):
 
     def _upload_file(self, path_local: str | Path, key: str | Path | None = None):
         if key is None:
-            key = self.local_to_s3_path(path_local=path_local)
+            key = self.local_to_key(path_local=path_local)
         if isinstance(key, Path):
             key = key.as_posix()
         extra_args = self._extra_args()
