@@ -27,17 +27,35 @@ class MethodDownloaderS3(MethodDownloader):
         clear_dirs: bool = True,
     ):
         super().__init__(method_metadata, bucket=s3_bucket, prefix=s3_prefix, verbose=verbose, clear_dirs=clear_dirs)
+        self._signed_client = None
+        self._unsigned_client = None
+
+    @property
+    def signed_client(self):
+        """Lazily-created, cached credentialed S3 client (one per downloader, not per object)."""
+        if self._signed_client is None:
+            import boto3
+
+            self._signed_client = boto3.session.Session().client("s3")
+        return self._signed_client
+
+    @property
+    def unsigned_client(self):
+        """Lazily-created, cached anonymous (unsigned) S3 client for publicly-readable objects."""
+        if self._unsigned_client is None:
+            import boto3
+            from botocore import UNSIGNED
+            from botocore.config import Config
+
+            self._unsigned_client = boto3.session.Session().client("s3", config=Config(signature_version=UNSIGNED))
+        return self._unsigned_client
 
     def _download_to_local_if_exists(self, key: str, path_local: Path):
         """Attempts to download a single file to `path_local`. Skips quietly if not found."""
-        import boto3
-        from botocore import UNSIGNED
-        from botocore.config import Config
         from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
 
-        sess = boto3.session.Session()
-        s3_signed = sess.client("s3")
-        s3_unsigned = sess.client("s3", config=Config(signature_version=UNSIGNED))
+        s3_signed = self.signed_client
+        s3_unsigned = self.unsigned_client
 
         def _head(client):
             return client.head_object(Bucket=self.bucket, Key=key)
@@ -88,14 +106,10 @@ class MethodDownloaderS3(MethodDownloader):
         Skips if the object does not exist. Supports public objects by retrying
         with an unsigned client when a signed request is denied or creds are missing.
         """
-        import boto3
-        from botocore import UNSIGNED
-        from botocore.config import Config
         from botocore.exceptions import ClientError, NoCredentialsError, PartialCredentialsError
 
-        sess = boto3.session.Session()
-        s3_signed = sess.client("s3")
-        s3_unsigned = sess.client("s3", config=Config(signature_version=UNSIGNED))
+        s3_signed = self.signed_client
+        s3_unsigned = self.unsigned_client
 
         def _head(c):
             return c.head_object(Bucket=self.bucket, Key=key)

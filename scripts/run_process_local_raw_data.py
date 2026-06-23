@@ -392,14 +392,13 @@ if __name__ == "__main__":
     #         path_raw=Path("local_data/leaderboard_submissions/data_TabPFN_3_12052026"),
     #         method_metadata=tabpfn_3_method_metadata,
     #     )
-    # TabPFN-3: point at the raw cache its committed MethodMetadata already resolves to
+    # Example (Mode B): point at the raw cache a committed MethodMetadata already resolves to
     # (`.path_raw`), but do NOT pass the metadata — let it be inferred from the raw data so
     # `inspect` exercises the inference path (the printed snippet can be eyeballed against the
-    # committed metadata in tabarena/models/tabpfn_3/info.py).
-    from tabarena.models.tabpfn_3.info import tabpfn_3_method_metadata
-
+    # committed metadata in tabarena/models/tabpfn_3/info.py):
+    #     from tabarena.models.tabpfn_3.info import tabpfn_3_method_metadata
+    #     RawMethod(path_raw=tabpfn_3_method_metadata.path_raw),
     methods: list[RawMethod] = [
-        RawMethod(path_raw=tabpfn_3_method_metadata.path_raw),
         # RawMethod(path_raw=Path("local_data/.../data_SomeNewModel"), name="SomeNewModel_GPU"),
     ]
 
