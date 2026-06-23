@@ -51,7 +51,7 @@ class MethodArtifactManager:
             model_key=method_metadata.model_key,
             s3_bucket=method_metadata.s3_bucket,
             s3_prefix=method_metadata.s3_prefix,
-            upload_as_public=method_metadata.upload_as_public,
+            upload_as_public=method_metadata.cache_kwargs.get("upload_as_public", False),
             method_metadata=method_metadata,
             path_suffix=path_suffix,
             download_prefix=download_prefix,

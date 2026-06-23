@@ -25,7 +25,6 @@ tabpfn_3_method_metadata = tabpfn_3_descriptor.method_metadata(
     artifact_name="tabarena-2026-05-13",
     s3_bucket="tabarena",
     s3_prefix="cache",
-    upload_as_public=True,
     verified=True,
 )
 

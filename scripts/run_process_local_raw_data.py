@@ -181,7 +181,7 @@ def _print_method_metadata_snippet(
 
     Only the fields that can be inferred from the raw data are emitted; the manual fields a
     human still owns (display_name, reference_url, date, verified, cache_type, and — if you
-    later upload — s3_bucket / s3_prefix / upload_as_public) are listed in a trailing comment.
+    later upload — s3_bucket / s3_prefix / cache_kwargs) are listed in a trailing comment.
     """
     snippet_method = method.resolved_name or inferred_method or "method"
     inferred_ag_key = ag_keys[0] if len(ag_keys) == 1 else None
@@ -225,7 +225,7 @@ def _print_method_metadata_snippet(
         ("cache_type", '"r2"', '  # one of: "s3", "r2", "local"'),
         ("s3_bucket", '"tabarena"', "  # only if uploading"),
         ("s3_prefix", '"cache"', "  # only if uploading"),
-        ("upload_as_public", "True", "  # only if uploading"),
+        ("cache_kwargs", '{"upload_as_public": True}', "  # only if uploading to s3"),
     ]
     print("    # --- Manual fields (not inferable from raw); uncomment and fill in: ---")
     for key, placeholder, note in manual_fields:

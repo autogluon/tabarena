@@ -21,7 +21,6 @@ orionmsp_method_metadata = MethodMetadata.config(
     verified=False,
     s3_bucket="tabarena",
     s3_prefix="cache",
-    upload_as_public=True,
     cache_type="r2",
     reference_url="https://arxiv.org/abs/2511.02818",
 )

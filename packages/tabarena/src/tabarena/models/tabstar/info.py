@@ -20,7 +20,6 @@ tabstar_method_metadata = MethodMetadata.config(
     artifact_name="tabarena-2026-03-18",
     s3_bucket="tabarena",
     s3_prefix="cache",
-    upload_as_public=True,
     has_results=True,
     name_suffix=None,
     verified=True,

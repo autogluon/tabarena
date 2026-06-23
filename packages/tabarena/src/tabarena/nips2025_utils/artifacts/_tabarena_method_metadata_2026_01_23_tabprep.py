@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from tabarena.models._method_metadata import MethodMetadata
 
-tabprep_gbm_metadata = MethodMetadata.tabarena_public(
+tabprep_gbm_metadata = MethodMetadata.tabarena_legacy_s3(
     method="PrepLightGBM",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepLightGBM",
@@ -27,11 +27,10 @@ tabprep_gbm_metadata = MethodMetadata.tabarena_public(
     name_suffix=None,
     can_hpo=True,
     is_bag=True,
-    cache_type="s3",
     verified=True,
 )
 
-tabprep_lr_metadata = MethodMetadata.tabarena_public(
+tabprep_lr_metadata = MethodMetadata.tabarena_legacy_s3(
     method="PrepLinearModel",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepLinear",
@@ -45,12 +44,11 @@ tabprep_lr_metadata = MethodMetadata.tabarena_public(
     name_suffix=None,
     can_hpo=True,
     is_bag=True,
-    cache_type="s3",
     verified=True,
 )
 
 
-tabprep_tabm_metadata = MethodMetadata.tabarena_public(
+tabprep_tabm_metadata = MethodMetadata.tabarena_legacy_s3(
     method="PrepTabM",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepTabM",
@@ -63,12 +61,11 @@ tabprep_tabm_metadata = MethodMetadata.tabarena_public(
     name_suffix=None,
     can_hpo=True,
     is_bag=True,
-    cache_type="s3",
     verified=True,
 )
 
 
-tabprep_realtabpfnv250_metadata = MethodMetadata.tabarena_public(
+tabprep_realtabpfnv250_metadata = MethodMetadata.tabarena_legacy_s3(
     method="PrepRealTabPFN-v2.5",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepRealTabPFN-2.5",
@@ -81,6 +78,5 @@ tabprep_realtabpfnv250_metadata = MethodMetadata.tabarena_public(
     name_suffix=None,
     can_hpo=True,
     is_bag=False,
-    cache_type="s3",
     verified=True,
 )

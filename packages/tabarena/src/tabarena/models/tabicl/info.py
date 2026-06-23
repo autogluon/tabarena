@@ -36,7 +36,7 @@ tabicl_method_metadata = tabicl_descriptor.method_metadata(
     cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
-    upload_as_public=True,
+    cache_kwargs={"upload_as_public": True},
     name_suffix="_GPU",
     verified=True,
 )
@@ -55,7 +55,7 @@ tabiclv2_method_metadata = tabiclv2_descriptor.method_metadata(
     cache_type="s3",
     s3_bucket="tabarena",
     s3_prefix="cache",
-    upload_as_public=True,
+    cache_kwargs={"upload_as_public": True},
     has_results=True,
     name_suffix=None,
     verified=True,
