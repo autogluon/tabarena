@@ -24,9 +24,7 @@ extra_trees_method_metadata = extra_trees_descriptor.method_metadata(
     has_results=True,
     artifact_name="tabarena-2025-06-12",
     cache_type="s3",
-    bucket="tabarena",
-    prefix="cache",
-    cache_kwargs={"upload_as_public": True},
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     name_suffix=None,
     # FIXME: technically baselines are not verified
     verified=True,
