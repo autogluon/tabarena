@@ -18,7 +18,6 @@ extra_trees_method_metadata = extra_trees_descriptor.method_metadata(
     date="2025-06-12",
     ag_key="XT",
     config_default="ExtraTrees_c1_BAG_L1",
-    can_hpo=True,
     artifact_name="tabarena-2025-06-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},

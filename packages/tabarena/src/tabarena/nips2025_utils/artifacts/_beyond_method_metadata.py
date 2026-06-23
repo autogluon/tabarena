@@ -44,7 +44,6 @@ _common_kwargs = dict(
 # Bagged (HPO-able) and foundation-model presets. ``compute`` / ``is_bag`` are *not* set here:
 # they are intrinsic to the model and come from each entry's ModelDescriptor.
 _common_bag_kwargs = dict(
-    can_hpo=True,
     **_common_kwargs,
 )
 

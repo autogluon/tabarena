@@ -12,7 +12,6 @@ knn_method_metadata = MethodMetadata.config(
     date="2025-10-20",
     ag_key="KNN",
     config_default="KNeighbors_c1_BAG_L1",
-    can_hpo=True,
     is_bag=False,
     reference_url="https://scikit-learn.org/stable/modules/neighbors.html",
     artifact_name="tabarena-2025-10-20",

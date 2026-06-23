@@ -12,7 +12,6 @@ tabstar_method_metadata = MethodMetadata.config(
     date="2026-03-02",
     ag_key="TABSTAR",
     config_default="TabSTAR_c1_BAG_L1",
-    can_hpo=True,
     is_bag=True,
     artifact_name="tabarena-2026-03-18",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},

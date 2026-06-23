@@ -13,7 +13,6 @@ ebm_method_metadata = MethodMetadata.config(
     date="2025-09-03",
     ag_key="EBM",
     config_default="ExplainableBM_c1_BAG_L1",
-    can_hpo=True,
     is_bag=True,
     reference_url="https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
     artifact_name="tabarena-2025-09-03",

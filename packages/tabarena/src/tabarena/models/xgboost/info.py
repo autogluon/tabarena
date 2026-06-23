@@ -18,7 +18,6 @@ xgboost_method_metadata = xgboost_descriptor.method_metadata(
     date="2025-06-12",
     ag_key="XGB",
     config_default="XGBoost_c1_BAG_L1",
-    can_hpo=True,
     artifact_name="tabarena-2025-06-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},

@@ -13,7 +13,6 @@ iltm_method_metadata = MethodMetadata.config(
     compute="gpu",
     ag_key="TA-ILTM",
     config_default="iLTM_c1_BAG_L1",
-    can_hpo=True,
     is_bag=True,
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     cache_type="r2",

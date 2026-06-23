@@ -12,7 +12,6 @@ chimeraboost_method_metadata = MethodMetadata.config(
     date="2026-06-15",
     ag_key="CHIMERA",
     config_default="ChimeraBoost_c1_BAG_L1",
-    can_hpo=True,
     is_bag=False,
     verified=False,
     reference_url="https://github.com/bbstats/chimeraboost",

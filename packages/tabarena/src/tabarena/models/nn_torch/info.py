@@ -13,7 +13,6 @@ nn_torch_method_metadata = MethodMetadata.config(
     date="2025-06-12",
     ag_key="NN_TORCH",
     config_default="NeuralNetTorch_c1_BAG_L1",
-    can_hpo=True,
     is_bag=True,
     artifact_name="tabarena-2025-06-12",
     cache_type="s3",
