@@ -106,8 +106,10 @@ class MethodMetadata:
     artifact_name: str | None = None
     name: str | None = None
     name_suffix: str | None = None
-    #: Storage backend for this method's artifacts.
-    cache_type: Literal["s3", "r2", "local"] = "r2"
+    #: Storage backend for this method's artifacts. ``None`` (the default) infers it in
+    #: :meth:`__post_init__`: ``"r2"`` when an s3 location (``s3_bucket`` + ``s3_prefix``) is set,
+    #: else ``"local"``. ``"s3"``/``"r2"`` require an s3 location; ``"local"`` forbids one.
+    cache_type: Literal["s3", "r2", "local"] | None = None
     s3_bucket: str | None = None
     s3_prefix: str | None = None
     #: Extra ``cache_type``-specific arguments, forwarded as ``**cache_kwargs`` to the uploader for
@@ -163,9 +165,9 @@ class MethodMetadata:
             raise AssertionError("Must only specify one of `name` and `name_suffix`.")
         if self.method_type != "config":
             config_only_set = [
-                field
-                for field in ("ag_key", "model_key", "config_default", "name_suffix")
-                if getattr(self, field) is not None
+                field_name
+                for field_name in ("ag_key", "model_key", "config_default", "name_suffix")
+                if getattr(self, field_name) is not None
             ]
             if config_only_set:
                 raise AssertionError(
@@ -184,7 +186,23 @@ class MethodMetadata:
 
         assert isinstance(self.display_name, str)
         assert len(self.display_name) > 0
-        assert self.cache_type in ["s3", "r2", "local"], f"Unknown `cache_type`: {self.cache_type}"
+
+        # Resolve the storage backend: None infers "r2" when an s3 location is set, else "local".
+        if self.cache_type is None:
+            self.cache_type = "r2" if self.has_s3_cache else "local"
+        assert self.cache_type in ("s3", "r2", "local"), f"Unknown `cache_type`: {self.cache_type!r}"
+        # s3/r2 require an s3 location (bucket + prefix); local must not have one.
+        if self.cache_type in ("s3", "r2"):
+            if not self.has_s3_cache:
+                raise AssertionError(
+                    f"cache_type={self.cache_type!r} requires both s3_bucket and s3_prefix to be set "
+                    f"(method={self.method!r}, s3_bucket={self.s3_bucket!r}, s3_prefix={self.s3_prefix!r})."
+                )
+        elif self.s3_bucket is not None or self.s3_prefix is not None:
+            raise AssertionError(
+                f"cache_type='local' must not set s3_bucket/s3_prefix "
+                f"(method={self.method!r}, s3_bucket={self.s3_bucket!r}, s3_prefix={self.s3_prefix!r})."
+            )
 
     def _compute_display_name(self) -> str:
         if self.name is not None:

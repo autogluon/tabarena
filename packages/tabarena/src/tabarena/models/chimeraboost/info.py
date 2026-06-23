@@ -16,9 +16,9 @@ chimeraboost_method_metadata = MethodMetadata.config(
     is_bag=False,
     verified=False,
     reference_url="https://github.com/bbstats/chimeraboost",
-    cache_type="s3",
-    # has_raw/has_processed/has_results + s3_bucket/s3_prefix/cache_type are set by
-    # the maintainers when the result artifacts are hosted in the official pool.
+    # has_raw/has_processed/has_results + s3_bucket/s3_prefix/cache_type are set by the maintainers
+    # when the result artifacts are hosted in the official pool (until then this infers
+    # cache_type="local", since no s3 location is set).
 )
 
 chimeraboost_info = ModelInfo(
