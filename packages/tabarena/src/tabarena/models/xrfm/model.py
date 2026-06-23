@@ -228,7 +228,7 @@ class XRFMModel(AbstractModel):
             "mean_average_error": "mae",
         }
 
-        tuning_metric = metric_map.get(self.stopping_metric.name, None)
+        tuning_metric = metric_map.get(self.stopping_metric.name)
 
         init_kwargs = copy.copy(hyp)
 

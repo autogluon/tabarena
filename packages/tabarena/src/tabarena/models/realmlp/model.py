@@ -137,7 +137,7 @@ class RealMLPModel(AbstractTorchModel):
             "mean_average_error": "mae",
         }
 
-        val_metric_name = metric_map.get(self.stopping_metric.name, None)
+        val_metric_name = metric_map.get(self.stopping_metric.name)
 
         init_kwargs = {}
 
