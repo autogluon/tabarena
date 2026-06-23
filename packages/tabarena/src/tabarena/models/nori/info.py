@@ -16,8 +16,10 @@ nori_method_metadata = MethodMetadata.config(
     is_bag=False,
     verified=False,
     reference_url="https://github.com/Synthefy/synthefy-nori",
-    # has_raw/has_processed/has_results + bucket/prefix/cache_type are set by
-    # the maintainers when the result artifacts are hosted in the official pool.
+    # Not yet hosted: bucket/prefix/cache_type are set by the maintainers once the result
+    # artifacts land in the official pool; until then cache_type infers "local" (no remote
+    # location set). has_raw/has_processed/has_results stay True — a config has all three
+    # artifact tiers, hosted or not.
 )
 
 nori_info = ModelInfo(

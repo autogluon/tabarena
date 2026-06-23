@@ -3,8 +3,10 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import warnings
 from dataclasses import dataclass, field, fields
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Literal, Self
@@ -94,9 +96,15 @@ class MethodMetadata:
     #: predictions are the average of the per-fold test predictions. Config-only by convention
     #: (enforced in :meth:`__post_init__`) — baselines/portfolios are recorded as ``False``.
     is_bag: bool = False
-    has_raw: bool = False
-    has_processed: bool = False
-    has_results: bool = False
+    #: Whether an artifact of each tier exists for this method. Default ``True``: configs and
+    #: baselines have raw + processed + results. Set ``False`` only when the tier never exists for
+    #: the method at all — e.g. a portfolio, which only ever has results (no raw/processed). It is
+    #: about whether the artifact exists, not whether it is currently uploaded (so an as-yet-unhosted
+    #: config is still all ``True``). Descriptive metadata only — serialized into the info table,
+    #: not used to gate loading.
+    has_raw: bool = True
+    has_processed: bool = True
+    has_results: bool = True
 
     # -- (3) Manual (not inferable) -----------------------------------------------------------
     #: Must be specified by hand when relevant: artifact identity/naming and storage/transport
@@ -130,11 +138,13 @@ class MethodMetadata:
     cache_root: str | Path | None = None
 
     # -- (4) Purely informative ---------------------------------------------------------------
-    #: Descriptive only — no effect on behavior, paths, or loading. ``verified`` is a manual
-    #: trust flag that is not (yet) read anywhere in code.
+    # Descriptive only — no effect on behavior, paths, or loading.
+    #: The date the method was run (the benchmark run that produced its results), as a
+    #: ``"YYYY-MM-DD"`` string. Validated in :meth:`__post_init__` when set.
     date: str | None = None
     reference_url: str | None = None
     display_name: str | None = None
+    #: A manual trust flag; not (yet) read anywhere in code.
     verified: bool = False
 
     def __post_init__(self):
@@ -158,6 +168,18 @@ class MethodMetadata:
             f"Unknown method_type: {self.method_type!r}. Valid values: {MethodType.values()}"
         )
         assert self.compute in ["cpu", "gpu"]
+        # When set, `date` must be a real calendar date in YYYY-MM-DD format.
+        if self.date is not None:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", self.date):
+                raise AssertionError(
+                    f"date must be in 'YYYY-MM-DD' format, got {self.date!r} (method={self.method!r})."
+                )
+            try:
+                datetime.strptime(self.date, "%Y-%m-%d")
+            except ValueError as e:
+                raise AssertionError(
+                    f"date {self.date!r} is not a valid calendar date (method={self.method!r})."
+                ) from e
         # Guard against arguments that belong to a different method_type, so a mismatched field is
         # surfaced at construction rather than silently ignored. `name` is the baseline/portfolio
         # display-name override; `ag_key` / `model_key` / `config_default` / `name_suffix` are
@@ -359,9 +381,6 @@ class MethodMetadata:
             method=method,
             artifact_name=artifact_name,
             compute=compute,
-            has_raw=True,
-            has_processed=True,
-            has_results=True,
         )
 
     @classmethod
@@ -470,9 +489,6 @@ class MethodMetadata:
             ag_key=ag_key,
             can_hpo=can_hpo,
             is_bag=is_bag,
-            has_raw=True,
-            has_processed=True,
-            has_results=True,
         )
 
     @classmethod

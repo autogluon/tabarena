@@ -19,12 +19,9 @@ tabdpt_method_metadata = tabdpt_descriptor.method_metadata(
     model_key="TABDPT_GPU",
     config_default="TabDPT_GPU_c1_BAG_L1",
     can_hpo=True,
-    has_raw=True,
-    has_processed=True,
     artifact_name="tabarena-2025-10-20",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    has_results=True,
     name_suffix=None,
     verified=True,
 )

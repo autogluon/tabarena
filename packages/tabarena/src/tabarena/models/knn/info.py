@@ -14,13 +14,10 @@ knn_method_metadata = MethodMetadata.config(
     config_default="KNeighbors_c1_BAG_L1",
     can_hpo=True,
     is_bag=False,
-    has_raw=True,
-    has_processed=True,
     reference_url="https://scikit-learn.org/stable/modules/neighbors.html",
     artifact_name="tabarena-2025-10-20",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    has_results=True,
     name_suffix=None,
     # FIXME: technically kNN is not verified
     verified=True,
