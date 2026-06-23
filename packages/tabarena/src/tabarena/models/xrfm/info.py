@@ -20,9 +20,6 @@ xrfm_method_metadata = MethodMetadata.config(
     artifact_name="tabarena-2025-09-03",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
     name_suffix=None,
 )
 

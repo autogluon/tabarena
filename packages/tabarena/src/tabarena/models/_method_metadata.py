@@ -94,9 +94,13 @@ class MethodMetadata:
     #: predictions are the average of the per-fold test predictions. Config-only by convention
     #: (enforced in :meth:`__post_init__`) — baselines/portfolios are recorded as ``False``.
     is_bag: bool = False
-    has_raw: bool = False
-    has_processed: bool = False
-    has_results: bool = False
+    #: Which artifact tiers exist for this method. Default ``True`` (the common case for a hosted
+    #: config/baseline with raw + processed + results); set ``False`` for methods lacking a tier
+    #: (e.g. portfolios have no raw/processed; an as-yet-unhosted method has none). Descriptive
+    #: metadata only — serialized into the info table, not used to gate loading.
+    has_raw: bool = True
+    has_processed: bool = True
+    has_results: bool = True
 
     # -- (3) Manual (not inferable) -----------------------------------------------------------
     #: Must be specified by hand when relevant: artifact identity/naming and storage/transport
@@ -359,9 +363,6 @@ class MethodMetadata:
             method=method,
             artifact_name=artifact_name,
             compute=compute,
-            has_raw=True,
-            has_processed=True,
-            has_results=True,
         )
 
     @classmethod
@@ -470,9 +471,6 @@ class MethodMetadata:
             ag_key=ag_key,
             can_hpo=can_hpo,
             is_bag=is_bag,
-            has_raw=True,
-            has_processed=True,
-            has_results=True,
         )
 
     @classmethod

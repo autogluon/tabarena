@@ -16,9 +16,12 @@ chimeraboost_method_metadata = MethodMetadata.config(
     is_bag=False,
     verified=False,
     reference_url="https://github.com/bbstats/chimeraboost",
-    # has_raw/has_processed/has_results + bucket/prefix/cache_type are set by the maintainers
-    # when the result artifacts are hosted in the official pool (until then this infers
-    # cache_type="local", since no remote location is set).
+    # Not yet hosted: no artifacts and cache_type infers "local" (no remote location set). The
+    # maintainers flip has_raw/has_processed/has_results to True (drop these lines) and set
+    # bucket/prefix/cache_type once the result artifacts land in the official pool.
+    has_raw=False,
+    has_processed=False,
+    has_results=False,
 )
 
 chimeraboost_info = ModelInfo(

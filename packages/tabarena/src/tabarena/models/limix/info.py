@@ -19,9 +19,6 @@ limix_method_metadata = MethodMetadata.config(
     cache_type="r2",
     artifact_name="tabarena-2026-05-13",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
 )
 
 

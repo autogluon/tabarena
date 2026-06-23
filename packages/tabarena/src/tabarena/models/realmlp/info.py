@@ -23,9 +23,6 @@ realmlp_method_metadata = realmlp_descriptor.method_metadata(
     artifact_name="tabarena-2025-09-03",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
     name_suffix=None,
 )
 
@@ -43,9 +40,6 @@ realmlp_cpu_method_metadata = realmlp_descriptor.method_metadata(
     artifact_name="tabarena-2025-06-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
     name_suffix=None,
 )
 
