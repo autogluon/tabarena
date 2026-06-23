@@ -32,7 +32,6 @@ modernnca_gpu_method_metadata = MethodMetadata.config(
     compute="gpu",
     date="2025-06-12",
     ag_key="MNCA",
-    model_key="MNCA",
     config_default="ModernNCA_GPU_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,

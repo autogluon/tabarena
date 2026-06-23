@@ -13,7 +13,6 @@ perpetual_booster_method_metadata = MethodMetadata.config(
     compute="cpu",
     date="2026-03-06",
     ag_key="PB",
-    model_key="PB",
     config_default="PerpetualBooster_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,
