@@ -44,15 +44,6 @@ class MethodDownloader(ABC):
         self.clear_dirs = clear_dirs
 
     # -- remote location ----------------------------------------------------------------------
-    @property
-    def remote_cache_root(self) -> str:
-        """The cache root as a human-readable ``s3://bucket/prefix`` URI (for logging/display).
-
-        The ``s3://`` scheme is just a label — correct for any S3-compatible backend (e.g.
-        Cloudflare R2) — and is not used to derive object keys (see :meth:`local_to_key`).
-        """
-        return f"s3://{self.bucket}/{self.prefix}"
-
     def local_to_key(self, path_local: str | Path) -> str:
         """Remote object key for a local cache path: ``prefix`` joined with the path's location
         relative to the cache root.
