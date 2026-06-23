@@ -29,12 +29,10 @@ mitra_method_metadata = MethodMetadata.config(
     config_default="Mitra_GPU_c1_BAG_L1",
     can_hpo=False,
     is_bag=True,
-    verified=True,
     reference_url="https://arxiv.org/abs/2510.21204",
     artifact_name="tabarena-2025-09-03",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
 )
 
 

@@ -4,9 +4,6 @@ from tabarena.models._method_metadata import MethodMetadata
 
 _common_kwargs = dict(
     artifact_name="tabarena-2025-10-20",
-    name_suffix=None,
-    # FIXME: technically LR and kNN are not verified
-    verified=True,
 )
 
 portfolio_metadata_paper_cr = MethodMetadata.tabarena_legacy_s3(

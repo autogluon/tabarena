@@ -18,8 +18,6 @@ nn_torch_method_metadata = MethodMetadata.config(
     artifact_name="tabarena-2025-06-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
-    verified=True,
     reference_url="https://arxiv.org/abs/2003.06505",
 )
 

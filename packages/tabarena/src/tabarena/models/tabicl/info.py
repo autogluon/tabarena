@@ -32,7 +32,6 @@ tabicl_method_metadata = tabicl_descriptor.method_metadata(
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     name_suffix="_GPU",
-    verified=True,
 )
 
 
@@ -45,8 +44,6 @@ tabiclv2_method_metadata = tabiclv2_descriptor.method_metadata(
     artifact_name="tabarena-2026-02-16",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
-    verified=True,
 )
 
 

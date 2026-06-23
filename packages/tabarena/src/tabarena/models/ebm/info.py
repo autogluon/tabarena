@@ -15,12 +15,10 @@ ebm_method_metadata = MethodMetadata.config(
     config_default="ExplainableBM_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,
-    verified=True,
     reference_url="https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
     artifact_name="tabarena-2025-09-03",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
 )
 
 

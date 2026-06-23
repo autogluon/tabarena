@@ -22,9 +22,7 @@ lr_method_metadata = lr_descriptor.method_metadata(
     artifact_name="tabarena-2025-10-20",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
     # FIXME: technically LR is not verified
-    verified=True,
 )
 
 

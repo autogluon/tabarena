@@ -23,10 +23,8 @@ tabprep_gbm_metadata = MethodMetadata.tabarena_legacy_s3(
     ag_key="PREP_GBM",
     # config_default="PrepLightGBM_c1_BAG_L1",  # FIXME
     config_default="prep_LightGBM_icml_v3_c1_BAG_L1",
-    name_suffix=None,
     can_hpo=True,
     is_bag=True,
-    verified=True,
 )
 
 tabprep_lr_metadata = MethodMetadata.tabarena_legacy_s3(
@@ -39,10 +37,8 @@ tabprep_lr_metadata = MethodMetadata.tabarena_legacy_s3(
     ag_key="PREP_LR",
     # config_default="PrepLinearModel_c1_BAG_L1",  # FIXME
     config_default="prep_LinearModel_icml_v3_c1_BAG_L1",
-    name_suffix=None,
     can_hpo=True,
     is_bag=True,
-    verified=True,
 )
 
 
@@ -55,10 +51,8 @@ tabprep_tabm_metadata = MethodMetadata.tabarena_legacy_s3(
     date="2026-01-23",
     ag_key="PREP_TABM",
     config_default="prep_TabM_c1_BAG_L1",  # FIXME
-    name_suffix=None,
     can_hpo=True,
     is_bag=True,
-    verified=True,
 )
 
 
@@ -71,8 +65,6 @@ tabprep_realtabpfnv250_metadata = MethodMetadata.tabarena_legacy_s3(
     date="2026-01-23",
     ag_key="PREP_REALTABPFN-V2.5",
     config_default="prep_RealTabPFN-v2.5_c1_BAG_L1",  # FIXME
-    name_suffix=None,
     can_hpo=True,
     is_bag=False,
-    verified=True,
 )

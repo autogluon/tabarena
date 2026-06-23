@@ -17,7 +17,6 @@ sap_rpt_oss_method_metadata = MethodMetadata.config(
     artifact_name="tabarena-2025-11-25",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
     verified=False,
     reference_url="https://arxiv.org/abs/2506.10707",
 )

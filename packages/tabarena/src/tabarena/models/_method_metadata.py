@@ -144,8 +144,10 @@ class MethodMetadata:
     date: str | None = None
     reference_url: str | None = None
     display_name: str | None = None
-    #: A manual trust flag; not (yet) read anywhere in code.
-    verified: bool = False
+    #: Whether this method's results are verified / signed-off. Default ``True``; set ``False`` for
+    #: methods that are not yet verified (e.g. newly-added or not-yet-released models). A manual
+    #: trust flag, not (yet) read anywhere in code.
+    verified: bool = True
 
     def __post_init__(self):
         if self.artifact_name is None:

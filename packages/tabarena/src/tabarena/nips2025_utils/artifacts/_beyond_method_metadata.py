@@ -37,7 +37,6 @@ if TYPE_CHECKING:
 _common_kwargs = dict(
     method_type="config",
     artifact_name="beyond_iid_benchmark_2026",
-    name_suffix=None,
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
@@ -46,7 +45,6 @@ _common_kwargs = dict(
 # they are intrinsic to the model and come from each entry's ModelDescriptor.
 _common_bag_kwargs = dict(
     can_hpo=True,
-    verified=True,
     **_common_kwargs,
 )
 
@@ -112,28 +110,24 @@ beyond_tabdpt_metadata = tabdpt_descriptor.method_metadata(
     method="TA-TabDPT",
     ag_key="TA-TABDPT",
     config_default="TA-TabDPT_c1_BAG_L1",
-    verified=True,
     **_common_fm_kwargs,
 )
 beyond_tabpfnv26_metadata = tabpfnv26_descriptor.method_metadata(
     method="TA-TabPFN-2.6",
     ag_key="TA-TABPFN-2.6",
     config_default="TA-TabPFN-2.6_c1_BAG_L1",
-    verified=True,
     **_common_fm_kwargs,
 )
 beyond_tabiclv2_metadata = tabiclv2_descriptor.method_metadata(
     method="TA-TabICLv2",
     ag_key="TA-TABICLv2",
     config_default="TA-TabICLv2_c1_BAG_L1",
-    verified=True,
     **_common_fm_kwargs,
 )
 beyond_tabpfn3_metadata = tabpfn_3_descriptor.method_metadata(
     method="TA-TabPFN-3",
     ag_key="TA-TABPFN-3",
     config_default="TA-TabPFN-3_c1_BAG_L1",
-    verified=True,
     **_common_fm_kwargs,
 )
 beyond_method_metadata_lst: list[MethodMetadata] = [

@@ -15,12 +15,10 @@ xrfm_method_metadata = MethodMetadata.config(
     config_default="xRFM_GPU_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,
-    verified=True,
     reference_url="https://arxiv.org/abs/2508.10053",
     artifact_name="tabarena-2025-09-03",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix=None,
 )
 
 
