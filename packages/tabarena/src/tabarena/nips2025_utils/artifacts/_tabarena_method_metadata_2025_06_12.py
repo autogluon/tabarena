@@ -47,9 +47,6 @@ common_kwargs = dict(
     verified=True,
 )
 
-s3_cache_kwargs = dict(
-)
-
 cpu_kwargs = dict(
     compute="cpu",
     name_suffix=None,
@@ -313,7 +310,6 @@ for method in methods:
         can_hpo=can_hpo,
         reference_url=reference_url,
         **method_kwargs,
-        **s3_cache_kwargs,
     )
     methods_2025_06_12.append(method_metadata)
 
