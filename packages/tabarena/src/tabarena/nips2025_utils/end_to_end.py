@@ -452,7 +452,7 @@ class EndToEndResults:
         fillna: str | None = None,
         only_valid_tasks: str | list[str] | None = None,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool | None = None,
+        use_artifact_name_in_prefix: bool = False,
         use_model_results: bool = False,
         score_on_val: bool = False,
         average_seeds: bool = False,
@@ -500,7 +500,7 @@ class EndToEndResults:
         self,
         *,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool | None = None,
+        use_artifact_name_in_prefix: bool = False,
         use_model_results: bool = False,
     ) -> list:
         """Vend each method as an :class:`InMemoryMethodMetadata` for context registration.
@@ -520,7 +520,7 @@ class EndToEndResults:
     def get_results(
         self,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool | None = None,
+        use_artifact_name_in_prefix: bool = False,
         use_model_results: bool = False,
         fillna: bool = False,
     ) -> pd.DataFrame:
