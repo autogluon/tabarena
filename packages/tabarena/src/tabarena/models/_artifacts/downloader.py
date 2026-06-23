@@ -47,11 +47,15 @@ class MethodDownloader(ABC):
 
     # -- remote location ----------------------------------------------------------------------
     @property
-    def s3_cache_root(self) -> str:
+    def remote_cache_root(self) -> str:
+        """The cache root as an ``s3://bucket/prefix`` URI. The ``s3://`` scheme is a parsing
+        convention for :func:`s3_path_to_bucket_prefix` (used to derive object keys), not an AWS
+        endpoint — it is correct for any S3-compatible backend (e.g. Cloudflare R2).
+        """
         return f"s3://{self.bucket}/{self.prefix}"
 
     def local_to_s3_path(self, path_local: str | Path) -> str:
-        s3_path_loc = self.method_metadata.to_s3_cache_loc(path=Path(path_local), s3_cache_root=self.s3_cache_root)
+        s3_path_loc = self.method_metadata.to_s3_cache_loc(path=Path(path_local), s3_cache_root=self.remote_cache_root)
         _, key = s3_path_to_bucket_prefix(s3_path_loc)
         return key
 

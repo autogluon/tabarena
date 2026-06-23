@@ -149,7 +149,7 @@ def upload_method(
     uploader = method_metadata.method_uploader()
     print(
         f"Uploading '{method_metadata.method}' (artifact={method_metadata.artifact_name}) "
-        f"to {uploader.s3_cache_root} | cache_type={method_metadata.cache_type} | parts={parts}"
+        f"to {uploader.remote_cache_root} | cache_type={method_metadata.cache_type} | parts={parts}"
     )
     uploader.upload_metadata()
     uploader.upload_results()
