@@ -116,8 +116,10 @@ class MethodMetadata:
     #: their own keys without new fields. For ``"s3"``/``"r2"`` it carries the remote location
     #: ``{"bucket": ..., "prefix": ...}`` (the s3-compatible coordinates used by both, formerly the
     #: top-level ``s3_bucket`` / ``s3_prefix`` fields); ``"s3"`` may additionally set
-    #: ``{"upload_as_public": True}`` for a public-read ACL. The uploader/downloader factories read
-    #: what they need from here. Empty for ``"local"``.
+    #: ``{"upload_as_public": True}`` for a public-read ACL, and ``"r2"`` may set
+    #: ``{"base_url": ...}`` to override the public download domain (default
+    #: ``"https://data.tabarena.ai/"``). The uploader/downloader factories read what they need from
+    #: here. Empty for ``"local"``.
     cache_kwargs: dict = field(default_factory=dict)
     #: Optional override pointing at a self-contained, *flat* method directory
     #: (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``), used to load a
@@ -603,7 +605,7 @@ class MethodMetadata:
 
             return MethodDownloaderPublicR2(
                 method_metadata=self,
-                base_url="https://data.tabarena.ai/",
+                base_url=self.cache_kwargs.get("base_url", "https://data.tabarena.ai/"),
                 r2_prefix=prefix,
                 verbose=verbose,
                 clear_dirs=False,
