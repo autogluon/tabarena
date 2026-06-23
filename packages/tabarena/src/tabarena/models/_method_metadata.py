@@ -18,7 +18,6 @@ from tabarena.nips2025_utils.load_artifacts import results_to_holdout
 from tabarena.nips2025_utils.method_processor import get_info_from_result, load_raw
 from tabarena.repository.evaluation_repository import EvaluationRepository
 from tabarena.utils.pickle_utils import fetch_all_pickles
-from tabarena.utils.s3_utils import s3_get_object
 
 if TYPE_CHECKING:
     from tabarena.benchmark.result import BaselineResult
@@ -100,14 +99,13 @@ class MethodMetadata:
     has_results: bool = False
 
     # -- (3) Manual (not inferable) -----------------------------------------------------------
-    #: Must be specified by hand when relevant: artifact identity/naming, on-disk prefix layout,
-    #: and storage/transport config (where and how artifacts are cached and uploaded).
-    #: ``artifact_name`` defaults to ``method`` but is normally the dated artifact set
-    #: (e.g. ``"tabarena-2026-05-13"``) and is part of the cache/S3 path.
+    #: Must be specified by hand when relevant: artifact identity/naming and storage/transport
+    #: config (where and how artifacts are cached and uploaded). ``artifact_name`` defaults to
+    #: ``method`` but is normally the dated artifact set (e.g. ``"tabarena-2026-05-13"``) and is
+    #: part of the cache/S3 path.
     artifact_name: str | None = None
     name: str | None = None
     name_suffix: str | None = None
-    use_artifact_name_in_prefix: bool = False
     #: Storage backend for this method's artifacts.
     cache_type: Literal["s3", "r2", "local"] = "r2"
     s3_bucket: str | None = None
@@ -822,6 +820,17 @@ class MethodMetadata:
         buf.seek(0)
         return buf
 
+    @staticmethod
+    def _migrate_legacy_kwargs(kwargs: dict) -> dict:
+        """Fix up a kwargs dict loaded from a serialized ``metadata.yaml`` so yaml written under
+        an older schema still constructs. Mutates and returns ``kwargs``. All backwards-compat
+        handling for the on-disk format lives here:
+
+        - ``use_artifact_name_in_prefix``: field removed from the schema; drop it if present.
+        """
+        kwargs.pop("use_artifact_name_in_prefix", None)
+        return kwargs
+
     @classmethod
     def from_yaml(
         cls,
@@ -874,9 +883,7 @@ class MethodMetadata:
             kwargs = yaml.safe_load(file)
         if cache_root is not None:
             kwargs["cache_root"] = cache_root
-        if "cache_type" not in kwargs:
-            # yaml created before the cache_type default flipped to "r2"; preserve old "s3" default
-            kwargs["cache_type"] = "s3"
+        cls._migrate_legacy_kwargs(kwargs)
         method_metadata = cls(**kwargs)
         if cache_root is not None and Path(method_metadata.path_metadata).resolve() != Path(path).resolve():
             raise ValueError(
@@ -885,48 +892,6 @@ class MethodMetadata:
                 f"but it was loaded from {path}. Lay artifacts out as <cache_root>/<method>/metadata.yaml.",
             )
         return method_metadata
-
-    @classmethod
-    def from_s3_cache(
-        cls,
-        method: str,
-        s3_bucket: str,
-        s3_prefix: str = "cache",
-        artifact_name: str | None = None,
-    ) -> Self:
-        metadata = MethodMetadata(
-            method=method,
-            artifact_name=artifact_name,
-        )
-        path_local = Path(metadata.path_metadata)
-        # The remote key is just the prefix joined with the path's location relative to the cache
-        # root — computed directly rather than by building and re-parsing an "s3://..." URI.
-        s3_key = (Path(s3_prefix) / metadata.relative_to_cache_root(path_local)).as_posix()
-        # Stream into memory
-        try:
-            obj = s3_get_object(Bucket=s3_bucket, Key=s3_key)
-        except Exception as e:
-            print(
-                f"Failed to fetch MethodMetadata yaml file from s3! Maybe it doesn't exist or is not public?"
-                f'\n\t(method="{method}", artifact_name="{artifact_name}", '
-                f's3_bucket="{s3_bucket}", s3_prefix="{s3_prefix}")',
-            )
-            raise e
-
-        body = obj["Body"]  # file-like object (StreamingBody, BytesIO, etc.)
-        kwargs = yaml.safe_load(body)
-
-        if "s3_bucket" not in kwargs:
-            # yaml created before s3_bucket existed
-            kwargs["s3_bucket"] = s3_bucket
-        if "s3_prefix" not in kwargs:
-            # yaml created before s3_prefix existed
-            kwargs["s3_prefix"] = s3_prefix
-        if "cache_type" not in kwargs:
-            # yaml created before the cache_type default flipped to "r2"; preserve old "s3" default
-            kwargs["cache_type"] = "s3"
-
-        return cls(**kwargs)
 
     def cache_raw(
         self,

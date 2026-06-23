@@ -588,7 +588,7 @@ class EndToEndResultsSingle:
         self,
         *,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool | None = None,
+        use_artifact_name_in_prefix: bool = False,
         use_model_results: bool = False,
     ):
         """Vend this method as an :class:`InMemoryMethodMetadata` (metadata + in-memory results).
@@ -612,7 +612,7 @@ class EndToEndResultsSingle:
     def get_results(
         self,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool | None = None,
+        use_artifact_name_in_prefix: bool = False,
         use_model_results: bool = False,
         fillna: bool = False,
     ) -> pd.DataFrame:
@@ -626,9 +626,6 @@ class EndToEndResultsSingle:
         use_model_results = self.method_metadata.method_type != "config" or use_model_results
 
         df_results = copy.deepcopy(self.model_results) if use_model_results else copy.deepcopy(self.hpo_results)
-
-        if use_artifact_name_in_prefix is None:
-            use_artifact_name_in_prefix = self.method_metadata.use_artifact_name_in_prefix
 
         if use_artifact_name_in_prefix:
             if new_result_prefix is None:

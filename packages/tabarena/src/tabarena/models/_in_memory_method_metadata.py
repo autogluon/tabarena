@@ -56,7 +56,7 @@ class InMemoryMethodMetadata(MethodMetadata):
         results_single: EndToEndResultsSingle,
         *,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool | None = None,
+        use_artifact_name_in_prefix: bool = False,
         use_model_results: bool = False,
     ) -> Self:
         """Build from an ``EndToEndResultsSingle`` (its ``method_metadata`` + in-memory results).
@@ -67,14 +67,11 @@ class InMemoryMethodMetadata(MethodMetadata):
         still matches.
 
         ``use_artifact_name_in_prefix`` / ``use_model_results`` are forwarded to
-        :meth:`EndToEndResultsSingle.get_results` (``None`` resolves to the method's own
-        ``use_artifact_name_in_prefix``). When the artifact-name prefix is applied, the same
-        ``[artifact_name] `` segment get_results prepends to the frame's identity columns is
+        :meth:`EndToEndResultsSingle.get_results`. When the artifact-name prefix is applied, the
+        same ``[artifact_name] `` segment get_results prepends to the frame's identity columns is
         baked into the metadata identity here too, so the website merge still matches.
         """
         base = results_single.method_metadata
-        if use_artifact_name_in_prefix is None:
-            use_artifact_name_in_prefix = base.use_artifact_name_in_prefix
         results = results_single.get_results(
             new_result_prefix=new_result_prefix,
             use_artifact_name_in_prefix=use_artifact_name_in_prefix,
