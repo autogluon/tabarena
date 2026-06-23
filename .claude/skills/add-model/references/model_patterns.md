@@ -407,11 +407,11 @@ from tabarena.models.{ModelKey}.model import {ClassName}Model
     has_results=True,
     artifact_name="tabarena-YYYY-MM-DD",
     # Storage backend is inferred from the cache location: once results are hosted in the official
-    # pool, set s3_bucket + s3_prefix and cache_type infers "r2" (the default public backend).
+    # pool, set bucket + prefix and cache_type infers "r2" (the default public backend).
     # Leave all three unset until hosted -> cache_type infers "local". (s3/r2 require both
-    # s3_bucket and s3_prefix; "local" forbids them — construction raises on a mismatch.)
-    s3_bucket="tabarena",
-    s3_prefix="cache",
+    # bucket and prefix; "local" forbids them — construction raises on a mismatch.)
+    bucket="tabarena",
+    prefix="cache",
     verified=False,                         # flip to True once benchmark run is signed off
     reference_url="{doc_url}",
 )
@@ -429,7 +429,7 @@ from tabarena.models.{ModelKey}.model import {ClassName}Model
 
 **Storage conventions:**
 - Use `MethodMetadata.config(...)` (the config-method constructor — it sets `method_type="config"` and exposes the config-only fields `ag_key` / `model_key` / `config_default` / `name_suffix` / `can_hpo` / `is_bag`). Baseline/portfolio methods use `MethodMetadata.baseline(...)` / `MethodMetadata.portfolio(...)`.
-- **Don't set `cache_type` by hand** — it's inferred: `"r2"` when an s3 location (`s3_bucket` + `s3_prefix`) is set, else `"local"`. Set it explicitly only to force `"s3"`.
+- **Don't set `cache_type` by hand** — it's inferred: `"r2"` when a remote location (`bucket` + `prefix`) is set, else `"local"`. Set it explicitly only to force `"s3"`.
 - **Don't set `upload_as_public`** — it was removed. Backend-specific upload knobs now live in `cache_kwargs` (e.g. `cache_kwargs={"upload_as_public": True}` for s3). The default `"r2"` backend needs none, so a normal new model sets no `cache_kwargs`.
 - For artifacts hosted in the **legacy public-S3 pool**, prefer the `MethodMetadata.tabarena_legacy_s3(...)` preset, which fixes `cache_type="s3"` and the public-read ACL (`cache_kwargs={"upload_as_public": True}`) for you.
 

@@ -16,7 +16,7 @@ nori_method_metadata = MethodMetadata.config(
     is_bag=False,
     verified=False,
     reference_url="https://github.com/Synthefy/synthefy-nori",
-    # has_raw/has_processed/has_results + s3_bucket/s3_prefix/cache_type are set by
+    # has_raw/has_processed/has_results + bucket/prefix/cache_type are set by
     # the maintainers when the result artifacts are hosted in the official pool.
 )
 

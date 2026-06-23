@@ -42,8 +42,8 @@ _common_kwargs = dict(
     has_results=True,
     name_suffix=None,
     cache_type="r2",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
+    bucket="tabarena",
+    prefix="cache",
 )
 
 # Bagged (HPO-able) and foundation-model presets. ``compute`` / ``is_bag`` are *not* set here:
