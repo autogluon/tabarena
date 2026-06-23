@@ -110,7 +110,7 @@ def _destination(method_metadata: MethodMetadata) -> str:
 
     Uses ``s3://bucket/prefix`` semantics, which is what both the S3 and R2 backends use.
     """
-    root = f"s3://{method_metadata.s3_bucket}/{method_metadata.s3_prefix}"
+    root = f"s3://{method_metadata.bucket}/{method_metadata.prefix}"
     try:
         rel = method_metadata.relative_to_cache_root(method_metadata.path).as_posix()
         return f"{root}/{rel}"
@@ -142,8 +142,11 @@ def upload_method(
             f"verified OK; would upload parts={parts} -> {_destination(method_metadata)} "
             f"(cache_type={method_metadata.cache_type})"
         )
-        if not method_metadata.has_s3_cache:
-            print("[dry-run]   WARNING: s3_bucket/s3_prefix not set on this metadata; a real upload would fail.")
+        if not method_metadata.has_remote_cache:
+            print(
+                f"[dry-run]   WARNING: cache_type={method_metadata.cache_type!r} has no remote store; "
+                "a real upload would fail."
+            )
         return
 
     uploader = method_metadata.method_uploader()

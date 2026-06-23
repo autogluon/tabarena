@@ -16,7 +16,7 @@ gbm_aio_0808_metadata = MethodMetadata.tabarena_legacy_s3(
     name_suffix=None,
     can_hpo=True,
     is_bag=True,
-    s3_prefix="cache_aio",
+    prefix="cache_aio",
     verified=False,
 )
 
@@ -34,6 +34,6 @@ prep_gbm_v6_metadata = MethodMetadata.tabarena_legacy_s3(
     name_suffix=None,
     can_hpo=True,
     is_bag=True,
-    s3_prefix="cache_aio",
+    prefix="cache_aio",
     verified=True,
 )

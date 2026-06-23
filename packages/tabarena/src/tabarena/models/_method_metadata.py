@@ -107,11 +107,13 @@ class MethodMetadata:
     name: str | None = None
     name_suffix: str | None = None
     #: Storage backend for this method's artifacts. ``None`` (the default) infers it in
-    #: :meth:`__post_init__`: ``"r2"`` when an s3 location (``s3_bucket`` + ``s3_prefix``) is set,
-    #: else ``"local"``. ``"s3"``/``"r2"`` require an s3 location; ``"local"`` forbids one.
-    cache_type: Literal["s3", "r2", "local"] | None = None
-    s3_bucket: str | None = None
-    s3_prefix: str | None = None
+    #: :meth:`__post_init__`: ``"r2"`` when a remote location (``bucket`` + ``prefix``) is set,
+    #: else ``"local"``. ``"s3"``/``"r2"`` require a remote location; ``"local"`` forbids one.
+    cache_type: Literal["local", "r2", "s3"] | None = None
+    #: Remote object-store bucket + key prefix (the s3-compatible coordinates used by both the
+    #: ``"s3"`` and ``"r2"`` backends; formerly ``s3_bucket`` / ``s3_prefix``).
+    bucket: str | None = None
+    prefix: str | None = None
     #: Extra ``cache_type``-specific arguments, forwarded as ``**cache_kwargs`` to the uploader for
     #: this method's backend (see :meth:`method_uploader`). Keeps backend-specific knobs out of the
     #: core schema. For the ``"s3"`` backend: ``{"upload_as_public": True}`` to set a public-read
@@ -187,21 +189,23 @@ class MethodMetadata:
         assert isinstance(self.display_name, str)
         assert len(self.display_name) > 0
 
-        # Resolve the storage backend: None infers "r2" when an s3 location is set, else "local".
+        # Resolve the storage backend: None infers "r2" when a remote location is set, else "local".
+        # (Uses the raw bucket/prefix here, not has_remote_cache, which keys off cache_type.)
+        has_remote_location = self.bucket is not None and self.prefix is not None
         if self.cache_type is None:
-            self.cache_type = "r2" if self.has_s3_cache else "local"
-        assert self.cache_type in ("s3", "r2", "local"), f"Unknown `cache_type`: {self.cache_type!r}"
-        # s3/r2 require an s3 location (bucket + prefix); local must not have one.
-        if self.cache_type in ("s3", "r2"):
-            if not self.has_s3_cache:
+            self.cache_type = "r2" if has_remote_location else "local"
+        assert self.cache_type in ("local", "r2", "s3"), f"Unknown `cache_type`: {self.cache_type!r}"
+        # s3/r2 require a remote location (bucket + prefix); local must not have one.
+        if self.cache_type in ("r2", "s3"):
+            if not has_remote_location:
                 raise AssertionError(
-                    f"cache_type={self.cache_type!r} requires both s3_bucket and s3_prefix to be set "
-                    f"(method={self.method!r}, s3_bucket={self.s3_bucket!r}, s3_prefix={self.s3_prefix!r})."
+                    f"cache_type={self.cache_type!r} requires both bucket and prefix to be set "
+                    f"(method={self.method!r}, bucket={self.bucket!r}, prefix={self.prefix!r})."
                 )
-        elif self.s3_bucket is not None or self.s3_prefix is not None:
+        elif self.bucket is not None or self.prefix is not None:
             raise AssertionError(
-                f"cache_type='local' must not set s3_bucket/s3_prefix "
-                f"(method={self.method!r}, s3_bucket={self.s3_bucket!r}, s3_prefix={self.s3_prefix!r})."
+                f"cache_type='local' must not set bucket/prefix "
+                f"(method={self.method!r}, bucket={self.bucket!r}, prefix={self.prefix!r})."
             )
 
     def _compute_display_name(self) -> str:
@@ -475,8 +479,8 @@ class MethodMetadata:
         has_raw: bool = True,
         has_processed: bool = True,
         has_results: bool = True,
-        s3_bucket: str = "tabarena",
-        s3_prefix: str = "cache",
+        bucket: str = "tabarena",
+        prefix: str = "cache",
         **kwargs,
     ) -> Self:
         """Build a :class:`MethodMetadata` for a method whose artifacts live in the legacy public
@@ -486,7 +490,7 @@ class MethodMetadata:
         location, ``cache_type="s3"``, the public-read ACL (``cache_kwargs={"upload_as_public":
         True}``), and a fully-cached ``has_raw``/``has_processed``/``has_results`` — so callers
         specify only what is method-specific. ``cache_type`` and the ACL are fixed (this preset is
-        s3-and-public by definition); ``has_*`` and ``s3_bucket``/``s3_prefix`` can be overridden
+        s3-and-public by definition); ``has_*`` and ``bucket``/``prefix`` can be overridden
         via keyword. The single source of truth for the public-artifact preset that the
         per-artifact ``_common_*_kwargs`` dicts used to re-declare.
         """
@@ -498,14 +502,18 @@ class MethodMetadata:
             has_results=has_results,
             cache_type="s3",
             cache_kwargs={"upload_as_public": True},
-            s3_bucket=s3_bucket,
-            s3_prefix=s3_prefix,
+            bucket=bucket,
+            prefix=prefix,
             **kwargs,
         )
 
     @property
-    def has_s3_cache(self) -> bool:
-        return self.s3_bucket is not None and self.s3_prefix is not None
+    def has_remote_cache(self) -> bool:
+        """Whether this method's artifacts live in a remote store (an ``"s3"``/``"r2"`` backend)
+        rather than ``cache_type="local"`` (no remote backing). ``__post_init__`` guarantees a
+        remote backend always has a remote location (``bucket`` + ``prefix``).
+        """
+        return self.cache_type in ("r2", "s3")
 
     @property
     def has_configs_hyperparameters(self) -> bool:
@@ -579,13 +587,12 @@ class MethodMetadata:
     ) -> MethodDownloader:
         if cache_type == "auto":
             cache_type = self.cache_type
-        if not self.has_s3_cache:
+        if not self.has_remote_cache:
             raise AssertionError(
-                f"Tried to get MethodDownloader from MethodMetadata, "
-                f"but s3_bucket and/or s3_prefix were not specified!"
-                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
-                f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
-                f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact download.",
+                f"Tried to get MethodDownloader from MethodMetadata, but cache_type={self.cache_type!r} "
+                f"has no remote store to download from."
+                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, cache_type={self.cache_type})"
+                f"\nUse a remote backend ('s3'/'r2') with bucket + prefix to enable artifact download.",
             )
 
         if cache_type == "r2":
@@ -594,7 +601,7 @@ class MethodMetadata:
             return MethodDownloaderPublicR2(
                 method_metadata=self,
                 base_url="https://data.tabarena.ai/",
-                r2_prefix=self.s3_prefix,
+                r2_prefix=self.prefix,
                 verbose=verbose,
                 clear_dirs=False,
             )
@@ -603,8 +610,8 @@ class MethodMetadata:
 
             return MethodDownloaderS3(
                 method_metadata=self,
-                s3_bucket=self.s3_bucket,
-                s3_prefix=self.s3_prefix,
+                s3_bucket=self.bucket,
+                s3_prefix=self.prefix,
                 verbose=verbose,
                 clear_dirs=False,
             )
@@ -613,13 +620,12 @@ class MethodMetadata:
     def method_uploader(self, cache_type: str = "auto") -> MethodUploader:
         if cache_type == "auto":
             cache_type = self.cache_type
-        if not self.has_s3_cache:
+        if not self.has_remote_cache:
             raise AssertionError(
-                f"Tried to get MethodUploader from MethodMetadata, "
-                f"but s3_bucket and/or s3_prefix were not specified!"
-                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
-                f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
-                f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact upload.",
+                f"Tried to get MethodUploader from MethodMetadata, but cache_type={self.cache_type!r} "
+                f"has no remote store to upload to."
+                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, cache_type={self.cache_type})"
+                f"\nUse a remote backend ('s3'/'r2') with bucket + prefix to enable artifact upload.",
             )
 
         if cache_type == "r2":
@@ -648,8 +654,8 @@ class MethodMetadata:
             return MethodUploaderR2(
                 method_metadata=self,
                 r2_account_id=os.environ["R2_ACCOUNT_ID"],
-                r2_bucket=self.s3_bucket,
-                r2_prefix=self.s3_prefix,
+                r2_bucket=self.bucket,
+                r2_prefix=self.prefix,
                 r2_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
                 r2_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
                 **self.cache_kwargs,
@@ -659,8 +665,8 @@ class MethodMetadata:
 
             return MethodUploaderS3(
                 method_metadata=self,
-                s3_bucket=self.s3_bucket,
-                s3_prefix=self.s3_prefix,
+                s3_bucket=self.bucket,
+                s3_prefix=self.prefix,
                 **self.cache_kwargs,
             )
         raise ValueError(f"Invalid cache_type for uploads: {cache_type}")
@@ -853,10 +859,15 @@ class MethodMetadata:
         - ``upload_as_public``: moved into ``cache_kwargs`` (an s3-specific public-read ACL knob).
           Fold a ``True`` value into ``cache_kwargs`` only when ``cache_type == "s3"``; otherwise
           (e.g. ``"r2"``) drop it regardless of value, since it is not a valid key there.
+        - ``s3_bucket`` / ``s3_prefix``: renamed to ``bucket`` / ``prefix`` (the coordinates are
+          shared by the s3 and r2 backends); map the old keys onto the new ones.
         """
         kwargs.pop("use_artifact_name_in_prefix", None)
         if kwargs.pop("upload_as_public", False) and kwargs.get("cache_type") == "s3":
             kwargs.setdefault("cache_kwargs", {}).setdefault("upload_as_public", True)
+        for old, new in (("s3_bucket", "bucket"), ("s3_prefix", "prefix")):
+            if old in kwargs:
+                kwargs.setdefault(new, kwargs.pop(old))
         return kwargs
 
     @classmethod
