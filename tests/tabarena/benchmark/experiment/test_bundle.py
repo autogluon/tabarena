@@ -42,6 +42,7 @@ EXPECTED_FIELD_NAMES = {
     "adapt_num_folds_to_n_classes",
     "shuffle_features",
     "dynamic_tabarena_validation_protocol",
+    "text_cache_mode",
     "custom_model_constraints",
 }
 
@@ -68,6 +69,7 @@ BEYOND_ARENA_EXPECTED = {
     "adapt_num_folds_to_n_classes": True,
     "shuffle_features": True,
     "dynamic_tabarena_validation_protocol": True,
+    "text_cache_mode": "require",
 }
 
 TABARENA_V0PT1_EXPECTED = {
@@ -77,6 +79,7 @@ TABARENA_V0PT1_EXPECTED = {
     "adapt_num_folds_to_n_classes": False,
     "shuffle_features": False,
     "dynamic_tabarena_validation_protocol": False,
+    "text_cache_mode": "off",
 }
 
 
