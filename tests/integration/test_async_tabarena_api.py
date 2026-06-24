@@ -157,7 +157,7 @@ def _comparison_baseline(collection: TaskMetadataCollection) -> InMemoryMethodMe
     return InMemoryMethodMetadata(
         results=pd.DataFrame(rows),
         method="ToyBaseline",
-        artifact_name="ToyBaseline",
+        suite="ToyBaseline",
         method_type="config",
         model_key="ToyBaseline",
     )

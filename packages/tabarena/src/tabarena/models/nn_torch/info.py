@@ -8,7 +8,7 @@ from tabarena.models.nn_torch.hpo import gen_nn_torch
 
 nn_torch_method_metadata = MethodMetadata.config(
     method="NeuralNetTorch",
-    artifact_name="tabarena-2025-06-12",
+    suite="tabarena-2025-06-12",
     ag_key="NN_TORCH",
     config_default="NeuralNetTorch_c1_BAG_L1",
     compute="cpu",

@@ -6,7 +6,7 @@ from tabarena.models._method_metadata import MethodMetadata
 # s3 cache = "cache_aio"
 gbm_aio_0808_metadata = MethodMetadata.tabarena_legacy_s3(
     method="LightGBM_aio_0808",
-    artifact_name="LightGBM_aio_0808",
+    suite="LightGBM_aio_0808",
     method_type="config",
     compute="cpu",
     date="2025-08-08",
@@ -22,7 +22,7 @@ gbm_aio_0808_metadata = MethodMetadata.tabarena_legacy_s3(
 # s3 cache = "cache_aio"
 prep_gbm_v6_metadata = MethodMetadata.tabarena_legacy_s3(
     method="prep_LightGBM_v6",
-    artifact_name="prep_LightGBM_v6",
+    suite="prep_LightGBM_v6",
     method_type="config",
     compute="cpu",
     date="2025-12-16",

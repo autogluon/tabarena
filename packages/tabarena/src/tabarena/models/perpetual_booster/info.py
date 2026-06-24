@@ -9,7 +9,7 @@ from tabarena.models.perpetual_booster.model import (
 
 perpetual_booster_method_metadata = MethodMetadata.config(
     method="PerpetualBooster",
-    artifact_name="tabarena-2026-03-18",
+    suite="tabarena-2026-03-18",
     ag_key="PB",
     config_default="PerpetualBooster_c1_BAG_L1",
     compute="cpu",

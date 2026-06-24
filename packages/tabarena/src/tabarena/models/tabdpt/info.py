@@ -14,7 +14,7 @@ tabdpt_descriptor = ModelDescriptor(
 
 tabdpt_method_metadata = tabdpt_descriptor.method_metadata(
     method="TabDPT_GPU",
-    artifact_name="tabarena-2025-10-20",
+    suite="tabarena-2025-10-20",
     ag_key="TABDPT",
     model_key="TABDPT_GPU",
     config_default="TabDPT_GPU_c1_BAG_L1",

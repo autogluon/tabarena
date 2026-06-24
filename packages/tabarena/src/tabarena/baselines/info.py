@@ -13,7 +13,7 @@ from tabarena.models._method_metadata import MethodMetadata
 ag_130_metadata = MethodMetadata.tabarena_legacy_s3(
     method="AutoGluon_v130",
     name="AutoGluon 1.3 (best, 4h)",
-    artifact_name="tabarena-2025-06-12",
+    suite="tabarena-2025-06-12",
     date="2025-06-12",
     method_type="baseline",
     compute="cpu",
@@ -22,7 +22,7 @@ ag_130_metadata = MethodMetadata.tabarena_legacy_s3(
 
 portfolio_metadata = MethodMetadata.tabarena_legacy_s3(
     method="Portfolio-N200-4h",
-    artifact_name="tabarena-2025-06-12",
+    suite="tabarena-2025-06-12",
     date="2025-06-12",
     method_type="portfolio",
     has_raw=False,

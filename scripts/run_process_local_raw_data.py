@@ -21,7 +21,7 @@ submission yourself), and there is **no download and no upload**. The remaining 
 
 Two ways to specify each method (see ``RawMethod``):
   * Pass a fully-specified ``method_metadata`` (e.g. imported from a model's ``info.py``), or
-  * leave it ``None`` and give ``name`` / ``artifact_name`` / ``model_key`` hints so the
+  * leave it ``None`` and give ``name`` / ``suite`` / ``model_key`` hints so the
     metadata is inferred from the raw data during processing.
 """
 
@@ -54,9 +54,9 @@ class RawMethod:
         already-present raw data; nothing is downloaded.
     method_metadata
         A fully-specified ``MethodMetadata`` (e.g. ``from tabarena.models.tabpfn_3.info import
-        tabpfn_3_method_metadata``). If given, it is used as-is and ``name`` / ``artifact_name`` /
+        tabpfn_3_method_metadata``). If given, it is used as-is and ``name`` / ``suite`` /
         ``model_key`` below are ignored (their values are taken from the metadata).
-    name, artifact_name, model_key
+    name, suite, model_key
         Used only when ``method_metadata is None``: naming hints forwarded to
         ``EndToEndSingle.from_path_raw`` so the metadata is inferred from the raw data. Leaving
         all of them ``None`` lets the method name / artifact / model_key be inferred too.
@@ -65,7 +65,7 @@ class RawMethod:
     path_raw: Path
     method_metadata: MethodMetadata | None = None
     name: str | None = None
-    artifact_name: str | None = None
+    suite: str | None = None
     model_key: str | None = None
 
     def __post_init__(self) -> None:
@@ -80,10 +80,10 @@ class RawMethod:
         return self.method_metadata.method if self.method_metadata is not None else None
 
     @property
-    def resolved_artifact_name(self) -> str | None:
-        if self.artifact_name is not None:
-            return self.artifact_name
-        return self.method_metadata.artifact_name if self.method_metadata is not None else None
+    def resolved_suite(self) -> str | None:
+        if self.suite is not None:
+            return self.suite
+        return self.method_metadata.suite if self.method_metadata is not None else None
 
     @property
     def resolved_model_key(self) -> str | None:
@@ -204,8 +204,8 @@ def _print_method_metadata_snippet(
         ("has_processed", True),
         ("has_results", True),
     ]
-    if method.resolved_artifact_name is not None:
-        snippet_fields.append(("artifact_name", method.resolved_artifact_name))
+    if method.resolved_suite is not None:
+        snippet_fields.append(("suite", method.resolved_suite))
 
     slug = re.sub(r"[^a-z0-9]", "", str(snippet_method).lower()) or "method"
     print("[raw-info]   Suggested MethodMetadata (copy-paste; fill in the manual fields):")
@@ -340,7 +340,7 @@ def process_raw(
     """Process the already-present raw data into cached method artifacts (no upload).
 
     Builds the processed ``EvaluationRepository`` and per-task results and caches them under the
-    TabArena cache root (``~/.cache/tabarena/artifacts/{artifact_name}/methods/{method}/``):
+    TabArena cache root (``~/.cache/tabarena/artifacts/{suite}/methods/{method}/``):
     ``metadata.yaml`` + ``processed/`` + ``results/``.
 
     Parameters
@@ -359,7 +359,7 @@ def process_raw(
         method_metadata=method.method_metadata,
         name=method.resolved_name,
         model_key=method.resolved_model_key,
-        artifact_name=method.resolved_artifact_name,
+        suite=method.resolved_suite,
         cache=True,
         cache_raw=cache_raw,
         cache_hpo_trajectories=cache_hpo_trajectories,
@@ -384,7 +384,7 @@ if __name__ == "__main__":
     #     RawMethod(
     #         path_raw=Path("local_data/leaderboard_submissions/data_SomeNewModel"),
     #         name="SomeNewModel_GPU",
-    #         artifact_name="tabarena-2026-06-22",
+    #         suite="tabarena-2026-06-22",
     #         model_key="SOMENEWMODEL_GPU",
     #     )
     #

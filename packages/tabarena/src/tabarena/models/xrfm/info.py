@@ -7,7 +7,7 @@ from tabarena.models.xrfm.model import XRFMModel
 
 xrfm_method_metadata = MethodMetadata.config(
     method="xRFM_GPU",
-    artifact_name="tabarena-2025-09-03",
+    suite="tabarena-2025-09-03",
     ag_key="XRFM",
     model_key="XRFM_GPU",
     config_default="xRFM_GPU_c1_BAG_L1",

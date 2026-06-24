@@ -56,7 +56,7 @@ class TabArenaEvalConfig:
     """Inputs for `run_eval`. Use the SAME `benchmark_name` as the plan."""
 
     benchmark_name: str
-    """Matches the plan's benchmark name; also used as the cache ``artifact_name``."""
+    """Matches the plan's benchmark name; also used as the cache ``suite``."""
     output_dir: str | Path
     """The run's output dir of TabArena runs."""
     methods: list[EvalMethod]
@@ -130,7 +130,7 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
         MethodArtifact(
             ag_name=method.ag_name,
             path_raw=config.path_raw,
-            artifact_name=config.benchmark_name,
+            suite=config.benchmark_name,
             result_suffix=method.result_suffix,
             only_load_cache=method.only_load_cache,
         )

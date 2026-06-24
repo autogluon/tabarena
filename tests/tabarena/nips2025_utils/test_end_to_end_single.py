@@ -80,7 +80,7 @@ def _e2e_single_for_config(config_default: str, *, method: str = "TA-TabPFN-3") 
     """
     method_metadata = MethodMetadata(
         method=method,
-        artifact_name=method,
+        suite=method,
         method_type="config",
         config_default=config_default,
         can_hpo=False,

@@ -18,11 +18,11 @@ class _DummyModel:
     pass
 
 
-def _make_info(method: str, artifact_name: str | None = None) -> ModelInfo:
+def _make_info(method: str, suite: str | None = None) -> ModelInfo:
     return ModelInfo(
         model_cls=_DummyModel,
         search_space=lambda: None,
-        method_metadata=MethodMetadata(method=method, artifact_name=artifact_name),
+        method_metadata=MethodMetadata(method=method, suite=suite),
     )
 
 
@@ -174,7 +174,7 @@ def test_discover_models_raises_on_duplicate_method_key(patched_discovery):
 
 
 def test_register_model_info_adds_new_entry(patched_discovery):
-    info = _make_info("NewMethod", artifact_name="art-1")
+    info = _make_info("NewMethod", suite="art-1")
 
     register_model_info(info)
 
@@ -190,9 +190,9 @@ def test_register_model_info_is_idempotent_for_same_object(patched_discovery):
     assert get_model_registry()["SameObject"] is info
 
 
-def test_register_model_info_disambiguates_duplicate_with_artifact_name(patched_discovery):
-    core_info = _make_info("Linear", artifact_name="tabarena-core")
-    ext_info = _make_info("Linear", artifact_name="extension-rerun")
+def test_register_model_info_disambiguates_duplicate_with_suite(patched_discovery):
+    core_info = _make_info("Linear", suite="tabarena-core")
+    ext_info = _make_info("Linear", suite="extension-rerun")
     patched_discovery["submodules"] = [("core", True)]
     patched_discovery["info_modules"] = {"core": _info_module(core=core_info)}
 
@@ -204,9 +204,9 @@ def test_register_model_info_disambiguates_duplicate_with_artifact_name(patched_
 
 
 def test_register_model_info_raises_on_conflicting_composite_key(patched_discovery):
-    core_info = _make_info("Linear", artifact_name="tabarena-core")
-    ext_info_v1 = _make_info("Linear", artifact_name="rerun")
-    ext_info_v2 = _make_info("Linear", artifact_name="rerun")
+    core_info = _make_info("Linear", suite="tabarena-core")
+    ext_info_v1 = _make_info("Linear", suite="rerun")
+    ext_info_v2 = _make_info("Linear", suite="rerun")
     patched_discovery["submodules"] = [("core", True)]
     patched_discovery["info_modules"] = {"core": _info_module(core=core_info)}
 

@@ -6,7 +6,7 @@ simulation logic (which drives :class:`~tabarena.paper.paper_runner_tabarena.Pap
 over the method's processed results) is a separate concern.
 
 A ``MethodSimulator`` wraps a ``MethodMetadata`` and reads its identity (``method``,
-``artifact_name``, ``config_type``, ``method_type``, ``can_hpo``, ``config_default``), its
+``suite``, ``config_type``, ``method_type``, ``can_hpo``, ``config_default``), its
 artifact-path helpers, and its ``load_processed`` repo loader. Construct one as
 ``MethodSimulator(method_metadata)`` and call the ``generate_*`` / ``get_config_default``
 methods that previously hung off the metadata.
@@ -71,7 +71,7 @@ class MethodSimulator:
         if mm.method_type == "config":
             hpo_results = simulator.run_minimal_single(model_type=model_type, tune=mm.can_hpo)
             hpo_results["ta_name"] = mm.method
-            hpo_results["ta_suite"] = mm.artifact_name
+            hpo_results["ta_suite"] = mm.suite
             hpo_results = hpo_results.rename(
                 columns={"framework": "method"}
             )  # FIXME: Don't do this, make it method by default
@@ -89,7 +89,7 @@ class MethodSimulator:
         model_results = pd.concat(results_lst, ignore_index=True)
 
         model_results["ta_name"] = mm.method
-        model_results["ta_suite"] = mm.artifact_name
+        model_results["ta_suite"] = mm.suite
         model_results = model_results.rename(
             columns={"framework": "method"}
         )  # FIXME: Don't do this, make it method by default
@@ -140,7 +140,7 @@ class MethodSimulator:
         df_results_hpo["n_iterations"] = n_iterations
         df_results_hpo["seed"] = seed
         df_results_hpo["ta_name"] = mm.method
-        df_results_hpo["ta_suite"] = mm.artifact_name
+        df_results_hpo["ta_suite"] = mm.suite
         return df_results_hpo
 
     def generate_hpo_trajectories(
@@ -250,5 +250,5 @@ class MethodSimulator:
         df_results_best["n_configs"] = n_configs
         df_results_best["n_iterations"] = n_iterations
         df_results_best["ta_name"] = mm.method
-        df_results_best["ta_suite"] = mm.artifact_name
+        df_results_best["ta_suite"] = mm.suite
         return df_results_best

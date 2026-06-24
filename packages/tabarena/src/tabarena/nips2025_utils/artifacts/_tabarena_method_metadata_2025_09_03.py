@@ -13,7 +13,7 @@ from __future__ import annotations
 from tabarena.models._method_metadata import MethodMetadata
 
 _common_kwargs = dict(
-    artifact_name="tabarena-2025-09-03",
+    suite="tabarena-2025-09-03",
 )
 
 # New methods (tabarena-2025-09-03)

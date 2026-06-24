@@ -40,9 +40,7 @@ class TestPresets:
         ctx = BeyondArenaContext()
         method_names = {m.method for m in ctx.method_metadata_collection.method_metadata_lst}
         assert {"LinearModel", "RandomForest", "CatBoost", "TA-TabM", "TA-TabPFN-2.6"} <= method_names
-        assert all(
-            m.artifact_name == "beyond_iid_benchmark_2026" for m in ctx.method_metadata_collection.method_metadata_lst
-        )
+        assert all(m.suite == "beyond_iid_benchmark_2026" for m in ctx.method_metadata_collection.method_metadata_lst)
         assert len(ctx.task_metadata_collection) > 0
 
     def test_only_beyondarena_preset_supported(self):

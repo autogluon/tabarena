@@ -7,7 +7,7 @@ from tabarena.models.tabpfnwide.model import TabPFNWideModel
 
 tabpfnwide_method_metadata = MethodMetadata.config(
     method="TabPFN-Wide",
-    artifact_name="tabarena-2026-05-13",
+    suite="tabarena-2026-05-13",
     ag_key="TA-TABPFN-WIDE",
     config_default="TabPFN-Wide_c1_BAG_L1",
     can_hpo=False,

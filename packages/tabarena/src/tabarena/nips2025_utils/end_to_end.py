@@ -56,7 +56,7 @@ class EndToEnd:
         name_prefix: str | None = None,
         name_suffix: str | None = None,
         model_key: str | None = None,
-        artifact_name: str | None = None,
+        suite: str | None = None,
         backend: Literal["ray", "native"] = "ray",
         verbose: bool = True,
     ) -> Self:
@@ -75,7 +75,7 @@ class EndToEnd:
         result_types_dict = {}
         for r in results_lst:
             cur_method_metadata = MethodMetadata.from_raw(results_lst=[r])
-            cur_tuple = (cur_method_metadata.method, cur_method_metadata.artifact_name, cur_method_metadata.method_type)
+            cur_tuple = (cur_method_metadata.method, cur_method_metadata.suite, cur_method_metadata.method_type)
             if cur_tuple not in result_types_dict:
                 result_types_dict[cur_tuple] = []
             result_types_dict[cur_tuple].append(r)
@@ -98,7 +98,7 @@ class EndToEnd:
                 name_prefix=name_prefix,
                 name_suffix=name_suffix,
                 model_key=model_key,
-                artifact_name=artifact_name,
+                suite=suite,
                 backend=backend,
                 verbose=verbose,
             )
@@ -117,7 +117,7 @@ class EndToEnd:
         name_prefix: str | None = None,
         name_suffix: str | None = None,
         model_key: str | None = None,
-        artifact_name: str | None = None,
+        suite: str | None = None,
         backend: Literal["ray", "native"] = "ray",
         verbose: bool = True,
     ) -> Self:
@@ -160,7 +160,7 @@ class EndToEnd:
                 name_prefix=name_prefix,
                 name_suffix=name_suffix,
                 model_key=model_key,
-                artifact_name=artifact_name,
+                suite=suite,
                 backend=backend,
                 verbose=verbose,
             )
@@ -172,12 +172,12 @@ class EndToEnd:
         end_to_end_lst = []
         for method in methods:
             if isinstance(method, tuple):
-                method, artifact_name = method
+                method, suite = method
             else:
-                artifact_name = None
+                suite = None
             end_to_end_single = EndToEndSingle.from_cache(
                 method=method,
-                artifact_name=artifact_name,
+                suite=suite,
             )
             end_to_end_lst.append(end_to_end_single)
         return cls(end_to_end_lst=end_to_end_lst)
@@ -191,7 +191,7 @@ class EndToEnd:
         name_prefix: str | None = None,
         name_suffix: str | None = None,
         model_key: str | None = None,
-        artifact_name: str | None = None,
+        suite: str | None = None,
         num_cpus: int | None = None,
         verbose: bool = True,
     ) -> EndToEndResults:
@@ -229,9 +229,9 @@ class EndToEnd:
             If specified, will overwrite the model_key of the method (result.model_type).
             This is the `ag_key` value, used to distinguish between different config families
             during portfolio simulation.
-        artifact_name : str or None = None
+        suite : str or None = None
             The name of the upper directory in the cache:
-                ~/.cache/tabarena/artifacts/{artifact_name}/methods/{method}/
+                ~/.cache/tabarena/artifacts/{suite}/methods/{method}/
             If unspecified, will default to ``{method}``
         num_cpus : int or None = None
             Number of CPUs to use for parallel processing.
@@ -270,7 +270,7 @@ class EndToEnd:
                 name_prefix=name_prefix,
                 name_suffix=name_suffix,
                 model_key=model_key,
-                artifact_name=artifact_name,
+                suite=suite,
             ),
             track_progress=True,
             tqdm_kwargs={"desc": "Processing Results"},
@@ -409,7 +409,7 @@ class EndToEndResults:
     ) -> pd.DataFrame:
         results = self.get_results(
             # new_result_prefix=new_result_prefix,
-            # use_artifact_name_in_prefix=use_artifact_name_in_prefix,
+            # use_suite_in_prefix=use_suite_in_prefix,
             # use_model_results=use_model_results,
             # fillna=False,
         )
@@ -452,7 +452,7 @@ class EndToEndResults:
         fillna: str | None = None,
         only_valid_tasks: str | list[str] | None = None,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool = False,
+        use_suite_in_prefix: bool = False,
         use_model_results: bool = False,
         score_on_val: bool = False,
         average_seeds: bool = False,
@@ -469,7 +469,7 @@ class EndToEndResults:
         """
         results = self.get_results(
             new_result_prefix=new_result_prefix,
-            use_artifact_name_in_prefix=use_artifact_name_in_prefix,
+            use_suite_in_prefix=use_suite_in_prefix,
             use_model_results=use_model_results,
             fillna=False,
         )
@@ -500,18 +500,18 @@ class EndToEndResults:
         self,
         *,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool = False,
+        use_suite_in_prefix: bool = False,
         use_model_results: bool = False,
     ) -> list:
         """Vend each method as an :class:`InMemoryMethodMetadata` for context registration.
 
-        ``use_artifact_name_in_prefix`` / ``use_model_results`` are forwarded to each method's
+        ``use_suite_in_prefix`` / ``use_model_results`` are forwarded to each method's
         :meth:`EndToEndResultsSingle.to_method_metadata`.
         """
         return [
             result.to_method_metadata(
                 new_result_prefix=new_result_prefix,
-                use_artifact_name_in_prefix=use_artifact_name_in_prefix,
+                use_suite_in_prefix=use_suite_in_prefix,
                 use_model_results=use_model_results,
             )
             for result in self.end_to_end_results_lst
@@ -520,7 +520,7 @@ class EndToEndResults:
     def get_results(
         self,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool = False,
+        use_suite_in_prefix: bool = False,
         use_model_results: bool = False,
         fillna: bool = False,
     ) -> pd.DataFrame:
@@ -529,7 +529,7 @@ class EndToEndResults:
             df_results_lst.append(
                 result.get_results(
                     new_result_prefix=new_result_prefix,
-                    use_artifact_name_in_prefix=use_artifact_name_in_prefix,
+                    use_suite_in_prefix=use_suite_in_prefix,
                     use_model_results=use_model_results,
                     fillna=fillna,
                 ),
@@ -538,20 +538,20 @@ class EndToEndResults:
 
     @classmethod
     def from_cache(
-        cls, methods: list[str | MethodMetadata | tuple[str, str]], *, default_artifact_name: None | str = None
+        cls, methods: list[str | MethodMetadata | tuple[str, str]], *, default_suite: None | str = None
     ) -> Self:
         end_to_end_results_lst = []
         for method in methods:
             if isinstance(method, tuple):
-                method, artifact_name = method
+                method, suite = method
             else:
-                artifact_name = default_artifact_name
+                suite = default_suite
             if isinstance(method, MethodMetadata):
                 method_metadata = method
             else:
                 method_metadata = MethodMetadata.from_yaml(
                     method=method,
-                    artifact_name=artifact_name if artifact_name is not None else method,
+                    suite=suite if suite is not None else method,
                 )
             end_to_end_results_lst.append(EndToEndResultsSingle(method_metadata=method_metadata))
         return cls(end_to_end_results_lst=end_to_end_results_lst)
@@ -569,7 +569,7 @@ def _process_result_list(
     name_prefix: str | None = None,
     name_suffix: str | None = None,
     model_key: str | None = None,
-    artifact_name: str | None = None,
+    suite: str | None = None,
 ) -> EndToEndResults:
     results_lst = load_all_artifacts(
         file_paths=file_paths_method,
@@ -584,7 +584,7 @@ def _process_result_list(
         name_prefix=name_prefix,
         name_suffix=name_suffix,
         model_key=model_key,
-        artifact_name=artifact_name,
+        suite=suite,
         cache=False,
         cache_raw=False,
         backend="native",

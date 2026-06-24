@@ -15,7 +15,7 @@ lr_descriptor = ModelDescriptor(
 
 lr_method_metadata = lr_descriptor.method_metadata(
     method="LinearModel",
-    artifact_name="tabarena-2025-10-20",
+    suite="tabarena-2025-10-20",
     ag_key="LR",
     config_default="LinearModel_c1_BAG_L1",
     cache_type="s3",

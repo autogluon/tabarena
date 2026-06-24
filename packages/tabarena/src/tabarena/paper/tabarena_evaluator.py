@@ -188,7 +188,7 @@ class TabArenaEvaluator:
             self.method_metadata_info = self.method_metadata_info.rename(
                 columns={
                     "method": "ta_name",
-                    "artifact_name": "ta_suite",
+                    "suite": "ta_suite",
                 }
             )
             self.method_metadata_info = self.method_metadata_info.drop(columns=["method_type"])

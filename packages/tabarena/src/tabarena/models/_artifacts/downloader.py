@@ -35,7 +35,7 @@ class MethodDownloader(ABC):
         self.method = method_metadata.method
         self.bucket = bucket
         # ``prefix`` is the cache-root prefix only (e.g. "cache"); ``key_prefix`` is this method's
-        # *full* key prefix within the bucket, e.g. "cache/artifacts/<artifact_name>/methods/<method>".
+        # *full* key prefix within the bucket, e.g. "cache/artifacts/<suite>/methods/<method>".
         # NOTE: this differs from the pre-refactor subclasses, where ``self.prefix`` held the full
         # per-method key path now stored in ``key_prefix`` — use ``key_prefix`` for object keys.
         self.prefix = prefix

@@ -7,7 +7,7 @@ from tabarena.models.knn.model import KNNNewModel
 
 knn_method_metadata = MethodMetadata.config(
     method="KNeighbors",
-    artifact_name="tabarena-2025-10-20",
+    suite="tabarena-2025-10-20",
     ag_key="KNN",
     config_default="KNeighbors_c1_BAG_L1",
     compute="cpu",

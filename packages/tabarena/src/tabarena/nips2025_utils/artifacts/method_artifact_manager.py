@@ -13,9 +13,9 @@ from tabarena.nips2025_utils.end_to_end import EndToEndSingle
 class MethodArtifactManager:
     """Orchestrates download → local cache → upload-to-S3 for a single method."""
 
-    name: str  # method name, e.g., "xRFM_GPU" <- Method identifier. (name, artifact_name) must be unique.
+    name: str  # method name, e.g., "xRFM_GPU" <- Method identifier. (name, suite) must be unique.
     model_key: str  # e.g., "XRFM_GPU" <- Model key to use for differentiating model families.
-    artifact_name: str  # e.g., "tabarena-2025-09-03" <- Differentiates methods with the same name by origin.
+    suite: str  # e.g., "tabarena-2025-09-03" <- Differentiates methods with the same name by origin.
     path_suffix: Path  # e.g., Path("leaderboard_submissions/data_xRFM_11092025.zip")
     download_prefix: str  # e.g., "https://data.lennart-purucker.com/tabarena/"
     local_prefix: Path  # e.g., Path("local_data") <- Local dir to download raw files. Can delete after cache.
@@ -47,7 +47,7 @@ class MethodArtifactManager:
     ) -> Self:
         return cls(
             name=method_metadata.method,
-            artifact_name=method_metadata.artifact_name,
+            suite=method_metadata.suite,
             model_key=method_metadata.model_key,
             s3_bucket=method_metadata.cache_kwargs.get("bucket"),
             s3_prefix=method_metadata.cache_kwargs.get("prefix"),
@@ -73,7 +73,7 @@ class MethodArtifactManager:
     def cache(self, cache_hpo_trajectories: bool = False) -> EndToEndSingle:
         """Requires first having the raw files locally by calling `self.download_raw()`.
 
-        Cached files will be saved under ~/.cache/tabarena/artifacts/{self.artifact_name}/methods/{self.name}/
+        Cached files will be saved under ~/.cache/tabarena/artifacts/{self.suite}/methods/{self.name}/
 
         Run logic end-to-end and cache all results:
         1. load raw artifacts
@@ -101,7 +101,7 @@ class MethodArtifactManager:
             method_metadata=self.method_metadata,
             name=self.name,
             model_key=self.model_key,
-            artifact_name=self.artifact_name,
+            suite=self.suite,
             cache=True,
             cache_raw=True,
             cache_hpo_trajectories=cache_hpo_trajectories,
@@ -109,7 +109,7 @@ class MethodArtifactManager:
 
     def upload_to_s3(self) -> None:
         """Upload the local cache for this method to S3 under:
-        s3://{self.s3_bucket}/{self.s3_prefix}/artifacts/{self.artifact_name}/methods/{self.name}/.
+        s3://{self.s3_bucket}/{self.s3_prefix}/artifacts/{self.suite}/methods/{self.name}/.
         """
         method_metadata = self.load_metadata()
         uploader = method_metadata.method_uploader()
@@ -117,4 +117,4 @@ class MethodArtifactManager:
 
     def load_metadata(self) -> MethodMetadata:
         """Load MethodMetadata from the local cache for this method."""
-        return MethodMetadata.from_yaml(method=self.name, artifact_name=self.artifact_name)
+        return MethodMetadata.from_yaml(method=self.name, suite=self.suite)

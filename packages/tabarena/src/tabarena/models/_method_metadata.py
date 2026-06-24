@@ -62,7 +62,7 @@ class MethodMetadata:
     pre-dataclass class): the field declarations below are the canonical schema, and
     :meth:`to_info_dict` derives the serialized YAML / info-table surface from those fields (an
     allowlist) rather than from ``self.__dict__``. :meth:`__post_init__` fills the derived
-    defaults (``artifact_name`` <- ``method``, ``model_key`` <- ``ag_key``, ``can_hpo`` <-
+    defaults (``suite`` <- ``method``, ``model_key`` <- ``ag_key``, ``can_hpo`` <-
     ``method_type``, ``display_name``) and validates the inputs.
     """
 
@@ -108,10 +108,10 @@ class MethodMetadata:
 
     # -- (3) Manual (not inferable) -----------------------------------------------------------
     #: Must be specified by hand when relevant: artifact identity/naming and storage/transport
-    #: config (where and how artifacts are cached and uploaded). ``artifact_name`` defaults to
+    #: config (where and how artifacts are cached and uploaded). ``suite`` defaults to
     #: ``method`` but is normally the dated artifact set (e.g. ``"tabarena-2026-05-13"``) and is
     #: part of the cache/S3 path.
-    artifact_name: str | None = None
+    suite: str | None = None
     name: str | None = None
     name_suffix: str | None = None
     #: Storage backend for this method's artifacts. ``None`` (the default) infers it in
@@ -150,8 +150,8 @@ class MethodMetadata:
     verified: bool = True
 
     def __post_init__(self):
-        if self.artifact_name is None:
-            self.artifact_name = self.method
+        if self.suite is None:
+            self.suite = self.method
         if self.model_key is None:
             self.model_key = self.ag_key
         if self.can_hpo is None:
@@ -160,8 +160,8 @@ class MethodMetadata:
 
         assert isinstance(self.method, str)
         assert len(self.method) > 0
-        assert isinstance(self.artifact_name, str)
-        assert len(self.artifact_name) > 0
+        assert isinstance(self.suite, str)
+        assert len(self.suite) > 0
         # Accept a MethodType member or its plain string, normalize to the string for storage,
         # then validate against the canonical set (the constructor's previous hardcoded list).
         if isinstance(self.method_type, MethodType):
@@ -315,7 +315,7 @@ class MethodMetadata:
         cls,
         results_lst: list[BaselineResult],
         method: str | None = None,
-        artifact_name: str | None = None,
+        suite: str | None = None,
         config_default: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
     ) -> Self:
@@ -334,7 +334,7 @@ class MethodMetadata:
             method_metadata = cls._from_raw_config(
                 result_df=result_df,
                 method=method,
-                artifact_name=artifact_name,
+                suite=suite,
                 config_default=config_default,
                 compute=compute,
             )
@@ -342,7 +342,7 @@ class MethodMetadata:
             method_metadata = cls._from_raw_baseline(
                 result_df=result_df,
                 method=method,
-                artifact_name=artifact_name,
+                suite=suite,
                 compute=compute,
             )
         else:
@@ -355,7 +355,7 @@ class MethodMetadata:
         cls,
         result_df: pd.DataFrame,
         method: str | None = None,
-        artifact_name: str | None = None,
+        suite: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
     ) -> Self:
         unique_method_types = result_df["method_type"].unique()
@@ -376,12 +376,12 @@ class MethodMetadata:
         if compute is None:
             compute: Literal["cpu", "gpu"] = "cpu" if num_gpus == 0 else "gpu"
 
-        if artifact_name is None:
-            artifact_name = method
+        if suite is None:
+            suite = method
 
         return cls.baseline(
             method=method,
-            artifact_name=artifact_name,
+            suite=suite,
             compute=compute,
         )
 
@@ -430,7 +430,7 @@ class MethodMetadata:
         cls,
         result_df: pd.DataFrame,
         method: str | None = None,
-        artifact_name: str | None = None,
+        suite: str | None = None,
         config_default: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
     ) -> Self:
@@ -480,12 +480,12 @@ class MethodMetadata:
         if method is None:
             method = name_prefix
 
-        if artifact_name is None:
-            artifact_name = method
+        if suite is None:
+            suite = method
 
         return cls.config(
             method=method,
-            artifact_name=artifact_name,
+            suite=suite,
             compute=compute,
             config_default=config_default,
             ag_key=ag_key,
@@ -498,7 +498,7 @@ class MethodMetadata:
         cls,
         *,
         method: str,
-        artifact_name: str,
+        suite: str,
         has_raw: bool = True,
         has_processed: bool = True,
         has_results: bool = True,
@@ -519,7 +519,7 @@ class MethodMetadata:
         """
         return cls(
             method=method,
-            artifact_name=artifact_name,
+            suite=suite,
             has_raw=has_raw,
             has_processed=has_processed,
             has_results=has_results,
@@ -551,10 +551,10 @@ class MethodMetadata:
     @property
     def path(self) -> Path:
         # When ``cache_root`` is set, artifacts live in a flat ``<cache_root>/<method>/`` dir
-        # (no ``artifacts/<artifact_name>/methods/`` infix) so committed copies stay shallow.
+        # (no ``artifacts/<suite>/methods/`` infix) so committed copies stay shallow.
         if self.cache_root is not None:
             return self.cache_root / self.method
-        return self._path_root / self.artifact_name / "methods" / self.method
+        return self._path_root / self.suite / "methods" / self.method
 
     @property
     def path_raw(self) -> Path:
@@ -612,7 +612,7 @@ class MethodMetadata:
             raise AssertionError(
                 f"Tried to get MethodDownloader from MethodMetadata, but cache_type={self.cache_type!r} "
                 f"has no remote store to download from."
-                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, cache_type={self.cache_type})"
+                f"\n\t(method={self.method}, suite={self.suite}, cache_type={self.cache_type})"
                 f"\nUse a remote backend ('s3'/'r2') with bucket + prefix to enable artifact download.",
             )
 
@@ -647,7 +647,7 @@ class MethodMetadata:
             raise AssertionError(
                 f"Tried to get MethodUploader from MethodMetadata, but cache_type={self.cache_type!r} "
                 f"has no remote store to upload to."
-                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, cache_type={self.cache_type})"
+                f"\n\t(method={self.method}, suite={self.suite}, cache_type={self.cache_type})"
                 f"\nUse a remote backend ('s3'/'r2') with bucket + prefix to enable artifact upload.",
             )
 
@@ -879,6 +879,9 @@ class MethodMetadata:
         an older schema still constructs. Mutates and returns ``kwargs``. All backwards-compat
         handling for the on-disk format lives here:
 
+        - ``artifact_name``: renamed to ``suite``. Fold a legacy ``artifact_name`` key onto
+          ``suite`` so metadata.yaml written before the rename still loads. (We only ever wrote
+          one of the two, so this never clobbers an explicit ``suite``.)
         - ``use_artifact_name_in_prefix``: field removed from the schema; drop it if present.
         - ``upload_as_public``: moved into ``cache_kwargs`` (an s3-specific public-read ACL knob).
           Fold a ``True`` value into ``cache_kwargs`` only when ``cache_type == "s3"``; otherwise
@@ -887,6 +890,8 @@ class MethodMetadata:
           before they moved into ``cache_kwargs``): fold onto ``cache_kwargs["bucket"]`` /
           ``cache_kwargs["prefix"]`` so previously-written metadata.yaml still loads.
         """
+        if "artifact_name" in kwargs:
+            kwargs.setdefault("suite", kwargs.pop("artifact_name"))
         kwargs.pop("use_artifact_name_in_prefix", None)
         if kwargs.pop("upload_as_public", False) and kwargs.get("cache_type") == "s3":
             kwargs.setdefault("cache_kwargs", {}).setdefault("upload_as_public", True)
@@ -905,7 +910,7 @@ class MethodMetadata:
         cls,
         path: Path | str | None = None,
         method: str | None = None,
-        artifact_name: str | None = None,
+        suite: str | None = None,
         *,
         cache_root: str | Path | None = None,
         relative_cache: bool | Literal["auto"] = "auto",
@@ -925,7 +930,7 @@ class MethodMetadata:
 
         The default ``"auto"`` applies that inference exactly when it is safe and unambiguous: an
         explicit ``path`` is given and no ``cache_root`` was passed. It is a no-op for the
-        ``method``/``artifact_name`` lookup forms (so those callers are unaffected), and the
+        ``method``/``suite`` lookup forms (so those callers are unaffected), and the
         inference is correct for both the flat committed layout and the global cache layout, since
         in both the yaml's parent directory is named ``<method>``.
         """
@@ -941,11 +946,11 @@ class MethodMetadata:
 
         if path is None:
             assert method is not None, "method must be specified if path is not specified"
-            assert artifact_name is not None, "artifact_name must be specified if path is not specified"
+            assert suite is not None, "suite must be specified if path is not specified"
             if cache_root is not None:
                 path = Path(cache_root) / method / "metadata.yaml"
             else:
-                path = get_tabarena_cache_root() / "artifacts" / artifact_name / "methods" / method / "metadata.yaml"
+                path = get_tabarena_cache_root() / "artifacts" / suite / "methods" / method / "metadata.yaml"
 
         assert str(path).endswith(".yaml")
         with open(path) as file:
@@ -1009,7 +1014,7 @@ class ModelDescriptor:
     *and* the Beyond-IID re-run in
     :mod:`tabarena.nips2025_utils.artifacts._beyond_method_metadata` — instead of being
     re-typed per artifact. It carries only the fields that are identical across those runs;
-    everything run-specific (``method`` name, ``ag_key``, ``artifact_name``, ``config_default``,
+    everything run-specific (``method`` name, ``ag_key``, ``suite``, ``config_default``,
     ``can_hpo``, ``date``, storage) is supplied per call to :meth:`method_metadata`.
     """
 

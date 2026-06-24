@@ -8,7 +8,7 @@ from tabarena.models.fastai.hpo import gen_fastai
 
 fastai_method_metadata = MethodMetadata.config(
     method="NeuralNetFastAI",
-    artifact_name="tabarena-2025-06-12",
+    suite="tabarena-2025-06-12",
     ag_key="FASTAI",
     config_default="NeuralNetFastAI_c1_BAG_L1",
     compute="cpu",

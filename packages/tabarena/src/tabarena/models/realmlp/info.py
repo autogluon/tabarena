@@ -14,7 +14,7 @@ realmlp_descriptor = ModelDescriptor(
 
 realmlp_method_metadata = realmlp_descriptor.method_metadata(
     method="RealMLP_GPU",
-    artifact_name="tabarena-2025-09-03",
+    suite="tabarena-2025-09-03",
     ag_key="TA-REALMLP",
     model_key="REALMLP_GPU",
     config_default="RealMLP_GPU_c1_BAG_L1",
@@ -27,7 +27,7 @@ realmlp_method_metadata = realmlp_descriptor.method_metadata(
 # CPU variant — same model class, same search space, different compute target.
 realmlp_cpu_method_metadata = realmlp_descriptor.method_metadata(
     method="RealMLP",
-    artifact_name="tabarena-2025-06-12",
+    suite="tabarena-2025-06-12",
     ag_key="REALMLP",
     config_default="RealMLP_c1_BAG_L1",
     compute="cpu",

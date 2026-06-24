@@ -23,7 +23,7 @@ required credentials are missing.
 
 Specify the methods to upload either by importing a ``MethodMetadata`` from a model's ``info.py``,
 or by loading one from the local cache with
-``MethodMetadata.from_yaml(method=..., artifact_name=...)``.
+``MethodMetadata.from_yaml(method=..., suite=...)``.
 """
 
 from __future__ import annotations
@@ -98,9 +98,8 @@ def plan_and_verify_upload(method_metadata: MethodMetadata, *, upload_raw: bool 
 
     if problems:
         raise FileNotFoundError(
-            f"Refusing to upload '{method_metadata.method}' (artifact_name="
-            f"{method_metadata.artifact_name!r}); {len(problems)} artifact check(s) failed:\n  - "
-            + "\n  - ".join(problems)
+            f"Refusing to upload '{method_metadata.method}' (suite="
+            f"{method_metadata.suite!r}); {len(problems)} artifact check(s) failed:\n  - " + "\n  - ".join(problems)
         )
     return parts
 
@@ -139,7 +138,7 @@ def upload_method(
 
     if dry_run:
         print(
-            f"[dry-run] '{method_metadata.method}' (artifact={method_metadata.artifact_name}) "
+            f"[dry-run] '{method_metadata.method}' (artifact={method_metadata.suite}) "
             f"verified OK; would upload parts={parts} -> {_destination(method_metadata)} "
             f"(cache_type={method_metadata.cache_type})"
         )
@@ -152,7 +151,7 @@ def upload_method(
 
     uploader = method_metadata.method_uploader()
     print(
-        f"Uploading '{method_metadata.method}' (artifact={method_metadata.artifact_name}) "
+        f"Uploading '{method_metadata.method}' (artifact={method_metadata.suite}) "
         f"to s3://{uploader.bucket}/{uploader.prefix} | cache_type={method_metadata.cache_type} | parts={parts}"
     )
     uploader.upload_metadata()
@@ -177,10 +176,10 @@ if __name__ == "__main__":
     # Methods to upload. Either import a fully-specified MethodMetadata from a model's info.py:
     #     from tabarena.models.tabpfn_3.info import tabpfn_3_method_metadata
     #     methods = [tabpfn_3_method_metadata]
-    # or load one from the local cache by (method, artifact_name):
-    #     MethodMetadata.from_yaml(method="TabPFN-3", artifact_name="tabarena-2026-05-13")
+    # or load one from the local cache by (method, suite):
+    #     MethodMetadata.from_yaml(method="TabPFN-3", suite="tabarena-2026-05-13")
     methods: list[MethodMetadata] = [
-        # MethodMetadata.from_yaml(method="...", artifact_name="..."),
+        # MethodMetadata.from_yaml(method="...", suite="..."),
     ]
 
     if len(methods) == 0:

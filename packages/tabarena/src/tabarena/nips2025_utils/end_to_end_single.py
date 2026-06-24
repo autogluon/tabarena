@@ -165,7 +165,7 @@ class EndToEndSingle:
         name_suffix: str | None = None,
         model_key: str | None = None,
         method: str | None = None,
-        artifact_name: str | None = None,
+        suite: str | None = None,
         backend: Literal["ray", "native"] = "ray",
         verbose: bool = True,
     ) -> Self:
@@ -185,7 +185,7 @@ class EndToEndSingle:
         method_metadata : MethodMetadata or None = None
             The method_metadata containing information about the method.
             If unspecified, will be inferred from ``results_lst``.
-            If specified, ``method`` and ``artifact_name`` will be ignored.
+            If specified, ``method`` and ``suite`` will be ignored.
         task_metadata : pd.DataFrame or None = None
             The task_metadata containing information for each task,
             such as the target evaluation metric and problem_type.
@@ -217,11 +217,11 @@ class EndToEndSingle:
             during portfolio simulation.
         method : str or None = None
             The name of the lower directory in the cache:
-                ~/.cache/tabarena/artifacts/{artifact_name}/methods/{method}/
+                ~/.cache/tabarena/artifacts/{suite}/methods/{method}/
             If unspecified, will default to ``{name_prefix}`` for configs or ``{name}`` for baselines.
-        artifact_name : str or None = None
+        suite : str or None = None
             The name of the upper directory in the cache:
-                ~/.cache/tabarena/artifacts/{artifact_name}/methods/{method}/
+                ~/.cache/tabarena/artifacts/{suite}/methods/{method}/
             If unspecified, will default to ``{method}``
         backend : "ray" or "native" = "ray"
             If "ray", will parallelize the calculation of hpo_results and model_results.
@@ -252,7 +252,7 @@ class EndToEndSingle:
             method_metadata: MethodMetadata = MethodMetadata.from_raw(
                 results_lst=results_lst,
                 method=method,
-                artifact_name=artifact_name,
+                suite=suite,
             )
 
         log(
@@ -327,7 +327,7 @@ class EndToEndSingle:
         name_suffix: str | None = None,
         model_key: str | None = None,
         method: str | None = None,
-        artifact_name: str | None = None,
+        suite: str | None = None,
         name_prefix_raw: str | None = None,
         backend: Literal["ray", "native"] = "ray",
         num_cpus: int | None = None,
@@ -348,7 +348,7 @@ class EndToEndSingle:
         name_suffix
         model_key
         method
-        artifact_name
+        suite
         backend
         verbose
 
@@ -379,7 +379,7 @@ class EndToEndSingle:
             name_suffix=name_suffix,
             model_key=model_key,
             method=method,
-            artifact_name=artifact_name,
+            suite=suite,
             backend=backend,
             verbose=verbose,
         )
@@ -407,15 +407,15 @@ class EndToEndSingle:
         return results_lst
 
     @classmethod
-    def from_cache(cls, method: str | MethodMetadata, artifact_name: str | None = None) -> Self:
+    def from_cache(cls, method: str | MethodMetadata, suite: str | None = None) -> Self:
         if isinstance(method, MethodMetadata):
             method_metadata = method
         else:
-            if artifact_name is None:
-                artifact_name = method
+            if suite is None:
+                suite = method
             method_metadata = MethodMetadata.from_yaml(
                 method=method,
-                artifact_name=artifact_name,
+                suite=suite,
             )
         repo = method_metadata.load_processed()
         end_to_end_results_single = EndToEndResultsSingle(method_metadata=method_metadata)
@@ -453,7 +453,7 @@ class EndToEndSingle:
         name_suffix: str | None = None,
         model_key: str | None = None,
         method: str | None = None,
-        artifact_name: str | None = None,
+        suite: str | None = None,
         num_cpus: int | None = None,
         name_prefix_raw: str | None = None,
         verbose: bool = True,
@@ -471,7 +471,7 @@ class EndToEndSingle:
         method_metadata : MethodMetadata or None = None
             The method_metadata containing information about the method.
             If unspecified, will be inferred from ``results_lst``.
-            If specified, ``method`` and ``artifact_name`` will be ignored.
+            If specified, ``method`` and ``suite`` will be ignored.
         task_metadata : pd.DataFrame or None = None
             The task_metadata containing information for each task,
             such as the target evaluation metric and problem_type.
@@ -488,11 +488,11 @@ class EndToEndSingle:
             such as when re-running LightGBM.
         method : str or None = None
             The name of the lower directory in the cache:
-                ~/.cache/tabarena/artifacts/{artifact_name}/methods/{method}/
+                ~/.cache/tabarena/artifacts/{suite}/methods/{method}/
             If unspecified, will default to ``{name_prefix}`` for configs or ``{name}`` for baselines.
-        artifact_name : str or None = None
+        suite : str or None = None
             The name of the upper directory in the cache:
-                ~/.cache/tabarena/artifacts/{artifact_name}/methods/{method}/
+                ~/.cache/tabarena/artifacts/{suite}/methods/{method}/
             If unspecified, will default to ``{method}``
         num_cpus : int or None = None
             Number of CPUs to use for parallel processing.
@@ -550,7 +550,7 @@ class EndToEndSingle:
                 name_suffix=name_suffix,
                 model_key=model_key,
                 method=method,
-                artifact_name=artifact_name,
+                suite=suite,
             ),
             track_progress=True,
             tqdm_kwargs={"desc": "Processing Results"},
@@ -588,7 +588,7 @@ class EndToEndResultsSingle:
         self,
         *,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool = False,
+        use_suite_in_prefix: bool = False,
         use_model_results: bool = False,
     ):
         """Vend this method as an :class:`InMemoryMethodMetadata` (metadata + in-memory results).
@@ -597,7 +597,7 @@ class EndToEndResultsSingle:
         ``extra_methods=`` so the method is registered at init and flows through
         ``compare`` and the leaderboard/website machinery like a cached baseline.
 
-        ``use_artifact_name_in_prefix`` / ``use_model_results`` mirror
+        ``use_suite_in_prefix`` / ``use_model_results`` mirror
         :meth:`get_results` (forwarded through :meth:`InMemoryMethodMetadata.from_results_single`).
         """
         from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
@@ -605,14 +605,14 @@ class EndToEndResultsSingle:
         return InMemoryMethodMetadata.from_results_single(
             self,
             new_result_prefix=new_result_prefix,
-            use_artifact_name_in_prefix=use_artifact_name_in_prefix,
+            use_suite_in_prefix=use_suite_in_prefix,
             use_model_results=use_model_results,
         )
 
     def get_results(
         self,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool = False,
+        use_suite_in_prefix: bool = False,
         use_model_results: bool = False,
         fillna: bool = False,
     ) -> pd.DataFrame:
@@ -627,10 +627,10 @@ class EndToEndResultsSingle:
 
         df_results = copy.deepcopy(self.model_results) if use_model_results else copy.deepcopy(self.hpo_results)
 
-        if use_artifact_name_in_prefix:
+        if use_suite_in_prefix:
             if new_result_prefix is None:
                 new_result_prefix = ""
-            new_result_prefix = new_result_prefix + f"[{self.method_metadata.artifact_name}] "
+            new_result_prefix = new_result_prefix + f"[{self.method_metadata.suite}] "
         if new_result_prefix is not None:
             df_results = self.add_prefix_to_results(results=df_results, prefix=new_result_prefix, inplace=True)
 
@@ -767,7 +767,7 @@ def _process_result_list(
     name_suffix: str | None = None,
     model_key: str | None = None,
     method: str | None = None,
-    artifact_name: str | None = None,
+    suite: str | None = None,
 ) -> EndToEndResultsSingle:
     results_lst = load_all_artifacts(
         file_paths=file_paths_method,
@@ -786,7 +786,7 @@ def _process_result_list(
         name_suffix=name_suffix,
         model_key=model_key,
         method=method,
-        artifact_name=artifact_name,
+        suite=suite,
         backend="native",
         verbose=False,
     )

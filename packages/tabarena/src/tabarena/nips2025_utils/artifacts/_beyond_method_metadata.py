@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 _common_kwargs = dict(
     method_type="config",
-    artifact_name="beyond_iid_benchmark_2026",
+    suite="beyond_iid_benchmark_2026",
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
