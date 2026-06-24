@@ -56,7 +56,7 @@ class InMemoryMethodMetadata(MethodMetadata):
         results_single: EndToEndResultsSingle,
         *,
         new_result_prefix: str | None = None,
-        use_artifact_name_in_prefix: bool = False,
+        use_suite_in_prefix: bool = False,
         use_model_results: bool = False,
     ) -> Self:
         """Build from an ``EndToEndResultsSingle`` (its ``method_metadata`` + in-memory results).
@@ -66,7 +66,7 @@ class InMemoryMethodMetadata(MethodMetadata):
         metadata's name fields, so the website leaderboard merge on ``(ta_name, ta_suite)``
         still matches.
 
-        ``use_artifact_name_in_prefix`` / ``use_model_results`` are forwarded to
+        ``use_suite_in_prefix`` / ``use_model_results`` are forwarded to
         :meth:`EndToEndResultsSingle.get_results`. When the artifact-name prefix is applied, the
         same ``[suite] `` segment get_results prepends to the frame's identity columns is
         baked into the metadata identity here too, so the website merge still matches.
@@ -74,14 +74,14 @@ class InMemoryMethodMetadata(MethodMetadata):
         base = results_single.method_metadata
         results = results_single.get_results(
             new_result_prefix=new_result_prefix,
-            use_artifact_name_in_prefix=use_artifact_name_in_prefix,
+            use_suite_in_prefix=use_suite_in_prefix,
             use_model_results=use_model_results,
         )
 
         # The total prefix get_results prepended to the frame's method/config_type/ta_name/
         # ta_suite columns, mirrored so the metadata identity stays in lock-step.
         identity_prefix = new_result_prefix or ""
-        if use_artifact_name_in_prefix:
+        if use_suite_in_prefix:
             identity_prefix = identity_prefix + f"[{base.suite}] "
 
         kwargs = base.to_info_dict()

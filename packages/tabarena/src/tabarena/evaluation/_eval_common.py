@@ -32,14 +32,14 @@ class MethodArtifact:
 
     A flat, runner-agnostic spec: the v0.1 runner builds one per ``EvalMethod`` (all sharing the
     config's ``path_raw``/``benchmark_name``); the BeyondArena runner builds one per (run, model),
-    so a single method name can appear under multiple ``artifact_name``s.
+    so a single method name can appear under multiple ``suite``s.
     """
 
     ag_name: str
     """The model's AutoGluon name — both the raw-folder prefix and the cache method name."""
     path_raw: Path
     """Directory holding the raw ``results.pkl`` artifacts (the run's ``<output_dir>/data``)."""
-    artifact_name: str
+    suite: str
     """Cache artifact name (upper cache dir); distinct values disambiguate the same method
     across different runs."""
     result_suffix: str | None = None
@@ -103,7 +103,7 @@ def post_process_to_results(
 
     1. **Cache:** for each non-``only_load_cache`` method, ``EndToEndSingle.from_path_raw_to_results``
        processes the raw ``results.pkl`` files into per-task results and writes them to the cache
-       (keyed by ``(artifact_name, ag_name)``). ``task_metadata`` is a native
+       (keyed by ``(suite, ag_name)``). ``task_metadata`` is a native
        :class:`~tabarena.benchmark.task.metadata.TaskMetadataCollection`, forwarded so custom (e.g.
        BeyondArena) task sets match correctly; pass ``None`` to infer it from the results.
     2. **Load:** every method is (re-)loaded from the cache via ``EndToEndResults.from_cache`` — in
@@ -117,19 +117,19 @@ def post_process_to_results(
     for ma in method_artifacts:
         if ma.only_load_cache:
             continue
-        print(f"Post-processing raw results for ag_name={ma.ag_name} (artifact={ma.artifact_name})...")
+        print(f"Post-processing raw results for ag_name={ma.ag_name} (artifact={ma.suite})...")
         EndToEndSingle.from_path_raw_to_results(
             path_raw=ma.path_raw,
             name_prefix_raw=ma.ag_name,
             name_suffix=ma.result_suffix,
             method=ma.ag_name,
-            artifact_name=ma.artifact_name,
+            suite=ma.suite,
             task_metadata=task_metadata,
             num_cpus=num_cpus,
         )
 
-    # Phase 2: re-load every method from the cache (one (ag_name, artifact_name) per artifact).
-    return EndToEndResults.from_cache(methods=[(ma.ag_name, ma.artifact_name) for ma in method_artifacts])
+    # Phase 2: re-load every method from the cache (one (ag_name, suite) per artifact).
+    return EndToEndResults.from_cache(methods=[(ma.ag_name, ma.suite) for ma in method_artifacts])
 
 
 def subset_label(subset: list[str]) -> str:

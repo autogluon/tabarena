@@ -149,13 +149,13 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
     # One self-contained native collection, shared by post-processing, compare, and subset filtering.
     task_metadata = load_beyond_task_metadata_collection(config.metadata_source)
 
-    # Flatten (run, model) into post-processing specs; distinct artifact_name per run keeps a
+    # Flatten (run, model) into post-processing specs; distinct suite per run keeps a
     # method that appears in multiple runs from colliding in the cache.
     artifacts = [
         MethodArtifact(
             ag_name=resolve_ag_name(model, (run.ag_name_overrides or {}).get(model)),
             path_raw=Path(run.output_dir) / "data",
-            artifact_name=run.benchmark_name,
+            suite=run.benchmark_name,
             result_suffix=run.result_suffix,
             only_load_cache=run.loads_from_cache(model),
         )

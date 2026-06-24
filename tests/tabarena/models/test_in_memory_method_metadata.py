@@ -122,7 +122,7 @@ class TestFromResultsSinglePrefixIdentity:
     def _results_single(self) -> EndToEndResultsSingle:
         base = MethodMetadata(
             method="MyModel",
-            artifact_name="MyModel",
+            suite="MyModel",
             method_type="config",
             ag_key="MM",
             model_key="MM",
@@ -134,17 +134,17 @@ class TestFromResultsSinglePrefixIdentity:
     def test_prefix_applied_to_identity_fields(self):
         im = self._results_single().to_method_metadata(new_result_prefix="[New] ")
         assert im.method == "[New] MyModel"
-        assert im.artifact_name == "[New] MyModel"
+        assert im.suite == "[New] MyModel"
         assert im.display_name == "[New] MyModel"
         assert im.config_type == "[New] MM"  # model_key was prefixed too
 
     def test_frame_and_identity_share_the_website_merge_key(self):
         # leaderboard_to_website_format merges leaderboard <-> info on (ta_name, ta_suite),
-        # where info's ta_name/ta_suite == method/artifact_name. They must equal the frame's.
+        # where info's ta_name/ta_suite == method/suite. They must equal the frame's.
         im = self._results_single().to_method_metadata(new_result_prefix="[New] ")
         frame = im.load_results()
         assert list(frame["ta_name"].unique()) == [im.method]
-        assert list(frame["ta_suite"].unique()) == [im.artifact_name]
+        assert list(frame["ta_suite"].unique()) == [im.suite]
         assert list(frame["method"].unique()) == ["[New] MM (default)"]
 
     def test_no_prefix_is_identity(self):
@@ -161,7 +161,7 @@ class TestContextRegistration:
         return InMemoryMethodMetadata(
             results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
             method=method,
-            artifact_name=method,
+            suite=method,
             method_type="config",
             model_key=method,
         )
@@ -170,7 +170,7 @@ class TestContextRegistration:
         return _DiskBackedMethod(
             results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
             method=method,
-            artifact_name=method,
+            suite=method,
             method_type="config",
             model_key=method,
         )
@@ -204,7 +204,7 @@ class TestResolveOnlyValidTasks:
         return InMemoryMethodMetadata(
             results=_results_frame("NewA (default)", datasets=("d1",), ta_name="NewA", ta_suite="NewA"),
             method="NewA",
-            artifact_name="NewA",
+            suite="NewA",
             method_type="config",
             model_key="NewA",
         )
@@ -263,7 +263,7 @@ class TestInitOnlyValidTasks:
         return InMemoryMethodMetadata(
             results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
             method=method,
-            artifact_name=method,
+            suite=method,
             method_type="config",
             model_key=method,
         )
@@ -296,7 +296,7 @@ class TestInitOnlyValidTasks:
         disk = _DiskBackedMethod(
             results=_results_frame("Disk (default)", datasets=("d1",), ta_name="Disk", ta_suite="Disk"),
             method="Disk",
-            artifact_name="Disk",
+            suite="Disk",
             method_type="config",
             model_key="Disk",
         )
@@ -342,7 +342,7 @@ class TestFromNewMethodsFactory:
         return InMemoryMethodMetadata(
             results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
             method=method,
-            artifact_name=method,
+            suite=method,
             method_type="config",
             model_key=method,
         )
@@ -388,7 +388,7 @@ class TestRegister:
         return InMemoryMethodMetadata(
             results=_results_frame(f"{method} (default)", datasets=datasets, ta_name=method, ta_suite=method),
             method=method,
-            artifact_name=method,
+            suite=method,
             method_type="config",
             model_key=method,
         )

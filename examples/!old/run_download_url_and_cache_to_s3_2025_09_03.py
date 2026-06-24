@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 import pandas as pd
+
 from tabarena.models.iltm.info import iltm_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata_new
 from tabarena.models.orionmsp.info import orionmsp_method_metadata as orionmsp_metadata
@@ -52,7 +53,7 @@ def _compare_with_provided_metadata(
 
     rows: list[tuple[str, object, object]] = [
         ("method", method_info.name, m.method),
-        ("artifact_name", method_info.artifact_name, m.artifact_name),
+        ("suite", method_info.suite, m.suite),
         ("method_type", inferred_method_type, m.method_type),
         ("compute", inferred_compute, m.compute),
         ("ag_key", inferred_ag_key, m.ag_key),
@@ -122,7 +123,7 @@ def _print_method_metadata_snippet(
     """Print a copy-pasteable `MethodMetadata(...)` snippet from raw-inferred values."""
     snippet_fields: list[tuple[str, object]] = [
         ("method", method_info.name),
-        ("artifact_name", method_info.artifact_name),
+        ("suite", method_info.suite),
         ("method_type", method_types[0] if len(method_types) == 1 else None),
         ("compute", inferred_compute),
         ("ag_key", ag_keys[0] if len(ag_keys) == 1 else None),
@@ -282,78 +283,78 @@ if __name__ == "__main__":
     )
 
     # 31 GB
-    # Uploaded to s3, artifact_name="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
+    # Uploaded to s3, suite="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
     xrfm_info = MethodArtifactManager(
         path_suffix=Path("leaderboard_submissions") / "data_xRFM_11092025.zip",
         name="xRFM_GPU",
-        artifact_name="tabarena-2025-09-03",
+        suite="tabarena-2025-09-03",
         model_key="XRFM_GPU",
         **shared_args,
     )
 
     # 33 MB
-    # Uploaded to s3, artifact_name="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
+    # Uploaded to s3, suite="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
     mitra_info = MethodArtifactManager(
         path_suffix=Path("leaderboard_submissions") / "data_Mitra_14082025.zip",
         name="Mitra_GPU",
-        artifact_name="tabarena-2025-09-03",
+        suite="tabarena-2025-09-03",
         model_key="MITRA_GPU",
         **shared_args,
     )
 
     # 37 GB
-    # Uploaded to s3, artifact_name="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
+    # Uploaded to s3, suite="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
     ebm_info = MethodArtifactManager(
         path_suffix=Path("leaderboard_submissions") / "data_EBM_12082025.zip",
         name="ExplainableBM",
-        artifact_name="tabarena-2025-09-03",
+        suite="tabarena-2025-09-03",
         model_key="EBM",
         **shared_args,
     )
 
     # 37 GB
-    # Uploaded to s3, artifact_name="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
+    # Uploaded to s3, suite="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
     realmlp_info = MethodArtifactManager(
         path_suffix=Path("leaderboard_submissions") / "data_RealMLP_20082025.zip",
         name="RealMLP_GPU",
-        artifact_name="tabarena-2025-09-03",
+        suite="tabarena-2025-09-03",
         model_key="REALMLP_GPU",
         **shared_args,
     )
 
     # 74 MB
-    # Uploaded to s3, artifact_name="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
+    # Uploaded to s3, suite="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
     tabflex_info = MethodArtifactManager(
         path_suffix=Path("data_TabFlex.zip"),
         name="TabFlex_GPU",
-        artifact_name="tabarena-2025-09-03",
+        suite="tabarena-2025-09-03",
         model_key="TABFLEX_GPU",
         **shared_args,
     )
 
     # 71 MB
-    # Uploaded to s3, artifact_name="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
+    # Uploaded to s3, suite="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
     limix_info = MethodArtifactManager(
         path_suffix=Path("data_LimiX.zip"),
         name="LimiX_GPU",
-        artifact_name="tabarena-2025-09-03",
+        suite="tabarena-2025-09-03",
         model_key="LIMIX_GPU",
         **shared_args,
     )
 
     # 122 MB
-    # Uploaded to s3, artifact_name="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
+    # Uploaded to s3, suite="tabarena-2025-09-03", s3_prefix="cache", upload_as_public=True
     betatabpfn_info = MethodArtifactManager(
         path_suffix=Path("data_BetaTabPFN.zip"),
         name="BetaTabPFN_GPU",
-        artifact_name="tabarena-2025-09-03",
+        suite="tabarena-2025-09-03",
         model_key="BETA_GPU",
         **shared_args,
     )
 
 
     # 17 GB
-    # Uploaded to s3, artifact_name="tabarena-2025-10-20", s3_prefix="cache", upload_as_public=True
+    # Uploaded to s3, suite="tabarena-2025-10-20", s3_prefix="cache", upload_as_public=True
     tabdpt_info = MethodArtifactManager.from_method_metadata(
         method_metadata=tabdpt_metadata,
         path_suffix=Path("leaderboard_submissions") / "data_TabDPT_28102025.zip",

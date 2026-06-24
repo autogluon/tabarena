@@ -522,11 +522,11 @@ class AbstractArenaContext:
     def method_metadata(
         self,
         method: str,
-        artifact_name: str | None = None,
+        suite: str | None = None,
     ) -> MethodMetadata:
         return self.method_metadata_collection.get_method_metadata(
             method=method,
-            artifact_name=artifact_name,
+            suite=suite,
         )
 
     def get_method_rename_map(self) -> dict[str, str]:
@@ -573,7 +573,7 @@ class AbstractArenaContext:
         method_metadata_info = method_metadata_info.rename(
             columns={
                 "method": "ta_name",
-                "artifact_name": "ta_suite",
+                "suite": "ta_suite",
             },
         )
         return format_leaderboard(
@@ -868,7 +868,7 @@ class AbstractArenaContext:
         )
 
         # TODO: only methods that exist in runs
-        #  Pair with (method, artifact_name)
+        #  Pair with (method, suite)
         method_rename_map = self.get_method_rename_map()
 
         # `output_dir=None` means "I only want the leaderboard": write the figures / CSVs to a

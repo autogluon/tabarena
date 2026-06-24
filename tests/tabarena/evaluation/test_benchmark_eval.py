@@ -113,11 +113,11 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     assert len(post_calls) == 1
     assert post_calls[0]["name_prefix_raw"] == "AG_A"
     assert post_calls[0]["method"] == "AG_A"
-    assert post_calls[0]["artifact_name"] == "bench"
+    assert post_calls[0]["suite"] == "bench"
     assert post_calls[0]["name_suffix"] == " [Rerun]"
     assert Path(post_calls[0]["path_raw"]) == cfg.path_raw
 
-    # Phase 2: every method is re-loaded from cache as (ag_name, artifact_name), exactly once.
+    # Phase 2: every method is re-loaded from cache as (ag_name, suite), exactly once.
     assert from_cache_calls == [[("AG_A", "bench"), ("AG_B", "bench")]]
 
     # The context is built once, with the run's vended methods registered via extra_methods=.
