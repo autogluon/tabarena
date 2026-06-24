@@ -73,12 +73,25 @@ class MethodMetadata:
     #: stays out of :meth:`to_info_dict` / the metadata info table.
     is_in_memory: ClassVar[bool] = False
 
-    # Fields are grouped by how a method author supplies them: (1) required, (2) inferable from
-    # raw results, (3) manual, (4) purely informative. Order is otherwise free — every caller
-    # constructs MethodMetadata by keyword, and to_info_dict is field-driven.
+    # Fields are grouped by how a method author supplies them: (1) identity & on-disk location,
+    # (2) inferable from raw results, (3) manual, (4) purely informative. Order is otherwise free —
+    # every caller constructs MethodMetadata by keyword, and to_info_dict is field-driven.
 
-    # -- (1) Required -------------------------------------------------------------------------
+    # -- (1) Identity & on-disk location ------------------------------------------------------
+    #: ``method`` and ``suite`` are the identity pair that determines where this method's
+    #: artifacts live on disk (see :attr:`path`):
+    #:
+    #:     <tabarena_cache>/artifacts/<suite>/methods/<method>/   (default cache layout)
+    #:     <cache_root>/<method>/                                 (flat ``cache_root`` layout)
+    #:
+    #: ``method`` (the only required field) is the unique method identifier, e.g. ``"TabPFN-3"``.
+    #: ``suite`` is the artifact set the method belongs to — normally the dated benchmark run,
+    #: e.g. ``"tabarena-2026-05-13"`` — surfaced downstream as the ``ta_suite`` column;
+    #: ``(method, suite)`` is the unique key within a :class:`MethodMetadataCollection`. ``suite``
+    #: defaults to ``method`` (in :meth:`__post_init__`) when omitted, so a one-off method needs
+    #: only ``method``.
     method: str
+    suite: str | None = None
 
     # -- (2) Inferable from raw results -------------------------------------------------------
     #: Populated automatically by :meth:`from_raw` (and the ``run_process_local_raw_data.py``
@@ -107,11 +120,8 @@ class MethodMetadata:
     has_results: bool = True
 
     # -- (3) Manual (not inferable) -----------------------------------------------------------
-    #: Must be specified by hand when relevant: artifact identity/naming and storage/transport
-    #: config (where and how artifacts are cached and uploaded). ``suite`` defaults to
-    #: ``method`` but is normally the dated artifact set (e.g. ``"tabarena-2026-05-13"``) and is
-    #: part of the cache/S3 path.
-    suite: str | None = None
+    #: Specified by hand when relevant: display-name overrides (``name`` / ``name_suffix``) and
+    #: the storage/transport config below (where and how artifacts are cached and uploaded).
     name: str | None = None
     name_suffix: str | None = None
     #: Storage backend for this method's artifacts. ``None`` (the default) infers it in
@@ -550,8 +560,13 @@ class MethodMetadata:
 
     @property
     def path(self) -> Path:
-        # When ``cache_root`` is set, artifacts live in a flat ``<cache_root>/<method>/`` dir
-        # (no ``artifacts/<suite>/methods/`` infix) so committed copies stay shallow.
+        """Root directory of this method's artifacts on disk, derived from ``(suite, method)``.
+
+        Default cache layout: ``<tabarena_cache>/artifacts/<suite>/methods/<method>/`` (where
+        ``_path_root == <tabarena_cache>/artifacts``). When ``cache_root`` is set, artifacts
+        instead live in a flat ``<cache_root>/<method>/`` dir — no ``artifacts/<suite>/methods/``
+        infix, ``suite`` not part of the path — so committed copies stay shallow.
+        """
         if self.cache_root is not None:
             return self.cache_root / self.method
         return self._path_root / self.suite / "methods" / self.method
