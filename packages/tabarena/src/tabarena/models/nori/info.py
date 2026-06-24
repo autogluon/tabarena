@@ -7,15 +7,15 @@ from tabarena.models.nori.model import NoriModel
 
 nori_method_metadata = MethodMetadata.config(
     method="Nori",
-    display_name="Nori",
-    compute="gpu",
-    date="2026-06-18",
     ag_key="TA-NORI",
     config_default="Nori_c1_BAG_L1",
     can_hpo=False,
+    compute="gpu",
     is_bag=False,
-    verified=False,
+    date="2026-06-18",
     reference_url="https://github.com/Synthefy/synthefy-nori",
+    display_name="Nori",
+    verified=False,
     # Not yet hosted: bucket/prefix/cache_type are set by the maintainers once the result
     # artifacts land in the official pool; until then cache_type infers "local" (no remote
     # location set). has_raw/has_processed/has_results stay True — a config has all three

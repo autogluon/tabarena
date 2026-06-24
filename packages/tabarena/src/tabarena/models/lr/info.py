@@ -15,13 +15,12 @@ lr_descriptor = ModelDescriptor(
 
 lr_method_metadata = lr_descriptor.method_metadata(
     method="LinearModel",
-    date="2025-10-20",
+    artifact_name="tabarena-2025-10-20",
     ag_key="LR",
     config_default="LinearModel_c1_BAG_L1",
-    can_hpo=True,
-    artifact_name="tabarena-2025-10-20",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-10-20",
     # FIXME: technically LR is not verified
 )
 

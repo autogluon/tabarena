@@ -28,7 +28,6 @@ realtabpfnv25_method_metadata = realtabpfnv25_descriptor.method_metadata(
     date="2025-11-12",
     ag_key="REALTABPFN-V2.5",
     config_default="RealTabPFN-v2.5_c1_BAG_L1",
-    can_hpo=True,
     artifact_name="tabarena-2025-11-12",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},

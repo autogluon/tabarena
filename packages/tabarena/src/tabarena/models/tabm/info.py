@@ -15,28 +15,26 @@ tabm_descriptor = ModelDescriptor(
 # CPU variant — same model class, same search space, different compute target.
 tabm_method_metadata = tabm_descriptor.method_metadata(
     method="TabM",
-    display_name="TabM (CPU)",
-    compute="cpu",
-    date="2025-06-12",
+    artifact_name="tabarena-2025-06-12",
     ag_key="TABM",
     config_default="TabM_c1_BAG_L1",
-    can_hpo=True,
-    artifact_name="tabarena-2025-06-12",
+    compute="cpu",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-06-12",
+    display_name="TabM (CPU)",
 )
 
 
 tabm_gpu_method_metadata = tabm_descriptor.method_metadata(
     method="TabM_GPU",
-    date="2025-06-12",
+    artifact_name="tabarena-2025-06-12",
     ag_key="TABM",
     config_default="TabM_GPU_c1_BAG_L1",
-    can_hpo=True,
-    artifact_name="tabarena-2025-06-12",
+    name_suffix="_GPU",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
-    name_suffix="_GPU",
+    date="2025-06-12",
 )
 
 

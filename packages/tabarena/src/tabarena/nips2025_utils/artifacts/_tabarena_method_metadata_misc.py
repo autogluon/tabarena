@@ -13,7 +13,6 @@ gbm_aio_0808_metadata = MethodMetadata.tabarena_legacy_s3(
     ag_key="GBM",
     model_key="GBM_aio_0808",
     config_default="LightGBM_aio_0808_c1_BAG_L1",
-    can_hpo=True,
     is_bag=True,
     prefix="cache_aio",
     verified=False,
@@ -30,7 +29,6 @@ prep_gbm_v6_metadata = MethodMetadata.tabarena_legacy_s3(
     ag_key="prep_GBM",
     model_key="prep_GBM_v6",
     config_default="prep_LightGBM_v6_c1_BAG_L1",
-    can_hpo=True,
     is_bag=True,
     prefix="cache_aio",
 )
