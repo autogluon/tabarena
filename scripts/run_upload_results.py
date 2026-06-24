@@ -115,7 +115,7 @@ def _destination(method_metadata: MethodMetadata) -> str:
         rel = method_metadata.relative_to_cache_root(method_metadata.path).as_posix()
         return f"{root}/{rel}"
     except ValueError:
-        # path not under the global cache root (e.g. a flat cache_root override)
+        # path not under the global cache root (e.g. an explicit artifact_dir override)
         return f"{root}/ (method={method_metadata.method})"
 
 

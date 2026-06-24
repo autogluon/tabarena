@@ -99,7 +99,7 @@ class InMemoryMethodMetadata(MethodMetadata):
 
     # ------------------------------------------------------------------ serialization
     def to_info_dict(self) -> dict:
-        # Build on the base exclusion (drops the runtime-only ``cache_root`` override), then
+        # Build on the base exclusion (drops the runtime-only ``artifact_dir`` override), then
         # also drop the in-memory artifact slots so no DataFrame/repo lands in the info table.
         return {k: v for k, v in super().to_info_dict().items() if k not in self._IN_MEMORY_SLOTS}
 

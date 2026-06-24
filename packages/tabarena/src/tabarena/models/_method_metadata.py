@@ -78,11 +78,11 @@ class MethodMetadata:
     # every caller constructs MethodMetadata by keyword, and to_info_dict is field-driven.
 
     # -- (1) Identity & on-disk location ------------------------------------------------------
-    #: ``method`` and ``suite`` are the identity pair that determines where this method's
-    #: artifacts live on disk (see :attr:`path`):
+    #: ``method``, ``suite``, and ``artifact_dir`` determine where this method's artifacts live
+    #: on disk (see :attr:`path`):
     #:
     #:     <tabarena_cache>/artifacts/<suite>/methods/<method>/   (default cache layout)
-    #:     <cache_root>/<method>/                                 (flat ``cache_root`` layout)
+    #:     <artifact_dir>/                                        (explicit ``artifact_dir`` override)
     #:
     #: ``method`` (the only required field) is the unique method identifier, e.g. ``"TabPFN-3"``.
     #: ``suite`` is the artifact set the method belongs to — normally the dated benchmark run,
@@ -90,8 +90,16 @@ class MethodMetadata:
     #: ``(method, suite)`` is the unique key within a :class:`MethodMetadataCollection`. ``suite``
     #: defaults to ``method`` (in :meth:`__post_init__`) when omitted, so a one-off method needs
     #: only ``method``.
+    #:
+    #: ``artifact_dir`` is an optional override pointing *directly* at this method's artifact
+    #: directory — the dir that holds ``metadata.yaml`` + ``results/`` — to load committed
+    #: artifacts from an arbitrary location (e.g. a repo's ``data/`` folder) without touching the
+    #: global TabArena cache. When set, :attr:`path` is ``artifact_dir`` itself and neither
+    #: ``suite`` nor ``method`` contributes to the path. Kept out of :meth:`to_info_dict` so this
+    #: local path is never serialized into the committed ``metadata.yaml`` or the info table.
     method: str
     suite: str | None = None
+    artifact_dir: str | Path | None = None
 
     # -- (2) Inferable from raw results -------------------------------------------------------
     #: Populated automatically by :meth:`from_raw` (and the ``run_process_local_raw_data.py``
@@ -139,13 +147,6 @@ class MethodMetadata:
     #: ``"https://data.tabarena.ai/"``). The uploader/downloader factories read what they need from
     #: here. Empty for ``"local"``.
     cache_kwargs: dict = field(default_factory=dict)
-    #: Optional override pointing at a self-contained, *flat* method directory
-    #: (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``), used to load a
-    #: method's committed artifacts from an arbitrary location (e.g. a repo's ``data/`` folder)
-    #: without touching the global TabArena cache root. ``None`` => derive paths from the cache
-    #: root as usual. Kept out of ``to_info_dict`` so this local path is never serialized into
-    #: the committed ``metadata.yaml`` or the metadata info table.
-    cache_root: str | Path | None = None
 
     # -- (4) Purely informative ---------------------------------------------------------------
     # Descriptive only — no effect on behavior, paths, or loading.
@@ -166,7 +167,7 @@ class MethodMetadata:
             self.model_key = self.ag_key
         if self.can_hpo is None:
             self.can_hpo = self.method_type == "config"
-        self.cache_root = Path(self.cache_root) if self.cache_root is not None else None
+        self.artifact_dir = Path(self.artifact_dir) if self.artifact_dir is not None else None
 
         assert isinstance(self.method, str)
         assert len(self.method) > 0
@@ -560,15 +561,16 @@ class MethodMetadata:
 
     @property
     def path(self) -> Path:
-        """Root directory of this method's artifacts on disk, derived from ``(suite, method)``.
+        """Root directory of this method's artifacts on disk.
 
         Default cache layout: ``<tabarena_cache>/artifacts/<suite>/methods/<method>/`` (where
-        ``_path_root == <tabarena_cache>/artifacts``). When ``cache_root`` is set, artifacts
-        instead live in a flat ``<cache_root>/<method>/`` dir — no ``artifacts/<suite>/methods/``
-        infix, ``suite`` not part of the path — so committed copies stay shallow.
+        ``_path_root == <tabarena_cache>/artifacts``), derived from ``(suite, method)``. When
+        ``artifact_dir`` is set it *is* the artifact directory (``metadata.yaml`` + ``results/``
+        live directly under it) and is returned as-is — ``suite``/``method`` do not contribute to
+        the path — so committed copies can live at an arbitrary location.
         """
-        if self.cache_root is not None:
-            return self.cache_root / self.method
+        if self.artifact_dir is not None:
+            return self.artifact_dir
         return self._path_root / self.suite / "methods" / self.method
 
     @property
@@ -847,14 +849,14 @@ class MethodMetadata:
         """The flat field dict used to build the metadata info table / YAML.
 
         Derived from the declared dataclass fields (an allowlist), in declaration order, minus
-        the runtime-only ``cache_root`` override — a local path that must not leak into committed
+        the runtime-only ``artifact_dir`` override — a local path that must not leak into committed
         YAML or the info table. Field-driven rather than ``self.__dict__``-driven so that
         non-field instance state never lands in the info table (e.g.
         :class:`InMemoryMethodMetadata`'s in-memory results frame, set as a plain attribute,
         not a field). Remains an overridable hook for subclasses.
         """
         info = {f.name: getattr(self, f.name) for f in fields(self)}
-        info.pop("cache_root", None)
+        info.pop("artifact_dir", None)
         return info
 
     @property
@@ -926,61 +928,38 @@ class MethodMetadata:
         path: Path | str | None = None,
         method: str | None = None,
         suite: str | None = None,
-        *,
-        cache_root: str | Path | None = None,
-        relative_cache: bool | Literal["auto"] = "auto",
     ) -> Self:
-        """Load a method's metadata from YAML.
+        """Load a method's metadata from YAML, in one of two forms:
 
-        ``cache_root`` points the loaded method at a self-contained, flat artifact directory
-        (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``) instead of the
-        global TabArena cache — e.g. to load committed results from a repo's ``data/`` folder.
-        When given alongside an explicit ``path``, the two must describe the same location
-        (``<cache_root>/<method>/metadata.yaml``); a mismatch raises so layout typos surface early.
-
-        ``relative_cache=True`` infers ``cache_root`` from ``path`` itself (as ``path.parent.parent``,
-        i.e. the directory containing the ``<method>/`` folder), so callers loading a method from an
-        explicit ``path`` need only pass ``path`` — no separately-computed ``cache_root``. Requires
-        an explicit ``path`` and is mutually exclusive with ``cache_root``.
-
-        The default ``"auto"`` applies that inference exactly when it is safe and unambiguous: an
-        explicit ``path`` is given and no ``cache_root`` was passed. It is a no-op for the
-        ``method``/``suite`` lookup forms (so those callers are unaffected), and the
-        inference is correct for both the flat committed layout and the global cache layout, since
-        in both the yaml's parent directory is named ``<method>``.
+        * ``from_yaml(path=...)`` loads committed artifacts from a self-contained directory.
+          ``path`` may be that directory **or** the ``metadata.yaml`` inside it (anything not
+          ending in ``.yaml`` is treated as the directory); either way the method's
+          :attr:`artifact_dir` is set to the directory, so ``results/`` resolve next to the
+          metadata and the global TabArena cache is not consulted. This is how committed copies in
+          a repo's ``data/`` folder are loaded.
+        * ``from_yaml(method=..., suite=...)`` looks the method up in the global TabArena cache at
+          ``<cache>/artifacts/<suite>/methods/<method>/metadata.yaml``.
         """
-        if relative_cache == "auto":
-            relative_cache = path is not None and cache_root is None
-
-        if relative_cache:
-            if path is None:
-                raise ValueError("relative_cache=True requires an explicit `path`.")
-            if cache_root is not None:
-                raise ValueError("Pass either `cache_root` or `relative_cache=True`, not both.")
-            cache_root = Path(path).parent.parent
-
-        if path is None:
+        if path is not None:
+            path = Path(path)
+            # `path` is either the artifact directory or the metadata.yaml inside it. Discriminate
+            # on the suffix (not ``is_dir()``) so it works before the dir exists and so method dirs
+            # whose name contains a dot (e.g. ``TA-TabPFN-2.6``) are still read as directories.
+            is_yaml_file = path.suffix == ".yaml"
+            artifact_dir = path.parent if is_yaml_file else path
+            yaml_path = path if is_yaml_file else path / "metadata.yaml"
+        else:
             assert method is not None, "method must be specified if path is not specified"
             assert suite is not None, "suite must be specified if path is not specified"
-            if cache_root is not None:
-                path = Path(cache_root) / method / "metadata.yaml"
-            else:
-                path = get_tabarena_cache_root() / "artifacts" / suite / "methods" / method / "metadata.yaml"
+            artifact_dir = None
+            yaml_path = get_tabarena_cache_root() / "artifacts" / suite / "methods" / method / "metadata.yaml"
 
-        assert str(path).endswith(".yaml")
-        with open(path) as file:
+        with open(yaml_path) as file:
             kwargs = yaml.safe_load(file)
-        if cache_root is not None:
-            kwargs["cache_root"] = cache_root
+        if artifact_dir is not None:
+            kwargs["artifact_dir"] = artifact_dir
         cls._migrate_legacy_kwargs(kwargs)
-        method_metadata = cls(**kwargs)
-        if cache_root is not None and Path(method_metadata.path_metadata).resolve() != Path(path).resolve():
-            raise ValueError(
-                f"cache_root/method layout mismatch: with cache_root={cache_root!r} the metadata for "
-                f"method={method_metadata.method!r} is expected at {method_metadata.path_metadata}, "
-                f"but it was loaded from {path}. Lay artifacts out as <cache_root>/<method>/metadata.yaml.",
-            )
-        return method_metadata
+        return cls(**kwargs)
 
     def cache_raw(
         self,
