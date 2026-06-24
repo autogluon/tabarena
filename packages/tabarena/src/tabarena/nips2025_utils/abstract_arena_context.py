@@ -523,14 +523,10 @@ class AbstractArenaContext:
         self,
         method: str,
         artifact_name: str | None = None,
-        s3_bucket: str | None = None,
-        s3_prefix: str | None = None,
     ) -> MethodMetadata:
         return self.method_metadata_collection.get_method_metadata(
             method=method,
             artifact_name=artifact_name,
-            s3_bucket=s3_bucket,
-            s3_prefix=s3_prefix,
         )
 
     def get_method_rename_map(self) -> dict[str, str]:

@@ -3,15 +3,16 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import warnings
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Literal, Self
 
 import pandas as pd
 import yaml
-from autogluon.common.utils.s3_utils import s3_path_to_bucket_prefix
 
 from tabarena.loaders import get_tabarena_cache_root
 from tabarena.nips2025_utils.generate_repo import generate_repo_from_results_lst
@@ -19,13 +20,12 @@ from tabarena.nips2025_utils.load_artifacts import results_to_holdout
 from tabarena.nips2025_utils.method_processor import get_info_from_result, load_raw
 from tabarena.repository.evaluation_repository import EvaluationRepository
 from tabarena.utils.pickle_utils import fetch_all_pickles
-from tabarena.utils.s3_utils import s3_get_object
 
 if TYPE_CHECKING:
     from tabarena.benchmark.result import BaselineResult
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
-    from tabarena.models._artifacts.downloader_s3 import MethodDownloaderS3
-    from tabarena.models._artifacts.uploader_s3 import MethodUploaderS3
+    from tabarena.models._artifacts.downloader import MethodDownloader
+    from tabarena.models._artifacts.uploader import MethodUploader
 
 
 class MethodType(StrEnum):
@@ -45,6 +45,12 @@ class MethodType(StrEnum):
     def values(cls) -> list[str]:
         """The valid ``method_type`` strings, in declaration order."""
         return [m.value for m in cls]
+
+
+#: String form of :class:`MethodType`, for annotating ``method_type`` fields and parameters.
+#: Mirrors the enum members above (kept honest at runtime by the ``MethodType.values()`` check in
+#: :meth:`MethodMetadata.__post_init__`).
+MethodTypeLiteral = Literal["config", "baseline", "portfolio"]
 
 
 # FIXME: Implement `best` and `best-N`
@@ -67,30 +73,62 @@ class MethodMetadata:
     #: stays out of :meth:`to_info_dict` / the metadata info table.
     is_in_memory: ClassVar[bool] = False
 
+    # Fields are grouped by how a method author supplies them: (1) required, (2) inferable from
+    # raw results, (3) manual, (4) purely informative. Order is otherwise free — every caller
+    # constructs MethodMetadata by keyword, and to_info_dict is field-driven.
+
+    # -- (1) Required -------------------------------------------------------------------------
     method: str
-    artifact_name: str | None = None
-    date: str | None = None
-    method_type: str = "config"
+
+    # -- (2) Inferable from raw results -------------------------------------------------------
+    #: Populated automatically by :meth:`from_raw` (and the ``run_process_local_raw_data.py``
+    #: inspector) from the raw result frame, so they can be left to inference when authoring from
+    #: raw artifacts. ``model_key`` and ``can_hpo`` have no independent raw signal and are derived
+    #: in :meth:`__post_init__` (from ``ag_key`` and ``method_type`` respectively).
+    method_type: MethodTypeLiteral = "config"
     ag_key: str | None = None
     model_key: str | None = None
+    config_default: str | None = None
+    can_hpo: bool | None = None
+    compute: Literal["cpu", "gpu"] = "cpu"
+    #: Whether the model was trained with bagging (cross-validation across folds). When ``True``,
+    #: the raw data contains per-fold test *and* validation predictions, and the reported test
+    #: predictions are the average of the per-fold test predictions. Config-only by convention
+    #: (enforced in :meth:`__post_init__`) — baselines/portfolios are recorded as ``False``.
+    is_bag: bool = False
+    #: Whether an artifact of each tier exists for this method. Default ``True``: configs and
+    #: baselines have raw + processed + results. Set ``False`` only when the tier never exists for
+    #: the method at all — e.g. a portfolio, which only ever has results (no raw/processed). It is
+    #: about whether the artifact exists, not whether it is currently uploaded (so an as-yet-unhosted
+    #: config is still all ``True``). Descriptive metadata only — serialized into the info table,
+    #: not used to gate loading.
+    has_raw: bool = True
+    has_processed: bool = True
+    has_results: bool = True
+
+    # -- (3) Manual (not inferable) -----------------------------------------------------------
+    #: Must be specified by hand when relevant: artifact identity/naming and storage/transport
+    #: config (where and how artifacts are cached and uploaded). ``artifact_name`` defaults to
+    #: ``method`` but is normally the dated artifact set (e.g. ``"tabarena-2026-05-13"``) and is
+    #: part of the cache/S3 path.
+    artifact_name: str | None = None
     name: str | None = None
     name_suffix: str | None = None
-    config_default: str | None = None
-    compute: Literal["cpu", "gpu"] = "cpu"
-    is_bag: bool = False
-    has_raw: bool = False
-    has_processed: bool = False
-    has_results: bool = False
-    verified: bool = False
-    use_artifact_name_in_prefix: bool = False
-    can_hpo: bool | None = None
-    s3_bucket: str | None = None
-    s3_prefix: str | None = None
-    upload_as_public: bool = False
-    reference_url: str | None = None
-    #: Storage backend for this method's artifacts. Defaults to ``"r2"`` (the public TabArena
-    #: data bucket); methods whose artifacts predate this default explicitly pass ``"s3"``.
-    cache_type: Literal["s3", "r2", "local"] = "r2"
+    #: Storage backend for this method's artifacts. ``None`` (the default) infers it in
+    #: :meth:`__post_init__`: ``"r2"`` when ``cache_kwargs`` carries a remote location
+    #: (``bucket`` + ``prefix``), else ``"local"``. ``"s3"``/``"r2"`` require that location;
+    #: ``"local"`` forbids it.
+    cache_type: Literal["local", "r2", "s3"] | None = None
+    #: All ``cache_type``-specific configuration, kept out of the core schema so casual users (who
+    #: only ever use ``"local"``) aren't shown remote-storage knobs and so future backends can add
+    #: their own keys without new fields. For ``"s3"``/``"r2"`` it carries the remote location
+    #: ``{"bucket": ..., "prefix": ...}`` (the s3-compatible coordinates used by both, formerly the
+    #: top-level ``s3_bucket`` / ``s3_prefix`` fields); ``"s3"`` may additionally set
+    #: ``{"upload_as_public": True}`` for a public-read ACL, and ``"r2"`` may set
+    #: ``{"base_url": ...}`` to override the public download domain (default
+    #: ``"https://data.tabarena.ai/"``). The uploader/downloader factories read what they need from
+    #: here. Empty for ``"local"``.
+    cache_kwargs: dict = field(default_factory=dict)
     #: Optional override pointing at a self-contained, *flat* method directory
     #: (``<cache_root>/<method>/`` holding ``metadata.yaml`` + ``results/``), used to load a
     #: method's committed artifacts from an arbitrary location (e.g. a repo's ``data/`` folder)
@@ -98,7 +136,18 @@ class MethodMetadata:
     #: root as usual. Kept out of ``to_info_dict`` so this local path is never serialized into
     #: the committed ``metadata.yaml`` or the metadata info table.
     cache_root: str | Path | None = None
+
+    # -- (4) Purely informative ---------------------------------------------------------------
+    # Descriptive only — no effect on behavior, paths, or loading.
+    #: The date the method was run (the benchmark run that produced its results), as a
+    #: ``"YYYY-MM-DD"`` string. Validated in :meth:`__post_init__` when set.
+    date: str | None = None
+    reference_url: str | None = None
     display_name: str | None = None
+    #: Whether this method's results are verified / signed-off. Default ``True``; set ``False`` for
+    #: methods that are not yet verified (e.g. newly-added or not-yet-released models). A manual
+    #: trust flag, not (yet) read anywhere in code.
+    verified: bool = True
 
     def __post_init__(self):
         if self.artifact_name is None:
@@ -121,17 +170,72 @@ class MethodMetadata:
             f"Unknown method_type: {self.method_type!r}. Valid values: {MethodType.values()}"
         )
         assert self.compute in ["cpu", "gpu"]
+        # When set, `date` must be a real calendar date in YYYY-MM-DD format.
+        if self.date is not None:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", self.date):
+                raise AssertionError(
+                    f"date must be in 'YYYY-MM-DD' format, got {self.date!r} (method={self.method!r})."
+                )
+            try:
+                datetime.strptime(self.date, "%Y-%m-%d")
+            except ValueError as e:
+                raise AssertionError(
+                    f"date {self.date!r} is not a valid calendar date (method={self.method!r})."
+                ) from e
+        # Guard against arguments that belong to a different method_type, so a mismatched field is
+        # surfaced at construction rather than silently ignored. `name` is the baseline/portfolio
+        # display-name override; `ag_key` / `model_key` / `config_default` / `name_suffix` are
+        # config-only, as are `can_hpo=True` and `is_bag=True` (only configs are bagged by
+        # convention). (Checks run after the derived defaults above.)
         if self.name is not None and self.method_type == "config":
             raise AssertionError("Cannot specify `name` for method_type: 'config'.")
         if self.name is not None and self.name_suffix is not None:
             raise AssertionError("Must only specify one of `name` and `name_suffix`.")
+        if self.method_type != "config":
+            config_only_set = [
+                field_name
+                for field_name in ("ag_key", "model_key", "config_default", "name_suffix")
+                if getattr(self, field_name) is not None
+            ]
+            if config_only_set:
+                raise AssertionError(
+                    f"Fields {config_only_set} are only valid for method_type='config', but "
+                    f"method_type={self.method_type!r} (method={self.method!r})."
+                )
+            for flag in ("can_hpo", "is_bag"):
+                if getattr(self, flag):
+                    raise AssertionError(
+                        f"{flag}=True is only valid for method_type='config', but "
+                        f"method_type={self.method_type!r} (method={self.method!r})."
+                    )
 
         if self.display_name is None:
             self.display_name = self._compute_display_name()
 
         assert isinstance(self.display_name, str)
         assert len(self.display_name) > 0
-        assert self.cache_type in ["s3", "r2", "local"], f"Unknown `cache_type`: {self.cache_type}"
+
+        # Resolve the storage backend: None infers "r2" when cache_kwargs carries a remote location
+        # (bucket + prefix), else "local". (Reads cache_kwargs directly, not has_remote_cache,
+        # which keys off cache_type.)
+        ck_bucket = self.cache_kwargs.get("bucket")
+        ck_prefix = self.cache_kwargs.get("prefix")
+        has_remote_location = ck_bucket is not None and ck_prefix is not None
+        if self.cache_type is None:
+            self.cache_type = "r2" if has_remote_location else "local"
+        assert self.cache_type in ("local", "r2", "s3"), f"Unknown `cache_type`: {self.cache_type!r}"
+        # s3/r2 require a remote location in cache_kwargs (bucket + prefix); local must not have one.
+        if self.cache_type in ("r2", "s3"):
+            if not has_remote_location:
+                raise AssertionError(
+                    f"cache_type={self.cache_type!r} requires cache_kwargs to contain 'bucket' and "
+                    f"'prefix' (method={self.method!r}, cache_kwargs={self.cache_kwargs!r})."
+                )
+        elif ck_bucket is not None or ck_prefix is not None:
+            raise AssertionError(
+                f"cache_type='local' must not set 'bucket'/'prefix' in cache_kwargs "
+                f"(method={self.method!r}, cache_kwargs={self.cache_kwargs!r})."
+            )
 
     def _compute_display_name(self) -> str:
         if self.name is not None:
@@ -149,6 +253,61 @@ class MethodMetadata:
         if self.name_suffix is not None:
             return f"{self.model_key}{self.name_suffix}"
         return self.model_key
+
+    # -- type-specific constructors -----------------------------------------------------------
+    # Thin wrappers over the dataclass constructor that expose only the arguments relevant to each
+    # method_type, so a caller is never presented with fields that belong to a different type.
+    # Each sets ``method_type`` and forwards the shared fields (identity, ``compute``, ``has_*``,
+    # storage/transport, informative) via ``**kwargs``; ``__post_init__`` still validates the
+    # result. Orthogonal to :meth:`tabarena_legacy_s3`, the legacy public-s3 *storage* preset.
+
+    @classmethod
+    def config(
+        cls,
+        *,
+        method: str,
+        ag_key: str | None = None,
+        model_key: str | None = None,
+        config_default: str | None = None,
+        name_suffix: str | None = None,
+        can_hpo: bool | None = None,
+        is_bag: bool = False,
+        **kwargs,
+    ) -> Self:
+        """A ``config`` method (a tunable model with one or more configs; the default type).
+
+        Exposes the config-only fields (``ag_key`` / ``model_key`` / ``config_default`` /
+        ``name_suffix`` / ``can_hpo`` / ``is_bag``); ``name`` is rejected (it is
+        baseline/portfolio-only).
+        """
+        return cls(
+            method=method,
+            method_type="config",
+            ag_key=ag_key,
+            model_key=model_key,
+            config_default=config_default,
+            name_suffix=name_suffix,
+            can_hpo=can_hpo,
+            is_bag=is_bag,
+            **kwargs,
+        )
+
+    @classmethod
+    def baseline(cls, *, method: str, name: str | None = None, **kwargs) -> Self:
+        """A ``baseline`` method (e.g. an AutoGluon preset).
+
+        Exposes ``name`` (the display-name override); the config-only fields are rejected.
+        """
+        return cls(method=method, method_type="baseline", name=name, **kwargs)
+
+    @classmethod
+    def portfolio(cls, *, method: str, name: str | None = None, has_raw: bool = False, **kwargs) -> Self:
+        """A ``portfolio`` method (a fixed selection/ensemble over configs).
+
+        Exposes ``name`` and defaults ``has_raw=False`` (portfolios usually have no raw
+        artifacts); the config-only fields are rejected.
+        """
+        return cls(method=method, method_type="portfolio", name=name, has_raw=has_raw, **kwargs)
 
     # TODO: Also support baseline methods
     @classmethod
@@ -220,19 +379,10 @@ class MethodMetadata:
         if artifact_name is None:
             artifact_name = method
 
-        return cls(
+        return cls.baseline(
             method=method,
             artifact_name=artifact_name,
-            method_type=method_type,
             compute=compute,
-            config_default=None,
-            can_hpo=False,
-            is_bag=False,
-            has_raw=True,
-            has_processed=True,
-            has_results=True,
-            # Preserve the historical default now that the field default is "r2".
-            cache_type="s3",
         )
 
     @classmethod
@@ -333,22 +483,18 @@ class MethodMetadata:
         if artifact_name is None:
             artifact_name = method
 
-        return cls(
+        return cls.config(
             method=method,
             artifact_name=artifact_name,
-            method_type=method_type,
             compute=compute,
             config_default=config_default,
             ag_key=ag_key,
             can_hpo=can_hpo,
             is_bag=is_bag,
-            has_raw=True,
-            has_processed=True,
-            has_results=True,
         )
 
     @classmethod
-    def tabarena_public(
+    def tabarena_legacy_s3(
         cls,
         *,
         method: str,
@@ -356,20 +502,19 @@ class MethodMetadata:
         has_raw: bool = True,
         has_processed: bool = True,
         has_results: bool = True,
-        upload_as_public: bool = True,
-        s3_bucket: str = "tabarena",
-        s3_prefix: str = "cache",
+        bucket: str = "tabarena",
+        prefix: str = "cache",
         **kwargs,
     ) -> Self:
-        """Build a :class:`MethodMetadata` for a method whose artifacts live in the public
-        TabArena store.
+        """Build a :class:`MethodMetadata` for a method whose artifacts live in the legacy public
+        TabArena **S3** store.
 
-        Fills the boilerplate shared by every public TabArena artifact — the ``tabarena`` /
-        ``cache`` S3 location, ``upload_as_public=True``, and a fully-cached
-        ``has_raw``/``has_processed``/``has_results`` — so callers specify only what is
-        method-specific. Any of these defaults can be overridden via keyword (e.g.
-        ``has_raw=False`` for a portfolio with no raw artifacts, or ``s3_prefix=...`` for a
-        non-standard prefix). The single source of truth for the public-artifact preset that the
+        Fills the boilerplate shared by every such artifact — the ``tabarena`` / ``cache`` S3
+        location, ``cache_type="s3"``, the public-read ACL (``cache_kwargs={"upload_as_public":
+        True}``), and a fully-cached ``has_raw``/``has_processed``/``has_results`` — so callers
+        specify only what is method-specific. ``cache_type`` and the ACL are fixed (this preset is
+        s3-and-public by definition); ``has_*`` and ``bucket``/``prefix`` can be overridden
+        via keyword. The single source of truth for the public-artifact preset that the
         per-artifact ``_common_*_kwargs`` dicts used to re-declare.
         """
         return cls(
@@ -378,15 +523,18 @@ class MethodMetadata:
             has_raw=has_raw,
             has_processed=has_processed,
             has_results=has_results,
-            upload_as_public=upload_as_public,
-            s3_bucket=s3_bucket,
-            s3_prefix=s3_prefix,
+            cache_type="s3",
+            cache_kwargs={"bucket": bucket, "prefix": prefix, "upload_as_public": True},
             **kwargs,
         )
 
     @property
-    def has_s3_cache(self) -> bool:
-        return self.s3_bucket is not None and self.s3_prefix is not None
+    def has_remote_cache(self) -> bool:
+        """Whether this method's artifacts live in a remote store (an ``"s3"``/``"r2"`` backend)
+        rather than ``cache_type="local"`` (no remote backing). ``__post_init__`` guarantees a
+        remote backend always has a remote location (``bucket`` + ``prefix``).
+        """
+        return self.cache_type in ("r2", "s3")
 
     @property
     def has_configs_hyperparameters(self) -> bool:
@@ -453,33 +601,30 @@ class MethodMetadata:
     def relative_to_method(self, path: Path) -> Path:
         return path.relative_to(self.path)
 
-    def to_s3_cache_loc(self, path: Path, s3_cache_root: str) -> str:
-        path_suffix: str = self.relative_to_cache_root(path=path).as_posix()
-        return f"{s3_cache_root}/{path_suffix}"
-
     def method_downloader(
         self,
         cache_type: str = "auto",
         verbose: bool = False,
-    ) -> MethodDownloaderS3:
+    ) -> MethodDownloader:
         if cache_type == "auto":
             cache_type = self.cache_type
-        if not self.has_s3_cache:
+        if not self.has_remote_cache:
             raise AssertionError(
-                f"Tried to get MethodDownloaderS3 from MethodMetadata, "
-                f"but s3_bucket and/or s3_prefix were not specified!"
-                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
-                f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
-                f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact download.",
+                f"Tried to get MethodDownloader from MethodMetadata, but cache_type={self.cache_type!r} "
+                f"has no remote store to download from."
+                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, cache_type={self.cache_type})"
+                f"\nUse a remote backend ('s3'/'r2') with bucket + prefix to enable artifact download.",
             )
 
+        bucket = self.cache_kwargs["bucket"]
+        prefix = self.cache_kwargs["prefix"]
         if cache_type == "r2":
             from tabarena.models._artifacts.downloader_public_r2 import MethodDownloaderPublicR2
 
             return MethodDownloaderPublicR2(
                 method_metadata=self,
-                base_url="https://data.tabarena.ai/",
-                r2_prefix=self.s3_prefix,
+                base_url=self.cache_kwargs.get("base_url", "https://data.tabarena.ai/"),
+                r2_prefix=prefix,
                 verbose=verbose,
                 clear_dirs=False,
             )
@@ -488,25 +633,26 @@ class MethodMetadata:
 
             return MethodDownloaderS3(
                 method_metadata=self,
-                s3_bucket=self.s3_bucket,
-                s3_prefix=self.s3_prefix,
+                s3_bucket=bucket,
+                s3_prefix=prefix,
                 verbose=verbose,
                 clear_dirs=False,
             )
         raise ValueError(f"Invalid cache_type for downloads: {cache_type}")
 
-    def method_uploader(self, cache_type: str = "auto") -> MethodUploaderS3:
+    def method_uploader(self, cache_type: str = "auto") -> MethodUploader:
         if cache_type == "auto":
             cache_type = self.cache_type
-        if not self.has_s3_cache:
+        if not self.has_remote_cache:
             raise AssertionError(
-                f"Tried to get MethodUploaderS3 from MethodMetadata, "
-                f"but s3_bucket and/or s3_prefix were not specified!"
-                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, "
-                f"s3_bucket={self.s3_bucket}, s3_prefix={self.s3_prefix})"
-                f"\nEnsure you initialize MethodMetadata with s3_bucket and s3_prefix to enable s3 artifact upload.",
+                f"Tried to get MethodUploader from MethodMetadata, but cache_type={self.cache_type!r} "
+                f"has no remote store to upload to."
+                f"\n\t(method={self.method}, artifact_name={self.artifact_name}, cache_type={self.cache_type})"
+                f"\nUse a remote backend ('s3'/'r2') with bucket + prefix to enable artifact upload.",
             )
 
+        bucket = self.cache_kwargs["bucket"]
+        prefix = self.cache_kwargs["prefix"]
         if cache_type == "r2":
             from tabarena.models._artifacts.uploader_r2 import MethodUploaderR2
 
@@ -533,8 +679,8 @@ class MethodMetadata:
             return MethodUploaderR2(
                 method_metadata=self,
                 r2_account_id=os.environ["R2_ACCOUNT_ID"],
-                r2_bucket=self.s3_bucket,
-                r2_prefix=self.s3_prefix,
+                r2_bucket=bucket,
+                r2_prefix=prefix,
                 r2_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
                 r2_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
             )
@@ -543,9 +689,9 @@ class MethodMetadata:
 
             return MethodUploaderS3(
                 method_metadata=self,
-                s3_bucket=self.s3_bucket,
-                s3_prefix=self.s3_prefix,
-                upload_as_public=self.upload_as_public,
+                s3_bucket=bucket,
+                s3_prefix=prefix,
+                upload_as_public=self.cache_kwargs.get("upload_as_public", False),
             )
         raise ValueError(f"Invalid cache_type for uploads: {cache_type}")
 
@@ -727,6 +873,33 @@ class MethodMetadata:
         buf.seek(0)
         return buf
 
+    @staticmethod
+    def _migrate_legacy_kwargs(kwargs: dict) -> dict:
+        """Fix up a kwargs dict loaded from a serialized ``metadata.yaml`` so yaml written under
+        an older schema still constructs. Mutates and returns ``kwargs``. All backwards-compat
+        handling for the on-disk format lives here:
+
+        - ``use_artifact_name_in_prefix``: field removed from the schema; drop it if present.
+        - ``upload_as_public``: moved into ``cache_kwargs`` (an s3-specific public-read ACL knob).
+          Fold a ``True`` value into ``cache_kwargs`` only when ``cache_type == "s3"``; otherwise
+          (e.g. ``"r2"``) drop it regardless of value, since it is not a valid key there.
+        - top-level ``s3_bucket`` / ``s3_prefix`` (oldest) and ``bucket`` / ``prefix`` (interim,
+          before they moved into ``cache_kwargs``): fold onto ``cache_kwargs["bucket"]`` /
+          ``cache_kwargs["prefix"]`` so previously-written metadata.yaml still loads.
+        """
+        kwargs.pop("use_artifact_name_in_prefix", None)
+        if kwargs.pop("upload_as_public", False) and kwargs.get("cache_type") == "s3":
+            kwargs.setdefault("cache_kwargs", {}).setdefault("upload_as_public", True)
+        for legacy_key, ck_key in (
+            ("s3_bucket", "bucket"),
+            ("bucket", "bucket"),
+            ("s3_prefix", "prefix"),
+            ("prefix", "prefix"),
+        ):
+            if legacy_key in kwargs:
+                kwargs.setdefault("cache_kwargs", {}).setdefault(ck_key, kwargs.pop(legacy_key))
+        return kwargs
+
     @classmethod
     def from_yaml(
         cls,
@@ -779,9 +952,7 @@ class MethodMetadata:
             kwargs = yaml.safe_load(file)
         if cache_root is not None:
             kwargs["cache_root"] = cache_root
-        if "cache_type" not in kwargs:
-            # yaml created before the cache_type default flipped to "r2"; preserve old "s3" default
-            kwargs["cache_type"] = "s3"
+        cls._migrate_legacy_kwargs(kwargs)
         method_metadata = cls(**kwargs)
         if cache_root is not None and Path(method_metadata.path_metadata).resolve() != Path(path).resolve():
             raise ValueError(
@@ -790,48 +961,6 @@ class MethodMetadata:
                 f"but it was loaded from {path}. Lay artifacts out as <cache_root>/<method>/metadata.yaml.",
             )
         return method_metadata
-
-    @classmethod
-    def from_s3_cache(
-        cls,
-        method: str,
-        s3_bucket: str,
-        s3_prefix: str = "cache",
-        artifact_name: str | None = None,
-    ) -> Self:
-        metadata = MethodMetadata(
-            method=method,
-            artifact_name=artifact_name,
-        )
-        path_local = Path(metadata.path_metadata)
-        s3_cache_root = f"s3://{s3_bucket}/{s3_prefix}"
-        s3_path_loc = metadata.to_s3_cache_loc(path=Path(path_local), s3_cache_root=s3_cache_root)
-        _, s3_key = s3_path_to_bucket_prefix(s3_path_loc)
-        # Stream into memory
-        try:
-            obj = s3_get_object(Bucket=s3_bucket, Key=s3_key)
-        except Exception as e:
-            print(
-                f"Failed to fetch MethodMetadata yaml file from s3! Maybe it doesn't exist or is not public?"
-                f'\n\t(method="{method}", artifact_name="{artifact_name}", '
-                f's3_bucket="{s3_bucket}", s3_prefix="{s3_prefix}")',
-            )
-            raise e
-
-        body = obj["Body"]  # file-like object (StreamingBody, BytesIO, etc.)
-        kwargs = yaml.safe_load(body)
-
-        if "s3_bucket" not in kwargs:
-            # yaml created before s3_bucket existed
-            kwargs["s3_bucket"] = s3_bucket
-        if "s3_prefix" not in kwargs:
-            # yaml created before s3_prefix existed
-            kwargs["s3_prefix"] = s3_prefix
-        if "cache_type" not in kwargs:
-            # yaml created before the cache_type default flipped to "r2"; preserve old "s3" default
-            kwargs["cache_type"] = "s3"
-
-        return cls(**kwargs)
 
     def cache_raw(
         self,
@@ -897,7 +1026,16 @@ class ModelDescriptor:
         override for a variant (e.g. a CPU build of a GPU model, which keeps the same paper
         but a different ``display_name`` and ``compute``). All other (run-specific)
         :class:`MethodMetadata` fields come from ``**kwargs``.
+
+        A descriptor always describes a ``config`` method, so this routes through
+        :meth:`MethodMetadata.config`; an explicit ``method_type="config"`` is accepted (and
+        dropped) for back-compat, but any other ``method_type`` is rejected.
         """
+        method_type = kwargs.pop("method_type", "config")
+        if method_type != "config":
+            raise ValueError(
+                f"ModelDescriptor describes config methods; got method_type={method_type!r} (method={method!r})."
+            )
         fields_from_descriptor = dict(
             display_name=self.display_name,
             compute=self.compute,
@@ -905,4 +1043,4 @@ class ModelDescriptor:
             reference_url=self.reference_url,
         )
         # Caller-provided values win, so a variant can override an intrinsic default.
-        return MethodMetadata(method=method, **{**fields_from_descriptor, **kwargs})
+        return MethodMetadata.config(method=method, **{**fields_from_descriptor, **kwargs})

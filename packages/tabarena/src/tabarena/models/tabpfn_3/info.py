@@ -14,20 +14,13 @@ tabpfn_3_descriptor = ModelDescriptor(
 
 tabpfn_3_method_metadata = tabpfn_3_descriptor.method_metadata(
     method="TabPFN-3",
-    method_type="config",
     ag_key="TA-TABPFN-3",
     config_default="TabPFN-3_c1_BAG_L1",
     can_hpo=False,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
     date="2026-05-13",
     cache_type="r2",
     artifact_name="tabarena-2026-05-13",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    verified=True,
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 

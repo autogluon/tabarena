@@ -392,9 +392,8 @@ from tabarena.models.{ModelKey}.hpo import gen_{ModelKey}
 from tabarena.models.{ModelKey}.model import {ClassName}Model
 
 
-{ModelKey}_method_metadata = MethodMetadata(
+{ModelKey}_method_metadata = MethodMetadata.config(
     method="{ModelName}",                  # e.g. "TabSTAR"
-    method_type="config",
     display_name="{ModelName}",
     compute="gpu",                          # or "cpu"
     date="YYYY-MM-DD",                     # date of the benchmarking run (or planning date if unbenchmarked)
@@ -407,13 +406,14 @@ from tabarena.models.{ModelKey}.model import {ClassName}Model
     has_processed=True,
     has_results=True,
     artifact_name="tabarena-YYYY-MM-DD",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    name_suffix=None,
+    # Storage backend is inferred from the cache location in cache_kwargs: once results are hosted
+    # in the official pool, set cache_kwargs={"bucket": ..., "prefix": ...} and cache_type infers
+    # "r2" (the default public backend). Omit cache_kwargs until hosted -> cache_type infers
+    # "local". (s3/r2 require bucket+prefix in cache_kwargs; "local" forbids them — construction
+    # raises on a mismatch.)
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     verified=False,                         # flip to True once benchmark run is signed off
     reference_url="{doc_url}",
-    cache_type="r2",
 )
 
 
@@ -426,6 +426,12 @@ from tabarena.models.{ModelKey}.model import {ClassName}Model
 ```
 
 `pip_extra` is the tuple of pip specs the auto-discovery uses when computing what extras to install for this model — list every dependency the wrapper imports lazily.
+
+**Storage conventions:**
+- Use `MethodMetadata.config(...)` (the config-method constructor — it sets `method_type="config"` and exposes the config-only fields `ag_key` / `model_key` / `config_default` / `name_suffix` / `can_hpo` / `is_bag`). Baseline/portfolio methods use `MethodMetadata.baseline(...)` / `MethodMetadata.portfolio(...)`.
+- **Don't set `cache_type` by hand** — it's inferred: `"r2"` when `cache_kwargs` carries a remote location (`{"bucket": ..., "prefix": ...}`), else `"local"`. Set it explicitly only to force `"s3"`.
+- **All cache config lives in `cache_kwargs`** (a dict), not top-level fields — so a casual (local) model isn't shown remote-storage knobs and future backends can add their own keys. The remote location is `cache_kwargs={"bucket": ..., "prefix": ...}`; for s3 add `"upload_as_public": True` for a public-read ACL. A local (unhosted) model sets no `cache_kwargs`. (`upload_as_public`, `s3_bucket`/`s3_prefix`, and `bucket`/`prefix` are no longer top-level args.)
+- For artifacts hosted in the **legacy public-S3 pool**, prefer the `MethodMetadata.tabarena_legacy_s3(...)` preset, which fixes `cache_type="s3"` and the public-read ACL (`cache_kwargs={"upload_as_public": True}`) for you.
 
 ---
 

@@ -5,28 +5,20 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.sap_rpt_oss.hpo import gen_sap_rpt_oss
 from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel, prefetch_weights
 
-sap_rpt_oss_method_metadata = MethodMetadata(
+sap_rpt_oss_method_metadata = MethodMetadata.config(
     method="SAP-RPT-OSS",
-    method_type="config",
-    display_name="SAP-RPT-OSS",
-    compute="gpu",
-    date="2025-11-25",
+    artifact_name="tabarena-2025-11-25",
     ag_key="SAP-RPT-OSS",
-    model_key="SAP-RPT-OSS",
     config_default="SAP-RPT-OSS_c1_BAG_L1",
     can_hpo=False,
+    compute="gpu",
     is_bag=False,
-    has_raw=True,
-    has_processed=True,
-    artifact_name="tabarena-2025-11-25",
     cache_type="s3",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    has_results=True,
-    name_suffix=None,
-    verified=False,
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-11-25",
     reference_url="https://arxiv.org/abs/2506.10707",
+    display_name="SAP-RPT-OSS",
+    verified=False,
 )
 
 

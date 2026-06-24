@@ -4,11 +4,8 @@ from tabarena.models._method_metadata import MethodMetadata
 
 _common_kwargs = dict(
     artifact_name="tabarena-2025-12-18",
-    cache_type="s3",
     method_type="baseline",
-    name_suffix=None,
     date="2025-12-18",
-    verified=True,
     reference_url="https://arxiv.org/abs/2003.06505",
 )
 
@@ -22,7 +19,7 @@ _cpu_kwargs = dict(
     **_common_kwargs,
 )
 
-ag_150_eq_4h8c_metadata = MethodMetadata.tabarena_public(
+ag_150_eq_4h8c_metadata = MethodMetadata.tabarena_legacy_s3(
     method="AutoGluon_v150_eq_4h8c",
     name="AutoGluon 1.5 (extreme, 4h)",
     **_gpu_kwargs,

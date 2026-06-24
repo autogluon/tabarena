@@ -15,22 +15,13 @@ random_forest_descriptor = ModelDescriptor(
 
 random_forest_method_metadata = random_forest_descriptor.method_metadata(
     method="RandomForest",
-    method_type="config",
-    date="2025-06-12",
+    artifact_name="tabarena-2025-06-12",
     ag_key="RF",
     config_default="RandomForest_c1_BAG_L1",
-    can_hpo=True,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    artifact_name="tabarena-2025-06-12",
     cache_type="s3",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    name_suffix=None,
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-06-12",
     # FIXME: technically baselines are not verified
-    verified=True,
 )
 
 

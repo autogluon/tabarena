@@ -5,26 +5,20 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.limix.hpo import gen_limix
 from tabarena.models.limix.model import LimiXModel
 
-limix_method_metadata = MethodMetadata(
+limix_method_metadata = MethodMetadata.config(
     method="LimiX",
-    method_type="config",
-    display_name="LimiX",
-    compute="gpu",
-    date="2026-05-13",
+    artifact_name="tabarena-2026-05-13",
     ag_key="TA-LIMIX",
     config_default="LimiX_c1_BAG_L1",
     can_hpo=False,
+    compute="gpu",
     is_bag=False,
-    verified=False,
-    reference_url="https://arxiv.org/abs/2509.03505",
     cache_type="r2",
-    artifact_name="tabarena-2026-05-13",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+    date="2026-05-13",
+    reference_url="https://arxiv.org/abs/2509.03505",
+    display_name="LimiX",
+    verified=False,
 )
 
 

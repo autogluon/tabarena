@@ -5,23 +5,18 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.iltm.hpo import gen_iltm
 from tabarena.models.iltm.model import ILTMModel
 
-iltm_method_metadata = MethodMetadata(
+iltm_method_metadata = MethodMetadata.config(
     method="iLTM",
-    date="2026-05-29",
     artifact_name="tabarena-2026-05-13",
-    method_type="config",
-    display_name="iLTM",
-    compute="gpu",
     ag_key="TA-ILTM",
     config_default="iLTM_c1_BAG_L1",
-    can_hpo=True,
+    compute="gpu",
     is_bag=True,
-    verified=True,
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
     cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+    date="2026-05-29",
     reference_url="https://arxiv.org/abs/2511.15941",
+    display_name="iLTM",
 )
 
 

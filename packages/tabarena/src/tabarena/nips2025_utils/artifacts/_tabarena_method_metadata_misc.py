@@ -4,7 +4,7 @@ from tabarena.models._method_metadata import MethodMetadata
 
 # LightGBM w/ custom preprocessing pipeline (only first 3 repeats)
 # s3 cache = "cache_aio"
-gbm_aio_0808_metadata = MethodMetadata.tabarena_public(
+gbm_aio_0808_metadata = MethodMetadata.tabarena_legacy_s3(
     method="LightGBM_aio_0808",
     artifact_name="LightGBM_aio_0808",
     method_type="config",
@@ -13,17 +13,14 @@ gbm_aio_0808_metadata = MethodMetadata.tabarena_public(
     ag_key="GBM",
     model_key="GBM_aio_0808",
     config_default="LightGBM_aio_0808_c1_BAG_L1",
-    name_suffix=None,
-    can_hpo=True,
     is_bag=True,
-    s3_prefix="cache_aio",
-    cache_type="s3",
+    prefix="cache_aio",
     verified=False,
 )
 
 # LightGBM w/ custom preprocessing pipeline (only first 3 repeats)
 # s3 cache = "cache_aio"
-prep_gbm_v6_metadata = MethodMetadata.tabarena_public(
+prep_gbm_v6_metadata = MethodMetadata.tabarena_legacy_s3(
     method="prep_LightGBM_v6",
     artifact_name="prep_LightGBM_v6",
     method_type="config",
@@ -32,10 +29,6 @@ prep_gbm_v6_metadata = MethodMetadata.tabarena_public(
     ag_key="prep_GBM",
     model_key="prep_GBM_v6",
     config_default="prep_LightGBM_v6_c1_BAG_L1",
-    name_suffix=None,
-    can_hpo=True,
     is_bag=True,
-    s3_prefix="cache_aio",
-    cache_type="s3",
-    verified=True,
+    prefix="cache_aio",
 )

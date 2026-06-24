@@ -14,45 +14,27 @@ realmlp_descriptor = ModelDescriptor(
 
 realmlp_method_metadata = realmlp_descriptor.method_metadata(
     method="RealMLP_GPU",
-    method_type="config",
-    date="2025-09-03",
+    artifact_name="tabarena-2025-09-03",
     ag_key="TA-REALMLP",
     model_key="REALMLP_GPU",
     config_default="RealMLP_GPU_c1_BAG_L1",
-    can_hpo=True,
-    verified=True,
-    artifact_name="tabarena-2025-09-03",
     cache_type="s3",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    name_suffix=None,
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-09-03",
 )
 
 
 # CPU variant — same model class, same search space, different compute target.
 realmlp_cpu_method_metadata = realmlp_descriptor.method_metadata(
     method="RealMLP",
-    method_type="config",
-    display_name="RealMLP (CPU)",
-    compute="cpu",
-    date="2025-06-12",
+    artifact_name="tabarena-2025-06-12",
     ag_key="REALMLP",
     config_default="RealMLP_c1_BAG_L1",
-    can_hpo=True,
-    verified=True,
-    artifact_name="tabarena-2025-06-12",
+    compute="cpu",
     cache_type="s3",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    name_suffix=None,
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-06-12",
+    display_name="RealMLP (CPU)",
 )
 
 

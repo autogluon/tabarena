@@ -43,17 +43,10 @@ common_kwargs = dict(
     artifact_name="tabarena-2025-06-12",
     date="2025-06-12",
     method_type="config",
-    # FIXME: technically GBDTs and baselines are not verified
-    verified=True,
-)
-
-s3_cache_kwargs = dict(
-    cache_type="s3",
 )
 
 cpu_kwargs = dict(
     compute="cpu",
-    name_suffix=None,
     **common_kwargs,
 )
 
@@ -65,7 +58,6 @@ gpu_kwargs = dict(
 
 # Methods in this list will upload s3 artifacts privately (useful for storing results for unreleased models)
 # If a method is not in this list, it will be public when uploaded.
-methods_upload_as_private = []
 
 
 # If the method should not be tuned/tuned+enesmbled in the simulator, for example, due to having only 1 config
@@ -291,7 +283,6 @@ for method in methods:
     ag_key = methods_ag_key_map[method]
     config_default = methods_config_default_map[method]
     is_bag = method in methods_is_bag
-    upload_as_public = method not in methods_upload_as_private
     display_name = methods_display_name_map.get(method)
     assert compute_type in ["cpu", "gpu"]
     if compute_type == "cpu":
@@ -307,17 +298,15 @@ for method in methods:
 
     method_kwargs = copy.deepcopy(method_kwargs)
 
-    method_metadata = MethodMetadata.tabarena_public(
+    method_metadata = MethodMetadata.tabarena_legacy_s3(
         method=method,
         config_default=config_default,
         display_name=display_name,
         ag_key=ag_key,
         is_bag=is_bag,
         can_hpo=can_hpo,
-        upload_as_public=upload_as_public,
         reference_url=reference_url,
         **method_kwargs,
-        **s3_cache_kwargs,
     )
     methods_2025_06_12.append(method_metadata)
 

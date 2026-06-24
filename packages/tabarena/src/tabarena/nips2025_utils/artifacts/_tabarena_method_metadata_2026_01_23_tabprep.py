@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from tabarena.models._method_metadata import MethodMetadata
 
-tabprep_gbm_metadata = MethodMetadata.tabarena_public(
+tabprep_gbm_metadata = MethodMetadata.tabarena_legacy_s3(
     method="PrepLightGBM",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepLightGBM",
@@ -21,17 +21,12 @@ tabprep_gbm_metadata = MethodMetadata.tabarena_public(
     compute="cpu",
     date="2026-01-23",
     ag_key="PREP_GBM",
-    model_key="PREP_GBM",
     # config_default="PrepLightGBM_c1_BAG_L1",  # FIXME
     config_default="prep_LightGBM_icml_v3_c1_BAG_L1",
-    name_suffix=None,
-    can_hpo=True,
     is_bag=True,
-    cache_type="s3",
-    verified=True,
 )
 
-tabprep_lr_metadata = MethodMetadata.tabarena_public(
+tabprep_lr_metadata = MethodMetadata.tabarena_legacy_s3(
     method="PrepLinearModel",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepLinear",
@@ -39,18 +34,13 @@ tabprep_lr_metadata = MethodMetadata.tabarena_public(
     compute="cpu",
     date="2026-01-23",
     ag_key="PREP_LR",
-    model_key="PREP_LR",
     # config_default="PrepLinearModel_c1_BAG_L1",  # FIXME
     config_default="prep_LinearModel_icml_v3_c1_BAG_L1",
-    name_suffix=None,
-    can_hpo=True,
     is_bag=True,
-    cache_type="s3",
-    verified=True,
 )
 
 
-tabprep_tabm_metadata = MethodMetadata.tabarena_public(
+tabprep_tabm_metadata = MethodMetadata.tabarena_legacy_s3(
     method="PrepTabM",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepTabM",
@@ -58,17 +48,12 @@ tabprep_tabm_metadata = MethodMetadata.tabarena_public(
     compute="gpu",
     date="2026-01-23",
     ag_key="PREP_TABM",
-    model_key="PREP_TABM",
     config_default="prep_TabM_c1_BAG_L1",  # FIXME
-    name_suffix=None,
-    can_hpo=True,
     is_bag=True,
-    cache_type="s3",
-    verified=True,
 )
 
 
-tabprep_realtabpfnv250_metadata = MethodMetadata.tabarena_public(
+tabprep_realtabpfnv250_metadata = MethodMetadata.tabarena_legacy_s3(
     method="PrepRealTabPFN-v2.5",
     artifact_name="tabarena-2026-01-23",
     display_name="PrepRealTabPFN-2.5",
@@ -76,11 +61,6 @@ tabprep_realtabpfnv250_metadata = MethodMetadata.tabarena_public(
     compute="gpu",
     date="2026-01-23",
     ag_key="PREP_REALTABPFN-V2.5",
-    model_key="PREP_REALTABPFN-V2.5",
     config_default="prep_RealTabPFN-v2.5_c1_BAG_L1",  # FIXME
-    name_suffix=None,
-    can_hpo=True,
     is_bag=False,
-    cache_type="s3",
-    verified=True,
 )

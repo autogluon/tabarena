@@ -6,27 +6,18 @@ from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.nn_torch.hpo import gen_nn_torch
 
-nn_torch_method_metadata = MethodMetadata(
+nn_torch_method_metadata = MethodMetadata.config(
     method="NeuralNetTorch",
-    method_type="config",
-    display_name="TorchMLP",
-    compute="cpu",
-    date="2025-06-12",
+    artifact_name="tabarena-2025-06-12",
     ag_key="NN_TORCH",
     config_default="NeuralNetTorch_c1_BAG_L1",
-    can_hpo=True,
+    compute="cpu",
     is_bag=True,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    artifact_name="tabarena-2025-06-12",
     cache_type="s3",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    name_suffix=None,
-    verified=True,
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-06-12",
     reference_url="https://arxiv.org/abs/2003.06505",
+    display_name="TorchMLP",
 )
 
 

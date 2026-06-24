@@ -24,43 +24,26 @@ tabiclv2_descriptor = ModelDescriptor(
 
 tabicl_method_metadata = tabicl_descriptor.method_metadata(
     method="TabICL_GPU",
-    method_type="config",
-    date="2025-06-12",
+    artifact_name="tabarena-2025-06-12",
     ag_key="TABICL",
-    model_key="TABICL",
     config_default="TabICL_GPU_c1_BAG_L1",
     can_hpo=False,
-    has_raw=True,
-    has_processed=True,
-    has_results=True,
-    artifact_name="tabarena-2025-06-12",
-    cache_type="s3",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
     name_suffix="_GPU",
-    verified=True,
+    cache_type="s3",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+    date="2025-06-12",
 )
 
 
 tabiclv2_method_metadata = tabiclv2_descriptor.method_metadata(
     method="TabICLv2",
-    method_type="config",
     date="2026-02-16",
     ag_key="TABICLV2",
-    model_key="TABICLV2",
     config_default="TabICLv2_c1_BAG_L1",
     can_hpo=False,
-    has_raw=True,
-    has_processed=True,
     artifact_name="tabarena-2026-02-16",
     cache_type="s3",
-    s3_bucket="tabarena",
-    s3_prefix="cache",
-    upload_as_public=True,
-    has_results=True,
-    name_suffix=None,
-    verified=True,
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
 )
 
 
