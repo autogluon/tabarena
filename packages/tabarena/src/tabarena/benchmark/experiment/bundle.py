@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +16,7 @@ from tabarena.benchmark.experiment.model_constraints import (
 )
 
 if TYPE_CHECKING:
+    from tabarena.benchmark.preprocessing.text_cache import TextCacheMode
     from tabarena.utils.config_utils import AGConfigGenerator
 
 
@@ -183,6 +185,12 @@ class TabArenaExperimentBundle:
     """If True, experiments built by this bundle adapt their validation data
     dynamically based on the task at run time (handled by the run engine).
     WARNING: this can overwrite the configured validation of a configuration!"""
+    text_cache_mode: TextCacheMode = "require"
+    """How a text task's semantic-embedding cache is treated at fit time, enforced on *every*
+    experiment this bundle builds (bagged, holdout, and outer alike): ``require`` (default) fails
+    fast if the prepared cache is missing, ``auto`` computes embeddings on the fly, ``off`` ignores
+    the cache. A standalone ``Experiment`` defaults to ``off``; the curated TabArena/BeyondArena
+    suites require the prepared cache so text experiments stay reproducible."""
 
     custom_model_constraints: dict[str, ModelConstraints] = field(default_factory=dict)
     """Per-model overrides of dataset compatibility, keyed by AG model key.
@@ -296,6 +304,11 @@ class TabArenaExperimentBundle:
         """
         if time_limit is None:
             time_limit = self.DEFAULT_TIME_LIMIT
+        if self.outer_experiments:
+            self._warn_unhonored_outer_knobs(
+                memory_limit=memory_limit,
+                time_limit_with_preprocessing=time_limit_with_preprocessing,
+            )
         method_kwargs = self._init_base_method_kwargs(
             num_cpus=num_cpus,
             num_gpus=num_gpus,
@@ -313,7 +326,47 @@ class TabArenaExperimentBundle:
             )
         ]
         self._attach_model_constraints(experiments)
+        self._apply_text_cache_mode(experiments)
         return experiments
+
+    @staticmethod
+    def _warn_unhonored_outer_knobs(*, memory_limit: int | None, time_limit_with_preprocessing: bool) -> None:
+        """Warn about predictor-level build knobs an outer (no-validation) fit cannot honor.
+
+        ``outer_experiments`` fit each model directly through ``AGModelWrapper`` (no
+        ``TabularPredictor``), so two ``build_experiments`` knobs have no effect there:
+
+        * ``memory_limit`` is a predictor-level resource with no single-model-fit equivalent
+          (a raw ``model.fit`` takes no memory budget; memory is governed by the resource manager
+          and ``ag.max_memory_usage_ratio``);
+        * ``time_limit_with_preprocessing`` is always effectively ``False`` — the ``time_limit``
+          bounds the model fit only (preprocessing runs outside the model's budget).
+
+        Both are no-ops on the outer path; warn so a non-default value is not mistaken for applied.
+        """
+        if memory_limit is not None:
+            warnings.warn(
+                "`memory_limit` is a TabularPredictor-level resource with no single-model-fit "
+                "equivalent; it is not honored for outer (`outer_experiments=True`) fits.",
+                stacklevel=2,
+            )
+        if time_limit_with_preprocessing:
+            warnings.warn(
+                "`time_limit_with_preprocessing=True` has no effect on outer (`outer_experiments=True`) "
+                "fits: the time limit always bounds the model fit only (preprocessing is excluded).",
+                stacklevel=2,
+            )
+
+    def _apply_text_cache_mode(self, experiments: list[Experiment]) -> None:
+        """Enforce this bundle's :attr:`text_cache_mode` on every experiment it generated.
+
+        A pre-built ``Experiment`` passed in :attr:`models` that already set ``text_cache_mode``
+        explicitly keeps its own value (detected via the captured constructor args); generated
+        experiments — which never pass it — receive the bundle's mode (``require`` by default).
+        """
+        for experiment in experiments:
+            if "text_cache_mode" not in experiment._locals:
+                experiment.set_text_cache_mode(self.text_cache_mode)
 
     def _attach_model_constraints(self, experiments: list[Experiment]) -> None:
         """Attach each experiment's :class:`ModelConstraints` (keyed by its AG model key).
@@ -609,6 +662,9 @@ class TabArenaV0pt1ExperimentBundle(TabArenaExperimentBundle):
     """Use AutoGluon default preprocessing only."""
     adapt_num_folds_to_n_classes: bool = False
     """TabArena-v0.1 did not adapt the number of folds to the number of classes."""
+    text_cache_mode: TextCacheMode = "off"
+    """TabArena-v0.1 uses AutoGluon default preprocessing (no semantic-text embeddings) and ships
+    no text caches, so the embedding cache is ignored rather than required."""
 
 
 @dataclass(kw_only=True)

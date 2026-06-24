@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from autogluon.core.models import AbstractModel
 
     from tabarena.benchmark.exec_models.base import AbstractExecModel
+    from tabarena.benchmark.preprocessing.text_cache import TextCacheMode
     from tabarena.benchmark.task import TaskWrapper
     from tabarena.benchmark.task.metadata import ValidationMetadata
 
@@ -59,6 +60,13 @@ class Experiment:
         If True, this experiment's validation split is configured dynamically from the
         task (type and dataset metadata) at run time, via ``init_method_kwargs``. Only
         supported for ``AGWrapper``-based experiments (see ``_validate_dynamic_protocol_supported``).
+    text_cache_mode: {"require", "auto", "off"}, default "off"
+        How a text task's semantic-embedding cache is treated at fit time (see
+        ``task_cache_scope``): ``require`` = the cache must be present (raise if missing),
+        ``auto`` = use it if present else compute on the fly, ``off`` = ignore the cache.
+        No-op for non-text tasks. Defaults to ``off`` for a standalone experiment; the curated
+        ``TabArenaExperimentBundle`` suites set ``require`` on every experiment they build (see
+        ``set_text_cache_mode``), so a prepared cache is mandatory there.
     model_constraints: ModelConstraints | dict | None, default None
         Optional dataset-compatibility constraints of this experiment's model (e.g. a max
         train-set size). A dict is accepted for the YAML round-trip and normalized to a
@@ -85,6 +93,7 @@ class Experiment:
         experiment_kwargs: dict | None = None,
         preprocessing_pipeline: str | None = None,
         dynamic_tabarena_validation_protocol: bool = False,
+        text_cache_mode: TextCacheMode = "off",
         model_constraints: ModelConstraints | dict | None = None,
     ):
         if experiment_kwargs is None:
@@ -107,6 +116,9 @@ class Experiment:
         # based on the task it runs on (task-dependent, so applied at run time rather
         # than baked into method_kwargs).
         self.dynamic_tabarena_validation_protocol = dynamic_tabarena_validation_protocol
+        # How a text task's semantic-embedding cache is treated at fit time (require/auto/off),
+        # independent of the validation protocol (see `task_cache_scope`). No-op for non-text tasks.
+        self.text_cache_mode = text_cache_mode
         # Dataset-compatibility constraints of this experiment's model (None = unconstrained).
         self.model_constraints = self._normalize_model_constraints(model_constraints)
 
@@ -154,6 +166,16 @@ class Experiment:
             self._locals.pop("model_constraints", None)
         else:
             self._locals["model_constraints"] = self.model_constraints
+
+    def set_text_cache_mode(self, text_cache_mode: TextCacheMode) -> None:
+        """Set the text-embedding cache mode after construction (kept in sync for YAML).
+
+        Equivalent to passing ``text_cache_mode`` to the constructor. Used by builders that
+        obtain experiments from config generators rather than the constructor directly — e.g.
+        ``TabArenaExperimentBundle``, which enforces ``require`` on every experiment it builds.
+        """
+        self.text_cache_mode = text_cache_mode
+        self._locals["text_cache_mode"] = text_cache_mode
 
     # --- Execution (fit / run) -------------------------------------------------------
     def run(
@@ -269,13 +291,17 @@ class Experiment:
         task: TaskWrapper,
         cache_task_key: int | str,
     ) -> AbstractContextManager:
-        """Return the task's text-embedding cache scope for the fit (a null scope when the
-        dynamic validation protocol is disabled).
+        """Return the task's text-embedding cache scope for the fit (a null scope for non-text tasks).
 
-        Validates *eagerly* (when called, not on ``__enter__``) that the dynamic validation
-        protocol is supported for this task/experiment, so a misconfiguration surfaces
-        immediately at the call site. The validation metadata itself is applied later, in
-        ``init_method_kwargs``. This is part of the fit flow, so a task object is required.
+        The text-embedding cache is loaded for *any* text task per :attr:`text_cache_mode`
+        (``off`` for a standalone experiment, ``require`` when built by a TabArena bundle),
+        independent of the validation protocol.
+
+        When the dynamic validation protocol is enabled, this *also* validates *eagerly* (when
+        called, not on ``__enter__``) that the protocol is supported for this task/experiment, so a
+        misconfiguration surfaces immediately at the call site. The validation metadata itself is
+        applied later, in ``init_method_kwargs``. This is part of the fit flow, so a task object is
+        required.
 
         Parameters
         ----------
@@ -293,21 +319,24 @@ class Experiment:
         """
         from contextlib import nullcontext
 
-        if not self.dynamic_tabarena_validation_protocol:
+        # Validation-protocol support is checked eagerly when enabled.
+        if self.dynamic_tabarena_validation_protocol:
+            self._validate_dynamic_protocol_supported(task)
+
+        # Non-text tasks have no embedding cache to load.
+        if not task.has_text:
             return nullcontext()
 
-        self._validate_dynamic_protocol_supported(task)
-
         # Load this task's semantic-text embedding cache for the duration of the fit
-        # (slug-keyed + encoder-versioned; restored afterwards). Default ``require``: a
-        # text task with no cache fails fast — warm it first via the prefetch/download
-        # path or pre-generation.
+        # (slug-keyed + encoder-versioned; restored afterwards). Under ``require`` (the bundle
+        # default) a text task with no cache fails fast — warm it first via the prefetch/download
+        # path or pre-generation; ``auto`` computes on the fly and ``off`` skips the cache.
         from tabarena.benchmark.preprocessing.text_cache import use_text_cache_for_task
 
         return use_text_cache_for_task(
             cache_task_key,
-            has_text=task.has_text,
-            mode="require",
+            has_text=True,
+            mode=self.text_cache_mode,
         )
 
     def init_method_kwargs(self, *, task: TaskWrapper, debug_mode: bool = False) -> dict:

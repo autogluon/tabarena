@@ -185,3 +185,115 @@ class TestBundleOuterMode:
         exp = bundle.build_experiments()[0]
         assert not isinstance(exp, AGModelOuterExperiment)
         assert exp.name.endswith("_BAG_L1")
+
+
+class _FakeTextTask:
+    """Minimal task exposing only ``has_text``, which is all the cache scope inspects."""
+
+    def __init__(self, *, has_text: bool):
+        self.has_text = has_text
+
+
+class TestTextCacheScope:
+    """The text-embedding cache scope is independent of the validation protocol.
+
+    A standalone ``Experiment`` defaults to ``text_cache_mode="off"``; when set to ``require`` it
+    must load (and require) the cache for a text task even on the outer path, where
+    ``dynamic_tabarena_validation_protocol=False`` (regression guard for the outer-path discrepancy).
+    """
+
+    def _outer_experiment(self, **kwargs) -> AGModelOuterExperiment:
+        exp = AGModelOuterExperiment(
+            name="DummyTestModel_c1",
+            model_cls=_DummyModel,
+            model_hyperparameters={},
+            preprocessing_pipeline="tabarena_default",
+            **kwargs,
+        )
+        assert exp.dynamic_tabarena_validation_protocol is False  # the outer path's default
+        return exp
+
+    def test_standalone_default_mode_is_off(self):
+        assert self._outer_experiment().text_cache_mode == "off"
+
+    def test_non_text_task_is_null_scope(self):
+        from contextlib import nullcontext
+
+        scope = self._outer_experiment(text_cache_mode="require").task_cache_scope(
+            task=_FakeTextTask(has_text=False),
+            cache_task_key="any-task",
+        )
+        assert isinstance(scope, nullcontext)
+
+    def test_outer_text_task_requires_cache_when_required(self, monkeypatch):
+        from pathlib import Path
+
+        from tabarena.benchmark.preprocessing import text_cache
+
+        # No cache on disk; keep the require-branch error message off the real filesystem.
+        monkeypatch.setattr(text_cache, "resolve_existing_cache_path", lambda task_key: None)
+        monkeypatch.setattr(text_cache, "text_cache_path", lambda task_key: Path(f"/nonexistent/{task_key}.parquet"))
+
+        scope = self._outer_experiment(text_cache_mode="require").task_cache_scope(
+            task=_FakeTextTask(has_text=True),
+            cache_task_key="missing-task",
+        )
+        with pytest.raises(FileNotFoundError), scope:
+            pass
+
+
+class TestBuildPathFlagParity:
+    """Bundle-built experiments enforce the bundle's text-cache mode on every build path.
+
+    BeyondArena requires the cache across bagged / holdout / outer alike; the validation protocol
+    stays bagged/holdout-only by design (outer has no train/val split). The v0.1 bundle disables
+    the cache (it uses AutoGluon-default preprocessing and ships no semantic-text caches).
+    """
+
+    @staticmethod
+    def _build(**bundle_kwargs) -> AGModelOuterExperiment:
+        generator = ConfigGenerator(search_space={}, model_cls=_DummyModel, manual_configs=[{}])
+        return BeyondArenaExperimentBundle(models=[(generator, 0)], **bundle_kwargs).build_experiments()[0]
+
+    def test_text_cache_required_across_build_paths(self):
+        bagged = self._build()
+        holdout = self._build(holdout_experiments=True)
+        outer = self._build(outer_experiments=True)
+        # The bundle enforces `require` regardless of build path.
+        assert bagged.text_cache_mode == holdout.text_cache_mode == outer.text_cache_mode == "require"
+        # The dynamic validation protocol stays bagged/holdout-only (outer = no validation split).
+        assert bagged.dynamic_tabarena_validation_protocol is True
+        assert holdout.dynamic_tabarena_validation_protocol is True
+        assert outer.dynamic_tabarena_validation_protocol is False
+
+    def test_v0pt1_bundle_disables_text_cache(self):
+        from tabarena.benchmark.experiment.bundle import TabArenaV0pt1ExperimentBundle
+
+        generator = ConfigGenerator(search_space={}, model_cls=_DummyModel, manual_configs=[{}])
+        exp = TabArenaV0pt1ExperimentBundle(models=[(generator, 0)]).build_experiments()[0]
+        assert exp.text_cache_mode == "off"
+
+
+class TestOuterUnhonoredKnobs:
+    """Outer fits warn for predictor-level build knobs they cannot honor (no silent drop)."""
+
+    def _bundle(self):
+        generator = ConfigGenerator(search_space={}, model_cls=_DummyModel, manual_configs=[{}])
+        return BeyondArenaExperimentBundle(models=[(generator, 0)], outer_experiments=True)
+
+    def test_warns_on_memory_limit(self):
+        with pytest.warns(UserWarning, match="memory_limit"):
+            self._bundle().build_experiments(memory_limit=8000)
+
+    def test_warns_on_time_limit_with_preprocessing(self):
+        with pytest.warns(UserWarning, match="time_limit_with_preprocessing"):
+            self._bundle().build_experiments(time_limit_with_preprocessing=True)
+
+    def test_no_warn_on_defaults(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self._bundle().build_experiments()
+        messages = [str(w.message) for w in caught]
+        assert not any("memory_limit" in m or "time_limit_with_preprocessing" in m for m in messages)
