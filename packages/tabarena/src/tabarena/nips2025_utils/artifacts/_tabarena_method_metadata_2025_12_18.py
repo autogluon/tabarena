@@ -3,7 +3,7 @@ from __future__ import annotations
 from tabarena.models._method_metadata import MethodMetadata
 
 _common_kwargs = dict(
-    artifact_name="tabarena-2025-12-18",
+    suite="tabarena-2025-12-18",
     method_type="baseline",
     date="2025-12-18",
     reference_url="https://arxiv.org/abs/2003.06505",

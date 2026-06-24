@@ -82,9 +82,9 @@ def register_model_info(info: ModelInfo) -> None:
 
     Extensions sometimes redeclare a method that's already in the core
     registry (e.g. a re-benchmarked LinearModel with a different
-    `artifact_name`). When `info.method_metadata.method` is already
+    `suite`). When `info.method_metadata.method` is already
     registered with a different `ModelInfo`, this function keys the new
-    entry as ``f"{method}@{artifact_name}"`` instead, preserving the core
+    entry as ``f"{method}@{suite}"`` instead, preserving the core
     entry under the bare method name.
     """
     registry = discover_models()
@@ -93,8 +93,8 @@ def register_model_info(info: ModelInfo) -> None:
     if existing is None or existing is info:
         registry[key] = info
         return
-    # Disambiguate by appending artifact_name to the key.
-    artifact = info.method_metadata.artifact_name or "ext"
+    # Disambiguate by appending suite to the key.
+    artifact = info.method_metadata.suite or "ext"
     composite_key = f"{key}@{artifact}"
     if composite_key in registry and registry[composite_key] is not info:
         raise RuntimeError(

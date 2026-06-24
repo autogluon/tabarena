@@ -8,7 +8,7 @@ from tabarena.models.ebm.hpo import gen_ebm
 
 ebm_method_metadata = MethodMetadata.config(
     method="ExplainableBM",
-    artifact_name="tabarena-2025-09-03",
+    suite="tabarena-2025-09-03",
     ag_key="EBM",
     config_default="ExplainableBM_c1_BAG_L1",
     compute="cpu",

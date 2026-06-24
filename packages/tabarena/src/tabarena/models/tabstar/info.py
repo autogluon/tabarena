@@ -7,7 +7,7 @@ from tabarena.models.tabstar.model import TabSTARModel, prefetch_weights
 
 tabstar_method_metadata = MethodMetadata.config(
     method="TabSTAR",
-    artifact_name="tabarena-2026-03-18",
+    suite="tabarena-2026-03-18",
     ag_key="TABSTAR",
     config_default="TabSTAR_c1_BAG_L1",
     compute="gpu",

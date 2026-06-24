@@ -15,7 +15,7 @@ catboost_descriptor = ModelDescriptor(
 
 catboost_method_metadata = catboost_descriptor.method_metadata(
     method="CatBoost",
-    artifact_name="tabarena-2025-06-12",
+    suite="tabarena-2025-06-12",
     ag_key="CAT",
     config_default="CatBoost_c1_BAG_L1",
     cache_type="s3",

@@ -24,7 +24,7 @@ tabiclv2_descriptor = ModelDescriptor(
 
 tabicl_method_metadata = tabicl_descriptor.method_metadata(
     method="TabICL_GPU",
-    artifact_name="tabarena-2025-06-12",
+    suite="tabarena-2025-06-12",
     ag_key="TABICL",
     config_default="TabICL_GPU_c1_BAG_L1",
     can_hpo=False,
@@ -41,7 +41,7 @@ tabiclv2_method_metadata = tabiclv2_descriptor.method_metadata(
     ag_key="TABICLV2",
     config_default="TabICLv2_c1_BAG_L1",
     can_hpo=False,
-    artifact_name="tabarena-2026-02-16",
+    suite="tabarena-2026-02-16",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
 )

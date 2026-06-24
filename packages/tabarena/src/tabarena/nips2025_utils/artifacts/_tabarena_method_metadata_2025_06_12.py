@@ -40,7 +40,7 @@ _migrated_method_names = {m.method for m in _per_model_metadata}
 methods_2025_06_12 = list(_per_model_metadata)
 
 common_kwargs = dict(
-    artifact_name="tabarena-2025-06-12",
+    suite="tabarena-2025-06-12",
     date="2025-06-12",
     method_type="config",
 )

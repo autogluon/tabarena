@@ -7,7 +7,7 @@ from tabarena.models.iltm.model import ILTMModel
 
 iltm_method_metadata = MethodMetadata.config(
     method="iLTM",
-    artifact_name="tabarena-2026-05-13",
+    suite="tabarena-2026-05-13",
     ag_key="TA-ILTM",
     config_default="iLTM_c1_BAG_L1",
     compute="gpu",

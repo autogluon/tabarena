@@ -7,7 +7,7 @@ from tabarena.models.orionmsp.model import OrionMSPModel, prefetch_weights
 
 orionmsp_method_metadata = MethodMetadata.config(
     method="OrionMSP",
-    artifact_name="tabarena-2026-05-13",
+    suite="tabarena-2026-05-13",
     ag_key="TA-ORION-MSP",
     config_default="OrionMSP_c1_BAG_L1",
     can_hpo=False,

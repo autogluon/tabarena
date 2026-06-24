@@ -15,11 +15,11 @@ class MethodMetadataCollection:
     def get_method_metadata(
         self,
         method: str,
-        artifact_name: str | None = None,
+        suite: str | None = None,
     ) -> MethodMetadata:
         """Return the unique MethodMetadata that matches the provided identifiers.
 
-        The full unique key is (method, artifact_name). This function accepts a
+        The full unique key is (method, suite). This function accepts a
         *partial* key: it filters using only the provided (non-None) fields. If
         that partial key matches exactly one item, that item is returned. If it
         matches zero or multiple items, an informative exception is raised. In the
@@ -30,7 +30,7 @@ class MethodMetadataCollection:
         ----------
         method
             Method name to match (required).
-        artifact_name
+        suite
             Optional artifact name to further constrain the search.
 
         Returns:
@@ -60,7 +60,7 @@ class MethodMetadataCollection:
             )
 
         # 2) Apply only the provided (non-None) fields.
-        candidates = [m for m in by_method if artifact_name is None or m.artifact_name == artifact_name]
+        candidates = [m for m in by_method if suite is None or m.suite == suite]
 
         # 3) Resolve outcomes without building any DataFrame unless necessary.
         if len(candidates) == 1:
@@ -71,7 +71,7 @@ class MethodMetadataCollection:
             rows = [
                 {
                     "method": getattr(m, "method", None),
-                    "artifact_name": getattr(m, "artifact_name", None),
+                    "suite": getattr(m, "suite", None),
                 }
                 for m in objs
             ]
@@ -83,7 +83,7 @@ class MethodMetadataCollection:
             df = _candidates_df(by_method)
             raise LookupError(
                 "No MethodMetadata matches the provided filters.\n"
-                f"Filters used: method={method!r}, artifact_name={artifact_name!r}\n"
+                f"Filters used: method={method!r}, suite={suite!r}\n"
                 "Available candidates for this method:\n"
                 f"{df.to_string(index=False)}",
             )
@@ -92,7 +92,7 @@ class MethodMetadataCollection:
         df = _candidates_df(candidates)
         raise ValueError(
             "Provided filters are insufficient to uniquely identify a MethodMetadata.\n"
-            f"Filters used: method={method!r}, artifact_name={artifact_name!r}\n"
+            f"Filters used: method={method!r}, suite={suite!r}\n"
             "Indistinguishable candidates:\n"
             f"{df.to_string(index=False)}",
         )

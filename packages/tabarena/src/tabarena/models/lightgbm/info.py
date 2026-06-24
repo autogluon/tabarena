@@ -15,7 +15,7 @@ lightgbm_descriptor = ModelDescriptor(
 
 lightgbm_method_metadata = lightgbm_descriptor.method_metadata(
     method="LightGBM",
-    artifact_name="tabarena-2025-06-12",
+    suite="tabarena-2025-06-12",
     ag_key="GBM",
     config_default="LightGBM_c1_BAG_L1",
     cache_type="s3",

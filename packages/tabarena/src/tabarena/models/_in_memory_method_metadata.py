@@ -68,7 +68,7 @@ class InMemoryMethodMetadata(MethodMetadata):
 
         ``use_artifact_name_in_prefix`` / ``use_model_results`` are forwarded to
         :meth:`EndToEndResultsSingle.get_results`. When the artifact-name prefix is applied, the
-        same ``[artifact_name] `` segment get_results prepends to the frame's identity columns is
+        same ``[suite] `` segment get_results prepends to the frame's identity columns is
         baked into the metadata identity here too, so the website merge still matches.
         """
         base = results_single.method_metadata
@@ -82,15 +82,15 @@ class InMemoryMethodMetadata(MethodMetadata):
         # ta_suite columns, mirrored so the metadata identity stays in lock-step.
         identity_prefix = new_result_prefix or ""
         if use_artifact_name_in_prefix:
-            identity_prefix = identity_prefix + f"[{base.artifact_name}] "
+            identity_prefix = identity_prefix + f"[{base.suite}] "
 
         kwargs = base.to_info_dict()
         if identity_prefix:
             # Bake the prefix into identity so it matches the (already-prefixed) frame:
-            #   * method/artifact_name -> ta_name/ta_suite (the website merge key)
+            #   * method/suite -> ta_name/ta_suite (the website merge key)
             #   * model_key            -> config_type (the rename-map / family key)
             #   * display_name         -> rendered method name
-            for field in ("method", "artifact_name", "model_key", "display_name"):
+            for field in ("method", "suite", "model_key", "display_name"):
                 value = kwargs.get(field)
                 if isinstance(value, str):
                     kwargs[field] = identity_prefix + value

@@ -405,7 +405,7 @@ from tabarena.models.{ModelKey}.model import {ClassName}Model
     has_raw=True,
     has_processed=True,
     has_results=True,
-    artifact_name="tabarena-YYYY-MM-DD",
+    suite="tabarena-YYYY-MM-DD",
     # Storage backend is inferred from the cache location in cache_kwargs: once results are hosted
     # in the official pool, set cache_kwargs={"bucket": ..., "prefix": ...} and cache_type infers
     # "r2" (the default public backend). Omit cache_kwargs until hosted -> cache_type infers

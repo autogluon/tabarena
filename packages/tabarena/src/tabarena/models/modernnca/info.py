@@ -7,7 +7,7 @@ from tabarena.models.modernnca.model import ModernNCAModel
 
 modernnca_method_metadata = MethodMetadata.config(
     method="ModernNCA",
-    artifact_name="tabarena-2025-06-12",
+    suite="tabarena-2025-06-12",
     ag_key="MNCA",
     config_default="ModernNCA_c1_BAG_L1",
     compute="cpu",
@@ -22,7 +22,7 @@ modernnca_method_metadata = MethodMetadata.config(
 
 modernnca_gpu_method_metadata = MethodMetadata.config(
     method="ModernNCA_GPU",
-    artifact_name="tabarena-2025-06-12",
+    suite="tabarena-2025-06-12",
     ag_key="MNCA",
     config_default="ModernNCA_GPU_c1_BAG_L1",
     compute="gpu",

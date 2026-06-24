@@ -7,7 +7,7 @@ from tabarena.models.limix.model import LimiXModel
 
 limix_method_metadata = MethodMetadata.config(
     method="LimiX",
-    artifact_name="tabarena-2026-05-13",
+    suite="tabarena-2026-05-13",
     ag_key="TA-LIMIX",
     config_default="LimiX_c1_BAG_L1",
     can_hpo=False,
