@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import fields
 
-import pytest
 import yaml
 
 from tabarena.models._method_metadata import MethodMetadata
@@ -44,8 +43,8 @@ def _write_committed_method(method_dir, *, method="Foo", suite="s1"):
 
 
 def test_from_yaml_path_resolves_artifacts_next_to_metadata(tmp_path):
-    # relative_cache="auto": loading from an explicit path points artifact_dir at the dir holding
-    # metadata.yaml, so results resolve next to it -- regardless of how the dir is named.
+    # Loading from an explicit metadata.yaml path points artifact_dir at the dir holding it, so
+    # results resolve next to it -- regardless of how the dir is named.
     method_dir = tmp_path / "committed" / "renamed-folder"
     _write_committed_method(method_dir, method="Foo", suite="s1")
 
@@ -56,21 +55,15 @@ def test_from_yaml_path_resolves_artifacts_next_to_metadata(tmp_path):
     assert mm.path_results == method_dir / "results"
 
 
-def test_from_yaml_explicit_artifact_dir_without_path(tmp_path):
-    method_dir = tmp_path / "anywhere"
-    _write_committed_method(method_dir, method="Bar", suite="s2")
+def test_from_yaml_path_accepts_dir_or_yaml_file(tmp_path):
+    # `path` may be the artifact directory or the metadata.yaml inside it; both are equivalent.
+    # Use a dir name containing a dot to confirm dirs aren't misread as files.
+    method_dir = tmp_path / "TA-TabPFN-2.6"
+    _write_committed_method(method_dir, method="TA-TabPFN-2.6", suite="s2")
 
-    mm = MethodMetadata.from_yaml(artifact_dir=method_dir)
-    assert mm.method == "Bar"
-    assert mm.path == method_dir
+    from_dir = MethodMetadata.from_yaml(path=method_dir)
+    from_file = MethodMetadata.from_yaml(path=method_dir / "metadata.yaml")
 
-
-def test_from_yaml_artifact_dir_and_relative_cache_are_mutually_exclusive(tmp_path):
-    method_dir = tmp_path / "m"
-    _write_committed_method(method_dir)
-    with pytest.raises(ValueError, match="artifact_dir.*relative_cache"):
-        MethodMetadata.from_yaml(
-            path=method_dir / "metadata.yaml",
-            artifact_dir=method_dir,
-            relative_cache=True,
-        )
+    assert from_dir.artifact_dir == method_dir == from_file.artifact_dir
+    assert from_dir.path == method_dir == from_file.path
+    assert from_dir.method == from_file.method == "TA-TabPFN-2.6"

@@ -928,46 +928,33 @@ class MethodMetadata:
         path: Path | str | None = None,
         method: str | None = None,
         suite: str | None = None,
-        *,
-        artifact_dir: str | Path | None = None,
-        relative_cache: bool | Literal["auto"] = "auto",
     ) -> Self:
-        """Load a method's metadata from YAML.
+        """Load a method's metadata from YAML, in one of two forms:
 
-        ``artifact_dir`` points the loaded method at a self-contained artifact directory (the dir
-        holding ``metadata.yaml`` + ``results/``) instead of the global TabArena cache — e.g. to
-        load committed results from a repo's ``data/`` folder. It becomes the method's
-        :attr:`path`, so ``suite``/``method`` are not used to locate artifacts.
-
-        ``relative_cache=True`` infers ``artifact_dir`` from ``path`` itself (as ``path.parent``,
-        the directory the ``metadata.yaml`` lives in), so callers loading a method from an explicit
-        ``path`` need only pass ``path`` — no separately-computed ``artifact_dir``. Requires an
-        explicit ``path`` and is mutually exclusive with ``artifact_dir``.
-
-        The default ``"auto"`` applies that inference exactly when it is safe and unambiguous: an
-        explicit ``path`` is given and no ``artifact_dir`` was passed. It is a no-op for the
-        ``method``/``suite`` lookup forms (so those callers resolve against the global cache).
+        * ``from_yaml(path=...)`` loads committed artifacts from a self-contained directory.
+          ``path`` may be that directory **or** the ``metadata.yaml`` inside it (anything not
+          ending in ``.yaml`` is treated as the directory); either way the method's
+          :attr:`artifact_dir` is set to the directory, so ``results/`` resolve next to the
+          metadata and the global TabArena cache is not consulted. This is how committed copies in
+          a repo's ``data/`` folder are loaded.
+        * ``from_yaml(method=..., suite=...)`` looks the method up in the global TabArena cache at
+          ``<cache>/artifacts/<suite>/methods/<method>/metadata.yaml``.
         """
-        if relative_cache == "auto":
-            relative_cache = path is not None and artifact_dir is None
+        if path is not None:
+            path = Path(path)
+            # `path` is either the artifact directory or the metadata.yaml inside it. Discriminate
+            # on the suffix (not ``is_dir()``) so it works before the dir exists and so method dirs
+            # whose name contains a dot (e.g. ``TA-TabPFN-2.6``) are still read as directories.
+            is_yaml_file = path.suffix == ".yaml"
+            artifact_dir = path.parent if is_yaml_file else path
+            yaml_path = path if is_yaml_file else path / "metadata.yaml"
+        else:
+            assert method is not None, "method must be specified if path is not specified"
+            assert suite is not None, "suite must be specified if path is not specified"
+            artifact_dir = None
+            yaml_path = get_tabarena_cache_root() / "artifacts" / suite / "methods" / method / "metadata.yaml"
 
-        if relative_cache:
-            if path is None:
-                raise ValueError("relative_cache=True requires an explicit `path`.")
-            if artifact_dir is not None:
-                raise ValueError("Pass either `artifact_dir` or `relative_cache=True`, not both.")
-            artifact_dir = Path(path).parent
-
-        if path is None:
-            if artifact_dir is not None:
-                path = Path(artifact_dir) / "metadata.yaml"
-            else:
-                assert method is not None, "method must be specified if path is not specified"
-                assert suite is not None, "suite must be specified if path is not specified"
-                path = get_tabarena_cache_root() / "artifacts" / suite / "methods" / method / "metadata.yaml"
-
-        assert str(path).endswith(".yaml")
-        with open(path) as file:
+        with open(yaml_path) as file:
             kwargs = yaml.safe_load(file)
         if artifact_dir is not None:
             kwargs["artifact_dir"] = artifact_dir
