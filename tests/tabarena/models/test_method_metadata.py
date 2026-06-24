@@ -14,12 +14,13 @@ def test_location_args_are_first_three_fields():
     assert [f.name for f in fields(MethodMetadata)][:3] == ["method", "suite", "artifact_dir"]
 
 
-def test_default_path_uses_suite_and_method(monkeypatch, tmp_path):
-    from tabarena.models import _method_metadata as mm_mod
-
-    monkeypatch.setattr(mm_mod, "get_tabarena_cache_root", lambda: tmp_path)
+def test_default_layout_uses_suite_and_method_segments():
+    # Without an artifact_dir override the path is <cache>/artifacts/<suite>/methods/<method>.
+    # Assert the trailing segments rather than the absolute root so the test is independent of
+    # wherever the global TabArena cache happens to resolve.
     mm = MethodMetadata.config(method="Foo", suite="tabarena-2026-05-13")
-    assert mm.path == tmp_path / "artifacts" / "tabarena-2026-05-13" / "methods" / "Foo"
+    assert mm.artifact_dir is None
+    assert mm.path.parts[-4:] == ("artifacts", "tabarena-2026-05-13", "methods", "Foo")
 
 
 def test_artifact_dir_is_returned_as_the_path_verbatim(tmp_path):
