@@ -71,9 +71,13 @@ def test_debug_fold_fitting_noop_for_non_bagged_experiment():
 
 
 def test_init_method_kwargs_applies_debug_fold_fitting_only_when_debug():
+    from tabarena.benchmark.task.metadata import ValidationMetadata
+
     class _Task:
-        def get_validation_metadata(self):  # pragma: no cover - dynamic protocol is off here
-            raise AssertionError("validation metadata should not be requested")
+        # Validation metadata is now requested for every experiment (injected uniformly as
+        # read-only data); the dynamic protocol is still off here, so it is not acted upon.
+        def get_validation_metadata(self):
+            return ValidationMetadata()
 
     exp = _bag_experiment()
     assert (

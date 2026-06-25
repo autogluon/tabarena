@@ -19,10 +19,11 @@ extend-exclude = [
     "packages/tabarena/src/tabarena/models/limix/_vendor",       # vendored LimiX (Apache-2.0)
     "packages/tabarena/src/tabarena/models/tabm/_internal",      # vendored from yandex-research/tabm
     "packages/tabarena/src/tabarena/models/modernnca/_internal", # vendored from LAMDA-Tabular/TALENT
-    # --- Archived / experimental examples ---
+    # --- Archived / experimental examples & scripts ---
     "examples/!old",
     "examples/!experimental",
     "examples/tmp",
+    "scripts/!old",
 ]
 
 [lint]

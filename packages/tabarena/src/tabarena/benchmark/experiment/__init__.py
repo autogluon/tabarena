@@ -11,6 +11,7 @@ from tabarena.benchmark.experiment.experiment_constructor import (
     AGModelExperiment,
     AGModelOuterExperiment,
     Experiment,
+    ExternalSystemExperiment,
     YamlExperimentSerializer,
     YamlSingleExperimentSerializer,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "Experiment",
     "ExperimentBatchRunner",
     "ExperimentRunner",
+    "ExternalSystemExperiment",
     "Job",
     "JobBatch",
     "ModelConstraints",

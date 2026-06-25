@@ -8,6 +8,7 @@ from autogluon.core.data.label_cleaner import LabelCleaner, LabelCleanerDummy
 from autogluon.features import AutoMLPipelineFeatureGenerator
 
 from tabarena.benchmark.exec_models.utils import _apply_inv_perm, _make_perm
+from tabarena.benchmark.task.metadata import ValidationMetadata
 from tabarena.utils.time_utils import Timer
 
 if TYPE_CHECKING:
@@ -76,6 +77,16 @@ class AbstractExecModel:
     """Optional record of a fit failure, populated by some wrappers (e.g. ``AGSingleWrapper.post_fit``).
     Read by the experiment runner when handling failures.
     """
+    validation_metadata: ValidationMetadata
+    """Task-derived metadata for validation information. Available to *every* method uniformly:
+    the experiment runner populates it from the task at fit time.
+
+    This is read-only *data*: holding it does not change behavior. Whether a method
+    *acts* on it is the method's own decision (e.g. the AutoGluon wrappers gate task-specific
+    validation splits on ``use_task_specific_validation``; an external system reads whatever fields
+    it needs in ``_fit``). The shared evaluation protocol (splits, feature names, test-row shuffle,
+    scoring) is fixed upstream by the task and runner regardless of this object.
+    """
 
     # --- Preprocessing / inference-shuffle config (class-level defaults) ---------------
     # These are plain class attributes so a subclass can change a default by simply
@@ -125,6 +136,8 @@ class AbstractExecModel:
         self,
         problem_type: str,
         eval_metric: Scorer,
+        *,
+        validation_metadata: ValidationMetadata | dict | None = None,
         **kwargs,
     ):
         """Configure the method.
@@ -135,6 +148,11 @@ class AbstractExecModel:
             One of ``"binary"``, ``"multiclass"``, ``"regression"``.
         eval_metric:
             AutoGluon scorer used for evaluation (and, for some wrappers, model fitting).
+        validation_metadata:
+            Task-derived split metadata (or a kwargs dict / ``None`` for one), normalized via
+            ``ValidationMetadata.from_config`` and exposed on ``self.validation_metadata`` for
+            every method (see that attribute). Normally injected by the experiment runner from
+            the task; a bare ``None`` yields an empty ``ValidationMetadata()``.
         **kwargs:
             Per-instance overrides for any of the class-level config attributes
             (``preprocess_data``, ``preprocess_label``, ``shuffle_test``, ``shuffle_seed``,
@@ -150,6 +168,8 @@ class AbstractExecModel:
         super().__init__(**kwargs)
         self.problem_type = problem_type
         self.eval_metric = eval_metric
+        # Uniform, read-only task metadata available to all methods (empty when unset).
+        self.validation_metadata = ValidationMetadata.from_config(validation_metadata)
 
         # Defaults for internal state
         self._can_use_data_in_place = False

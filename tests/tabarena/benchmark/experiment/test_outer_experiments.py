@@ -101,9 +101,26 @@ class TestAGModelWrapperPipeline:
 
 
 class TestOuterGroupMetadata:
-    """An outer (AGModelWrapper) experiment sources group columns from the task at run time."""
+    """An outer (AGModelWrapper) experiment sources group columns from the task's validation metadata.
 
-    def test_group_cols_injected_for_outer_experiment(self):
+    Group columns reach every method via the uniform ``validation_metadata`` injection (the base
+    attribute) rather than a separate ``group_cols`` key; the outer ``AGModelWrapper`` reads them
+    straight from there.
+    """
+
+    @staticmethod
+    def _spy_build_feature_generator(monkeypatch) -> dict:
+        """Capture the group params ``AGModelWrapper`` forwards to ``build_feature_generator``."""
+        captured: dict = {}
+
+        def fake_build(cls, feature_generator_kwargs=None, *, group_cols=None, group_labels=None, group_time_on=None):
+            captured.update(group_cols=group_cols, group_labels=group_labels, group_time_on=group_time_on)
+            return object()
+
+        monkeypatch.setattr("tabarena.benchmark.exec_models.autogluon.build_feature_generator", fake_build)
+        return captured
+
+    def test_validation_metadata_injected_for_outer_experiment(self):
         exp = AGModelOuterExperiment(
             name="DummyTestModel_c1",
             model_cls=_DummyModel,
@@ -111,25 +128,35 @@ class TestOuterGroupMetadata:
             preprocessing_pipeline="tabarena_default",
         )
         method_kwargs = exp.init_method_kwargs(task=_FakeGroupedTask(group_on="grp"))
-        assert method_kwargs["group_cols"] == "grp"
+        # The task metadata is injected uniformly as read-only data (not a separate group_cols key).
+        assert method_kwargs["validation_metadata"].group_on == "grp"
+        assert "group_cols" not in method_kwargs
 
-    def test_user_set_group_cols_preserved(self):
-        exp = AGModelOuterExperiment(
-            name="DummyTestModel_c1",
+    def test_outer_wrapper_resolves_group_from_validation_metadata(self, monkeypatch):
+        captured = self._spy_build_feature_generator(monkeypatch)
+        wrapper = AGModelWrapper(
             model_cls=_DummyModel,
-            model_hyperparameters={},
-            method_kwargs={"group_cols": "explicit"},
+            hyperparameters={},
+            preprocessing_pipeline="tabarena_default",
+            validation_metadata=ValidationMetadata(group_on="grp", group_labels="per_sample"),
+            problem_type="binary",
+            eval_metric=None,
         )
-        method_kwargs = exp.init_method_kwargs(task=_FakeGroupedTask(group_on="grp"))
-        assert method_kwargs["group_cols"] == "explicit"
+        wrapper._make_feature_generator()
+        assert captured["group_cols"] == "grp"
+        assert captured["group_labels"] == "per_sample"
 
-    def test_no_injection_for_bagged_experiment(self):
+    def test_bagged_receives_metadata_but_does_not_act(self):
         from autogluon.tabular.models import LGBModel
 
         from tabarena.benchmark.experiment import AGModelBagExperiment
 
         exp = AGModelBagExperiment(name="lgb", model_cls=LGBModel, model_hyperparameters={}, num_bag_folds=2)
         method_kwargs = exp.init_method_kwargs(task=_FakeGroupedTask(group_on="grp"))
+        # Bagged (dynamic protocol off): metadata is present as data, but the policy gate that makes
+        # the wrapper *act* on it (use_task_specific_validation) is not set, and no group_cols key.
+        assert method_kwargs["validation_metadata"].group_on == "grp"
+        assert "use_task_specific_validation" not in method_kwargs
         assert "group_cols" not in method_kwargs
 
 

@@ -416,6 +416,14 @@ class ValidationMetadata:
             return config
         return replace(base, **config)
 
+    def get_target_name(self) -> str:
+        """The label-column name to use: ``target_name`` if set, else the sentinel ``"__label__"``.
+
+        Centralizes the fallback so every site that must name the label column (e.g. appending ``y``
+        to ``X`` before fitting) resolves it the same way.
+        """
+        return self.target_name or "__label__"
+
     def resolve_number_of_splits(
         self,
         *,
