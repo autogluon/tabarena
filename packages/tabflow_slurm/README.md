@@ -64,7 +64,7 @@ plan = TabArenaBenchmarkPlan(
 plan.setup_jobs()   # prints the sbatch command(s) to launch
 ```
 
-> **BeyondArena:** swap in `from tabarena.contexts.beyond_arena import BeyondArenaContext`,
+> **BeyondArena:** swap in `from tabarena.contexts.beyondarena_context import BeyondArenaContext`,
 > pass `context=BeyondArenaContext()`, and scope with e.g. `task_subset=TaskSubset(dataset_names=[...])`
 > (omit `task_subset` to run the full suite).
 

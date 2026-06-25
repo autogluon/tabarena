@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
-from tabarena.contexts.beyond_arena import BeyondArenaContext
+from tabarena.contexts.beyondarena_context import BeyondArenaContext
 from tabarena.models import TabPFN3Model
 from tabarena.utils.config_utils import ConfigGenerator
 
