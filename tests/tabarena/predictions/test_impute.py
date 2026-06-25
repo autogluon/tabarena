@@ -4,9 +4,9 @@ import tempfile
 
 import numpy as np
 
-from tabarena import EvaluationRepository
 from tabarena.predictions import TabularPredictionsMemmap
 from tabarena.predictions.tabular_predictions import TabularModelPredictions
+from tabarena.repository import EvaluationRepository
 from tabarena.simulation.context_artificial import load_context_artificial
 from tabarena.utils.test_utils import generate_artificial_dict
 

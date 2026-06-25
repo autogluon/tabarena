@@ -1,5 +1,3 @@
 from __future__ import annotations
 
 from .contexts import TabArenaContext
-from .repository.evaluation_repository import EvaluationRepository
-from .repository.evaluation_repository_collection import EvaluationRepositoryCollection

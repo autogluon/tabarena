@@ -51,7 +51,7 @@ import pandas as pd
 from tabarena.contexts.tabarena.methods import tabarena_method_metadata_collection
 
 if TYPE_CHECKING:
-    from tabarena import EvaluationRepository
+    from tabarena.repository import EvaluationRepository
 
 
 if __name__ == "__main__":

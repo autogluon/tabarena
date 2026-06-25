@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tabarena import EvaluationRepositoryCollection
+from tabarena.repository import EvaluationRepositoryCollection
 from tabarena.simulation.context_artificial import load_repo_artificial
 
 from .test_repository import verify_equivalent_repository
