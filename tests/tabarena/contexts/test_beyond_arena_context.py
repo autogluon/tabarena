@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tabarena.contexts.beyondarena.context import BeyondArenaContext
+from tabarena.contexts import BeyondArenaContext
 
 
 @pytest.fixture(scope="module")

@@ -141,7 +141,7 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
     # Register the run's methods on a TabArena-v0.1 context (extra_methods=), so they flow through
     # `compare` against the paper baselines exactly like cached methods (fill of missing tasks is
     # handled by the context's fillna_method, as the old compare_on_tabarena did via get_results).
-    from tabarena.contexts.tabarena.context import TabArenaContext
+    from tabarena.contexts import TabArenaContext
 
     context = TabArenaContext(extra_methods=results.to_method_metadata_lst())
 

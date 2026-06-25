@@ -8,7 +8,7 @@ import pandas as pd
 from autogluon.common import TabularDataset
 
 from tabarena import EvaluationRepository
-from tabarena.contexts.tabarena.context import TabArenaContext
+from tabarena.contexts import TabArenaContext
 from tabarena.contexts.tabarena.methods import tabarena_method_metadata_collection
 from tabarena.models._method_simulator import MethodSimulator
 from tabarena.simulation.ensemble_scorer_calibrated import EnsembleScorerCalibrated, EnsembleScorerCalibratedCV

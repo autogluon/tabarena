@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from tabarena.contexts.abstract_arena_context import AbstractArenaContext
+from tabarena.contexts import AbstractArenaContext
 from tabarena.nips2025_utils.subset_predicate import SubsetPredicate, tasks_in_frame
 
 if TYPE_CHECKING:

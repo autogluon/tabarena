@@ -10,7 +10,7 @@ datasets into local OpenML tasks on this head node. Scope a chosen subset with
 from __future__ import annotations
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
-from tabarena.contexts.beyondarena.context import BeyondArenaContext
+from tabarena.contexts import BeyondArenaContext
 from tabflow_slurm import (
     BeyondArenaResourcesSetup,
     GCPSlurmSetup,

@@ -24,7 +24,7 @@ from pathlib import Path
 
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task.metadata import TaskSubset
-from tabarena.contexts.tabarena.context import TabArenaContext
+from tabarena.contexts import TabArenaContext
 from tabflow_slurm import (
     LocalSequentialSetup,
     ModelJob,

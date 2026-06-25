@@ -11,7 +11,7 @@ import pytest
 
 from tabarena.benchmark.experiment import TabArenaExperimentBundle
 from tabarena.benchmark.task.metadata import TaskMetadataCollection, TaskSubset
-from tabarena.contexts.abstract_arena_context import AbstractArenaContext
+from tabarena.contexts import AbstractArenaContext
 
 # Import a real submodule (see test_setup.py for why a bare namespace won't skip).
 pytest.importorskip("tabflow_slurm.setup", reason="tabflow_slurm is not installed")

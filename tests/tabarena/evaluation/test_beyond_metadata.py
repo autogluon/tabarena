@@ -9,7 +9,7 @@ per-dataset frame.
 from __future__ import annotations
 
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
-from tabarena.contexts.beyondarena.context import BeyondArenaContext
+from tabarena.contexts import BeyondArenaContext
 from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata_collection
 
 
