@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 import pandas as pd
 
-from tabarena.evaluation.evaluator import Evaluator
+from tabarena.evaluation.repo_metrics import RepoMetrics
 
 if TYPE_CHECKING:
     from tabarena.repository import EvaluationRepository
@@ -33,7 +33,7 @@ class RepoSimulator:
         self, repo: EvaluationRepository, output_dir: str | None = None, backend: Literal["ray", "native"] = "ray"
     ):
         self.repo = repo
-        self.evaluator = Evaluator(repo=self.repo)
+        self.evaluator = RepoMetrics(repo=self.repo)
         self.output_dir = output_dir
         self.backend = backend
         assert self.backend in ["ray", "native"]

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+from tabarena.evaluation._fillna import fillna_metrics
 from tabarena.portfolio.greedy_portfolio_generator import zeroshot_results
 from tabarena.repository.repo_utils import convert_time_infer_s_from_sample_to_batch
 from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer, EnsembleScorerMaxModels
@@ -15,8 +16,8 @@ if TYPE_CHECKING:
 
 # TODO: This class is WIP.
 # TODO: Add unit tests
-class Evaluator:
-    """Computes metrics and statistics to compare methods."""
+class RepoMetrics:
+    """Assembles per-``(dataset, fold, framework)`` metric tables and zeroshot portfolios from a repository."""
 
     def __init__(
         self,
@@ -164,42 +165,30 @@ class Evaluator:
     def _fillna_metrics(cls, df_metrics: pd.DataFrame, df_fillna: pd.DataFrame) -> pd.DataFrame:
         """Fills missing (dataset, fold, framework) rows in df_metrics with the (dataset, fold) row in df_fillna.
 
+        Thin adapter over :func:`tabarena.evaluation._fillna.fillna_metrics` (keyed on ``framework``)
+        that accepts and returns frames indexed by ``(dataset, fold, framework)`` /
+        ``(dataset, fold)``; the shared helper works on flat frames.
+
         Parameters
         ----------
         df_metrics
+            Per-``(dataset, fold, framework)`` metrics, indexed by that triple.
         df_fillna
+            Fallback rows indexed by ``(dataset, fold)`` (the framework level already dropped).
 
         Returns:
         -------
+        pd.DataFrame
+            ``df_metrics`` completed and indexed by ``(dataset, fold, framework)``, with an
+            ``imputed`` column.
 
         """
-        # FIXME: Include frameworks that have 0 presence?
-        #  baselines + configs
-        unique_frameworks = list(df_metrics.index.unique(level="framework"))
-
-        df_filled = df_fillna.index.to_frame().merge(
-            pd.Series(data=unique_frameworks, name="framework"),
-            how="cross",
+        df_filled = fillna_metrics(
+            df_to_fill=df_metrics.reset_index(),
+            df_fillna=df_fillna.reset_index(),
+            key_col="framework",
         )
-        df_filled = df_filled.set_index(keys=list(df_filled.columns))
-
-        # missing results
-        nan_vals = df_filled.index.difference(df_metrics.index)
-
-        # fill valid values
-        fill_cols = list(df_metrics.columns)
-        df_filled[fill_cols] = np.nan
-        df_filled[fill_cols] = df_filled[fill_cols].astype(df_metrics.dtypes)
-        df_filled.loc[df_metrics.index] = df_metrics
-
-        a = df_fillna.loc[nan_vals.droplevel(level="framework")]
-        a.index = nan_vals
-        df_filled.loc[nan_vals] = a
-
-        df_filled["imputed"] = False
-        df_filled.loc[nan_vals, "imputed"] = True
-
-        return df_filled
+        return df_filled.set_index(["dataset", "fold", "framework"])
 
     # TODO: Prototype, find a better way to do this
     # TODO: Docstring

@@ -1896,7 +1896,12 @@ class AbstractArenaContext:
 
     @classmethod
     def fillna_metrics(cls, df_to_fill: pd.DataFrame, df_fillna: pd.DataFrame) -> pd.DataFrame:
-        """Fills missing (dataset, fold, framework) rows in df_to_fill with the (dataset, fold) row in df_fillna.
+        """Fills missing (dataset, fold, method) rows in df_to_fill with the (dataset, fold) row in df_fillna.
+
+        Thin wrapper over :func:`tabarena.evaluation._fillna.fillna_metrics` (keyed on ``method``),
+        preserving the per-method descriptive columns (``method_type`` / ``method_subtype`` /
+        ``config_type`` / ``ta_name`` / ``ta_suite``) so an imputed row keeps its own identity
+        rather than the fallback method's.
 
         Parameters
         ----------
@@ -1907,68 +1912,11 @@ class AbstractArenaContext:
         -------
 
         """
-        method_col = "method"
-        split_col = "fold"
-        dataset_col = "dataset"
+        from tabarena.evaluation._fillna import fillna_metrics
 
-        columns_to_keep = [
-            "method_type",
-            "method_subtype",
-            "config_type",
-            "ta_name",
-            "ta_suite",
-        ]
-        columns_to_keep = [c for c in columns_to_keep if c in df_to_fill]
-        per_column: dict[str, dict] = {}
-        for c in columns_to_keep:
-            groupby_method = df_to_fill.groupby(method_col)[c]
-            nunique = groupby_method.nunique(dropna=False)
-            invalid = nunique[nunique != 1]
-            df_to_fill_invalid = df_to_fill[df_to_fill[method_col].isin(invalid.index)]
-            groupby_method_invalid = df_to_fill_invalid.groupby(method_col)[c]
-            if not invalid.empty:
-                raise AssertionError(
-                    f"Found a method with multiple values for column {c} (must be unique):\n"
-                    f"{groupby_method_invalid.value_counts(dropna=False)}",
-                )
-
-            # Using .first() is safe because nunique == 1 for every method
-            per_column[c] = groupby_method.first().to_dict()
-
-        df_to_fill = df_to_fill.set_index([dataset_col, split_col, method_col], drop=True)
-        df_fillna = df_fillna.set_index([dataset_col, split_col], drop=True).drop(columns=[method_col])
-
-        unique_frameworks = list(df_to_fill.index.unique(level=method_col))
-
-        df_filled = df_fillna.index.to_frame().merge(
-            pd.Series(data=unique_frameworks, name=method_col),
-            how="cross",
+        return fillna_metrics(
+            df_to_fill=df_to_fill,
+            df_fillna=df_fillna,
+            key_col="method",
+            preserve_columns=["method_type", "method_subtype", "config_type", "ta_name", "ta_suite"],
         )
-        df_filled = df_filled.set_index(keys=list(df_filled.columns))
-
-        # missing results
-        nan_vals = df_filled.index.difference(df_to_fill.index)
-
-        # fill valid values
-        fill_cols = list(df_to_fill.columns)
-        df_filled[fill_cols] = np.nan
-        df_filled[fill_cols] = df_filled[fill_cols].astype(df_to_fill.dtypes)
-        df_filled.loc[df_to_fill.index] = df_to_fill
-
-        df_fillna_to_use = df_fillna.loc[nan_vals.droplevel(level=method_col)].copy()
-        df_fillna_to_use.index = nan_vals
-        df_filled.loc[nan_vals] = df_fillna_to_use
-
-        if "imputed" not in df_filled.columns:
-            df_filled["imputed"] = False
-        df_filled.loc[nan_vals, "imputed"] = True
-        df_filled["imputed"] = df_filled["imputed"].fillna(0).astype(bool)
-
-        df_filled = df_filled.reset_index(drop=False)
-
-        # Overwrite values column-by-column while preserving order
-        for c in columns_to_keep:
-            mapping = per_column[c]
-            df_filled[c] = df_filled[method_col].map(mapping)
-
-        return df_filled
