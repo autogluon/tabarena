@@ -40,9 +40,9 @@ from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 from tabarena.models._method_simulator import MethodSimulator
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
-from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection
+from tabarena.simulation.repo_simulator import RepoSimulator
 from tabarena.website.website_format import format_leaderboard
 
 if TYPE_CHECKING:
@@ -1407,7 +1407,7 @@ class AbstractArenaContext:
             repo = self.load_repo(methods=methods)
 
         config_type_default = self.method_metadata(method_default).config_type
-        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+        simulator = RepoSimulator(repo=repo, backend=self.backend)
         config_default = simulator._config_default(config_type=config_type_default, use_first_if_missing=True)
         if config_default is not None:
             default = simulator.run_config_default(model_type=config_type_default)
@@ -1488,7 +1488,7 @@ class AbstractArenaContext:
         method = method_new
         if len(method) == 1:
             method = method[0]
-        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+        simulator = RepoSimulator(repo=repo, backend=self.backend)
         df_results_family_hpo = simulator.run_ensemble_config_type(
             config_type=method,
             n_iterations=n_iterations,
@@ -1522,7 +1522,7 @@ class AbstractArenaContext:
         if configs is None:
             configs = self._get_config_defaults()
 
-        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+        simulator = RepoSimulator(repo=repo, backend=self.backend)
         simulator.evaluator.compute_avg_config_prediction_delta(configs=configs)
 
     # FIXME: WIP
@@ -1543,7 +1543,7 @@ class AbstractArenaContext:
     ):
         if repo is None:
             repo = self.load_repo(config_fallback=config_fallback)
-        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+        simulator = RepoSimulator(repo=repo, backend=self.backend)
 
         results = simulator.evaluate_ensembles(
             configs=configs,
@@ -1561,7 +1561,7 @@ class AbstractArenaContext:
     ):
         if repo is None:
             repo = self.load_repo(config_fallback=config_fallback)
-        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+        simulator = RepoSimulator(repo=repo, backend=self.backend)
 
         results = simulator.evaluate_ensembles_per(
             df_info=df_info,
@@ -1587,7 +1587,7 @@ class AbstractArenaContext:
             repo = self.load_repo(methods=methods, config_fallback=config_fallback)
         if config_types is None:
             config_types = repo.config_types()
-        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+        simulator = RepoSimulator(repo=repo, backend=self.backend)
 
         simulator.run_portfolio_search(
             model_types=config_types,
@@ -1607,7 +1607,7 @@ class AbstractArenaContext:
         n_ensemble: int | None = None,
         time_limit: int | None = 14400,
     ) -> pd.DataFrame:
-        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+        simulator = RepoSimulator(repo=repo, backend=self.backend)
         return simulator.run_zs(
             configs=configs,
             n_portfolios=n_portfolio,
@@ -1621,7 +1621,7 @@ class AbstractArenaContext:
     ):
         if repo is None:
             repo = self.load_repo(methods=methods, config_fallback=config_fallback)
-        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+        simulator = RepoSimulator(repo=repo, backend=self.backend)
 
         df_results_n_portfolio = []
         n_portfolios = [200] if "n_portfolios" not in kwargs else kwargs.pop("n_portfolios")
@@ -1640,7 +1640,7 @@ class AbstractArenaContext:
         time_limit: int | None = None,
         **kwargs,
     ) -> pd.DataFrame:
-        simulator = PaperRunTabArena(repo=repo, backend=self.backend)
+        simulator = RepoSimulator(repo=repo, backend=self.backend)
         return simulator.run_zs_from_types(
             config_types=config_types,
             n_portfolios=n_portfolio,
