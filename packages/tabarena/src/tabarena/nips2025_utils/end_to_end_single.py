@@ -9,6 +9,7 @@ from autogluon.common.savers import save_pd
 
 from tabarena.benchmark.result import BaselineResult, ConfigResult
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.contexts.tabarena_context import TabArenaContext
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_simulator import MethodSimulator
 from tabarena.nips2025_utils.fetch_metadata import task_metadata_collection_from_openml
@@ -16,7 +17,6 @@ from tabarena.nips2025_utils.method_processor import (
     load_all_artifacts,
     load_raw,
 )
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.utils.pickle_utils import fetch_all_pickles
 from tabarena.utils.ray_utils import ray_map_list
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+from tabarena.contexts.beyond_arena import BeyondArenaContext
 
 
 @pytest.fixture(scope="module")
@@ -85,7 +85,7 @@ class TestSubsetPredicates:
         # "core" == the committed (dataset, split) tasks (first folds_to_use splits per dataset).
         import pandas as pd
 
-        from tabarena.evaluation.context.beyond_arena import CORE_TASKS_CSV
+        from tabarena.contexts.beyond_arena import CORE_TASKS_CSV
 
         grid = ctx.task_metadata_collection.task_grid()
         mask = ctx.subset_predicates["core"].evaluate(grid, name="core")

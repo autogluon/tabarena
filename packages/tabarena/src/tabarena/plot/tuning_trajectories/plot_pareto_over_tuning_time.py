@@ -12,12 +12,12 @@ import seaborn as sns
 from autogluon.common.loaders import load_pd
 
 from bencheval.evaluator import BenchmarkEvaluator
+from tabarena.contexts.tabarena_context import TabArenaContext
 from tabarena.nips2025_utils.compare import subset_tasks
 from tabarena.nips2025_utils.eval_all import (
     get_all_subset_combinations,
     get_website_folder_name,
 )
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.paper.paper_utils import get_method_rename_map
 from tabarena.plot.plot_pareto_frontier import plot_optimal_arrow
 from tabarena.utils.parallel_for import parallel_for

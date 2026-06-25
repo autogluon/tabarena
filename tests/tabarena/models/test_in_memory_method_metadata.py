@@ -5,10 +5,10 @@ import pandas as pd
 import pytest
 
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.contexts.abstract_arena_context import AbstractArenaContext
 from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
-from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 from tabarena.nips2025_utils.end_to_end_single import EndToEndResultsSingle
 
 

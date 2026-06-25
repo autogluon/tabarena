@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+from tabarena.contexts.beyond_arena import BeyondArenaContext
 
 if __name__ == "__main__":
     output_dir = "output_beyondarena_leaderboard"  # folder to save all figures and tables

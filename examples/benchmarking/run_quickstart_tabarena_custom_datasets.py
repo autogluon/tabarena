@@ -27,7 +27,7 @@ from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task import UserTask
 from tabarena.benchmark.task.metadata import TabArenaTaskMetadata, TaskMetadataCollection
 from tabarena.benchmark.task.user_task import from_sklearn_splits_to_user_task_splits
-from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
+from tabarena.contexts.abstract_arena_context import AbstractArenaContext
 
 
 def _toy_frame(*, classification: bool) -> pd.DataFrame:

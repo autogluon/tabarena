@@ -37,7 +37,7 @@ def _preset_subset_predicates_provider(
     if suite_name == "BeyondArena":
 
         def _beyond() -> dict[str, SubsetPredicate]:
-            from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+            from tabarena.contexts.beyond_arena import BeyondArenaContext
 
             return BeyondArenaContext.SUBSET_PREDICATES
 
@@ -45,7 +45,7 @@ def _preset_subset_predicates_provider(
     if suite_name == "TabArena-v0.1":
 
         def _tabarena() -> dict[str, SubsetPredicate]:
-            from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+            from tabarena.contexts.tabarena_context import TabArenaContext
 
             return TabArenaContext.SUBSET_PREDICATES
 
@@ -509,7 +509,7 @@ class TaskMetadataCollection:
         """One row per ``(dataset, fold, repeat, split)`` carrying the subset-predicate metadata.
 
         This is the frame the subset predicates evaluate against (see
-        :attr:`~tabarena.nips2025_utils.tabarena_context.TabArenaContext.SUBSET_PREDICATES`): a
+        :attr:`~tabarena.contexts.tabarena_context.TabArenaContext.SUBSET_PREDICATES`): a
         task-level view enumerated natively from each task's ``splits_metadata``, joined with the
         dataset-level predicate columns.
 
@@ -704,7 +704,7 @@ class TaskSubset:
 
     The single source of truth for *which* subset filters exist and what each one means:
     :meth:`TaskMetadataCollection.subset_tasks` (and therefore
-    :meth:`~tabarena.nips2025_utils.abstract_arena_context.AbstractArenaContext.build_jobs`) is
+    :meth:`~tabarena.contexts.abstract_arena_context.AbstractArenaContext.build_jobs`) is
     expressed in terms of these fields rather than re-declaring them. Pass a ``TaskSubset`` directly,
     or splat it back into either call via :meth:`as_kwargs`::
 

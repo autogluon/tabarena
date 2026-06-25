@@ -11,8 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.contexts.tabarena_context import TabArenaContext
 from tabarena.models import TabICLv2Model
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.utils.config_utils import ConfigGenerator
 
 if __name__ == "__main__":

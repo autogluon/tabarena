@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+from tabarena.contexts.tabarena_context import TabArenaContext
 from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 
 if TYPE_CHECKING:

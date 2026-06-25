@@ -19,7 +19,7 @@ import pytest
 
 from tabarena.benchmark.experiment import TabArenaExperimentBundle
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
-from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
+from tabarena.contexts.abstract_arena_context import AbstractArenaContext
 
 # Import a real submodule (not the bare `tabflow_slurm` namespace): when the package
 # is not installed, the repo-root workspace dir is importable as an empty namespace

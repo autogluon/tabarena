@@ -24,9 +24,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tabarena.contexts.tabarena_context import TabArenaContext
 from tabarena.nips2025_utils.artifacts.download_utils import download_and_extract_zip
 from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 if __name__ == "__main__":
     # Public raw artifacts of TabPFN-3, used here as a stand-in for "your own method".

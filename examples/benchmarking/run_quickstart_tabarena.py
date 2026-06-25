@@ -17,7 +17,7 @@ from autogluon.core.models import AbstractModel
 from autogluon.features import LabelEncoderFeatureGenerator
 
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+from tabarena.contexts.tabarena_context import TabArenaContext
 
 if TYPE_CHECKING:
     import pandas as pd

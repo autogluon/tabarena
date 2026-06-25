@@ -10,7 +10,7 @@ declared once in that model's ``models/<key>/info.py`` and reused for both the
 tabarena run and this Beyond re-run.
 
 ``beyond_method_metadata_collection`` is the aggregate consumed by
-:class:`~tabarena.evaluation.context.beyond_arena.BeyondArenaContext`.
+:class:`~tabarena.contexts.beyond_arena.BeyondArenaContext`.
 """
 
 from __future__ import annotations
