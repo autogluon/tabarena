@@ -50,7 +50,7 @@ class TestConfig:
 
 
 def test_run_eval_orchestration(tmp_path, monkeypatch):
-    import tabarena.contexts.tabarena_context as tc
+    import tabarena.contexts.tabarena.context as tc
     import tabarena.nips2025_utils.end_to_end as ee
     import tabarena.nips2025_utils.end_to_end_single as ees
     import tabarena.website.website_format as wf

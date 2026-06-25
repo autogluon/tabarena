@@ -25,15 +25,6 @@ def test_method_metadata_lazy_access_works():
     assert MethodMetadata is Canonical
 
 
-def test_method_metadata_is_same_as_legacy_shim():
-    from tabarena.models import MethodMetadata
-    from tabarena.nips2025_utils.artifacts.method_metadata import (
-        MethodMetadata as Legacy,
-    )
-
-    assert MethodMetadata is Legacy
-
-
 def test_method_metadata_cached_in_module_globals_after_first_access():
     _purge("tabarena.models._method_metadata")
     _purge("tabarena.models")

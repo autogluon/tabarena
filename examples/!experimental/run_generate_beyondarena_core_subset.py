@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from tabarena.contexts.beyondarena_context import CORE_TASKS_CSV, BeyondArenaContext
+from tabarena.contexts.beyondarena.context import CORE_TASKS_CSV, BeyondArenaContext
 
 TARGET_RELIABILITY = 0.8
 

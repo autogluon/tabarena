@@ -14,7 +14,7 @@ nothing from ``TabArenaContext``, whose only addition over the base is the TabAr
   selected tasks.
 * **Method metadata** — the ``"BeyondArena"`` preset selects the Beyond-IID benchmark's method
   collection (artifact ``beyond_iid_benchmark_2026``; see
-  :mod:`tabarena.nips2025_utils.artifacts._beyond_method_metadata`).
+  :mod:`tabarena.contexts.beyondarena.methods`).
 
 Everything else (method handling, plotting, leaderboard logic) is inherited unchanged.
 """
@@ -151,7 +151,7 @@ class BeyondArenaContext(AbstractArenaContext):
         """``"BeyondArena"`` -> the Beyond-IID method collection."""
         if name != "BeyondArena":
             raise ValueError(f"Unknown methods preset {name!r}; expected 'BeyondArena'.")
-        from tabarena.nips2025_utils.artifacts import beyond_method_metadata_collection
+        from tabarena.contexts.beyondarena.methods import beyond_method_metadata_collection
 
         return copy.deepcopy(beyond_method_metadata_collection.method_metadata_lst)
 

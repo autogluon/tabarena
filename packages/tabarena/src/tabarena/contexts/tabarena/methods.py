@@ -2,6 +2,35 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from tabarena.contexts.tabarena._tabarena_method_metadata_2025_06_12 import (
+    methods_2025_06_12,
+    methods_gpu_ablation,
+    methods_main_paper,
+)
+from tabarena.contexts.tabarena._tabarena_method_metadata_2025_09_03 import (
+    ag_140_metadata,
+    betatabpfn_metadata,
+    tabflex_metadata,
+)
+from tabarena.contexts.tabarena._tabarena_method_metadata_2025_10_20 import (
+    portfolio_metadata_paper_cr,
+)
+from tabarena.contexts.tabarena._tabarena_method_metadata_2025_11_01 import (
+    ag_140_bq_4h8c_metadata,
+    ag_140_eq_4h8c_metadata,
+    methods_2025_11_01_ag,
+)
+from tabarena.contexts.tabarena._tabarena_method_metadata_2025_12_18 import ag_150_eq_4h8c_metadata
+from tabarena.contexts.tabarena._tabarena_method_metadata_2026_01_23_tabprep import (
+    tabprep_gbm_metadata,
+    tabprep_lr_metadata,
+    tabprep_realtabpfnv250_metadata,
+    tabprep_tabm_metadata,
+)
+from tabarena.contexts.tabarena._tabarena_method_metadata_misc import (
+    gbm_aio_0808_metadata,
+    # prep_gbm_v6_metadata,
+)
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 
 # Per-model `info.py` is the canonical source for each migrated model's
@@ -34,35 +63,6 @@ from tabarena.models.tabpfnv2_5.info import (
 )
 from tabarena.models.tabstar.info import tabstar_method_metadata as tabstar_metadata
 from tabarena.models.xrfm.info import xrfm_method_metadata as xrfm_metadata
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_06_12 import (
-    methods_2025_06_12,
-    methods_gpu_ablation,
-    methods_main_paper,
-)
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_09_03 import (
-    ag_140_metadata,
-    betatabpfn_metadata,
-    tabflex_metadata,
-)
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_10_20 import (
-    portfolio_metadata_paper_cr,
-)
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_11_01 import (
-    ag_140_bq_4h8c_metadata,
-    ag_140_eq_4h8c_metadata,
-    methods_2025_11_01_ag,
-)
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2025_12_18 import ag_150_eq_4h8c_metadata
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_2026_01_23_tabprep import (
-    tabprep_gbm_metadata,
-    tabprep_lr_metadata,
-    tabprep_realtabpfnv250_metadata,
-    tabprep_tabm_metadata,
-)
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_misc import (
-    gbm_aio_0808_metadata,
-    # prep_gbm_v6_metadata,
-)
 
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
