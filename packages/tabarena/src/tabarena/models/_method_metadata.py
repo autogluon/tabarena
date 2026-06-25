@@ -111,12 +111,22 @@ class MethodMetadata:
     # -- (2) Inferable from raw results -------------------------------------------------------
     #: Populated automatically by :meth:`from_raw` (and the ``run_process_local_raw_data.py``
     #: inspector) from the raw result frame, so they can be left to inference when authoring from
-    #: raw artifacts. ``model_key`` and ``can_hpo`` have no independent raw signal and are derived
-    #: in :meth:`__post_init__` (from ``ag_key`` and ``method_type`` respectively).
+    #: raw artifacts. ``model_key`` has no independent raw signal and is derived in
+    #: :meth:`__post_init__` from ``ag_key``; ``can_hpo`` is inferred from the raw results by
+    #: :meth:`from_raw` and only falls back to a ``method_type``-based default in
+    #: :meth:`__post_init__` when left ``None`` (see its own note below).
     method_type: MethodTypeLiteral = "config"
     ag_key: str | None = None
     model_key: str | None = None
     config_default: str | None = None
+    #: Whether this method has more than one config result — i.e. whether it can be HPO-tuned in
+    #: simulation, and so supports the derived tuned / tuned+ensemble methods. This is NOT an
+    #: intrinsic model capability: it literally means ">1 config was run". :meth:`from_raw` sets it
+    #: from the count of distinct configs in the raw results (1 config -> ``False``, >1 -> ``True``),
+    #: so the *same* model can have ``can_hpo=True`` in one suite and ``False`` in another purely
+    #: from how many configs that suite ran (e.g. TabDPT: 200 configs in TabArena -> ``True``, 1
+    #: config in BeyondArena -> ``False`` — same model, not a capability pin). When left ``None`` it
+    #: defaults in :meth:`__post_init__` to ``method_type == "config"``.
     can_hpo: bool | None = None
     compute: Literal["cpu", "gpu"] = "cpu"
     #: Whether the model was trained with bagging (cross-validation across folds). When ``True``,
