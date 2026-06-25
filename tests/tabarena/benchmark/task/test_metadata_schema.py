@@ -6,7 +6,7 @@ import io
 
 import pandas as pd
 
-from tabarena.benchmark.task.metadata import SplitMetadata, TabArenaTaskMetadata
+from tabarena.benchmark.task.metadata import SplitMetadata, TabArenaTaskMetadata, ValidationMetadata
 
 
 def _task() -> TabArenaTaskMetadata:
@@ -91,3 +91,9 @@ def test_from_row_keeps_set_optional_fields():
     assert restored.group_on == "patient_id"
     assert restored.group_labels == "per_sample"
     assert restored.stratify_on is None
+
+
+def test_validation_metadata_get_target_name():
+    assert ValidationMetadata(target_name="class").get_target_name() == "class"
+    assert ValidationMetadata(target_name=None).get_target_name() == "__label__"
+    assert ValidationMetadata().get_target_name() == "__label__"

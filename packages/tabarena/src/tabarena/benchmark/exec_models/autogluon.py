@@ -15,7 +15,6 @@ from tabarena.benchmark.exec_models.autogluon_utils import resolve_holdout_split
 from tabarena.benchmark.exec_models.base import AbstractExecModel
 from tabarena.benchmark.exec_models.utils import _apply_inv_perm
 from tabarena.benchmark.preprocessing.pipeline import build_feature_generator, resolve_preprocessing_pipeline
-from tabarena.benchmark.task.metadata import ValidationMetadata
 
 if TYPE_CHECKING:
     from autogluon.tabular import TabularPredictor
@@ -50,11 +49,13 @@ class AGWrapper(AbstractExecModel):
         prediction at the cost of memory).
     validation_metadata:
         Task-derived ``ValidationMetadata`` (or a kwargs dict for one) describing the
-        validation-split structure. The label column appended to the training frame is named
-        after its ``target_name`` (falling back to ``"__label__"``).
+        validation-split structure. Inherited from ``AbstractExecModel`` (the runner injects it
+        from the task); the label column appended to the training frame is named via
+        ``validation_metadata.get_target_name()`` (its ``target_name``, else ``"__label__"``).
     use_task_specific_validation:
-        If True, adapt the validation split to ``validation_metadata`` during fitting;
-        otherwise use standard splitting and ignore the metadata's split columns.
+        If True, *act* on ``validation_metadata`` during fitting — build task-aware validation
+        splits and group-aware features; otherwise use standard splitting and ignore the
+        metadata's split columns (the metadata is still present, just not acted upon).
     """
 
     # Default AutoGluon can return a validation score
@@ -74,7 +75,6 @@ class AGWrapper(AbstractExecModel):
         init_kwargs: dict | None = None,
         fit_kwargs: dict | None = None,
         persist: bool = False,
-        validation_metadata: ValidationMetadata | dict | None = None,
         use_task_specific_validation: bool = False,
         **kwargs,
     ):
@@ -85,7 +85,6 @@ class AGWrapper(AbstractExecModel):
             fit_kwargs = {}
         self.init_kwargs = init_kwargs
         self.fit_kwargs = fit_kwargs
-        self.validation_metadata = ValidationMetadata.from_config(validation_metadata)
         self.use_task_specific_validation = use_task_specific_validation
         self.persist = persist
 
@@ -122,9 +121,9 @@ class AGWrapper(AbstractExecModel):
         init_kwargs = copy.deepcopy(self.init_kwargs)
         fit_kwargs = copy.deepcopy(self.fit_kwargs)
 
-        # Name the internal label column from the validation metadata's target (else a safe
-        # sentinel), and tell the predictor about it.
-        label = self.validation_metadata.target_name or "__label__"
+        # Name the internal label column from the validation metadata (a sentinel when unset). The
+        # name is purely internal — predictions / artifacts use the task's own label + cleaner.
+        label = self.validation_metadata.get_target_name()
         init_kwargs["label"] = label
 
         num_folds = self._apply_validation_splits(fit_kwargs, X=X, y=y)
@@ -224,9 +223,12 @@ class AGWrapper(AbstractExecModel):
     def _apply_feature_generator(self, fit_kwargs: dict) -> None:
         """Instantiate ``feature_generator_cls`` into ``fit_kwargs["feature_generator"]`` (in place).
 
-        No-op when ``feature_generator_cls`` is absent. Forwards any group/time split columns
-        from the validation metadata that the generator's ``__init__`` accepts, via the shared
-        :func:`~tabarena.benchmark.preprocessing.build_feature_generator`.
+        No-op when ``feature_generator_cls`` is absent. The task's group/time split columns (from
+        ``self.validation_metadata``) are always forwarded via the shared
+        :func:`~tabarena.benchmark.preprocessing.build_feature_generator`, which passes them only to a
+        generator that accepts them — so they take effect for the group-aware TabArena generator and
+        are ignored by AutoGluon's default one. No gate is needed (the consuming generator is only
+        present for the TabArena pipeline, which is the right setting).
         """
         feature_generator_cls = fit_kwargs.pop("feature_generator_cls", None)
         feature_generator_kwargs = fit_kwargs.pop("feature_generator_kwargs", {})
@@ -586,9 +588,9 @@ class AGModelWrapper(AbstractExecModel):
         Model hyperparameters; the resolved pipeline's model-specific step is merged in.
     preprocessing_pipeline: str | None, default None
         Pipeline name passed to ``resolve_preprocessing_pipeline``.
-    group_cols / group_labels / group_time_on:
-        Optional grouped-task columns forwarded to the model-agnostic feature generator (only
-        those it accepts); analogous to what ``AGWrapper`` sources from validation metadata.
+
+    Grouped-task columns are sourced from the task's ``validation_metadata`` (injected by the
+    runner) — the same source ``AGWrapper`` uses — so there is nothing group-related to pass here.
     """
 
     model: AbstractModel
@@ -601,9 +603,6 @@ class AGModelWrapper(AbstractExecModel):
         *,
         fit_kwargs: dict | None = None,
         preprocessing_pipeline: str | None = None,
-        group_cols: str | list[str] | None = None,
-        group_labels=None,
-        group_time_on: str | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -619,21 +618,23 @@ class AGModelWrapper(AbstractExecModel):
         self.preprocessing_pipeline = preprocessing_pipeline
         self._feature_generator_cls = pipeline.feature_generator_cls
         self._feature_generator_kwargs = pipeline.feature_generator_kwargs
-        self._group_cols = group_cols
-        self._group_labels = group_labels
-        self._group_time_on = group_time_on
         # Model-specific preprocessing rides on the model's hyperparameters (the AutoGluon model
         # applies it in its own fit), so this works the same here as in the AGWrapper path.
         self.hyperparameters = pipeline.apply_model_specific(hyperparameters)
 
     def _make_feature_generator(self):
-        """Build the pipeline's model-agnostic feature generator (shared with ``AGWrapper``)."""
+        """Build the pipeline's model-agnostic feature generator (shared with ``AGWrapper``).
+
+        Group/time split columns come from the task's ``validation_metadata`` (injected uniformly by
+        the runner) and are forwarded only to a generator that accepts them.
+        """
+        metadata = self.validation_metadata
         return build_feature_generator(
             self._feature_generator_cls,
             self._feature_generator_kwargs,
-            group_cols=self._group_cols,
-            group_labels=self._group_labels,
-            group_time_on=self._group_time_on,
+            group_cols=metadata.group_on,
+            group_labels=metadata.group_labels,
+            group_time_on=metadata.group_time_on,
         )
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, **kwargs):

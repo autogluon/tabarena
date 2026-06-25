@@ -19,6 +19,7 @@ from tabarena.benchmark.exec_models.autogluon import (
     AGWrapper,
 )
 from tabarena.benchmark.exec_models.base import AbstractExecModel
+from tabarena.benchmark.exec_models.external import ExternalSystemModel
 from tabarena.benchmark.exec_models.registry import infer_model_cls
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     "AGSingleWrapper",
     "AGWrapper",
     "AbstractExecModel",
+    "ExternalSystemModel",
     "infer_model_cls",
 ]

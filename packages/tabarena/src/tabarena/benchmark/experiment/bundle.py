@@ -162,6 +162,14 @@ class TabArenaExperimentBundle:
     alternative to bagging that (unlike ``outer_experiments``) still keeps a validation split.
     A pre-built ``Experiment`` passed in ``models`` is still used verbatim.
     Mutually exclusive with ``outer_experiments``."""
+    system_experiments: bool = False
+    """If True, build 'system' experiments: each entry is a self-contained ML system (one that isn't
+    a single AutoGluon model) — an ``ExternalSystemModel`` subclass — fit on all the data with no
+    train/val split, bagging, or ensemble (like ``outer_experiments``). Every entry in
+    ``models`` must be a ``(SystemConfigGenerator, n_configs)`` tuple (a system class has no
+    registry name).
+    Mutually exclusive with ``outer_experiments`` / ``holdout_experiments``.
+    """
     model_artifacts_base_path: str | Path | None = "/tmp"  # noqa: S108
     """Adapt the default temporary directory used for model artifacts in TabArena.
         - If None, the default temporary directory is used: "./AutoGluonModels".
@@ -215,10 +223,11 @@ class TabArenaExperimentBundle:
     }
 
     def __post_init__(self) -> None:
-        if self.outer_experiments and self.holdout_experiments:
+        if sum([self.outer_experiments, self.holdout_experiments, self.system_experiments]) > 1:
             raise ValueError(
-                "`outer_experiments` and `holdout_experiments` are mutually exclusive "
-                "(a model is fit as exactly one of bagged / holdout / outer); set at most one.",
+                "`outer_experiments`, `holdout_experiments`, and `system_experiments` are mutually "
+                "exclusive (a model is fit as exactly one of bagged / holdout / outer / system); "
+                "set at most one.",
             )
 
     @property
@@ -393,7 +402,7 @@ class TabArenaExperimentBundle:
         """
         mk = {
             "init_kwargs": {"verbosity": self.verbosity},
-            "shuffle_features": self.shuffle_features,
+            **self._base_method_kwargs(),
             "fit_kwargs": {},
             "extra_model_hyperparameters": {},
         }
@@ -538,6 +547,16 @@ class TabArenaExperimentBundle:
 
         return [AGExperiment(name=model_name, **agexp_kwargs)]
 
+    def _base_method_kwargs(self) -> dict:
+        """Base-level (``AbstractExecModel``) method settings applied to *every* flavour.
+
+        The single source for non-AutoGluon-specific method settings: ``_init_base_method_kwargs``
+        merges these into the kwargs the bagged / holdout paths forward wholesale, and the outer /
+        system paths (which build a minimal ``method_kwargs``) spread them directly. Add a key here
+        to set a new shared setting for all flavours at once.
+        """
+        return {"shuffle_features": self.shuffle_features}
+
     @staticmethod
     def _merge_extra_model_hyperparameters(
         bundle_extra: dict | None,
@@ -578,6 +597,34 @@ class TabArenaExperimentBundle:
         else:
             config_generator = deepcopy(model_name)
 
+        if self.system_experiments:
+            # No-validation 'system' path: one direct ``ExternalSystemModel`` fit on all the data,
+            # no bagging/ensemble, and not an AutoGluon model.
+            from tabarena.utils.config_utils import SystemConfigGenerator
+
+            if not isinstance(config_generator, SystemConfigGenerator):
+                raise TypeError(
+                    "system_experiments=True requires each model entry to be a "
+                    "`(SystemConfigGenerator, n_configs)` tuple; got a "
+                    f"{type(config_generator).__name__} for model {model_name!r}.",
+                )
+            base_fit_kwargs = pipeline_method_kwargs.get("fit_kwargs") or {}
+            return config_generator.generate_all_system_experiments(
+                num_random_configs=n_configs,
+                name_id_suffix=name_id_suffix,
+                method_kwargs={
+                    **self._base_method_kwargs(),
+                    # Resources are passed (and auto-detected) the same way as for every other
+                    # method, so the system can read them at fit time (see ``ExternalSystemModel``).
+                    "fit_kwargs": {
+                        "num_cpus": base_fit_kwargs.get("num_cpus"),
+                        "num_gpus": base_fit_kwargs.get("num_gpus"),
+                        "memory_limit": base_fit_kwargs.get("memory_limit"),
+                        "time_limit": time_limit,
+                    },
+                },
+            )
+
         # Merge the bundle-level extra hyperparameters (e.g. ``ag.verbosity``) with any per-model
         # overrides; the result is merged into every config of this model (default + sampled). It
         # must not collide with a config's own hyperparameters (asserted downstream).
@@ -601,7 +648,7 @@ class TabArenaExperimentBundle:
                 num_random_configs=n_configs,
                 name_id_suffix=name_id_suffix,
                 method_kwargs={
-                    "shuffle_features": pipeline_method_kwargs["shuffle_features"],
+                    **self._base_method_kwargs(),
                     "fit_kwargs": outer_fit_kwargs,
                     # Mirror the validation path's TabularPredictor verbosity so the feature
                     # generator's preprocessing output is shown for outer fits too.

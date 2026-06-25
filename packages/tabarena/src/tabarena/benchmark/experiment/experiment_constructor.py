@@ -346,44 +346,26 @@ class Experiment:
         chaining the ``_apply_*`` steps — each takes ``method_kwargs`` and returns the
         (possibly new) ``method_kwargs``:
 
-        1. the task's validation metadata, when the dynamic protocol is enabled
-           (``_apply_validation_metadata``);
+        1. the task's validation metadata, injected uniformly for *every* method as read-only data
+           (``_apply_validation_metadata``); when the dynamic protocol is enabled this additionally
+           turns on ``use_task_specific_validation`` so the AutoGluon wrappers *act* on it;
         2. any preprocessing pipeline (``_apply_preprocessing``);
         3. any auto-detected compute resources (``_apply_resources``);
         4. in-process fold fitting when ``debug_mode`` (``_apply_debug_fold_fitting``).
         """
         method_kwargs = copy.deepcopy(self.method_kwargs)
+        # Uniform: hand every method the task's validation metadata (read-only data), layering any
+        # user-provided value over the task-derived base. Every ``AbstractExecModel`` accepts it.
+        method_kwargs = self._apply_validation_metadata(method_kwargs, task_metadata=task.get_validation_metadata())
+        # Policy: the AutoGluon-validation family additionally *acts* on it (task-aware splits /
+        # group-aware features) only when the dynamic protocol is enabled for this experiment.
         if self.dynamic_tabarena_validation_protocol:
-            method_kwargs = self._apply_validation_metadata(method_kwargs, task_metadata=task.get_validation_metadata())
+            method_kwargs.setdefault("use_task_specific_validation", True)
+            print(f"Loading validation metadata into experiment:\n\t{method_kwargs['validation_metadata']}")
         method_kwargs = self._apply_preprocessing(method_kwargs)
         method_kwargs = self._apply_resources(method_kwargs)
-        method_kwargs = self._apply_outer_group_metadata(method_kwargs, task=task)
         if debug_mode:
             method_kwargs = self._apply_debug_fold_fitting(method_kwargs)
-        return method_kwargs
-
-    def _apply_outer_group_metadata(self, method_kwargs: dict, *, task: TaskWrapper) -> dict:
-        """Source a grouped task's group columns for an outer (``AGModelWrapper``) experiment.
-
-        The bagged/validation path forwards grouped-task columns to the model-agnostic feature
-        generator through its validation metadata; the no-validation path carries no validation
-        metadata, so here we read the same group columns straight from the task — decoupled from
-        any validation split — and hand them to the wrapper, so grouped-task feature aggregation
-        applies in *both* paths. Only columns the active feature generator accepts are used
-        downstream (see ``build_feature_generator``), and any user-set value is preserved. No-op
-        for non-``AGModelWrapper`` experiments (which already get groups via validation metadata).
-        """
-        if not (isinstance(self.method_cls, type) and issubclass(self.method_cls, AGModelWrapper)):
-            return method_kwargs
-        validation_metadata = task.get_validation_metadata()
-        group_params = {
-            "group_cols": validation_metadata.group_on,
-            "group_labels": validation_metadata.group_labels,
-            "group_time_on": validation_metadata.group_time_on,
-        }
-        for key, value in group_params.items():
-            if method_kwargs.get(key) is None:
-                method_kwargs[key] = value
         return method_kwargs
 
     def _apply_debug_fold_fitting(self, method_kwargs: dict) -> dict:
@@ -486,19 +468,20 @@ class Experiment:
 
     @staticmethod
     def _apply_validation_metadata(method_kwargs: dict, *, task_metadata: ValidationMetadata) -> dict:
-        """Merge ``task_metadata`` into ``method_kwargs`` (in place) and return it.
+        """Set ``method_kwargs["validation_metadata"]`` from the task (in place) and return it.
 
-        Sets ``validation_metadata`` (the task-derived base, with any value already present in
-        ``method_kwargs`` layered over it — per-key for a dict, see
-        ``ValidationMetadata.from_config``) and turns on ``use_task_specific_validation``
-        (unless the user already set it). The wrapper (``AGWrapper``) reads both from its kwargs.
+        The task-derived ``task_metadata`` is the base, with any value already present in
+        ``method_kwargs`` layered over it (per-key for a dict; see ``ValidationMetadata.from_config``).
+        This runs uniformly for *every* experiment and only provides the metadata as read-only data;
+        the decision to *act* on it (``use_task_specific_validation``) is made separately by the
+        caller. Every ``AbstractExecModel`` accepts ``validation_metadata`` (handled by the base).
         """
         from tabarena.benchmark.task.metadata import ValidationMetadata
 
-        metadata = ValidationMetadata.from_config(method_kwargs.get("validation_metadata"), base=task_metadata)
-        print(f"Loading validation metadata into experiment:\n\t{metadata}")
-        method_kwargs["validation_metadata"] = metadata
-        method_kwargs.setdefault("use_task_specific_validation", True)
+        method_kwargs["validation_metadata"] = ValidationMetadata.from_config(
+            method_kwargs.get("validation_metadata"),
+            base=task_metadata,
+        )
         return method_kwargs
 
     # --- Utils -----------------------------------------------------------
@@ -1042,6 +1025,62 @@ class AGModelOuterExperiment(Experiment):
             experiment_kwargs=experiment_kwargs,
             **kwargs,
         )
+
+
+class ExternalSystemExperiment(Experiment):
+    """Run a self-contained ML system (one that isn't a single AutoGluon model) on all the training
+    data (no validation split).
+
+    Parameters
+    ----------
+    name: str
+        The name of the experiment / method (descriptive + unique).
+    system_cls: type[AbstractExecModel]
+        The system's exec-model class to fit (e.g. an ``ExternalSystemModel`` subclass).
+    system_hyperparameters: dict, optional
+        Keyword arguments for ``system_cls(...)`` (the per-config init kwargs). Merged under
+        ``method_kwargs`` (which wins on key collisions).
+    method_kwargs: dict, optional
+        Extra ``system_cls`` kwargs shared across configs (e.g. ``shuffle_features``).
+    experiment_kwargs: dict, optional
+        The kwargs passed to the runner (``experiment_cls``).
+    **kwargs:
+        Forwarded to ``Experiment.__init__`` (e.g. ``model_constraints``, ``text_cache_mode``).
+    """
+
+    _experiment_cls = OOFExperimentRunner
+
+    def __init__(
+        self,
+        name: str,
+        system_cls: type[AbstractExecModel],
+        system_hyperparameters: dict | None = None,
+        *,
+        method_kwargs: dict | None = None,
+        experiment_kwargs: dict | None = None,
+        **kwargs,
+    ):
+        method_kwargs = copy.deepcopy(method_kwargs) if method_kwargs else {}
+        super().__init__(
+            name=name,
+            method_cls=system_cls,
+            method_kwargs={**(system_hyperparameters or {}), **method_kwargs},
+            experiment_cls=self._experiment_cls,
+            experiment_kwargs=experiment_kwargs,
+            **kwargs,
+        )
+
+    @classmethod
+    def from_yaml(cls, _context=None, **kwargs) -> Self:
+        """Reconstruct from YAML, resolving ``system_cls`` from its import path.
+
+        ``system_cls`` is serialized as an import path by the base ``_to_yaml_dict`` (it is a plain
+        class, not an AutoGluon registry model), so it is resolved here rather than via ``method_cls``.
+        """
+        if _context is None:
+            _context = globals()
+        kwargs["system_cls"] = resolve_class(kwargs["system_cls"], context=_context)
+        return cls(**kwargs)
 
 
 # ---------------------------------------------------------------------------

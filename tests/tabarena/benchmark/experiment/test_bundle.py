@@ -36,6 +36,7 @@ EXPECTED_FIELD_NAMES = {
     "sequential_local_fold_fitting",
     "outer_experiments",
     "holdout_experiments",
+    "system_experiments",
     "model_artifacts_base_path",
     "verbosity",
     "model_verbosity",
@@ -55,6 +56,7 @@ COMMON_INHERITED_DEFAULTS = {
     "sequential_local_fold_fitting": False,
     "outer_experiments": False,
     "holdout_experiments": False,
+    "system_experiments": False,
     "model_artifacts_base_path": "/tmp",  # noqa: S108
     "verbosity": 2,
     "model_verbosity": 4,

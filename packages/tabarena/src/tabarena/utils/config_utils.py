@@ -33,12 +33,15 @@ from tabarena.benchmark.experiment import (
     AGModelBagExperiment,
     AGModelExperiment,
     AGModelOuterExperiment,
+    ExternalSystemExperiment,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from autogluon.core.models import AbstractModel
+
+    from tabarena.benchmark.exec_models.external import ExternalSystemModel
 
 AddSeed = Literal["static", "fold-wise", "fold-config-wise"]
 
@@ -327,6 +330,73 @@ class CustomAGConfigGenerator(AGConfigGenerator):
         return self.search_space_func(num_configs)
 
 
+class SystemConfigGenerator(ConfigGenerator):
+    """Pick which configurations of your system to benchmark.
+
+    The system counterpart of :class:`ConfigGenerator`: give it your
+    :class:`~tabarena.benchmark.exec_models.external.ExternalSystemModel` subclass and a display
+    ``name``, plus the configurations to run — ``manual_configs`` for fixed configs and/or a
+    ``search_space`` to sample from. Each configuration becomes the keyword arguments your system is
+    created with.
+
+    Use it like the no-bagging quickstart, with the bundle in ``system_experiments=True`` mode::
+
+        gen = SystemConfigGenerator(model_cls=MySystemModel, name="MySystem", manual_configs=[{}])
+        TabArenaV0pt1ExperimentBundle(models=[(gen, 0)], system_experiments=True).build_experiments()
+    """
+
+    def __init__(
+        self,
+        model_cls: type[ExternalSystemModel],
+        name: str,
+        search_space: dict | None = None,
+        manual_configs: list[dict] | None = None,
+    ):
+        assert name, "SystemConfigGenerator requires an explicit `name` (a system class has no ag_name/ag_key)."
+        # Bypass ConfigGenerator.__init__ (it would default model_type to model_cls.ag_key); a system
+        # class carries no AutoGluon registry keys, so set name == model_type directly.
+        AGConfigGenerator.__init__(self, model_cls=model_cls, name=name, model_type=name, manual_configs=manual_configs)
+        self.search_space = search_space if search_space is not None else {}
+
+    def generate_all_system_experiments(
+        self,
+        num_random_configs: int,
+        name_id_suffix: str = "",
+        method_kwargs: dict | None = None,
+        **kwargs,
+    ) -> list[ExternalSystemExperiment]:
+        """Build one experiment per configuration (each trains your system on all the data).
+
+        ``method_kwargs`` are extra system arguments shared across every config (e.g.
+        ``shuffle_features``); ``**kwargs`` are passed through to each experiment.
+        """
+        configs = self.generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
+        return generate_system_experiments(
+            system_cls=self.model_cls,
+            configs=configs,
+            name_root=self.name,
+            name_suffix_from_ag_args=True,
+            method_kwargs=method_kwargs,
+            **kwargs,
+        )
+
+    def _raise_unsupported(self, flavour: str) -> None:
+        raise NotImplementedError(
+            f"{type(self).__name__} only supports system experiments (the {flavour} flavour is for "
+            "AutoGluon models). Use a bundle with `system_experiments=True`, or call "
+            "`generate_all_system_experiments`.",
+        )
+
+    def generate_all_bag_experiments(self, *_args, **_kwargs) -> list:
+        self._raise_unsupported("bagged")
+
+    def generate_all_holdout_experiments(self, *_args, **_kwargs) -> list:
+        self._raise_unsupported("holdout")
+
+    def generate_all_outer_experiments(self, *_args, **_kwargs) -> list:
+        self._raise_unsupported("outer")
+
+
 # ---------------------------------------------------------------------------
 # Experiment builders (shared core + per-flavour wrappers)
 # ---------------------------------------------------------------------------
@@ -354,7 +424,7 @@ def _resolve_config_name_suffix(
 
 
 def _build_experiments(
-    model_cls: type[AbstractModel],
+    model_cls: type[AbstractModel] | type[ExternalSystemModel],
     configs: list[dict],
     *,
     build_experiment: Callable[[str, dict], object],
@@ -363,13 +433,17 @@ def _build_experiments(
     name_id_prefix: str,
     name_id_suffix: str,
     add_name_suffix_to_params: bool,
+    name_root: str | None = None,
 ) -> list:
     """Name each config and build its experiment via ``build_experiment(name, config)``.
 
     The single iteration + naming routine shared by every ``generate_*_experiments`` flavour: the
-    experiment name is ``{model_cls.ag_name}{name_suffix}{name_bag_suffix}``. Only ``build_experiment``
-    (the per-flavour construction) differs between flavours.
+    experiment name is ``{name_root}{name_suffix}{name_bag_suffix}``, where ``name_root`` defaults
+    to ``model_cls.ag_name`` (AutoGluon models) but can be given explicitly for a non-AutoGluon
+    system class that has no ``ag_name``. Only ``build_experiment`` (the per-flavour construction)
+    differs between flavours.
     """
+    root = name_root if name_root is not None else model_cls.ag_name
     experiments = []
     for index, config in enumerate(configs):
         name_suffix, config = _resolve_config_name_suffix(
@@ -380,7 +454,7 @@ def _build_experiments(
             name_id_suffix=name_id_suffix,
             add_name_suffix_to_params=add_name_suffix_to_params,
         )
-        name = f"{model_cls.ag_name}{name_suffix}{name_bag_suffix}"
+        name = f"{root}{name_suffix}{name_bag_suffix}"
         experiments.append(build_experiment(name, config))
     return experiments
 
@@ -551,6 +625,48 @@ def generate_outer_experiments(
         model_cls,
         configs,
         build_experiment=build_experiment,
+        name_suffix_from_ag_args=name_suffix_from_ag_args,
+        name_id_prefix=name_id_prefix,
+        name_id_suffix=name_id_suffix,
+        add_name_suffix_to_params=add_name_suffix_to_params,
+    )
+
+
+def generate_system_experiments(
+    system_cls: type[ExternalSystemModel],
+    configs: list[dict],
+    name_root: str,
+    name_suffix_from_ag_args: bool = False,
+    name_id_prefix: str = "r",
+    name_id_suffix: str = "",
+    add_name_suffix_to_params: bool = True,
+    method_kwargs: dict | None = None,
+    **kwargs,
+) -> list[ExternalSystemExperiment]:
+    """Build one :class:`ExternalSystemExperiment` per config, each training the system on all data.
+
+    The system counterpart of :func:`generate_outer_experiments`: each config becomes the init
+    kwargs of ``system_cls`` (an ``ExternalSystemModel`` subclass). AutoGluon-only keys (``ag_args``
+    / ``ag_args_ensemble``) are dropped, but the config's ``ag_args.name_suffix`` still names the
+    experiment ``{name_root}{name_suffix}`` (``name_root`` is the generator's ``name``).
+    ``method_kwargs`` are extra system arguments shared across configs.
+    """
+
+    def build_experiment(name: str, config: dict) -> ExternalSystemExperiment:
+        system_hyperparameters = {k: v for k, v in config.items() if k not in ("ag_args", "ag_args_ensemble")}
+        return ExternalSystemExperiment(
+            name=name,
+            system_cls=system_cls,
+            system_hyperparameters=system_hyperparameters,
+            method_kwargs=method_kwargs,
+            **kwargs,
+        )
+
+    return _build_experiments(
+        system_cls,
+        configs,
+        build_experiment=build_experiment,
+        name_root=name_root,
         name_suffix_from_ag_args=name_suffix_from_ag_args,
         name_id_prefix=name_id_prefix,
         name_id_suffix=name_id_suffix,
