@@ -250,7 +250,7 @@ class TestSubsetPredicateFilter:
 
     @staticmethod
     def _custom_predicates():
-        from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
+        from tabarena.benchmark.task.subset_predicate import SubsetPredicate
 
         return {
             "binary": SubsetPredicate(lambda df: df["problem_type"] == "binary", ("problem_type",)),

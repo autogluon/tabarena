@@ -119,7 +119,7 @@ def load_curated_task_metadata() -> pd.DataFrame:
     The metadata requires the following columns per task (per row) to schedule tasks:
         "tabarena_num_repeats": int
             The number of repeats for the task based on the protocol from TabArena.
-            See tabarena.nips2025_utils.fetch_metadata._get_n_repeats for details.
+            See tabarena.benchmark.task.metadata.fetch_metadata._get_n_repeats for details.
         "num_folds": int
             The number of folds for the task.
         "task_id": str
@@ -137,6 +137,6 @@ def load_curated_task_metadata() -> pd.DataFrame:
         "problem_type": str
             The problem type of the task. Options: "binary", "regression", "multiclass"
     """
-    path = str(Path(__file__).parent.resolve() / "metadata" / "curated_tabarena_dataset_metadata.csv")
+    path = str(Path(__file__).parent.resolve() / "data" / "curated_tabarena_dataset_metadata.csv")
 
     return load_pd.load(path=path)

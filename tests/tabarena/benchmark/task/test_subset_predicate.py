@@ -5,8 +5,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from tabarena.benchmark.task.subset_predicate import SubsetPredicate, tasks_in_frame
 from tabarena.nips2025_utils.compare import _evaluate_subset_expression
-from tabarena.nips2025_utils.subset_predicate import SubsetPredicate, tasks_in_frame
 
 
 def test_evaluate_runs_when_required_columns_present():

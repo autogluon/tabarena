@@ -179,7 +179,7 @@ include = ["tabarena*"]
 tabarena = [
   "metrics/_roc_auc_cpp/compile.sh",
   "metrics/_roc_auc_cpp/cpp_auc.cpp",
-  "nips2025_utils/metadata/curated_tabarena_dataset_metadata.csv",
+  "benchmark/task/metadata/data/curated_tabarena_dataset_metadata.csv",
   "benchmark/task/metadata/sources/data/*.csv",
   "contexts/beyondarena/data/*.csv",
   "benchmark/models/ag/limix/_vendor/config/*.json",

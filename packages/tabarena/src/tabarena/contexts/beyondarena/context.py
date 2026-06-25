@@ -28,8 +28,8 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from tabarena.benchmark.task.subset_predicate import SubsetPredicate, tasks_in_frame
 from tabarena.contexts import AbstractArenaContext
-from tabarena.nips2025_utils.subset_predicate import SubsetPredicate, tasks_in_frame
 
 if TYPE_CHECKING:
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
