@@ -24,7 +24,7 @@ class Evaluator:
     ):
         self.repo = repo
 
-    def compare_metrics(
+    def assemble_metrics(
         self,
         results_df: pd.DataFrame = None,
         datasets: list[str] | None = None,
@@ -36,6 +36,41 @@ class Evaluator:
         include_metric_error_val: bool = False,
         fillna: bool | str = "auto",
     ) -> pd.DataFrame:
+        """Assemble one per-``(dataset, fold, framework)`` metrics table from the repository.
+
+        Concatenates the repo's per-config metrics with its baseline metrics (when present),
+        optionally prepended with an externally-produced ``results_df``, then restricts the rows
+        to the requested ``datasets`` / ``folds`` / ``configs`` / ``baselines``. The kept columns
+        are ``metric_error``, ``time_train_s``, ``time_infer_s``, ``metric`` and ``problem_type``
+        (plus ``metric_error_val`` when ``include_metric_error_val``, and any ``aux_metric*``
+        columns the configs carry). This does not rank or compare methods; it only gathers their
+        per-task metrics into a single indexed frame for a downstream evaluator/reporter.
+
+        Parameters
+        ----------
+        results_df : pd.DataFrame, optional
+            Externally-produced results to include alongside the repo's configs/baselines (e.g. a
+            freshly simulated method). Re-indexed to ``(dataset, fold, framework)``.
+        datasets, folds, configs, baselines : list, optional
+            Restrict the table to these datasets / folds / config names / baseline names. ``None``
+            keeps all (all datasets of the repo by default).
+        convert_from_sample_to_batch : bool, default False
+            Convert ``time_infer_s`` from per-sample to per-batch (requires ``repo.task_metadata``).
+        keep_extra_columns : bool, default False
+            Keep columns of ``results_df`` beyond the standard metric columns instead of dropping
+            them.
+        include_metric_error_val : bool, default False
+            Also include the validation-set ``metric_error_val`` column.
+        fillna : bool or "auto", default "auto"
+            Impute missing ``(dataset, fold, framework)`` rows from the repo's fallback config
+            (``repo._config_fallback``), adding a boolean ``imputed`` column and an
+            ``impute_method`` column. ``"auto"`` imputes iff a fallback config is set.
+
+        Returns:
+        -------
+        pd.DataFrame
+            Metrics indexed by ``(dataset, fold, framework)`` and sorted by index.
+        """
         if datasets is None:
             datasets = self.repo.datasets()
         columns = ["metric_error", "time_train_s", "time_infer_s", "metric", "problem_type"]
@@ -107,7 +142,7 @@ class Evaluator:
 
         if fillna:
             assert self.repo._config_fallback is not None
-            df_fillna = self.compare_metrics(
+            df_fillna = self.assemble_metrics(
                 configs=[self.repo._config_fallback],
                 baselines=[],
                 datasets=datasets,

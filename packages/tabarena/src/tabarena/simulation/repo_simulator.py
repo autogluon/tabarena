@@ -244,7 +244,7 @@ class RepoSimulator:
             **kwargs,
         )
         df_zeroshot_portfolio["method_type"] = "portfolio"
-        # df_zeroshot_portfolio = self.evaluator.compare_metrics(results_df=df_zeroshot_portfolio, configs=[], baselines=[])
+        # df_zeroshot_portfolio = self.evaluator.assemble_metrics(results_df=df_zeroshot_portfolio, configs=[], baselines=[])
         return df_zeroshot_portfolio
 
     def run_zs_from_types(self, config_types: list[str], **kwargs):
@@ -254,13 +254,13 @@ class RepoSimulator:
     def run_baselines(self) -> pd.DataFrame | None:
         if not self.repo.baselines():
             return None
-        df_results_baselines = self.evaluator.compare_metrics(configs=[], include_metric_error_val=True).reset_index()
+        df_results_baselines = self.evaluator.assemble_metrics(configs=[], include_metric_error_val=True).reset_index()
         df_results_baselines["method_type"] = "baseline"
         return df_results_baselines
 
     def run_config_family(self, config_type: str) -> pd.DataFrame:
         configs = self.repo.configs(config_types=[config_type])
-        df_results_configs = self.evaluator.compare_metrics(
+        df_results_configs = self.evaluator.assemble_metrics(
             configs=configs, baselines=[], include_metric_error_val=True
         ).reset_index()
         df_results_configs["method_type"] = "config"
@@ -373,7 +373,7 @@ class RepoSimulator:
 
     def run_config(self, config: str) -> pd.DataFrame:
         configs = [config]
-        return self.evaluator.compare_metrics(
+        return self.evaluator.assemble_metrics(
             configs=configs,
             baselines=[],
             include_metric_error_val=True,
