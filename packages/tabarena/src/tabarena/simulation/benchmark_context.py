@@ -13,11 +13,10 @@ from botocore.errorfactory import ClientError
 
 from tabarena.loaders import Paths, load_configs, load_results
 from tabarena.repository.evaluation_repository import EvaluationRepository
+from tabarena.simulation.dense_utils import intersect_folds_and_datasets, prune_zeroshot_gt
 from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
 from tabarena.utils.download import download_files
 from tabarena.utils.huggingfacehub_utils import download_from_huggingface
-
-from .utils import load_zeroshot_input
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -681,3 +680,32 @@ def construct_context(
         **_configs_hyperparameters_path,
     )
     return context
+
+
+def load_zeroshot_input(
+    path_pred_proba: str,
+    paths_gt: list[str],
+    datasets: list[str],
+    zsc: ZeroshotSimulatorContext,
+    prediction_format: str = "memmap",
+    verbose: bool = True,
+) -> tuple[TabularModelPredictions, GroundTruth, ZeroshotSimulatorContext]:
+    if verbose:
+        print(
+            f"Loading ZS inputs:\n\tpred_proba:  {path_pred_proba}\n",
+        )
+    zeroshot_gt = zsc.load_groundtruth(paths_gt=paths_gt)
+    zeroshot_pred_proba = zsc.load_pred(
+        path_pred_proba=path_pred_proba,
+        datasets=datasets,
+        prediction_format=prediction_format,
+    )
+
+    # keep only dataset whose folds are all present
+    intersect_folds_and_datasets(zsc, zeroshot_pred_proba, zeroshot_gt=zeroshot_gt)
+    zeroshot_pred_proba.restrict_models(zsc.get_configs())
+    zeroshot_gt = prune_zeroshot_gt(
+        dataset_to_tid_dict=zsc.dataset_to_tid_dict, zeroshot_pred_proba=zeroshot_pred_proba, zeroshot_gt=zeroshot_gt
+    )
+
+    return zeroshot_pred_proba, zeroshot_gt, zsc

@@ -5,9 +5,9 @@ import tempfile
 import numpy as np
 
 from tabarena import EvaluationRepository
-from tabarena.contexts.context_artificial import load_context_artificial
 from tabarena.predictions import TabularPredictionsMemmap
 from tabarena.predictions.tabular_predictions import TabularModelPredictions
+from tabarena.simulation.context_artificial import load_context_artificial
 from tabarena.utils.test_utils import generate_artificial_dict
 
 num_models = 13
