@@ -8,51 +8,12 @@ from typing import TYPE_CHECKING
 import boto3
 from autogluon.common.savers import save_pkl
 
-from tabarena.utils import catchtime
-
 from .config_generator import ZeroshotConfigGeneratorCV
 
 if TYPE_CHECKING:
     from tabarena.portfolio import PortfolioCV
 
     from .simulation_context import ZeroshotSimulatorContext
-
-
-# TODO: Return type hints + docstring
-def run_zs_sim_end_to_end(
-    subcontext_name: str,
-    num_zeroshot: int = 10,
-    n_splits: int = 2,
-    config_scorer_type: str = "ensemble",
-    config_scorer_kwargs: dict | None = None,
-    subcontext_load_kwargs: dict | None = None,
-    backend="ray",
-):
-    from tabarena.contexts import get_subcontext
-    from tabarena.repository import EvaluationRepository
-
-    if isinstance(subcontext_name, str):
-        benchmark_subcontext = get_subcontext(subcontext_name)
-        if subcontext_load_kwargs is None:
-            subcontext_load_kwargs = dict()
-        with catchtime(f"load {benchmark_subcontext.name}"):
-            repo = benchmark_subcontext.load_from_parent(**subcontext_load_kwargs).to_zeroshot()
-    elif isinstance(subcontext_name, EvaluationRepository):
-        repo = subcontext_name.to_zeroshot()
-    else:
-        raise ValueError(f"Unsupported type for subcontext_name: {type(subcontext_name)}")
-
-    repo.print_info()
-
-    results_cv = repo.simulate_zeroshot(
-        config_scorer_type=config_scorer_type,
-        config_scorer_kwargs=config_scorer_kwargs,
-        num_zeroshot=num_zeroshot,
-        n_splits=n_splits,
-        backend=backend,
-    )
-    print(f"Final Score: {results_cv.get_test_score_overall()}")
-    return results_cv, repo
 
 
 def run_zs_simulation(

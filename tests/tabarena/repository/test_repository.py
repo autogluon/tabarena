@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from tabarena import EvaluationRepository, EvaluationRepositoryCollection
-from tabarena.contexts.context_artificial import load_repo_artificial
+from tabarena.simulation.context_artificial import load_repo_artificial
 
 if TYPE_CHECKING:
     from collections.abc import Callable

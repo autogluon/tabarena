@@ -297,7 +297,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         )
 
     def to_dir(self, path: str | Path):
-        from tabarena.contexts.context import BenchmarkContext, construct_context
+        from tabarena.simulation.benchmark_context import BenchmarkContext, construct_context
 
         path = os.path.abspath(path) + os.path.sep
         path_data_dir = path + "model_predictions/"
@@ -348,7 +348,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         update_relative_path: bool = True,
         verbose: bool = True,
     ) -> Self:
-        from tabarena.contexts.context import BenchmarkContext
+        from tabarena.simulation.benchmark_context import BenchmarkContext
 
         path_context = str(Path(path) / "context.json")
         context = BenchmarkContext.from_json(path=path_context)

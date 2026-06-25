@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import is_float_dtype, is_integer_dtype
 
-from tabarena.contexts.utils import prune_zeroshot_gt
+from tabarena.simulation.dense_utils import prune_zeroshot_gt
 from tabarena.simulation.ground_truth import GroundTruth
 from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
 

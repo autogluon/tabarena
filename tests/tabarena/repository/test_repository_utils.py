@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from tabarena.contexts.context_artificial import load_repo_artificial
 from tabarena.repository.time_utils import filter_configs_by_runtime, get_runtime, sort_by_runtime
+from tabarena.simulation.context_artificial import load_repo_artificial
 
 repo = load_repo_artificial()
 
