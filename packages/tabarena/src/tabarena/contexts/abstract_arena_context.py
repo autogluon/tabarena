@@ -1523,7 +1523,7 @@ class AbstractArenaContext:
             configs = self._get_config_defaults()
 
         simulator = RepoSimulator(repo=repo, backend=self.backend)
-        simulator.evaluator.compute_avg_config_prediction_delta(configs=configs)
+        simulator.repo_metrics.compute_avg_config_prediction_delta(configs=configs)
 
     # FIXME: WIP
     def _get_config_defaults(self):
