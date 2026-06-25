@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
-from tabarena import EvaluationRepository, EvaluationRepositoryCollection
+from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection
 from tabarena.simulation.context_artificial import load_repo_artificial
 
 if TYPE_CHECKING:

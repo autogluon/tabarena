@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 import pandas as pd
 from autogluon.common import TabularDataset
 
-from tabarena import EvaluationRepository
 from tabarena.contexts import TabArenaContext
 from tabarena.contexts.tabarena.methods import tabarena_method_metadata_collection
 from tabarena.models._method_simulator import MethodSimulator
+from tabarena.repository import EvaluationRepository
 from tabarena.simulation.ensemble_scorer_calibrated import EnsembleScorerCalibrated, EnsembleScorerCalibratedCV
 from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer
 
