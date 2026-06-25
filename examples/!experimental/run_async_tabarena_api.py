@@ -32,8 +32,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from tabarena.benchmark.experiment import Job, TabArenaV0pt1ExperimentBundle
+from tabarena.contexts.tabarena_context import TabArenaContext
 from tabarena.models import TabPFN3Model
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 from tabarena.utils.config_utils import ConfigGenerator
 
 if TYPE_CHECKING:

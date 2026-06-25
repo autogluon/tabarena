@@ -14,10 +14,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tabarena.contexts.tabarena_context import TabArenaContext
 from tabarena.nips2025_utils.artifacts._tabarena_method_metadata import (
     tabarena_method_metadata_2025_06_12_collection_main,
 )
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
 
 if __name__ == "__main__":
     output_path = Path("output_leaderboard_neurips2025")  # folder to save all figures and tables

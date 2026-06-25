@@ -288,7 +288,7 @@ class TestSubsetPredicateFilter:
         assert {t.dataset_name for t in result} == {"bin_small", "reg_big"}
 
     def test_list_of_lists_unions_at_split_level(self):
-        from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+        from tabarena.contexts.beyondarena_context import BeyondArenaContext
 
         coll = _collection(
             [
@@ -311,13 +311,13 @@ class TestSubsetPredicateFilter:
             self._coll().subset_tasks(subset="nope", predicates=self._custom_predicates())
 
     def test_beyond_arena_predicates_shorthand(self):
-        from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+        from tabarena.contexts.beyondarena_context import BeyondArenaContext
 
         result = self._coll().subset_tasks(subset="regression", predicates=BeyondArenaContext.SUBSET_PREDICATES)
         assert [t.dataset_name for t in result] == ["reg_big"]
 
     def test_split_level_lite_predicate_keeps_first_split(self):
-        from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+        from tabarena.contexts.beyondarena_context import BeyondArenaContext
 
         coll = _collection([_task_meta(dataset_name="a", n_splits=3, problem_type="binary", n_train=500)])
         result = coll.subset_tasks(subset="lite", predicates=BeyondArenaContext.SUBSET_PREDICATES)

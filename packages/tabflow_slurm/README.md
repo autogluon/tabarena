@@ -42,7 +42,7 @@ A setup script composes a `TabArenaBenchmarkPlan` and calls `setup_jobs()`. Mini
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task.metadata import TaskSubset
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+from tabarena.contexts.tabarena_context import TabArenaContext
 from tabflow_slurm import (
     GCPSlurmSetup, ModelJob, PathSetup, TabArenaBenchmarkPlan, TabArenaV0pt1ResourcesSetup,
 )
@@ -64,7 +64,7 @@ plan = TabArenaBenchmarkPlan(
 plan.setup_jobs()   # prints the sbatch command(s) to launch
 ```
 
-> **BeyondArena:** swap in `from tabarena.evaluation.context.beyond_arena import BeyondArenaContext`,
+> **BeyondArena:** swap in `from tabarena.contexts.beyondarena_context import BeyondArenaContext`,
 > pass `context=BeyondArenaContext()`, and scope with e.g. `task_subset=TaskSubset(dataset_names=[...])`
 > (omit `task_subset` to run the full suite).
 

@@ -21,14 +21,14 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle, Experiment
 from tabarena.benchmark.task.metadata import TaskSubset
-from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+from tabarena.contexts.beyondarena_context import BeyondArenaContext
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
 from tabflow_slurm.setup.resources import BeyondArenaResourcesSetup
 from tabflow_slurm.setup.scheduler import GCPSlurmSetup
 
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import TabArenaExperimentBundle
-    from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
+    from tabarena.contexts.abstract_arena_context import AbstractArenaContext
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
     from tabflow_slurm.setup.scheduler import SchedulerSetup
@@ -377,7 +377,7 @@ class BeyondArenaBenchmarkPlan(TabArenaBenchmarkPlan):
     """:class:`TabArenaBenchmarkPlan` pre-wired with the BeyondArena building blocks.
 
     Every BeyondArena launch script pairs the same four pieces: the data-foundry
-    :class:`~tabarena.evaluation.context.beyond_arena.BeyondArenaContext`, a
+    :class:`~tabarena.contexts.beyondarena_context.BeyondArenaContext`, a
     :class:`~tabarena.benchmark.experiment.BeyondArenaExperimentBundle` template, the
     :class:`~tabflow_slurm.setup.scheduler.GCPSlurmSetup` scheduler, and
     :class:`~tabflow_slurm.setup.resources.BeyondArenaResourcesSetup`. This subclass

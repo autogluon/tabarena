@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+from tabarena.contexts.beyondarena_context import BeyondArenaContext
 
 
 def test_init_resolves_source_name_to_native_collection():

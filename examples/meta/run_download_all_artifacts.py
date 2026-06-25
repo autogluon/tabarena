@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+from tabarena.contexts.tabarena_context import TabArenaContext
 
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata

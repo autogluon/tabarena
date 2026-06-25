@@ -13,7 +13,7 @@ from tabarena.benchmark.experiment import (
     TabArenaV0pt1ExperimentBundle,
     build_jobs,
 )
-from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
+from tabarena.contexts.abstract_arena_context import AbstractArenaContext
 from tabarena.nips2025_utils.end_to_end import EndToEnd
 from tabarena.nips2025_utils.fetch_metadata import task_metadata_collection_from_openml
 

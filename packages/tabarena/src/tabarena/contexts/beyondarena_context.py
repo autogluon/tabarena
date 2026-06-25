@@ -1,7 +1,7 @@
 """``BeyondArenaContext`` — the data-foundry counterpart to :class:`TabArenaContext`.
 
-One of the pluggable evaluation contexts under :mod:`tabarena.evaluation.context`; subclasses
-:class:`~tabarena.nips2025_utils.abstract_arena_context.AbstractArenaContext` directly (it needs
+One of the pluggable evaluation contexts under :mod:`tabarena.contexts`; subclasses
+:class:`~tabarena.contexts.abstract_arena_context.AbstractArenaContext` directly (it needs
 nothing from ``TabArenaContext``, whose only addition over the base is the TabArena-paper
 ``evaluate_all`` workflow). BeyondArena differs from TabArena v0.1 in three ways:
 
@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
+from tabarena.contexts.abstract_arena_context import AbstractArenaContext
 from tabarena.nips2025_utils.subset_predicate import SubsetPredicate, tasks_in_frame
 
 if TYPE_CHECKING:

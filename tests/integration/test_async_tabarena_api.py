@@ -33,8 +33,8 @@ from tabarena.benchmark.experiment import Job, TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task import UserTask
 from tabarena.benchmark.task.metadata import TabArenaTaskMetadata, TaskMetadataCollection
 from tabarena.benchmark.task.user_task import from_sklearn_splits_to_user_task_splits
+from tabarena.contexts.abstract_arena_context import AbstractArenaContext
 from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
-from tabarena.nips2025_utils.abstract_arena_context import AbstractArenaContext
 from tabarena.utils.config_utils import ConfigGenerator
 
 # The example script tags its in-memory method with this prefix, then picks its row out of the

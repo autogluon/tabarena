@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from autogluon.core.models import AbstractModel
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
-from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
+from tabarena.contexts.beyondarena_context import BeyondArenaContext
 from tabarena.utils.config_utils import ConfigGenerator
 
 if TYPE_CHECKING:

@@ -3,7 +3,7 @@
 Counterpart to :func:`tabarena.evaluation.benchmark_eval.run_eval` (TabArena v0.1). Where v0.1
 compares against the published paper baselines, BeyondArena builds its leaderboard purely from the
 runs you point it at, filtered by the data-foundry subset predicates
-(:attr:`~tabarena.evaluation.context.beyond_arena.BeyondArenaContext.SUBSET_PREDICATES`).
+(:attr:`~tabarena.contexts.beyondarena_context.BeyondArenaContext.SUBSET_PREDICATES`).
 
 Each :class:`BenchmarkRun` is a completed benchmark output dir + its cache ``benchmark_name`` + the
 models to pull from it. Because each run caches under its own ``benchmark_name`` (artifact name),
@@ -235,10 +235,10 @@ def evaluate_beyond_subsets(
     """
     import json
 
+    from tabarena.contexts.beyondarena_context import BeyondArenaContext
+    from tabarena.contexts.tabarena_context import TabArenaContext
     from tabarena.evaluation._eval_common import save_leaderboard, subset_label
-    from tabarena.evaluation.context.beyond_arena import BeyondArenaContext
     from tabarena.nips2025_utils.compare import compare, get_subsets_per_dataset, subset_tasks_data_foundry
-    from tabarena.nips2025_utils.tabarena_context import TabArenaContext
     from tabarena.website.website_format import format_leaderboard
 
     if data_foundry_metadata is None:

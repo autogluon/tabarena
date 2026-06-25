@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tabarena.nips2025_utils.tabarena_context import TabArenaContext
+from tabarena.contexts.tabarena_context import TabArenaContext
 
 if __name__ == "__main__":
     save_path = "output_leaderboard"  # folder to save all figures and tables
