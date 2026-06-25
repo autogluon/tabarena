@@ -2,7 +2,7 @@
 
 This behavior used to live on :class:`~tabarena.models._method_metadata.MethodMetadata`; it is
 split out here so the metadata stays a serializable *record* (fields + paths + IO) and the
-simulation logic (which drives :class:`~tabarena.paper.paper_runner_tabarena.PaperRunTabArena`
+simulation logic (which drives :class:`~tabarena.simulation.repo_simulator.RepoSimulator`
 over the method's processed results) is a separate concern.
 
 A ``MethodSimulator`` wraps a ``MethodMetadata`` and reads its identity (``method``,
@@ -35,7 +35,7 @@ class MethodSimulator:
         mm = self.method_metadata
         if repo is None:
             repo = mm.load_processed()
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
+        from tabarena.simulation.repo_simulator import RepoSimulator
 
         if mm.config_type is None:
             config_types = repo.config_types()
@@ -43,7 +43,7 @@ class MethodSimulator:
             config_type = repo.config_types()[0]
         else:
             config_type = mm.config_type
-        return PaperRunTabArena(repo=repo)._config_default(config_type=config_type, use_first_if_missing=True)
+        return RepoSimulator(repo=repo)._config_default(config_type=config_type, use_first_if_missing=True)
 
     def generate_results(
         self,
@@ -64,9 +64,9 @@ class MethodSimulator:
         else:
             model_type = None
 
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
+        from tabarena.simulation.repo_simulator import RepoSimulator
 
-        simulator = PaperRunTabArena(repo=repo, backend=backend)
+        simulator = RepoSimulator(repo=repo, backend=backend)
 
         if mm.method_type == "config":
             hpo_results = simulator.run_minimal_single(model_type=model_type, tune=mm.can_hpo)
@@ -117,9 +117,9 @@ class MethodSimulator:
         if config_type is None:
             assert mm.config_type is not None
             config_type = mm.config_type
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
+        from tabarena.simulation.repo_simulator import RepoSimulator
 
-        simulator = PaperRunTabArena(repo=repo, backend=backend)
+        simulator = RepoSimulator(repo=repo, backend=backend)
         df_results_hpo = simulator.run_ensemble_config_type(
             config_type=config_type,
             n_iterations=n_iterations,
@@ -235,9 +235,9 @@ class MethodSimulator:
         mm = self.method_metadata
         if repo is None:
             repo = mm.load_processed()
-        from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
+        from tabarena.simulation.repo_simulator import RepoSimulator
 
-        simulator = PaperRunTabArena(repo=repo, backend=backend)
+        simulator = RepoSimulator(repo=repo, backend=backend)
         df_results_best = simulator.run_zs(
             n_portfolios=n_configs,
             n_ensemble=n_iterations,
