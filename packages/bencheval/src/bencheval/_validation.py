@@ -178,6 +178,7 @@ class ResultsValidationMixin:
         data: pd.DataFrame,
         df_fillna: pd.DataFrame | None = None,
         fillna_method: str = "worst",
+        imputed_col: str | None = None,
     ) -> pd.DataFrame:
         """Fills missing (task, seed, method) rows in data with the (task, seed) row in df_fillna.
 
@@ -192,6 +193,10 @@ class ResultsValidationMixin:
             Either "worst" or the name of a method in self.method_col.
             If "worst", will fill with the result of the method with the worst error on a given task.
             Ignored if `df_fillna` is specified.
+        imputed_col : str | None, default None
+            If specified, add (or update) this boolean column: ``True`` for rows filled from
+            `df_fillna`, ``False`` for rows already present in `data`. When ``None`` (default), no
+            such column is added.
 
         Returns:
         -------
@@ -239,6 +244,11 @@ class ResultsValidationMixin:
         a = df_fillna.loc[nan_vals.droplevel(level=self.method_col)]
         a.index = nan_vals
         df_filled.loc[nan_vals] = a
-        data = df_filled
 
-        return data.reset_index(drop=False)
+        if imputed_col is not None:
+            if imputed_col not in df_filled.columns:
+                df_filled[imputed_col] = False
+            df_filled.loc[nan_vals, imputed_col] = True
+            df_filled[imputed_col] = df_filled[imputed_col].fillna(0).astype(bool)
+
+        return df_filled.reset_index(drop=False)

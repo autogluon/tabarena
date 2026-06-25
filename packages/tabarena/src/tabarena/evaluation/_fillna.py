@@ -4,17 +4,18 @@ Used by :class:`~tabarena.evaluation.repo_metrics.RepoMetrics` (keyed on ``frame
 :class:`~tabarena.contexts.abstract_arena_context.AbstractArenaContext` (keyed on ``method``,
 preserving the per-method descriptive columns).
 
-This is the tabarena-leaderboard flavor of imputation: unlike the generic
-:meth:`bencheval.evaluator.BenchmarkEvaluator.fillna_data`, it marks an ``imputed`` flag, can
-re-broadcast intrinsic per-key columns, and takes the fallback rows as an explicit ``df_fillna``.
+The grid/fill core is delegated to :meth:`bencheval.evaluator.BenchmarkEvaluator.fillna_data` (via
+its ``imputed_col`` flag); this wrapper adds the tabarena-leaderboard concern of preserving
+intrinsic per-key columns across an imputation.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
-import numpy as np
-import pandas as pd
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def fillna_metrics(
@@ -37,6 +38,9 @@ def fillna_metrics(
     Both frames are flat (plain columns, not a ``MultiIndex``). ``df_fillna`` must hold exactly one
     row per ``(dataset_col, split_col)`` and is keyed on that pair; a ``key_col`` column on it, if
     present, is dropped (the fallback's own identity is irrelevant to the imputed rows).
+
+    The grid/fill is delegated to :meth:`bencheval.evaluator.BenchmarkEvaluator.fillna_data`; this
+    wrapper adds only the ``preserve_columns`` re-broadcast.
 
     Parameters
     ----------
@@ -62,6 +66,8 @@ def fillna_metrics(
     pd.DataFrame
         A flat frame with the original columns of ``df_to_fill`` plus a boolean ``imputed`` column.
     """
+    from bencheval.evaluator import BenchmarkEvaluator
+
     preserve = [c for c in preserve_columns if c in df_to_fill.columns]
     per_key: dict[str, dict] = {}
     for c in preserve:
@@ -78,38 +84,14 @@ def fillna_metrics(
         # nunique == 1 for every key, so .first() is that key's single value
         per_key[c] = groupby_key.first().to_dict()
 
-    df_to_fill = df_to_fill.set_index([dataset_col, split_col, key_col], drop=True)
-    df_fillna = df_fillna.set_index([dataset_col, split_col], drop=True)
-    if key_col in df_fillna.columns:
-        df_fillna = df_fillna.drop(columns=[key_col])
+    # Delegate the (dataset, fold) x key grid + fallback fill + imputed flag to bencheval.
+    df_filled = BenchmarkEvaluator(
+        method_col=key_col,
+        task_col=dataset_col,
+        seed_column=split_col,
+    ).fillna_data(data=df_to_fill, df_fillna=df_fillna, imputed_col="imputed")
 
-    keys = list(df_to_fill.index.unique(level=key_col))
-    df_filled = df_fillna.index.to_frame().merge(
-        pd.Series(data=keys, name=key_col),
-        how="cross",
-    )
-    df_filled = df_filled.set_index(keys=list(df_filled.columns))
-
-    # (dataset, fold, key) rows in the full grid that are missing from df_to_fill
-    nan_vals = df_filled.index.difference(df_to_fill.index)
-
-    fill_cols = list(df_to_fill.columns)
-    df_filled[fill_cols] = np.nan
-    df_filled[fill_cols] = df_filled[fill_cols].astype(df_to_fill.dtypes)
-    df_filled.loc[df_to_fill.index] = df_to_fill
-
-    df_fillna_to_use = df_fillna.loc[nan_vals.droplevel(level=key_col)].copy()
-    df_fillna_to_use.index = nan_vals
-    df_filled.loc[nan_vals] = df_fillna_to_use
-
-    if "imputed" not in df_filled.columns:
-        df_filled["imputed"] = False
-    df_filled.loc[nan_vals, "imputed"] = True
-    df_filled["imputed"] = df_filled["imputed"].fillna(0).astype(bool)
-
-    df_filled = df_filled.reset_index(drop=False)
-
-    # restore each key's own value for intrinsic columns (the fallback's value was copied in above)
+    # Restore each key's own value for intrinsic columns (the fallback's value was copied in above).
     for c in preserve:
         df_filled[c] = df_filled[key_col].map(per_key[c])
 
