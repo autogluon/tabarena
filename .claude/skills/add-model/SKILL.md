@@ -211,7 +211,7 @@ Either add to the latest file or create a new dated file if the benchmarking run
 
 Each entry is a `MethodMetadata(...)` object (same class used in `info.py`, so the entry can be the `{ModelKey}_method_metadata` you already defined). Then import it in `_tabarena_method_metadata.py`:
 ```python
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata_YYYY_MM_DD import (
+from tabarena.contexts.tabarena._tabarena_method_metadata_YYYY_MM_DD import (
     {ModelKey}_metadata,
 )
 ```

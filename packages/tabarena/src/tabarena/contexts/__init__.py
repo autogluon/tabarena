@@ -16,15 +16,15 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .abstract_arena_context import AbstractArenaContext
-    from .beyondarena_context import BeyondArenaContext
-    from .tabarena_context import TabArenaContext
+    from .beyondarena.context import BeyondArenaContext
+    from .tabarena.context import TabArenaContext
 
 __all__ = ["AbstractArenaContext", "BeyondArenaContext", "TabArenaContext"]
 
 _EXPORTS = {
     "AbstractArenaContext": "abstract_arena_context",
-    "TabArenaContext": "tabarena_context",
-    "BeyondArenaContext": "beyondarena_context",
+    "TabArenaContext": "tabarena.context",
+    "BeyondArenaContext": "beyondarena.context",
 }
 
 

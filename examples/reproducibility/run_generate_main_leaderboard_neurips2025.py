@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tabarena.contexts.tabarena_context import TabArenaContext
-from tabarena.nips2025_utils.artifacts._tabarena_method_metadata import (
+from tabarena.contexts.tabarena.context import TabArenaContext
+from tabarena.contexts.tabarena.methods import (
     tabarena_method_metadata_2025_06_12_collection_main,
 )
 

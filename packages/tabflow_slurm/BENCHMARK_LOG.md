@@ -46,7 +46,7 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task.metadata import TaskSubset
-from tabarena.contexts.tabarena_context import TabArenaContext
+from tabarena.contexts.tabarena.context import TabArenaContext
 from tabflow_slurm import (
     GCPSlurmSetup,
     ModelJob,

@@ -44,7 +44,7 @@ from numpy.testing import assert_array_equal
 
 from tabarena.benchmark.result import AGBagResult
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
-from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
+from tabarena.contexts.tabarena.methods import tabarena_method_metadata_collection
 
 if TYPE_CHECKING:
     import numpy as np

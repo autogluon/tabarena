@@ -1,4 +1,7 @@
-from __future__ import annotations
+"""Generic artifact-management helpers (per-method artifact manager + download utilities).
 
-from ._beyond_method_metadata import beyond_method_metadata_collection
-from ._tabarena_method_metadata import tabarena_method_metadata_collection
+The TabArena / BeyondArena method *rosters* that used to live here now sit with their contexts,
+at :mod:`tabarena.contexts.tabarena.methods` and :mod:`tabarena.contexts.beyondarena.methods`.
+"""
+
+from __future__ import annotations

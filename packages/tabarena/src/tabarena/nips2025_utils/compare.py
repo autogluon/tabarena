@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
-from tabarena.contexts.tabarena_context import TabArenaContext
+from tabarena.contexts.tabarena.context import TabArenaContext
 from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 

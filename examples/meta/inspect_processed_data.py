@@ -48,7 +48,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from tabarena.nips2025_utils.artifacts import tabarena_method_metadata_collection
+from tabarena.contexts.tabarena.methods import tabarena_method_metadata_collection
 
 if TYPE_CHECKING:
     from tabarena import EvaluationRepository

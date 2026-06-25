@@ -1037,7 +1037,7 @@ class ModelDescriptor:
     Declared once per model (in its ``models/<key>/info.py``) and reused by every
     :class:`MethodMetadata` that benchmarks the model — the TabArena run in that ``info.py``
     *and* the Beyond-IID re-run in
-    :mod:`tabarena.nips2025_utils.artifacts._beyond_method_metadata` — instead of being
+    :mod:`tabarena.contexts.beyondarena.methods` — instead of being
     re-typed per artifact. It carries only the fields that are identical across those runs;
     everything run-specific (``method`` name, ``ag_key``, ``suite``, ``config_default``,
     ``can_hpo``, ``date``, storage) is supplied per call to :meth:`method_metadata`.

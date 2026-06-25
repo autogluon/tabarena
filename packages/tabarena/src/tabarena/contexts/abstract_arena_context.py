@@ -17,7 +17,7 @@ A concrete arena subclass may override two hooks to support *named presets*:
 
 (the base accepts no preset names), and may override the class-level :attr:`SUBSET_PREDICATES`
 and :attr:`_default_subsets` to declare arena-specific subset filters.
-:class:`~tabarena.contexts.tabarena_context.TabArenaContext` is the reference arena
+:class:`~tabarena.contexts.tabarena.context.TabArenaContext` is the reference arena
 (TabArena v0.1 presets + the paper-specific workflow); ``BeyondArenaContext`` subclasses it.
 """
 
