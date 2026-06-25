@@ -79,8 +79,8 @@ class AbstractExecModel:
     """
     validation_metadata: ValidationMetadata
     """Task-derived metadata for validation information. Available to *every* method uniformly:
-    the experiment runner populates it from the task at fit time
-    
+    the experiment runner populates it from the task at fit time.
+
     This is read-only *data*: holding it does not change behavior. Whether a method
     *acts* on it is the method's own decision (e.g. the AutoGluon wrappers gate task-specific
     validation splits on ``use_task_specific_validation``; an external system reads whatever fields
