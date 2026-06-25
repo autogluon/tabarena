@@ -16,7 +16,11 @@ from autogluon.common.savers import save_pd
 
 from bencheval.evaluator import BenchmarkEvaluator
 from tabarena.benchmark.task.metadata import TaskMetadataCollection, default_task_metadata_collection
-from tabarena.paper.paper_utils import get_f_map_suffix_plots, get_framework_type_method_names, get_method_rename_map
+from tabarena.evaluation.framework_naming import (
+    get_f_map_suffix_plots,
+    get_framework_type_method_names,
+    get_method_rename_map,
+)
 from tabarena.plot.dataset_analysis import plot_train_time_deep_dive
 from tabarena.plot.plot_ens_weights import create_heatmap
 from tabarena.plot.plot_pareto_frontier import (
