@@ -17,7 +17,7 @@ from tabarena.utils.ray_utils import ray_map_list, to_batch_list
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import Job, TabArenaExperimentBundle
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
-    from tabarena.contexts.abstract_arena_context import AbstractArenaContext
+    from tabarena.contexts import AbstractArenaContext
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
     from tabflow_slurm.setup.scheduler import SchedulerSetup

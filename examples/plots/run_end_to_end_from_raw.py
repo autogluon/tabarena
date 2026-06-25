@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tabarena.contexts.tabarena.context import TabArenaContext
+from tabarena.contexts import TabArenaContext
 from tabarena.nips2025_utils.artifacts.download_utils import download_and_extract_zip
 from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
 

@@ -235,8 +235,7 @@ def evaluate_beyond_subsets(
     """
     import json
 
-    from tabarena.contexts.beyondarena.context import BeyondArenaContext
-    from tabarena.contexts.tabarena.context import TabArenaContext
+    from tabarena.contexts import BeyondArenaContext, TabArenaContext
     from tabarena.evaluation._eval_common import save_leaderboard, subset_label
     from tabarena.nips2025_utils.compare import compare, get_subsets_per_dataset, subset_tasks_data_foundry
     from tabarena.website.website_format import format_leaderboard

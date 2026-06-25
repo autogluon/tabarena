@@ -10,7 +10,7 @@ from tabarena.benchmark.exec_models import AGWrapper
 from tabarena.benchmark.experiment import Experiment, ExperimentBatchRunner
 from tabarena.benchmark.result import ExperimentResults
 from tabarena.benchmark.task.metadata import TaskMetadataCollection, default_task_metadata_collection
-from tabarena.contexts.tabarena.context import TabArenaContext
+from tabarena.contexts import TabArenaContext
 
 
 class MyCustomAGWrapper(AGWrapper):

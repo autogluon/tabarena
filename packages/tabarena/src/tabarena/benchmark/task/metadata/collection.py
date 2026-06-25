@@ -37,7 +37,7 @@ def _preset_subset_predicates_provider(
     if suite_name == "BeyondArena":
 
         def _beyond() -> dict[str, SubsetPredicate]:
-            from tabarena.contexts.beyondarena.context import BeyondArenaContext
+            from tabarena.contexts import BeyondArenaContext
 
             return BeyondArenaContext.SUBSET_PREDICATES
 
@@ -45,7 +45,7 @@ def _preset_subset_predicates_provider(
     if suite_name == "TabArena-v0.1":
 
         def _tabarena() -> dict[str, SubsetPredicate]:
-            from tabarena.contexts.tabarena.context import TabArenaContext
+            from tabarena.contexts import TabArenaContext
 
             return TabArenaContext.SUBSET_PREDICATES
 

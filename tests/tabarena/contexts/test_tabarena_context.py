@@ -4,8 +4,7 @@ import pandas as pd
 import pytest
 
 from tabarena.benchmark.task.metadata import TaskMetadataCollection, TaskSubset
-from tabarena.contexts.abstract_arena_context import AbstractArenaContext
-from tabarena.contexts.tabarena.context import TabArenaContext
+from tabarena.contexts import AbstractArenaContext, TabArenaContext
 
 
 def _ctx() -> TabArenaContext:

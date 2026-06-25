@@ -12,7 +12,7 @@ import seaborn as sns
 from autogluon.common.loaders import load_pd
 
 from bencheval.evaluator import BenchmarkEvaluator
-from tabarena.contexts.tabarena.context import TabArenaContext
+from tabarena.contexts import TabArenaContext
 from tabarena.nips2025_utils.compare import subset_tasks
 from tabarena.nips2025_utils.eval_all import (
     get_all_subset_combinations,

@@ -21,14 +21,14 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle, Experiment
 from tabarena.benchmark.task.metadata import TaskSubset
-from tabarena.contexts.beyondarena.context import BeyondArenaContext
+from tabarena.contexts import BeyondArenaContext
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
 from tabflow_slurm.setup.resources import BeyondArenaResourcesSetup
 from tabflow_slurm.setup.scheduler import GCPSlurmSetup
 
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import TabArenaExperimentBundle
-    from tabarena.contexts.abstract_arena_context import AbstractArenaContext
+    from tabarena.contexts import AbstractArenaContext
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
     from tabflow_slurm.setup.scheduler import SchedulerSetup

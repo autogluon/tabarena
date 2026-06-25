@@ -8,7 +8,7 @@ from pathlib import Path
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
 from tabarena.benchmark.task.metadata import TaskSubset
-from tabarena.contexts.beyondarena.context import BeyondArenaContext
+from tabarena.contexts import BeyondArenaContext
 from tabflow_slurm import (
     BeyondArenaResourcesSetup,
     LocalSequentialSetup,
