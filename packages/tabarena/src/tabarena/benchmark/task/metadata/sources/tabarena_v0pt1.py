@@ -40,7 +40,7 @@ def load_tabarena_v0_1_task_metadata(curated_metadata: pd.DataFrame) -> list[Tab
 
     Args:
         curated_metadata: The curated v0.1 metadata table (one row per task), e.g. the
-            output of ``tabarena.nips2025_utils.fetch_metadata.load_curated_task_metadata``.
+            output of ``tabarena.benchmark.task.metadata.fetch_metadata.load_curated_task_metadata``.
             Must expose the columns accessed below (``num_classes``, ``num_instances``,
             ``tabarena_num_repeats``, ``num_folds``, ``problem_type``, ``task_id``, ...).
     """
@@ -142,13 +142,13 @@ def generate_tabarena_v0_1_reference_metadata(
     Args:
         out_path: Where to write the CSV. Defaults to :func:`committed_metadata_path`.
         curated_metadata: Curated v0.1 metadata to convert. Defaults to the built-in
-            ``tabarena.nips2025_utils.fetch_metadata.load_curated_task_metadata()``.
+            ``tabarena.benchmark.task.metadata.fetch_metadata.load_curated_task_metadata()``.
 
     Returns:
         The path the CSV was written to.
     """
     if curated_metadata is None:
-        from tabarena.nips2025_utils.fetch_metadata import load_curated_task_metadata
+        from tabarena.benchmark.task.metadata.fetch_metadata import load_curated_task_metadata
 
         curated_metadata = load_curated_task_metadata()
 
@@ -179,6 +179,6 @@ class TabArenaV0pt1TaskMetadataSource(OpenMLTaskMetadataSource):
             metadata_df = pd.read_csv(path)
             return [TabArenaTaskMetadata.from_row(row) for _, row in metadata_df.iterrows()]
 
-        from tabarena.nips2025_utils.fetch_metadata import load_curated_task_metadata
+        from tabarena.benchmark.task.metadata.fetch_metadata import load_curated_task_metadata
 
         return load_tabarena_v0_1_task_metadata(load_curated_task_metadata())

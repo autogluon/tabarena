@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
 
+from tabarena.benchmark.task.subset_predicate import SubsetPredicate
 from tabarena.contexts import AbstractArenaContext
 from tabarena.contexts.tabarena.methods import tabarena_method_metadata_collection
 from tabarena.nips2025_utils.eval_all import evaluate_all
-from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 
 if TYPE_CHECKING:
     from pathlib import Path

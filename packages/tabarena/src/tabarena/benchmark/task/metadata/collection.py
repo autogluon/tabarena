@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     from tabarena.benchmark.experiment.job import Job
     from tabarena.benchmark.task.metadata.sources import TaskMetadataSource
-    from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
+    from tabarena.benchmark.task.subset_predicate import SubsetPredicate
 
 logger = logging.getLogger(__name__)
 

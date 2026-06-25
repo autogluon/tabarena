@@ -9,10 +9,10 @@ from autogluon.common.savers import save_pd
 
 from tabarena.benchmark.result import BaselineResult, ConfigResult
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.benchmark.task.metadata.fetch_metadata import task_metadata_collection_from_openml
 from tabarena.contexts import TabArenaContext
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_simulator import MethodSimulator
-from tabarena.nips2025_utils.fetch_metadata import task_metadata_collection_from_openml
 from tabarena.nips2025_utils.method_processor import (
     load_all_artifacts,
     load_raw,
@@ -438,7 +438,7 @@ class EndToEndSingle:
         """Auto-infer task metadata for ``tids`` as a (lossy) ``TaskMetadataCollection``.
 
         Thin wrapper around
-        :func:`~tabarena.nips2025_utils.fetch_metadata.task_metadata_collection_from_openml`.
+        :func:`~tabarena.benchmark.task.metadata.fetch_metadata.task_metadata_collection_from_openml`.
         """
         return task_metadata_collection_from_openml(tids=tids, verbose=verbose)
 

@@ -33,11 +33,11 @@ import numpy as np
 import pandas as pd
 
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection, TaskSubset
+from tabarena.benchmark.task.subset_predicate import SubsetPredicate
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 from tabarena.models._method_simulator import MethodSimulator
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
-from tabarena.nips2025_utils.subset_predicate import SubsetPredicate
 from tabarena.paper.paper_runner_tabarena import PaperRunTabArena
 from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection

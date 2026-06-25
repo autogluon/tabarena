@@ -6,7 +6,7 @@ import pytest
 
 from tabarena.benchmark.result import AGBagResult, BaselineResult, ConfigResult, ExperimentResults
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
-from tabarena.nips2025_utils.generate_repo import generate_repo_from_results_lst
+from tabarena.repository.generate_repo import generate_repo_from_results_lst
 
 task_metadata = pd.DataFrame(
     {

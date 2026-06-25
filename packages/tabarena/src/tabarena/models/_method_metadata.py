@@ -15,10 +15,10 @@ import pandas as pd
 import yaml
 
 from tabarena.loaders import get_tabarena_cache_root
-from tabarena.nips2025_utils.generate_repo import generate_repo_from_results_lst
 from tabarena.nips2025_utils.load_artifacts import results_to_holdout
 from tabarena.nips2025_utils.method_processor import get_info_from_result, load_raw
 from tabarena.repository.evaluation_repository import EvaluationRepository
+from tabarena.repository.generate_repo import generate_repo_from_results_lst
 from tabarena.utils.pickle_utils import fetch_all_pickles
 
 if TYPE_CHECKING:

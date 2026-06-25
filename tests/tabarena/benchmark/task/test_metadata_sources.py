@@ -107,7 +107,7 @@ def test_v0pt1_source_falls_back_to_rebuild_when_csv_missing(monkeypatch, tmp_pa
         ],
     )
     monkeypatch.setattr(
-        "tabarena.nips2025_utils.fetch_metadata.load_curated_task_metadata",
+        "tabarena.benchmark.task.metadata.fetch_metadata.load_curated_task_metadata",
         lambda: fake_curated,
     )
 
