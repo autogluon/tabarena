@@ -49,22 +49,6 @@ class TestPathSetup:
         ps = PathSetup(workspace="/ws", python_path="/py", run_script="/custom/run.py")
         assert ps.run_script_path == "/custom/run.py"
 
-    def test_openml_cache_path_auto(self):
-        ps = PathSetup(workspace="/ws", python_path="/py", openml_cache="auto")
-        assert ps.openml_cache_path == "auto"
-
-    def test_openml_cache_path_defaults_to_auto(self):
-        ps = PathSetup(workspace="/ws", python_path="/py")
-        assert ps.openml_cache_path == "auto"
-
-    def test_openml_cache_path_none_is_under_workspace(self):
-        ps = PathSetup(workspace="/ws", python_path="/py", openml_cache=None)
-        assert ps.openml_cache_path == "/ws/.openml-cache"
-
-    def test_openml_cache_path_custom(self):
-        ps = PathSetup(workspace="/ws", python_path="/py", openml_cache="/data/cache")
-        assert ps.openml_cache_path == "/data/cache"
-
     def test_get_job_batch_dir_contains_safe_name(self):
         ps = PathSetup(workspace="/ws", python_path="/py")
         path = ps.get_job_batch_dir(benchmark_name="bench", safe_benchmark_name="bench_p1")
@@ -94,13 +78,12 @@ class TestPathSetup:
         assert str(ps.get_setup_out_path("my_bench")) == "/ws/setup_out/my_bench"
 
     def test_ensure_runtime_dirs_creates_directories(self, tmp_path):
-        # openml_cache=None -> the cache dir is created under the workspace too.
-        ps = PathSetup(workspace=tmp_path, python_path="/py", openml_cache=None)
+        # Only the output/log/setup dirs are created; caches are configured via CacheConfig.
+        ps = PathSetup(workspace=tmp_path, python_path="/py")
         ps.ensure_runtime_dirs("bench")
         assert (tmp_path / "output" / "bench").is_dir()
         assert (tmp_path / "slurm_out" / "bench").is_dir()
         assert (tmp_path / "setup_out" / "bench").is_dir()
-        assert (tmp_path / ".openml-cache").is_dir()
 
 
 # ---------------------------------------------------------------------------

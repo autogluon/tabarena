@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+    from tabarena.caching import CacheConfig
     from tabarena.models._method_metadata import MethodMetadata
 
 _methods_paper = [
@@ -106,6 +107,7 @@ class TabArenaContext(AbstractArenaContext):
         fillna_method: str | None = "RF (default)",
         calibration_method: str | None = "RF (default)",
         only_valid_tasks: bool = False,
+        cache_config: CacheConfig | None = None,
     ):
         super().__init__(
             methods=methods,
@@ -115,6 +117,7 @@ class TabArenaContext(AbstractArenaContext):
             fillna_method=fillna_method,
             calibration_method=calibration_method,
             only_valid_tasks=only_valid_tasks,
+            cache_config=cache_config,
         )
 
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:

@@ -152,7 +152,11 @@ workspace it creates and uses:
 | `output/<benchmark_name>/` | benchmark result artifacts (the cache the runner writes / eval reads) |
 | `slurm_out/<benchmark_name>/` | SLURM `.out` logs |
 | `setup_out/<benchmark_name>/` | generated `JobBatch` artifact(s) + job JSON |
-| `.openml-cache/` | OpenML cache (unless `openml_cache` overridden; `"auto"` uses OpenML's default) |
+
+Cache locations (OpenML / HuggingFace / TabArena) are **not** part of `PathSetup` — configure them
+on the arena context via `TabArenaContext(cache_config=CacheConfig.from_root(...))`, exactly as in
+the sequential/async API. The plan embeds that `CacheConfig` in the `JobBatch`, and each worker
+applies it automatically (see `tabarena.caching.CacheConfig`).
 
 `run_script` / `submit_script` default to the scripts **bundled with this package**
 (`get_run_script_path()` / `get_submit_script_path()`), so nothing hardcodes a checkout path.
@@ -200,9 +204,10 @@ collection to the jobs' tasks and `materialize()` them (download only those) →
   `output/<benchmark_name>/`.
 - **`submit_template.sh`** — the `sbatch` array script. Reads `defaults` + the array index's `items`
   from the job JSON (with `jq`) and runs the runner once per item.
-- **`slurm_utils.py::setup_slurm_job`** — per-node setup: points OpenML at the right cache and
-  initializes Ray for a **shared-filesystem** SLURM environment (unique temp dir, plasma store
-  sizing, forkserver) so parallel workers don't collide.
+- **`slurm_utils.py::setup_slurm_job`** — per-node setup: initializes Ray for a **shared-filesystem**
+  SLURM environment (unique temp dir, plasma store sizing, forkserver) so parallel workers don't
+  collide. (Caches are configured separately, by `run_experiment` applying the `JobBatch`'s
+  `cache_config`.)
 
 ---
 
@@ -215,7 +220,6 @@ collection to the jobs' tasks and `materialize()` them (download only those) →
   "defaults": {
     "python": "/shared/venv/bin/python",
     "run_script": ".../run_tabarena_experiment.py",
-    "openml_cache_dir": ".../.openml-cache",
     "job_batch_dir": ".../job_batch_<name>",
     "output_dir": ".../output/<benchmark_name>",
     "num_cpus": 8, "num_gpus": 0, "memory_limit": 32,
@@ -249,7 +253,8 @@ using `defaults` for everything shared.
   OpenML cache), checks the cache, and prefetches foundation weights — all locally — before any
   `sbatch`.
 - **The OpenML cache must be shared.** Tasks materialized during setup must be visible to the
-  workers; they configure the same cache via `--openml_cache_dir`.
+  workers. Point `CacheConfig.openml` at shared storage (via `TabArenaContext(cache_config=...)`);
+  the config is embedded in the `JobBatch` and applied identically on the head node and every worker.
 - **Grouping is by *effective* settings.** Two `ModelJob`s with the same resources/scheduler/tasks/
   experiment merge into one run (one `JobBatch`, one array). Different `num_gpus` (or any override)
   splits them — that's how GPU vs CPU models become separate `sbatch` commands.

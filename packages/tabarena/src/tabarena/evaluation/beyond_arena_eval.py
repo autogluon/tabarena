@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
+    from tabarena.caching import CacheConfig
 
 #: Internal config-type -> display-name fixups for BeyondArena methods, applied on top of the
 #: TabArena rename map. Mirrors the hardcoded map in the legacy ``run_eval.py``.
@@ -88,6 +89,10 @@ class BeyondArenaEvalConfig:
     """BeyondArena source name (committed package CSV) or a path to a ``*_tasks_metadata.csv``."""
     subsets_to_evaluate: list[list[str]] | None = None
     """Each entry is a subset spec (e.g. ``["regression"]``); ``[]`` = full. ``None`` = full only."""
+    cache_config: CacheConfig | None = None
+    """Cache locations (OpenML / HuggingFace / TabArena). Pass the SAME
+    :class:`~tabarena.caching.CacheConfig` used to run the benchmark; takes precedence over the
+    legacy ``*_cache_path`` fields below."""
     tabarena_cache_path: str | None = None
     openml_cache_path: str | None = None
     compute_aux_metric: bool = False
@@ -142,7 +147,11 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
     )
     from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata_collection
 
-    init_caches(config.tabarena_cache_path, config.openml_cache_path)
+    # Prefer the unified CacheConfig surface; fall back to the legacy cache-path fields.
+    if config.cache_config is not None:
+        config.cache_config.apply()
+    else:
+        init_caches(config.tabarena_cache_path, config.openml_cache_path)
     # Passing None also clears a stale env var, so a previous run can't silently re-enable it.
     init_aux_metric_env(config.effective_aux_metric_map())
 

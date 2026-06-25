@@ -17,8 +17,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tabarena.loaders import set_tabarena_cache_root
-
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -48,16 +46,29 @@ class MethodArtifact:
     """If True, skip raw->cache post-processing and load the existing cache instead."""
 
 
-def init_caches(tabarena_cache_path: str | None = None, openml_cache_path: str | None = None) -> None:
-    """Point TabArena/OpenML at the configured caches (resolved lazily, so order-independent)."""
+def init_caches(
+    tabarena_cache_path: str | None = None,
+    openml_cache_path: str | None = None,
+    huggingface_cache_path: str | None = None,
+) -> None:
+    """Point TabArena/OpenML/HuggingFace at the configured caches (order-independent).
+
+    Thin wrapper over :meth:`tabarena.caching.CacheConfig.apply` kept for the evaluation
+    runners' existing call sites; each ``None`` path leaves that cache untouched.
+    """
+    from tabarena.caching import CacheConfig
+
     if tabarena_cache_path is not None:
-        set_tabarena_cache_root(tabarena_cache_path)
         print("Set TabArena cache root to:", tabarena_cache_path)
     if openml_cache_path is not None:
-        import openml
-
-        openml.config.set_root_cache_directory(str(Path(openml_cache_path).expanduser()))
         print("Set OpenML cache root to:", openml_cache_path)
+    if huggingface_cache_path is not None:
+        print("Set HuggingFace cache root to:", huggingface_cache_path)
+    CacheConfig(
+        tabarena=tabarena_cache_path,
+        openml=openml_cache_path,
+        huggingface=huggingface_cache_path,
+    ).apply()
 
 
 def init_aux_metric_env(aux_metric_map: dict[str, str] | None) -> None:

@@ -29,6 +29,13 @@ benchmark_plan = TabArenaBenchmarkPlan(
     ],
     # The TabArena-v0.1 context owns the task metadata + subset predicates; `task_subset`
     # scopes `context.build_jobs` (here `subset="lite"` keeps each dataset's first split).
+    #
+    # Caches use their library defaults (OpenML `~/.cache/openml`, HuggingFace
+    # `~/.cache/huggingface/hub`, TabArena `~/.cache/tabarena`). To relocate them — e.g. onto
+    # shared cluster storage so the head node and every worker resolve the same files — pass a
+    # CacheConfig to the context (the plan embeds it in the JobBatch; reuse it in the eval script):
+    #     from tabarena.caching import CacheConfig
+    #     context=TabArenaContext(cache_config=CacheConfig.from_root("/shared/tabarena-caches")),
     context=TabArenaContext(),
     task_subset=TaskSubset(subset="lite"),
     experiment_bundle=TabArenaV0pt1ExperimentBundle(),

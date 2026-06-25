@@ -24,7 +24,7 @@ tabflow_slurm/                      ← this folder (docs, examples, history, py
     ├── __init__.py                 ← re-exports the public API
     ├── run_tabarena_experiment.py  ← runner: fits ONE item on a node (bundled script)
     ├── submit_template.sh          ← sbatch array script (parses job JSON via jq, calls runner)
-    ├── slurm_utils.py              ← setup_slurm_job(): per-node OpenML cache + Ray init
+    ├── slurm_utils.py              ← setup_slurm_job(): per-node Ray init (caches via JobBatch.cache_config)
     └── setup/                      ← the building blocks
         ├── plan.py                 ← TabArenaBenchmarkPlan (ENTRY POINT), ModelJob, SingleModel
         ├── benchmark.py            ← TabArenaBenchmarkSetup (INTERNAL per-run engine)
@@ -86,9 +86,10 @@ Then: `sbatch … submit_template.sh <job.json>` → array task picks `jobs[SLUR
 - **The Ray cache check pickles plain `(method, task_id_str, fold, repeat)` tuples** to workers
   (never live experiments) and runs tabarena core's writer-aligned `job_cache_exists_batch` — don't
   re-derive the cache key/normalization in this package.
-- **OpenML cache must be shared** between the head node (setup materializes tasks there) and workers
-  (`--openml_cache_dir`). `PathSetup.ensure_runtime_dirs()` points the ambient cache at it during
-  setup.
+- **Caches are configured via `CacheConfig` on the context**, not `PathSetup`. The setup embeds
+  `context.cache_config` in the `JobBatch`; the head node applies it before materializing tasks and
+  each worker applies it (in `run_experiment`) before fitting — so point `CacheConfig.openml` at
+  shared storage and the head node + workers resolve the same OpenML cache.
 - **Ray on a shared filesystem:** `setup_slurm_job(setup_ray_for_slurm_shared_resources_environment=
   True)` gives each job a unique temp dir + plasma sizing; required when fold-fitting isn't
   sequential-local, else workers collide semi-randomly.

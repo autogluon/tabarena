@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
-
-import openml
 
 # The runner script and submit template live at the package root, one level
 # up from this `setup/` subpackage.
@@ -38,8 +35,12 @@ class PathSetup:
 
     The user must provide a `workspace` directory and the `python_path` to use
     for the SLURM jobs. `run_script` and `submit_script` default to the scripts
-    bundled with this package (see `get_run_script_path` /
-    `get_submit_script_path`), and `openml_cache` is optional.
+    bundled with this package (see `get_run_script_path` / `get_submit_script_path`).
+
+    Cache locations (OpenML / HuggingFace / TabArena) are NOT configured here — set them on
+    the arena context via `TabArenaContext(cache_config=CacheConfig(...))` (the same surface
+    used by the sequential/async API). The setup embeds that config in the `JobBatch`, and each
+    worker applies it automatically (see `tabarena.caching.CacheConfig`).
 
     The workspace is a persistent directory that all SLURM jobs can access. We
     create and use the following structure inside it:
@@ -50,13 +51,11 @@ class PathSetup:
                                    (one `benchmark_name` subfolder each)
             - setup_out         -- generated configs YAML + SLURM job JSON
                                    (one `benchmark_name` subfolder each)
-            - .openml-cache     -- the OpenML cache (unless overridden)
     """
 
     workspace: str | Path
     """Persistent workspace directory that all jobs can access. Holds the
-    `output/`, `slurm_out/`, and `setup_out/` folders, and (by default) the
-    OpenML cache."""
+    `output/`, `slurm_out/`, and `setup_out/` folders."""
     python_path: str | Path
     """Python executable to use for the SLURM jobs. Should point to the cluster
     venv (e.g. pass `sys.executable` if this setup runs inside that venv)."""
@@ -68,13 +67,6 @@ class PathSetup:
     """Path to the SLURM (array) submit script invoked by `sbatch`.
     Defaults to the `submit_template.sh` bundled with this package
     (see `get_submit_script_path`)."""
-    openml_cache: str | Path | Literal["auto"] | None = "auto"
-    """OpenML cache directory, used to store dataset and task data from OpenML.
-
-        - If None (default), use `<workspace>/.openml-cache`.
-        - If "auto", use OpenML's own default cache location.
-        - Otherwise, the given path is used as a custom OpenML cache folder.
-    """
 
     @property
     def _workspace(self) -> Path:
@@ -89,15 +81,6 @@ class PathSetup:
     def submit_script_path(self) -> str:
         """SLURM (array) submit script invoked by `sbatch`."""
         return str(self.submit_script)
-
-    @property
-    def openml_cache_path(self) -> str:
-        """Resolved OpenML cache directory ("auto" or an absolute path)."""
-        if self.openml_cache == "auto":
-            return "auto"
-        if self.openml_cache is None:
-            return str(self._workspace / ".openml-cache")
-        return str(self.openml_cache)
 
     def get_setup_out_path(self, benchmark_name: str) -> Path:
         """Directory holding the generated job-batch artifact + SLURM job JSON."""
@@ -127,17 +110,12 @@ class PathSetup:
         return str(self._workspace / "slurm_out" / benchmark_name)
 
     def ensure_runtime_dirs(self, benchmark_name: str) -> None:
-        """Create the output, log, setup, and (optional) OpenML cache directories.
+        """Create the output, log, and setup directories for this benchmark.
 
-        Also points the ambient OpenML cache at ``openml_cache_path`` when it is
-        not ``"auto"``, so any task artifacts materialized during setup (e.g.
-        data_foundry ``UserTask`` pickles) land where the SLURM workers resolve
-        them — the workers configure the same cache via ``--openml_cache_dir``.
+        Cache directories are not created here: the OpenML / HuggingFace / TabArena caches are
+        configured via the context's ``CacheConfig`` (embedded in the ``JobBatch``) and the
+        underlying libraries create their cache dirs lazily on first write.
         """
-        if self.openml_cache_path != "auto":
-            Path(self.openml_cache_path).mkdir(parents=True, exist_ok=True)
-            print(f"Setting OpenML cache directory to: {self.openml_cache_path}")
-            openml.config.set_root_cache_directory(root_cache_directory=self.openml_cache_path)
         Path(self.get_output_path(benchmark_name)).mkdir(parents=True, exist_ok=True)
         Path(self.get_slurm_log_output_path(benchmark_name)).mkdir(parents=True, exist_ok=True)
         self.get_setup_out_path(benchmark_name).mkdir(parents=True, exist_ok=True)

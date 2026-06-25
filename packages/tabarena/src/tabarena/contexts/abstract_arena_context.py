@@ -23,9 +23,11 @@ and :attr:`_default_subsets` to declare arena-specific subset filters.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import functools
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
 
@@ -47,7 +49,13 @@ if TYPE_CHECKING:
     from tabarena.benchmark.experiment import Experiment, Job
     from tabarena.benchmark.result import BaselineResult
     from tabarena.benchmark.task.metadata.schema import TabArenaTaskMetadata
+    from tabarena.caching import CacheConfig
     from tabarena.repository.abstract_repository import AbstractRepository
+
+# Sentinel default for `run_jobs`/`build_and_run_jobs` `expname`, distinguishing "caller omitted
+# expname" (fall back to `cache_config.results`, else error) from an explicit `expname=None`
+# (always a throwaway temp dir). Keeps the original "expname is required; None means throwaway" API.
+_EXPNAME_UNSET: Any = object()
 
 
 class AbstractArenaContext:
@@ -88,7 +96,23 @@ class AbstractArenaContext:
         fillna_method: str | None = None,
         calibration_method: str | None = None,
         only_valid_tasks: bool = False,
+        cache_config: CacheConfig | None = None,
     ):
+        # Configure the caches first: `cache_config.apply()` points this (driver) process at
+        # the declared OpenML / HuggingFace / TabArena locations, so resolving + materializing
+        # task metadata below — and any later `build_jobs(pre_materialize=...)` / `compare()` —
+        # reads and writes the right directories. `cache_config.apply_on_run` re-applies the same
+        # config inside `run_jobs`, so a worker that runs this context inherits it too. Stored
+        # before resolving the collection so preset hooks can honor it.
+        #
+        # `cache_config.scope_openml=True` keeps the ambient `openml.config` untouched: we apply
+        # only the TabArena/HuggingFace caches here (the TabArena cache is needed by `compare`, and
+        # is private to us), and point OpenML at `cache_config.openml` *only* for the duration of
+        # each data operation (see `_cache_scope`), restoring the prior OpenML location after.
+        self.cache_config = cache_config
+        if cache_config is not None:
+            cache_config.apply(openml=not cache_config.scope_openml)
+
         # A TaskMetadataCollection is the single source of truth; the legacy `task_metadata`
         # DataFrame view is derived from it on demand (see the `task_metadata` cached_property).
         self.task_metadata_collection = self._resolve_task_metadata_collection(task_metadata)
@@ -188,6 +212,26 @@ class AbstractArenaContext:
         self._register_methods(new_methods, scope_to_valid_tasks=scope_to_valid_tasks)
         return new_methods
 
+    @contextlib.contextmanager
+    def _cache_scope(self) -> Iterator[None]:
+        """Ensure the configured caches are active for the wrapped cache-touching operation.
+
+        No-op when there is no ``cache_config`` or its ``apply_on_run`` is off. With
+        ``cache_config.scope_openml=True`` the OpenML root is set only for the duration of the
+        block and the prior location is restored afterwards (so an ambient ``openml.config`` is
+        preserved); otherwise the config is applied to the process (re-applying covers a worker
+        that reconstructed this context).
+        """
+        cfg = self.cache_config
+        if cfg is None or not cfg.apply_on_run:
+            yield
+        elif cfg.scope_openml:
+            with cfg.scoped_openml():
+                yield
+        else:
+            cfg.apply()
+            yield
+
     def build_jobs(
         self,
         experiments: list[Experiment],
@@ -223,7 +267,10 @@ class AbstractArenaContext:
         predicates = subset_kwargs.pop("predicates", self.subset_predicates)
         collection = self.task_metadata_collection.subset_tasks(task_subset, predicates=predicates, **subset_kwargs)
         if pre_materialize:
-            collection.materialize()
+            # Materializing downloads into the OpenML/HF caches; make sure this process is
+            # pointed at the configured locations first (covers a context built/used on a worker).
+            with self._cache_scope():
+                collection.materialize()
         return build_jobs_grid(experiments, collection)
 
     def metadata_for_jobs(self, jobs: list[Job]) -> list[TabArenaTaskMetadata]:
@@ -242,7 +289,7 @@ class AbstractArenaContext:
         self,
         jobs: list[Job],
         *,
-        expname: str | Path | None,
+        expname: str | Path | None = _EXPNAME_UNSET,
         register: bool = True,
         new_result_prefix: str | None = None,
         **runner_kwargs,
@@ -260,30 +307,50 @@ class AbstractArenaContext:
 
         ``expname`` is the runner's results-cache directory (a real path), or ``None`` to cache to
         a throwaway temp dir (cleaned up after) when you only want the returned results and don't
-        need a persistent / resumable cache. There is no default; pass a path or ``None``. Extra
-        ``**runner_kwargs`` (e.g. ``debug_mode``, ``cache_mode``) reach :class:`ExperimentBatchRunner`.
-        Returns the raw per-split result dicts (also registered when ``register`` is True).
+        need a persistent / resumable cache. It is required: pass a path or ``None`` — *unless*
+        this context's ``cache_config.results`` is set, which is used as the default only when
+        ``expname`` is omitted entirely. An explicit ``expname`` (including ``None``) always wins,
+        so ``expname=None`` is still a throwaway temp dir even when ``cache_config.results`` is set.
+        Extra ``**runner_kwargs`` (e.g. ``debug_mode``, ``cache_mode``) reach
+        :class:`ExperimentBatchRunner`. Returns the raw per-split result dicts (also registered
+        when ``register`` is True).
         """
         from tabarena.benchmark.experiment import ExperimentBatchRunner
 
         if not jobs:
             return []
-        # Scope-then-materialize: only the tasks the jobs actually touch are downloaded, and
-        # the collection itself is the single source of truth for what the runner resolves.
-        collection = self.task_metadata_collection.subset_to_jobs(jobs).materialize()
-        # `expname=None` -> a throwaway cache: the returned result dicts are in memory, so the
-        # cache dir is only needed while the runner runs and is discarded right after.
-        tmp_expname = tempfile.TemporaryDirectory() if expname is None else None
-        try:
-            runner = ExperimentBatchRunner(
-                expname=str(tmp_expname.name if tmp_expname is not None else expname),
-                task_metadata=collection,
-                **runner_kwargs,
-            )
-            results = runner.run_jobs(jobs)
-        finally:
-            if tmp_expname is not None:
-                tmp_expname.cleanup()
+        if expname is _EXPNAME_UNSET:
+            # Omitted entirely: fall back to the cache_config default, else preserve the original
+            # "expname is required" contract with a clear error (rather than a missing-arg TypeError).
+            if self.cache_config is not None and self.cache_config.results is not None:
+                expname = self.cache_config.results
+            else:
+                raise TypeError(
+                    "run_jobs() is missing required keyword 'expname': pass a path (a persistent, "
+                    "resumable results cache) or None (a throwaway temp dir). Alternatively, set "
+                    "`cache_config.results` to provide a default expname.",
+                )
+        # `_cache_scope` points this process at the configured caches for the materialize + fit
+        # (a distributed worker may have reconstructed this context). `materialize()` downloads
+        # into the OpenML cache, so the scope must wrap it. With `cache_config.scope_openml=True`
+        # the OpenML root is restored to its prior value once the run finishes.
+        with self._cache_scope():
+            # Scope-then-materialize: only the tasks the jobs actually touch are downloaded, and
+            # the collection itself is the single source of truth for what the runner resolves.
+            collection = self.task_metadata_collection.subset_to_jobs(jobs).materialize()
+            # `expname=None` -> a throwaway cache: the returned result dicts are in memory, so the
+            # cache dir is only needed while the runner runs and is discarded right after.
+            tmp_expname = tempfile.TemporaryDirectory() if expname is None else None
+            try:
+                runner = ExperimentBatchRunner(
+                    expname=str(tmp_expname.name if tmp_expname is not None else expname),
+                    task_metadata=collection,
+                    **runner_kwargs,
+                )
+                results = runner.run_jobs(jobs)
+            finally:
+                if tmp_expname is not None:
+                    tmp_expname.cleanup()
         if register:
             self.register(results, new_result_prefix=new_result_prefix)
         return results
@@ -296,7 +363,7 @@ class AbstractArenaContext:
         self,
         experiments: list[Experiment],
         *,
-        expname: str | Path | None,
+        expname: str | Path | None = _EXPNAME_UNSET,
         task_subset: TaskSubset | dict | None = None,
         subset: str | list[str] | None = None,
         register: bool = True,
