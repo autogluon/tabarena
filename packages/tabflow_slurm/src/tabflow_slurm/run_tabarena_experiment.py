@@ -58,6 +58,11 @@ def run_experiment(
     from tabarena.benchmark.experiment import ExperimentBatchRunner, JobBatch
 
     batch = JobBatch.load(job_batch_dir)
+    # Point this worker at the caches the run was configured with (OpenML / HuggingFace /
+    # TabArena), before the task is loaded and the model fit (which lazily imports HF). The
+    # config was embedded in the batch at setup time; absent => use library defaults.
+    if batch.cache_config is not None:
+        batch.cache_config.apply()
     # The coordinates are a lookup key into the batch's serialized job list — the job
     # that runs is the one loaded from disk, and coordinates that don't name a job of
     # the batch (e.g. a stale job JSON against a regenerated batch) fail loudly here.
@@ -155,12 +160,6 @@ if __name__ == "__main__":
     )
     # Experiment environment settings
     parser.add_argument(
-        "--openml_cache_dir",
-        type=str,
-        help="Path to the OpenML cache directory or 'auto'.",
-        default="auto",
-    )
-    parser.add_argument(
         "--output_dir",
         type=str,
         help="Path to the output directory where the results will be saved.",
@@ -209,7 +208,6 @@ if __name__ == "__main__":
         print(f"Memory limit not provided, using detected memory size: {memory_limit} GB")
 
     ray_temp_dir = setup_slurm_job(
-        openml_cache_dir=args.openml_cache_dir,
         setup_ray_for_slurm_shared_resources_environment=args.setup_ray_for_slurm_shared_resources_environment,
         num_cpus=num_cpus,
         num_gpus=args.num_gpus,

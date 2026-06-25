@@ -66,8 +66,6 @@ def _build_item_command(defaults: dict, item: dict) -> list[str]:
         str(item["fold"]),
         "--repeat",
         str(item["repeat"]),
-        "--openml_cache_dir",
-        str(defaults["openml_cache_dir"]),
         "--output_dir",
         str(defaults["output_dir"]),
         "--num_cpus",
@@ -90,18 +88,17 @@ def _run_item_subprocess(defaults: dict, item: dict, env: dict) -> int:
 
 
 def _setup_in_process(defaults: dict) -> None:
-    """One-time setup for `in_process` mode: OpenML cache + telemetry env.
+    """One-time setup for `in_process` mode: Ray + telemetry env.
 
-    Subprocess mode does this per child via ``run_tabarena_experiment``'s
-    ``__main__``; in-process we must do it once before the first fit. We reuse
-    ``setup_slurm_job`` with the SLURM shared-resources Ray setup disabled, so it
-    only points the OpenML cache (its numeric args are unused in that branch).
+    Subprocess mode does this per child via ``run_tabarena_experiment``'s ``__main__``; in-process
+    we must do it once before the first fit. We reuse ``setup_slurm_job`` with the SLURM
+    shared-resources Ray setup disabled. Cache configuration is not done here — each item's
+    ``run_experiment`` applies the ``JobBatch``'s ``cache_config`` before its fit.
     """
     from tabflow_slurm.slurm_utils import setup_slurm_job
 
     os.environ.setdefault("TABPFN_DISABLE_TELEMETRY", "1")
     setup_slurm_job(
-        openml_cache_dir=str(defaults["openml_cache_dir"]),
         num_cpus=defaults["num_cpus"],
         num_gpus=defaults["num_gpus"],
         memory_limit=defaults["memory_limit"],

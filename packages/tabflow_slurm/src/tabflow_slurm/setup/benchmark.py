@@ -112,6 +112,11 @@ class TabArenaBenchmarkSetup:
         largest bundle observed and is used to budget the per-task time limit.
         """
         self.path_setup.ensure_runtime_dirs(self.benchmark_name)
+        # Point this (dedicated) setup process at the context's configured caches, so any
+        # setup-time downloads (e.g. data_foundry/BeyondArena materialization below) land in the
+        # right place. The same config is embedded in the JobBatch and re-applied on each worker.
+        if self.context.cache_config is not None:
+            self.context.cache_config.apply()
         experiments = self.experiment_bundle.build_experiments(
             time_limit=self.resources_setup.time_limit,
             num_cpus=self.resources_setup.num_cpus,
@@ -181,7 +186,11 @@ class TabArenaBenchmarkSetup:
         previous invocation so the setup output always reflects this run.
         """
         if jobs:
-            JobBatch(jobs=jobs, task_metadata=collection).save(self._job_batch_dir)
+            JobBatch(
+                jobs=jobs,
+                task_metadata=collection,
+                cache_config=self.context.cache_config,
+            ).save(self._job_batch_dir)
         else:
             shutil.rmtree(self._job_batch_dir, ignore_errors=True)
 
@@ -207,7 +216,6 @@ class TabArenaBenchmarkSetup:
         return {
             "python": self.path_setup.python_path,
             "run_script": self.path_setup.run_script_path,
-            "openml_cache_dir": self.path_setup.openml_cache_path,
             "job_batch_dir": self._job_batch_dir,
             "output_dir": self.path_setup.get_output_path(self.benchmark_name),
             "num_cpus": self.resources_setup.num_cpus,

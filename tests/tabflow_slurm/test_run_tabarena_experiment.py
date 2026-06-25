@@ -177,34 +177,17 @@ class TestRunExperimentResolution:
 
 
 class TestSetupSlurmJob:
-    def test_auto_openml_cache_returns_none(self):
+    def test_returns_none_without_ray(self):
         result = setup_slurm_job(
-            openml_cache_dir="auto",
             num_cpus=1,
             num_gpus=0,
             memory_limit=4,
             setup_ray_for_slurm_shared_resources_environment=False,
         )
         assert result is None
-
-    def test_custom_openml_cache_sets_directory(self, tmp_path):
-        import openml
-
-        cache_dir = str(tmp_path / "oml_cache")
-        result = setup_slurm_job(
-            openml_cache_dir=cache_dir,
-            num_cpus=1,
-            num_gpus=0,
-            memory_limit=4,
-            setup_ray_for_slurm_shared_resources_environment=False,
-        )
-        assert result is None
-        # Verify the OpenML cache was pointed at the custom directory.
-        assert str(openml.config.get_cache_directory()).startswith(cache_dir)
 
     def test_no_ray_setup_skips_ray(self, capsys):
         result = setup_slurm_job(
-            openml_cache_dir="auto",
             num_cpus=2,
             num_gpus=0,
             memory_limit=8,
@@ -214,3 +197,48 @@ class TestSetupSlurmJob:
         captured = capsys.readouterr()
         # Should NOT mention Ray setup when skipping it.
         assert "Ray" not in captured.out
+
+
+class TestRunExperimentAppliesCacheConfig:
+    """The runner applies the JobBatch's embedded CacheConfig before fitting (no CLI wiring)."""
+
+    def test_applies_batch_cache_config(self, monkeypatch, tmp_path):
+        import types
+
+        import tabarena.benchmark.experiment as exp_mod
+        from tabarena.caching import CacheConfig
+        from tabarena.loaders import get_tabarena_cache_root, set_tabarena_cache_root
+
+        job = types.SimpleNamespace(
+            experiment=types.SimpleNamespace(name="exp"),
+            task=types.SimpleNamespace(as_triple=lambda: ("ds", 0, 0)),
+        )
+        fake_batch = types.SimpleNamespace(
+            jobs=[job],
+            task_metadata=object(),
+            cache_config=CacheConfig(tabarena=tmp_path / "tab"),
+        )
+        monkeypatch.setattr(exp_mod, "JobBatch", types.SimpleNamespace(load=lambda _dir: fake_batch))
+
+        class _FakeRunner:
+            def __init__(self, **kwargs):
+                pass
+
+            def run_jobs(self, jobs):
+                return [{"metric_error": 0.1}]
+
+        monkeypatch.setattr(exp_mod, "ExperimentBatchRunner", _FakeRunner)
+        try:
+            out = run_experiment(
+                job_batch_dir="x",
+                experiment_name="exp",
+                dataset="ds",
+                fold=0,
+                repeat=0,
+                output_dir=str(tmp_path / "out"),
+                ignore_cache=False,
+            )
+            assert out == [{"metric_error": 0.1}]
+            assert get_tabarena_cache_root() == tmp_path / "tab"  # batch's cache_config was applied
+        finally:
+            set_tabarena_cache_root(None)

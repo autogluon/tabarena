@@ -26,7 +26,6 @@ echo "Selected Job Index: $J"
 # Read defaults
 PYTHON_PATH=$(jq -r '.defaults.python' "$JSON_FILE")
 RUNSCRIPT=$(jq -r '.defaults.run_script' "$JSON_FILE")
-OPENML_CACHE_DIR=$(jq -r '.defaults.openml_cache_dir' "$JSON_FILE")
 JOB_BATCH_DIR=$(jq -r '.defaults.job_batch_dir' "$JSON_FILE")
 OUTPUT_DIR=$(jq -r '.defaults.output_dir' "$JSON_FILE")
 NUM_CPUS=$(jq -r '.defaults.num_cpus' "$JSON_FILE")
@@ -37,7 +36,6 @@ IGNORE_CACHE=$(jq -r '.defaults.ignore_cache' "$JSON_FILE")
 
 echo "Python Path: $PYTHON_PATH"
 echo "Run Script: $RUNSCRIPT"
-echo "OpenML Cache Directory: $OPENML_CACHE_DIR"
 echo "Job Batch Dir: $JOB_BATCH_DIR"
 echo "Output Directory: $OUTPUT_DIR"
 echo "Number of CPUs: $NUM_CPUS"
@@ -59,7 +57,6 @@ run_one() {
         --fold $FOLD \
         --repeat $REPEAT \
         --job_batch_dir "$JOB_BATCH_DIR" \
-        --openml_cache_dir $OPENML_CACHE_DIR \
         --output_dir $OUTPUT_DIR \
         --num_cpus $NUM_CPUS \
         --num_gpus $NUM_GPUS \

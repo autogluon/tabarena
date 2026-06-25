@@ -14,9 +14,10 @@ from tabarena.evaluation import EvalMethod, TabArenaEvalConfig, run_eval
 from tabflow_slurm import PathSetup
 
 BENCHMARK_NAME = "example_tabarena_v0pt1_29052026"
+WORKSPACE = "/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace"
 
 path_setup = PathSetup(
-    workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+    workspace=WORKSPACE,
     python_path="/home/lennart_priorlabs_ai/.venvs/beyondarena_27052026/bin/python",
 )
 
@@ -31,6 +32,10 @@ config = TabArenaEvalConfig(
     subsets=[
         ["lite"],
     ],
+    # Caches default to the library locations (~/.cache/...). If the run used a relocated cache
+    # (see run_setup_tabarena_v0pt1.py), pass the SAME object so eval reads the same baselines:
+    #     from tabarena.caching import CacheConfig
+    #     cache_config=CacheConfig.from_root("/shared/tabarena-caches"),
 )
 
 run_eval(config)

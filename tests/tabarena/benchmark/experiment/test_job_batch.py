@@ -243,6 +243,18 @@ class TestJobBatch:
         exp_a_jobs = [j for j in loaded.jobs if j.experiment.name == "exp_a"]
         assert all(j.experiment is exp_a_jobs[0].experiment for j in exp_a_jobs)
 
+    def test_cache_config_round_trip(self, tmp_path):
+        from tabarena.caching import CacheConfig
+
+        cfg = CacheConfig(openml="/o", huggingface="/hf", tabarena="/t", scope_openml=True)
+        batch = JobBatch(jobs=self._batch().jobs, task_metadata=self._batch().task_metadata, cache_config=cfg)
+        loaded = JobBatch.load(batch.save(tmp_path / "batch"))
+        assert loaded.cache_config == cfg  # str-valued config round-trips equal
+
+    def test_no_cache_config_loads_as_none(self, tmp_path):
+        loaded = JobBatch.load(self._batch().save(tmp_path / "batch"))
+        assert loaded.cache_config is None
+
     def test_load_with_unknown_experiment_reference_raises(self, tmp_path):
         batch = self._batch()
         path = batch.save(tmp_path / "batch")

@@ -49,6 +49,7 @@ on OpenML, and no-bagging foundation-model setups.
   - `run_autogluon_on_openml_task.py` - Run AutoGluon on any OpenML task.
   - `run_autogluon_on_openml_task_with_hpo_configs.py` - Run AutoGluon on an OpenML task using TabArena's model search spaces.
   - `run_get_tabarena_datasets_from_openml.py` - Get the data used by TabArena from OpenML, without the TabArena framework.
+  - `run_configure_caches.py` - Declare *where* TabArena caches datasets, model weights, and results — once, via `CacheConfig` — and let the context propagate it to every worker.
 
 ### 🗃️ Analysing Metadata and Meta-Learning
 

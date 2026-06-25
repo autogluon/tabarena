@@ -48,6 +48,20 @@ class TestConfig:
         finally:
             set_tabarena_cache_root(None)
 
+    def test_init_caches_prefers_cache_config(self, tmp_path):
+        from tabarena.caching import CacheConfig
+
+        try:
+            # cache_config wins over the legacy *_cache_path field.
+            _config(
+                tmp_path,
+                cache_config=CacheConfig(tabarena="/from_config"),
+                tabarena_cache_path="/legacy",
+            ).init_caches()
+            assert get_tabarena_cache_root() == Path("/from_config")
+        finally:
+            set_tabarena_cache_root(None)
+
 
 def test_run_eval_orchestration(tmp_path, monkeypatch):
     import tabarena.contexts.tabarena.context as tc

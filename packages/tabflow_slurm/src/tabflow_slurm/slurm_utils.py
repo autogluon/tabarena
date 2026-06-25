@@ -4,23 +4,22 @@ from __future__ import annotations
 
 import logging
 
-import openml
-
 
 def setup_slurm_job(
     *,
-    openml_cache_dir: str,
     num_cpus: int,
     num_gpus: int,
     memory_limit: int,
     setup_ray_for_slurm_shared_resources_environment: bool,
 ) -> None | str:
-    """Ensure correct caching and usage of directories for OpenML and TabRepo.
+    """Set up Ray (and silence loky logs) for executing a single benchmark job on a node.
+
+    Cache configuration (OpenML / HuggingFace / TabArena) is no longer done here — it travels with
+    the run inside the ``JobBatch`` and is applied by ``run_experiment`` (see
+    ``tabarena.caching.CacheConfig``).
 
     Parameters
     ----------
-    openml_cache_dir : str
-        The path to the OpenML cache directory, or "auto" to use the default OpenML cache directory.
     num_cpus : int
         The number of CPUs to use for the experiment (needed for proper Ray setup).
     num_gpus : int
@@ -34,12 +33,6 @@ def setup_slurm_job(
     """
     # Silence loky resource tracker clean up logs
     logging.getLogger("loky.backend.resource_tracker").setLevel(logging.CRITICAL)
-
-    if openml_cache_dir == "auto":
-        print("Using the default OpenML cache directory.")
-    else:
-        print(f"Setting OpenML cache directory to: {openml_cache_dir}")
-        openml.config.set_root_cache_directory(root_cache_directory=openml_cache_dir)
 
     # SLURM save Ray setup in a shared resource system
     ray_dir = None

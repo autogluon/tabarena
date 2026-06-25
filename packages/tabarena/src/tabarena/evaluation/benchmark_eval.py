@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import pandas as pd
 
+    from tabarena.caching import CacheConfig
+
 
 @dataclass
 class EvalMethod:
@@ -68,10 +70,14 @@ class TabArenaEvalConfig:
     benchmark. ``None`` is treated as ``[[]]`` (full only)."""
     num_cpus: int | None = None
     """CPUs for raw-result post-processing (None = all available)."""
+    cache_config: CacheConfig | None = None
+    """Cache locations (OpenML / HuggingFace / TabArena). Pass the SAME
+    :class:`~tabarena.caching.CacheConfig` used to run the benchmark. When set it takes
+    precedence over the ``*_cache_path`` fields below."""
     tabarena_cache_path: str | None = None
-    """If set, used as the TabArena cache root (via ``set_tabarena_cache_root``)."""
+    """Legacy: TabArena cache root (via ``set_tabarena_cache_root``). Prefer ``cache_config``."""
     openml_cache_path: str | None = None
-    """If set, used as the OpenML root cache (for fetching task metadata)."""
+    """Legacy: OpenML root cache (for fetching task metadata). Prefer ``cache_config``."""
     save_leaderboards: bool = True
     """If True, save each subset's leaderboard CSV under ``figure_output_dir``."""
 
@@ -85,7 +91,14 @@ class TabArenaEvalConfig:
         return self.subsets if self.subsets is not None else [[]]
 
     def init_caches(self) -> None:
-        """Point TabArena/OpenML at the configured caches (resolved lazily, so order-independent)."""
+        """Point TabArena/OpenML/HF at the configured caches (resolved lazily, order-independent).
+
+        Prefers ``cache_config`` (the unified surface) when set; otherwise falls back to the
+        legacy ``tabarena_cache_path`` / ``openml_cache_path`` fields.
+        """
+        if self.cache_config is not None:
+            self.cache_config.apply()
+            return
         from tabarena.evaluation._eval_common import init_caches
 
         init_caches(self.tabarena_cache_path, self.openml_cache_path)

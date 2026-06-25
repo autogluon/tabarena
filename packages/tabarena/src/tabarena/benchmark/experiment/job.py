@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from tabarena.benchmark.experiment.experiment_constructor import Experiment
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
     from tabarena.benchmark.task.metadata.schema import SplitMetadata, TabArenaTaskMetadata
+    from tabarena.caching import CacheConfig
 
 
 @dataclass(frozen=True)
@@ -202,6 +203,7 @@ def filter_jobs_by_constraints(
 _EXPERIMENTS_FILE = "experiments.yaml"
 _TASK_METADATA_FILE = "task_metadata.csv"
 _JOBS_FILE = "jobs.json"
+_CACHE_CONFIG_FILE = "cache_config.json"
 
 
 @dataclass
@@ -221,9 +223,12 @@ class JobBatch:
       dataset names / task ids / shapes identically to the authoring side.
     * ``jobs.json`` — the (tiny) job list: ``(experiment name, dataset, fold, repeat)``
       coordinates only.
+    * ``cache_config.json`` — the optional :class:`~tabarena.caching.CacheConfig` (only written
+      when set), so the compute node configures the same OpenML / HuggingFace / TabArena cache
+      locations the run was set up with, with no out-of-band wiring.
 
     Loading a saved directory needs nothing else — ``JobBatch.load(path)`` reconstructs
-    the ``list[Job]`` plus the collection, ready for
+    the ``list[Job]`` plus the collection (and the ``cache_config`` if present), ready for
     :meth:`ExperimentBatchRunner.run_jobs`. This is the artifact a head node ships to
     compute nodes (each array task runs a slice of ``jobs``), and the user-facing way to
     serialize a sweep and re-run it later. Construction validates the batch is
@@ -232,6 +237,9 @@ class JobBatch:
 
     jobs: list[Job]
     task_metadata: TaskMetadataCollection
+    cache_config: CacheConfig | None = None
+    """Optional cache locations (OpenML / HuggingFace / TabArena) the run was configured with.
+    Persisted to ``cache_config.json`` and applied by the runner on the compute node."""
 
     def __post_init__(self) -> None:
         """Validate name-uniqueness and that every job's split exists in the collection.
@@ -289,6 +297,9 @@ class JobBatch:
         ]
         with (path / _JOBS_FILE).open("w") as f:
             json.dump({"jobs": job_records}, f)
+        if self.cache_config is not None:
+            with (path / _CACHE_CONFIG_FILE).open("w") as f:
+                json.dump(self.cache_config.to_dict(), f)
         return path
 
     @classmethod
@@ -301,6 +312,14 @@ class JobBatch:
         experiments = YamlExperimentSerializer.from_yaml(path=str(path / _EXPERIMENTS_FILE))
         experiment_by_name = {experiment.name: experiment for experiment in experiments}
         task_metadata = TaskMetadataCollection.from_source(path / _TASK_METADATA_FILE)
+
+        cache_config = None
+        cache_config_path = path / _CACHE_CONFIG_FILE
+        if cache_config_path.exists():
+            from tabarena.caching import CacheConfig
+
+            with cache_config_path.open() as f:
+                cache_config = CacheConfig.from_dict(json.load(f))
 
         with (path / _JOBS_FILE).open() as f:
             job_records = json.load(f)["jobs"]
@@ -316,4 +335,4 @@ class JobBatch:
             jobs.append(
                 Job.create(experiment, record["dataset"], fold=record["fold"], repeat=record["repeat"]),
             )
-        return cls(jobs=jobs, task_metadata=task_metadata)
+        return cls(jobs=jobs, task_metadata=task_metadata, cache_config=cache_config)
