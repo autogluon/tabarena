@@ -36,11 +36,11 @@ import pandas as pd
 
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection, TaskSubset
 from tabarena.benchmark.task.subset_predicate import SubsetPredicate
+from tabarena.evaluation.leaderboard_reporter import LeaderboardReporter
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 from tabarena.models._method_simulator import MethodSimulator
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
-from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
 from tabarena.repository import EvaluationRepository, EvaluationRepositoryCollection
 from tabarena.simulation.repo_simulator import RepoSimulator
 from tabarena.website.website_format import format_leaderboard
@@ -909,7 +909,7 @@ class AbstractArenaContext:
             )
 
         kwargs = kwargs.copy()
-        # Plotting-only method allowlist (forwarded to the lower-level compare -> TabArenaEvaluator
+        # Plotting-only method allowlist (forwarded to the lower-level compare -> LeaderboardReporter
         # .eval, which translates it into the hidden_methods complement). Does not affect scoring.
         if plot_only is not None:
             kwargs["plot_only"] = plot_only
@@ -1793,7 +1793,7 @@ class AbstractArenaContext:
 
         deep_dive_kwargs = dict(kwargs.pop("deep_dive_kwargs", None) or {})
 
-        evaluator = TabArenaEvaluator(output_dir=save_path, task_metadata=self.task_metadata_collection)
+        evaluator = LeaderboardReporter(output_dir=save_path, task_metadata=self.task_metadata_collection)
         evaluator.generate_runtime_plot(
             df_results=df_results_configs,
             deep_dive_kwargs=deep_dive_kwargs,

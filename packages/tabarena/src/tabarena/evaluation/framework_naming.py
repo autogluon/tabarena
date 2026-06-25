@@ -5,7 +5,7 @@ Builds the human-facing method names the TabArena leaderboard and figures show â
 family â€” along with the rename and plot-suffix maps that index them. ``framework_name`` /
 ``time_suffix`` / ``default_ensemble_size`` are the building blocks; ``get_framework_type_method_names``,
 ``get_method_rename_map`` and ``get_f_map_suffix_plots`` are the public maps consumed by
-:class:`~tabarena.paper.tabarena_evaluator.TabArenaEvaluator` and the tuning-trajectory plots.
+:class:`~tabarena.evaluation.leaderboard_reporter.LeaderboardReporter` and the tuning-trajectory plots.
 
 Formerly ``tabarena/paper/paper_utils.py``.
 """

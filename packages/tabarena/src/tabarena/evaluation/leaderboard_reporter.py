@@ -33,7 +33,7 @@ MethodLabelStyle = str | Mapping[str, object]
 
 @dataclass
 class TuneMethodOverride:
-    """Extra bar style for `TabArenaEvaluator.plot_tuning_impact`.
+    """Extra bar style for `LeaderboardReporter.plot_tuning_impact`.
 
     Rows whose method name is in `methods` get retagged with `tune_method`
     (replacing whatever value `f_map_inverse` would have produced) and are
@@ -62,7 +62,7 @@ def _init_global_rcparams() -> None:
 
     Cached + lazy so that importing this module does not import ``matplotlib``/``tueplots``
     — this keeps the plotting stack off the ``TabArenaContext`` import path. Called from
-    ``TabArenaEvaluator.__init__`` (previously ran at module import time).
+    ``LeaderboardReporter.__init__`` (previously ran at module import time).
     """
     import matplotlib
     from tueplots import fontsizes
@@ -85,7 +85,7 @@ def darken_color(color_str, amount=0.5):
 
 
 # FIXME: ensemble weights can get if including `config_hyperparameters` as input
-class TabArenaEvaluator:
+class LeaderboardReporter:
     def __init__(
         self,
         *,
@@ -2749,14 +2749,6 @@ class TabArenaEvaluator:
             show=False,
             **deep_dive_kwargs,
         )
-
-
-class TabArenaEvaluator_2025_06_12(TabArenaEvaluator):
-    def get_method_rename_map(self) -> dict[str, str]:
-        method_rename_map = super().get_method_rename_map()
-        method_rename_map["REALMLP"] = "RealMLP"
-        method_rename_map["REALMLP_GPU"] = "RealMLP (GPU)"
-        return method_rename_map
 
 
 def _apply_ticklabel_styles(
