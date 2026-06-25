@@ -9,10 +9,6 @@ portfolios, single-config and config-family results, and baselines. The output r
 This is the repo-level engine. :class:`~tabarena.models._method_simulator.MethodSimulator` is the
 per-:class:`~tabarena.models._method_metadata.MethodMetadata` facade that drives one of these over
 a single method's processed results.
-
-Formerly ``PaperRun`` (``tabarena/paper/paper_runner.py``) plus its sole subclass
-``PaperRunTabArena`` (``paper_runner_tabarena.py``); the two were merged here — the base class was
-never instantiated on its own and there was no second subclass.
 """
 
 from __future__ import annotations
