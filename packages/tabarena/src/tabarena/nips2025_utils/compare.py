@@ -9,7 +9,7 @@ import pandas as pd
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
 from tabarena.benchmark.task.subset_predicate import SubsetPredicate
 from tabarena.contexts import TabArenaContext
-from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
+from tabarena.evaluation.leaderboard_reporter import LeaderboardReporter
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -57,7 +57,7 @@ def compare(
     evaluator_kwargs = {}
     if elo_ymin is not None:
         evaluator_kwargs["elo_ymin"] = elo_ymin
-    plotter = TabArenaEvaluator(
+    plotter = LeaderboardReporter(
         output_dir=output_dir,
         task_metadata=task_metadata,
         error_col=error_col,

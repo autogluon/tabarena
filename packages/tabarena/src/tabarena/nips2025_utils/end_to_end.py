@@ -465,7 +465,7 @@ class EndToEndResults:
         methods without affecting any numbers — the leaderboard / Elo / win-rates are still
         computed over the full method set, and only the plots are filtered. Pass method display
         names (e.g. ``["CustomRF", "RandomForest", "CatBoost", "TabPFN-2.6"]``); see
-        :meth:`tabarena.paper.tabarena_evaluator.TabArenaEvaluator.eval`.
+        :meth:`tabarena.evaluation.leaderboard_reporter.LeaderboardReporter.eval`.
         """
         results = self.get_results(
             new_result_prefix=new_result_prefix,
@@ -481,7 +481,7 @@ class EndToEndResults:
 
             task_metadata = default_task_metadata_collection()
 
-        # `plot_only` flows through the lower-level compare's **kwargs into TabArenaEvaluator.eval,
+        # `plot_only` flows through the lower-level compare's **kwargs into LeaderboardReporter.eval,
         # which applies it to plots only (scoring stays over the full method set).
         extra_kwargs = {} if plot_only is None else {"plot_only": plot_only}
         return compare(

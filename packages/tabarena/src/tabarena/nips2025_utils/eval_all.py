@@ -4,7 +4,7 @@ from itertools import product
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tabarena.paper.tabarena_evaluator import TabArenaEvaluator
+from tabarena.evaluation.leaderboard_reporter import LeaderboardReporter
 from tabarena.utils.parallel_for import parallel_for
 
 if TYPE_CHECKING:
@@ -213,7 +213,7 @@ def evaluate_single(
     if custom_folder_name is not None:
         folder_name = custom_folder_name
 
-    plotter = TabArenaEvaluator(
+    plotter = LeaderboardReporter(
         output_dir=eval_save_path / folder_name,
         task_metadata=tabarena_context.task_metadata_collection,
         elo_bootstrap_rounds=elo_bootstrap_rounds,
@@ -234,7 +234,7 @@ def evaluate_single(
         include_norm_score=True,
         plot_times=True,
         average_seeds=average_seeds,
-        # Keep baselines out of evaluate_all's Pareto plots: TabArenaEvaluator.eval now
+        # Keep baselines out of evaluate_all's Pareto plots: LeaderboardReporter.eval now
         # defaults plot_with_baselines=True for the compare paths, but the paper-figure /
         # website-artifact outputs produced here should preserve the prior (baseline-free) plots.
         plot_with_baselines=False,
