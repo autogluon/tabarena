@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
 
-    from tabarena import repository
     from tabarena.predictions.tabular_predictions import TabularModelPredictions
+    from tabarena.repository.evaluation_repository_zeroshot import EvaluationRepositoryZeroshot
     from tabarena.simulation.configuration_list_scorer import ConfigurationListScorer
     from tabarena.simulation.ground_truth import GroundTruth
     from tabarena.simulation.simulation_context import ZeroshotSimulatorContext
@@ -48,7 +48,7 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
                 for x in self._tabular_predictions.datasets
             )
 
-    def to_zeroshot(self) -> repository.EvaluationRepositoryZeroshot:
+    def to_zeroshot(self) -> EvaluationRepositoryZeroshot:
         """Returns a version of the repository as an EvaluationRepositoryZeroshot object.
 
         :return: EvaluationRepositoryZeroshot object
