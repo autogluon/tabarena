@@ -1,15 +1,12 @@
 """Shared fallback-imputation for per-task metric tables.
 
-A single implementation behind the two near-identical ``fillna_metrics`` methods that used to live
-on :class:`~tabarena.evaluation.repo_metrics.RepoMetrics` (keyed on ``framework``) and
+Used by :class:`~tabarena.evaluation.repo_metrics.RepoMetrics` (keyed on ``framework``) and
 :class:`~tabarena.contexts.abstract_arena_context.AbstractArenaContext` (keyed on ``method``,
-preserving the per-method descriptive columns). Both now delegate here.
+preserving the per-method descriptive columns).
 
-This is the tabarena-leaderboard flavor of imputation; the generic
-:meth:`bencheval.evaluator.BenchmarkEvaluator.fillna_data` shares the same core grid/difference/
-fill algorithm but does not mark an ``imputed`` flag, does not preserve per-key descriptive
-columns, and additionally supports selecting the fallback rows itself (``"worst"`` / a named
-method) rather than taking them as an explicit ``df_fillna``.
+This is the tabarena-leaderboard flavor of imputation: unlike the generic
+:meth:`bencheval.evaluator.BenchmarkEvaluator.fillna_data`, it marks an ``imputed`` flag, can
+re-broadcast intrinsic per-key columns, and takes the fallback rows as an explicit ``df_fillna``.
 """
 
 from __future__ import annotations
