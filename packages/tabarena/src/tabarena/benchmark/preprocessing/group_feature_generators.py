@@ -56,7 +56,8 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         of table width while still aggregating many columns per ``groupby`` call.
         A very long+wide table gets smaller chunks (RAM-safe); a short+wide table
         gets larger chunks (fast).  At the limit (one column exceeds the budget)
-        it degrades to one column at a time.
+        it degrades to one column at a time.  The default favors speed; lower it
+        on memory-constrained machines or very long+wide tables.
     """
 
     _NUM_AGGS = ("mean", "std", "min", "max", "last")
@@ -69,7 +70,7 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         generate_index_features: bool = True,
         n_top_features: int = 50,
         group_time_on: str | None = None,
-        agg_chunk_mb: float = 256.0,
+        agg_chunk_mb: float = 1024.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
