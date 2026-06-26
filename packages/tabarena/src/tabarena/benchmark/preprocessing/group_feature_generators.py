@@ -101,22 +101,32 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         variance: dict[str, float] = {}
         feature_source: dict[str, tuple[str, str, bool]] = {}
 
-        col_iter = [(c, True, list(self._NUM_AGGS)) for c in num_cols] + [
-            (c, False, list(self._CAT_AGGS)) for c in cat_cols
-        ]
-        for col, is_num, aggs in tqdm(col_iter, desc="Computing groupby aggregations", unit="col"):
-            slice_cols = list(dict.fromkeys(self.group_col + time_cols + [col]))
-            X_col = self._sort_by_time(X[slice_cols])
-            agg_df = X_col.groupby(self._build_group_key(X_col), observed=True)[[col]].agg(aggs)
-            agg_df.columns = [f"{col}_{a}" for a in aggs]
-            for feat in agg_df.columns:
+        def _batched_agg(cols: list[str], aggs: list[str]) -> pd.DataFrame | None:
+            """Aggregate all ``cols`` in a single groupby (one call, not one per column)."""
+            if not cols:
+                return None
+            slice_cols = list(dict.fromkeys(self.group_col + time_cols + cols))
+            X_s = self._sort_by_time(X[slice_cols])
+            agg_df = X_s.groupby(self._build_group_key(X_s), observed=True)[cols].agg(aggs)
+            agg_df.columns = [f"{c}_{a}" for c, a in agg_df.columns]
+            return agg_df
+
+        for cols, is_num, aggs in (
+            (num_cols, True, list(self._NUM_AGGS)),
+            (cat_cols, False, list(self._CAT_AGGS)),
+        ):
+            agg_df = _batched_agg(cols, aggs)
+            if agg_df is None:
+                continue
+            for feat in tqdm(agg_df.columns, desc="Computing groupby aggregations", unit="col"):
                 s = group_key.map(agg_df[feat])
                 if not pd.api.types.is_numeric_dtype(s):
                     s = s.astype("category").cat.codes.astype(float)
                     s[s < 0] = np.nan
                 variance[feat] = float(s.var())
-            for agg in aggs:
-                feature_source[f"{col}_{agg}"] = (col, agg, is_num)
+            for col in cols:
+                for agg in aggs:
+                    feature_source[f"{col}_{agg}"] = (col, agg, is_num)
 
         # Select top n_top_features by variance (descending), tie-break by name.
         ranked = sorted(variance.keys(), key=lambda f: (-variance[f], f))
