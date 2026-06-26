@@ -10,7 +10,6 @@ from autogluon.common.savers import save_pd
 from tabarena.benchmark.result import BaselineResult, ConfigResult
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.benchmark.task.metadata.fetch_metadata import task_metadata_collection_from_openml
-from tabarena.contexts import TabArenaContext
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_simulator import MethodSimulator
 from tabarena.nips2025_utils.method_processor import (
@@ -101,8 +100,6 @@ class EndToEndSingle:
         Lightweight container returned by :meth:`to_results`.
     MethodMetadata
         Serialized description of a method and its artifact layout.
-    TabArenaContext
-        Simulator used internally for HPO/model selection under TabArena.
 
     Examples:
     --------
@@ -614,7 +611,6 @@ class EndToEndResultsSingle:
         new_result_prefix: str | None = None,
         use_suite_in_prefix: bool = False,
         use_model_results: bool = False,
-        fillna: bool = False,
     ) -> pd.DataFrame:
         """Get data to compare results on TabArena leaderboard.
 
@@ -634,9 +630,6 @@ class EndToEndResultsSingle:
         if new_result_prefix is not None:
             df_results = self.add_prefix_to_results(results=df_results, prefix=new_result_prefix, inplace=True)
 
-        if fillna:
-            df_results = self.fillna_results_on_tabarena(df_results=df_results)
-
         return df_results
 
     @classmethod
@@ -654,21 +647,6 @@ class EndToEndResultsSingle:
             save_pd.save(path=str(self.method_metadata.path_results_hpo()), df=self.hpo_results)
         if self.model_results is not None:
             save_pd.save(path=str(self.method_metadata.path_results_model()), df=self.model_results)
-
-    @classmethod
-    def fillna_results_on_tabarena(cls, df_results: pd.DataFrame) -> pd.DataFrame:
-        tabarena_context = TabArenaContext()
-        fillna_method = "RF (default)"
-        fillna_method_name = "RandomForest"
-
-        df_fillna = tabarena_context.load_results(methods=[fillna_method_name])
-        df_fillna = df_fillna[df_fillna["method"] == fillna_method]
-        assert not df_fillna.empty
-
-        return TabArenaContext.fillna_metrics(
-            df_to_fill=df_results,
-            df_fillna=df_fillna,
-        )
 
     @classmethod
     def concat(cls, e2e_lst: list[EndToEndResultsSingle]) -> EndToEndResultsSingle:

@@ -360,8 +360,8 @@ class EndToEnd:
             verbose: Whether to print progress.
 
         Returns:
-            The results DataFrame. For finer control (e.g. ``fillna``,
-            ``use_model_results``) call ``from_raw(...).to_results().get_results(...)`` directly.
+            The results DataFrame. For finer control (e.g. ``use_model_results``) call
+            ``from_raw(...).to_results().get_results(...)`` directly.
         """
         cache = not debug_mode
         backend: Literal["ray", "native"] = "native" if debug_mode else "ray"
@@ -382,24 +382,6 @@ class EndToEndResults:
         end_to_end_results_lst: list[EndToEndResultsSingle],
     ):
         self.end_to_end_results_lst = end_to_end_results_lst
-
-    @property
-    def model_results(self) -> pd.DataFrame | None:
-        model_results_lst = [e2e.model_results for e2e in self.end_to_end_results_lst]
-        model_results_lst = [model_results for model_results in model_results_lst if model_results is not None]
-        if not model_results_lst:
-            return None
-
-        return pd.concat(model_results_lst, ignore_index=True)
-
-    @property
-    def hpo_results(self) -> pd.DataFrame | None:
-        hpo_results_lst = [e2e.hpo_results for e2e in self.end_to_end_results_lst]
-        hpo_results_lst = [hpo_results for hpo_results in hpo_results_lst if hpo_results is not None]
-        if not hpo_results_lst:
-            return None
-
-        return pd.concat(hpo_results_lst, ignore_index=True)
 
     def to_method_metadata_lst(
         self,
@@ -427,7 +409,6 @@ class EndToEndResults:
         new_result_prefix: str | None = None,
         use_suite_in_prefix: bool = False,
         use_model_results: bool = False,
-        fillna: bool = False,
     ) -> pd.DataFrame:
         df_results_lst = []
         for result in self.end_to_end_results_lst:
@@ -436,7 +417,6 @@ class EndToEndResults:
                     new_result_prefix=new_result_prefix,
                     use_suite_in_prefix=use_suite_in_prefix,
                     use_model_results=use_model_results,
-                    fillna=fillna,
                 ),
             )
         return pd.concat(df_results_lst, ignore_index=True)
