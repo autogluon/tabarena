@@ -48,6 +48,15 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         drop the group column(s).
     n_top_features:
         Maximum number of aggregation columns to retain.
+    agg_chunk_mb:
+        Approximate memory budget (in MB) for the per-chunk column slice during
+        the fit-time variance scan.  Columns are aggregated in chunks sized so
+        each slice holds at most ~``agg_chunk_mb`` of data
+        (``n_rows * chunk_cols * 8`` bytes).  This bounds peak memory regardless
+        of table width while still aggregating many columns per ``groupby`` call.
+        A very long+wide table gets smaller chunks (RAM-safe); a short+wide table
+        gets larger chunks (fast).  At the limit (one column exceeds the budget)
+        it degrades to one column at a time.
     """
 
     _NUM_AGGS = ("mean", "std", "min", "max", "last")
@@ -60,6 +69,7 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         generate_index_features: bool = True,
         n_top_features: int = 50,
         group_time_on: str | None = None,
+        agg_chunk_mb: float = 256.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -67,6 +77,7 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         self.generate_features = generate_index_features
         self.n_top_features = n_top_features
         self.group_time_on = group_time_on
+        self.agg_chunk_mb = agg_chunk_mb
         self._selected_features: list[str] = []
         # Maps kept for efficient test-time aggregation:
         # {source_col: [agg_func, ...]} for each feature type.
@@ -101,32 +112,41 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         variance: dict[str, float] = {}
         feature_source: dict[str, tuple[str, str, bool]] = {}
 
-        def _batched_agg(cols: list[str], aggs: list[str]) -> pd.DataFrame | None:
-            """Aggregate all ``cols`` in a single groupby (one call, not one per column)."""
-            if not cols:
-                return None
-            slice_cols = list(dict.fromkeys(self.group_col + time_cols + cols))
-            X_s = self._sort_by_time(X[slice_cols])
-            agg_df = X_s.groupby(self._build_group_key(X_s), observed=True)[cols].agg(aggs)
-            agg_df.columns = [f"{c}_{a}" for c, a in agg_df.columns]
-            return agg_df
+        # Sort the row order once (it depends only on the group + time columns)
+        # and reuse it for every chunk, rather than re-sorting per column.
+        sorted_order = self._time_sorted_index(X)
 
-        for cols, is_num, aggs in (
+        # Aggregate columns in chunks sized to ``agg_chunk_mb`` so each slice copy
+        # stays bounded (≈ n_rows * chunk_cols * 8 bytes).  This keeps peak memory
+        # flat regardless of table width while still batching many columns into a
+        # single groupby call.
+        chunk = max(1, int(self.agg_chunk_mb * 1e6 / (max(len(X), 1) * 8)))
+        col_groups = [
             (num_cols, True, list(self._NUM_AGGS)),
             (cat_cols, False, list(self._CAT_AGGS)),
-        ):
-            agg_df = _batched_agg(cols, aggs)
-            if agg_df is None:
-                continue
-            for feat in tqdm(agg_df.columns, desc="Computing groupby aggregations", unit="col"):
-                s = group_key.map(agg_df[feat])
-                if not pd.api.types.is_numeric_dtype(s):
-                    s = s.astype("category").cat.codes.astype(float)
-                    s[s < 0] = np.nan
-                variance[feat] = float(s.var())
-            for col in cols:
-                for agg in aggs:
-                    feature_source[f"{col}_{agg}"] = (col, agg, is_num)
+        ]
+        n_chunks = sum((len(cols) + chunk - 1) // chunk for cols, _, _ in col_groups if cols)
+
+        with tqdm(total=n_chunks, desc="Computing groupby aggregations", unit="chunk") as pbar:
+            for cols, is_num, aggs in col_groups:
+                for start in range(0, len(cols), chunk):
+                    block = cols[start : start + chunk]
+                    slice_cols = list(dict.fromkeys(self.group_col + time_cols + block))
+                    X_s = X[slice_cols]
+                    if sorted_order is not None:
+                        X_s = X_s.loc[sorted_order]
+                    agg_df = X_s.groupby(self._build_group_key(X_s), observed=True)[block].agg(aggs)
+                    agg_df.columns = [f"{c}_{a}" for c, a in agg_df.columns]
+                    for feat in agg_df.columns:
+                        s = group_key.map(agg_df[feat])
+                        if not pd.api.types.is_numeric_dtype(s):
+                            s = s.astype("category").cat.codes.astype(float)
+                            s[s < 0] = np.nan
+                        variance[feat] = float(s.var())
+                    for col in block:
+                        for agg in aggs:
+                            feature_source[f"{col}_{agg}"] = (col, agg, is_num)
+                    pbar.update(1)
 
         # Select top n_top_features by variance (descending), tie-break by name.
         ranked = sorted(variance.keys(), key=lambda f: (-variance[f], f))
@@ -163,20 +183,30 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         )
         return pd.concat([X, mapped], axis=1)
 
+    def _time_sorted_index(self, X: pd.DataFrame) -> pd.Index | None:
+        """Row order that sorts within each group by ``group_time_on``.
+
+        Returns ``None`` when no time column is configured.  The order depends
+        only on the group and time columns, so it is computed from a minimal
+        slice and can be reused across many feature-column chunks.
+        """
+        if self.group_time_on is None or self.group_time_on not in X.columns:
+            return None
+        cols = list(dict.fromkeys([*self.group_col, self.group_time_on]))
+        return (
+            X[cols]
+            .groupby(self.group_col, sort=False, observed=True, group_keys=False)
+            .apply(lambda g: g.sort_values(self.group_time_on), include_groups=False)
+            .index
+        )
+
     def _sort_by_time(self, X: pd.DataFrame) -> pd.DataFrame:
         """Return X with rows within each group sorted by ``group_time_on``.
 
-        Uses groupby.apply so only the within-group order changes; ``last``
-        then returns the most recent observation for each group.
+        ``last`` then returns the most recent observation for each group.
         """
-        if self.group_time_on is not None and self.group_time_on in X.columns:
-            sorted_index = (
-                X.groupby(self.group_col, sort=False, observed=True, group_keys=False)
-                .apply(lambda g: g.sort_values(self.group_time_on), include_groups=False)
-                .index
-            )
-            return X.loc[sorted_index]
-        return X
+        order = self._time_sorted_index(X)
+        return X if order is None else X.loc[order]
 
     def _compute_selected_agg_features(self, X: pd.DataFrame) -> pd.DataFrame:
         """Compute only the aggregations needed for the selected features."""
