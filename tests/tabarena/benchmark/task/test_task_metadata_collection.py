@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
 import pytest
 
+from tabarena.benchmark.task import UserTask
 from tabarena.benchmark.task.metadata import (
     SplitMetadata,
     TabArenaTaskMetadata,
@@ -299,3 +303,40 @@ class TestSubsetToJobs:
         c = TaskMetadataCollection([_task_meta(dataset_name="a", splits=[_split_meta(fold=0)])])
         with pytest.raises(ValueError, match="not splits of this collection"):
             c.metadata_for_jobs([self._job("e1", "a", 0, 0), self._job("e1", "a", 9, 0)])
+
+
+def _make_user_task(cache_dir: Path, *, name: str = "custom_ds", n: int = 12) -> UserTask:
+    """A real, persisted classification ``UserTask`` (no model fitting) for the tests below."""
+    dataset = pd.DataFrame(
+        {
+            "num": np.arange(n, dtype="int64"),
+            "cat": pd.Series(["A", "B"] * (n // 2), dtype="category"),
+            "target": pd.Series(["neg", "pos"] * (n // 2), dtype="category"),
+        },
+    )
+    splits = {0: {0: (list(range(n - 2)), [n - 2, n - 1])}}
+    task = UserTask(task_name=name, task_cache_path=cache_dir)
+    task.save_task(
+        task.create_task(dataset=dataset, target_feature="target", problem_type="classification", splits=splits),
+    )
+    return task
+
+
+class TestFromUserTasks:
+    def test_single_task_matches_loaded_metadata(self, tmp_path):
+        # `from_user_tasks` loads the task's own metadata, so it equals building from that metadata.
+        task = _make_user_task(tmp_path)
+        c = TaskMetadataCollection.from_user_tasks(task)
+        assert c == TaskMetadataCollection.from_source([task.load().metadata])
+        # The task's portable id is carried through, so the collection is runnable without a
+        # separate `user_tasks=` override (the runner resolves it from this `task_id_str`).
+        assert c.dataset_to_tid() == {task.tabarena_task_name: task.task_id}
+
+    def test_accepts_single_or_iterable(self, tmp_path):
+        a = _make_user_task(tmp_path / "a", name="ds_a")
+        b = _make_user_task(tmp_path / "b", name="ds_b")
+        assert TaskMetadataCollection.from_user_tasks(a).dataset_names() == [a.tabarena_task_name]
+        assert TaskMetadataCollection.from_user_tasks([a, b]).dataset_names() == [
+            a.tabarena_task_name,
+            b.tabarena_task_name,
+        ]

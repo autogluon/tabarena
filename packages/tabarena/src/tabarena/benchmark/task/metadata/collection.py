@@ -16,12 +16,13 @@ from tabarena.benchmark.task.metadata.schema import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
     from pathlib import Path
 
     from tabarena.benchmark.experiment.job import Job
     from tabarena.benchmark.task.metadata.sources import TaskMetadataSource
     from tabarena.benchmark.task.subset_predicate import SubsetPredicate
+    from tabarena.benchmark.task.user_task import UserTask
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +61,9 @@ class TaskMetadataCollection:
 
     * **Construction** — :meth:`from_source` (any
       :class:`~tabarena.benchmark.task.metadata.sources.base.TaskMetadataSource`, suite
-      literal, DataFrame, CSV path, or task list) and :meth:`from_preset` (the registered
-      benchmark suites, e.g. ``"TabArena-v0.1"``).
+      literal, DataFrame, CSV path, or task list), :meth:`from_preset` (the registered
+      benchmark suites, e.g. ``"TabArena-v0.1"``), and :meth:`from_user_tasks` (local
+      ``UserTask`` objects, loading each one's metadata for you).
     * **Filtering** — :meth:`subset_tasks` (declarative filters: problem types, split
       indices, dataset names, dtypes, train-set size, and named subset predicates such as
       ``BeyondArenaContext.SUBSET_PREDICATES``) and :meth:`subset` (explicit
@@ -145,6 +147,25 @@ class TaskMetadataCollection:
         collection = cls.from_source(preset, verbose=verbose)
         collection._default_predicates_provider = _preset_subset_predicates_provider(preset)
         return collection
+
+    @classmethod
+    def from_user_tasks(
+        cls,
+        user_tasks: UserTask | Iterable[UserTask],
+        *,
+        verbose: bool = False,
+    ) -> TaskMetadataCollection:
+        """Build a collection from local ``UserTask`` objects, loading each one's metadata.
+
+        Because a standardized ``UserTask`` (saved to the default cache) carries a portable,
+        path-free ``task_id_str``, the resulting collection is runnable as-is: the runner
+        resolves each task from that ``task_id_str`` against the ambient cache, so no separate
+        ``user_tasks=`` override is needed at ``build_and_run_jobs`` time.
+        """
+        from tabarena.benchmark.task.user_task import UserTask
+
+        tasks = [user_tasks] if isinstance(user_tasks, UserTask) else list(user_tasks)
+        return cls.from_source([task.load().metadata for task in tasks], verbose=verbose)
 
     # ------------------------------------------------------------------ list-like
     @property
