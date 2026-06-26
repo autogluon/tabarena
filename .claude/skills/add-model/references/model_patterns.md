@@ -153,6 +153,64 @@ class {ClassName}Model(AbstractTorchModel):
         return {"can_refit_full": True}
 ```
 
+### Choosing `AbstractTorchModel` vs `AbstractModel`
+
+`AbstractTorchModel` exists **only** to provide torch device management — `get_device()` /
+`_set_device()` are abstract, and its load path calls `torch.cuda.is_available()` / builds a
+`torch.device(...)` (so a non-torch device string like `"gpu"` crashes it). Pick the base class by
+*framework*, not by whether the model uses a GPU:
+
+- **Torch model (GPU or CPU NN):** `AbstractTorchModel`. Implement `get_device()` + `_set_device()`.
+- **Non-torch model that still runs on GPU** (JAX/Flax like TabFM, or any library that places itself
+  on the device via `CUDA_VISIBLE_DEVICES` / `jax.devices()`): use **`AbstractModel`**, add the GPU
+  *resource* methods (below), and do **not** implement `get_device`/`_set_device`. `tabstar/model.py`
+  is a GPU foundation model on `AbstractModel`; `tabfm/model.py` is the JAX example.
+- **Pure CPU / sklearn-like:** `AbstractModel`.
+
+### GPU model on `AbstractModel` (non-torch) variant
+
+A GPU model that is **not** torch-based inherits `AbstractModel` and keeps the GPU *resource* methods
+but omits `get_device`/`_set_device`. The compute device is selected by the library / the process
+environment (e.g. `jax.devices()` honoring `CUDA_VISIBLE_DEVICES`), not by AutoGluon:
+
+```python
+from autogluon.common.utils.resource_utils import ResourceManager
+from autogluon.core.models import AbstractModel
+
+class {ClassName}Model(AbstractModel):
+    ag_key = "TA-{MODEL_KEY_UPPER}"
+    ag_name = "TA-{ModelName}"
+    ag_priority = 65
+    seed_name = "random_state"
+
+    def _fit(self, X, y, num_cpus=1, num_gpus=0, **kwargs):
+        # Validate GPU availability against the actual backend (e.g. jax), not torch.
+        # Load the (pre-trained) model, build the sklearn-style wrapper, fit.
+        ...
+
+    @classmethod
+    def supported_problem_types(cls): return ["binary", "multiclass", "regression"]
+
+    def _get_default_resources(self):
+        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
+        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
+        return num_cpus, num_gpus
+
+    def get_minimum_resources(self, is_gpu_available=False):
+        return {"num_cpus": 1, "num_gpus": 1 if is_gpu_available else 0}
+
+    @classmethod
+    def _get_default_ag_args_ensemble(cls, **kwargs):
+        d = super()._get_default_ag_args_ensemble(**kwargs)
+        d.update({"fold_fitting_strategy": "sequential_local"})
+        return d
+
+    @classmethod
+    def _class_tags(cls): return {"can_estimate_memory_usage_static": False}
+    def _more_tags(self): return {"can_refit_full": True}
+    # NOTE: no get_device / _set_device — those are AbstractTorchModel-only.
+```
+
 ### CPU/sklearn model variant
 
 For models without GPU support, use `AbstractModel` instead and remove GPU-related methods:

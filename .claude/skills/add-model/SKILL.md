@@ -47,9 +47,20 @@ Choose the most similar existing model to read for detailed inspiration:
 
 | Model type | Base class | Read this reference model |
 |---|---|---|
-| Foundation / pre-trained / GPU (e.g. TabPFN, SAP-RPT-OSS, TabSTAR) | `AbstractTorchModel` | `packages/tabarena/src/tabarena/models/sap_rpt_oss/model.py` |
+| Torch-based foundation / pre-trained GPU (e.g. TabPFN, SAP-RPT-OSS) | `AbstractTorchModel` | `packages/tabarena/src/tabarena/models/sap_rpt_oss/model.py` |
 | Torch NN trained from scratch (e.g. TabM, RealMLP) | `AbstractTorchModel` | `packages/tabarena/src/tabarena/models/tabm/model.py` |
+| Non-torch GPU model (e.g. JAX/Flax like TabFM, or any lib that manages its own device) | `AbstractModel` | `packages/tabarena/src/tabarena/models/tabstar/model.py` |
 | CPU / sklearn-like (e.g. KNN) | `AbstractModel` | `packages/tabarena/src/tabarena/models/knn/model.py` |
+
+**`AbstractTorchModel` is only for torch-based models.** Its whole purpose is the torch device
+machinery — `get_device()` / `_set_device()` are abstract and the load path calls `torch.cuda.is_available()`
+(so a non-torch device string like `"gpu"` would crash it). If the model is **not** torch (JAX/Flax,
+or any library that manages device placement itself at the process level, e.g. via
+`CUDA_VISIBLE_DEVICES` / `jax.devices()`), inherit **`AbstractModel`** even though it runs on GPU, and
+just add the GPU resource methods (`_get_default_resources`, `get_minimum_resources`,
+`_get_default_ag_args_ensemble` with `sequential_local`, `_class_tags`, `_more_tags`) — do **not**
+implement `get_device`/`_set_device`. `tabstar/model.py` (a GPU foundation model on `AbstractModel`)
+is the reference; `tabfm/model.py` is the JAX example.
 
 Read the reference model file now (use the Read tool). Use it as a structural guide — you will adapt rather than copy.
 
@@ -74,11 +85,11 @@ __all__ = ["gen_{ModelKey}", "{ModelKey}_info", "{ModelKey}_method_metadata"]
 
 The AutoGluon wrapper class. Use the template in `references/model_patterns.md` section "Model wrapper template". Key points:
 - Start with `from __future__ import annotations`
-- Inherit from `AbstractTorchModel` (GPU/torch models) or `AbstractModel` (CPU models)
+- Inherit from `AbstractTorchModel` (torch-based models) or `AbstractModel` (CPU models **and non-torch GPU models** — see Step 2: JAX/Flax etc. use `AbstractModel`)
 - Set `ag_key`, `ag_name`, `ag_priority = 65`, `seed_name = "random_state"`
 - Implement `_fit()`, `_set_default_params()`, `supported_problem_types()`
-- **Honor the `_fit` contract** (read `references/model_patterns.md` → "The `_fit` contract"). The most common review findings on new wrappers are: ignoring the provided `X_val`/`y_val` (and instead auto-splitting a second holdout), ignoring `time_limit`, hardcoding the thread count instead of wiring `num_cpus`, and label-encoding + `fillna(0)` categoricals when the library handles them natively. `models/realmlp/model.py` is the reference for all of these.
-- For GPU models: also implement `get_device()`, `_set_device()`, `_get_default_resources()`, `get_minimum_resources()`, `_get_default_ag_args_ensemble()` (with `fold_fitting_strategy: sequential_local`), `_class_tags()` (with `can_estimate_memory_usage_static: False`), `_more_tags()` (with `can_refit_full: True`)
+- **Honor the `_fit` contract** (read `references/model_patterns.md` → "The `_fit` contract"). The most common review findings on new wrappers are: ignoring the provided `X_val`/`y_val` (and instead auto-splitting a second holdout), ignoring `time_limit`, hardcoding the thread count instead of wiring `num_cpus`, and label-encoding + `fillna(0)` categoricals when the library handles them natively. `models/realmlp/model.py` is the reference for all of these. (In-context-learning foundation models have no train loop / no eval set, so they legitimately ignore `time_limit` + `X_val` — see `sap_rpt_oss`/`tabstar`/`tabfm`.)
+- For GPU models: also implement `_get_default_resources()`, `get_minimum_resources()`, `_get_default_ag_args_ensemble()` (with `fold_fitting_strategy: sequential_local`), `_class_tags()` (with `can_estimate_memory_usage_static: False`), `_more_tags()` (with `can_refit_full: True`). **Only torch models** (`AbstractTorchModel`) additionally implement `get_device()` / `_set_device()`; non-torch GPU models on `AbstractModel` must NOT (they have no `.to(device)`).
 - Docstring must include: description, paper title, authors, codebase URL, license
 - Keep optional third-party imports (the wrapped library itself) inside `_fit` / per-method scope so importing this module never requires the optional dep at top-level
 
