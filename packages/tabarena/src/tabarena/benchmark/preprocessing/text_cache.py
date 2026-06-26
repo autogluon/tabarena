@@ -218,7 +218,7 @@ def use_text_cache_for_task(task_id_or_object, *, has_text: bool, mode: TextCach
             task_key = text_cache_key(task_id_or_object)
             cache_path = resolve_existing_cache_path(task_key)
             if cache_path is not None:
-                logger.debug("[TEXT CACHE] Loading embeddings for %s from %s", task_key, cache_path)
+                logger.info("[TEXT CACHE] Loading embeddings for %s from %s", task_key, cache_path)
                 SemanticTextFeatureGenerator._embedding_look_up = load_text_cache(cache_path)
                 SemanticTextFeatureGenerator.only_load_from_cache = True
             elif mode == "require":
