@@ -835,8 +835,12 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         # Map (join) the baseline error back onto every row of its task group
         df = df.merge(base, on=task_groupby_cols, how="left")
 
-        # Denominator: max(baseline_error, this_row_error) per row
-        denominator = df[[self.error_col, "baseline_error"]].max(axis=1).replace(0, pd.NA)
+        # Denominator: max(baseline_error, this_row_error) per row. Use ``np.nan``
+        # (not ``pd.NA``) to mark divide-by-zero rows as missing so the Series stays
+        # float64 — ``pd.NA`` would upcast it to object dtype, and the later
+        # ``.fillna(0)`` would then silently downcast back to float (deprecated in
+        # pandas 2.2, emits a FutureWarning).
+        denominator = df[[self.error_col, "baseline_error"]].max(axis=1).replace(0, np.nan)
 
         # Baseline advantage: (baseline - current) / denom
         baseline_advantage = ((df["baseline_error"] - df[self.error_col]) / denominator).fillna(0)
