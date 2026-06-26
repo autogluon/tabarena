@@ -425,6 +425,8 @@ class TabArenaExperimentBundle:
         return mk
 
     def _print_experiment_summary(self, method_kwargs: dict) -> None:
+        if self.verbosity <= 0:
+            return
         print(
             "Generating experiments for models...",
             f"\n\t`all` := number of configs: {self.n_random_configs}",
