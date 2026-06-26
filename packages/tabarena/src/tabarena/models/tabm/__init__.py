@@ -6,6 +6,7 @@ from tabarena.models.tabm.info import (
     tabm_gpu_method_metadata,
     tabm_info,
     tabm_method_metadata,
+    tabm_v2_method_metadata,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "tabm_gpu_method_metadata",
     "tabm_info",
     "tabm_method_metadata",
+    "tabm_v2_method_metadata",
 ]

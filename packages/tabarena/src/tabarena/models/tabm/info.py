@@ -38,6 +38,23 @@ tabm_gpu_method_metadata = tabm_descriptor.method_metadata(
 )
 
 
+# DRAFT — re-implementation of TabM on top of the official ``tabm`` PyPI package
+# (the entries above describe TabArena's earlier custom implementation, suite
+# ``tabarena-2025-06-12``). This is a single GPU-capable run (the model also runs on
+# CPU) that has not been benchmarked yet, hence ``verified=False``. Before an official
+# run, update ``suite``/``date`` to the run date and configure remote storage
+# (``cache_type``/``cache_kwargs``), then wrap it in a ``ModelInfo`` to register it.
+tabm_v2_method_metadata = tabm_descriptor.method_metadata(
+    method="TabM",
+    suite="tabarena-2026-06-26",  # placeholder: set to the actual benchmark run date
+    ag_key="TABM",
+    config_default="TabM_c1_BAG_L1",
+    compute="gpu",
+    date="2026-06-26",
+    verified=False,
+)
+
+
 tabm_info = ModelInfo(
     model_cls=TabMModel,
     search_space=gen_tabm,
@@ -50,5 +67,5 @@ tabm_gpu_info = ModelInfo(
     model_cls=TabMModel,
     search_space=gen_tabm,
     method_metadata=tabm_gpu_method_metadata,
-    pip_extra=("torch",),
+    pip_extra=("torch", "tabm>=0.0.3", "rtdl_num_embeddings>=0.0.12"),
 )

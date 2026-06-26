@@ -1,6 +1,8 @@
-"""Note: This is a custom implementation of TabM based on TabArena. Because the AutoGluon 1.4 release occurred at nearly
-the same time as TabM became available on PyPi, we chose to use TabArena's implementation
-for the AutoGluon 1.4 release as it has already been benchmarked.
+"""AutoGluon model wrapper for TabM.
+
+The model is built on the official ``tabm`` package (https://github.com/yandex-research/tabm);
+this wrapper handles AutoGluon integration (preprocessing, resources, memory estimation)
+and delegates fitting/prediction to ``_internal._tabm_internal.TabMImplementation``.
 """
 
 from __future__ import annotations
@@ -10,7 +12,6 @@ import time
 
 import pandas as pd
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.tabular import __version__
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 from ._internal.tabm_utils import get_tabm_auto_batch_size
@@ -27,8 +28,6 @@ class TabMModel(AbstractTorchModel):
     Authors: Yury Gorishniy, Akim Kotelnikov, Artem Babenko
     Codebase: https://github.com/yandex-research/tabm
     License: Apache-2.0
-
-    Partially adapted from pytabkit's TabM implementation.
     """
 
     ag_key = "TA-TABM"
@@ -59,15 +58,14 @@ class TabMModel(AbstractTorchModel):
         start_time = time.time()
 
         try:
-            # imports various dependencies such as torch
+            # imports various dependencies such as torch, tabm, and rtdl_num_embeddings
             from torch.cuda import is_available
 
             from ._internal._tabm_internal import TabMImplementation
         except ImportError as err:
             logger.log(
                 40,
-                f"\tFailed to import tabm! To use the TabM model, "
-                f"do: `pip install autogluon.tabular[tabm]=={__version__}`.",
+                "\tFailed to import tabm! To use the TabM model, do: `pip install tabarena[tabm]`.",
             )
             raise err
 
