@@ -109,12 +109,13 @@ Raw predictions → EvaluationRepository → Simulation/Portfolio → Results Da
 
 ### Data caching
 
-TabArena uses four independent caches. Configure them all at once with `tabarena.caching.CacheConfig` — the single, documented surface (`TabArenaContext(cache_config=CacheConfig.from_root(...))`; the context applies it on construction and re-applies it inside `run_jobs`, so distributed workers inherit it). The SLURM path uses the **same** object: the setup embeds `context.cache_config` in the `JobBatch`, and each worker applies it (no `--openml_cache_dir` wiring). See the `CacheConfig` docstring for the authoritative per-cache reference.
+TabArena uses five independent caches. Configure them all at once with `tabarena.caching.CacheConfig` — the single, documented surface (`TabArenaContext(cache_config=CacheConfig.from_root(...))`; the context applies it on construction and re-applies it inside `run_jobs`, so distributed workers inherit it). The SLURM path uses the **same** object: the setup embeds `context.cache_config` in the `JobBatch`, and each worker applies it (no `--openml_cache_dir` wiring). See the `CacheConfig` docstring for the authoritative per-cache reference.
 
 | Cache | `CacheConfig` field | Holds | Set via | Default |
 |---|---|---|---|---|
 | OpenML (most important) | `openml` | Materialized datasets + CV splits + all TabArena-derived task artifacts (`tabarena_tasks/`, `tabarena_text_cache/`, `tabarena_metadata_cache/`, `local/datasets/`) | `openml.config.set_root_cache_directory` (no env var) | `~/.cache/openml` |
-| HuggingFace | `huggingface` | Foundation-model weights **and** the one-time raw dataset download (data_foundry/BeyondArena), later materialized into the OpenML cache | `HF_HOME` | `~/.cache/huggingface/hub` |
+| HuggingFace | `huggingface` | Foundation-model weights (TabPFN / Mitra / LimiX / ... + text-embedding models) | `HF_HOME` | `~/.cache/huggingface/hub` |
+| Data Foundry | `data_foundry` | The one-time raw dataset download (data_foundry/BeyondArena), later materialized into the OpenML cache. **Not** `HF_HOME` — data_foundry passes an explicit `cache_dir` to `snapshot_download` | `DATA_FOUNDRY_CACHE` | `~/.cache/data_foundry` |
 | TabArena | `tabarena` | Results / baselines / leaderboard artifacts (~100 GB raw, ~10 GB processed, <1 MB results per method) | `set_tabarena_cache_root` / `TABARENA_CACHE` | `~/.cache/tabarena` |
 | Results (run output) | `results` | The runner's `expname` (`{expname}/data/{method}/{task}/{repeat}_{fold}/results.pkl`) | `run_jobs(expname=...)` | throwaway temp dir |
 
