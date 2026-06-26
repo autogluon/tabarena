@@ -155,6 +155,10 @@ uv pip install --prerelease=allow -e "./tabarena/packages/tabarena[benchmark]"
 Add the following to your project's dependencies:
 
 ```toml
+# TabArena depends on a pre-release of AutoGluon, so allow pre-releases when installing
+# (e.g. `uv pip install --prerelease=allow ...` or `pip install --pre ...`).
+# Alternatively, pin AutoGluon to a specific pre-release (an exact `==` pin resolves a
+# pre-release without the flag), e.g. add `"autogluon.tabular==1.5.1b20260626"`.
 "tabarena @ git+https://github.com/autogluon/tabarena.git#subdirectory=packages/tabarena"
 ```
 
