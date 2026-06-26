@@ -19,6 +19,7 @@ they are cached per task so a benchmark only ships/loads the caches for the task
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,8 @@ from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -215,7 +218,7 @@ def use_text_cache_for_task(task_id_or_object, *, has_text: bool, mode: TextCach
             task_key = text_cache_key(task_id_or_object)
             cache_path = resolve_existing_cache_path(task_key)
             if cache_path is not None:
-                print(f"[TEXT CACHE] Loading embeddings for {task_key} from {cache_path}")
+                logger.debug("[TEXT CACHE] Loading embeddings for %s from %s", task_key, cache_path)
                 SemanticTextFeatureGenerator._embedding_look_up = load_text_cache(cache_path)
                 SemanticTextFeatureGenerator.only_load_from_cache = True
             elif mode == "require":
