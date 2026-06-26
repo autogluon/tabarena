@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 
 from tabarena.evaluation.repo_metrics import RepoMetrics
+from tabarena.portfolio.greedy_portfolio_generator import zeroshot_results
+from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer, EnsembleScorerMaxModels
 
 if TYPE_CHECKING:
     from tabarena.repository import EvaluationRepository
@@ -29,7 +31,7 @@ class RepoSimulator:
         self, repo: EvaluationRepository, output_dir: str | None = None, backend: Literal["ray", "native"] = "ray"
     ):
         self.repo = repo
-        self.evaluator = RepoMetrics(repo=self.repo)
+        self.repo_metrics = RepoMetrics(repo=self.repo)
         self.output_dir = output_dir
         self.backend = backend
         assert self.backend in ["ray", "native"]
@@ -221,6 +223,64 @@ class RepoSimulator:
 
         return df_results
 
+    # TODO: WIP
+    # TODO: Add a non-loo version
+    # TODO: Rename
+    # FIXME: Make it work with framework_types + max_models_per_type
+    def zeroshot_portfolio(
+        self,
+        configs: list[str] | None = None,
+        n_portfolios: int = 200,  # FIXME
+        n_ensemble: int | None = None,
+        time_limit: float | None = 14400,
+        engine: str = "ray",
+        rename_columns: bool = True,  # TODO: Align them automatically so this isn't needed
+        n_ensemble_in_name: bool = True,
+        n_max_models_per_type: int | str | None = None,
+        n_eval_folds: int | None = None,
+        ensemble_cls: type[EnsembleScorer] = EnsembleScorerMaxModels,
+        ensemble_kwargs: dict | None = None,
+        patience_callback: list | None = None,
+    ) -> pd.DataFrame:
+        repo = self.repo
+
+        if configs is None:
+            configs = repo.configs()
+
+        if n_eval_folds is None:
+            n_eval_folds = repo.n_folds()
+
+        a = zeroshot_results(
+            repo=repo,
+            dataset_names=repo.datasets(),
+            n_portfolios=[n_portfolios],
+            n_ensembles=[n_ensemble],
+            max_runtimes=[time_limit],
+            n_ensemble_in_name=n_ensemble_in_name,
+            n_max_models_per_type=[n_max_models_per_type],
+            n_eval_folds=n_eval_folds,
+            configs=configs,
+            engine=engine,
+            ensemble_cls=ensemble_cls,
+            ensemble_kwargs=ensemble_kwargs,
+            patience_callback=patience_callback,
+        )
+
+        df_zeroshot_portfolio = pd.DataFrame(a)
+
+        if rename_columns:
+            df_zeroshot_portfolio = df_zeroshot_portfolio.rename(
+                columns={
+                    "metadata": "method_metadata",
+                }
+            )
+            datasets_info = repo.datasets_info()
+
+            df_zeroshot_portfolio["problem_type"] = df_zeroshot_portfolio["dataset"].map(datasets_info["problem_type"])
+            df_zeroshot_portfolio["metric"] = df_zeroshot_portfolio["dataset"].map(datasets_info["metric"])
+
+        return df_zeroshot_portfolio
+
     def run_zs(
         self,
         n_portfolios: int = 200,
@@ -230,7 +290,7 @@ class RepoSimulator:
         time_limit: float | None = 14400,
         **kwargs,
     ) -> pd.DataFrame:
-        df_zeroshot_portfolio = self.evaluator.zeroshot_portfolio(
+        df_zeroshot_portfolio = self.zeroshot_portfolio(
             n_portfolios=n_portfolios,
             n_ensemble=n_ensemble,
             n_ensemble_in_name=n_ensemble_in_name,
@@ -240,23 +300,25 @@ class RepoSimulator:
             **kwargs,
         )
         df_zeroshot_portfolio["method_type"] = "portfolio"
-        # df_zeroshot_portfolio = self.evaluator.assemble_metrics(results_df=df_zeroshot_portfolio, configs=[], baselines=[])
+        # df_zeroshot_portfolio = self.repo_metrics.assemble_metrics(results_df=df_zeroshot_portfolio, configs=[], baselines=[])
         return df_zeroshot_portfolio
 
     def run_zs_from_types(self, config_types: list[str], **kwargs):
-        configs = self.evaluator.repo.configs(config_types=config_types)
+        configs = self.repo.configs(config_types=config_types)
         return self.run_zs(configs=configs, **kwargs)
 
     def run_baselines(self) -> pd.DataFrame | None:
         if not self.repo.baselines():
             return None
-        df_results_baselines = self.evaluator.assemble_metrics(configs=[], include_metric_error_val=True).reset_index()
+        df_results_baselines = self.repo_metrics.assemble_metrics(
+            configs=[], include_metric_error_val=True
+        ).reset_index()
         df_results_baselines["method_type"] = "baseline"
         return df_results_baselines
 
     def run_config_family(self, config_type: str) -> pd.DataFrame:
         configs = self.repo.configs(config_types=[config_type])
-        df_results_configs = self.evaluator.assemble_metrics(
+        df_results_configs = self.repo_metrics.assemble_metrics(
             configs=configs, baselines=[], include_metric_error_val=True
         ).reset_index()
         df_results_configs["method_type"] = "config"
@@ -369,7 +431,7 @@ class RepoSimulator:
 
     def run_config(self, config: str) -> pd.DataFrame:
         configs = [config]
-        return self.evaluator.assemble_metrics(
+        return self.repo_metrics.assemble_metrics(
             configs=configs,
             baselines=[],
             include_metric_error_val=True,
