@@ -5,9 +5,7 @@ from typing import TYPE_CHECKING, Literal, Self
 
 import pandas as pd
 
-from bencheval.evaluator import BenchmarkEvaluator
 from tabarena.models._method_metadata import MethodMetadata
-from tabarena.nips2025_utils.compare import compare
 from tabarena.nips2025_utils.end_to_end_single import (
     EndToEndResultsSingle,
     EndToEndSingle,
@@ -362,8 +360,8 @@ class EndToEnd:
             verbose: Whether to print progress.
 
         Returns:
-            The results DataFrame. For finer control (e.g. ``fillna``,
-            ``use_model_results``) call ``from_raw(...).to_results().get_results(...)`` directly.
+            The results DataFrame. For finer control (e.g. ``use_model_results``) call
+            ``from_raw(...).to_results().get_results(...)`` directly.
         """
         cache = not debug_mode
         backend: Literal["ray", "native"] = "native" if debug_mode else "ray"
@@ -384,117 +382,6 @@ class EndToEndResults:
         end_to_end_results_lst: list[EndToEndResultsSingle],
     ):
         self.end_to_end_results_lst = end_to_end_results_lst
-
-    @property
-    def model_results(self) -> pd.DataFrame | None:
-        model_results_lst = [e2e.model_results for e2e in self.end_to_end_results_lst]
-        model_results_lst = [model_results for model_results in model_results_lst if model_results is not None]
-        if not model_results_lst:
-            return None
-
-        return pd.concat(model_results_lst, ignore_index=True)
-
-    @property
-    def hpo_results(self) -> pd.DataFrame | None:
-        hpo_results_lst = [e2e.hpo_results for e2e in self.end_to_end_results_lst]
-        hpo_results_lst = [hpo_results for hpo_results in hpo_results_lst if hpo_results is not None]
-        if not hpo_results_lst:
-            return None
-
-        return pd.concat(hpo_results_lst, ignore_index=True)
-
-    # FIXME: WIP (add more)
-    def leaderboard(
-        self,
-    ) -> pd.DataFrame:
-        results = self.get_results(
-            # new_result_prefix=new_result_prefix,
-            # use_suite_in_prefix=use_suite_in_prefix,
-            # use_model_results=use_model_results,
-            # fillna=False,
-        )
-
-        tabarena = BenchmarkEvaluator(
-            method_col="method",
-            task_col="dataset",
-            seed_column="fold",
-            error_col="metric_error",
-            columns_to_agg_extra=[
-                "time_train_s",
-                "time_infer_s",
-                # "imputed",
-            ],
-            groupby_columns=[
-                "metric",
-                "problem_type",
-            ],
-        )
-
-        leaderboard_kwargs = {}
-        leaderboard_kwargs.setdefault("include_elo", True)
-        leaderboard_kwargs.setdefault("include_winrate", True)
-        leaderboard_kwargs.setdefault("include_mrr", True)
-        leaderboard_kwargs.setdefault("include_rank_counts", True)
-        # leaderboard_kwargs.setdefault("baseline_method", calibration_framework)
-        # leaderboard_kwargs.setdefault("elo_kwargs", elo_kwargs)
-        # leaderboard_kwargs.setdefault("average_seeds", average_seeds)
-
-        return tabarena.leaderboard(
-            data=results,
-            **leaderboard_kwargs,
-        )
-
-    def compare(
-        self,
-        output_dir: str | Path,
-        task_metadata: TaskMetadataCollection | None = None,
-        *,
-        fillna: str | None = None,
-        only_valid_tasks: str | list[str] | None = None,
-        new_result_prefix: str | None = None,
-        use_suite_in_prefix: bool = False,
-        use_model_results: bool = False,
-        score_on_val: bool = False,
-        average_seeds: bool = False,
-        leaderboard_kwargs: dict | None = None,
-        plot_only: list[str] | None = None,
-    ):
-        """Compute the TabArena leaderboard for these results and render the figures.
-
-        ``plot_only`` (default ``None`` -> plot everything) restricts the *figures* to a subset of
-        methods without affecting any numbers — the leaderboard / Elo / win-rates are still
-        computed over the full method set, and only the plots are filtered. Pass method display
-        names (e.g. ``["CustomRF", "RandomForest", "CatBoost", "TabPFN-2.6"]``); see
-        :meth:`tabarena.evaluation.leaderboard_reporter.LeaderboardReporter.eval`.
-        """
-        results = self.get_results(
-            new_result_prefix=new_result_prefix,
-            use_suite_in_prefix=use_suite_in_prefix,
-            use_model_results=use_model_results,
-            fillna=False,
-        )
-
-        # The lower-level `compare` requires explicit task metadata; default to the
-        # TabArena-v0.1 suite here, matching the TabArena results this class manages.
-        if task_metadata is None:
-            from tabarena.benchmark.task.metadata import default_task_metadata_collection
-
-            task_metadata = default_task_metadata_collection()
-
-        # `plot_only` flows through the lower-level compare's **kwargs into LeaderboardReporter.eval,
-        # which applies it to plots only (scoring stays over the full method set).
-        extra_kwargs = {} if plot_only is None else {"plot_only": plot_only}
-        return compare(
-            df_results=results,
-            output_dir=output_dir,
-            task_metadata=task_metadata,
-            fillna=fillna,
-            only_valid_tasks=only_valid_tasks,
-            score_on_val=score_on_val,
-            average_seeds=average_seeds,
-            leaderboard_kwargs=leaderboard_kwargs,
-            **extra_kwargs,
-        )
 
     def to_method_metadata_lst(
         self,
@@ -522,7 +409,6 @@ class EndToEndResults:
         new_result_prefix: str | None = None,
         use_suite_in_prefix: bool = False,
         use_model_results: bool = False,
-        fillna: bool = False,
     ) -> pd.DataFrame:
         df_results_lst = []
         for result in self.end_to_end_results_lst:
@@ -531,7 +417,6 @@ class EndToEndResults:
                     new_result_prefix=new_result_prefix,
                     use_suite_in_prefix=use_suite_in_prefix,
                     use_model_results=use_model_results,
-                    fillna=fillna,
                 ),
             )
         return pd.concat(df_results_lst, ignore_index=True)
