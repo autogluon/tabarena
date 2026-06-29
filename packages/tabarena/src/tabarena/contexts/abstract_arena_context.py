@@ -1506,19 +1506,14 @@ class AbstractArenaContext:
         if repo is None:
             repo = self.load_repo(config_fallback=config_fallback)
         if configs is None:
-            configs = self._get_config_defaults()
+            configs = [
+                MethodSimulator(m).get_config_default()
+                for m in self.method_metadata_collection.method_metadata_lst
+                if m.method_type == "config"
+            ]
 
         simulator = RepoSimulator(repo=repo, backend=self.backend)
         simulator.repo_metrics.compute_avg_config_prediction_delta(configs=configs)
-
-    # FIXME: WIP
-    def _get_config_defaults(self):
-        config_defaults = []
-        for m in self.method_metadata_collection.method_metadata_lst:
-            if m.method_type != "config":
-                continue
-            config_defaults.append(MethodSimulator(m).get_config_default())
-        return config_defaults
 
     def simulate_portfolio_from_configs(
         self,
