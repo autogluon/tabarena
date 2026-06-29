@@ -479,6 +479,12 @@ class MethodMetadata:
         assert len(unique_model_types) == 1, (
             f"MethodMetadata requires exactly 1 model type, found: {unique_model_types}"
         )
+        # `model_key` is the simulation/comparison family key (what the repo groups configs by via
+        # `model_type`); `ag_key` is the AutoGluon model-class key (maps back to the model impl) and
+        # may differ — e.g. after a re-key (name_prefix/model_key) that keeps the same backbone but
+        # a distinct family. Source `model_key` from `model_type`, NOT from `ag_key` (the latter
+        # would conflate the two and mis-key re-keyed families during simulate/compare).
+        model_key = unique_model_types[0]
 
         unique_num_gpus = result_df["num_gpus"].unique()
         if len(unique_num_gpus) != 1:
@@ -524,6 +530,7 @@ class MethodMetadata:
             compute=compute,
             config_default=config_default,
             ag_key=ag_key,
+            model_key=model_key,
             can_hpo=can_hpo,
             is_bag=is_bag,
         )
