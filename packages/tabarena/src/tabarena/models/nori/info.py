@@ -7,8 +7,9 @@ from tabarena.models.nori.model import NoriModel
 
 nori_method_metadata = MethodMetadata.config(
     method="Nori",
+    suite="tabarena-2026-06-18",
     ag_key="TA-NORI",
-    config_default="Nori_c1_BAG_L1",
+    config_default="Nori_c1_default_BAG_L1",
     can_hpo=False,
     compute="gpu",
     is_bag=False,
