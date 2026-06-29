@@ -119,6 +119,17 @@ TabArena uses five independent caches. Configure them all at once with `tabarena
 | TabArena | `tabarena` | Results / baselines / leaderboard artifacts (~100 GB raw, ~10 GB processed, <1 MB results per method) | `set_tabarena_cache_root` / `TABARENA_CACHE` | `~/.cache/tabarena` |
 | Results (run output) | `results` | The runner's `expname` (`{expname}/data/{method}/{task}/{repeat}_{fold}/results.pkl`) | `run_jobs(expname=...)` | throwaway temp dir |
 
+### Processing & uploading method artifacts (maintainers)
+
+Turn a benchmark run's already-present raw `results.pkl` files into cached (and hosted) TabArena artifacts with two single-method CLIs — no download, no auto-generation. Full flag reference lives in each script's module docstring.
+
+1. **Author + process** — `scripts/run_process_method.py` (logic in `tabarena.tools.process_local_raw_data`):
+   - Inspect the raw dir for a suggested metadata snippet: `python scripts/run_process_method.py <run_dir>/data` (recursive; prints the inferred fields + a `MethodMetadata.config/.baseline/.portfolio(...)` snippet). Paste it into `packages/tabarena/src/tabarena/models/<model>/info.py` and fill in `suite` (required, must differ from `method`) + the manual fields.
+   - Process: append `--method-metadata tabarena.models.<model>.info:<x>_method_metadata --process`. **Processing requires an explicit `MethodMetadata`**, verified against the raw data first (method_type / compute / ag_key / `config_default` / can_hpo / is_bag must align, and `method != suite`); a `method`-name mismatch only warns, other mismatches error unless `--ignore-metadata-mismatch`. Caches `metadata.yaml` + `processed/` + `results/` (plus raw + HPO trajectories, on by default) under the TabArena cache.
+2. **Upload to r2** — `scripts/run_upload_results.py`:
+   - Dry-run (default) verifies each part exists locally and prints what/where: `python scripts/run_upload_results.py --method-metadata tabarena.models.<model>.info:<x>_method_metadata` (or `--from-cache METHOD SUITE` to load from the local cache).
+   - Real upload: add `--no-dry-run` with `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` set in the environment (never as flags). **r2 only** — the metadata needs `cache_type="r2"` + `cache_kwargs={"bucket", "prefix"}`; the dry-run prints the exact `--no-dry-run` command and, when the creds are unset, how to obtain them (`MethodMetadata.r2_credentials_help()`). `raw` uploads by default (`--no-upload-raw` to skip).
+
 ## Conventions
 
 - **Add a new model**: create one folder `packages/tabarena/src/tabarena/models/<model>/` (`model.py`, `hpo.py`, `info.py`, `__init__.py`), then edit `models/__init__.py` (lazy class entry), `models/utils.py` (name→generator map), and `packages/tabarena/pyproject.toml` (a per-model extra). The registry auto-discovers the model from its `info.py`, and `tests/tabarena/models/test_all_models.py` then fits it automatically — there is **no per-model test file**. Only add an entry to `tests/tabarena/models/smoke_configs.py` if the smoke fit needs faster toy hyperparameters or a restricted problem-type set (keyed by the model's `MethodMetadata.method`). **Use the `add-model` skill**, which encodes this and points to reference implementations (foundation / torch / sklearn).
