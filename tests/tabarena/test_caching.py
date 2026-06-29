@@ -14,16 +14,16 @@ from tabarena.caching import CacheConfig
 def _isolate_cache_state():
     """Snapshot + restore the global cache state each test mutates.
 
-    ``apply()`` writes process-global state (``HF_HOME`` env vars, the OpenML root cache, the
-    TabArena cache-root holder), so we snapshot all of it up front and restore it afterwards to
-    keep tests independent.
+    ``apply()`` writes process-global state (``HF_HOME`` / ``DATA_FOUNDRY_CACHE`` env vars, the
+    OpenML root cache, the TabArena cache-root holder), so we snapshot all of it up front and
+    restore it afterwards to keep tests independent.
     """
     import openml
 
     from tabarena.loaders import set_tabarena_cache_root
 
-    hf_keys = ("HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE")
-    saved_env = {k: os.environ.get(k) for k in hf_keys}
+    env_keys = ("HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "DATA_FOUNDRY_CACHE")
+    saved_env = {k: os.environ.get(k) for k in env_keys}
     saved_openml_root = openml.config._root_cache_directory
     constants_present = "huggingface_hub.constants" in sys.modules
     saved_constants = sys.modules.get("huggingface_hub.constants")
@@ -79,14 +79,24 @@ def test_apply_patches_already_imported_hf_constants(tmp_path):
     assert expected_hub == fake.HUGGINGFACE_HUB_CACHE
 
 
+def test_apply_sets_data_foundry_env(tmp_path):
+    # data_foundry is applied as the DATA_FOUNDRY_CACHE env var, which data-foundry's
+    # resolve_cache_dir() honors so every cache_dir=None download lands there.
+    os.environ.pop("DATA_FOUNDRY_CACHE", None)
+    CacheConfig(data_foundry=tmp_path / "df").apply()
+    assert os.environ["DATA_FOUNDRY_CACHE"] == str(tmp_path / "df")
+
+
 def test_none_fields_are_noops(tmp_path):
     import openml
 
     before_openml = openml.config._root_cache_directory
     os.environ.pop("HF_HOME", None)
+    os.environ.pop("DATA_FOUNDRY_CACHE", None)
     CacheConfig().apply()
     assert openml.config._root_cache_directory == before_openml
     assert "HF_HOME" not in os.environ
+    assert "DATA_FOUNDRY_CACHE" not in os.environ
 
 
 def test_results_field_is_not_applied_globally(tmp_path):
@@ -95,15 +105,18 @@ def test_results_field_is_not_applied_globally(tmp_path):
 
     before_openml = openml.config._root_cache_directory
     os.environ.pop("HF_HOME", None)
+    os.environ.pop("DATA_FOUNDRY_CACHE", None)
     CacheConfig(results=tmp_path / "res").apply()
     assert openml.config._root_cache_directory == before_openml
     assert "HF_HOME" not in os.environ
+    assert "DATA_FOUNDRY_CACHE" not in os.environ
 
 
 def test_from_root_lays_out_subdirs(tmp_path):
     cfg = CacheConfig.from_root(tmp_path)
     assert cfg.openml == tmp_path / "openml"
     assert cfg.huggingface == tmp_path / "huggingface"
+    assert cfg.data_foundry == tmp_path / "data_foundry"
     assert cfg.tabarena == tmp_path / "tabarena"
     assert cfg.results == tmp_path / "results"
 
@@ -145,7 +158,13 @@ def test_apply_openml_false_skips_openml(tmp_path):
 
 def test_to_dict_from_dict_round_trips_str_config():
     cfg = CacheConfig(
-        openml="/o", huggingface="/hf", tabarena="/t", results="/r", apply_on_run=False, scope_openml=True
+        openml="/o",
+        huggingface="/hf",
+        data_foundry="/df",
+        tabarena="/t",
+        results="/r",
+        apply_on_run=False,
+        scope_openml=True,
     )
     assert CacheConfig.from_dict(cfg.to_dict()) == cfg
 

@@ -1129,10 +1129,6 @@ class AbstractArenaContext:
                     subset=subset,
                 )
 
-    def load_raw(self, method: str, as_holdout: bool = False) -> list[BaselineResult]:
-        metadata: MethodMetadata = self.method_metadata(method=method)
-        return metadata.load_raw(engine=self.engine, as_holdout=as_holdout)
-
     def load_repo(
         self, methods: list[str | MethodMetadata] | None = None, config_fallback: str | None = None
     ) -> EvaluationRepositoryCollection:
@@ -1144,16 +1140,6 @@ class AbstractArenaContext:
             cur_repo = metadata.load_processed()
             repos.append(cur_repo)
         return EvaluationRepositoryCollection(repos=repos, config_fallback=config_fallback)
-
-    def generate_repo(self, method: str) -> Path:
-        metadata = self.method_metadata(method=method)
-        metadata.generate_repo(
-            results_lst=None,
-            task_metadata=self.task_metadata_collection,
-            cache=True,
-            engine=self.engine,
-        )
-        return metadata.path_processed
 
     # FIXME: This is a hacky approach, refactor
     def generate_hpo_trajectories(
@@ -1650,18 +1636,6 @@ class AbstractArenaContext:
             **kwargs,
         )
 
-    def load_hpo_results(self, method: str) -> pd.DataFrame:
-        metadata = self.method_metadata(method=method)
-        return metadata.load_hpo_results()
-
-    def load_config_results(self, method: str) -> pd.DataFrame:
-        metadata = self.method_metadata(method=method)
-        return metadata.load_model_results()
-
-    def load_portfolio_results(self, method: str) -> pd.DataFrame:
-        metadata = self.method_metadata(method=method)
-        return metadata.load_portfolio_results()
-
     def load_configs_hyperparameters(
         self,
         methods: list[str] | None = None,
@@ -1847,52 +1821,6 @@ class AbstractArenaContext:
             if method_metadata.method_type == "config":
                 df_results_configs_lst.append(method_metadata.load_model_results())
         return pd.concat(df_results_configs_lst, ignore_index=True)
-
-    def find_missing(self, method: str):
-        metadata = self.method_metadata(method=method)
-        repo = EvaluationRepository.from_dir(path=metadata.path_processed)
-
-        tasks = repo.tasks()
-        n_tasks = len(tasks)
-        print(f"Method: {method} | n_tasks={n_tasks}")
-
-        metrics = repo.metrics()
-        metrics = metrics.reset_index(drop=False)
-
-        configs = repo.configs()
-
-        n_configs = len(configs)
-
-        runs_missing_lst = []
-
-        fail_dict = {}
-        for i, config in enumerate(configs):
-            metrics_config = metrics[metrics["framework"] == config]
-            n_tasks_config = len(metrics_config)
-
-            tasks_config = list(metrics_config[["dataset", "fold"]].values)
-            tasks_config = {tuple(t) for t in tasks_config}
-
-            n_tasks_missing = n_tasks - n_tasks_config
-            tasks_missing = [t for t in tasks if t not in tasks_config] if n_tasks_missing != 0 else []
-
-            for dataset, fold in tasks_missing:
-                runs_missing_lst.append(
-                    (dataset, fold, config),
-                )
-
-            print(f"{n_tasks_missing}\t{config}\t{i + 1}/{n_configs}")
-            fail_dict[config] = n_tasks_missing
-
-        # fail_series = pd.Series(fail_dict).sort_values()
-
-        df_missing = pd.DataFrame(data=runs_missing_lst, columns=["dataset", "fold", "framework"])
-        df_missing = df_missing.rename(columns={"framework": "method"})
-        print(df_missing)
-
-        # save_pd.save(path="missing_runs.csv", df=df_missing)
-
-        return df_missing
 
     @classmethod
     def fillna_metrics(cls, df_to_fill: pd.DataFrame, df_fillna: pd.DataFrame) -> pd.DataFrame:

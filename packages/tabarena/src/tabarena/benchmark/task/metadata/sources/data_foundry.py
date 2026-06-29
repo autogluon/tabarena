@@ -157,10 +157,11 @@ class DataFoundryTaskMetadataSource(TaskMetadataSource):
             disable_progress_bars()
             restore_hf_bars = enable_progress_bars
 
-        print(
-            f"Materializing {len(splits_by_uri)} {self.collection.name} dataset(s) "
-            f"across {len(to_materialize)} split(s) (datasets + text caches)...",
-        )
+        if self.verbose:
+            print(
+                f"Materializing {len(splits_by_uri)} {self.collection.name} dataset(s) "
+                f"across {len(to_materialize)} split(s) (datasets + text caches)...",
+            )
         bar = tqdm(splits_by_uri.items(), desc=f"Materializing {self.collection.name}", unit="dataset")
         try:
             for data_foundry_uri, splits in bar:

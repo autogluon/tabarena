@@ -1595,8 +1595,13 @@ class LeaderboardReporter:
             f"{round(elo)}" + r"${}_{" + f"-{math.ceil(elom)},+{math.ceil(elop)}" + r"}$"
             for elo, elom, elop in zip(df["elo"], df["elo-"], df["elo+"], strict=False)
         ]
-        df_new[r"\#wins ($\uparrow$)"] = [f"{cnt:.1f}" for cnt in df["rank=1_count"]]
         df_new["Improva-\n" + r"bility ($\downarrow$)"] = [f"{100 * val:.1f}\\%" for val in df["improvability"]]
+        df_new["Avg.\n" + r"rank ($\downarrow$)"] = [f"{val:.1f}" for val in df["rank"]]
+        # Harmonic mean rank = 1 / MRR (MRR = mean reciprocal rank over tasks).
+        df_new["Harm.\nmean\n" + r"rank ($\downarrow$)"] = [
+            f"{1.0 / val:.1f}" if pd.notna(val) and val != 0 else "-" for val in df["mrr"]
+        ]
+        df_new[r"\#wins ($\uparrow$)"] = [f"{cnt:.1f}" for cnt in df["rank=1_count"]]
         df_new[r"Train time" + "\n" + r"per 1K [s]"] = [f"{t:.2f}" for t in df["median_time_train_s_per_1K"]]
         df_new[r"Predict time" + "\n" + r"per 1K [s]"] = [f"{t:.2f}" for t in df["median_time_infer_s_per_1K"]]
 
@@ -1650,7 +1655,7 @@ class LeaderboardReporter:
         # ----- create latex table -----
 
         rows = []
-        rows.append(r"\begin{tabular}{" + "llccrr" + r"}")
+        rows.append(r"\begin{tabular}{" + "lcccccrr" + r"}")
         rows.append(r"\toprule")
         # rows.append(' & '.join(df_new.columns) + r' \\')
 
