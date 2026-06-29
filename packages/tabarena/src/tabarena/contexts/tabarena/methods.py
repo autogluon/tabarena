@@ -132,53 +132,64 @@ removed_cpu_methods = [
     "TabM",
     "RealMLP",
 ]
-
-methods_2025_06_12_keep = [
-    m for m in methods_2025_06_12 if m.method not in replaced_methods and m.method not in removed_cpu_methods
+# Present in a run but not part of the paper method set, so kept out of `collection`.
+non_paper_methods = [
+    "Dummy",
 ]
+
+# Per-suite "keep" lists = the entries that survive into the latest paper `collection`; everything
+# else from each suite (replaced/CPU-only/non-paper variants) lives only in the complete collection.
+methods_2025_06_12_keep = [
+    m
+    for m in methods_2025_06_12
+    if m.method not in replaced_methods and m.method not in removed_cpu_methods and m.method not in non_paper_methods
+]
+methods_2025_10_20_keep = [lr_metadata, knn_metadata]  # drop Portfolio-N200-4h (not in the paper set)
+methods_2025_11_01_keep = [ag_140_bq_4h8c_metadata]  # AutoGluon_v140_eq_4h8c is not in the paper set
 methods_2025_10_20_camera_ready = [
     m for m in methods_2025_06_12 if m.method not in updated_methods_camera_ready
 ] + methods_2025_10_20
 
 
-# The latest results for each method
+# The latest results for each method — exactly the methods in the TabArena paper (one per method),
+# so consumers (e.g. TabArenaContext) can use this directly without a separate name allowlist.
 tabarena_method_metadata_collection = MethodMetadataCollection(
-    method_metadata_lst=methods_2025_06_12_keep
-    + methods_2025_09_03_keep
-    + methods_2025_10_20
-    + methods_2025_11_01_keep
-    + methods_2025_12_18
-    + [tabdpt_metadata]
-    + [realtabpfn25_metadata]
-    + [contexttab_metadata]
-    + [tabiclv2_metadata]
-    + [tabstar_metadata]
-    + [perpetualbooster_metadata]
-    + [tabpfn26_metadata]
-    + [tabpfnv3_method_metadata]
-    + [orionmsp_metadata]
-    + [iltm_method_metadata]
-    + methods_misc,
+    method_metadata_lst=[
+        *methods_2025_06_12_keep,
+        *methods_2025_09_03_keep,
+        *methods_2025_10_20_keep,
+        *methods_2025_11_01_keep,
+        *methods_2025_12_18,
+        tabdpt_metadata,
+        realtabpfn25_metadata,
+        contexttab_metadata,
+        tabiclv2_metadata,
+        tabstar_metadata,
+        perpetualbooster_metadata,
+        tabpfn26_metadata,
+        tabpfnv3_method_metadata,
+        orionmsp_metadata,
+        iltm_method_metadata,
+    ],
 )
 
-# All historical results for each method
-tabarena_method_metadata_complete_collection = MethodMetadataCollection(
-    method_metadata_lst=methods_2025_06_12
-    + methods_2025_09_03
-    + methods_2025_10_20
-    + methods_2025_11_01_ag
-    + methods_2025_12_18
-    + [tabdpt_metadata]
-    + [realtabpfn25_metadata]
-    + [contexttab_metadata]
-    + [tabiclv2_metadata]
-    + [tabstar_metadata]
-    + [perpetualbooster_metadata]
-    + [tabpfn26_metadata]
-    + [tabpfnv3_method_metadata]
-    + [orionmsp_metadata]
-    + [iltm_method_metadata]
-    + methods_misc,
+# Historical / superseded variants kept only in the complete collection: each is either replaced by
+# a newer entry in `collection` above, CPU-only, an extra AutoGluon preset, or otherwise not in the
+# paper set. Derived from each suite's full list minus its "keep" subset.
+methods_2025_06_12_historical = [m for m in methods_2025_06_12 if m not in methods_2025_06_12_keep]
+methods_2025_09_03_historical = [m for m in methods_2025_09_03 if m not in methods_2025_09_03_keep]
+methods_2025_10_20_historical = [m for m in methods_2025_10_20 if m not in methods_2025_10_20_keep]
+methods_2025_11_01_historical = [m for m in methods_2025_11_01_ag if m not in methods_2025_11_01_keep]
+
+# All historical results for each method = the latest collection + every superseded variant.
+tabarena_method_metadata_complete_collection = tabarena_method_metadata_collection.with_additional_methods(
+    [
+        *methods_2025_06_12_historical,
+        *methods_2025_09_03_historical,
+        *methods_2025_10_20_historical,
+        *methods_2025_11_01_historical,
+        *methods_misc,
+    ],
 )
 
 # All historical results for each method

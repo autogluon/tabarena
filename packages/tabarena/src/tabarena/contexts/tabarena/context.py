@@ -17,47 +17,6 @@ if TYPE_CHECKING:
     from tabarena.caching import CacheConfig
     from tabarena.models._method_metadata import MethodMetadata
 
-_methods_paper = [
-    "AutoGluon_v140_bq_4h8c",
-    # "AutoGluon_v140_eq_4h8c",
-    "AutoGluon_v150_eq_4h8c",
-    # "Portfolio-N200-4h",
-    "CatBoost",
-    # "Dummy",
-    "ExplainableBM",
-    "ExtraTrees",
-    "KNeighbors",
-    "LightGBM",
-    "LinearModel",
-    # "ModernNCA",
-    "NeuralNetFastAI",
-    "NeuralNetTorch",
-    "RandomForest",
-    # "RealMLP",
-    # "TabM",
-    "XGBoost",
-    "Mitra_GPU",
-    "ModernNCA_GPU",
-    "RealMLP_GPU",
-    "TabDPT_GPU",
-    "TabICL_GPU",
-    "TabM_GPU",
-    "TabPFNv2_GPU",
-    "xRFM_GPU",
-    "BetaTabPFN_GPU",
-    "TabFlex_GPU",
-    "RealTabPFN-v2.5",
-    "SAP-RPT-OSS",
-    "TabICLv2",
-    "TabSTAR",
-    "PerpetualBooster",
-    "TabPFN-v2.6",
-    "LimiX",
-    "OrionMSP",
-    "TabPFN-3",
-    "iLTM",
-]
-
 
 class TabArenaContext(AbstractArenaContext):
     """Reference arena context: TabArena v0.1 task/method presets + the paper workflow.
@@ -131,14 +90,8 @@ class TabArenaContext(AbstractArenaContext):
     def _resolve_methods_preset(self, name: str) -> list[MethodMetadata]:
         if name != "tabarena":
             raise ValueError(f"Unknown methods preset '{name}'.")
-        methods = copy.deepcopy(_methods_paper)
-        method_metadata_lst: list[MethodMetadata] = copy.deepcopy(
-            tabarena_method_metadata_collection.method_metadata_lst,
-        )
-        method_metadata_lst = [m for m in method_metadata_lst if m.method in methods]
-        method_metadata_name_set = {m.method for m in method_metadata_lst}
-        methods = [m for m in methods if m in method_metadata_name_set]
-        return [m for m in method_metadata_lst if m.method in set(methods)]
+        # `tabarena_method_metadata_collection` already holds exactly the paper method set.
+        return copy.deepcopy(tabarena_method_metadata_collection.method_metadata_lst)
 
     @property
     def _default_subsets(self):

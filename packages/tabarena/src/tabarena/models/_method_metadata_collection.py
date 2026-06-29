@@ -12,6 +12,15 @@ class MethodMetadataCollection:
     def __init__(self, method_metadata_lst: list[MethodMetadata]):
         self.method_metadata_lst = method_metadata_lst
 
+    def with_additional_methods(self, method_metadata_lst: list[MethodMetadata]) -> MethodMetadataCollection:
+        """Return a new collection: this collection's methods followed by ``method_metadata_lst``.
+
+        Lets a superset collection be derived from a base one by appending extra ``MethodMetadata``
+        (e.g. a complete/historical collection from the latest collection) without rebuilding the
+        base list. The base collection is left unchanged.
+        """
+        return MethodMetadataCollection(method_metadata_lst=[*self.method_metadata_lst, *method_metadata_lst])
+
     def get_method_metadata(
         self,
         method: str,
