@@ -121,7 +121,7 @@ TabArena uses five independent caches. Configure them all at once with `tabarena
 
 ### Processing & uploading method artifacts (maintainers)
 
-Turn a benchmark run's already-present raw `results.pkl` files into cached (and hosted) TabArena artifacts with two single-method CLIs — no download, no auto-generation. Full flag reference lives in each script's module docstring.
+Turn a benchmark run's already-present raw `results.pkl` files into cached, hosted, and registered TabArena artifacts — no download, no auto-generation. Steps 1–2 are single-method CLIs (full flag reference in each script's module docstring); step 3 is a small code change.
 
 1. **Author + process** — `scripts/run_process_method.py` (logic in `tabarena.tools.process_local_raw_data`):
    - Inspect the raw dir for a suggested metadata snippet: `python scripts/run_process_method.py <run_dir>/data` (recursive; prints the inferred fields + a `MethodMetadata.config/.baseline/.portfolio(...)` snippet). Paste it into `packages/tabarena/src/tabarena/models/<model>/info.py` and fill in `suite` (required, must differ from `method`) + the manual fields.
@@ -129,6 +129,7 @@ Turn a benchmark run's already-present raw `results.pkl` files into cached (and 
 2. **Upload to r2** — `scripts/run_upload_results.py`:
    - Dry-run (default) verifies each part exists locally and prints what/where: `python scripts/run_upload_results.py --method-metadata tabarena.models.<model>.info:<x>_method_metadata` (or `--from-cache METHOD SUITE` to load from the local cache).
    - Real upload: add `--no-dry-run` with `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` set in the environment (never as flags). **r2 only** — the metadata needs `cache_type="r2"` + `cache_kwargs={"bucket", "prefix"}`; the dry-run prints the exact `--no-dry-run` command and, when the creds are unset, how to obtain them (`MethodMetadata.r2_credentials_help()`). `raw` uploads by default (`--no-upload-raw` to skip).
+3. **Register in the appropriate context's collection** — add the method so it appears in the benchmark. For TabArena, import the model's `info.py` `method_metadata` and add it to `tabarena_method_metadata_collection` in `packages/tabarena/src/tabarena/contexts/tabarena/methods.py` (the collection lists each model's `info.py` metadata directly, and is itself the paper method set used by `TabArenaContext`). It flows into `tabarena_method_metadata_complete_collection` automatically. Other arena contexts register in their own collection.
 
 ## Conventions
 
