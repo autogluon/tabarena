@@ -164,3 +164,19 @@ def test_from_raw_config_keys_off_model_type_not_ag_key(model_type, ag_key):
     assert mm.model_key == model_type
     assert mm.config_type == model_type
     assert mm.ag_key == ag_key
+
+
+def test_from_raw_config_artifact_dir_pins_artifact_location(tmp_path):
+    """``artifact_dir`` threads through ``from_raw`` so an inferred method's artifacts resolve
+    directly under it (instead of the ``{suite}/methods/{method}`` layout under the cache root).
+    """
+    df = _config_result_df(
+        model_type="GBM",
+        ag_key="GBM",
+        frameworks=["Model_c1_BAG_L1", "Model_c2_BAG_L1"],
+    )
+    mm = MethodMetadata._from_raw_config(result_df=df, method="M", suite="s", artifact_dir=tmp_path)
+    assert mm.artifact_dir == tmp_path
+    assert mm.path == tmp_path
+    assert mm.path_results == tmp_path / "results"
+    assert mm.path_processed == tmp_path / "processed"

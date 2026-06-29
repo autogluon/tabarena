@@ -353,6 +353,7 @@ class MethodMetadata:
         suite: str | None = None,
         config_default: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
+        artifact_dir: str | Path | None = None,
     ) -> Self:
         result_lst_dict = []
 
@@ -372,6 +373,7 @@ class MethodMetadata:
                 suite=suite,
                 config_default=config_default,
                 compute=compute,
+                artifact_dir=artifact_dir,
             )
         elif method_type == "baseline":
             method_metadata = cls._from_raw_baseline(
@@ -379,6 +381,7 @@ class MethodMetadata:
                 method=method,
                 suite=suite,
                 compute=compute,
+                artifact_dir=artifact_dir,
             )
         else:
             raise ValueError(f"Unknown method_type: {method_type}")
@@ -392,6 +395,7 @@ class MethodMetadata:
         method: str | None = None,
         suite: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
+        artifact_dir: str | Path | None = None,
     ) -> Self:
         unique_method_types = result_df["method_type"].unique()
         assert len(unique_method_types) == 1
@@ -418,6 +422,7 @@ class MethodMetadata:
             method=method,
             suite=suite,
             compute=compute,
+            artifact_dir=artifact_dir,
         )
 
     @classmethod
@@ -468,6 +473,7 @@ class MethodMetadata:
         suite: str | None = None,
         config_default: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
+        artifact_dir: str | Path | None = None,
     ) -> Self:
         unique_method_types = result_df["method_type"].unique()
         assert len(unique_method_types) == 1
@@ -533,6 +539,7 @@ class MethodMetadata:
             model_key=model_key,
             can_hpo=can_hpo,
             is_bag=is_bag,
+            artifact_dir=artifact_dir,
         )
 
     @classmethod
