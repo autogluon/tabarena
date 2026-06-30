@@ -30,6 +30,42 @@ _UNPICKLABLE_TABFM_ATTRS = (
 )
 
 
+def _ensure_xla_uses_bundled_cuda() -> None:
+    """Pin XLA's ``ptxas`` / ``libdevice`` to the pip-installed CUDA toolkit.
+
+    JAX/XLA shells out to ``ptxas`` to assemble the PTX it emits. When an older
+    system CUDA is first on ``PATH`` (e.g. ``/usr/local/cuda`` at 12.4), XLA uses
+    that ``ptxas``, which caps the PTX ISA at 8.4 -- too old to target Blackwell
+    GPUs (``sm_120a`` needs PTX ISA >= 8.7, i.e. CUDA >= 12.8). The fit then dies
+    with ``LLVM Fatal Error ... PTX version 8.4 does not support target
+    'sm_120a'``.
+
+    The ``nvidia-cuda-nvcc-cu12`` wheel pulled in by ``tabfm[cuda]`` already ships
+    a new-enough ``ptxas`` plus ``nvvm/libdevice``, so point XLA at it via
+    ``--xla_gpu_cuda_data_dir`` (XLA's highest-priority CUDA-root candidate). Must
+    run before the first ``import jax`` so XLA reads ``XLA_FLAGS`` at backend init.
+    No-op when the wheel is absent (CPU-only install) or when the caller already
+    pinned the data dir.
+    """
+    import importlib.util
+    import os
+
+    if "--xla_gpu_cuda_data_dir" in os.environ.get("XLA_FLAGS", ""):
+        return  # respect an explicit override
+
+    spec = importlib.util.find_spec("nvidia.cuda_nvcc")
+    locations = list(spec.submodule_search_locations) if spec is not None else []
+    if not locations:
+        return
+    cuda_dir = locations[0]
+    if not os.path.isfile(os.path.join(cuda_dir, "bin", "ptxas")):
+        return
+
+    flag = f"--xla_gpu_cuda_data_dir={cuda_dir}"
+    existing = os.environ.get("XLA_FLAGS", "").strip()
+    os.environ["XLA_FLAGS"] = f"{existing} {flag}".strip()
+
+
 class TabFMModel(AbstractModel):
     """TabFM: a tabular foundation model that predicts via in-context learning.
 
@@ -90,6 +126,10 @@ class TabFMModel(AbstractModel):
             # backend; `_fit` is where this wrapper first imports jax, so it takes
             # effect here.
             os.environ["JAX_PLATFORMS"] = "cpu"
+        else:
+            # GPU path: stop XLA from assembling PTX with a stale system `ptxas`
+            # (which can't target newer GPUs); use the bundled CUDA toolkit instead.
+            _ensure_xla_uses_bundled_cuda()
 
         import jax
 
