@@ -11,7 +11,7 @@ This skill integrates a new tabular ML model into the TabArena benchmark.
 
 Every model lives in **one folder** at `packages/tabarena/src/tabarena/models/<ModelKey>/`. That folder contains the wrapper, the HPO generator, and the metadata — and is auto-discovered by `tabarena.models._registry.discover_models()`. There is no separate `benchmark/models/ag/` layout anymore.
 
-Per model, you create up to 5 source files, then edit two existing files. There is no per-model test file — the model is fit-tested automatically by the registry-driven `tests/tabarena/models/test_all_models.py`.
+Per model, you create up to 5 source files, then edit three existing files. There is no per-model test file — the model is fit-tested automatically by the registry-driven `tests/tabarena/models/test_all_models.py`.
 
 ## Step 0: Gather inputs
 
@@ -193,6 +193,21 @@ python -m tabarena.tools.sync_pyproject_extras
 ```
 
 `packages/tabarena/src/tabarena/tools/sync_pyproject_extras.py` aggregates every `ModelInfo.pip_extra` from the registry and compares it against `[project.optional-dependencies]` in `packages/tabarena/pyproject.toml`, printing per-folder `OK`/`DRIFT`. Add `--check` to make it exit non-zero on drift (CI mode). Run it after editing either side so the two stay in sync.
+
+### 4d. `packages/tabarena/src/tabarena/website/website_format.py` — leaderboard model family
+
+`get_model_family()` decides the model's leaderboard **Type** (emoji) and **TypeName** — one of `Tree-based`, `Foundation Model`, `Neural Network`, `Baseline`, `Reference Pipeline`, or `Other`. It prefix-matches the model's `config_type` (which equals its `ag_key`) against `prefixes_mapping`. Add the new model's **uppercased `ag_key`** to the correct family list:
+
+```python
+prefixes_mapping = {
+    Constants.tree:           [..., "{ag_key_upper}"],   # tree-based boosters/forests
+    Constants.foundational:   [..., "{ag_key_upper}"],   # pre-trained / in-context-learning models
+    Constants.neural_network: [..., "{ag_key_upper}"],   # NNs trained from scratch
+    ...
+}
+```
+
+If you skip this, the model falls through to `Other` (❓) on the leaderboard. The effect is only visible once the model appears on the website, but it's cheapest to set here while you have the `ag_key` in hand. Matching is by **prefix**, so when one `ag_key` is a prefix of another (e.g. `TABICL` vs `TABICLV2`), list both and keep them in the intended family. This drives only the `Type`/`TypeName` columns of the generated `website_leaderboard.csv` — the plots use a separate grouping — so an already-generated leaderboard can be re-patched in place rather than fully regenerated.
 
 ## Step 5: Auto-derived registries (no manual edit)
 

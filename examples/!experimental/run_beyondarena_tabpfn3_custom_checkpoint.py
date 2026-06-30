@@ -15,8 +15,9 @@ if __name__ == "__main__":
     results_dir = str(here / "experiments" / run_name)  # the runner's `expname`
     eval_dir = here / "eval" / run_name  # leaderboard `output_dir`
 
-    # 1: suite metadata -> filter. `core` = the recommended protocol (each dataset's first
-    #    `folds_to_use` splits); bounded to the tiny, non-high-dim datasets to keep it fast.
+    # 1: suite metadata -> filter. `core` = the recommended *default* protocol (each dataset's first
+    #    `folds_to_use` splits; no need for the full `all` split set); bounded to the tiny,
+    #    non-high-dim datasets here to keep it fast.
     subset = ["core", "tiny", "!high-dim"]
 
     # 2: a config generator for TabPFN-3 with non-default checkpoints. `checkpoint_per_problem_type`

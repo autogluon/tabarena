@@ -353,6 +353,7 @@ class MethodMetadata:
         suite: str | None = None,
         config_default: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
+        artifact_dir: str | Path | None = None,
     ) -> Self:
         result_lst_dict = []
 
@@ -372,6 +373,7 @@ class MethodMetadata:
                 suite=suite,
                 config_default=config_default,
                 compute=compute,
+                artifact_dir=artifact_dir,
             )
         elif method_type == "baseline":
             method_metadata = cls._from_raw_baseline(
@@ -379,6 +381,7 @@ class MethodMetadata:
                 method=method,
                 suite=suite,
                 compute=compute,
+                artifact_dir=artifact_dir,
             )
         else:
             raise ValueError(f"Unknown method_type: {method_type}")
@@ -392,6 +395,7 @@ class MethodMetadata:
         method: str | None = None,
         suite: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
+        artifact_dir: str | Path | None = None,
     ) -> Self:
         unique_method_types = result_df["method_type"].unique()
         assert len(unique_method_types) == 1
@@ -418,6 +422,7 @@ class MethodMetadata:
             method=method,
             suite=suite,
             compute=compute,
+            artifact_dir=artifact_dir,
         )
 
     @classmethod
@@ -468,6 +473,7 @@ class MethodMetadata:
         suite: str | None = None,
         config_default: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
+        artifact_dir: str | Path | None = None,
     ) -> Self:
         unique_method_types = result_df["method_type"].unique()
         assert len(unique_method_types) == 1
@@ -479,6 +485,12 @@ class MethodMetadata:
         assert len(unique_model_types) == 1, (
             f"MethodMetadata requires exactly 1 model type, found: {unique_model_types}"
         )
+        # `model_key` is the simulation/comparison family key (what the repo groups configs by via
+        # `model_type`); `ag_key` is the AutoGluon model-class key (maps back to the model impl) and
+        # may differ — e.g. after a re-key (name_prefix/model_key) that keeps the same backbone but
+        # a distinct family. Source `model_key` from `model_type`, NOT from `ag_key` (the latter
+        # would conflate the two and mis-key re-keyed families during simulate/compare).
+        model_key = unique_model_types[0]
 
         unique_num_gpus = result_df["num_gpus"].unique()
         if len(unique_num_gpus) != 1:
@@ -524,8 +536,10 @@ class MethodMetadata:
             compute=compute,
             config_default=config_default,
             ag_key=ag_key,
+            model_key=model_key,
             can_hpo=can_hpo,
             is_bag=is_bag,
+            artifact_dir=artifact_dir,
         )
 
     @classmethod
@@ -685,6 +699,35 @@ class MethodMetadata:
             )
         raise ValueError(f"Invalid cache_type for downloads: {cache_type}")
 
+    @staticmethod
+    def r2_credentials_help() -> str:
+        """How to obtain and set the R2 upload credentials (``R2_ACCOUNT_ID`` / ``R2_ACCESS_KEY_ID``
+        / ``R2_SECRET_ACCESS_KEY``).
+
+        Shared by :meth:`method_uploader`'s missing-credentials error and the upload script's
+        dry-run output, so the instructions live in one place.
+        """
+        return (
+            "Where to find these values in the Cloudflare R2 dashboard "
+            "(https://dash.cloudflare.com/ -> R2 Object Storage):\n"
+            "  - R2_ACCOUNT_ID: shown as 'Account ID' on the R2 overview page, "
+            "and embedded in the dashboard URL (dash.cloudflare.com/<account_id>/r2).\n"
+            "  - R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY: open 'Manage R2 API Tokens' "
+            "-> 'Create API Token', choose the required permission (e.g. Object Read & "
+            "Write) and bucket scope, then submit. Cloudflare displays both the Access "
+            "Key ID and the Secret Access Key on the success page; the secret is shown "
+            "only once, so copy it immediately. If you've lost an existing secret, "
+            "create a new token (or roll the existing one) from the same page.\n"
+            "\n"
+            "For the official TabArena R2 account, go to "
+            "https://dash.cloudflare.com/<account_id>/r2/api-tokens and create a new user "
+            "API token with Object Read & Write permissions scoped to only the 'tabarena' "
+            "bucket. If such a token already exists, use it instead and select 'Roll' to "
+            "obtain new credentials for the API token. Once viewing the credentials, use "
+            "the 'Access Key ID' and 'Secret Access Key' values for R2_ACCESS_KEY_ID and "
+            "R2_SECRET_ACCESS_KEY respectively."
+        )
+
     def method_uploader(self, cache_type: str = "auto") -> MethodUploader:
         if cache_type == "auto":
             cache_type = self.cache_type
@@ -707,18 +750,7 @@ class MethodMetadata:
                 raise OSError(
                     f"Missing required environment variable(s) for R2 uploads: {missing}.\n"
                     f"Set {', '.join(r2_env_vars)} in your shell (or a .env file) before "
-                    f"calling method_uploader() with cache_type='r2'.\n"
-                    f"\n"
-                    f"Where to find these values in the Cloudflare R2 dashboard "
-                    f"(https://dash.cloudflare.com/ -> R2 Object Storage):\n"
-                    f"  - R2_ACCOUNT_ID: shown as 'Account ID' on the R2 overview page, "
-                    f"and embedded in the dashboard URL (dash.cloudflare.com/<account_id>/r2).\n"
-                    f"  - R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY: open 'Manage R2 API Tokens' "
-                    f"-> 'Create API Token', choose the required permission (e.g. Object Read & "
-                    f"Write) and bucket scope, then submit. Cloudflare displays both the Access "
-                    f"Key ID and the Secret Access Key on the success page; the secret is shown "
-                    f"only once, so copy it immediately. If you've lost an existing secret, "
-                    f"create a new token (or roll the existing one) from the same page.",
+                    f"calling method_uploader() with cache_type='r2'.\n\n" + self.r2_credentials_help()
                 )
 
             return MethodUploaderR2(

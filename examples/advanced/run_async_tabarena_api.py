@@ -20,7 +20,7 @@ first use.
 
 Run it:
 
-    python "examples/!experimental/run_async_tabarena_api.py" --subset lite small
+    python examples/advanced/run_async_tabarena_api.py --subset lite small
 """
 
 from __future__ import annotations

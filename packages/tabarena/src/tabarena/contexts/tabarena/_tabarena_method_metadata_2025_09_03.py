@@ -4,8 +4,7 @@
 models with no tabarena-side wrapper class (results were produced by external
 code), and `TabPFNv2_GPU` similarly has no wrapper here. They're kept as
 standalone `MethodMetadata` instances rather than `ModelInfo`. `ag_140_metadata`
-is an AutoGluon baseline. `limix_metadata` is the deprecated GPU-named entry
-(the active LimiX metadata lives in `tabarena.models.limix.info`).
+is an AutoGluon baseline.
 """
 
 from __future__ import annotations
@@ -24,21 +23,6 @@ ag_140_metadata = MethodMetadata.tabarena_legacy_s3(
     compute="gpu",
     date="2025-09-03",
     reference_url="https://arxiv.org/abs/2003.06505",
-    **_common_kwargs,
-)
-limix_metadata = MethodMetadata.tabarena_legacy_s3(
-    method="LimiX_GPU",
-    method_type="config",
-    display_name="LimiX",
-    compute="gpu",
-    date="2025-09-03",
-    ag_key="LIMIX",
-    model_key="LIMIX_GPU",
-    config_default="LimiX_GPU_c1_BAG_L1",
-    can_hpo=False,
-    is_bag=False,
-    verified=False,
-    reference_url="https://arxiv.org/abs/2509.03505",
     **_common_kwargs,
 )
 tabflex_metadata = MethodMetadata.tabarena_legacy_s3(

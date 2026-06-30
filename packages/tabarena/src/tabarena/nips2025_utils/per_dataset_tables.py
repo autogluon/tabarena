@@ -367,11 +367,10 @@ def get_per_dataset_tables(
         df_dat = df_use.loc[df_use["dataset"] == dataset_name]
         imputed_methods = df_dat.loc[df_dat.imputed, "method"].unique()
 
-        if np.unique(df_dat["metric"])[0] == "roc_auc":
-            df_dat.loc[:, "metric_error"] = 1 - df_dat["metric_error"]
-            metric_dir = "max"
-        else:
-            metric_dir = "min"
+        # Always report the test *error* (``metric_error``, lower is better) for
+        # every metric, including ROC AUC whose error is ``1 - AUC``.
+        # ``metric_error`` is already error-oriented across all metrics, so no
+        # per-metric conversion to a score is applied.
 
         # Reindex to ``use_methods_ordered`` so missing methods (e.g. a baseline
         # with no result for this dataset) become NaN rows rather than raising.
@@ -435,18 +434,19 @@ def get_per_dataset_tables(
         placeholder_methods = set(list(imputed_methods) + missing_methods)
 
         # ``df_mean_raw`` is reindexed to use_methods_ordered, so absent methods
-        # are NaN. Drop imputed and missing rows *before* taking
-        # ``idxmin``/``idxmax`` so an imputed score that happens to win the
-        # raw ranking (e.g. when the fillna source's value is marginally
-        # better than every real result) doesn't suppress the highlight
-        # altogether. The cell at ``best_idx`` is then guaranteed to render
-        # a real number that we can color.
+        # are NaN. Drop imputed and missing rows *before* taking ``idxmin`` so an
+        # imputed score that happens to win the raw ranking (e.g. when the fillna
+        # source's value is marginally better than every real result) doesn't
+        # suppress the highlight altogether. The cell at ``best_idx`` is then
+        # guaranteed to render a real number that we can color. ``metric_error``
+        # is always error-oriented, so the best method is the one with the
+        # lowest value.
         highlight_candidates = df_mean_raw["metric_error"].drop(
             labels=list(placeholder_methods),
             errors="ignore",
         )
         if highlight_candidates.notna().any():
-            best_idx = highlight_candidates.idxmin() if metric_dir == "min" else highlight_candidates.idxmax()
+            best_idx = highlight_candidates.idxmin()
             df_latex.loc[best_idx, dataset_name] = (
                 r"\textcolor{green!50!black}{" + df_latex.loc[best_idx, dataset_name] + "}"
             )
@@ -536,9 +536,11 @@ def get_per_dataset_tables(
     sub_width = 0.48  # width for each subtable (2 across)
     sub_height = ""  # fixed height for each subtable
 
+    # Every column reports the test *error* (lower is better), so ROC AUC is
+    # labelled by its error form ``1-AUC`` rather than the ``AUC`` score.
     metrics_used = dict(df_use[["dataset", "metric"]].drop_duplicates().values)
     metrics_used = {
-        key.replace("_", r"\_"): "AUC" if value == "roc_auc" else ("logloss" if value == "log_loss" else "rmse")
+        key.replace("_", r"\_"): "1-AUC" if value == "roc_auc" else ("logloss" if value == "log_loss" else "rmse")
         for key, value in metrics_used.items()
     }
 
@@ -571,8 +573,8 @@ def get_per_dataset_tables(
                     f.write(r"    \centering" + "\n")
                     f.write(r"    \scriptsize" + "\n")
 
-                    # caption at the top
-                    arrow = r"$\uparrow$" if metrics_used[name] == "AUC" else r"$\downarrow$"
+                    # caption at the top; every metric is a test error (↓ = lower is better)
+                    arrow = r"$\downarrow$"
                     f.write(f"    \\caption*{{{print_name} ({metrics_used[name]} {arrow})}}" + "\n")
                     f.write(r"    \vspace{-1ex}")
                     f.write(f"    \\label{{tab:{page_start + row_start + idx + 1}}}\n")
@@ -616,7 +618,7 @@ def get_per_dataset_tables(
         per_dataset_dir.mkdir(parents=True, exist_ok=True)
         for latex_safe_id, df in datasets_dict.items():
             metric = metrics_used[latex_safe_id]
-            arrow = r"$\uparrow$" if metric == "AUC" else r"$\downarrow$"
+            arrow = r"$\downarrow$"  # every metric is a test error (lower is better)
             human_label = datasets_human_name.get(latex_safe_id, latex_safe_id)
             n_data = df.shape[1]
             col_fmt = "l@{\\quad}" + "l" * n_data

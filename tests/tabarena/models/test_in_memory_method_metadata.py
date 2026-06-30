@@ -705,3 +705,46 @@ class TestTempDir:
         ctx.run_jobs(_jobs(), expname=None)
         assert seen["existed_during"] is True
         assert not os.path.isdir(seen["expname"])  # cleaned up after the run
+
+
+def test_from_results_df_keys_config_family_and_flags():
+    """``from_results_df`` vends a registerable config family: ``config_type`` drives
+    ``model_key``/``config_type``, ``has_raw`` is False, ``has_processed`` reflects whether a repo
+    was attached, and ``load_results`` returns the frame verbatim.
+    """
+    df = _results_frame("Fam (default)", config_type="FAM")
+    m = InMemoryMethodMetadata.from_results_df(df, method="MyFam", suite="s", config_type="FAM")
+
+    assert m.method == "MyFam"
+    assert m.method_type == "config"
+    assert m.config_type == "FAM"
+    assert m.has_raw is False
+    assert m.has_processed is False  # no repo attached
+    pd.testing.assert_frame_equal(m.load_results(), df)
+
+
+def test_to_dir_from_dir_round_trip_results_only(tmp_path):
+    """``to_dir`` persists a results-only method in the standard layout; ``from_dir`` lifts it back
+    into memory (no ``processed/`` => ``repo`` is None), and the same dir loads as a disk-backed
+    ``MethodMetadata`` too.
+    """
+    df = _results_frame("Fam (default)", config_type="FAM")
+    m = InMemoryMethodMetadata.from_results_df(df, method="MyFam", suite="s", config_type="FAM")
+
+    out = m.to_dir(tmp_path / "fam")
+    assert (out / "metadata.yaml").exists()
+    assert (out / "results" / "hpo_results.parquet").exists()
+    assert not (out / "processed").exists()  # no repo => no processed/
+
+    reloaded = InMemoryMethodMetadata.from_dir(out)
+    assert isinstance(reloaded, InMemoryMethodMetadata)
+    assert reloaded.method == "MyFam"
+    assert reloaded.config_type == "FAM"
+    assert reloaded._repo is None
+    pd.testing.assert_frame_equal(reloaded.load_results(), df, check_dtype=False)
+
+    # standard layout => also loadable as a disk-backed MethodMetadata
+    disk = MethodMetadata.from_yaml(path=out)
+    assert type(disk) is MethodMetadata
+    assert disk.config_type == "FAM"
+    pd.testing.assert_frame_equal(disk.load_results(), df, check_dtype=False)

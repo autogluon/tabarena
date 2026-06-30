@@ -23,6 +23,21 @@ from tabarena.plot.plot_pareto_frontier import plot_optimal_arrow
 from tabarena.utils.parallel_for import parallel_for
 
 
+def _clip_title(title: str, max_chars: int) -> str:
+    """Truncate ``title`` to at most ``max_chars`` characters, appending an
+    ellipsis when clipped.
+
+    Keeps the saved figure width stable across plots: with
+    ``bbox_inches="tight"`` a very long title would otherwise widen the output
+    canvas, so per-dataset plots wouldn't share consistent dimensions.
+    ``max_chars <= 0`` disables clipping.
+    """
+    if max_chars <= 0 or len(title) <= max_chars:
+        return title
+    # Reserve one char for the ellipsis so the result is exactly ``max_chars`` long.
+    return title[: max_chars - 1].rstrip() + "…"
+
+
 def plot_hpo(
     df: pd.DataFrame,
     xlabel: str,
@@ -43,6 +58,8 @@ def plot_hpo(
     figsize: tuple[float, float] = (8, 4.5),
     title: str | None = None,
     title_fontsize: float = 20,
+    clip_title: bool = False,
+    max_title_chars: int = 40,
     ylabel_display: str | None = None,
     xlabel_display: str | None = None,
     dataset_metadata: dict[str, str] | None = None,
@@ -83,6 +100,13 @@ def plot_hpo(
     sort_col : str | None, default=None
         If provided, sorts each method’s points by this numeric column (ascending),
         and highlights the point with the highest value of this column using a different marker.
+    clip_title : bool, default=False
+        When True, truncate a long ``title`` to ``max_title_chars`` (with an
+        ellipsis) so it doesn't widen the ``bbox_inches="tight"`` output canvas
+        and break consistent plot dimensions across figures.
+    max_title_chars : int, default=40
+        Maximum title length (including the ellipsis) when ``clip_title`` is set.
+        Ignored when ``clip_title`` is False.
     """
     df = df.copy(deep=True)
     # Drop rows where the x or y plotting column is NaN. Methods whose
@@ -560,6 +584,8 @@ def plot_hpo(
     ax.tick_params(axis="both", which="both", color=grid_color, labelcolor="black")
 
     if title is not None:
+        if clip_title:
+            title = _clip_title(title, max_title_chars)
         ax.set_title(title, fontsize=title_fontsize)
 
     # ``xlabel`` / ``ylabel`` double as DataFrame column names (used for the

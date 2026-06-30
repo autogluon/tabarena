@@ -1,6 +1,6 @@
 """A single place to declare every cache directory TabArena uses.
 
-TabArena reads and writes four independent caches. Historically each was process-global
+TabArena reads and writes five independent caches. Historically each was process-global
 state a user had to configure by hand on *every* process — the driver and every distributed
 worker — because the runner API exposed no cache parameter. :class:`CacheConfig` collapses
 that into one object you declare once and :meth:`CacheConfig.apply` wherever a process needs
@@ -23,7 +23,7 @@ __all__ = ["CacheConfig"]
 
 # The path-valued fields (vs. the policy flags `apply_on_run` / `scope_openml`); used by
 # `from_root` to lay each cache out under a single parent directory.
-_LOCATION_FIELDS = ("openml", "huggingface", "tabarena", "results")
+_LOCATION_FIELDS = ("openml", "huggingface", "data_foundry", "tabarena", "results")
 # All constructor fields; used by `from_dict` to ignore any unknown keys.
 _CONFIG_FIELDS = (*_LOCATION_FIELDS, "apply_on_run", "scope_openml")
 
@@ -43,7 +43,7 @@ class CacheConfig:
     default stays in effect. :meth:`apply` is idempotent and creates no directories (the
     underlying libraries create them lazily on first write).
 
-    The four caches and their roles:
+    The five caches and their roles:
 
     openml:
         **The most important cache.** OpenML's root cache directory, set via
@@ -57,15 +57,22 @@ class CacheConfig:
         set ``scope_openml=True`` (or use :meth:`scoped_openml`) to point TabArena at it only for
         the duration of a run and restore any pre-existing ``openml.config`` location after.
     huggingface:
-        The HuggingFace Hub cache, set via the ``HF_HOME`` environment variable. It has two
-        roles: (a) foundation-model **weights** — TabPFN / Mitra / LimiX / OrionMSP / SAP-RPT
-        call ``hf_hub_download`` with no explicit ``cache_dir``, so the weights land under
-        ``HF_HOME``; and (b) the one-time **raw dataset download** for data-foundry /
-        BeyondArena collections, which is then materialized (converted) *into* the OpenML
-        cache above. Setting this controls both — the data-foundry download honors ``HF_HOME``
-        because :meth:`apply` runs before any materialization. (For per-source control of just
-        the data-foundry download, pass ``cache_dir=`` to ``DataFoundrySource`` directly.) The
-        library default is ``~/.cache/huggingface/hub``.
+        The HuggingFace Hub cache for foundation-model **weights** — TabPFN / Mitra / LimiX /
+        OrionMSP / SAP-RPT (and the text-embedding models) call ``hf_hub_download`` with no
+        explicit ``cache_dir``, so their weights land under ``HF_HOME``. Set via the ``HF_HOME``
+        environment variable; library default ``~/.cache/huggingface/hub``. This does **not**
+        cover the data-foundry / BeyondArena raw *dataset* download: data-foundry passes an
+        explicit ``cache_dir`` to ``snapshot_download`` (which overrides ``HF_HOME``), so those
+        containers go to the separate ``data_foundry`` cache below — not here.
+    data_foundry:
+        The data-foundry **dataset download** cache — where BeyondArena (and any other
+        data-foundry collection) downloads its raw containers from HuggingFace, into a
+        per-collection ``<data_foundry>/<collection_name>/`` subdirectory, before they are
+        materialized (converted) *into* the OpenML cache above. Set via the ``DATA_FOUNDRY_CACHE``
+        environment variable, which data-foundry's ``resolve_cache_dir`` honors; :meth:`apply`
+        exports it so every download left at ``cache_dir=None`` (the default the BeyondArena
+        context uses) lands here. Library default ``~/.cache/data_foundry``. For per-call control
+        instead, pass ``cache_dir=`` to the data-foundry collection / ``DataFoundryTaskMetadataSource``.
     tabarena:
         TabArena's own artifact cache — the benchmark results, baselines and leaderboard data
         downloaded by ``load_results`` and friends. Set via
@@ -99,6 +106,7 @@ class CacheConfig:
 
     openml: str | Path | None = None
     huggingface: str | Path | None = None
+    data_foundry: str | Path | None = None
     tabarena: str | Path | None = None
     results: str | Path | None = None
     apply_on_run: bool = True
@@ -128,6 +136,7 @@ class CacheConfig:
         return {
             "openml": None if self.openml is None else str(self.openml),
             "huggingface": None if self.huggingface is None else str(self.huggingface),
+            "data_foundry": None if self.data_foundry is None else str(self.data_foundry),
             "tabarena": None if self.tabarena is None else str(self.tabarena),
             "results": None if self.results is None else str(self.results),
             "apply_on_run": self.apply_on_run,
@@ -143,10 +152,11 @@ class CacheConfig:
         """Point the current process at these caches (idempotent; ``None`` fields are no-ops).
 
         Applies ``openml`` via ``openml.config.set_root_cache_directory``, ``tabarena`` via
-        ``tabarena.loaders.set_tabarena_cache_root``, and ``huggingface`` via the ``HF_HOME``
-        environment variable (see :meth:`_apply_huggingface` for the import-timing handling).
-        ``results`` is intentionally not applied — it is a ``run_jobs`` default, not global
-        state.
+        ``tabarena.loaders.set_tabarena_cache_root``, ``huggingface`` via the ``HF_HOME``
+        environment variable (see :meth:`_apply_huggingface` for the import-timing handling), and
+        ``data_foundry`` via the ``DATA_FOUNDRY_CACHE`` environment variable (honored by
+        data-foundry's ``resolve_cache_dir``). ``results`` is intentionally not applied — it is a
+        ``run_jobs`` default, not global state.
 
         Args:
             openml: When ``False``, skip the OpenML field. Used by callers that want to set the
@@ -164,6 +174,8 @@ class CacheConfig:
             set_tabarena_cache_root(Path(self.tabarena).expanduser())
         if self.huggingface is not None:
             self._apply_huggingface(Path(self.huggingface).expanduser())
+        if self.data_foundry is not None:
+            os.environ["DATA_FOUNDRY_CACHE"] = str(Path(self.data_foundry).expanduser())
 
     @contextlib.contextmanager
     def scoped_openml(self) -> Iterator[None]:
@@ -185,6 +197,9 @@ class CacheConfig:
           process, so ``huggingface`` is left applied rather than promising a restore it can't keep.
         * **TabArena** is private state (nothing outside TabArena reads ``set_tabarena_cache_root``)
           and ``compare`` needs it to persist, so it is left applied. ``results`` is never global.
+        * **data_foundry** is a plain ``DATA_FOUNDRY_CACHE`` env var, re-read on each
+          ``resolve_cache_dir`` call (so it *could* be scoped), but for consistency it is left
+          applied alongside HuggingFace/TabArena.
         """
         import openml as openml_lib
 

@@ -506,24 +506,32 @@ class TaskMetadataCollection:
         """One row per dataset with the dataset-level (split-invariant) metadata.
 
         Uses native column names (``problem_type``, ``num_features``, ``num_classes``, ...)
-        plus a ``dataset`` key column and ``max_train_rows`` — the per-dataset *maximum*
+        plus a ``dataset`` key column, ``max_train_rows`` — the per-dataset *maximum*
         training-fold size over splits, which the BeyondArena size predicates key on (note
         :meth:`task_grid`'s ``max_train_rows`` is the per-dataset *mean*, matching the
-        legacy schema).
+        legacy schema) — and ``n_splits``, the total split count per dataset.
+
+        ``n_splits`` is summed across every task for a dataset because it is the
+        :class:`~tabarena.benchmark.task.metadata.schema.TabArenaTaskMetadata.n_splits`
+        *property* (``len(splits_metadata)``), which ``to_dict`` / ``asdict`` drop — only
+        declared dataclass fields survive serialization.
         """
         rows: dict[str, dict] = {}
         max_train_rows: dict[str, int] = {}
+        n_splits: dict[str, int] = {}
         for t in self._tasks:
             ds = t.tabarena_task_name
             # Static fields are dataset-level, so the first task seen per dataset wins.
             rows.setdefault(ds, t.to_dict(exclude_splits_metadata=True))
             # TODO: key into task metadata in the future?
+            n_splits[ds] = n_splits.get(ds, 0) + len(t.splits_metadata)
             for split in t.splits_metadata.values():
                 max_train_rows[ds] = max(max_train_rows.get(ds, 0), split.num_instances_train)
         frame = pd.DataFrame(list(rows.values()))
         if not frame.empty:
             frame["dataset"] = list(rows.keys())
             frame["max_train_rows"] = [max_train_rows[ds] for ds in rows]
+            frame["n_splits"] = [n_splits[ds] for ds in rows]
         return frame
 
     def task_grid(self) -> pd.DataFrame:

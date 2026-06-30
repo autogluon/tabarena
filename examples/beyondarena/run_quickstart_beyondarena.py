@@ -75,7 +75,9 @@ if __name__ == "__main__":
     #   split regime : iid (== random), temporal, grouped
     #   features     : low-dim, high-dim, text, high-cardinality
     #   split        : core, lite (first split == r0f0 of each dataset), all
-    #       `core` is the recommended evaluation protocol.
+    #       `core` is the recommended *default* protocol that every BeyondArena run should use:
+    #       each dataset's first `folds_to_use` splits, already enough for stable rankings — you do
+    #       NOT need the full split set (`all`). Here we also restrict to tiny/!high-dim for speed.
     subset = ["core", "tiny", "!high-dim"]
 
     # 2: build the model experiment configs.

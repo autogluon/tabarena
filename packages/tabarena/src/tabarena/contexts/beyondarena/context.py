@@ -121,11 +121,12 @@ class BeyondArenaContext(AbstractArenaContext):
             only_valid_tasks: Forwarded to :class:`AbstractArenaContext`; when ``True``,
                 pre-filter ``task_metadata`` to the registered in-memory methods' tasks.
             cache_config: Optional :class:`~tabarena.caching.CacheConfig` declaring the OpenML /
-                HuggingFace / TabArena cache locations (and how to apply them — see its
-                ``apply_on_run`` / ``scope_openml`` flags). Applied on construction and re-applied
-                inside ``run_jobs``. Relevant here because BeyondArena's ``materialize()``
-                downloads its raw datasets from HuggingFace (honoring ``cache_config.huggingface``)
-                before converting them into the OpenML cache.
+                HuggingFace / data-foundry / TabArena cache locations (and how to apply them — see
+                its ``apply_on_run`` / ``scope_openml`` flags). Applied on construction and
+                re-applied inside ``run_jobs``. Relevant here because BeyondArena's ``materialize()``
+                downloads its raw datasets from HuggingFace into the data-foundry cache (honoring
+                ``cache_config.data_foundry``, i.e. ``DATA_FOUNDRY_CACHE`` — not ``HF_HOME``) before
+                converting them into the OpenML cache.
         """
         super().__init__(
             methods=methods,

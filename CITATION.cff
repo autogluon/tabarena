@@ -51,3 +51,34 @@ preferred-citation:
     - type: url
       value: "https://neurips.cc/virtual/2025/loc/san-diego/poster/121499"
       description: NeurIPS 2025 poster page
+references:
+  - type: article
+    title: "Beyond IID: How General Are Tabular Foundation Models, Really?"
+    authors:
+      - given-names: Lennart
+        family-names: Purucker
+      - given-names: Andrej
+        family-names: Tschalzev
+      - given-names: Nick
+        family-names: Erickson
+      - given-names: Gioia
+        family-names: Blayer
+      - given-names: David
+        family-names: Holzmüller
+      - given-names: Alan
+        family-names: Arazi
+      - given-names: Alexander
+        family-names: Pfefferle
+      - given-names: Mustafa
+        family-names: Tajjar
+      - given-names: Gaël
+        family-names: Varoquaux
+      - given-names: Frank
+        family-names: Hutter
+    notes: "Introduces the BeyondArena beyond-IID benchmark and the Data Foundry curation framework."
+    year: 2026
+    url: "https://arxiv.org/abs/2606.30410"
+    identifiers:
+      - type: other
+        value: "arXiv:2606.30410"
+        description: arXiv preprint

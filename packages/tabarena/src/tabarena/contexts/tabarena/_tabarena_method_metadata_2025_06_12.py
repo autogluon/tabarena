@@ -18,8 +18,9 @@ from tabarena.models.tabicl.info import tabicl_method_metadata
 from tabarena.models.tabm.info import tabm_gpu_method_metadata, tabm_method_metadata
 from tabarena.models.xgboost.info import xgboost_method_metadata
 
-# Models that own their MethodMetadata via per-model `info.py` modules. The
-# factory loop below skips these; they are seeded into `methods_2025_06_12` here.
+# Models that own their MethodMetadata via per-model `info.py` modules — seeded directly into
+# `methods_2025_06_12`. The factory loop below builds only the remaining 2025-06-12 methods that
+# have no per-model `info.py` (the maps/lists in this file are therefore keyed by just those).
 _per_model_metadata = [
     catboost_method_metadata,
     extra_trees_method_metadata,
@@ -35,7 +36,6 @@ _per_model_metadata = [
     tabm_gpu_method_metadata,
     xgboost_method_metadata,
 ]
-_migrated_method_names = {m.method for m in _per_model_metadata}
 
 methods_2025_06_12 = list(_per_model_metadata)
 
@@ -56,160 +56,81 @@ gpu_kwargs = dict(
     **common_kwargs,
 )
 
-# Methods in this list will upload s3 artifacts privately (useful for storing results for unreleased models)
-# If a method is not in this list, it will be public when uploaded.
-
-
-# If the method should not be tuned/tuned+enesmbled in the simulator, for example, due to having only 1 config
-methods_no_hpo = [
-    "TabICL_GPU",
-    "TabDPT_GPU",
-]
-
-# If the method was fit with bagging (8-fold)
-# If not present in this list, the model could instead have been refit on the full data, ex: TabPFNv2
-methods_is_bag = [
-    "CatBoost",
-    "Dummy",
-    "ExplainableBM",
-    "ExtraTrees",
-    # "KNeighbors",
-    "LightGBM",
-    "LinearModel",
-    "ModernNCA",
-    "NeuralNetFastAI",
-    "NeuralNetTorch",
-    "RandomForest",
-    "RealMLP",
-    "TabM",
-    "XGBoost",
-    "ModernNCA_GPU",
-    "RealMLP_GPU",
-    # "TabDPT_GPU",
-    # "TabICL_GPU",
-    "TabM_GPU",
-    # "TabPFNv2_GPU",
-]
-
-
-methods_ag_key_map = {
-    "CatBoost": "CAT",
-    "Dummy": "DUMMY",
-    "ExplainableBM": "EBM",
-    "ExtraTrees": "XT",
-    "KNeighbors": "KNN",
-    "LightGBM": "GBM",
-    "LinearModel": "LR",
-    "ModernNCA": "MNCA",
-    "NeuralNetFastAI": "FASTAI",
-    "NeuralNetTorch": "NN_TORCH",
-    "RandomForest": "RF",
-    "RealMLP": "REALMLP",
-    "TabM": "TABM",
-    "XGBoost": "XGB",
-    "ModernNCA_GPU": "MNCA",
-    "RealMLP_GPU": "REALMLP",
-    "TabDPT_GPU": "TABDPT",
-    "TabICL_GPU": "TABICL",
-    "TabM_GPU": "TABM",
-    "TabPFNv2_GPU": "TABPFNV2",
-}
-
-
-methods_display_name_map = {
-    "CatBoost": "CatBoost",
-    "Dummy": "Dummy",
-    "ExplainableBM": "EBM",
-    "ExtraTrees": "ExtraTrees",
-    "KNeighbors": "KNN",
-    "LightGBM": "LightGBM",
-    "LinearModel": "Linear",
-    "ModernNCA": "ModernNCA (CPU)",
-    "NeuralNetFastAI": "FastaiMLP",
-    "NeuralNetTorch": "TorchMLP",
-    "RandomForest": "RandomForest",
-    "RealMLP": "RealMLP (CPU)",
-    "TabM": "TabM (CPU)",
-    "XGBoost": "XGBoost",
-    "ModernNCA_GPU": "ModernNCA",
-    "RealMLP_GPU": "RealMLP",
-    "TabDPT_GPU": "TabDPT",
-    "TabICL_GPU": "TabICL",
-    "TabM_GPU": "TabM",
-    "TabPFNv2_GPU": "TabPFNv2",
-}
-
-
-methods_config_default_map = {
-    "CatBoost": "CatBoost_c1_BAG_L1",
-    "Dummy": "Dummy_c1_BAG_L1",
-    "ExplainableBM": "ExplainableBM_c1_BAG_L1",
-    "ExtraTrees": "ExtraTrees_c1_BAG_L1",
-    "KNeighbors": "KNeighbors_c1_BAG_L1",
-    "LightGBM": "LightGBM_c1_BAG_L1",
-    "LinearModel": "LinearModel_c1_BAG_L1",
-    "ModernNCA": "ModernNCA_c1_BAG_L1",
-    "NeuralNetFastAI": "NeuralNetFastAI_c1_BAG_L1",
-    "NeuralNetTorch": "NeuralNetTorch_c1_BAG_L1",
-    "RandomForest": "RandomForest_c1_BAG_L1",
-    "RealMLP": "RealMLP_c1_BAG_L1",
-    "TabM": "TabM_c1_BAG_L1",
-    "XGBoost": "XGBoost_c1_BAG_L1",
-    "ModernNCA_GPU": "ModernNCA_GPU_c1_BAG_L1",
-    "RealMLP_GPU": "RealMLP_GPU_c1_BAG_L1",
-    "TabDPT_GPU": "TabDPT_GPU_c1_BAG_L1",
-    "TabICL_GPU": "TabICL_GPU_c1_BAG_L1",
-    "TabM_GPU": "TabM_GPU_c1_BAG_L1",
-    "TabPFNv2_GPU": "TabPFNv2_GPU_c1_BAG_L1",
-}
-
-
-methods_compute_map = {
-    "CatBoost": "cpu",
-    "Dummy": "cpu",
-    "ExplainableBM": "cpu",
-    "ExtraTrees": "cpu",
-    "KNeighbors": "cpu",
-    "LightGBM": "cpu",
-    "LinearModel": "cpu",
-    "ModernNCA": "cpu",
-    "NeuralNetFastAI": "cpu",
-    "NeuralNetTorch": "cpu",
-    "RandomForest": "cpu",
-    "RealMLP": "cpu",
-    "TabM": "cpu",
-    "XGBoost": "cpu",
-    "ModernNCA_GPU": "gpu",
-    "RealMLP_GPU": "gpu",
-    "TabDPT_GPU": "gpu",
-    "TabICL_GPU": "gpu",
-    "TabM_GPU": "gpu",
-    "TabPFNv2_GPU": "gpu",
-}
-
+# The 2025-06-12 methods that have no per-model `info.py`; built from the maps below.
 methods = [
-    "CatBoost",
     "Dummy",
     "ExplainableBM",
-    "ExtraTrees",
     "KNeighbors",
-    "LightGBM",
     "LinearModel",
-    "ModernNCA",
-    "NeuralNetFastAI",
-    "NeuralNetTorch",
-    "RandomForest",
-    "RealMLP",
-    "TabM",
-    "XGBoost",
-    "ModernNCA_GPU",
     "RealMLP_GPU",
     "TabDPT_GPU",
-    "TabICL_GPU",
-    "TabM_GPU",
     "TabPFNv2_GPU",
 ]
 
+# Methods that should not be tuned/tuned+ensembled in the simulator (e.g. only 1 config).
+methods_no_hpo = [
+    "TabDPT_GPU",
+]
+
+# Methods fit with bagging (8-fold); if absent, the model could instead have been refit on full data.
+methods_is_bag = [
+    "Dummy",
+    "ExplainableBM",
+    "LinearModel",
+    "RealMLP_GPU",
+]
+
+methods_ag_key_map = {
+    "Dummy": "DUMMY",
+    "ExplainableBM": "EBM",
+    "KNeighbors": "KNN",
+    "LinearModel": "LR",
+    "RealMLP_GPU": "REALMLP",
+    "TabDPT_GPU": "TABDPT",
+    "TabPFNv2_GPU": "TABPFNV2",
+}
+
+methods_display_name_map = {
+    "Dummy": "Dummy",
+    "ExplainableBM": "EBM",
+    "KNeighbors": "KNN",
+    "LinearModel": "Linear",
+    "RealMLP_GPU": "RealMLP",
+    "TabDPT_GPU": "TabDPT",
+    "TabPFNv2_GPU": "TabPFNv2",
+}
+
+methods_config_default_map = {
+    "Dummy": "Dummy_c1_BAG_L1",
+    "ExplainableBM": "ExplainableBM_c1_BAG_L1",
+    "KNeighbors": "KNeighbors_c1_BAG_L1",
+    "LinearModel": "LinearModel_c1_BAG_L1",
+    "RealMLP_GPU": "RealMLP_GPU_c1_BAG_L1",
+    "TabDPT_GPU": "TabDPT_GPU_c1_BAG_L1",
+    "TabPFNv2_GPU": "TabPFNv2_GPU_c1_BAG_L1",
+}
+
+methods_compute_map = {
+    "Dummy": "cpu",
+    "ExplainableBM": "cpu",
+    "KNeighbors": "cpu",
+    "LinearModel": "cpu",
+    "RealMLP_GPU": "gpu",
+    "TabDPT_GPU": "gpu",
+    "TabPFNv2_GPU": "gpu",
+}
+
+methods_to_url_map = {
+    "ExplainableBM": "https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
+    "KNeighbors": "https://scikit-learn.org/stable/modules/neighbors.html",
+    "LinearModel": "https://scikit-learn.org/stable/modules/linear_model.html",
+    "RealMLP_GPU": "https://arxiv.org/abs/2407.04491",
+    "TabDPT_GPU": "https://arxiv.org/abs/2410.18164",
+    "TabPFNv2_GPU": "https://www.nature.com/articles/s41586-024-08328-6",
+}
+
+# Curated name lists (consumed by the 2025-06-12 collections in `methods.py`); these span the full
+# 2025-06-12 method set, including the per-model-`info.py` models seeded above.
 methods_main_paper = [
     "CatBoost",
     "ExplainableBM",
@@ -237,48 +158,7 @@ methods_gpu_ablation = [
     "RealMLP_GPU",
 ]
 
-verified_methods = [
-    "ExplainableBM",
-    "ModernNCA",
-    "NeuralNetFastAI",
-    "NeuralNetTorch",
-    "RealMLP",
-    "TabM",
-    "ModernNCA_GPU",
-    "RealMLP_GPU",
-    "TabDPT_GPU",
-    "TabICL_GPU",
-    "TabM_GPU",
-    "TabPFNv2_GPU",
-]
-
-methods_to_url_map = {
-    "RealMLP_GPU": "https://arxiv.org/abs/2407.04491",
-    "RealMLP": "https://arxiv.org/abs/2407.04491",
-    "TabDPT_GPU": "https://arxiv.org/abs/2410.18164",
-    "TabM_GPU": "https://arxiv.org/abs/2410.24210",
-    "TabM": "https://arxiv.org/abs/2410.24210",
-    "LightGBM": "https://papers.nips.cc/paper_files/paper/2017/hash/6449f44a102fde848669bdd9eb6b76fa-Abstract.html",
-    "CatBoost": "https://arxiv.org/abs/1706.09516",
-    "ModernNCA_GPU": "https://arxiv.org/abs/2407.03257",
-    "ModernNCA": "https://arxiv.org/abs/2407.03257",
-    "XGBoost": "https://arxiv.org/abs/1603.02754",
-    "TabPFNv2_GPU": "https://www.nature.com/articles/s41586-024-08328-6",
-    "TabICL_GPU": "https://arxiv.org/abs/2502.05564",
-    "NeuralNetTorch": "https://arxiv.org/abs/2003.06505",
-    "NeuralNetFastAI": "https://arxiv.org/abs/2003.06505",
-    "ExplainableBM": "https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
-    "RandomForest": "https://link.springer.com/article/10.1023/A:1010933404324",
-    "KNeighbors": "https://scikit-learn.org/stable/modules/neighbors.html",
-    "ExtraTrees": "https://link.springer.com/article/10.1007/s10994-006-6226-1",
-    "LinearModel": "https://scikit-learn.org/stable/modules/linear_model.html",
-}
-
-tabarena_method_metadata_map_2025_06_12: dict[str, MethodMetadata] = {}
-
 for method in methods:
-    if method in _migrated_method_names:
-        continue
     compute_type = methods_compute_map[method]
     ag_key = methods_ag_key_map[method]
     config_default = methods_config_default_map[method]
