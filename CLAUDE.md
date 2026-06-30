@@ -9,6 +9,7 @@ This file only documents Claude-specific extensions.
 ### Skills (`.claude/skills/`)
 
 - **`add-model`** — Use whenever the user asks to add/integrate/wrap a new tabular ML model. It encodes the full change: a per-model folder (`model.py` wrapper, `hpo.py` search space, `info.py` registry entry) plus edits to `models/__init__.py`, `models/utils.py`, and the `pyproject.toml` extra — and points to reference implementations for each model class (foundation, torch, sklearn-like). The model is auto-discovered from its `info.py` and fit-tested automatically by `tests/tabarena/models/test_all_models.py` (no per-model test file); only add a `smoke_configs.py` override if its toy fit needs faster hyperparameters.
+- **`upload-method`** — Use whenever a maintainer points at a benchmark run's output dir and wants to process / upload / register a method's results (e.g. "upload this method", "host/publish `<model>`'s results", "register `<model>` in the leaderboard"). It builds the command sheet the maintainer runs (`scripts/run_process_method.py` inspect → `--process`; `scripts/run_upload_results.py` dry-run → `--no-dry-run`) and does the edits Claude can land now: the model's `info.py` `MethodMetadata` (suite / date / `cache_type` / `cache_kwargs` / verified) and the arena-collection registration in `contexts/<arena>/methods.py`. Mirrors AGENTS.md → "Processing & uploading method artifacts (maintainers)".
 
 When the user describes work that matches a skill's trigger criteria, invoke the skill via the Skill tool instead of recreating the steps manually.
 

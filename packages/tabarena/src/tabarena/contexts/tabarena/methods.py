@@ -36,6 +36,7 @@ from tabarena.models._method_metadata_collection import MethodMetadataCollection
 # below references these directly. (Some keep their historical alias, used by the per-suite full
 # lists / downstream collections.)
 from tabarena.models.catboost.info import catboost_method_metadata
+from tabarena.models.chimeraboost.info import chimeraboost_method_metadata
 from tabarena.models.ebm.info import ebm_method_metadata as ebm_metadata
 from tabarena.models.extra_trees.info import extra_trees_method_metadata
 from tabarena.models.fastai.info import fastai_method_metadata
@@ -47,6 +48,7 @@ from tabarena.models.lr.info import lr_method_metadata as lr_metadata
 from tabarena.models.mitra.info import mitra_method_metadata as mitra_metadata
 from tabarena.models.modernnca.info import modernnca_gpu_method_metadata
 from tabarena.models.nn_torch.info import nn_torch_method_metadata
+from tabarena.models.nori.info import nori_method_metadata
 from tabarena.models.orionmsp.info import orionmsp_method_metadata as orionmsp_metadata
 from tabarena.models.perpetual_booster.info import (
     perpetual_booster_method_metadata as perpetualbooster_metadata,
@@ -130,6 +132,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         ag_150_eq_4h8c_metadata,
         # Default tabular models (CPU)
         catboost_method_metadata,
+        chimeraboost_method_metadata,
         ebm_metadata,
         extra_trees_method_metadata,
         knn_metadata,
@@ -160,6 +163,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         orionmsp_metadata,
         tabpfnv3_method_metadata,
         iltm_method_metadata,
+        nori_method_metadata,
     ],
 )
 

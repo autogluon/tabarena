@@ -8,17 +8,17 @@ from tabarena.models.chimeraboost.model import ChimeraBoostModel
 chimeraboost_method_metadata = MethodMetadata.config(
     method="ChimeraBoost",
     ag_key="CHIMERA",
-    config_default="ChimeraBoost_c1_BAG_L1",
     compute="cpu",
-    is_bag=False,
+    is_bag=True,
+    can_hpo=True,
+    config_default="ChimeraBoost_c1_default_BAG_L1",
+    suite="tabarena-2026-06-30",
     date="2026-06-15",
     reference_url="https://github.com/bbstats/chimeraboost",
     display_name="ChimeraBoost",
-    verified=False,
-    # Not yet hosted: bucket/prefix/cache_type are set by the maintainers once the result
-    # artifacts land in the official pool; until then cache_type infers "local" (no remote
-    # location set). has_raw/has_processed/has_results stay True — a config has all three
-    # artifact tiers, hosted or not.
+    verified=True,
+    cache_type="r2",  # one of: "local", "r2", "s3"
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},  # only if uploading (s3 adds "upload_as_public": True)
 )
 
 chimeraboost_info = ModelInfo(
