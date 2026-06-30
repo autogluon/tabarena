@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.core.models import AbstractModel
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -12,88 +12,57 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Attributes on the fitted TabFM estimator (``self.model``) that JAX makes
-# unpicklable but that are cheap to restore, so they are dropped on save (see
-# ``__getstate__`` / ``__setstate__``):
-#   * ``model`` -- the foundation network. Its Flax modules hold an activation
-#     ``silu`` whose object identity differs from ``jax.nn.silu`` (so stdlib
-#     pickle's by-reference function check fails) and its parameters carry live
-#     ``jaxlib._jax.Device`` handles (which no pickler can serialise). Reloaded
-#     from the cached checkpoint via ``tabfm_v1_0_0.load`` on unpickle.
-#   * ``_predict_step_compiled_with_cat`` / ``_predict_step_compiled_no_cat`` --
-#     JIT-compiled predict closures cached lazily on the first predict; TabFM
-#     recreates them on demand, so they are simply discarded.
-_UNPICKLABLE_TABFM_ATTRS = (
-    "model",
-    "_predict_step_compiled_with_cat",
-    "_predict_step_compiled_no_cat",
-)
 
+def _resolve_device(device: str | None, num_gpus: int, *, cuda_available: bool) -> str:
+    """Resolve the torch device a TabFM fit should run on.
 
-def _ensure_xla_uses_bundled_cuda() -> None:
-    """Pin XLA's ``ptxas`` / ``libdevice`` to the pip-installed CUDA toolkit.
+    ``device`` is the wrapper-only hyperparameter (``None``, ``"cpu"``, ``"gpu"``
+    or ``"cuda"``); ``num_gpus`` is what AutoGluon allocated for the fit. Returns
+    ``"cuda"`` or ``"cpu"``.
 
-    JAX/XLA shells out to ``ptxas`` to assemble the PTX it emits. When an older
-    system CUDA is first on ``PATH`` (e.g. ``/usr/local/cuda`` at 12.4), XLA uses
-    that ``ptxas``, which caps the PTX ISA at 8.4 -- too old to target Blackwell
-    GPUs (``sm_120a`` needs PTX ISA >= 8.7, i.e. CUDA >= 12.8). The fit then dies
-    with ``LLVM Fatal Error ... PTX version 8.4 does not support target
-    'sm_120a'``.
-
-    The ``nvidia-cuda-nvcc-cu12`` wheel pulled in by ``tabfm[cuda]`` already ships
-    a new-enough ``ptxas`` plus ``nvvm/libdevice``, so point XLA at it via
-    ``--xla_gpu_cuda_data_dir`` (XLA's highest-priority CUDA-root candidate). Must
-    run before the first ``import jax`` so XLA reads ``XLA_FLAGS`` at backend init.
-    No-op when the wheel is absent (CPU-only install) or when the caller already
-    pinned the data dir.
+    ``None`` derives the device from ``num_gpus`` (GPU when one was allocated). An
+    explicit GPU request (``"gpu"``/``"cuda"``) -- or ``None`` with an allocated
+    GPU -- raises ``AssertionError`` when ``cuda_available`` is False rather than
+    silently falling back to CPU.
     """
-    import importlib.util
-    import os
-
-    if "--xla_gpu_cuda_data_dir" in os.environ.get("XLA_FLAGS", ""):
-        return  # respect an explicit override
-
-    spec = importlib.util.find_spec("nvidia.cuda_nvcc")
-    locations = list(spec.submodule_search_locations) if spec is not None else []
-    if not locations:
-        return
-    cuda_dir = locations[0]
-    if not os.path.isfile(os.path.join(cuda_dir, "bin", "ptxas")):
-        return
-
-    flag = f"--xla_gpu_cuda_data_dir={cuda_dir}"
-    existing = os.environ.get("XLA_FLAGS", "").strip()
-    os.environ["XLA_FLAGS"] = f"{existing} {flag}".strip()
+    if device is not None:
+        device = str(device).lower()
+    if device == "cpu":
+        return "cpu"
+    want_gpu = device in ("gpu", "cuda") or (device is None and bool(num_gpus))
+    if want_gpu and not cuda_available:
+        raise AssertionError(
+            "TabFM fit requested a GPU, but torch reports no CUDA device. Install a "
+            "CUDA-enabled torch build and ensure a GPU is visible, or set device='cpu'.",
+        )
+    return "cuda" if want_gpu else "cpu"
 
 
-class TabFMModel(AbstractModel):
+class TabFMModel(AbstractTorchModel):
     """TabFM: a tabular foundation model that predicts via in-context learning.
 
-    TabFM is a JAX/Flax pre-trained model: at inference time it is shown the
-    training data as context and predicts on the test rows without any
-    per-dataset gradient training. It handles mixed numerical/categorical columns
-    and missing values natively (via its own internal preprocessing pipeline), so
-    the AutoGluon-side preprocessing is left as a no-op and the typed DataFrame is
+    TabFM is a pre-trained PyTorch model: at inference time it is shown the
+    training data as context and predicts on the test rows without any per-dataset
+    gradient training. It handles mixed numerical/categorical columns and missing
+    values natively (via its own internal preprocessing pipeline), so the
+    AutoGluon-side preprocessing is left as a no-op and the typed DataFrame is
     passed straight through.
 
-    Because TabFM is JAX-based (not torch), this wraps ``AbstractModel`` rather
-    than ``AbstractTorchModel``: JAX manages device placement at the process level
-    (via ``CUDA_VISIBLE_DEVICES`` / ``jax.devices()``), so there is no per-model
-    ``.to(device)`` to implement.
+    Wraps ``AbstractTorchModel`` so AutoGluon manages device placement: the network
+    is moved to CPU before being pickled and back onto the training device (when
+    available) on load, via ``get_device`` / ``_set_device``.
 
-    Accepts an optional ``device`` hyperparameter: ``None`` (default) auto-selects
-    GPU when one is available, ``"cpu"`` forces CPU execution (sets
-    ``JAX_PLATFORMS=cpu`` process-wide), and ``"gpu"``/``"cuda"`` requires a GPU.
+    Accepts an optional ``device`` hyperparameter: ``None`` (default) selects a GPU
+    when AutoGluon allocated one and CPU otherwise, ``"cpu"`` forces CPU execution,
+    and ``"gpu"``/``"cuda"`` requires a GPU.
 
     Paper: TabFM (Tabular Foundation Model)
     Authors: Google Research
     Codebase: https://github.com/google-research/tabfm
     License: Apache-2.0
 
-    Install:
-        pip install "tabfm @ git+https://github.com/google-research/tabfm.git"
-    Add the ``[cuda]`` extra for GPU execution:
-        pip install "tabfm[cuda] @ git+https://github.com/google-research/tabfm.git"
+    Install (PyTorch backend):
+        pip install "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git"
     """
 
     ag_key = "TA-TABFM"
@@ -109,45 +78,21 @@ class TabFMModel(AbstractModel):
         num_gpus: int = 0,
         **kwargs,
     ):
-        import os
+        import torch
 
         # `random_state` is injected by AutoGluon via `seed_name`; both the
         # classifier and the regressor accept it (and TabFM's other knobs default
         # sensibly), so the remaining params are forwarded as-is. `device` is a
-        # wrapper-only knob (TabFM/JAX has no device arg), so it is popped here.
+        # wrapper-only knob (the TabFM estimators take their device from the
+        # network's parameters), so it is popped here.
         hps = self._get_model_params()
-        device = hps.pop("device", None)
-        if device is not None:
-            device = str(device).lower()
+        device = _resolve_device(
+            hps.pop("device", None),
+            num_gpus,
+            cuda_available=torch.cuda.is_available(),
+        )
 
-        if device == "cpu":
-            # Force JAX onto CPU for the whole process (covers both the in-context
-            # fit and later predict). Must be set before JAX initialises its
-            # backend; `_fit` is where this wrapper first imports jax, so it takes
-            # effect here.
-            os.environ["JAX_PLATFORMS"] = "cpu"
-        else:
-            # GPU path: stop XLA from assembling PTX with a stale system `ptxas`
-            # (which can't target newer GPUs); use the bundled CUDA toolkit instead.
-            _ensure_xla_uses_bundled_cuda()
-
-        import jax
-
-        gpu_visible = any(d.platform != "cpu" for d in jax.devices())
-        if device in ("gpu", "cuda") and not gpu_visible:
-            raise AssertionError(
-                "Fit specified device='gpu', but JAX sees no GPU device. Install "
-                "the CUDA build (`pip install tabfm[cuda]`) and ensure CUDA is "
-                "available, or set device='cpu'.",
-            )
-        if device is None and num_gpus and not gpu_visible:
-            raise AssertionError(
-                f"Fit specified to use {num_gpus} GPU, but JAX sees no GPU device. "
-                "Install the CUDA build (`pip install tabfm[cuda]`) and ensure CUDA "
-                "is available, set device='cpu', or switch to CPU usage.",
-            )
-
-        from tabfm import TabFMClassifier, TabFMRegressor, tabfm_v1_0_0
+        from tabfm import TabFMClassifier, TabFMRegressor, tabfm_v1_0_0_pytorch
 
         if self.problem_type in ["binary", "multiclass"]:
             model_type = "classification"
@@ -158,9 +103,10 @@ class TabFMModel(AbstractModel):
         else:
             raise AssertionError(f"Unsupported problem_type: {self.problem_type}")
 
-        # Downloads the pre-trained checkpoint from Hugging Face on first use
-        # (see `prefetch_weights`); a no-op once cached.
-        base_model = tabfm_v1_0_0.load(model_type=model_type)
+        # Downloads the pre-trained PyTorch checkpoint from Hugging Face on first
+        # use (see `prefetch_weights`); a no-op once cached. Loading with `device`
+        # places the network there, which is where the estimator runs.
+        base_model = tabfm_v1_0_0_pytorch.load(model_type=model_type, device=device)
 
         self.model = model_cls(model=base_model, **hps)
 
@@ -169,33 +115,42 @@ class TabFMModel(AbstractModel):
         X = self.preprocess(X, y=y)
         self.model = self.model.fit(X=X, y=y)
 
+    def get_device(self) -> str:
+        """Return the torch device of the fitted TabFM network."""
+        param = next(self.model.model.parameters(), None)
+        return str(param.device) if param is not None else "cpu"
+
+    def _set_device(self, device: str):
+        """Move the fitted TabFM network to ``device`` (the estimator follows it)."""
+        if getattr(self.model, "model", None) is not None:
+            self.model.model.to(device)
+
     def __getstate__(self) -> dict:
         """Return a picklable state for AutoGluon's pickle-based ``save``.
 
-        The fitted JAX estimator holds attributes that stdlib pickle cannot
-        serialise (see ``_UNPICKLABLE_TABFM_ATTRS``). They are stripped from a
-        copy of the estimator here; the live estimator is left untouched so
+        The fitted TabFM network (``self.model.model``) carries lambda activations
+        built by ``get_activation`` that stdlib pickle cannot serialise. The
+        network is dropped from a copy of the estimator here and reloaded from the
+        cached checkpoint in ``__setstate__``; the live estimator is left intact so
         in-memory prediction after a save still works.
         """
         state = self.__dict__.copy()
         inner = state.get("model")
         if inner is not None:
             stripped = inner.__class__.__new__(inner.__class__)
-            stripped.__dict__.update(
-                {k: v for k, v in inner.__dict__.items() if k not in _UNPICKLABLE_TABFM_ATTRS},
-            )
+            stripped.__dict__.update({k: v for k, v in inner.__dict__.items() if k != "model"})
             state["model"] = stripped
         return state
 
     def __setstate__(self, state: dict) -> None:
-        """Restore the estimator and reload the foundation network dropped on save."""
+        """Restore the estimator and reload the network dropped on save."""
         self.__dict__.update(state)
         inner = self.__dict__.get("model")
         if inner is not None and getattr(inner, "model", None) is None:
-            from tabfm import tabfm_v1_0_0
+            from tabfm import tabfm_v1_0_0_pytorch
 
             model_type = "classification" if self.problem_type in ["binary", "multiclass"] else "regression"
-            inner.model = tabfm_v1_0_0.load(model_type=model_type)
+            inner.model = tabfm_v1_0_0_pytorch.load(model_type=model_type)
 
     @classmethod
     def supported_problem_types(cls) -> list[str] | None:
@@ -235,18 +190,21 @@ class TabFMModel(AbstractModel):
     @classmethod
     def _class_tags(cls) -> dict:
         # TODO: support memory estimate!
-        return {"can_estimate_memory_usage_static": False}
+        tags = super()._class_tags()
+        tags["can_estimate_memory_usage_static"] = False
+        return tags
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
 
 
 def prefetch_weights() -> None:
-    """Pre-download the TabFM v1.0.0 checkpoint from Hugging Face.
+    """Pre-download the TabFM v1.0.0 PyTorch checkpoint from Hugging Face.
 
-    Warms the local cache (``google/tabfm-v1-0-0``) so parallel / offline fits do
-    not race on the download.
+    Warms the local cache (``google/tabfm-1.0.0-pytorch``) so parallel / offline
+    fits do not race on the download.
     """
     from huggingface_hub import snapshot_download
+    from tabfm.src.pytorch.tabfm_v1_0_0 import HF_REPO_ID
 
-    snapshot_download(repo_id="google/tabfm-v1-0-0")
+    snapshot_download(repo_id=HF_REPO_ID)
