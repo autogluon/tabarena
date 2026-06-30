@@ -12,6 +12,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Attributes on the fitted TabFM estimator (``self.model``) that JAX makes
+# unpicklable but that are cheap to restore, so they are dropped on save (see
+# ``__getstate__`` / ``__setstate__``):
+#   * ``model`` -- the foundation network. Its Flax modules hold an activation
+#     ``silu`` whose object identity differs from ``jax.nn.silu`` (so stdlib
+#     pickle's by-reference function check fails) and its parameters carry live
+#     ``jaxlib._jax.Device`` handles (which no pickler can serialise). Reloaded
+#     from the cached checkpoint via ``tabfm_v1_0_0.load`` on unpickle.
+#   * ``_predict_step_compiled_with_cat`` / ``_predict_step_compiled_no_cat`` --
+#     JIT-compiled predict closures cached lazily on the first predict; TabFM
+#     recreates them on demand, so they are simply discarded.
+_UNPICKLABLE_TABFM_ATTRS = (
+    "model",
+    "_predict_step_compiled_with_cat",
+    "_predict_step_compiled_no_cat",
+)
+
 
 class TabFMModel(AbstractModel):
     """TabFM: a tabular foundation model that predicts via in-context learning.
@@ -111,6 +128,34 @@ class TabFMModel(AbstractModel):
         # future preprocessing extensions and parity with the other wrappers.
         X = self.preprocess(X, y=y)
         self.model = self.model.fit(X=X, y=y)
+
+    def __getstate__(self) -> dict:
+        """Return a picklable state for AutoGluon's pickle-based ``save``.
+
+        The fitted JAX estimator holds attributes that stdlib pickle cannot
+        serialise (see ``_UNPICKLABLE_TABFM_ATTRS``). They are stripped from a
+        copy of the estimator here; the live estimator is left untouched so
+        in-memory prediction after a save still works.
+        """
+        state = self.__dict__.copy()
+        inner = state.get("model")
+        if inner is not None:
+            stripped = inner.__class__.__new__(inner.__class__)
+            stripped.__dict__.update(
+                {k: v for k, v in inner.__dict__.items() if k not in _UNPICKLABLE_TABFM_ATTRS},
+            )
+            state["model"] = stripped
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the estimator and reload the foundation network dropped on save."""
+        self.__dict__.update(state)
+        inner = self.__dict__.get("model")
+        if inner is not None and getattr(inner, "model", None) is None:
+            from tabfm import tabfm_v1_0_0
+
+            model_type = "classification" if self.problem_type in ["binary", "multiclass"] else "regression"
+            inner.model = tabfm_v1_0_0.load(model_type=model_type)
 
     @classmethod
     def supported_problem_types(cls) -> list[str] | None:
