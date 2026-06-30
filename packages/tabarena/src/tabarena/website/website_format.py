@@ -81,7 +81,7 @@ def get_model_family(model_name: str) -> str:
             "MNCA",
             "NN_TORCH",
         ],
-        Constants.tree: ["GBM", "CAT", "EBM", "XGB", "XT", "RF", "PB"],
+        Constants.tree: ["GBM", "CAT", "EBM", "XGB", "XT", "RF", "PB", "CHIMERA"],
         Constants.foundational: [
             "TABDPT",
             "TABICL",
@@ -98,6 +98,7 @@ def get_model_family(model_name: str) -> str:
             "TA-TABPFN-3",
             "TA-ORION-MSP",
             "TA-ILTM",
+            "TA-NORI",
         ],
         Constants.baseline: ["KNN", "LR"],
         Constants.other: ["XRFM"],
