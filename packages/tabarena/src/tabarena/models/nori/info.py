@@ -7,7 +7,7 @@ from tabarena.models.nori.model import NoriModel
 
 nori_method_metadata = MethodMetadata.config(
     method="Nori",
-    suite="tabarena-2026-06-18",
+    suite="tabarena-2026-06-30",
     ag_key="TA-NORI",
     config_default="Nori_c1_default_BAG_L1",
     can_hpo=False,
@@ -16,7 +16,7 @@ nori_method_metadata = MethodMetadata.config(
     date="2026-06-18",
     reference_url="https://github.com/Synthefy/synthefy-nori",
     display_name="Nori",
-    verified=False,
+    verified=True,
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )

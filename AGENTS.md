@@ -131,6 +131,24 @@ Turn a benchmark run's already-present raw `results.pkl` files into cached, host
    - Real upload: add `--no-dry-run` with `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` set in the environment (never as flags). **r2 only** — the metadata needs `cache_type="r2"` + `cache_kwargs={"bucket", "prefix"}`; the dry-run prints the exact `--no-dry-run` command and, when the creds are unset, how to obtain them (`MethodMetadata.r2_credentials_help()`). `raw` uploads by default (`--no-upload-raw` to skip).
 3. **Register in the appropriate context's collection** — add the method so it appears in the benchmark. For TabArena, import the model's `info.py` `method_metadata` and add it to `tabarena_method_metadata_collection` in `packages/tabarena/src/tabarena/contexts/tabarena/methods.py` (the collection lists each model's `info.py` metadata directly, and is itself the paper method set used by `TabArenaContext`). It flows into `tabarena_method_metadata_complete_collection` automatically. Other arena contexts register in their own collection.
 
+
+### Example
+```bash
+
+# Verify local cache state
+python scripts/run_process_method.py /path/to/nori_regression_18062026/data
+
+# Edit metadata in info.py
+
+ python scripts/run_process_method.py /path/to/nori_regression_18062026/data --method-metadata tabarena.models.nori.info:nori_method_metadata --process
+
+python scripts/run_upload_results.py --method-metadata tabarena.models.nori.info:nori_method_metadata
+
+python scripts/run_upload_results.py --method-metadata tabarena.models.nori.info:nori_method_metadata --no-dry-run
+
+# Add model to the collection in `packages/tabarena/src/tabarena/contexts/tabarena/methods.py`
+```
+
 ## Conventions
 
 - **Add a new model**: create one folder `packages/tabarena/src/tabarena/models/<model>/` (`model.py`, `hpo.py`, `info.py`, `__init__.py`), then edit `models/__init__.py` (lazy class entry), `models/utils.py` (name→generator map), and `packages/tabarena/pyproject.toml` (a per-model extra). The registry auto-discovers the model from its `info.py`, and `tests/tabarena/models/test_all_models.py` then fits it automatically — there is **no per-model test file**. Only add an entry to `tests/tabarena/models/smoke_configs.py` if the smoke fit needs faster toy hyperparameters or a restricted problem-type set (keyed by the model's `MethodMetadata.method`). **Use the `add-model` skill**, which encodes this and points to reference implementations (foundation / torch / sklearn).
