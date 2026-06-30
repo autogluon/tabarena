@@ -11,7 +11,7 @@ task), so a run over a subset takes a while — narrow ``--subset`` to go faster
 
 Run it:
 
-    python "examples/!experimental/run_async_tabarena_api_system.py" --subset lite small
+    python examples/advanced/run_async_tabarena_api_system.py --subset lite small
 """
 
 from __future__ import annotations

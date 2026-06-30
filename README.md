@@ -13,21 +13,32 @@
 
 ---
 
-| 🚀 [Leaderboard](https://tabarena.ai/) | 📂 [Example Scripts]( https://tabarena.ai/code-examples) | 📊 [Dataset Curation](https://tabarena.ai/data-tabular-ml-iid-study) | 📄 [Paper](https://tabarena.ai/paper-tabular-ml-iid-study) |
+| 🚀 [Leaderboard](https://tabarena.ai/) | 📂 [Example Scripts]( https://tabarena.ai/code-examples) | 📊 [Dataset Curation](https://tabarena.github.io/data-foundry/) | 📄 Papers: [TabArena](https://arxiv.org/abs/2506.16791) · [BeyondArena](https://arxiv.org/abs/2606.30410) |
 |:--------------------------------------:|:----------------------------------------------------------------------------------------:|:----------------------------------------------------------------------------------------:|:--------------------------------------------------------------------------------:|
 
 ---
 </div>
 
-TabArena is a living benchmarking system that makes benchmarking tabular machine learning models a reliable experience. TabArena implements best practices to ensure methods are represented at their peak potential, including cross-validated ensembles, strong hyperparameter search spaces contributed by the method authors, early stopping, model refitting, parallel bagging, memory usage estimation, and more.
+TabArena is a living benchmarking system that makes benchmarking tabular machine learning models a reliable experience. TabArena implements best practices to ensure methods are represented at their peak potential, including cross-validated ensembles, strong hyperparameter search spaces contributed by the method authors, early stopping, model refitting, parallel bagging, memory usage estimation, and more. Explore the latest results on the [live leaderboard](https://huggingface.co/spaces/TabArena/leaderboard).
 
-TabArena currently consists of:
+This single codebase powers **two complementary benchmarks** that share the same fitting, runner, and
+evaluation code — so moving between them is essentially a one-line change (`TabArenaContext` ↔
+`BeyondArenaContext`):
 
-- 51 manually curated tabular datasets representing real-world tabular data tasks.
-- 9 to 30 evaluated splits per dataset.
-- 27+ tabular machine learning methods, including 10+ tabular foundation models.
-- More than 50 million trained models across the benchmark, with all validation and test predictions cached to enable tuning and post-hoc ensembling analysis.
-- A [live TabArena leaderboard](https://huggingface.co/spaces/TabArena/leaderboard) showcasing the results.
+- 🏟️ **TabArena** — the living benchmark on **curated, IID** tabular datasets.
+- 🌍 **BeyondArena** — a holistic, ***beyond-IID*** benchmark spanning **IID, temporal, and grouped**
+  tasks across a wide range of dataset sizes and feature dimensionalities.
+
+> **New here? Start with TabArena, then graduate to BeyondArena.** Get your model working and
+> competitive on TabArena's curated IID datasets first; once it holds up there, run the *same* code
+> on BeyondArena to stress-test how well it generalizes beyond IID (temporal / grouped splits, larger
+> and higher-dimensional data). → [`examples/beyondarena`](examples/beyondarena)
+
+**TabArena** covers 51 curated datasets (9–30 splits each) and 27+ methods, including 10+ tabular
+foundation models — over 50M trained models, with all validation and test predictions cached for
+tuning and post-hoc ensembling. **BeyondArena** extends this to **142 datasets** across IID,
+temporal, and grouped task types, spanning tiny to 1M-row datasets and low- to high-dimensional
+features.
 
 
 ## ⚡ Quickstart
@@ -44,11 +55,13 @@ python examples/benchmarking/run_quickstart_tabarena.py
 ```
 
 For other install paths (eval-only, editable AutoGluon, dependency), see [Installation](#-installation) below.
+To try **BeyondArena** instead, run `python examples/beyondarena/run_quickstart_beyondarena.py` with the same install.
 
 ## 🕹️ Use Cases
 
 We share more details on various use cases of TabArena in our [examples](examples):
 
+* 🌍 **Benchmarking Beyond IID (BeyondArena)**: please refer to [examples/beyondarena](examples/beyondarena).
 * 📊 **Benchmarking Predictive Machine Learning Models**: please refer to [examples/benchmarking](examples/benchmarking).
 * 🚀 **Using SOTA Tabular Models Benchmarked by TabArena**: please refer to [examples/running_tabarena_models](examples/running_tabarena_models).
 * 🧪 **Advanced and Specialized Usage**: please refer to [examples/advanced](examples/advanced).
@@ -188,8 +201,10 @@ TabArena caches predictions, results, and leaderboards as downloadable artifacts
 
 # 📄 Citation
 
-> [!TIP]
-> If you use TabArena in a scientific publication, please cite our paper.
+> If you use this code in a scientific publication, please cite the relevant paper(s): **TabArena**
+> for the living IID benchmark, and **BeyondArena** for the beyond-IID benchmark.
+
+### TabArena
 
 **TabArena: A Living Benchmark for Machine Learning on Tabular Data**
 Nick Erickson, Lennart Purucker, Andrej Tschalzev, David Holzmüller, Prateek Mutalik Desai, David Salinas, Frank Hutter
@@ -209,6 +224,30 @@ Nick Erickson, Lennart Purucker, Andrej Tschalzev, David Holzmüller, Prateek Mu
   journal = {Advances in Neural Information Processing Systems},
   volume  = {38},
   year    = {2026}
+}
+```
+
+</details>
+
+### BeyondArena
+
+**Beyond IID: How General Are Tabular Foundation Models, Really?**
+Lennart Purucker, Andrej Tschalzev, Nick Erickson, Gioia Blayer, David Holzmüller, Alan Arazi, Alexander Pfefferle, Mustafa Tajjar, Gaël Varoquaux, Frank Hutter
+
+📄 [arXiv](https://arxiv.org/abs/2606.30410)
+
+<details>
+<summary><b>BibTeX</b></summary>
+
+```bibtex
+@misc{purucker2026beyondiid,
+  title         = {Beyond IID: How General Are Tabular Foundation Models, Really?},
+  author        = {Purucker, Lennart and Tschalzev, Andrej and Erickson, Nick and Blayer, Gioia and Holzm{\"u}ller, David and Arazi, Alan and Pfefferle, Alexander and Tajjar, Mustafa and Varoquaux, Ga{\"e}l and Hutter, Frank},
+  year          = {2026},
+  eprint        = {2606.30410},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  url           = {https://arxiv.org/abs/2606.30410}
 }
 ```
 

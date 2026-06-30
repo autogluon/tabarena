@@ -15,6 +15,25 @@
 Here we share examples for various use cases of [TabArena](https://tabarena.ai)'s 
 [code](https://github.com/autogluon/tabarena/), a benchmarking framework for tabular data.
 
+This code powers **two benchmarks**: the original **TabArena** (curated IID datasets) and
+**BeyondArena** (a holistic, *beyond-IID* benchmark — IID / temporal / grouped tasks across many
+sizes and feature dimensionalities). They share the same experiment / runner / evaluation API; the
+examples below are for TabArena, and the [`beyondarena/`](beyondarena) folder mirrors them for
+BeyondArena.
+
+### 🌍 BeyondArena (beyond-IID benchmark)
+
+A second benchmark in the same codebase, from the paper
+[*Beyond IID: How General Are Tabular Foundation Models, Really?*](https://arxiv.org/abs/2606.30410).
+Same API as TabArena — swap `TabArenaContext` for `BeyondArenaContext`. See its own README for
+details and the subset reference.
+
+- **Folder:** [`beyondarena/`](beyondarena)
+- **Use Cases:**
+  - `run_quickstart_beyondarena.py` - Benchmark your own custom model on BeyondArena and compare to the cached baselines.
+  - `run_generate_beyondarena_leaderboard.py` - Generate the official BeyondArena leaderboard.
+  - `beyondarena/advanced/` - No-bagging runs, custom (Data Foundry) datasets.
+
 ### 📊 Benchmarking Predictive Machine Learning Models
 
 You can use TabArena for various benchmarking tasks, such as benchmarking TabArena's
@@ -39,16 +58,20 @@ ML pipelines.
 ### 🧪 Advanced and Specialized Usage
 
 Lower-level and specialized workflows: running on arbitrary OpenML tasks, plain AutoGluon
-on OpenML, and no-bagging foundation-model setups.
+on OpenML, no-bagging foundation-model setups, benchmarking full ML systems, and driving the
+low-level async / fan-out job API by hand.
 
 - **Folder:** `advanced/`
 - **Use Cases:**
   - `run_any_openml_task.py` - Benchmark TabArena models (full TabArena workflow) on any OpenML task, including tasks not in TabArena.
   - `run_quickstart_tabarena_model_without_bagging.py` - Benchmark a model as an *outer* (no-bagging) experiment on TabArena (shown with TabICLv2: a default + an `n_estimators=1` config).
   - `run_tabarena_tabpfn3_custom_checkpoint.py` - Run TabPFN-3 on TabArena from non-default checkpoints, as an outer (no-bagging) experiment.
+  - `run_quickstart_tabarena_external_system.py` - Benchmark a full ML *system* (e.g. AutoGluon) on TabArena via an `ExternalSystemModel` (`system_experiments=True`).
   - `run_autogluon_on_openml_task.py` - Run AutoGluon on any OpenML task.
   - `run_autogluon_on_openml_task_with_hpo_configs.py` - Run AutoGluon on an OpenML task using TabArena's model search spaces.
   - `run_get_tabarena_datasets_from_openml.py` - Get the data used by TabArena from OpenML, without the TabArena framework.
+  - `run_async_tabarena_api.py` - Drive TabArena's low-level async / fan-out job API by hand (build → fan out → gather → register → score) with a swappable future-based backend.
+  - `run_async_tabarena_api_system.py` - The same async / fan-out API, but benchmarking a full ML *system* (a `TabularPredictor` fit per task).
   - `run_configure_caches.py` - Declare *where* TabArena caches datasets, model weights, and results — once, via `CacheConfig` — and let the context propagate it to every worker.
 
 ### 🗃️ Analysing Metadata and Meta-Learning
