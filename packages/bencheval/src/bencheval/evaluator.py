@@ -8,7 +8,7 @@ import pandas as pd
 from scipy.stats import gmean
 
 from ._analysis import DatasetAnalysisMixin
-from ._common import FRONTIER_ADVANTAGE, IMPROVABILITY, LOSS_RESCALED, RANK
+from ._common import FRONTIER_ADVANTAGE, IMPROVABILITY, LOSS_RESCALED, MINMAX_NORMALIZED_SCORE, RANK
 from ._plotting import PlottingMixin
 from ._validation import ResultsValidationMixin
 from .elo_utils import EloHelper
@@ -89,6 +89,10 @@ def _lb_winrate(ctx: _LeaderboardContext) -> list:
     return [ctx.evaluator.compute_winrate(results_per_task=ctx.results_per_task).to_frame()]
 
 
+def _lb_minmax_normalized_score(ctx: _LeaderboardContext) -> list:
+    return [ctx.evaluator.compute_minmax_normalized_score(results_per_task=ctx.results_per_task).to_frame()]
+
+
 def _lb_improvability(ctx: _LeaderboardContext) -> list:
     ev = ctx.evaluator
     tasks = list(ctx.results_per_task[ev.task_col].unique())
@@ -149,6 +153,7 @@ _LEADERBOARD_METRICS: tuple[_LeaderboardMetric, ...] = (
     _LeaderboardMetric("elo", _lb_elo),
     _LeaderboardMetric("rank", _lb_rank, always_on=True),
     _LeaderboardMetric("winrate", _lb_winrate),
+    _LeaderboardMetric("minmax_normalized_score", _lb_minmax_normalized_score),
     _LeaderboardMetric("improvability", _lb_improvability),
     _LeaderboardMetric("baseline_advantage", _lb_baseline_advantage, requires_baseline=True),
     _LeaderboardMetric("frontier_advantage", _lb_frontier_advantage),
@@ -162,6 +167,7 @@ _LEADERBOARD_METRICS: tuple[_LeaderboardMetric, ...] = (
 _LEADERBOARD_FLAG_TO_KEY = {
     "include_elo": "elo",
     "include_winrate": "winrate",
+    "include_minmax_normalized_score": "minmax_normalized_score",
     "include_improvability": "improvability",
     "include_mrr": "mrr",
     "include_rank_counts": "rank_counts",
@@ -232,6 +238,7 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         include_error: bool = False,
         include_elo: bool = True,
         include_winrate: bool = True,
+        include_minmax_normalized_score: bool = False,
         include_improvability: bool = True,
         include_mrr: bool = False,
         include_rescaled_loss: bool = False,
@@ -269,6 +276,7 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
             {
                 "include_elo": include_elo,
                 "include_winrate": include_winrate,
+                "include_minmax_normalized_score": include_minmax_normalized_score,
                 "include_improvability": include_improvability,
                 "include_mrr": include_mrr,
                 "include_rank_counts": include_rank_counts,
@@ -915,6 +923,24 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         loss_rescaled.name = LOSS_RESCALED
         return loss_rescaled
 
+    def compute_minmax_normalized_score(self, results_per_task: pd.DataFrame) -> pd.Series:
+        """Equal-task-weighted mean min-max normalized score per method (higher is better).
+
+        The per-task score is ``1 - loss_rescaled`` — a min-max rescaling of the error
+        across the methods present on each task: ``1.0`` for the task's best method,
+        ``0.0`` for its worst, linear in between. For a metric like ROC AUC (where
+        ``metric_error = 1 - roc_auc``) this is the per-task min-max normalized ROC AUC.
+        Scores are averaged across tasks with equal task weighting (and across seeds
+        first when a seed column is present).
+        """
+        results_per_task = results_per_task.copy()
+        results_per_task[MINMAX_NORMALIZED_SCORE] = 1.0 - results_per_task[LOSS_RESCALED]
+        score = self._score_weighted_mean_by_task(
+            results_per_task, value_col=MINMAX_NORMALIZED_SCORE, sort_asc=False
+        )
+        score.name = MINMAX_NORMALIZED_SCORE
+        return score
+
     def compute_rank(self, results_per_task: pd.DataFrame) -> pd.Series:
         if self.seed_column is not None and self.seed_column not in results_per_task.columns:
             seed_col = None
@@ -1182,6 +1208,32 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         return MetricSpec(
             name=IMPROVABILITY,
             direction="min",
+            alignment="row",
+            compute=compute,
+            score=score,
+        )
+
+    def metric_spec_minmax_normalized_score(self) -> MetricSpec:
+        """Higher is better (1 is ideal). Score = weighted mean per-task min-max normalized score."""
+
+        def compute(self: BenchmarkEvaluator, df: pd.DataFrame) -> pd.Series:
+            task_groupby_cols = self._resolve_groupby_columns(df, task_only=True)
+            minmax_normalized_score = 1.0 - self.compute_loss_rescaled_per(
+                results_per_task=df, task_groupby_cols=task_groupby_cols
+            )
+            minmax_normalized_score.name = MINMAX_NORMALIZED_SCORE
+            return minmax_normalized_score
+
+        def score(self: BenchmarkEvaluator, df: pd.DataFrame, values: pd.Series, method_1: str) -> float:
+            groupby_columns = self._resolve_groupby_columns(df)
+            tmp = df[groupby_columns].copy()
+            tmp[MINMAX_NORMALIZED_SCORE] = values.to_numpy()
+            per_method = self._score_weighted_mean_by_task(tmp, value_col=MINMAX_NORMALIZED_SCORE, sort_asc=False)
+            return float(per_method.get(method_1, float("nan")))
+
+        return MetricSpec(
+            name=MINMAX_NORMALIZED_SCORE,
+            direction="max",
             alignment="row",
             compute=compute,
             score=score,
