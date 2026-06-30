@@ -26,7 +26,7 @@ tabfm_info = ModelInfo(
     search_space=gen_tabfm,
     method_metadata=tabfm_method_metadata,
     pip_extra=(
-        "tabfm[cuda] @ git+https://github.com/google-research/tabfm.git@3922c753084b8c593bbcb082e08892fbcb840e9f",
+        "tabfm[cuda] @ git+https://github.com/google-research/tabfm.git@53f3fcfb8a3355f55c9fb49f04fbb62b8ba29109",
     ),
     prefetch_weights=prefetch_weights,
 )
