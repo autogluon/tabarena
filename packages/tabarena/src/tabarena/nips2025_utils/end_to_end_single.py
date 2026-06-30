@@ -163,6 +163,7 @@ class EndToEndSingle:
         model_key: str | None = None,
         method: str | None = None,
         suite: str | None = None,
+        artifact_dir: str | Path | None = None,
         backend: Literal["ray", "native"] = "ray",
         verbose: bool = True,
     ) -> Self:
@@ -220,6 +221,12 @@ class EndToEndSingle:
             The name of the upper directory in the cache:
                 ~/.cache/tabarena/artifacts/{suite}/methods/{method}/
             If unspecified, will default to ``{method}``
+        artifact_dir : str | Path or None = None
+            If specified (and ``method_metadata`` is inferred), the inferred method's artifacts are
+            cached directly under this directory (``metadata.yaml`` + ``processed/`` + ``results/``)
+            instead of the ``{suite}/methods/{method}`` layout under the global cache root — useful
+            for keeping a run's artifacts self-contained in a workspace. Reload with
+            ``MethodMetadata.from_yaml(path=artifact_dir)``. Ignored if ``method_metadata`` is given.
         backend : "ray" or "native" = "ray"
             If "ray", will parallelize the calculation of hpo_results and model_results.
             If "native", will sequentially compute hpo_results and model_results.
@@ -250,6 +257,7 @@ class EndToEndSingle:
                 results_lst=results_lst,
                 method=method,
                 suite=suite,
+                artifact_dir=artifact_dir,
             )
 
         log(
@@ -325,6 +333,7 @@ class EndToEndSingle:
         model_key: str | None = None,
         method: str | None = None,
         suite: str | None = None,
+        artifact_dir: str | Path | None = None,
         name_prefix_raw: str | None = None,
         backend: Literal["ray", "native"] = "ray",
         num_cpus: int | None = None,
@@ -377,6 +386,7 @@ class EndToEndSingle:
             model_key=model_key,
             method=method,
             suite=suite,
+            artifact_dir=artifact_dir,
             backend=backend,
             verbose=verbose,
         )

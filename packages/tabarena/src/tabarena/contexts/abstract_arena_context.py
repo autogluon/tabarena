@@ -37,6 +37,7 @@ import pandas as pd
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection, TaskSubset
 from tabarena.benchmark.task.subset_predicate import SubsetPredicate
 from tabarena.evaluation.leaderboard_reporter import LeaderboardReporter
+from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 from tabarena.models._method_simulator import MethodSimulator
@@ -1382,10 +1383,21 @@ class AbstractArenaContext:
         fit_order: Literal["original", "random"] = "original",
         default_always_first: bool = True,
         seed: int = 0,
-    ) -> pd.DataFrame:
-        """Perform HPO across multiple methods.
+    ) -> InMemoryMethodMetadata:
+        """Perform HPO across multiple methods, pooling all of their configs into one family.
 
-        Returns default, tuned, and tuned + ensembled results.
+        ``methods`` may be registered method names (resolved to their ``config_type``) and/or
+        raw ``config_type`` strings; ``run_hpo`` selects the configs of every named family from
+        ``repo`` (defaulting to ``self.load_repo(methods=methods)``) and tunes/ensembles over the
+        union. ``method_default`` (the first method if unset) supplies the always-first default
+        config.
+
+        Returns the pooled family as an :class:`InMemoryMethodMetadata` (method/config_type
+        ``new_config_type``, suite ``ta_suite``) whose in-memory results hold the default / tuned
+        / tuned+ensemble rows. Register it via ``extra_methods=`` / :meth:`register` so it flows
+        through :meth:`compare` and the leaderboard like any method (e.g.
+        ``ContextCls(extra_methods=[combined], only_valid_tasks=True).compare(...)``); call
+        ``.load_results()`` for the raw frame.
         """
         if method_default is None:
             method_default = methods[0]
@@ -1438,13 +1450,28 @@ class AbstractArenaContext:
         tuned_ens["config_type"] = new_config_type
         tuned_ens["method"] = f"{new_config_type} (tuned + ensemble)"
 
-        return pd.concat(
+        results = pd.concat(
             [
                 default,
                 tuned,
                 tuned_ens,
             ],
             ignore_index=True,
+        )
+        # `method_metadata` is a per-row dict of run knobs (n_iterations/n_configs/...) that the
+        # leaderboard never reads and parquet can't serialize; drop it so the family's results
+        # frame is a clean, persistable results artifact.
+        results = results.drop(columns=["method_metadata"], errors="ignore")
+        # No repo is attached: the pooled family's configs belong to the *constituent* families
+        # (the config_types in `methods`), not to `new_config_type`, so there is no coherent
+        # processed repo for it — it is a results-only method. Attaching the merged repo would
+        # mislead repo-backed MethodMetadata logic (e.g. MethodSimulator.get_config_default keyed
+        # on this family's config_type, which the merged repo does not contain).
+        return InMemoryMethodMetadata.from_results_df(
+            results,
+            method=new_config_type,
+            suite=ta_suite,
+            config_type=new_config_type,
         )
 
     def run_hpo(
@@ -1506,19 +1533,14 @@ class AbstractArenaContext:
         if repo is None:
             repo = self.load_repo(config_fallback=config_fallback)
         if configs is None:
-            configs = self._get_config_defaults()
+            configs = [
+                MethodSimulator(m).get_config_default()
+                for m in self.method_metadata_collection.method_metadata_lst
+                if m.method_type == "config"
+            ]
 
         simulator = RepoSimulator(repo=repo, backend=self.backend)
         simulator.repo_metrics.compute_avg_config_prediction_delta(configs=configs)
-
-    # FIXME: WIP
-    def _get_config_defaults(self):
-        config_defaults = []
-        for m in self.method_metadata_collection.method_metadata_lst:
-            if m.method_type != "config":
-                continue
-            config_defaults.append(MethodSimulator(m).get_config_default())
-        return config_defaults
 
     def simulate_portfolio_from_configs(
         self,

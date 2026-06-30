@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import fields
 
+import pandas as pd
 import pytest
 import yaml
 
@@ -124,3 +125,58 @@ def test_methods_from_different_cache_roots_stay_independent(tmp_path):
     assert mm_alice.path == alice / "artifacts" / "s1" / "methods" / "Foo"
     assert mm_bob.path == bob / "artifacts" / "s1" / "methods" / "Foo"
     assert mm_alice.path != mm_bob.path
+
+
+def _config_result_df(*, model_type, ag_key, frameworks, name_prefix="Model"):
+    """Minimal per-result frame mirroring the columns ``from_raw`` infers a config method from."""
+    return pd.DataFrame(
+        {
+            "method_type": "config",
+            "model_type": model_type,
+            "ag_key": ag_key,
+            "num_gpus": 0,
+            "is_bag": True,
+            "name_prefix": name_prefix,
+            "framework": frameworks,
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("model_type", "ag_key"),
+    [
+        ("GBM", "GBM"),  # un-re-keyed: model_type == ag_key (no-op regression guard)
+        ("PREFIX_GBM", "GBM"),  # re-keyed family on the same model-class backbone
+    ],
+)
+def test_from_raw_config_keys_off_model_type_not_ag_key(model_type, ag_key):
+    """``model_key`` / ``config_type`` track the per-result ``model_type`` (the simulation /
+    comparison family key the repo groups by), while ``ag_key`` (the model-class key) is preserved
+    as-is. They may legitimately differ -- e.g. a re-keyed family on the same backbone -- and
+    config_type must follow ``model_type``, not ``ag_key``.
+    """
+    df = _config_result_df(
+        model_type=model_type,
+        ag_key=ag_key,
+        frameworks=["Model_c1_BAG_L1", "Model_c2_BAG_L1"],
+    )
+    mm = MethodMetadata._from_raw_config(result_df=df)
+    assert mm.model_key == model_type
+    assert mm.config_type == model_type
+    assert mm.ag_key == ag_key
+
+
+def test_from_raw_config_artifact_dir_pins_artifact_location(tmp_path):
+    """``artifact_dir`` threads through ``from_raw`` so an inferred method's artifacts resolve
+    directly under it (instead of the ``{suite}/methods/{method}`` layout under the cache root).
+    """
+    df = _config_result_df(
+        model_type="GBM",
+        ag_key="GBM",
+        frameworks=["Model_c1_BAG_L1", "Model_c2_BAG_L1"],
+    )
+    mm = MethodMetadata._from_raw_config(result_df=df, method="M", suite="s", artifact_dir=tmp_path)
+    assert mm.artifact_dir == tmp_path
+    assert mm.path == tmp_path
+    assert mm.path_results == tmp_path / "results"
+    assert mm.path_processed == tmp_path / "processed"

@@ -13,7 +13,10 @@ operations (``load_raw``, ``generate_repo``, ``method_downloader`` / ``method_up
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Self
+
+import yaml
 
 from tabarena.models._method_metadata import MethodMetadata
 
@@ -22,6 +25,14 @@ if TYPE_CHECKING:
 
     from tabarena.nips2025_utils.end_to_end_single import EndToEndResultsSingle
     from tabarena.repository.evaluation_repository import EvaluationRepository
+
+# Results filename by method_type, mirroring MethodMetadata.load_results' dispatch, so a
+# directory written by to_dir is also loadable by the disk-backed MethodMetadata.from_yaml(path=).
+_RESULTS_FILENAME_BY_TYPE = {
+    "config": "hpo_results.parquet",
+    "baseline": "model_results.parquet",
+    "portfolio": "portfolio_results.parquet",
+}
 
 
 class InMemoryMethodMetadata(MethodMetadata):
@@ -97,12 +108,112 @@ class InMemoryMethodMetadata(MethodMetadata):
 
         return cls(results=results, repo=results_single_repo(results_single), **kwargs)
 
+    @classmethod
+    def from_results_df(
+        cls,
+        results: pd.DataFrame,
+        *,
+        method: str,
+        suite: str,
+        config_type: str | None = None,
+        method_type: str = "config",
+        repo: EvaluationRepository | None = None,
+        display_name: str | None = None,
+        can_hpo: bool = True,
+    ) -> Self:
+        """Wrap an already-computed results frame as a registerable in-memory method.
+
+        The DataFrame-first complement to :meth:`from_results_single`, for results produced
+        directly as a frame rather than via an ``EndToEndResultsSingle`` — e.g. the
+        default / tuned / tuned+ensemble frame returned by
+        :meth:`~tabarena.contexts.abstract_arena_context.AbstractArenaContext.combine_hpo`.
+        The frame is returned verbatim by :meth:`load_results`, so it must already carry the
+        leaderboard columns (``method`` / ``dataset`` / ``fold`` / ``metric_error`` / ...).
+
+        For a ``"config"`` method, ``config_type`` is the family key: it becomes ``model_key``
+        (hence :attr:`MethodMetadata.config_type`), matching the frame's ``config_type`` column
+        and the ``"<config_type> (tuned)"`` style method names so the leaderboard renders them as
+        one tunable family. Config-only fields are not accepted for other ``method_type`` values.
+        """
+        # A frame-built method never has a raw artifact, and only has a "processed" repo when one
+        # is supplied (and must genuinely belong to this method — i.e. hold its config_type's
+        # configs). These flags are descriptive (not used to gate loading), but kept accurate so
+        # ``load_processed`` raising for ``repo=None`` matches ``has_processed=False``.
+        has_processed = repo is not None
+        if method_type == "config":
+            return cls(
+                results=results,
+                repo=repo,
+                method=method,
+                suite=suite,
+                method_type="config",
+                ag_key=config_type,
+                model_key=config_type,
+                can_hpo=can_hpo,
+                display_name=display_name,
+                has_raw=False,
+                has_processed=has_processed,
+            )
+        return cls(
+            results=results,
+            repo=repo,
+            method=method,
+            suite=suite,
+            method_type=method_type,
+            display_name=display_name,
+            has_raw=False,
+            has_processed=has_processed,
+        )
+
     # ------------------------------------------------------------------ serialization
     def to_info_dict(self) -> dict:
         # Build on the base exclusion (drops the runtime-only ``artifact_dir`` / ``cache_root``
         # overrides), then
         # also drop the in-memory artifact slots so no DataFrame/repo lands in the info table.
         return {k: v for k, v in super().to_info_dict().items() if k not in self._IN_MEMORY_SLOTS}
+
+    # ------------------------------------------------------------------ persist / cache to disk
+    def to_dir(self, path: str | Path) -> Path:
+        """Persist this in-memory method to a self-contained artifact directory.
+
+        Writes ``metadata.yaml`` + ``results/<...>.parquet`` (and ``processed/`` when a repo is
+        held) in the standard :class:`MethodMetadata` on-disk layout, so the result is reloadable
+        both by :meth:`from_dir` (back into an ``InMemoryMethodMetadata``) and by the disk-backed
+        :meth:`MethodMetadata.from_yaml` (``path=``). Lets an expensive computation (e.g.
+        :meth:`~tabarena.contexts.abstract_arena_context.AbstractArenaContext.combine_hpo`) be
+        cached once and reloaded on later runs instead of recomputed. Returns the directory.
+        """
+        if self.method_type not in _RESULTS_FILENAME_BY_TYPE:
+            raise ValueError(
+                f"Cannot persist method_type={self.method_type!r}; "
+                f"expected one of {sorted(_RESULTS_FILENAME_BY_TYPE)}.",
+            )
+        path = Path(path)
+        results_dir = path / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        # to_info_dict already omits the in-memory slots + runtime-only path overrides, leaving
+        # exactly the dataclass fields from_dir feeds back into the constructor.
+        with open(path / "metadata.yaml", "w") as f:
+            yaml.dump(self.to_info_dict(), f, default_flow_style=False)
+        self._results.to_parquet(results_dir / _RESULTS_FILENAME_BY_TYPE[self.method_type], index=False)
+        if self._repo is not None:
+            self._repo.to_dir(path / "processed")
+        return path
+
+    @classmethod
+    def from_dir(cls, path: str | Path, *, prediction_format: str = "memmap") -> Self:
+        """Reconstruct an ``InMemoryMethodMetadata`` previously written by :meth:`to_dir`.
+
+        Loads the directory as a disk-backed :class:`MethodMetadata` (via
+        :meth:`MethodMetadata.from_yaml`) and lifts its artifacts into memory — reusing that
+        method's own ``load_results`` (results parquet, dispatched by ``method_type``) and
+        ``load_processed`` (the ``processed/`` repo, if present, with ``prediction_format``)
+        rather than re-reading the yaml / parquet / repo by hand. ``to_info_dict`` drops the
+        runtime-only ``artifact_dir``/``cache_root``, so the rebuilt method is fully in-memory.
+        """
+        base = MethodMetadata.from_yaml(path=path)
+        repo = base.load_processed(prediction_format=prediction_format) if base.path_processed_exists else None
+        return cls(results=base.load_results(), repo=repo, **base.to_info_dict())
 
     # ------------------------------------------------------------------ in-memory artifacts
     def load_results(self) -> pd.DataFrame:
