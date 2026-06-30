@@ -22,21 +22,21 @@
 TabArena is a living benchmarking system that makes benchmarking tabular machine learning models a reliable experience. TabArena implements best practices to ensure methods are represented at their peak potential, including cross-validated ensembles, strong hyperparameter search spaces contributed by the method authors, early stopping, model refitting, parallel bagging, memory usage estimation, and more. Explore the latest results on the [live leaderboard](https://huggingface.co/spaces/TabArena/leaderboard).
 
 This single codebase powers **two complementary benchmarks** that share the same fitting, runner, and
-evaluation code — so moving between them is essentially a one-line change (`TabArenaContext` ↔
-`BeyondArenaContext`):
+evaluation code:
 
-- 🏟️ **TabArena** — the living benchmark on **curated, IID** tabular datasets.
+- 🏟️ **TabArena-v0.1** — the living benchmark on **curated, IID** tabular datasets.
 - 🌍 **BeyondArena** — a holistic, ***beyond-IID*** benchmark spanning **IID, temporal, and grouped**
-  tasks across a wide range of dataset sizes and feature dimensionalities.
+  tasks across a wide range of dataset sizes and feature dimensionalities. 
+  **BeyondArena will superseed TabArena-v0.1 in the future.**
 
+> [!TIP]
 > **New here? Start with TabArena, then graduate to BeyondArena.** Get your model working and
 > competitive on TabArena's curated IID datasets first; once it holds up there, run the *same* code
-> on BeyondArena to stress-test how well it generalizes beyond IID (temporal / grouped splits, larger
-> and higher-dimensional data). → [`examples/beyondarena`](examples/beyondarena)
+> on BeyondArena to stress-test how well it generalizes beyond IID.
 
 **TabArena** covers 51 curated datasets (9–30 splits each) and 27+ methods, including 10+ tabular
 foundation models — over 50M trained models, with all validation and test predictions cached for
-tuning and post-hoc ensembling. **BeyondArena** extends this to **142 datasets** across IID,
+tuning and post-hoc ensembling. **BeyondArena** extends this to **[142 datasets](https://huggingface.co/datasets/TabArena/BeyondArena)** across IID,
 temporal, and grouped task types, spanning tiny to 1M-row datasets and low- to high-dimensional
 features.
 

@@ -25,6 +25,7 @@ BeyondArena.
 
 A second benchmark in the same codebase, from the paper
 [*Beyond IID: How General Are Tabular Foundation Models, Really?*](https://arxiv.org/abs/2606.30410).
+Its 142 datasets are hosted on [Hugging Face](https://huggingface.co/datasets/TabArena/BeyondArena).
 Same API as TabArena — swap `TabArenaContext` for `BeyondArenaContext`. See its own README for
 details and the subset reference.
 

@@ -21,7 +21,8 @@ tabular problems actually look like.
 
 It comes from the paper
 [*Beyond IID: How General Are Tabular Foundation Models, Really?*](https://arxiv.org/abs/2606.30410),
-which evaluates 11 models across 142 datasets and finds that today's tabular foundation models excel
+which evaluates 11 models across [142 datasets](https://huggingface.co/datasets/TabArena/BeyondArena)
+and finds that today's tabular foundation models excel
 on tiny-to-medium IID data, while traditional tree-based and deep-learning models still dominate on
 non-IID, large, and high-dimensional datasets.
 
@@ -96,8 +97,9 @@ compute for no meaningful change in the leaderboard.
 BeyondArena's datasets are curated and distributed through **Data Foundry**, a framework for curating
 tabular datasets introduced alongside the benchmark. The `BeyondArenaContext` ships only small
 committed *metadata* (so you can filter by size / problem type / split regime *before* downloading
-anything); when you run jobs, the selected datasets are downloaded from HuggingFace and converted on
-demand. Data Foundry is pulled in by the `data-foundry` extra, which is part of the `benchmark`
+anything); when you run jobs, the selected datasets are downloaded from Hugging Face (the
+[`TabArena/BeyondArena`](https://huggingface.co/datasets/TabArena/BeyondArena) dataset) and converted
+on demand. Data Foundry is pulled in by the `data-foundry` extra, which is part of the `benchmark`
 install. The custom-datasets example shows how to bring your own Data Foundry container.
 
 ## 📄 Citation
