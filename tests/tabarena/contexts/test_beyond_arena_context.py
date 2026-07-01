@@ -85,6 +85,12 @@ class TestSubsetPredicates:
         assert (grouped == (lpg | lps)).all()
         assert lpg.any() and lps.any()
 
+    def test_dim_above_500_is_subset_of_high_dim(self, ctx):
+        grid = ctx.task_metadata_collection.task_grid()
+        preds = ctx.subset_predicates
+        above = preds["dim_above_500"].evaluate(grid, name="dim_above_500")
+        assert (above <= preds["high-dim"](grid)).all()
+
     def test_lite_keys_on_split(self, ctx):
         # "lite" == split 0 == (fold 0, repeat 0): one row per dataset on the grid.
         grid = ctx.task_metadata_collection.task_grid()
