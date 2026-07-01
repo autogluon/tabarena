@@ -38,6 +38,63 @@ def _resolve_device(device: str | None, num_gpus: int, *, cuda_available: bool) 
     return "cuda" if want_gpu else "cpu"
 
 
+# --- Memory-efficient chunking --------------------------------------------
+#
+# TabFM predicts by running the whole training fold as a single in-context
+# sequence, so one forward pass materialises activations that grow with
+# ``rows * features``: the column/row feed-forward buffers are
+# ``[members, features, ff_dim]`` and the cell embedder's Fourier tensor is
+# ``[members, rows, features, group, embed]``. On large tasks this OOMs the GPU
+# (observed at ~50k rows x 170 features: a single feed-forward buffer wanted
+# ~33 GiB). Reducing ``batch_size`` (already 1) or ``n_estimators`` does not
+# help -- ensemble members are forwarded one at a time, so neither changes the
+# per-forward peak.
+#
+# The PyTorch network exposes optional per-block chunk sizes that split each
+# stage's largest activation along an independent axis, bounding peak memory
+# *without changing predictions* (chunking is exact, only slightly slower).
+# They default to ``None`` (no chunking); we enable them above a size threshold
+# and leave small tasks on the faster unchunked path.
+_CHUNK_TRIGGER_CELLS = 1_000_000  # rows * features above which chunking turns on
+_CHUNK_ROW = 4096  # rows per chunk (Fourier cell embedding + row interaction)
+_CHUNK_COL = 64  # feature-instances per chunk (column set-transformer)
+_CHUNK_FFN = 1 << 18  # tokens per chunk (feed-forward expansion in every block)
+
+
+def _memory_chunk_sizes(n_rows: int, n_features: int) -> dict[str, int] | None:
+    """Pick TabFM activation-chunk sizes for an ``n_rows`` x ``n_features`` task.
+
+    Returns the ``row`` / ``col`` / ``ffn`` chunk sizes that bound peak GPU
+    memory on large tasks, or ``None`` when the task is small enough to run
+    unchunked (the faster default). See ``_apply_chunk_sizes`` for how the sizes
+    map onto the network.
+    """
+    if n_rows * n_features <= _CHUNK_TRIGGER_CELLS:
+        return None
+    return {"row": _CHUNK_ROW, "col": _CHUNK_COL, "ffn": _CHUNK_FFN}
+
+
+def _apply_chunk_sizes(network, chunk_sizes: dict[str, int] | None) -> None:
+    """Set (or clear) TabFM's activation-chunk knobs across ``network``.
+
+    TabFM's blocks expose optional ``row_chunk_size`` / ``col_chunk_size`` /
+    ``ffn_chunk_size`` attributes that chunk their largest activation along an
+    independent axis. Knobs are matched by attribute name (robust to the
+    library's internal class layout); ``chunk_sizes=None`` restores the unchunked
+    default so a reused (cached) network is never left with stale settings.
+    """
+    row = col = ffn = None
+    if chunk_sizes is not None:
+        row, col, ffn = chunk_sizes["row"], chunk_sizes["col"], chunk_sizes["ffn"]
+    for module in network.modules():
+        if hasattr(module, "row_chunk_size"):
+            module.row_chunk_size = row
+        if hasattr(module, "col_chunk_size"):
+            module.col_chunk_size = col
+        if hasattr(module, "ffn_chunk_size"):
+            module.ffn_chunk_size = ffn
+
+
 class TabFMModel(AbstractTorchModel):
     """TabFM: a tabular foundation model that predicts via in-context learning.
 
@@ -110,6 +167,12 @@ class TabFMModel(AbstractTorchModel):
 
         self.model = model_cls(model=base_model, **hps)
 
+        # Bound peak GPU memory on large tasks (rows x features) via exact
+        # activation chunking; kept on ``self`` so it is re-applied after the
+        # network is reloaded on unpickle (see ``__setstate__``).
+        self._chunk_sizes = _memory_chunk_sizes(n_rows=X.shape[0], n_features=X.shape[1])
+        _apply_chunk_sizes(base_model, self._chunk_sizes)
+
         # Does nothing (TabFM handles categoricals/missing natively); kept for
         # future preprocessing extensions and parity with the other wrappers.
         X = self.preprocess(X, y=y)
@@ -151,6 +214,10 @@ class TabFMModel(AbstractTorchModel):
 
             model_type = "classification" if self.problem_type in ["binary", "multiclass"] else "regression"
             inner.model = tabfm_v1_0_0_pytorch.load(model_type=model_type)
+            # The freshly loaded network defaults to no chunking; restore the
+            # memory settings chosen at fit time so predict-after-load on large
+            # tasks stays within GPU memory.
+            _apply_chunk_sizes(inner.model, getattr(self, "_chunk_sizes", None))
 
     @classmethod
     def supported_problem_types(cls) -> list[str] | None:
