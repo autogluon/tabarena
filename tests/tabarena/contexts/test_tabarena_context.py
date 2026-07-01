@@ -255,6 +255,40 @@ class TestCompareFoldSimilarityForwarding:
         assert captured["fold_similarity_kwargs"] is None
 
 
+class TestCatFractionPredicates:
+    """`low_cats` / `high_cats` split the v0.1 suite on the curated `percentage_cat_features`.
+
+    The v0.1 task grid carries no categorical counts natively, so these are data-dependent
+    predicates keyed on the always-present `dataset` column (via the curated metadata CSV).
+    """
+
+    @staticmethod
+    def _grid() -> pd.DataFrame:
+        return TaskMetadataCollection.from_preset("TabArena-v0.1").task_grid()
+
+    def test_registered_on_context(self):
+        preds = TabArenaContext.SUBSET_PREDICATES
+        assert {"low_cats", "high_cats"} <= set(preds)
+        assert preds["low_cats"].required_columns == ("dataset",)
+
+    def test_partition_full_grid_disjoint_and_complete(self):
+        grid = self._grid()
+        preds = TabArenaContext.SUBSET_PREDICATES
+        low = preds["low_cats"].evaluate(grid, name="low_cats")
+        high = preds["high_cats"].evaluate(grid, name="high_cats")
+        assert not (low & high).any()  # disjoint
+        assert (low | high).all()  # complete partition (every v0.1 dataset lands in one bucket)
+
+    def test_bucket_dataset_counts(self):
+        # Threshold @50%: 36 low-cat datasets, 15 high-cat (see CAT_FRACTION_THRESHOLD).
+        grid = self._grid()
+        preds = TabArenaContext.SUBSET_PREDICATES
+        low = preds["low_cats"].evaluate(grid, name="low_cats")
+        high = preds["high_cats"].evaluate(grid, name="high_cats")
+        assert grid.loc[low, "dataset"].nunique() == 36
+        assert grid.loc[high, "dataset"].nunique() == 15
+
+
 class TestComparePlotOnlyForwarding:
     """compare(plot_only=) reaches the lower-level compare (and thus eval) via kwargs."""
 

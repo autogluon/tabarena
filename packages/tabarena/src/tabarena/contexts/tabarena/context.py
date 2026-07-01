@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from functools import lru_cache
 from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
@@ -16,6 +17,45 @@ if TYPE_CHECKING:
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
     from tabarena.caching import CacheConfig
     from tabarena.models._method_metadata import MethodMetadata
+
+#: Inclusive boundary on ``percentage_cat_features`` (the fraction of a dataset's features that are
+#: categorical) separating the ``low_cats`` bucket (at or below it) from ``high_cats`` (above it).
+#: 50 splits the TabArena v0.1 suite into 36 low-cat and 15 high-cat datasets.
+CAT_FRACTION_THRESHOLD = 50.0
+
+
+@lru_cache(maxsize=1)
+def _datasets_by_cat_fraction() -> tuple[frozenset[str], frozenset[str]]:
+    """``(low_cat, high_cat)`` dataset-name sets, split on ``percentage_cat_features``.
+
+    TabArena v0.1's native task grid carries no categorical-feature counts (the warehouse
+    ``num_*_cats`` fields are ``None`` for v0.1 tasks), so the split is sourced from the committed
+    curated metadata CSV and joined to the grid on the ``dataset`` name (the curated
+    ``dataset_name`` matches the grid ``dataset`` 1:1). Loaded once on first use.
+    """
+    from tabarena.benchmark.task.metadata.fetch_metadata import load_curated_task_metadata
+
+    df = load_curated_task_metadata()
+    is_low = df["percentage_cat_features"] <= CAT_FRACTION_THRESHOLD
+    low = frozenset(df.loc[is_low, "dataset_name"].astype(str))
+    high = frozenset(df.loc[~is_low, "dataset_name"].astype(str))
+    return low, high
+
+
+def _cat_fraction_predicate(*, low: bool) -> SubsetPredicate:
+    """A :class:`SubsetPredicate` keeping grid rows whose dataset is in the low/high cat bucket.
+
+    Data-dependent (like :func:`~tabarena.benchmark.task.subset_predicate.tasks_in_frame`): it
+    closes over the curated-metadata split rather than reading a grid column, so it only requires
+    the always-present ``dataset`` column.
+    """
+
+    def _mask(df: pd.DataFrame) -> pd.Series:
+        low_set, high_set = _datasets_by_cat_fraction()
+        keep = low_set if low else high_set
+        return df["dataset"].astype(str).isin(keep)
+
+    return SubsetPredicate(_mask, ("dataset",))
 
 
 class TabArenaContext(AbstractArenaContext):
@@ -50,6 +90,12 @@ class TabArenaContext(AbstractArenaContext):
             lambda df: (df["max_train_rows"] <= 100_000) & (df["n_features"] <= 500) & (df["n_classes"] > 0),
             ("max_train_rows", "n_features", "n_classes"),
         ),
+        # categorical-feature fraction: the percentage of features that are categorical, taken from
+        # the curated metadata (the v0.1 grid carries no cat counts natively) and keyed on the
+        # dataset name. Complementary split at CAT_FRACTION_THRESHOLD (50%): low_cats has 36
+        # datasets, high_cats 15.
+        "low_cats": _cat_fraction_predicate(low=True),
+        "high_cats": _cat_fraction_predicate(low=False),
         # split-level filter: keeps split 0 == (fold 0, repeat 0). Evaluated on the task grid's
         # "split" column (see TaskMetadataCollection.task_grid); a results frame's "fold" is the
         # split, so this maps to fold == 0 there.
