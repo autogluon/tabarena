@@ -19,7 +19,7 @@ self-contained and only depends on `tabarena`.
 tabflow_slurm/                      ← this folder (docs, examples, history, pyproject)
 ├── README.md, AGENTS.md, BENCHMARK_LOG.md
 ├── pyproject.toml                  ← declares the `tabflow_slurm` package; deps: tabarena
-├── experiments/                    ← runnable setup/eval scripts (run_setup_*, run_eval_*)
+├── experiments/                    ← runnable run_*.py scripts (setup + eval subcommands)
 └── tabflow_slurm/                  ← the package
     ├── __init__.py                 ← re-exports the public API
     ├── run_tabarena_experiment.py  ← runner: fits ONE item on a node (bundled script)

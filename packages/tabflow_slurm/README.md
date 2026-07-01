@@ -37,7 +37,7 @@ job JSON with it) and a Python venv reachable from the nodes (passed as `python_
 ## Quickstart
 
 A setup script composes a `TabArenaBenchmarkPlan` and calls `setup_jobs()`. Minimal example
-(see [`experiments/run_setup_tabarena_v0pt1.py`](experiments/run_setup_tabarena_v0pt1.py)):
+(the `setup` half of [`experiments/run_tabarena_v0pt1.py`](experiments/run_tabarena_v0pt1.py)):
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
@@ -73,16 +73,16 @@ fields `TaskMetadataCollection.subset_tasks` / `context.build_jobs` accept (`sub
 `split_indices`, `problem_types`, `n_train_samples`, ...). A plain dict still works (it resolves to a
 `TaskSubset`, with unknown keys rejected).
 
-Run the script on the **head node** (it materializes tasks + checks the cache locally), then run the
-printed `sbatch` command(s) to launch the jobs. When they finish, evaluate with a
-`run_eval_*.py` script (see [`experiments/`](experiments)).
+Run the script's `setup` subcommand on the **head node** (it materializes tasks + checks the cache
+locally), then run the printed `sbatch` command(s) to launch the jobs. When they finish, evaluate
+with the same script's `eval` subcommand (see [`experiments/`](experiments)).
 
 ---
 
 ## End-to-end flow
 
 ```
-                          your setup script (experiments/run_setup_*.py)
+                          your setup script (experiments/run_*.py setup)
                                           │  composes
                                           ▼
    PathSetup ─┐                  TabArenaBenchmarkPlan ──── ModelJob[] (per-model overrides)
@@ -110,7 +110,7 @@ printed `sbatch` command(s) to launch the jobs. When they finish, evaluate with 
                                    │  setup_slurm_job() → JobBatch.load() →
                                    │  ExperimentBatchRunner.run_jobs() → cache result
                                    ▼
-                       <workspace>/output/<benchmark_name>/…   ──►  run_eval_*.py → leaderboard
+                       <workspace>/output/<benchmark_name>/…   ──►  run_*.py eval → leaderboard
 ```
 
 ---
@@ -240,9 +240,10 @@ using `defaults` for everything shared.
 
 ## Examples & history
 
-- [`experiments/`](experiments) — runnable setup + eval scripts:
-  `run_setup_tabarena_v0pt1.py`, `run_setup_beyondarena.py`, `run_eval_tabarena_v0pt1.py`,
-  `run_eval_beyondarena.py`. Copy one and adapt the `workspace` / `python_path` / models.
+- [`experiments/`](experiments) — runnable scripts, each with `setup` + `eval` subcommands sharing
+  one `benchmark_name` + paths: `run_tabarena_v0pt1.py`, `run_beyondarena.py` (+ `_local`, no-SLURM
+  variants). Copy one and adapt the `workspace` / `python_path` / models; run `<script> setup`, then
+  `<script> eval` when the jobs finish.
 - [`BENCHMARK_LOG.md`](BENCHMARK_LOG.md) — an append-only, newest-first record of real runs. Each
   entry is a **frozen snapshot** of the `setup_jobs()` call + its git SHA (the API evolves, so old
   snippets only run against their recorded commit).
