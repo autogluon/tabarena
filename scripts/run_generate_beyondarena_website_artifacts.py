@@ -20,8 +20,7 @@ How it diverges from the TabArena generator:
   single axis of subset dimensions (task type / size bucket / feature dimensionality / feature type),
   written to ``subsets/<label>/`` — the layout the BeyondArena leaderboard tab reads.
 * **Cross-subset overview figure.** Adds the per-family / per-model Elo + improvability overview
-  across subsets (:func:`~tabarena.plot.subset_results.plot_subset_results`), mirroring the logic of
-  ``packages/tabflow_slurm/experiments/run_eval_beyondarena.py``.
+  across subsets (:func:`~tabarena.plot.subset_results.plot_subset_results`).
 
 Run ``python scripts/run_generate_beyondarena_website_artifacts.py``. The generate step is
 time-consuming (one ``compare`` per subset); the convert step is fast. Everything is written under
