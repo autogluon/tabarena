@@ -33,6 +33,61 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-06-30 — tabfm_30062026
+
+- **Model(s):** TabFM (0 — default config only)
+- **Git SHA:** `25ed60ff`
+- **Purpose:** TabFM (JAX/Flax in-context tabular foundation model, GPU) on TabArena-v0.1,
+  single-node GCP GPU run. Supports binary / multiclass / regression, so all problem types
+  are included (unlike the regression-only Nori plan).
+- **Notes:** GPU partition `gpurtxpro6000spotinteractive`, 1 GPU, `bundle_size=1`. Empty
+  search space (`can_hpo=False`), so it runs its single default config (0 random configs).
+  No `fake_memory_for_estimates`: TabFM reports `can_estimate_memory_usage_static = False`
+  (no static estimate to compare against a budget), unlike the VRAM-faking DenseLight. The
+  `google/tabfm-v1-0-0` checkpoint is prefetched from Hugging Face by the registry's
+  `prefetch_weights` before the parallel fits. Requires the `tabfm[cuda]` dependency in the
+  run venv. **Had to raise the time limit for a few datasets where the model was very small
+  but still ran long:** `customer_satisfaction_in_airline` and `APSFailure` → 4h;
+  `GiveMeSomeCredit` → 8h. The embedded snippet is a frozen snapshot scoped to
+  `GiveMeSomeCredit` at 8h (`name="gpu_test_3"`); the full run used `TaskSubset(subset="lite")`.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import TabArenaContext
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaBenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+benchmark_plan = TabArenaBenchmarkPlan(
+    benchmark_name="tabfm_30062026",
+    model_jobs=[
+        ModelJob(
+            models=("TabFM", 0),
+            name="gpu_test_3",
+            resources={"num_gpus": 1, "time_limit": 2 * 60 * 60},
+        ),
+    ],
+    context=TabArenaContext(),
+    task_subset=TaskSubset(),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_18062026/bin/python",
+    ),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000spotinteractive"),
+)
+
+benchmark_plan.setup_jobs()
+```
+
+---
+
 ## 2026-06-18 — nori_regression_18062026
 
 - **Model(s):** Nori (0 — default config only)
