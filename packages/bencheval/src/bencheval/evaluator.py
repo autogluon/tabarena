@@ -935,9 +935,7 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         """
         results_per_task = results_per_task.copy()
         results_per_task[MINMAX_NORMALIZED_SCORE] = 1.0 - results_per_task[LOSS_RESCALED]
-        score = self._score_weighted_mean_by_task(
-            results_per_task, value_col=MINMAX_NORMALIZED_SCORE, sort_asc=False
-        )
+        score = self._score_weighted_mean_by_task(results_per_task, value_col=MINMAX_NORMALIZED_SCORE, sort_asc=False)
         score.name = MINMAX_NORMALIZED_SCORE
         return score
 
