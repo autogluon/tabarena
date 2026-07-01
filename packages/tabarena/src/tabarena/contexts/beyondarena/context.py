@@ -92,6 +92,9 @@ class BeyondArenaContext(AbstractArenaContext):
         "high-dim": SubsetPredicate(
             lambda df: df["num_cols_after_preprocessing"] > 100, ("num_cols_after_preprocessing",)
         ),
+        "dim_above_500": SubsetPredicate(
+            lambda df: df["num_cols_after_preprocessing"] > 500, ("num_cols_after_preprocessing",)
+        ),
         "text": SubsetPredicate(lambda df: df["num_text_cols"] > 0, ("num_text_cols",)),
         "high-cardinality": SubsetPredicate(
             lambda df: df["num_high_cardinality_cats"] > 0, ("num_high_cardinality_cats",)
