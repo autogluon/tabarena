@@ -94,6 +94,22 @@ class BeyondArenaContext(AbstractArenaContext):
         "core": SubsetPredicate(lambda df: _core_subset_predicate().predicate(df), ("dataset", "split")),
     }
 
+    #: Standard BeyondArena subslices: each group name maps to a list of :attr:`SUBSET_PREDICATES`
+    #: names AND-ed together. Every group is intersected with ``"core"`` so the standard slices share
+    #: the committed core task set. Read via :attr:`subset_groups`.
+    SUBSET_GROUPS: dict[str, list[str]] = {
+        "core": ["core"],
+        "core_large": ["core", "large"],
+        "high_dim": ["core", "high-dim"],
+        "low_dim": ["core", "low-dim"],
+        "high_cardinality": ["core", "high-cardinality"],
+        "grouped": ["core", "grouped"],
+        "temporal": ["core", "temporal"],
+        "iid": ["core", "iid"],
+        "random": ["core", "random"],
+        "text": ["core", "text"],
+    }
+
     def __init__(
         self,
         methods: str | list[MethodMetadata] = "BeyondArena",
