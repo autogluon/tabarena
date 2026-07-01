@@ -133,6 +133,18 @@ class TestAggregateMetrics:
         assert mrr.loc["B"] == pytest.approx(0.5)
         assert mrr.loc["C"] == pytest.approx(1 / 3)
 
+    def test_minmax_normalized_score(self, ev, data):
+        rpt = ev.compute_results_per_task(data)
+        ns = ev.compute_minmax_normalized_score(rpt)
+        # per-task normalized score = 1 - loss_rescaled (1 = best method, 0 = worst), then
+        # equal-task-weighted mean across tasks.
+        assert ns.loc["A"] == pytest.approx(1.0)
+        assert ns.loc["C"] == pytest.approx(0.0)
+        # B's per-task scores: 1 - {1/3, 0.5, 0.25} = {2/3, 0.5, 0.75}
+        assert ns.loc["B"] == pytest.approx((2 / 3 + 0.5 + 0.75) / 3)
+        # higher is better -> sorted descending
+        assert list(ns.index) == ["A", "B", "C"]
+
     def test_relative_error(self, ev, data):
         rpt = ev.compute_results_per_task(data)
         rel = ev.compute_relative_error(rpt, baseline_method="A")
@@ -169,6 +181,7 @@ class TestLeaderboard:
             include_error=True,
             include_elo=True,
             include_winrate=True,
+            include_minmax_normalized_score=True,
             include_improvability=True,
             include_mrr=True,
             include_rescaled_loss=True,
@@ -192,6 +205,10 @@ class TestLeaderboard:
         assert lb.loc["B", "improvability"] == pytest.approx(0.5)
         assert lb.loc["C", "loss_rescaled"] == pytest.approx(1.0)
         assert lb.loc["A", "loss_rescaled"] == pytest.approx(0.0)
+        # min-max normalized score (per-task min-max, higher is better)
+        assert lb.loc["A", "minmax_normalized_score"] == pytest.approx(1.0)
+        assert lb.loc["C", "minmax_normalized_score"] == pytest.approx(0.0)
+        assert lb.loc["B", "minmax_normalized_score"] == pytest.approx((2 / 3 + 0.5 + 0.75) / 3)
         # relative error / skill score
         assert lb.loc["A", "relative_error"] == pytest.approx(1.0)
         assert lb.loc["A", "skill_score"] == pytest.approx(0.0, abs=1e-9)

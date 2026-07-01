@@ -899,6 +899,7 @@ class LeaderboardReporter:
 
         leaderboard_kwargs.setdefault("include_elo", True)
         leaderboard_kwargs.setdefault("include_winrate", True)
+        leaderboard_kwargs.setdefault("include_minmax_normalized_score", True)
         leaderboard_kwargs.setdefault("include_mrr", True)
         leaderboard_kwargs.setdefault("include_rank_counts", True)
         leaderboard_kwargs.setdefault("baseline_method", calibration_framework)

@@ -6,4 +6,5 @@ from __future__ import annotations
 RANK = "rank"
 IMPROVABILITY = "improvability"
 LOSS_RESCALED = "loss_rescaled"
+MINMAX_NORMALIZED_SCORE = "minmax_normalized_score"
 FRONTIER_ADVANTAGE = "frontier_advantage"
