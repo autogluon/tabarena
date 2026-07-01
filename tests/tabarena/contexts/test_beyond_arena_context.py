@@ -22,7 +22,13 @@ def test_constructs_from_native_collection(ctx):
 
 def test_task_grid_exposes_warehouse_columns(ctx):
     grid = ctx.task_metadata_collection.task_grid()
-    for col in ("task_type", "num_cols_after_preprocessing", "num_text_cols", "num_high_cardinality_cats"):
+    for col in (
+        "task_type",
+        "num_cols_after_preprocessing",
+        "num_text_cols",
+        "num_high_cardinality_cats",
+        "group_labels",
+    ):
         assert col in grid.columns
 
 
@@ -68,6 +74,16 @@ class TestSubsetPredicates:
         combined = preds["iid"](grid) | preds["temporal"](grid) | preds["grouped"](grid)
         assert combined.all()
         assert (preds["random"](grid) == preds["iid"](grid)).all()
+
+    def test_grouped_label_buckets_partition_grouped(self, ctx):
+        grid = ctx.task_metadata_collection.task_grid()
+        preds = ctx.subset_predicates
+        grouped = preds["grouped"](grid)
+        lpg = preds["grouped_lpg"].evaluate(grid, name="grouped_lpg")
+        lps = preds["grouped_lps"].evaluate(grid, name="grouped_lps")
+        assert not (lpg & lps).any()
+        assert (grouped == (lpg | lps)).all()
+        assert lpg.any() and lps.any()
 
     def test_lite_keys_on_split(self, ctx):
         # "lite" == split 0 == (fold 0, repeat 0): one row per dataset on the grid.
