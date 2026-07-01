@@ -104,9 +104,15 @@ def get_model_family(model_name: str) -> str:
         Constants.other: ["XRFM"],
     }
 
+    def _strip_ta(name: str) -> str:
+        # BeyondArena config_types are prefixed with "TA-" (e.g. "TA-REALMLP", "TA-TABPFN-2.6");
+        # strip it so the bare family prefixes below match regardless of that prefix.
+        return name[3:] if name.lower().startswith("ta-") else name
+
+    name = _strip_ta(model_name).lower()
     for method_type, prefixes in prefixes_mapping.items():
         for prefix in prefixes:
-            if model_name.lower().startswith(prefix.lower()):
+            if name.startswith(_strip_ta(prefix).lower()):
                 return method_type
     return Constants.other
 
