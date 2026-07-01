@@ -552,8 +552,8 @@ class TaskMetadataCollection:
           train size over the dataset's splits — matches :meth:`to_legacy_df`'s
           ``n_samples_train_per_fold``), ``n_features`` (``num_features``), ``n_classes``
           (``num_classes``), ``problem_type``, and the warehouse fields ``task_type``,
-          ``num_cols_after_preprocessing``, ``num_text_cols``, ``num_high_cardinality_cats``
-          (``None`` for tasks that don't carry them, e.g. TabArena v0.1).
+          ``num_cols_after_preprocessing``, ``num_text_cols``, ``num_high_cardinality_cats``,
+          ``group_labels`` (``None`` for tasks that don't carry them, e.g. TabArena v0.1).
         """
         # Predicate-facing grid column -> TabArenaTaskMetadata attribute. Warehouse fields are
         # None for tasks that don't carry them (e.g. TabArena v0.1); BeyondArena populates them.
@@ -565,6 +565,7 @@ class TaskMetadataCollection:
             "num_cols_after_preprocessing": "num_cols_after_preprocessing",
             "num_text_cols": "num_text_cols",
             "num_high_cardinality_cats": "num_high_cardinality_cats",
+            "group_labels": "group_labels",
         }
         cols = ["dataset", "fold", "repeat", "split", "max_train_rows", *grid_col_to_field]
         n_folds_by_dataset: dict[str, int] = {}

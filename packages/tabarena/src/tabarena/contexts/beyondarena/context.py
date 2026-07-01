@@ -6,7 +6,8 @@ nothing from ``TabArenaContext``, whose only addition over the base is the TabAr
 ``evaluate_all`` workflow). BeyondArena differs from TabArena v0.1 in three ways:
 
 * **Subset predicates** — size buckets keyed on ``max_train_rows``, plus split-regime
-  (``iid``/``temporal``/``grouped``), feature-dimensionality, text and high-cardinality subsets.
+  (``iid``/``temporal``/``grouped``, with ``grouped`` further split by label granularity into
+  ``grouped_lpg``/``grouped_lps``), feature-dimensionality, text and high-cardinality subsets.
 * **Task metadata** — the committed BeyondArena reference CSV, loaded as a
   :class:`~tabarena.benchmark.task.metadata.BeyondArenaTaskMetadataCollection` (whose tasks already
   carry the warehouse fields inline, so no separate ``warehouse_metadata.csv`` merge is needed). The
@@ -74,6 +75,16 @@ class BeyondArenaContext(AbstractArenaContext):
         "random": SubsetPredicate(lambda df: df["task_type"] == "random", ("task_type",)),
         "temporal": SubsetPredicate(lambda df: df["task_type"] == "temporal", ("task_type",)),
         "grouped": SubsetPredicate(lambda df: df["task_type"] == "grouped", ("task_type",)),
+        # grouped tasks split by label granularity: whether the group_on column carries a
+        # label per group (lpg) or per sample (lps).
+        "grouped_lpg": SubsetPredicate(
+            lambda df: (df["task_type"] == "grouped") & (df["group_labels"] == "per_group"),
+            ("task_type", "group_labels"),
+        ),
+        "grouped_lps": SubsetPredicate(
+            lambda df: (df["task_type"] == "grouped") & (df["group_labels"] == "per_sample"),
+            ("task_type", "group_labels"),
+        ),
         # feature dimensionality / type
         "low-dim": SubsetPredicate(
             lambda df: df["num_cols_after_preprocessing"] <= 100, ("num_cols_after_preprocessing",)
