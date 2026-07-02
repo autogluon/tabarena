@@ -59,6 +59,7 @@ from tabarena.models.sap_rpt_oss.info import (
     sap_rpt_oss_method_metadata as contexttab_metadata,
 )
 from tabarena.models.tabdpt.info import tabdpt_method_metadata as tabdpt_metadata
+from tabarena.models.tabfm.info import tabfm_method_metadata
 from tabarena.models.tabicl.info import (
     tabicl_method_metadata,
     tabiclv2_method_metadata as tabiclv2_metadata,
@@ -164,6 +165,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabpfnv3_method_metadata,
         iltm_method_metadata,
         nori_method_metadata,
+        tabfm_method_metadata,
     ],
 )
 
