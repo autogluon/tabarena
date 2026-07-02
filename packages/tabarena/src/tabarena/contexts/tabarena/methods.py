@@ -49,7 +49,6 @@ from tabarena.models.mitra.info import mitra_method_metadata as mitra_metadata
 from tabarena.models.modernnca.info import modernnca_gpu_method_metadata
 from tabarena.models.nn_torch.info import nn_torch_method_metadata
 from tabarena.models.nori.info import nori_method_metadata
-from tabarena.models.tabfm.info import tabfm_method_metadata
 from tabarena.models.orionmsp.info import orionmsp_method_metadata as orionmsp_metadata
 from tabarena.models.perpetual_booster.info import (
     perpetual_booster_method_metadata as perpetualbooster_metadata,
@@ -60,6 +59,7 @@ from tabarena.models.sap_rpt_oss.info import (
     sap_rpt_oss_method_metadata as contexttab_metadata,
 )
 from tabarena.models.tabdpt.info import tabdpt_method_metadata as tabdpt_metadata
+from tabarena.models.tabfm.info import tabfm_method_metadata
 from tabarena.models.tabicl.info import (
     tabicl_method_metadata,
     tabiclv2_method_metadata as tabiclv2_metadata,
