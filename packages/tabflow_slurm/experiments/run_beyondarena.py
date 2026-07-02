@@ -4,16 +4,25 @@ ONE file, TWO subcommands, sharing the new run's ``BENCHMARK_NAME`` / ``PathSetu
 ``CONTENDER_MODEL`` (defined once below)::
 
     python experiments/run_beyondarena.py setup   # launch the new contender run
-    python experiments/run_beyondarena.py eval      # leaderboard: contender vs. the full suite
+    python experiments/run_beyondarena.py eval      # leaderboard: contender vs. the uploaded suite
 
 `setup` launches a fresh run of a single contender (``CONTENDER_MODEL``). The tasks come from the
 Data Foundry ``BeyondArena`` collection, which ``BeyondArenaContext`` owns: it loads reference
 metadata (no downloads); the benchmark setup later materializes (downloads + converts) only the
-surviving datasets on this head node. Scope a subset with ``task_subset=TaskSubset(dataset_names=[...])``.
+surviving datasets on this head node. Scope a subset with ``task_subset=TaskSubset(subset=["core"])``
+(``core`` is the recommended default protocol) or ``TaskSubset(dataset_names=[...])``.
 
-`eval` combines two runs into one leaderboard: an existing full-suite run (the baselines, which also
-supply the fillna/calibration references) and the new contender run from `setup`. Because each run
-caches under its own ``benchmark_name``, the contender does not collide with the old run.
+`eval` builds the leaderboard the way the TabArena-v0.1 eval and the official BeyondArena leaderboard
+do: the **baselines come from the context**, not from hand-wired output dirs. We post-process only the
+contender's raw ``results.pkl`` (written by `setup`) and register it via ``extra_methods=`` on a
+``BeyondArenaContext``; the context already knows every uploaded baseline
+(``beyond_method_metadata_collection`` — the classic + neural + foundation suite, incl. TabPFN-3), so
+there is nothing to list by hand. ``only_valid_tasks=True`` scopes every leaderboard to the exact
+tasks the contender ran, and ``compare(subset=...)`` slices via BeyondArena's subset predicates.
+
+Note: the illustrative ``CONTENDER_MODEL = "TabPFN-3"`` here is *itself* an uploaded baseline, so we
+mark this run a re-run via ``RESULT_SUFFIX`` (rendered ``TabPFN-3 [rerun]``) to keep it distinct from
+the cached ``TabPFN-3`` in the leaderboard. A genuinely new method needs no suffix.
 """
 
 from __future__ import annotations
@@ -23,7 +32,6 @@ from pathlib import Path
 
 from tabarena.benchmark.experiment import BeyondArenaExperimentBundle
 from tabarena.contexts import BeyondArenaContext
-from tabarena.evaluation import BenchmarkRun, BeyondArenaEvalConfig, run_beyond_arena_eval
 from tabflow_slurm import (
     BeyondArenaResourcesSetup,
     GCPSlurmSetup,
@@ -33,42 +41,34 @@ from tabflow_slurm import (
 )
 
 # ── Shared identity — the ONE place these live; setup + eval both read them ──
-BENCHMARK_NAME = "example_beyondarena_31052026"  # the NEW contender run's cache name
+BENCHMARK_NAME = "example_beyondarena_31052026"  # this contender run's cache name (also the cache suite)
 WORKSPACE = "/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace"
 PYTHON_PATH = "/home/lennart_priorlabs_ai/.venvs/beyondarena_27052026/bin/python"
-CONTENDER_MODEL = "TabPFN-3"  # the model this run adds on top of the existing full suite
+CONTENDER_MODEL = "TabPFN-3"  # the model this run adds; baselines come from the context
+RESULT_SUFFIX = " [rerun]"  # keeps this run distinct from the uploaded TabPFN-3 baseline; None for a new method
 
-# Existing full-suite run that supplies the baselines + fillna/calibration references. `eval` reads
-# its raw results from ``OLD_OUTPUT_DIR/data`` under its own cache name. Adjust to your completed run.
-OLD_BENCHMARK_NAME = "beyond_iid_benchmark_2026"
-OLD_OUTPUT_DIR = "/home/lennart_priorlabs_ai/workspace/benchmarking/output/beyond_iid_benchmark_2026_migrated"
-FULL_MODEL_SUITE = [
-    "Linear",
-    "RandomForest",
-    "ExtraTrees",
-    "CatBoost",
-    "LightGBM",
-    "XGBoost",
-    "RealMLP",
-    "TabM",
-    "TabDPT",
-    "TabPFN-2.6",
-    "TabICLv2",
-]
+# Subset slices to evaluate, anchored on the recommended ``core`` protocol (each dataset's first
+# ``folds_to_use`` splits — no need for the full ``["all"]`` split set). ``only_valid_tasks`` already
+# restricts the leaderboard to the contender's tasks, so these just carve split-regime / problem-type
+# / size / feature slices within it.
 SUBSETS = [
-    [],  # full
-    ["random"],
-    ["temporal"],
-    ["grouped"],
-    ["tiny"],
-    ["small"],
-    ["medium"],
-    ["large"],
-    ["low-dim"],
-    ["high-dim"],
-    ["text"],
-    ["high-cardinality"],
+    ["core"],
+    ["core", "random"],
+    ["core", "temporal"],
+    ["core", "grouped"],
+    ["core", "tiny"],
+    ["core", "small"],
+    ["core", "medium"],
+    ["core", "large"],
+    ["core", "low-dim"],
+    ["core", "high-dim"],
+    ["core", "text"],
+    ["core", "high-cardinality"],
 ]
+
+# Figure format(s) written per subset. PNGs render inline; PDFs are for papers. Each extra format
+# re-runs `compare` purely to re-emit the same figures — the leaderboard itself is identical.
+FIGURE_FILE_TYPES = ("pdf", "png")
 
 
 def _path_setup() -> PathSetup:
@@ -90,8 +90,8 @@ def setup() -> None:
                 },
             ),
         ],
-        # No `task_subset` runs the full suite; scope it with e.g.
-        # `task_subset=TaskSubset(dataset_names=[...])` so only those datasets are fetched.
+        # No `task_subset` runs the full suite; scope it with e.g. `task_subset=TaskSubset(subset=["core"])`
+        # (the recommended protocol) or `TaskSubset(dataset_names=[...])` so only those tasks are fetched.
         context=BeyondArenaContext(),
         experiment_bundle=BeyondArenaExperimentBundle(),
         path_setup=_path_setup(),
@@ -102,31 +102,62 @@ def setup() -> None:
 
 
 def evaluate() -> None:
-    """Combine the existing full-suite run and the new contender run into one leaderboard."""
-    config = BeyondArenaEvalConfig(
-        runs=[
-            # Existing full suite — its `RF (default)` / `XGB (default)` also feed fillna/calibration.
-            BenchmarkRun(
-                benchmark_name=OLD_BENCHMARK_NAME,
-                output_dir=OLD_OUTPUT_DIR,
-                models=FULL_MODEL_SUITE,
-                only_load_cache=True,
-            ),
-            # New contender run from `setup` (own cache name, so no collision with the old run).
-            BenchmarkRun(
-                benchmark_name=BENCHMARK_NAME,
-                output_dir=_path_setup().get_output_path(BENCHMARK_NAME),
-                models=[CONTENDER_MODEL],
-                only_load_cache=True,
+    """Leaderboard per subset: the new contender run vs. the uploaded BeyondArena baselines.
+
+    The baselines are not wired up by hand — they are the methods ``BeyondArenaContext`` already
+    knows (the uploaded ``beyond_method_metadata_collection``). We post-process the contender's raw
+    results and register them via ``extra_methods=``; ``only_valid_tasks=True`` then scopes every
+    leaderboard to the exact tasks the contender ran.
+    """
+    from tabarena.evaluation._eval_common import (
+        MethodArtifact,
+        post_process_to_results,
+        resolve_ag_name,
+        subset_label,
+    )
+    from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata_collection
+
+    # BeyondArena task metadata (committed CSV) — post-processing the raw run needs it to map the
+    # data-foundry task ids to datasets / metrics.
+    task_metadata = load_beyond_task_metadata_collection("BeyondArena")
+
+    # Post-process the contender's raw ``results.pkl`` (written by `setup`) into the cache under this
+    # run's own suite name, then load them back as an in-memory method.
+    contender = post_process_to_results(
+        [
+            MethodArtifact(
+                ag_name=resolve_ag_name(CONTENDER_MODEL),
+                path_raw=_path_setup().get_output_path(BENCHMARK_NAME) / "data",
+                suite=BENCHMARK_NAME,
+                result_suffix=RESULT_SUFFIX,
             ),
         ],
-        figure_output_dir=Path(__file__).parent / "eval_output" / BENCHMARK_NAME,
-        subsets_to_evaluate=SUBSETS,
-        # Highlight the contender in the result plots: its own line in the per-family plot,
-        # star-marked / top-layered in the per-model plot.
-        contender_models=[CONTENDER_MODEL],
+        task_metadata=task_metadata,
     )
-    run_beyond_arena_eval(config)
+
+    context = BeyondArenaContext(
+        extra_methods=contender.to_method_metadata_lst(),
+        only_valid_tasks=True,
+    )
+
+    figure_output_dir = Path(__file__).parent / "eval_output" / BENCHMARK_NAME
+    leaderboards = {}
+    for subset in SUBSETS:
+        label = subset_label(sorted(subset))
+        out_dir = figure_output_dir / "subsets" / label
+        leaderboard = None
+        for figure_file_type in FIGURE_FILE_TYPES:
+            result = context.compare(output_dir=out_dir, subset=subset or None, figure_file_type=figure_file_type)
+            leaderboard = leaderboard if leaderboard is not None else result
+        print(f"\n##### Leaderboard [{label}]")
+        print(leaderboard.to_markdown(index=False))
+        leaderboards[label] = leaderboard
+
+    # Cross-subset overview plots (per-family / per-model), the contender highlighted.
+    from tabarena.plot.subset_results import plot_subset_results
+
+    contender_label = f"{CONTENDER_MODEL}{RESULT_SUFFIX}" if RESULT_SUFFIX else CONTENDER_MODEL
+    plot_subset_results(leaderboards, figure_output_dir / "result_plots", contenders=[contender_label])
 
 
 MODES = {"setup": setup, "eval": evaluate}

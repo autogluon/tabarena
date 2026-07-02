@@ -80,6 +80,7 @@ def evaluate() -> None:
         # One entry per subset the model has results for. Multi-type model:
         # [["lite"], ["binary"], ["multiclass"], ["regression"]]. Regression-only: [["regression"]].
         subsets=[["lite"]],
+        # figure_file_type=("pdf", "png"),  # also emit PNGs alongside the PDFs (default "pdf")
     )
     run_eval(config)
 
