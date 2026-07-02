@@ -80,6 +80,10 @@ class TabArenaEvalConfig:
     """Legacy: OpenML root cache (for fetching task metadata). Prefer ``cache_config``."""
     save_leaderboards: bool = True
     """If True, save each subset's leaderboard CSV under ``figure_output_dir``."""
+    figure_file_type: str | tuple[str, ...] = "pdf"
+    """Figure format(s) written for each subset. A single extension (``"pdf"``) or several
+    (e.g. ``("pdf", "png")`` to also emit PNGs alongside the PDFs — PNGs render inline, PDFs are
+    for papers). Each extra format re-runs ``compare`` to re-emit the same figures in that format."""
 
     @property
     def path_raw(self) -> Path:
@@ -89,6 +93,11 @@ class TabArenaEvalConfig:
     def subsets_to_run(self) -> list[list[str]]:
         """Subset specs to evaluate; defaults to the full benchmark only."""
         return self.subsets if self.subsets is not None else [[]]
+
+    def figure_file_types(self) -> tuple[str, ...]:
+        """Normalize ``figure_file_type`` to a tuple of extensions."""
+        ft = self.figure_file_type
+        return (ft,) if isinstance(ft, str) else tuple(ft)
 
     def init_caches(self) -> None:
         """Point TabArena/OpenML/HF at the configured caches (resolved lazily, order-independent).
@@ -104,19 +113,36 @@ class TabArenaEvalConfig:
         init_caches(self.tabarena_cache_path, self.openml_cache_path)
 
 
-def _compare_subset(context, subset: list[str], *, figure_output_dir: Path):
+def _compare_subset(
+    context,
+    subset: list[str],
+    *,
+    figure_output_dir: Path,
+    figure_file_types: tuple[str, ...] = ("pdf",),
+):
     """Leaderboard for one subset: the run's registered methods vs the TabArena-v0.1 baselines.
 
     The comparison seam that differs from the BeyondArena flow (which uses data-foundry subset
     predicates in :mod:`tabarena.evaluation.beyond_arena_eval`). ``context`` already has the run's
     methods registered via ``extra_methods=``, so they flow through ``compare`` like cached baselines.
+
+    ``figure_file_types`` selects the figure format(s) to write into the subset dir; each extra
+    format re-runs ``compare`` purely to re-emit the same figures in that extension. The leaderboard
+    is identical across formats, so the first one computed is returned.
     """
     from tabarena.evaluation._eval_common import subset_label
 
-    return context.compare(
-        output_dir=figure_output_dir / "subsets" / subset_label(subset),
-        subset=subset or None,
-    )
+    out_dir = figure_output_dir / "subsets" / subset_label(subset)
+    leaderboard = None
+    for figure_file_type in figure_file_types:
+        result = context.compare(
+            output_dir=out_dir,
+            subset=subset or None,
+            figure_file_type=figure_file_type,
+        )
+        if leaderboard is None:
+            leaderboard = result
+    return leaderboard
 
 
 def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
@@ -162,7 +188,12 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
     leaderboards: dict[str, pd.DataFrame] = {}
     for subset in config.subsets_to_run():
         label = subset_label(subset)
-        leaderboard = _compare_subset(context, subset, figure_output_dir=figure_output_dir)
+        leaderboard = _compare_subset(
+            context,
+            subset,
+            figure_output_dir=figure_output_dir,
+            figure_file_types=config.figure_file_types(),
+        )
 
         print(f"\n##### Leaderboard [{label}]")
         print(format_leaderboard(leaderboard).to_markdown(index=False))
