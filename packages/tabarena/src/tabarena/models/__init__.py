@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from tabarena.models.tabpfnv2_5.model import RealTabPFNv25Model, TabPFNv26Model
     from tabarena.models.tabpfnwide.model import TabPFNWideModel
     from tabarena.models.tabstar.model import TabSTARModel
+    from tabarena.models.tabswift.model import TabSwiftModel
     from tabarena.models.xrfm.model import XRFMModel
 
 
@@ -56,6 +57,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "TabPFNWideModel": "tabarena.models.tabpfnwide.model",
     "TabPFNv26Model": "tabarena.models.tabpfnv2_5.model",
     "TabSTARModel": "tabarena.models.tabstar.model",
+    "TabSwiftModel": "tabarena.models.tabswift.model",
     "XRFMModel": "tabarena.models.xrfm.model",
 }
 
