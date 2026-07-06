@@ -87,12 +87,12 @@ class AbstractArenaContext:
         "lite": SubsetPredicate(lambda df: df["split"] == 0, ("split",)),
     }
 
-    #: Named standard subslices, each a list of :attr:`SUBSET_PREDICATES` names AND-ed together
-    #: (the same form ``compare`` / ``build_jobs`` accept as a ``subset``). Lets callers refer to a
-    #: reusable slice (e.g. ``"high_dim"`` -> ``["core", "high-dim"]``) by name instead of respelling
-    #: the predicate list. Base context defines none; subclasses override. Read via
-    #: :attr:`subset_groups` so subclass overrides take effect.
-    SUBSET_GROUPS: dict[str, list[str]] = {}
+    #: Named shortcuts for standard subslices, each a list of :attr:`SUBSET_PREDICATES` names
+    #: AND-ed together (the same form ``compare`` / ``build_jobs`` accept as a ``subset``). Lets
+    #: callers refer to a reusable slice (e.g. ``"high_dim"`` -> ``["core", "high-dim"]``) by name
+    #: instead of respelling the predicate list. Base context defines none; subclasses override.
+    #: Read via :attr:`subset_shortcuts` so subclass overrides take effect.
+    SUBSET_SHORTCUTS: dict[str, list[str]] = {}
 
     def __init__(
         self,
@@ -581,15 +581,16 @@ class AbstractArenaContext:
         return type(self).SUBSET_PREDICATES
 
     @property
-    def subset_groups(self) -> dict[str, list[str]]:
-        """Named standard subslices (group name -> list of subset-predicate names AND-ed
-        together). Reads from ``type(self).SUBSET_GROUPS`` so subclass overrides take effect.
+    def subset_shortcuts(self) -> dict[str, list[str]]:
+        """Named shortcuts for standard subslices (shortcut name -> list of subset-predicate
+        names AND-ed together). Reads from ``type(self).SUBSET_SHORTCUTS`` so subclass overrides
+        take effect.
         """
-        return type(self).SUBSET_GROUPS
+        return type(self).SUBSET_SHORTCUTS
 
     @classmethod
-    def subset_group_name(cls, subset: str | list[str] | None) -> str | None:
-        """Reverse of :attr:`subset_groups`: the standard-group name whose predicate list
+    def subset_shortcut_name(cls, subset: str | list[str] | None) -> str | None:
+        """Reverse of :attr:`subset_shortcuts`: the shortcut name whose predicate list
         matches ``subset`` (order-insensitive), or ``None`` if none does.
 
         ``subset`` takes the AND-list forms a single :class:`TaskSubset` view accepts — a lone
@@ -601,8 +602,8 @@ class AbstractArenaContext:
         elif isinstance(subset, str):
             subset = [subset]
         key = tuple(sorted(subset))
-        for name, group in cls.SUBSET_GROUPS.items():
-            if tuple(sorted(group)) == key:
+        for name, shortcut in cls.SUBSET_SHORTCUTS.items():
+            if tuple(sorted(shortcut)) == key:
                 return name
         return None
 
