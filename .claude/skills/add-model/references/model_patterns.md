@@ -139,9 +139,18 @@ class {ClassName}Model(AbstractTorchModel):
     def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
         """Set fold_fitting_strategy to sequential_local to avoid crashes
         if model weights aren't pre-downloaded when fitting in parallel.
+
+        Foundation / pre-trained (in-context-learning) models ALSO set ``refit_folds=True``
+        here — see the note just below. From-scratch NNs (TabM, RealMLP) omit it.
         """
         default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
-        default_ag_args_ensemble.update({"fold_fitting_strategy": "sequential_local"})
+        default_ag_args_ensemble.update(
+            {
+                "fold_fitting_strategy": "sequential_local",
+                # Foundation models only — drop this line for from-scratch NNs.
+                "refit_folds": True,
+            },
+        )
         return default_ag_args_ensemble
 
     @classmethod
@@ -152,6 +161,14 @@ class {ClassName}Model(AbstractTorchModel):
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
 ```
+
+> **Foundation models: set `refit_folds=True` in `_get_default_ag_args_ensemble`.** Every
+> pre-trained / in-context-learning wrapper (TabPFN, TabICL, LimiX, TabDPT, SAP-RPT-OSS,
+> OrionMSP, TabSwift, ...) sets `refit_folds=True` *alongside*
+> `fold_fitting_strategy: "sequential_local"`. A TFM has no train loop, so after bagging it
+> refits a single model on all the data — much faster to score, at parity with the bagged
+> ensemble. **Do not ship a TFM wrapper with only `sequential_local`** (a recurring miss).
+> From-scratch NNs (TabM, RealMLP) intentionally omit it and set `can_refit_full=False`.
 
 ### Choosing `AbstractTorchModel` vs `AbstractModel`
 
@@ -202,7 +219,8 @@ class {ClassName}Model(AbstractModel):
     @classmethod
     def _get_default_ag_args_ensemble(cls, **kwargs):
         d = super()._get_default_ag_args_ensemble(**kwargs)
-        d.update({"fold_fitting_strategy": "sequential_local"})
+        # refit_folds=True for foundation models (see note above); drop it for from-scratch NNs.
+        d.update({"fold_fitting_strategy": "sequential_local", "refit_folds": True})
         return d
 
     @classmethod
