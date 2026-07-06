@@ -121,7 +121,13 @@ class TestNativeViews:
         # TabArena v0.1) so arena-specific predicates (BeyondArena) can read them.
         c = TaskMetadataCollection(_unrolled(_task_meta(dataset_name="a")))
         grid = c.task_grid()
-        for col in ("task_type", "num_cols_after_preprocessing", "num_text_cols", "num_high_cardinality_cats"):
+        for col in (
+            "task_type",
+            "num_cols_after_preprocessing",
+            "num_text_cols",
+            "num_high_cardinality_cats",
+            "group_labels",
+        ):
             assert col in grid.columns
 
     def test_per_dataset_frame_one_row_per_dataset_native_columns(self):

@@ -104,7 +104,7 @@ _BASELINE_METHODS = ["RandomForest", "ExtraTrees", "Linear"]
 #: ``subtype`` selects the marker/linestyle via ``SUBTYPE_STYLES``; ``ICL`` is the synthetic
 #: subtype for foundation models (not tuned; default mode *is* in-context learning).
 DEFAULT_FAMILY_GROUPS: dict[str, dict] = {
-    "TFM": {"family": "TFM", "subtype": "ICL", "methods": ["TabICLv2", "TabPFN-2.6", "TabDPT"]},
+    "TFM": {"family": "TFM", "subtype": "ICL", "methods": ["TabICLv2", "TabPFN-2.6", "TabDPT", "TabPFN-3"]},
     "MLP (T+E)": {"family": "MLP", "subtype": "T+E", "methods": _at(_MLP_METHODS, "tuned_ensemble")},
     "MLP (D)": {"family": "MLP", "subtype": "D", "methods": _at(_MLP_METHODS, "default")},
     "GBDT (T+E)": {"family": "GBDT", "subtype": "T+E", "methods": _at(_GBDT_METHODS, "tuned_ensemble")},
@@ -116,7 +116,7 @@ DEFAULT_FAMILY_GROUPS: dict[str, dict] = {
 #: Marker-shape groups for the per-model plot. ``zboost`` lifts a group's markers above all
 #: lower-boost groups at every column (contenders get a still-higher boost).
 DEFAULT_MARKER_GROUPS: dict[str, dict] = {
-    "Foundation Model": {"methods": ["TabPFN-2.6", "TabICLv2", "TabDPT"], "marker": "X", "zboost": 1000},
+    "Foundation Model": {"methods": ["TabPFN-2.6", "TabICLv2", "TabDPT", "TabPFN-3"], "marker": "X", "zboost": 1000},
     "MLP": {"methods": _MLP_METHODS, "marker": "v"},
     "GBDT": {"methods": _GBDT_METHODS, "marker": "^"},
     "Baseline": {"methods": _BASELINE_METHODS, "marker": "o"},
@@ -519,6 +519,25 @@ def _per_family_figure(
     if not groups:
         return None
 
+    # For each family, the member model with the best metric *averaged across subsets* — named as the
+    # family's representative in the legend (rather than whichever member happens to be listed first).
+    family_member_keys: dict[str, list] = {}
+    for gname, cfg in groups.items():
+        family_member_keys.setdefault(cfg["family"], []).extend(keys_by_group[gname])
+    best_avg_method: dict[str, str] = {}
+    for fam, keys in family_member_keys.items():
+        by_method: dict[str, list] = {}
+        for method, subtype in keys:
+            by_method.setdefault(method, []).append(val_by_ms[(method, subtype)])
+        method_avg: dict[str, float] = {}
+        for method, arrs in by_method.items():
+            # Per subset take the method's best subtype, then average those bests across subsets.
+            per_subset_best = (np.nanmax if spec.higher_is_better else np.nanmin)(np.vstack(arrs), axis=0)
+            if not np.isnan(per_subset_best).all():
+                method_avg[method] = float(np.nanmean(per_subset_best))
+        if method_avg:
+            best_avg_method[fam] = min(method_avg.items(), key=lambda kv: spec.sort_value(kv[1]))[0]
+
     # Per group: best value per subset + the best method's CI as the whisker.
     agg: dict[str, np.ndarray] = {}
     whisker_low: dict[str, np.ndarray] = {}
@@ -591,12 +610,12 @@ def _per_family_figure(
     ax.set_ylabel(spec.ylabel_family)
     _annotate_n_datasets(ax, order, _n_datasets_per_subset(df))
 
-    _per_family_legend(ax, spec, groups, keys_by_group, agg, family_color)
+    _per_family_legend(ax, spec, groups, keys_by_group, agg, family_color, best_avg_method)
     fig.tight_layout()
     return fig
 
 
-def _per_family_legend(ax: Axes, spec: MetricSpec, groups, keys_by_group, agg, family_color) -> None:
+def _per_family_legend(ax: Axes, spec: MetricSpec, groups, keys_by_group, agg, family_color, best_avg_method) -> None:
     """Two stacked rows above the axes: pipeline (subtype) styles and family color swatches."""
     from matplotlib.lines import Line2D
     from matplotlib.offsetbox import AnchoredOffsetbox, DrawingArea, HPacker, TextArea, VPacker
@@ -645,7 +664,10 @@ def _per_family_legend(ax: Axes, spec: MetricSpec, groups, keys_by_group, agg, f
         children = [swatch, TextArea(family, textprops={"fontsize": 11})]
         methods = family_methods.get(family, [])
         if methods != [family]:  # contender lines: the family *is* the method, skip the duplicate
-            children.append(TextArea(f"({', '.join(methods)})", textprops={"fontsize": 8}))
+            # Name the family's best-on-average member (+ ellipsis when there are more), not the first listed.
+            rep = best_avg_method.get(family, methods[0])
+            label = rep if len(methods) == 1 else f"{rep}, ..."
+            children.append(TextArea(f"({label})", textprops={"fontsize": 8}))
         return HPacker(children=children, pad=0, sep=4, align="center")
 
     subtypes_present = [st for st in SUBTYPE_ORDER if any(cfg["subtype"] == st for cfg in groups.values())]
@@ -811,9 +833,9 @@ def _per_model_figure(
 
 
 def _per_model_legend(fig, ax: Axes, marker_groups, *, method_order, marker_for, color_of, flagged_imputed) -> None:
-    """Two stacked rows above the axes: family marker shapes and per-method colored entries."""
+    """Stacked rows above the axes: family marker shapes, then the model entries across two rows."""
     from matplotlib.lines import Line2D
-    from matplotlib.offsetbox import AnchoredOffsetbox, DrawingArea, HPacker, TextArea
+    from matplotlib.offsetbox import AnchoredOffsetbox, DrawingArea, HPacker, TextArea, VPacker
     from matplotlib.patches import Rectangle
     from matplotlib.text import Text
 
@@ -895,18 +917,26 @@ def _per_model_legend(fig, ax: Axes, marker_groups, *, method_order, marker_for,
         vsep = DrawingArea(3, 18, 0, 0)
         vsep.add_artist(Line2D([1.5, 1.5], [0, 18], color="black", linewidth=2.2, solid_capstyle="butt"))
         family_children += [vsep, imputed_entry()]
-    rows = [
-        ("Family:", HPacker(children=family_children, pad=0, sep=14, align="center"), 1.13),
-        ("Model:", HPacker(children=[model_entry(m) for m in method_order], pad=0, sep=10, align="center"), 1.02),
+
+    def titled_row(title_text: str, children: list) -> HPacker:
+        inner = HPacker(children=children, pad=0, sep=10, align="center")
+        return HPacker(children=[padded_title(title_text), inner], pad=0, sep=10, align="center")
+
+    # Family markers on the first row; the model entries wrap across two rows (too many models to
+    # read comfortably in a single row). VPacker stacks them family -> model row 1 -> model row 2.
+    model_entries = [model_entry(m) for m in method_order]
+    half = (len(model_entries) + 1) // 2
+    legend_rows = [
+        titled_row("Family:", family_children),
+        titled_row("Model:", model_entries[:half]),
+        titled_row("", model_entries[half:]),
     ]
-    for title_text, inner, y_anchor in rows:
-        row = HPacker(children=[padded_title(title_text), inner], pad=0, sep=10, align="center")
-        box = AnchoredOffsetbox(
-            loc="lower left",
-            child=row,
-            frameon=False,
-            bbox_to_anchor=(0.0, y_anchor),
-            bbox_transform=ax.transAxes,
-            borderpad=0.4,
-        )
-        ax.add_artist(box)
+    box = AnchoredOffsetbox(
+        loc="lower left",
+        child=VPacker(children=legend_rows, pad=0, sep=6, align="left"),
+        frameon=False,
+        bbox_to_anchor=(0.0, 1.02),
+        bbox_transform=ax.transAxes,
+        borderpad=0.4,
+    )
+    ax.add_artist(box)
