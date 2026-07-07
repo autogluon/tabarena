@@ -38,61 +38,43 @@ def _resolve_device(device: str | None, num_gpus: int, *, cuda_available: bool) 
     return "cuda" if want_gpu else "cpu"
 
 
-# --- Memory-efficient chunking --------------------------------------------
-#
-# TabFM predicts by running the whole training fold as a single in-context
-# sequence, so one forward pass materialises activations that grow with
-# ``rows * features``: the column/row feed-forward buffers are
-# ``[members, features, ff_dim]`` and the cell embedder's Fourier tensor is
-# ``[members, rows, features, group, embed]``. On large tasks this OOMs the GPU
-# (observed at ~50k rows x 170 features: a single feed-forward buffer wanted
-# ~33 GiB). Reducing ``batch_size`` (already 1) or ``n_estimators`` does not
-# help -- ensemble members are forwarded one at a time, so neither changes the
-# per-forward peak.
-#
-# The PyTorch network exposes optional per-block chunk sizes that split each
-# stage's largest activation along an independent axis, bounding peak memory
-# *without changing predictions* (chunking is exact, only slightly slower).
-# They default to ``None`` (no chunking); we enable them above a size threshold
-# and leave small tasks on the faster unchunked path.
-_CHUNK_TRIGGER_CELLS = 1_000_000  # rows * features above which chunking turns on
-_CHUNK_ROW = 4096  # rows per chunk (Fourier cell embedding + row interaction)
-_CHUNK_COL = 64  # feature-instances per chunk (column set-transformer)
-_CHUNK_FFN = 1 << 18  # tokens per chunk (feed-forward expansion in every block)
+def _build_tabfm_estimator(*, problem_type: str, device: str, interface: str, **hps):
+    """Construct (but do not fit) a TabFM sklearn-style estimator for ``problem_type``.
 
+    The single place both the AutoGluon wrapper (:class:`TabFMModel`) and the system model
+    (:class:`~tabarena.models.tabfm.system.TabFMPlusSystemModel`) build a TabFM estimator, so the
+    two never drift. ``interface`` selects the estimator's construction preset:
 
-def _memory_chunk_sizes(n_rows: int, n_features: int) -> dict[str, int] | None:
-    """Pick TabFM activation-chunk sizes for an ``n_rows`` x ``n_features`` task.
+    * ``"default"`` — the plain ``TabFMClassifier`` / ``TabFMRegressor`` constructor.
+    * ``"ensemble"`` — the ``.ensemble(...)`` preset (square-root feature-cross / SVD schedules,
+      NNLS-weighted blending, probability averaging, per-problem calibration).
 
-    Returns the ``row`` / ``col`` / ``ffn`` chunk sizes that bound peak GPU
-    memory on large tasks, or ``None`` when the task is small enough to run
-    unchunked (the faster default). See ``_apply_chunk_sizes`` for how the sizes
-    map onto the network.
+    ``interface`` is validated before the (cached) checkpoint is loaded, so an invalid value fails
+    fast without touching Hugging Face. ``device`` is the resolved torch device (``"cuda"`` /
+    ``"cpu"``, see :func:`_resolve_device`); the loaded network is placed there and the estimator
+    runs where its network lives. Remaining ``hps`` are forwarded to the estimator (both the plain
+    constructor and ``.ensemble`` accept the same keywords, e.g. ``random_state``).
     """
-    if n_rows * n_features <= _CHUNK_TRIGGER_CELLS:
-        return None
-    return {"row": _CHUNK_ROW, "col": _CHUNK_COL, "ffn": _CHUNK_FFN}
+    if interface not in ("default", "ensemble"):
+        raise ValueError(f"Unknown TabFM interface {interface!r}; expected 'default' or 'ensemble'.")
 
+    from tabfm import TabFMClassifier, TabFMRegressor, tabfm_v1_0_0_pytorch
 
-def _apply_chunk_sizes(network, chunk_sizes: dict[str, int] | None) -> None:
-    """Set (or clear) TabFM's activation-chunk knobs across ``network``.
+    if problem_type in ["binary", "multiclass"]:
+        model_type, model_cls = "classification", TabFMClassifier
+    elif problem_type == "regression":
+        model_type, model_cls = "regression", TabFMRegressor
+    else:
+        raise AssertionError(f"Unsupported problem_type: {problem_type}")
 
-    TabFM's blocks expose optional ``row_chunk_size`` / ``col_chunk_size`` /
-    ``ffn_chunk_size`` attributes that chunk their largest activation along an
-    independent axis. Knobs are matched by attribute name (robust to the
-    library's internal class layout); ``chunk_sizes=None`` restores the unchunked
-    default so a reused (cached) network is never left with stale settings.
-    """
-    row = col = ffn = None
-    if chunk_sizes is not None:
-        row, col, ffn = chunk_sizes["row"], chunk_sizes["col"], chunk_sizes["ffn"]
-    for module in network.modules():
-        if hasattr(module, "row_chunk_size"):
-            module.row_chunk_size = row
-        if hasattr(module, "col_chunk_size"):
-            module.col_chunk_size = col
-        if hasattr(module, "ffn_chunk_size"):
-            module.ffn_chunk_size = ffn
+    # Downloads the pre-trained PyTorch checkpoint from Hugging Face on first use (see
+    # `prefetch_weights`); a no-op once cached. Loading with `device` places the network there,
+    # which is where the estimator runs. The network bounds its own peak activation memory via
+    # always-on internal chunking, so large tasks need no wrapper-side handling.
+    base_model = tabfm_v1_0_0_pytorch.load(model_type=model_type, device=device)
+
+    factory = model_cls.ensemble if interface == "ensemble" else model_cls
+    return factory(model=base_model, **hps)
 
 
 class TabFMModel(AbstractTorchModel):
@@ -149,29 +131,7 @@ class TabFMModel(AbstractTorchModel):
             cuda_available=torch.cuda.is_available(),
         )
 
-        from tabfm import TabFMClassifier, TabFMRegressor, tabfm_v1_0_0_pytorch
-
-        if self.problem_type in ["binary", "multiclass"]:
-            model_type = "classification"
-            model_cls = TabFMClassifier
-        elif self.problem_type == "regression":
-            model_type = "regression"
-            model_cls = TabFMRegressor
-        else:
-            raise AssertionError(f"Unsupported problem_type: {self.problem_type}")
-
-        # Downloads the pre-trained PyTorch checkpoint from Hugging Face on first
-        # use (see `prefetch_weights`); a no-op once cached. Loading with `device`
-        # places the network there, which is where the estimator runs.
-        base_model = tabfm_v1_0_0_pytorch.load(model_type=model_type, device=device)
-
-        self.model = model_cls(model=base_model, **hps)
-
-        # Bound peak GPU memory on large tasks (rows x features) via exact
-        # activation chunking; kept on ``self`` so it is re-applied after the
-        # network is reloaded on unpickle (see ``__setstate__``).
-        self._chunk_sizes = _memory_chunk_sizes(n_rows=X.shape[0], n_features=X.shape[1])
-        _apply_chunk_sizes(base_model, self._chunk_sizes)
+        self.model = _build_tabfm_estimator(problem_type=self.problem_type, device=device, interface="default", **hps)
 
         # Does nothing (TabFM handles categoricals/missing natively); kept for
         # future preprocessing extensions and parity with the other wrappers.
@@ -187,37 +147,6 @@ class TabFMModel(AbstractTorchModel):
         """Move the fitted TabFM network to ``device`` (the estimator follows it)."""
         if getattr(self.model, "model", None) is not None:
             self.model.model.to(device)
-
-    def __getstate__(self) -> dict:
-        """Return a picklable state for AutoGluon's pickle-based ``save``.
-
-        The fitted TabFM network (``self.model.model``) carries lambda activations
-        built by ``get_activation`` that stdlib pickle cannot serialise. The
-        network is dropped from a copy of the estimator here and reloaded from the
-        cached checkpoint in ``__setstate__``; the live estimator is left intact so
-        in-memory prediction after a save still works.
-        """
-        state = self.__dict__.copy()
-        inner = state.get("model")
-        if inner is not None:
-            stripped = inner.__class__.__new__(inner.__class__)
-            stripped.__dict__.update({k: v for k, v in inner.__dict__.items() if k != "model"})
-            state["model"] = stripped
-        return state
-
-    def __setstate__(self, state: dict) -> None:
-        """Restore the estimator and reload the network dropped on save."""
-        self.__dict__.update(state)
-        inner = self.__dict__.get("model")
-        if inner is not None and getattr(inner, "model", None) is None:
-            from tabfm import tabfm_v1_0_0_pytorch
-
-            model_type = "classification" if self.problem_type in ["binary", "multiclass"] else "regression"
-            inner.model = tabfm_v1_0_0_pytorch.load(model_type=model_type)
-            # The freshly loaded network defaults to no chunking; restore the
-            # memory settings chosen at fit time so predict-after-load on large
-            # tasks stays within GPU memory.
-            _apply_chunk_sizes(inner.model, getattr(self, "_chunk_sizes", None))
 
     @classmethod
     def supported_problem_types(cls) -> list[str] | None:

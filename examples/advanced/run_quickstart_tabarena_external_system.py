@@ -46,6 +46,7 @@ class AutoGluonSystemModel(ExternalSystemModel):
         num_gpus: int | None,  # GPU budget for the fit
         memory_limit: float | None,  # memory budget in GB
         time_limit: float | None,  # wall-clock budget in seconds
+        random_state: int | None,  # per-split seed
     ):
         """Fit a ``TabularPredictor`` on all the data.
 

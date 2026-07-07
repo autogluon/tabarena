@@ -26,7 +26,23 @@ tabfm_info = ModelInfo(
     search_space=gen_tabfm,
     method_metadata=tabfm_method_metadata,
     pip_extra=(
-        "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@90ce4e5c29c2354d17d0eef0cd6e843b6aaed9ba",
+        "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@633cd265f498e1d20c9625be0639f6305d8e2541",
     ),
     prefetch_weights=prefetch_weights,
+)
+
+
+# TabFM+ (TabFM's ``ensemble`` interface) is benchmarked as a system, not an AutoGluon model, so it
+# has its own MethodMetadata but no `ModelInfo`: it is not part of the auto-discovered model registry
+# (`discover_models`) — it is wired into a benchmark run via `gen_tabfm_plus` (a
+# `SystemConfigGenerator`) and the experiment bundle's `system_experiments=True` mode. A system's
+# results are recorded as a `baseline` method (see `get_info_from_result`).
+tabfm_plus_method_metadata = MethodMetadata.baseline(
+    method="TabFM+",
+    name="TabFM+",
+    suite="tabarena-2026-06-26",
+    compute="gpu",
+    date="2026-06-26",
+    reference_url="https://github.com/google-research/tabfm",
+    verified=False,
 )
