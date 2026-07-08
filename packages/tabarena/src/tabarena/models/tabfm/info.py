@@ -7,17 +7,19 @@ from tabarena.models.tabfm.model import TabFMModel, prefetch_weights
 
 tabfm_method_metadata = MethodMetadata.config(
     method="TabFM",
-    suite="tabarena-2026-06-26",
+    suite="tabarena-2026-07-07",
     ag_key="TA-TABFM",
     model_key="TABFM",
     config_default="TabFM_c1_default_BAG_L1",
     can_hpo=False,
     compute="gpu",
     is_bag=False,
-    date="2026-06-26",
+    date="2026-07-07",
     reference_url="https://github.com/google-research/tabfm",
     display_name="TabFM",
-    verified=False,
+    verified=True,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 
