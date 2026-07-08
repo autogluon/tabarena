@@ -44,6 +44,7 @@ class _DemoSystem(ExternalSystemModel):
         num_gpus,
         memory_limit,
         time_limit,
+        random_state,
     ):
         self.seen = {
             "target_name": target_name,
@@ -54,6 +55,7 @@ class _DemoSystem(ExternalSystemModel):
             "num_gpus": num_gpus,
             "memory_limit": memory_limit,
             "time_limit": time_limit,
+            "random_state": random_state,
         }
         # `X` is ours to edit in place (the base decided copy-vs-in-place) — append the target under
         # its semantic name (`target_name`), as a real system would.
@@ -261,6 +263,8 @@ class TestDemoSystemFit:
         assert model.seen["validation_metadata"].group_on == "grp"
         assert (model.seen["num_cpus"], model.seen["num_gpus"]) == (4, 1)
         assert (model.seen["memory_limit"], model.seen["time_limit"]) == (8, 60)
+        # No split seed is set on a direct `fit` (outside the runner), so `random_state` is None.
+        assert model.seen["random_state"] is None
 
     def test_does_not_mutate_caller_frame_by_default(self):
         X, rng = self._features()
