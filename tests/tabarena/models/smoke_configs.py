@@ -47,6 +47,7 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "TabICL_GPU": ModelSmokeTest({"n_estimators": 1}),
     "TabICLv2": ModelSmokeTest({"n_estimators": 1}),
     "TabSTAR": ModelSmokeTest({"max_epochs": 1}),
+    "TabFM": ModelSmokeTest({"n_estimators": 1}),
     "Nori": ModelSmokeTest(problem_types=("regression",)),
     "iLTM": ModelSmokeTest({"finetuning_max_steps": 1, "n_ensemble": 1, "tree_n_estimators": 1}),
     "OrionMSP": ModelSmokeTest({"n_estimators": 1}),

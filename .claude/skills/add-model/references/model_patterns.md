@@ -456,7 +456,7 @@ from tabarena.models.{ModelKey}.model import {ClassName}Model
     compute="gpu",                          # or "cpu"
     date="YYYY-MM-DD",                     # date of the benchmarking run (or planning date if unbenchmarked)
     ag_key="{ag_key}",                     # MUST equal {ClassName}Model.ag_key EXACTLY, incl. any "TA-" prefix (e.g. "TA-DENSELIGHT")
-    model_key="{MODEL_KEY_UPPER}",         # short upper-case key (e.g. "DENSELIGHT"), commonly ag_key without the "TA-" prefix
+    model_key="{MODEL_KEY_UPPER}",         # short upper-case key (e.g. "DENSELIGHT"), commonly ag_key without the "TA-" prefix. This value is the model's config_type — add it to get_model_family() (SKILL Step 4d) or the leaderboard shows ❓ Other
     config_default="{ModelName}_c1_BAG_L1",
     can_hpo=True,
     is_bag=True,
