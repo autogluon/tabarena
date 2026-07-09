@@ -3,7 +3,7 @@ from __future__ import annotations
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.chimeraboost.hpo import gen_chimeraboost
-from tabarena.models.chimeraboost.model import ChimeraBoostModel
+from tabarena.models.chimeraboost.model import ChimeraBoostModel, prefetch_weights
 
 chimeraboost_method_metadata = MethodMetadata.config(
     method="ChimeraBoost",
@@ -25,5 +25,6 @@ chimeraboost_info = ModelInfo(
     model_cls=ChimeraBoostModel,
     search_space=gen_chimeraboost,
     method_metadata=chimeraboost_method_metadata,
-    pip_extra=("chimeraboost>=0.13.0",),
+    pip_extra=("chimeraboost>=0.14.1",),
+    prefetch_weights=prefetch_weights,
 )

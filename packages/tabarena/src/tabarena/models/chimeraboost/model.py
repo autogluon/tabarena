@@ -14,8 +14,37 @@ from typing import TYPE_CHECKING
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.models import AbstractModel
 
+# Import at module top rather than inside _fit: chimeraboost's import cost
+# (numpy + numba module load, ~1.4s) would otherwise be charged to every
+# job's reported train time. Tolerate absence so the registry row survives
+# without the optional dependency (pip_extra); _fit raises a clear error.
+try:
+    from chimeraboost import ChimeraBoostClassifier, ChimeraBoostRegressor
+
+    _CHIMERABOOST_IMPORT_ERROR = None
+except ImportError as _exc:  # optional dependency not installed
+    ChimeraBoostClassifier = ChimeraBoostRegressor = None
+    _CHIMERABOOST_IMPORT_ERROR = _exc
+
 if TYPE_CHECKING:
     import pandas as pd
+
+
+def prefetch_weights() -> None:
+    """Pre-compile chimeraboost's numba kernels (its analog of weight fetching).
+
+    chimeraboost JIT-compiles its kernels on first use (~5-15s, disk-cached per
+    environment). Without this, a fresh worker pays that compile inside the
+    timed ``fit``/``predict`` sections, dwarfing the actual model work on small
+    tasks. ``warmup()`` runs a few tiny synthetic fits covering every
+    default-path kernel; predictions are bit-identical. Requires
+    chimeraboost >= 0.14.1. On workers that do not share the prefetch cache,
+    set ``CHIMERABOOST_WARMUP=1`` in the worker environment instead (runs the
+    same warmup at import, which is outside the benchmark timers).
+    """
+    import chimeraboost
+
+    chimeraboost.warmup()
 
 
 class ChimeraBoostModel(AbstractModel):
@@ -51,13 +80,14 @@ class ChimeraBoostModel(AbstractModel):
         **kwargs,
     ):
         start_time = time.time()
+        if _CHIMERABOOST_IMPORT_ERROR is not None:
+            raise ImportError(
+                "ChimeraBoost requires the optional dependency 'chimeraboost' "
+                "(pip install 'chimeraboost>=0.14.1')."
+            ) from _CHIMERABOOST_IMPORT_ERROR
         if self.problem_type in ["regression"]:
-            from chimeraboost import ChimeraBoostRegressor
-
             model_cls = ChimeraBoostRegressor
         else:  # 'binary' and 'multiclass'
-            from chimeraboost import ChimeraBoostClassifier
-
             model_cls = ChimeraBoostClassifier
 
         X = self.preprocess(X, is_train=True)
