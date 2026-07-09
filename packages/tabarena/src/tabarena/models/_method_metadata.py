@@ -895,6 +895,11 @@ class MethodMetadata:
             name_suffix=self.name_suffix,
         )
 
+    @property
+    def has_hpo_trajectories(self) -> bool:
+        """Whether an HPO-trajectories artifact is locally available (no download attempted)."""
+        return self.path_results_hpo_trajectories().exists()
+
     def load_hpo_trajectories(self, download: bool | str = "auto") -> pd.DataFrame:
         path_local = self.path_results_hpo_trajectories()
         if download == "auto":
