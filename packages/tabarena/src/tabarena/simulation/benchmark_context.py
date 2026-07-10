@@ -175,53 +175,47 @@ class BenchmarkPaths:
         return [f for f in file_paths if f is not None]
 
     def assert_exists_all(self, check_zs=True):
-        self._assert_exists(self.configs_full, "configs")
-        if self.baselines is not None:
-            self._assert_exists(self.baselines_full, "baselines")
-        if self.task_metadata is not None:
-            self._assert_exists(self.task_metadata_full, "task_metadata")
-        if check_zs:
-            if self.zs_pp is not None:
-                for f in self.zs_pp_full:
-                    self._assert_exists(f, f"zs_pp | {f}")
-            if self.zs_gt is not None:
-                for f in self.zs_gt_full:
-                    self._assert_exists(f, f"zs_gt | {f}")
+        self._raise_if_missing(self.missing_files(check_zs=check_zs))
 
     @staticmethod
-    def _assert_exists(filepath: str, name: str | None = None):
-        if filepath is None:
-            raise AssertionError(f"Filepath for {name} cannot be None!")
-
-        if is_s3_url(path=filepath):
-            s3_bucket, s3_prefix = s3_path_to_bucket_prefix(s3_path=filepath)
-            s3 = boto3.client("s3")
-            try:
-                s3.head_object(Bucket=s3_bucket, Key=s3_prefix)
-            except ClientError as e:
-                if e.response["Error"]["Code"] == "404":
-                    # The key does not exist.
-                    raise ValueError(f'Filepath for {name} does not exist in S3! (filepath="{filepath}")') from e
-                if e.response["Error"]["Code"] == "403":
-                    raise ValueError(
-                        f"Filepath for {name} does not exist in S3 or you lack permissions to read! "
-                        f'(filepath="{filepath}")'
-                    ) from e
-                raise e
-        elif not Path(filepath).exists():
-            raise ValueError(f'Filepath for {name} does not exist on local filesystem! (filepath="{filepath}")')
+    def _raise_if_missing(missing_files: list[str]):
+        if missing_files:
+            missing_files_str = "".join(f'\n\t"{m}"' for m in missing_files)
+            raise ValueError(f"Missing {len(missing_files)} required files: [{missing_files_str}\n]")
 
     def exists_all(self, check_zs: bool = True) -> bool:
-        required_files = self.get_file_paths(include_zs=check_zs)
-        return all(self.exists(f) for f in required_files)
+        return not self.missing_files(check_zs=check_zs)
 
     def missing_files(self, check_zs: bool = True) -> list:
         required_files = self.get_file_paths(include_zs=check_zs)
-        missing_files = []
-        for f in required_files:
-            if not self.exists(f):
-                missing_files.append(f)
-        return missing_files
+        return self._missing_files(required_files)
+
+    @classmethod
+    def _missing_files(cls, filepaths: list[str]) -> list[str]:
+        """Return the subset of ``filepaths`` that does not exist, minimizing filesystem
+        round trips: local paths are grouped by parent directory and checked with one
+        ``os.scandir`` per directory instead of one ``stat`` per file. Artifacts hold
+        thousands of per-task files, so on network filesystems (e.g. NFS) per-file stats
+        dominate loading time. S3 paths keep the per-file check.
+        """
+        missing = []
+        local_by_dir: dict[str, list[tuple[str, str]]] = {}
+        for f in filepaths:
+            if is_s3_url(path=f):
+                if not cls.exists(f):
+                    missing.append(f)
+            else:
+                p = Path(f)
+                local_by_dir.setdefault(str(p.parent), []).append((p.name, f))
+        for parent, entries in local_by_dir.items():
+            try:
+                with os.scandir(parent) as it:
+                    names = {e.name for e in it}
+            except (FileNotFoundError, NotADirectoryError):
+                missing.extend(f for _, f in entries)
+                continue
+            missing.extend(f for name, f in entries if name not in names)
+        return missing
 
     @staticmethod
     def exists(filepath: str) -> bool:
@@ -259,16 +253,18 @@ class BenchmarkPaths:
         zsc: ZeroshotSimulatorContext,
         prediction_format: str = "memmap",
         verbose: bool = True,
+        validate: bool = True,
     ) -> tuple[TabularModelPredictions, GroundTruth, ZeroshotSimulatorContext]:
         """:param prediction_format: Determines the format of the loaded tabular_predictions. Default = "memmap".
         "memmap": Fast and low memory usage.
         "memopt": Very fast and high memory usage.
         "mem": Slow and high memory usage, simplest format to debug.
+        :param validate: If True, checks that all zs files exist before loading. Callers that
+        have already validated (e.g. :meth:`BenchmarkContext.load`) pass False to skip the
+        filesystem sweep.
         """
-        for f in self.zs_pp_full:
-            self._assert_exists(f, f"zs_pp | {f}")
-        for f in self.zs_gt_full:
-            self._assert_exists(f, name=f"zs_gt | {f}")
+        if validate:
+            self._raise_if_missing(self._missing_files(list(self.zs_pp_full) + list(self.zs_gt_full)))
         zeroshot_pred_proba, zeroshot_gt, zsc = load_zeroshot_input(
             path_pred_proba=self.path_pred_proba_full,
             paths_gt=self.zs_gt_full,
@@ -415,13 +411,13 @@ class BenchmarkContext:
                 f"\tdate: {self.date}\n"
                 f"\tfolds: {folds}"
             )
-        if download_files and exists == "ignore" and self.benchmark_paths.exists_all(check_zs=load_predictions):
+        missing_files = self.benchmark_paths.missing_files(check_zs=load_predictions)
+        if download_files and exists == "ignore" and not missing_files:
             download_files = False
         if download_files:
             if verbose:
                 self.benchmark_paths.print_summary()
             if self.s3_download_map is None:
-                missing_files = self.benchmark_paths.missing_files()
                 if missing_files:
                     missing_files_str = [f'\n\t"{m}"' for m in missing_files]
                     raise FileNotFoundError(
@@ -430,7 +426,8 @@ class BenchmarkContext:
             if verbose:
                 print("Downloading input files from s3...")
             self.download(include_zs=load_predictions, exists=exists, use_s3=use_s3, verbose=verbose)
-        self.benchmark_paths.assert_exists_all(check_zs=load_predictions)
+            missing_files = self.benchmark_paths.missing_files(check_zs=load_predictions)
+        self.benchmark_paths._raise_if_missing(missing_files)
 
         configs_hyperparameters = self.load_configs_hyperparameters()
         zsc = self._load_zsc(folds=folds, configs_hyperparameters=configs_hyperparameters, verbose=verbose)
@@ -484,7 +481,10 @@ class BenchmarkContext:
         prediction_format: str,
         verbose: bool = True,
     ) -> tuple[TabularModelPredictions, GroundTruth, ZeroshotSimulatorContext]:
-        return self.benchmark_paths.load_predictions(zsc=zsc, prediction_format=prediction_format, verbose=verbose)
+        # validate=False: `load` has already verified all required files exist.
+        return self.benchmark_paths.load_predictions(
+            zsc=zsc, prediction_format=prediction_format, verbose=verbose, validate=False
+        )
 
     def _load_zsc(
         self, folds: list[int], configs_hyperparameters: dict, verbose: bool = True
@@ -694,11 +694,15 @@ def load_zeroshot_input(
         print(
             f"Loading ZS inputs:\n\tpred_proba:  {path_pred_proba}\n",
         )
-    zeroshot_gt = zsc.load_groundtruth(paths_gt=paths_gt)
+    # Shared per-task metadata.json cache: load_groundtruth parses each task dir's metadata
+    # once and load_pred reuses it instead of re-reading the same files.
+    metadata_by_dir: dict[str, dict] = {}
+    zeroshot_gt = zsc.load_groundtruth(paths_gt=paths_gt, metadata_by_dir=metadata_by_dir)
     zeroshot_pred_proba = zsc.load_pred(
         path_pred_proba=path_pred_proba,
         datasets=datasets,
         prediction_format=prediction_format,
+        metadata_by_dir=metadata_by_dir,
     )
 
     # keep only dataset whose folds are all present

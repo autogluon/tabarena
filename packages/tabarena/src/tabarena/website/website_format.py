@@ -91,6 +91,7 @@ def get_model_family(model_name: str) -> str:
             "TA-LIMIX",
             "BETA",
             "TABFLEX",
+            "TABFM",
             "REALTABPFN-V2.5",
             "SAP-RPT-OSS",
             "TABICLV2",
@@ -99,6 +100,7 @@ def get_model_family(model_name: str) -> str:
             "TA-ORION-MSP",
             "TA-ILTM",
             "TA-NORI",
+            "TABSWIFT",
         ],
         Constants.baseline: ["KNN", "LR"],
         Constants.other: ["XRFM"],
@@ -142,6 +144,7 @@ def get_rename_map() -> dict[str, str]:
         "BETA": "BetaTabPFN",
         "REALTABPFN-V2.5": "RealTabPFN-v2.5",
         "SAP-RPT-OSS": "SAP-RPT-OSS",
+        "TABSWIFT": "TabSwift",
     }
 
 

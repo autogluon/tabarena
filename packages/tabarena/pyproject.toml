@@ -98,6 +98,8 @@ tabm = ["torch", "tabm>=0.0.3", "rtdl_num_embeddings>=0.0.12"]
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
 sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa"]
+# TabFM uses its PyTorch backend; the `[pytorch]` extra pulls `torch` for GPU/CPU execution.
+tabfm = ["tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@53f3fcfb8a3355f55c9fb49f04fbb62b8ba29109"]
 tabprep = []
 tabstar = ["tabstar==1.1.15"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
@@ -114,6 +116,10 @@ tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.13.0"]
 nori = ["synthefy-nori>=0.7.0"]
+# TabSwift is vendored under models/tabswift/_vendor/ (not pip-installable). All of its
+# runtime deps (torch, numpy, scikit-learn, scipy, psutil, tqdm, huggingface_hub, packaging)
+# are already in the base tree, so this extra is intentionally empty.
+tabswift = []
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -138,6 +144,7 @@ extended = [
   "tabarena[modernnca]",
   "tabarena[xrfm]",
   "tabarena[sap-rpt-oss]",
+  "tabarena[tabfm]",
   "tabarena[tabprep]",
   "tabarena[tabstar]",
   "tabarena[perpetualboosting]",
@@ -147,6 +154,7 @@ extended = [
   "tabarena[iltm]",
   "tabarena[chimeraboost]",
   "tabarena[nori]",
+  "tabarena[tabswift]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).

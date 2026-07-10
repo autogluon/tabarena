@@ -68,6 +68,11 @@ class TabArenaEvalConfig:
     subsets: list[list[str]] | None = None
     """Each entry is a subset spec (e.g. ``["regression"]``); ``[]`` means the full
     benchmark. ``None`` is treated as ``[[]]`` (full only)."""
+    only_valid_tasks: bool = False
+    """If True, restrict every leaderboard to the tasks the run's methods actually ran
+    (forwarded to ``TabArenaContext(only_valid_tasks=...)``, which pre-filters the task
+    metadata to those tasks). If False (default), score against the full TabArena-v0.1 suite,
+    imputing tasks a method did not run via the context's ``fillna_method``."""
     num_cpus: int | None = None
     """CPUs for raw-result post-processing (None = all available)."""
     cache_config: CacheConfig | None = None
@@ -182,7 +187,10 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
     # handled by the context's fillna_method, as the old compare_on_tabarena did via get_results).
     from tabarena.contexts import TabArenaContext
 
-    context = TabArenaContext(extra_methods=results.to_method_metadata_lst())
+    context = TabArenaContext(
+        extra_methods=results.to_method_metadata_lst(),
+        only_valid_tasks=config.only_valid_tasks,
+    )
 
     figure_output_dir = Path(config.figure_output_dir)
     leaderboards: dict[str, pd.DataFrame] = {}

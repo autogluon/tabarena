@@ -66,6 +66,7 @@ class ExternalSystemModel(AbstractExecModel):
         training frame is never modified.
         """
         X = X if self._can_use_data_in_place else X.copy()
+        random_state = self._split_seed if isinstance(self._split_seed, int) else None
         return self._fit_system(
             X,
             y,
@@ -77,6 +78,7 @@ class ExternalSystemModel(AbstractExecModel):
             num_gpus=self.num_gpus,
             memory_limit=self.memory_limit,
             time_limit=self.time_limit,
+            random_state=random_state,
         )
 
     def _fit_system(
@@ -92,6 +94,7 @@ class ExternalSystemModel(AbstractExecModel):
         num_gpus: int | None,
         memory_limit: float | None,
         time_limit: float | None,
+        random_state: int | None,
     ):
         """Train the system on the full training data and return ``self`` — implement this.
 
@@ -122,6 +125,10 @@ class ExternalSystemModel(AbstractExecModel):
             num_gpus: GPU budget for the fit (``None`` = unconstrained / the system's own default).
             memory_limit: Memory budget in GB for the fit (``None`` = unconstrained).
             time_limit: Wall-clock budget in seconds for the fit (``None`` = no limit).
+            random_state: Per-test-split random seed, derived from the split index so each split gets
+                distinct but reproducible randomness. ``None`` when no split seed is available (e.g.
+                 a direct ``fit`` outside the runner); seed your system from it and apply your own default
+                when ``None``.
 
         Returns:
             ``self``, fitted and ready for ``_predict`` / ``_predict_proba``.

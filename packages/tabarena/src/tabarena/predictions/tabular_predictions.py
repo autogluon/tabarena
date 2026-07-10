@@ -48,7 +48,12 @@ class TabularModelPredictions:
         raise NotImplementedError()
 
     @classmethod
-    def from_data_dir(cls, data_dir: str | Path, datasets: list[str] | None = None):
+    def from_data_dir(
+        cls,
+        data_dir: str | Path,
+        datasets: list[str] | None = None,
+        metadata_by_dir: dict[str, dict] | None = None,
+    ):
         raise NotImplementedError()
 
     def to_data_dir(self, data_dir: str | Path, dtype: str = "float32"):
@@ -231,8 +236,15 @@ class TabularPredictionsInMemory(TabularModelPredictions):
         return self.pred_dict
 
     @classmethod
-    def from_data_dir(cls, data_dir: str | Path, datasets: list[str] | None = None):
-        memmap = TabularPredictionsMemmap.from_data_dir(data_dir=data_dir, datasets=datasets)
+    def from_data_dir(
+        cls,
+        data_dir: str | Path,
+        datasets: list[str] | None = None,
+        metadata_by_dir: dict[str, dict] | None = None,
+    ):
+        memmap = TabularPredictionsMemmap.from_data_dir(
+            data_dir=data_dir, datasets=datasets, metadata_by_dir=metadata_by_dir
+        )
         return cls.from_dict(pred_dict=memmap.to_dict(), datasets=datasets)
 
     def predict_val(
@@ -298,17 +310,30 @@ def path_memmap(folder_memmap: Path, dataset: str, fold: int):
 
 
 class TabularPredictionsMemmap(TabularModelPredictions):
-    def __init__(self, data_dir: str | Path, datasets: list[str] | None = None):
+    def __init__(
+        self,
+        data_dir: str | Path,
+        datasets: list[str] | None = None,
+        metadata_by_dir: dict[str, dict] | None = None,
+    ):
         """:param data_dir: data where the predictions has been saved
         :param datasets: if specified, the predictions only contains those datasets
+        :param metadata_by_dir: optional cache of parsed per-task ``metadata.json`` keyed by
+            task directory (e.g. filled by ``ZeroshotSimulatorContext.load_groundtruth``);
+            cached directories skip the file read
         """
         self.data_dir = Path(data_dir)
-        self.metadata_dict = self._load_metadatas(data_dir)
+        self.metadata_dict = self._load_metadatas(data_dir, metadata_by_dir=metadata_by_dir)
         super().__init__(datasets=datasets)
 
     @classmethod
-    def from_data_dir(cls, data_dir: str | Path, datasets: list[str] | None = None):
-        return cls(data_dir=data_dir, datasets=datasets)
+    def from_data_dir(
+        cls,
+        data_dir: str | Path,
+        datasets: list[str] | None = None,
+        metadata_by_dir: dict[str, dict] | None = None,
+    ):
+        return cls(data_dir=data_dir, datasets=datasets, metadata_by_dir=metadata_by_dir)
 
     @classmethod
     def from_dict(
@@ -340,12 +365,19 @@ class TabularPredictionsMemmap(TabularModelPredictions):
         }
 
     @staticmethod
-    def _load_metadatas(data_dir):
+    def _load_metadatas(data_dir, metadata_by_dir: dict[str, dict] | None = None):
+        if metadata_by_dir is None:
+            metadata_by_dir = {}
         res = defaultdict(dict)
         metadata_files = list(Path(data_dir).rglob("*metadata.json"))
         for metadata_file in metadata_files:
-            with open(metadata_file) as f:
-                metadata = json.load(f)
+            cached = metadata_by_dir.get(str(metadata_file.parent))
+            if cached is not None:
+                # copy: `pop` and the model_indices assignment below must not mutate the cache
+                metadata = dict(cached)
+            else:
+                with open(metadata_file) as f:
+                    metadata = json.load(f)
             dataset = metadata.pop("dataset")
             fold = metadata.pop("fold")
             res[dataset][fold] = metadata

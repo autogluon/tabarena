@@ -22,12 +22,15 @@ if TYPE_CHECKING:
     from tabarena.models.realmlp.model import RealMLPModel
     from tabarena.models.sap_rpt_oss.model import SAPRPTOSSModel
     from tabarena.models.tabdpt.model import TabDPTModel
+    from tabarena.models.tabfm.model import TabFMModel
+    from tabarena.models.tabfm.system import TabFMPlusSystemModel
     from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
     from tabarena.models.tabm.model import TabMModel
     from tabarena.models.tabpfn_3.model import TabPFN3Model
     from tabarena.models.tabpfnv2_5.model import RealTabPFNv25Model, TabPFNv26Model
     from tabarena.models.tabpfnwide.model import TabPFNWideModel
     from tabarena.models.tabstar.model import TabSTARModel
+    from tabarena.models.tabswift.model import TabSwiftModel
     from tabarena.models.xrfm.model import XRFMModel
 
 
@@ -49,6 +52,8 @@ _LAZY_CLASSES: dict[str, str] = {
     "RealTabPFNv25Model": "tabarena.models.tabpfnv2_5.model",
     "SAPRPTOSSModel": "tabarena.models.sap_rpt_oss.model",
     "TabDPTModel": "tabarena.models.tabdpt.model",
+    "TabFMModel": "tabarena.models.tabfm.model",
+    "TabFMPlusSystemModel": "tabarena.models.tabfm.system",
     "TabICLModel": "tabarena.models.tabicl.model",
     "TabICLv2Model": "tabarena.models.tabicl.model",
     "TabMModel": "tabarena.models.tabm.model",
@@ -56,6 +61,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "TabPFNWideModel": "tabarena.models.tabpfnwide.model",
     "TabPFNv26Model": "tabarena.models.tabpfnv2_5.model",
     "TabSTARModel": "tabarena.models.tabstar.model",
+    "TabSwiftModel": "tabarena.models.tabswift.model",
     "XRFMModel": "tabarena.models.xrfm.model",
 }
 

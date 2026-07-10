@@ -89,7 +89,7 @@ The AutoGluon wrapper class. Use the template in `references/model_patterns.md` 
 - Set `ag_key`, `ag_name`, `ag_priority = 65`, `seed_name = "random_state"`
 - Implement `_fit()`, `_set_default_params()`, `supported_problem_types()`
 - **Honor the `_fit` contract** (read `references/model_patterns.md` → "The `_fit` contract"). The most common review findings on new wrappers are: ignoring the provided `X_val`/`y_val` (and instead auto-splitting a second holdout), ignoring `time_limit`, hardcoding the thread count instead of wiring `num_cpus`, and label-encoding + `fillna(0)` categoricals when the library handles them natively. `models/realmlp/model.py` is the reference for all of these. (In-context-learning foundation models have no train loop / no eval set, so they legitimately ignore `time_limit` + `X_val` — see `sap_rpt_oss`/`tabstar`/`tabfm`.)
-- For GPU models: also implement `_get_default_resources()`, `get_minimum_resources()`, `_get_default_ag_args_ensemble()` (with `fold_fitting_strategy: sequential_local`), `_class_tags()` (with `can_estimate_memory_usage_static: False`), `_more_tags()` (with `can_refit_full: True`). **Only torch models** (`AbstractTorchModel`) additionally implement `get_device()` / `_set_device()`; non-torch GPU models on `AbstractModel` must NOT (they have no `.to(device)`).
+- For GPU models: also implement `_get_default_resources()`, `get_minimum_resources()`, `_get_default_ag_args_ensemble()` (with `fold_fitting_strategy: sequential_local` — **and `refit_folds: True` for foundation/pre-trained TFMs**; see the "Foundation models: set `refit_folds=True`" note in `references/model_patterns.md`. From-scratch NNs omit it), `_class_tags()` (with `can_estimate_memory_usage_static: False`), `_more_tags()` (with `can_refit_full: True`). **Only torch models** (`AbstractTorchModel`) additionally implement `get_device()` / `_set_device()`; non-torch GPU models on `AbstractModel` must NOT (they have no `.to(device)`).
 - Docstring must include: description, paper title, authors, codebase URL, license
 - Keep optional third-party imports (the wrapped library itself) inside `_fit` / per-method scope so importing this module never requires the optional dep at top-level
 
@@ -100,6 +100,8 @@ The search-space generator. By default use an **empty search space** (like TabPF
 ### 3d. `packages/tabarena/src/tabarena/models/{ModelKey}/info.py`
 
 Defines `{ModelKey}_method_metadata: MethodMetadata` and `{ModelKey}_info: ModelInfo`. `info.py` is the single source the auto-discovery registry walks — populating it correctly is how the model becomes visible to `discover_models()`. See template in `references/model_patterns.md` section "info.py template".
+
+**When you set `ag_key`/`model_key` here, also classify the model in `get_model_family` (Step 4d)** — those keys decide the model's leaderboard family, and skipping this makes it show as ❓ Other on the website.
 
 ### 3e. Multi-file support code (optional)
 
@@ -196,13 +198,13 @@ python -m tabarena.tools.sync_pyproject_extras
 
 ### 4d. `packages/tabarena/src/tabarena/website/website_format.py` — leaderboard model family
 
-`get_model_family()` decides the model's leaderboard **Type** (emoji) and **TypeName** — one of `Tree-based`, `Foundation Model`, `Neural Network`, `Baseline`, `Reference Pipeline`, or `Other`. It prefix-matches the model's `config_type` (which equals its `ag_key`) against `prefixes_mapping`. Add the new model's **uppercased `ag_key`** to the correct family list:
+`get_model_family()` decides the model's leaderboard **Type** (emoji) and **TypeName** — one of `Tree-based`, `Foundation Model`, `Neural Network`, `Baseline`, `Reference Pipeline`, or `Other`. It prefix-matches the model's `config_type` against `prefixes_mapping`. A model's `config_type` is its **`model_key`** — which defaults to `ag_key` only when `model_key` is left unset, so the two can differ: e.g. TabFM sets `model_key="TABFM"` with `ag_key="TA-TABFM"`, so its `config_type` is `TABFM`. Add the **uppercased `config_type`** to the correct family list (a leading `TA-` is stripped before matching, so the `TA-`/bare forms are equivalent):
 
 ```python
 prefixes_mapping = {
-    Constants.tree:           [..., "{ag_key_upper}"],   # tree-based boosters/forests
-    Constants.foundational:   [..., "{ag_key_upper}"],   # pre-trained / in-context-learning models
-    Constants.neural_network: [..., "{ag_key_upper}"],   # NNs trained from scratch
+    Constants.tree:           [..., "{config_type_upper}"],   # tree-based boosters/forests
+    Constants.foundational:   [..., "{config_type_upper}"],   # pre-trained / in-context-learning models
+    Constants.neural_network: [..., "{config_type_upper}"],   # NNs trained from scratch
     ...
 }
 ```
