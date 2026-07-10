@@ -73,6 +73,7 @@ from tabarena.models.tabpfnv2_5.info import (
     tabpfnv26_method_metadata as tabpfn26_metadata,
 )
 from tabarena.models.tabstar.info import tabstar_method_metadata as tabstar_metadata
+from tabarena.models.tabswift.info import tabswift_method_metadata
 from tabarena.models.xgboost.info import xgboost_method_metadata
 from tabarena.models.xrfm.info import xrfm_method_metadata as xrfm_metadata
 
@@ -166,6 +167,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         iltm_method_metadata,
         nori_method_metadata,
         tabfm_method_metadata,
+        tabswift_method_metadata,
     ],
 )
 

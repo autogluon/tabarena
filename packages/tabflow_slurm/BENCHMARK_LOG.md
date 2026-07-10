@@ -160,6 +160,56 @@ benchmark_plan.setup_jobs()
 
 ---
 
+## 2026-07-06 — tabswift_06072026
+
+- **Model(s):** TabSwift (0 — default config only)
+- **Git SHA:** `d2286d92`
+- **Purpose:** First TabArena-v0.1 benchmark of TabSwift, a newly-integrated torch in-context-learning
+  tabular foundation model (LAMDA-Tabular, ICML 2026), single-node GCP GPU run.
+- **Notes:** GPU partition `gpurtxpro6000spotinteractive`, 1 GPU. **Full** benchmark —
+  `task_subset=TaskSubset()` (every task + all splits/folds, not the `lite` first-split), all
+  problem types (binary/multiclass/regression). Empty search space ⇒ single default config
+  (0 random configs). TabSwift is **vendored** (`tabarena/models/tabswift/_vendor/`) so there is no
+  pip extra to install; the `LAMDA-Tabular/TabSwift` `swift.ckpt` checkpoint is prefetched from
+  Hugging Face by the registry before the fits. Wrapper uses `fold_fitting_strategy="sequential_local"`
+  + `refit_folds=True` (shared HF cache; refit one model on all data at TFM parity). No
+  `fake_memory_for_estimates` — TabSwift reports `can_estimate_memory_usage_static=False`;
+  `num_cpus`/`memory_limit` left `None` so the node's values are picked up.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import TabArenaContext
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaBenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaBenchmarkPlan(
+    benchmark_name="tabswift_06072026",
+    model_jobs=[
+        ModelJob(
+            models=("TabSwift", 0),
+            name="gpu",
+            resources={"num_gpus": 1},
+        ),
+    ],
+    context=TabArenaContext(),
+    task_subset=TaskSubset(),  # full benchmark — every task/split (not just "lite")
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_18062026/bin/python",
+    ),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000spotinteractive"),
+)
+plan.setup_jobs()
+```
+
 ## 2026-06-18 — nori_regression_18062026
 
 - **Model(s):** Nori (0 — default config only)
