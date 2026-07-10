@@ -3,7 +3,7 @@ from __future__ import annotations
 from tabarena.models._method_metadata import ModelDescriptor
 from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabdpt.hpo import gen_tabdpt, gen_tabdpt_turbo
-from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel, prefetch_weights
+from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel
 
 tabdpt_descriptor = ModelDescriptor(
     display_name="TabDPT",
@@ -51,10 +51,8 @@ tabdpt_info = ModelInfo(
     model_cls=TabDPTModel,
     search_space=gen_tabdpt,
     method_metadata=tabdpt_method_metadata,
-    # v1.1 and v1.2 (Turbo) share one package/extra; bumped to the version Turbo requires. The
-    # v1.1 wrapper also runs on v1.2 (with v1.2 defaults); reproduce v1.1 numbers via `tabdpt<1.2`.
     pip_extra=("tabdpt>=1.2.0",),
-    prefetch_weights=prefetch_weights,
+    prefetch_weights=TabDPTModel.prefetch_weights,
 )
 
 
@@ -63,5 +61,5 @@ tabdpt_turbo_info = ModelInfo(
     search_space=gen_tabdpt_turbo,
     method_metadata=tabdpt_turbo_method_metadata,
     pip_extra=("tabdpt>=1.2.0",),
-    prefetch_weights=prefetch_weights,
+    prefetch_weights=TabDPTTurboModel.prefetch_weights,
 )

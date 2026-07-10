@@ -45,10 +45,19 @@ class TabDPTModelBase(AbstractTorchModel):
     seed_name = "seed"
     default_random_seed = 0
 
+    #: Hugging Face repo hosting every TabDPT checkpoint.
+    _hf_repo_id: ClassVar[str] = "Layer6/TabDPT"
+    #: This version's checkpoint filename in :attr:`_hf_repo_id`. The installed ``tabdpt`` package
+    #: hardcodes a single version (``tabdpt<VER>.safetensors``), so we pin the correct weights per
+    #: version explicitly via ``model_weight_path`` rather than relying on the package default —
+    #: otherwise every version would load whatever weights the installed package points at.
+    #: Set per concrete subclass.
+    _checkpoint_filename: ClassVar[str | None] = None
+
     #: Estimator constructor kwargs forwarded for this version, mapped to the version's default
     #: value (resolved from the fit hyperparameters, falling back to the default). Overridden per
-    #: concrete subclass; ``device`` / ``use_flash`` are always added on top in
-    #: :meth:`_init_tabdpt_model`.
+    #: concrete subclass; ``device`` / ``use_flash`` / ``model_weight_path`` are always added on
+    #: top in :meth:`_init_tabdpt_model`.
     _constructor_defaults: ClassVar[dict[str, object]] = {}
     #: Predict-time hyperparameters accepted by this version, split by task. ``temperature`` /
     #: ``permute_classes`` are classification-only. Overridden per concrete subclass.
@@ -95,13 +104,45 @@ class TabDPTModelBase(AbstractTorchModel):
     def _init_tabdpt_model(self, *, model_cls, device: str, hps: dict):
         """Construct (but do not fit) the underlying TabDPT estimator.
 
-        Shared across versions: forwards ``device`` / ``use_flash`` plus this version's
-        :attr:`_constructor_defaults` (each resolved from ``hps`` with the version's default).
+        Shared across versions: forwards ``device`` / ``use_flash`` / this version's checkpoint
+        (``model_weight_path``) plus this version's :attr:`_constructor_defaults` (each resolved
+        from ``hps`` with the version's default).
         """
-        kwargs = {"device": device, "use_flash": self._use_flash()}
+        kwargs = {
+            "device": device,
+            "use_flash": self._use_flash(),
+            "model_weight_path": self._download_checkpoint(),
+        }
         for param, default in self._constructor_defaults.items():
             kwargs[param] = hps.get(param, default)
         return model_cls(**kwargs)
+
+    @classmethod
+    def _download_checkpoint(cls) -> str:
+        """Resolve this version's checkpoint to a local path (from cache, else download).
+
+        Tries the local cache first so prefetched / offline compute nodes skip the etag
+        HEAD-request that ``hf_hub_download`` makes by default.
+        """
+        from huggingface_hub import hf_hub_download
+        from huggingface_hub.errors import LocalEntryNotFoundError
+
+        assert cls._checkpoint_filename is not None, (
+            f"{cls.__name__} must set `_checkpoint_filename` to pin its TabDPT weights."
+        )
+        try:
+            return hf_hub_download(
+                repo_id=cls._hf_repo_id,
+                filename=cls._checkpoint_filename,
+                local_files_only=True,
+            )
+        except LocalEntryNotFoundError:
+            return hf_hub_download(repo_id=cls._hf_repo_id, filename=cls._checkpoint_filename)
+
+    @classmethod
+    def prefetch_weights(cls) -> str:
+        """Pre-download this version's TabDPT checkpoint (warms the cache for offline/parallel fits)."""
+        return cls._download_checkpoint()
 
     @staticmethod
     def _use_flash() -> bool:
@@ -242,6 +283,7 @@ class TabDPTModel(TabDPTModelBase):
     ag_key = "TA-TABDPT"
     ag_name = "TA-TabDPT"
 
+    _checkpoint_filename: ClassVar[str] = "tabdpt1_1.safetensors"
     _constructor_defaults: ClassVar[dict[str, object]] = {
         "normalizer": "standard",
         "missing_indicators": False,
@@ -273,6 +315,7 @@ class TabDPTTurboModel(TabDPTModelBase):
     ag_key = "TA-TABDPT-TURBO"
     ag_name = "TA-TabDPT-Turbo"
 
+    _checkpoint_filename: ClassVar[str] = "tabdpt1_2.safetensors"
     _constructor_defaults: ClassVar[dict[str, object]] = {
         # `compile` is off by default: torch.compile adds per-fit compilation overhead (costly
         # across TabArena's many small bagged/refit fits) and a compiled module complicates
@@ -293,10 +336,3 @@ class TabDPTTurboModel(TabDPTModelBase):
         "classifier": ("n_ensembles", "context_size", "batch_size", "permute_classes", "temperature"),
         "regressor": ("n_ensembles", "context_size", "batch_size"),
     }
-
-
-def prefetch_weights() -> None:
-    """Pre-download the TabDPT weights (warms the cache for offline / parallel fits)."""
-    from tabdpt.estimator import TabDPTEstimator
-
-    TabDPTEstimator.download_weights()
