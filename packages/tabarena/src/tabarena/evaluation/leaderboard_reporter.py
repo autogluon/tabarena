@@ -1199,14 +1199,22 @@ class LeaderboardReporter:
         return front[on_front]
 
     @staticmethod
-    def _annotate_date_points(ax, df: pd.DataFrame, *, metric: str) -> None:
-        """Label each point of a metric-vs-date scatter, nudging labels to reduce collisions.
+    def _plan_date_label_offsets(ax, df: pd.DataFrame, *, metric: str) -> list[tuple[float, float, str]]:
+        """Plan a collision-reducing label placement ``(dx, dy, ha)`` for every row of a
+        metric-vs-date frame, in row order.
 
         Greedy placement in display coordinates: each label tries a sequence of candidate
         offsets around its point (right/left of it, above/below, then farther out) and takes
-        the first that stays inside the axes and overlaps neither a previously placed label
-        nor a data point. When every candidate collides, the default right-above placement is
-        kept — collisions are reduced, not guaranteed away.
+        the first that stays inside the axes and overlaps neither a label planned before it, a
+        data point (any row of ``df``, revealed or not), nor the legend. When every candidate
+        collides, the default right-above placement is kept — collisions are reduced, not
+        guaranteed away.
+
+        Because a label only avoids the labels planned *before* it, planning against the full
+        frame in reveal order gives the timelapse stable placements: a label keeps its position
+        in every frame after its point appears. The axes must be fully set up (limits, legend)
+        before planning — extents are measured against the current view. Planning is
+        side-effect free: the probe annotations are removed.
         """
         import matplotlib.dates as mdates
         from matplotlib.transforms import Bbox
@@ -1231,8 +1239,10 @@ class LeaderboardReporter:
             (-6, 13, "right"),
             (-6, -20, "right"),
         ]
+        default = candidates[0]
+        offsets: list[tuple[float, float, str]] = []
         for label, date, value in zip(df["_label"], df["_date"], df[metric], strict=False):
-            chosen = None
+            chosen_offset, chosen_bbox = default, None
             for dx, dy, ha in candidates:
                 text = ax.annotate(
                     str(label),
@@ -1241,27 +1251,49 @@ class LeaderboardReporter:
                     textcoords="offset points",
                     fontsize=7,
                     ha=ha,
-                    zorder=5,
                 )
                 bbox = text.get_window_extent()
+                text.remove()
                 inside = (
                     bbox.x0 >= ax_bbox.x0 and bbox.x1 <= ax_bbox.x1 and bbox.y0 >= ax_bbox.y0 and bbox.y1 <= ax_bbox.y1
                 )
+                if chosen_bbox is None and (dx, dy, ha) == default:
+                    chosen_bbox = bbox  # fallback footprint if every candidate collides
                 if inside and not any(bbox.overlaps(other) for other in occupied):
-                    chosen = bbox
+                    chosen_offset, chosen_bbox = (dx, dy, ha), bbox
                     break
-                text.remove()
-            if chosen is None:
-                text = ax.annotate(
-                    str(label),
-                    (date, value),
-                    xytext=(4, 4),
-                    textcoords="offset points",
-                    fontsize=7,
-                    zorder=5,
-                )
-                chosen = text.get_window_extent()
-            occupied.append(chosen)
+            offsets.append(chosen_offset)
+            occupied.append(chosen_bbox)
+        return offsets
+
+    @staticmethod
+    def _annotate_date_points(
+        ax,
+        df: pd.DataFrame,
+        *,
+        metric: str,
+        offsets: list[tuple[float, float, str]] | None = None,
+    ) -> None:
+        """Label each point of a metric-vs-date scatter at its planned offset.
+
+        ``offsets`` are per-row placements from :meth:`_plan_date_label_offsets` (planned here
+        on the fly when not supplied). The timelapse plans once against the full frame and
+        passes prefixes of that plan, so a point's label never shifts in later frames.
+        """
+        if offsets is None:
+            offsets = LeaderboardReporter._plan_date_label_offsets(ax, df, metric=metric)
+        for (label, date, value), (dx, dy, ha) in zip(
+            zip(df["_label"], df["_date"], df[metric], strict=False), offsets, strict=False
+        ):
+            ax.annotate(
+                str(label),
+                (date, value),
+                xytext=(dx, dy),
+                textcoords="offset points",
+                fontsize=7,
+                ha=ha,
+                zorder=5,
+            )
 
     def _animate_metric_vs_date_introduced(
         self,
@@ -1299,7 +1331,7 @@ class LeaderboardReporter:
 
         fig, ax = plt.subplots(figsize=(11, 6.5))
 
-        def _draw(n_methods: int) -> None:
+        def _draw(n_methods: int, offsets: list[tuple[float, float, str]] | None) -> None:
             ax.clear()
             sub = df.iloc[:n_methods]
             ax.scatter(sub["_date"], sub[metric], s=45, color="#2b6cb0", zorder=3)
@@ -1338,15 +1370,21 @@ class LeaderboardReporter:
             ax.set_title(f"TabArena: {ylabel} vs. method introduction date")
             ax.grid(visible=True, alpha=0.3, zorder=0)
             ax.tick_params(axis="x", labelrotation=30)
-            # Labels last: placement measures text extents against the final axes limits.
-            self._annotate_date_points(ax, sub, metric=metric)
+            if offsets is not None:
+                self._annotate_date_points(ax, sub, metric=metric, offsets=offsets[:n_methods])
+
+        # Plan every label once, against the fully-populated final frame (the axes are fixed, so
+        # extents are identical in every frame): each frame then reuses its prefix of the plan,
+        # and a label never shifts after its point first appears.
+        _draw(len(df), offsets=None)
+        offsets = self._plan_date_label_offsets(ax, df, metric=metric)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         out_path = self.output_dir / f"{metric}_vs_date_introduced_timelapse.gif"
         writer = PillowWriter(fps=fps)
         with writer.saving(fig, str(out_path), dpi=120):
             for n_methods in range(1, len(df) + 1):
-                _draw(n_methods)
+                _draw(n_methods, offsets=offsets)
                 writer.grab_frame()
             for _ in range(int(hold_seconds * fps)):
                 writer.grab_frame()
