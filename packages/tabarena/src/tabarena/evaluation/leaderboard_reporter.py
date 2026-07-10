@@ -916,6 +916,7 @@ class LeaderboardReporter:
 
         # Elo vs. method introduction date (no-op unless `date_introduced` method metadata is available).
         self.plot_elo_vs_date_introduced(leaderboard=leaderboard, show=False)
+        self.animate_elo_vs_date_introduced(leaderboard=leaderboard)
 
         self.create_leaderboard_latex(
             leaderboard,
@@ -1139,6 +1140,145 @@ class LeaderboardReporter:
 
         return leaderboard
 
+    def _elo_vs_date_frame(self, leaderboard: pd.DataFrame) -> pd.DataFrame | None:
+        """The (method family, introduction date, best Elo) frame behind the Elo-vs-date figures.
+
+        Merges the leaderboard with the method metadata's ``date_introduced`` and keeps one row
+        per method family — labeled by display name (``_label``), at its best (highest) Elo, with
+        the parsed introduction date in ``_date``. Returns ``None`` when no introduction-date
+        metadata is available (the evaluator was built without a ``tabarena_context``) or no row
+        has both a date and an Elo.
+        """
+        if self.method_metadata_info is None or "date_introduced" not in self.method_metadata_info.columns:
+            return None
+
+        meta = self.method_metadata_info[["ta_name", "ta_suite", "date_introduced", "display_name"]].drop_duplicates(
+            subset=["ta_name", "ta_suite"],
+        )
+        df = leaderboard.merge(meta, on=["ta_name", "ta_suite"], how="left")
+        df["_date"] = pd.to_datetime(df["date_introduced"], errors="coerce")
+        df = df[df["_date"].notna() & df["elo"].notna()]
+        if df.empty:
+            return None
+
+        df["_label"] = df["display_name"].fillna(df["ta_name"])
+        return df.sort_values("elo").drop_duplicates(subset=["_label"], keep="last")
+
+    @staticmethod
+    def _elo_pareto_front(df: pd.DataFrame) -> pd.DataFrame:
+        """The SOTA-over-time frontier of an Elo-vs-date frame: rows whose Elo beats every
+        earlier (or same-date) method's, in chronological order.
+        """
+        front = df.sort_values(["_date", "elo"], ascending=[True, False])
+        on_front, best_elo = [], -np.inf
+        for elo in front["elo"]:
+            keep = elo > best_elo
+            on_front.append(keep)
+            if keep:
+                best_elo = elo
+        return front[on_front]
+
+    def animate_elo_vs_date_introduced(
+        self,
+        leaderboard: pd.DataFrame,
+        *,
+        fps: int = 2,
+        hold_seconds: float = 3.0,
+    ) -> Path | None:
+        """Animated timelapse of :meth:`plot_elo_vs_date_introduced`: methods appear one at a
+        time in order of introduction date, with the Pareto front redrawn as each arrives.
+
+        Writes ``elo_vs_date_introduced_timelapse.gif`` to ``output_dir`` (GIF regardless of
+        ``figure_file_type``). Axes are fixed to the full extent up front so the view doesn't
+        jump between frames, and the final complete frame is held for ``hold_seconds``. Like the
+        static plot, this is a no-op (returns ``None``) when no introduction-date metadata is
+        available, so it never breaks :meth:`eval`.
+
+        Parameters
+        ----------
+        leaderboard
+            The leaderboard returned by :meth:`eval` (must carry ``elo``/``ta_name``/``ta_suite``).
+        fps
+            Animation frames per second; one method is added per frame.
+        hold_seconds
+            How long the final complete frame is held at the end.
+        """
+        df = self._elo_vs_date_frame(leaderboard)
+        if df is None:
+            return None
+        # Reveal chronologically; same-date ties reveal lowest Elo first so the front only rises.
+        df = df.sort_values(["_date", "elo"])
+
+        import matplotlib.pyplot as plt
+        from matplotlib.animation import PillowWriter
+
+        x_min = min(pd.Timestamp("2013-01-01"), df["_date"].min())
+        x_max = df["_date"].max() + pd.DateOffset(months=6)
+        elo_pad = 0.05 * (df["elo"].max() - df["elo"].min() + 1)
+        y_min, y_max = df["elo"].min() - elo_pad, df["elo"].max() + elo_pad
+
+        fig, ax = plt.subplots(figsize=(11, 6.5))
+
+        def _draw(n_methods: int) -> None:
+            ax.clear()
+            sub = df.iloc[:n_methods]
+            ax.scatter(sub["_date"], sub["elo"], s=45, color="#2b6cb0", zorder=3)
+            for _, row in sub.iterrows():
+                ax.annotate(
+                    str(row["_label"]),
+                    (row["_date"], row["elo"]),
+                    xytext=(4, 4),
+                    textcoords="offset points",
+                    fontsize=7,
+                )
+            front = self._elo_pareto_front(sub)
+            ax.step(
+                front["_date"],
+                front["elo"],
+                where="post",
+                color="#dd6b20",
+                linewidth=2,
+                zorder=2,
+                label="Pareto front (best Elo over time)",
+            )
+            ax.scatter(
+                front["_date"],
+                front["elo"],
+                s=80,
+                facecolors="none",
+                edgecolors="#dd6b20",
+                linewidths=1.6,
+                zorder=4,
+            )
+            ax.legend(loc="lower right", fontsize=8)
+            ax.text(
+                0.02,
+                0.96,
+                f"methods through {sub['_date'].max().date().isoformat()}  ({n_methods}/{len(df)})",
+                transform=ax.transAxes,
+                fontsize=9,
+                verticalalignment="top",
+            )
+            ax.set_xlim(x_min, x_max)
+            ax.set_ylim(y_min, y_max)
+            ax.set_xlabel("Date introduced")
+            ax.set_ylabel("Elo")
+            ax.set_title("TabArena: Elo vs. method introduction date")
+            ax.grid(visible=True, alpha=0.3, zorder=0)
+            ax.tick_params(axis="x", labelrotation=30)
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        out_path = self.output_dir / "elo_vs_date_introduced_timelapse.gif"
+        writer = PillowWriter(fps=fps)
+        with writer.saving(fig, str(out_path), dpi=120):
+            for n_methods in range(1, len(df) + 1):
+                _draw(n_methods)
+                writer.grab_frame()
+            for _ in range(int(hold_seconds * fps)):
+                writer.grab_frame()
+        plt.close(fig)
+        return out_path
+
     def plot_elo_vs_date_introduced(self, leaderboard: pd.DataFrame, *, show: bool = False) -> Path | None:
         """Scatter of leaderboard Elo (y) vs. each method's introduction date (x).
 
@@ -1154,21 +1294,9 @@ class LeaderboardReporter:
         show
             If True, display the figure; otherwise it is closed after saving.
         """
-        if self.method_metadata_info is None or "date_introduced" not in self.method_metadata_info.columns:
+        df = self._elo_vs_date_frame(leaderboard)
+        if df is None:
             return None
-
-        meta = self.method_metadata_info[["ta_name", "ta_suite", "date_introduced", "display_name"]].drop_duplicates(
-            subset=["ta_name", "ta_suite"],
-        )
-        df = leaderboard.merge(meta, on=["ta_name", "ta_suite"], how="left")
-        df["_date"] = pd.to_datetime(df["date_introduced"], errors="coerce")
-        df = df[df["_date"].notna() & df["elo"].notna()]
-        if df.empty:
-            return None
-
-        # One labeled point per method family, at its best (highest) Elo.
-        df["_label"] = df["display_name"].fillna(df["ta_name"])
-        df = df.sort_values("elo").drop_duplicates(subset=["_label"], keep="last")
 
         import matplotlib.pyplot as plt
 
@@ -1186,14 +1314,7 @@ class LeaderboardReporter:
         # Pareto front: the running-best Elo over time — a method is on the front when no
         # earlier (or same-date) method has a >= Elo. Drawn as a step line, so each record
         # holds until the next method beats it (the SOTA-over-time frontier).
-        front = df.sort_values(["_date", "elo"], ascending=[True, False])
-        on_front, best_elo = [], -np.inf
-        for elo in front["elo"]:
-            keep = elo > best_elo
-            on_front.append(keep)
-            if keep:
-                best_elo = elo
-        front = front[on_front]
+        front = self._elo_pareto_front(df)
         ax.step(
             front["_date"],
             front["elo"],
