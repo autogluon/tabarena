@@ -91,7 +91,7 @@ tabicl = ["tabicl>=2.0.0"]
 ebm = ["autogluon.tabular[interpret]>=1.5,<1.6"]
 search_spaces = ["configspace>=1.2,<2.0"]
 realmlp = ["pytabkit>=1.5.0,<2.0"]
-tabdpt = ["tabdpt>=1.1.10"]
+tabdpt = ["tabdpt>=1.2.0"]
 tabm = ["torch"]
 
 # Extended model extras — opt-in individually or together via the `extended` union below.
