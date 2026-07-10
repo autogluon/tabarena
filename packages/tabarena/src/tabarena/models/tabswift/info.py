@@ -9,7 +9,7 @@ tabswift_method_metadata = MethodMetadata.config(
     method="TabSwift",
     suite="tabarena-2026-07-06",
     ag_key="TA-TABSWIFT",
-    config_default="TabSwift_c1_BAG_L1",
+    config_default="TabSwift_c1_default_BAG_L1",
     can_hpo=False,
     compute="gpu",
     is_bag=False,
@@ -17,6 +17,8 @@ tabswift_method_metadata = MethodMetadata.config(
     reference_url="https://github.com/LAMDA-Tabular/TabSwift",
     display_name="TabSwift",
     verified=False,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 
