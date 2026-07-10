@@ -41,6 +41,12 @@ class TestConfig:
     def test_subsets_passthrough(self, tmp_path):
         assert _config(tmp_path, subsets=[[], ["regression"]]).subsets_to_run() == [[], ["regression"]]
 
+    def test_only_valid_tasks_defaults_false(self, tmp_path):
+        assert _config(tmp_path).only_valid_tasks is False
+
+    def test_only_valid_tasks_passthrough(self, tmp_path):
+        assert _config(tmp_path, only_valid_tasks=True).only_valid_tasks is True
+
     def test_init_caches_sets_tabarena_cache_root(self, tmp_path):
         try:
             _config(tmp_path, tabarena_cache_path="/c").init_caches()
@@ -78,6 +84,7 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
 
     compare_calls: list[tuple] = []
     context_init_calls: list = []
+    context_only_valid_tasks: list = []
     methods_sentinel = [object()]
 
     class _FakeResults:
@@ -89,8 +96,9 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     class _FakeContext:
         """Stands in for the TabArenaContext the run's methods are registered on."""
 
-        def __init__(self, *, extra_methods=None, **_kw):
+        def __init__(self, *, extra_methods=None, only_valid_tasks=False, **_kw):
             context_init_calls.append(extra_methods)
+            context_only_valid_tasks.append(only_valid_tasks)
 
         def compare(self, output_dir, *, subset=None, **_kw):
             compare_calls.append((Path(output_dir), subset))
@@ -120,6 +128,7 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
             EvalMethod("B", ag_name_override="AG_B", only_load_cache=True),
         ],
         subsets=[[], ["regression"]],
+        only_valid_tasks=True,
     )
     out = run_eval(cfg)
 
@@ -134,8 +143,10 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     # Phase 2: every method is re-loaded from cache as (ag_name, suite), exactly once.
     assert from_cache_calls == [[("AG_A", "bench"), ("AG_B", "bench")]]
 
-    # The context is built once, with the run's vended methods registered via extra_methods=.
+    # The context is built once, with the run's vended methods registered via extra_methods=,
+    # and the config's only_valid_tasks forwarded through.
     assert context_init_calls == [methods_sentinel]
+    assert context_only_valid_tasks == [True]
 
     # One comparison per subset, with the expected output dir + subset.
     figs = Path(cfg.figure_output_dir)
