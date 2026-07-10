@@ -1302,6 +1302,7 @@ class LeaderboardReporter:
         metric: str,
         higher_is_better: bool,
         ylabel: str,
+        ymin: float | None = None,
         fps: int = 2,
         hold_seconds: float = 3.0,
     ) -> Path | None:
@@ -1309,10 +1310,11 @@ class LeaderboardReporter:
         of introduction date, with the Pareto front redrawn as each arrives.
 
         Writes ``<metric>_vs_date_introduced_timelapse.gif`` to ``output_dir`` (GIF regardless
-        of ``figure_file_type``). Axes are fixed to the full extent up front so the view doesn't
-        jump between frames, and the final complete frame is held for ``hold_seconds``. Like the
-        static plots, this is a no-op (returns ``None``) when the metric or introduction-date
-        metadata is unavailable, so it never breaks :meth:`eval`.
+        of ``figure_file_type``). Axes are fixed to the full extent up front (a fixed bottom of
+        ``ymin`` when given, data-padded otherwise) so the view doesn't jump between frames, and
+        the final complete frame is held for ``hold_seconds``. Like the static plots, this is a
+        no-op (returns ``None``) when the metric or introduction-date metadata is unavailable,
+        so it never breaks :meth:`eval`.
         """
         df = self._metric_vs_date_frame(leaderboard, metric=metric, higher_is_better=higher_is_better)
         if df is None:
@@ -1327,7 +1329,8 @@ class LeaderboardReporter:
         x_min = min(pd.Timestamp("2013-01-01"), df["_date"].min())
         x_max = df["_date"].max() + pd.DateOffset(months=6)
         y_pad = 0.05 * (df[metric].max() - df[metric].min() + 1e-12)
-        y_min, y_max = df[metric].min() - y_pad, df[metric].max() + y_pad
+        y_min = ymin if ymin is not None else df[metric].min() - y_pad
+        y_max = df[metric].max() + y_pad
 
         fig, ax = plt.subplots(figsize=(11, 6.5))
 
@@ -1425,6 +1428,7 @@ class LeaderboardReporter:
             metric="improvability",
             higher_is_better=False,
             ylabel="Improvability",
+            ymin=0.0,
             fps=fps,
             hold_seconds=hold_seconds,
         )
@@ -1436,6 +1440,7 @@ class LeaderboardReporter:
         metric: str,
         higher_is_better: bool,
         ylabel: str,
+        ymin: float | None = None,
         show: bool = False,
     ) -> Path | None:
         """Scatter of a leaderboard metric (y) vs. each method's introduction date (x).
@@ -1444,7 +1449,9 @@ class LeaderboardReporter:
         evaluator was constructed with a ``tabarena_context`` (otherwise this is a no-op and
         returns ``None``). Plots one point per method family at its best ``metric`` value,
         labeled by display name, with the SOTA-over-time Pareto front as a step line, and
-        writes ``<metric>_vs_date_introduced.<figure_file_type>`` to ``output_dir``.
+        writes ``<metric>_vs_date_introduced.<figure_file_type>`` to ``output_dir``. ``ymin``
+        fixes the y-axis bottom (e.g. ``0`` for ratio-like metrics); the default keeps
+        matplotlib's data-driven limit.
         """
         df = self._metric_vs_date_frame(leaderboard, metric=metric, higher_is_better=higher_is_better)
         if df is None:
@@ -1483,6 +1490,8 @@ class LeaderboardReporter:
         ax.set_ylabel(ylabel)
         ax.set_title(f"TabArena: {ylabel} vs. method introduction date")
         ax.set_xlim(left=pd.Timestamp("2013-01-01"))
+        if ymin is not None:
+            ax.set_ylim(bottom=ymin)
         ax.grid(visible=True, alpha=0.3, zorder=0)
         fig.autofmt_xdate()
         fig.tight_layout()
@@ -1520,6 +1529,7 @@ class LeaderboardReporter:
             metric="improvability",
             higher_is_better=False,
             ylabel="Improvability",
+            ymin=0.0,
             show=show,
         )
 
