@@ -1156,7 +1156,13 @@ class LeaderboardReporter:
             subset=["ta_name", "ta_suite"],
         )
         df = leaderboard.merge(meta, on=["ta_name", "ta_suite"], how="left")
-        df["_date"] = pd.to_datetime(df["date_introduced"], errors="coerce")
+        # `date_introduced` has variable precision ('YYYY', 'YYYY-MM', or 'YYYY-MM-DD'); pad to a
+        # full date before parsing — `pd.to_datetime` alone infers the format from the first
+        # element and coerces every other precision to NaT, silently dropping those methods.
+        date = df["date_introduced"].astype("string")
+        date = date.mask(date.str.len() == 4, date + "-01")
+        date = date.mask(date.str.len() == 7, date + "-01")
+        df["_date"] = pd.to_datetime(date, format="%Y-%m-%d", errors="coerce")
         df = df[df["_date"].notna() & df["elo"].notna()]
         if df.empty:
             return None
