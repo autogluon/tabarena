@@ -917,6 +917,8 @@ class LeaderboardReporter:
         # Elo vs. method introduction date (no-op unless `date_introduced` method metadata is available).
         self.plot_elo_vs_date_introduced(leaderboard=leaderboard, show=False)
         self.animate_elo_vs_date_introduced(leaderboard=leaderboard)
+        self.plot_improvability_vs_date_introduced(leaderboard=leaderboard, show=False)
+        self.animate_improvability_vs_date_introduced(leaderboard=leaderboard)
 
         self.create_leaderboard_latex(
             leaderboard,
@@ -1140,16 +1142,26 @@ class LeaderboardReporter:
 
         return leaderboard
 
-    def _elo_vs_date_frame(self, leaderboard: pd.DataFrame) -> pd.DataFrame | None:
-        """The (method family, introduction date, best Elo) frame behind the Elo-vs-date figures.
+    def _metric_vs_date_frame(
+        self,
+        leaderboard: pd.DataFrame,
+        *,
+        metric: str,
+        higher_is_better: bool,
+    ) -> pd.DataFrame | None:
+        """The (method family, introduction date, best ``metric``) frame behind the
+        metric-vs-date figures.
 
         Merges the leaderboard with the method metadata's ``date_introduced`` and keeps one row
-        per method family — labeled by display name (``_label``), at its best (highest) Elo, with
-        the parsed introduction date in ``_date``. Returns ``None`` when no introduction-date
-        metadata is available (the evaluator was built without a ``tabarena_context``) or no row
-        has both a date and an Elo.
+        per method family — labeled by display name (``_label``), at its best ``metric`` value,
+        with the parsed introduction date in ``_date``. Returns ``None`` when no
+        introduction-date metadata is available (the evaluator was built without a
+        ``tabarena_context``), the leaderboard has no ``metric`` column, or no row has both a
+        date and a metric value.
         """
         if self.method_metadata_info is None or "date_introduced" not in self.method_metadata_info.columns:
+            return None
+        if metric not in leaderboard.columns:
             return None
 
         meta = self.method_metadata_info[["ta_name", "ta_suite", "date_introduced", "display_name"]].drop_duplicates(
@@ -1163,93 +1175,147 @@ class LeaderboardReporter:
         date = date.mask(date.str.len() == 4, date + "-01")
         date = date.mask(date.str.len() == 7, date + "-01")
         df["_date"] = pd.to_datetime(date, format="%Y-%m-%d", errors="coerce")
-        df = df[df["_date"].notna() & df["elo"].notna()]
+        df = df[df["_date"].notna() & df[metric].notna()]
         if df.empty:
             return None
 
         df["_label"] = df["display_name"].fillna(df["ta_name"])
-        return df.sort_values("elo").drop_duplicates(subset=["_label"], keep="last")
+        # One row per family at its best metric value: sort worst-to-best, keep the last.
+        return df.sort_values(metric, ascending=higher_is_better).drop_duplicates(subset=["_label"], keep="last")
 
     @staticmethod
-    def _elo_pareto_front(df: pd.DataFrame) -> pd.DataFrame:
-        """The SOTA-over-time frontier of an Elo-vs-date frame: rows whose Elo beats every
-        earlier (or same-date) method's, in chronological order.
+    def _date_pareto_front(df: pd.DataFrame, *, metric: str, higher_is_better: bool) -> pd.DataFrame:
+        """The SOTA-over-time frontier of a metric-vs-date frame: rows whose ``metric`` beats
+        every earlier (or same-date) method's, in chronological order.
         """
-        front = df.sort_values(["_date", "elo"], ascending=[True, False])
-        on_front, best_elo = [], -np.inf
-        for elo in front["elo"]:
-            keep = elo > best_elo
+        front = df.sort_values(["_date", metric], ascending=[True, not higher_is_better])
+        sign = 1 if higher_is_better else -1
+        on_front, best = [], -np.inf
+        for value in front[metric]:
+            keep = sign * value > best
             on_front.append(keep)
             if keep:
-                best_elo = elo
+                best = sign * value
         return front[on_front]
 
-    def animate_elo_vs_date_introduced(
+    @staticmethod
+    def _annotate_date_points(ax, df: pd.DataFrame, *, metric: str) -> None:
+        """Label each point of a metric-vs-date scatter, nudging labels to reduce collisions.
+
+        Greedy placement in display coordinates: each label tries a sequence of candidate
+        offsets around its point (right/left of it, above/below, then farther out) and takes
+        the first that stays inside the axes and overlaps neither a previously placed label
+        nor a data point. When every candidate collides, the default right-above placement is
+        kept — collisions are reduced, not guaranteed away.
+        """
+        import matplotlib.dates as mdates
+        from matplotlib.transforms import Bbox
+
+        fig = ax.figure
+        fig.canvas.draw()  # materialize a renderer so text extents can be measured
+        xy_display = ax.transData.transform(np.column_stack([mdates.date2num(df["_date"]), df[metric]]))
+        pad = 5.0  # half-size of the keep-out box around each marker, in pixels
+        occupied = [Bbox.from_extents(x - pad, y - pad, x + pad, y + pad) for x, y in xy_display]
+        legend = ax.get_legend()
+        if legend is not None:
+            occupied.append(legend.get_window_extent())
+        ax_bbox = ax.get_window_extent()
+
+        candidates = [
+            (4, 4, "left"),
+            (4, -11, "left"),
+            (-6, 4, "right"),
+            (-6, -11, "right"),
+            (4, 13, "left"),
+            (4, -20, "left"),
+            (-6, 13, "right"),
+            (-6, -20, "right"),
+        ]
+        for label, date, value in zip(df["_label"], df["_date"], df[metric], strict=False):
+            chosen = None
+            for dx, dy, ha in candidates:
+                text = ax.annotate(
+                    str(label),
+                    (date, value),
+                    xytext=(dx, dy),
+                    textcoords="offset points",
+                    fontsize=7,
+                    ha=ha,
+                    zorder=5,
+                )
+                bbox = text.get_window_extent()
+                inside = (
+                    bbox.x0 >= ax_bbox.x0 and bbox.x1 <= ax_bbox.x1 and bbox.y0 >= ax_bbox.y0 and bbox.y1 <= ax_bbox.y1
+                )
+                if inside and not any(bbox.overlaps(other) for other in occupied):
+                    chosen = bbox
+                    break
+                text.remove()
+            if chosen is None:
+                text = ax.annotate(
+                    str(label),
+                    (date, value),
+                    xytext=(4, 4),
+                    textcoords="offset points",
+                    fontsize=7,
+                    zorder=5,
+                )
+                chosen = text.get_window_extent()
+            occupied.append(chosen)
+
+    def _animate_metric_vs_date_introduced(
         self,
         leaderboard: pd.DataFrame,
         *,
+        metric: str,
+        higher_is_better: bool,
+        ylabel: str,
         fps: int = 2,
         hold_seconds: float = 3.0,
     ) -> Path | None:
-        """Animated timelapse of :meth:`plot_elo_vs_date_introduced`: methods appear one at a
-        time in order of introduction date, with the Pareto front redrawn as each arrives.
+        """Animated timelapse of a metric-vs-date figure: methods appear one at a time in order
+        of introduction date, with the Pareto front redrawn as each arrives.
 
-        Writes ``elo_vs_date_introduced_timelapse.gif`` to ``output_dir`` (GIF regardless of
-        ``figure_file_type``). Axes are fixed to the full extent up front so the view doesn't
+        Writes ``<metric>_vs_date_introduced_timelapse.gif`` to ``output_dir`` (GIF regardless
+        of ``figure_file_type``). Axes are fixed to the full extent up front so the view doesn't
         jump between frames, and the final complete frame is held for ``hold_seconds``. Like the
-        static plot, this is a no-op (returns ``None``) when no introduction-date metadata is
-        available, so it never breaks :meth:`eval`.
-
-        Parameters
-        ----------
-        leaderboard
-            The leaderboard returned by :meth:`eval` (must carry ``elo``/``ta_name``/``ta_suite``).
-        fps
-            Animation frames per second; one method is added per frame.
-        hold_seconds
-            How long the final complete frame is held at the end.
+        static plots, this is a no-op (returns ``None``) when the metric or introduction-date
+        metadata is unavailable, so it never breaks :meth:`eval`.
         """
-        df = self._elo_vs_date_frame(leaderboard)
+        df = self._metric_vs_date_frame(leaderboard, metric=metric, higher_is_better=higher_is_better)
         if df is None:
             return None
-        # Reveal chronologically; same-date ties reveal lowest Elo first so the front only rises.
-        df = df.sort_values(["_date", "elo"])
+        # Reveal chronologically; same-date ties reveal the worst method first so the front
+        # only ever improves within a frame step.
+        df = df.sort_values(["_date", metric], ascending=[True, higher_is_better])
 
         import matplotlib.pyplot as plt
         from matplotlib.animation import PillowWriter
 
         x_min = min(pd.Timestamp("2013-01-01"), df["_date"].min())
         x_max = df["_date"].max() + pd.DateOffset(months=6)
-        elo_pad = 0.05 * (df["elo"].max() - df["elo"].min() + 1)
-        y_min, y_max = df["elo"].min() - elo_pad, df["elo"].max() + elo_pad
+        y_pad = 0.05 * (df[metric].max() - df[metric].min() + 1e-12)
+        y_min, y_max = df[metric].min() - y_pad, df[metric].max() + y_pad
 
         fig, ax = plt.subplots(figsize=(11, 6.5))
 
         def _draw(n_methods: int) -> None:
             ax.clear()
             sub = df.iloc[:n_methods]
-            ax.scatter(sub["_date"], sub["elo"], s=45, color="#2b6cb0", zorder=3)
-            for _, row in sub.iterrows():
-                ax.annotate(
-                    str(row["_label"]),
-                    (row["_date"], row["elo"]),
-                    xytext=(4, 4),
-                    textcoords="offset points",
-                    fontsize=7,
-                )
-            front = self._elo_pareto_front(sub)
+            ax.scatter(sub["_date"], sub[metric], s=45, color="#2b6cb0", zorder=3)
+            front = self._date_pareto_front(sub, metric=metric, higher_is_better=higher_is_better)
             ax.step(
                 front["_date"],
-                front["elo"],
+                front[metric],
                 where="post",
                 color="#dd6b20",
                 linewidth=2,
                 zorder=2,
-                label="Pareto front (best Elo over time)",
+                label=f"Pareto front (best {ylabel} over time)",
             )
             ax.scatter(
                 front["_date"],
-                front["elo"],
+                front[metric],
                 s=80,
                 facecolors="none",
                 edgecolors="#dd6b20",
@@ -1268,13 +1334,15 @@ class LeaderboardReporter:
             ax.set_xlim(x_min, x_max)
             ax.set_ylim(y_min, y_max)
             ax.set_xlabel("Date introduced")
-            ax.set_ylabel("Elo")
-            ax.set_title("TabArena: Elo vs. method introduction date")
+            ax.set_ylabel(ylabel)
+            ax.set_title(f"TabArena: {ylabel} vs. method introduction date")
             ax.grid(visible=True, alpha=0.3, zorder=0)
             ax.tick_params(axis="x", labelrotation=30)
+            # Labels last: placement measures text extents against the final axes limits.
+            self._annotate_date_points(ax, sub, metric=metric)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        out_path = self.output_dir / "elo_vs_date_introduced_timelapse.gif"
+        out_path = self.output_dir / f"{metric}_vs_date_introduced_timelapse.gif"
         writer = PillowWriter(fps=fps)
         with writer.saving(fig, str(out_path), dpi=120):
             for n_methods in range(1, len(df) + 1):
@@ -1285,54 +1353,86 @@ class LeaderboardReporter:
         plt.close(fig)
         return out_path
 
-    def plot_elo_vs_date_introduced(self, leaderboard: pd.DataFrame, *, show: bool = False) -> Path | None:
-        """Scatter of leaderboard Elo (y) vs. each method's introduction date (x).
+    def animate_elo_vs_date_introduced(
+        self,
+        leaderboard: pd.DataFrame,
+        *,
+        fps: int = 2,
+        hold_seconds: float = 3.0,
+    ) -> Path | None:
+        """Animated timelapse of :meth:`plot_elo_vs_date_introduced`; writes
+        ``elo_vs_date_introduced_timelapse.gif`` to ``output_dir``.
+        """
+        return self._animate_metric_vs_date_introduced(
+            leaderboard,
+            metric="elo",
+            higher_is_better=True,
+            ylabel="Elo",
+            fps=fps,
+            hold_seconds=hold_seconds,
+        )
+
+    def animate_improvability_vs_date_introduced(
+        self,
+        leaderboard: pd.DataFrame,
+        *,
+        fps: int = 2,
+        hold_seconds: float = 3.0,
+    ) -> Path | None:
+        """Animated timelapse of :meth:`plot_improvability_vs_date_introduced`; writes
+        ``improvability_vs_date_introduced_timelapse.gif`` to ``output_dir``.
+        """
+        return self._animate_metric_vs_date_introduced(
+            leaderboard,
+            metric="improvability",
+            higher_is_better=False,
+            ylabel="Improvability",
+            fps=fps,
+            hold_seconds=hold_seconds,
+        )
+
+    def _plot_metric_vs_date_introduced(
+        self,
+        leaderboard: pd.DataFrame,
+        *,
+        metric: str,
+        higher_is_better: bool,
+        ylabel: str,
+        show: bool = False,
+    ) -> Path | None:
+        """Scatter of a leaderboard metric (y) vs. each method's introduction date (x).
 
         Uses ``date_introduced`` from the method metadata, which is only available when the
         evaluator was constructed with a ``tabarena_context`` (otherwise this is a no-op and
-        returns ``None``). Plots one point per method family at its best (highest) Elo, labeled by
-        display name, and writes ``elo_vs_date_introduced.<figure_file_type>`` to ``output_dir``.
-
-        Parameters
-        ----------
-        leaderboard
-            The leaderboard returned by :meth:`eval` (must carry ``elo``/``ta_name``/``ta_suite``).
-        show
-            If True, display the figure; otherwise it is closed after saving.
+        returns ``None``). Plots one point per method family at its best ``metric`` value,
+        labeled by display name, with the SOTA-over-time Pareto front as a step line, and
+        writes ``<metric>_vs_date_introduced.<figure_file_type>`` to ``output_dir``.
         """
-        df = self._elo_vs_date_frame(leaderboard)
+        df = self._metric_vs_date_frame(leaderboard, metric=metric, higher_is_better=higher_is_better)
         if df is None:
             return None
 
         import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots(figsize=(11, 6.5))
-        ax.scatter(df["_date"], df["elo"], s=45, color="#2b6cb0", zorder=3)
-        for _, row in df.iterrows():
-            ax.annotate(
-                str(row["_label"]),
-                (row["_date"], row["elo"]),
-                xytext=(4, 4),
-                textcoords="offset points",
-                fontsize=7,
-            )
+        ax.scatter(df["_date"], df[metric], s=45, color="#2b6cb0", zorder=3)
 
-        # Pareto front: the running-best Elo over time — a method is on the front when no
-        # earlier (or same-date) method has a >= Elo. Drawn as a step line, so each record
-        # holds until the next method beats it (the SOTA-over-time frontier).
-        front = self._elo_pareto_front(df)
+        # Pareto front: the running-best metric over time — a method is on the front when no
+        # earlier (or same-date) method has a value at least as good. Drawn as a step line, so
+        # each record holds until the next method beats it (the SOTA-over-time frontier).
+        front = self._date_pareto_front(df, metric=metric, higher_is_better=higher_is_better)
         ax.step(
             front["_date"],
-            front["elo"],
+            front[metric],
             where="post",
             color="#dd6b20",
             linewidth=2,
             zorder=2,
-            label="Pareto front (best Elo over time)",
+            label=f"Pareto front (best {ylabel} over time)",
         )
         ax.scatter(
             front["_date"],
-            front["elo"],
+            front[metric],
             s=80,
             facecolors="none",
             edgecolors="#dd6b20",
@@ -1342,21 +1442,48 @@ class LeaderboardReporter:
         ax.legend(loc="lower right", fontsize=8)
 
         ax.set_xlabel("Date introduced")
-        ax.set_ylabel("Elo")
-        ax.set_title("TabArena: Elo vs. method introduction date")
+        ax.set_ylabel(ylabel)
+        ax.set_title(f"TabArena: {ylabel} vs. method introduction date")
         ax.set_xlim(left=pd.Timestamp("2013-01-01"))
         ax.grid(visible=True, alpha=0.3, zorder=0)
         fig.autofmt_xdate()
         fig.tight_layout()
+        # Labels last: placement measures text extents against the final axes limits.
+        self._annotate_date_points(ax, df, metric=metric)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        out_path = self.output_dir / f"elo_vs_date_introduced.{self.figure_file_type}"
+        out_path = self.output_dir / f"{metric}_vs_date_introduced.{self.figure_file_type}"
         fig.savefig(out_path, dpi=300, bbox_inches="tight")
         if show:
             plt.show()
         else:
             plt.close(fig)
         return out_path
+
+    def plot_elo_vs_date_introduced(self, leaderboard: pd.DataFrame, *, show: bool = False) -> Path | None:
+        """Scatter of leaderboard Elo (y, higher is better) vs. each method's introduction date;
+        writes ``elo_vs_date_introduced.<figure_file_type>`` to ``output_dir``.
+        """
+        return self._plot_metric_vs_date_introduced(
+            leaderboard,
+            metric="elo",
+            higher_is_better=True,
+            ylabel="Elo",
+            show=show,
+        )
+
+    def plot_improvability_vs_date_introduced(self, leaderboard: pd.DataFrame, *, show: bool = False) -> Path | None:
+        """Scatter of leaderboard improvability (y, lower is better) vs. each method's
+        introduction date; writes ``improvability_vs_date_introduced.<figure_file_type>`` to
+        ``output_dir``.
+        """
+        return self._plot_metric_vs_date_introduced(
+            leaderboard,
+            metric="improvability",
+            higher_is_better=False,
+            ylabel="Improvability",
+            show=show,
+        )
 
     def assert_no_duplicates(self, df_results: pd.DataFrame):
         # don't allow duplicate results
