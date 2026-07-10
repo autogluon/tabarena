@@ -983,6 +983,7 @@ class AbstractArenaContext:
                 df_results=df_results,
                 output_dir=Path(tmp_output_dir.name if tmp_output_dir is not None else output_dir),
                 task_metadata=self.task_metadata_collection,
+                tabarena_context=self,
                 fillna=fillna,
                 calibration_framework=calibration_method,
                 score_on_val=score_on_val,
