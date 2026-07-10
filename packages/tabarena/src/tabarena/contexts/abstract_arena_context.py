@@ -28,6 +28,7 @@ import copy
 import functools
 import tempfile
 from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
 
@@ -86,6 +87,13 @@ class AbstractArenaContext:
         # split, so this maps to fold == 0 there.
         "lite": SubsetPredicate(lambda df: df["split"] == 0, ("split",)),
     }
+
+    #: Named shortcuts for standard subslices, each a list of :attr:`SUBSET_PREDICATES` names
+    #: AND-ed together (the same form ``compare`` / ``build_jobs`` accept as a ``subset``). Lets
+    #: callers refer to a reusable slice (e.g. ``"high_dim"`` -> ``["core", "high-dim"]``) by name
+    #: instead of respelling the predicate list. Base context defines none; subclasses override.
+    #: Read via :attr:`subset_shortcuts` so subclass overrides take effect.
+    SUBSET_SHORTCUTS: dict[str, list[str]] = {}
 
     def __init__(
         self,
@@ -572,6 +580,33 @@ class AbstractArenaContext:
         ``type(self).SUBSET_PREDICATES`` so subclass overrides take effect.
         """
         return type(self).SUBSET_PREDICATES
+
+    @property
+    def subset_shortcuts(self) -> dict[str, list[str]]:
+        """Named shortcuts for standard subslices (shortcut name -> list of subset-predicate
+        names AND-ed together). Reads from ``type(self).SUBSET_SHORTCUTS`` so subclass overrides
+        take effect.
+        """
+        return type(self).SUBSET_SHORTCUTS
+
+    @classmethod
+    def subset_shortcut_name(cls, subset: str | list[str] | None) -> str | None:
+        """Reverse of :attr:`subset_shortcuts`: the shortcut name whose predicate list
+        matches ``subset`` (order-insensitive), or ``None`` if none does.
+
+        ``subset`` takes the AND-list forms a single :class:`TaskSubset` view accepts — a lone
+        predicate name (``"core"``), a list (``["core", "high-dim"]``), or ``None``/``[]`` — and is
+        compared as a set, so ``["high-dim", "core"]`` still resolves to ``"high_dim"``.
+        """
+        if subset is None:
+            subset = []
+        elif isinstance(subset, str):
+            subset = [subset]
+        key = tuple(sorted(subset))
+        for name, shortcut in cls.SUBSET_SHORTCUTS.items():
+            if tuple(sorted(shortcut)) == key:
+                return name
+        return None
 
     @property
     def _default_subsets(self):
@@ -1061,7 +1096,10 @@ class AbstractArenaContext:
         save_website_leaderboard: bool = False,
         website_leaderboard_kwargs: dict | None = None,
         website_leaderboard_filename: str = "leaderboard_website.csv",
+        save_composite_leaderboard: bool = False,
+        composite_leaderboard_kwargs: dict | None = None,
         trajectory_extra_results: pd.DataFrame | None = None,
+        max_workers: int = 1,
     ) -> None:
         """Generate the compare / tuning-trajectory / runtime figures for each subset.
 
@@ -1071,6 +1109,20 @@ class AbstractArenaContext:
         pass a *different* frame than the compare pass — e.g. show full per-config trajectories
         (multiple ``n_configs`` rows per method) on the trajectory plot while the leaderboard keeps
         the single-point method results — in one call instead of two.
+
+        ``save_composite_leaderboard=True`` additionally aggregates the per-subset leaderboards
+        into a single composite table (rows = (method, metric), one column per subset) written to
+        ``<output_dir>/composite_leaderboard.csv`` plus color-graded PNG renderings — see
+        :func:`tabarena.plot.composite_leaderboard.generate_composite_leaderboard`, which
+        ``composite_leaderboard_kwargs`` is forwarded to (e.g. ``sort_by``, ``top_n``,
+        ``excluded_method_prefixes``, ``title``). Requires ``plot_compare=True``; the composite is
+        built from the compact website format independently of ``save_website_leaderboard``.
+
+        ``max_workers`` parallelizes the per-subset passes across processes (capped at the subset
+        count; 1 = sequential). Each subset's compare/plots are independent and write to their own
+        directory, so they compose freely; processes (not threads) because the passes are CPU-bound
+        (Elo bootstrap, plotting) and matplotlib is not thread-safe. Requires the context (and any
+        results frames passed in) to be picklable.
         """
         if compare_kwargs is None:
             compare_kwargs = {}
@@ -1078,68 +1130,156 @@ class AbstractArenaContext:
             tuning_trajectory_kwargs = {}
         if website_leaderboard_kwargs is None:
             website_leaderboard_kwargs = {}
+        if save_composite_leaderboard and not plot_compare:
+            raise ValueError(
+                "save_composite_leaderboard=True requires plot_compare=True: the composite is "
+                "aggregated from the per-subset leaderboards computed by the compare pass.",
+            )
         if subsets == "auto":
             subsets = self._default_subsets
         output_dir = Path(output_dir)
-        for subset in subsets:
-            output_suffix = None
-            if subset is None:
-                subset = []
-            if isinstance(subset, tuple):
-                assert len(subset) == 2
-                output_suffix, subset = subset
-            if isinstance(subset, str):
-                subset = [subset]
-            if isinstance(subset, list):
-                if output_suffix is None:
-                    output_suffix = "all" if not subset else "&".join(subset)
-            else:
-                raise ValueError(f"Unknown subset: {subset!r}")
-            output_dir_subset = output_dir / output_suffix
 
-            # FIXME: new_results
-            if plot_compare:
-                lb_df = self.compare(
-                    output_dir=output_dir_subset,
-                    subset=subset,
-                    new_results=new_results,
-                    subset_label=output_suffix,
-                    **compare_kwargs,
+        subset_fig_kwargs = dict(
+            output_dir=output_dir,
+            new_results=new_results,
+            compare_kwargs=compare_kwargs,
+            tuning_trajectory_kwargs=tuning_trajectory_kwargs,
+            plot_compare=plot_compare,
+            plot_runtime_per_method=plot_runtime_per_method,
+            plot_tuning_trajectories=plot_tuning_trajectories,
+            save_website_leaderboard=save_website_leaderboard,
+            website_leaderboard_kwargs=website_leaderboard_kwargs,
+            website_leaderboard_filename=website_leaderboard_filename,
+            collect_composite=save_composite_leaderboard,
+            trajectory_extra_results=trajectory_extra_results,
+        )
+        max_workers = max(1, min(max_workers, len(subsets)))
+        if max_workers == 1:
+            subset_results = [self._generate_subset_figs(subset, **subset_fig_kwargs) for subset in subsets]
+        else:
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                subset_results = list(
+                    executor.map(functools.partial(self._generate_subset_figs, **subset_fig_kwargs), subsets)
                 )
-                if save_website_leaderboard and lb_df is not None:
-                    lb_website = self.leaderboard_to_website_format(
-                        leaderboard=lb_df,
-                        **website_leaderboard_kwargs,
-                    )
-                    output_dir_subset.mkdir(parents=True, exist_ok=True)
-                    lb_website.to_csv(
-                        output_dir_subset / website_leaderboard_filename,
-                        index=False,
-                    )
-            if plot_tuning_trajectories:
-                self.plot_tuning_trajectories(
-                    save_path=output_dir_subset / "tuning_trajectories",
-                    subset=subset,
-                    extra_results=trajectory_extra_results if trajectory_extra_results is not None else new_results,
-                    **tuning_trajectory_kwargs,
+
+        # Per-subset compact website-format leaderboards collected for the composite,
+        # keyed by the subset's output suffix (= its column name in the composite).
+        composite_inputs: dict[str, pd.DataFrame] = {
+            output_suffix: lb_compact for output_suffix, lb_compact in subset_results if lb_compact is not None
+        }
+        if save_composite_leaderboard and composite_inputs:
+            from tabarena.plot.composite_leaderboard import generate_composite_leaderboard
+
+            generate_composite_leaderboard(
+                leaderboards=composite_inputs,
+                output_dir=output_dir,
+                **(composite_leaderboard_kwargs or {}),
+            )
+
+    def _generate_subset_figs(
+        self,
+        subset: list[str] | tuple[str, list[str]] | str | None,
+        *,
+        output_dir: Path,
+        new_results,
+        compare_kwargs: dict,
+        tuning_trajectory_kwargs: dict,
+        plot_compare: bool,
+        plot_runtime_per_method: bool,
+        plot_tuning_trajectories: bool,
+        save_website_leaderboard: bool,
+        website_leaderboard_kwargs: dict,
+        website_leaderboard_filename: str,
+        collect_composite: bool,
+        trajectory_extra_results: pd.DataFrame | None,
+    ) -> tuple[str, pd.DataFrame | None]:
+        """One subset's pass of :meth:`generate_all_figs` (compare + figures under
+        ``output_dir/<suffix>/``). Returns ``(output_suffix, compact_leaderboard_or_None)`` —
+        the subset's composite-leaderboard input when ``collect_composite`` and the compare
+        pass produced a leaderboard. Self-contained so subsets can run in worker processes.
+        """
+        output_suffix = None
+        if subset is None:
+            subset = []
+        if isinstance(subset, tuple):
+            assert len(subset) == 2
+            output_suffix, subset = subset
+        if isinstance(subset, str):
+            subset = [subset]
+        if isinstance(subset, list):
+            if output_suffix is None:
+                output_suffix = "all" if not subset else "&".join(subset)
+        else:
+            raise ValueError(f"Unknown subset: {subset!r}")
+        output_dir_subset = output_dir / output_suffix
+
+        lb_compact = None
+        # FIXME: new_results
+        if plot_compare:
+            lb_df = self.compare(
+                output_dir=output_dir_subset,
+                subset=subset,
+                new_results=new_results,
+                subset_label=output_suffix,
+                **compare_kwargs,
+            )
+            if save_website_leaderboard and lb_df is not None:
+                lb_website = self.leaderboard_to_website_format(
+                    leaderboard=lb_df,
+                    **website_leaderboard_kwargs,
                 )
-            if plot_runtime_per_method:
-                self.plot_runtime_per_method(
-                    save_path=output_dir_subset / "ablation" / "all-runtimes",
-                    # new_results=new_results,
-                    subset=subset,
+                output_dir_subset.mkdir(parents=True, exist_ok=True)
+                lb_website.to_csv(
+                    output_dir_subset / website_leaderboard_filename,
+                    index=False,
                 )
+            if collect_composite and lb_df is not None:
+                # Always the compact format — the composite reads its metric
+                # columns (Elo / Impro%) from it, regardless of what format
+                # `website_leaderboard_kwargs` chose for the saved CSVs.
+                lb_compact = self.leaderboard_to_website_format(
+                    leaderboard=lb_df,
+                    compact=True,
+                )
+        if plot_tuning_trajectories:
+            self.plot_tuning_trajectories(
+                save_path=output_dir_subset / "tuning_trajectories",
+                subset=subset,
+                extra_results=trajectory_extra_results if trajectory_extra_results is not None else new_results,
+                **tuning_trajectory_kwargs,
+            )
+        if plot_runtime_per_method:
+            self.plot_runtime_per_method(
+                save_path=output_dir_subset / "ablation" / "all-runtimes",
+                # new_results=new_results,
+                subset=subset,
+            )
+        return output_suffix, lb_compact
 
     def load_repo(
-        self, methods: list[str | MethodMetadata] | None = None, config_fallback: str | None = None
+        self,
+        methods: list[str | MethodMetadata] | None = None,
+        config_fallback: str | None = None,
+        max_workers: int | None = 16,
     ) -> EvaluationRepositoryCollection:
+        """Load each method's processed artifacts and combine them into a collection.
+
+        Methods load in a thread pool of ``max_workers`` (capped at the method count; pass
+        ``None`` or ``1`` to load sequentially). Loading is dominated by per-file filesystem
+        round trips — predictions are memmapped, not read — so overlapping the I/O across
+        methods gives a near-linear speedup on network filesystems (e.g. NFS).
+        """
         if methods is None:
             methods = self.methods
-        repos = []
-        for method in methods:
-            metadata = method if isinstance(method, MethodMetadata) else self.method_metadata(method=method)
-            cur_repo = metadata.load_processed()
-            repos.append(cur_repo)
+        metadatas = [
+            method if isinstance(method, MethodMetadata) else self.method_metadata(method=method) for method in methods
+        ]
+        max_workers = max(1, min(max_workers if max_workers is not None else 1, len(metadatas)))
+        if max_workers == 1:
+            repos = [metadata.load_processed() for metadata in metadatas]
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                repos = list(executor.map(lambda metadata: metadata.load_processed(), metadatas))
         return EvaluationRepositoryCollection(repos=repos, config_fallback=config_fallback)
 
     # FIXME: This is a hacky approach, refactor

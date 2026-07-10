@@ -33,6 +33,133 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-07-07 — tabfmplus_07072026
+
+- **Model(s):** TabFM+ (system — single default config, 0 random)
+- **Git SHA:** `f6815255`
+- **Purpose:** TabFM+ — TabFM run through its heavier `ensemble` interface, wrapped as an
+  `ExternalSystemModel` (`TabFMPlusSystemModel`) and benchmarked *as a system* (not an
+  AutoGluon registry model) — on TabArena-v0.1, single-node GCP GPU run. Supports binary /
+  multiclass / regression, so all problem types are included.
+- **Notes:** GPU partition `gpurtxpro6000spotinteractive`, 1 GPU, `bundle_size=1`,
+  `time_limit=4h`. **System run**, not a model name: `experiment_bundle` is built with
+  `system_experiments=True` and the job entry is the `gen_tabfm_plus` `SystemConfigGenerator`
+  (a `(generator, n_configs)` tuple). That gives one direct fit on all training data — no
+  bagging / weighted-ensemble — with the per-split seed threaded into the fit as `random_state`
+  by the runner. `setup_ray_for_slurm_shared_resources_environment=False`: a single in-process
+  system fit never uses Ray, and dropping the Ray setup removes one variable from the OpenBLAS
+  thread-init deadlock hit on GPU nodes (the real fix is the BLAS-thread cap in
+  `TabFMPlusSystemModel`; SHA `f6815255` = "fix for deadlock"; this is defense-in-depth).
+  `prefetch_model_weights=False`: a system has no registry name to key weight prefetch off, and
+  TabFM+ reuses TabFM's cached `google/tabfm-1.0.0-pytorch` HF checkpoint. Extra dep in the run
+  venv: `tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@633cd265f498e1d20c9625be0639f6305d8e2541`.
+  The `ensemble` interface (32 members + feature-cross / SVD schedules + CV calibration / NNLS
+  blending) is much heavier than default TabFM — raise `time_limit` if large tasks time out.
+  Eval matches the raw results by name prefix (system output lives under `TabFM+_c1_default`):
+  `EvalMethod("TabFM+", ag_name_override="TabFM+", only_load_cache=True)` with `only_valid_tasks=True`
+  so the leaderboard is scoped to the tasks TabFM+ actually ran. The script carries a `TEST_DATASET`
+  single-dataset debug toggle (scoped to `Is-this-a-good-customer` at a short walltime to probe the
+  GPU stall); it is `None` here → full TabArena-v0.1 suite.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import TabArenaContext
+from tabarena.models.tabfm import gen_tabfm_plus
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaBenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+benchmark_plan = TabArenaBenchmarkPlan(
+    benchmark_name="tabfmplus_07072026",
+    model_jobs=[
+        ModelJob(
+            # System entry: a `(SystemConfigGenerator, n_configs)` tuple (not a model name).
+            models=(gen_tabfm_plus, 0),
+            name="gpu",
+            resources={"num_gpus": 1, "time_limit": 4 * 60 * 60},
+        ),
+    ],
+    context=TabArenaContext(),
+    task_subset=TaskSubset(dataset_names=None),  # full suite (TEST_DATASET debug toggle = None)
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2, system_experiments=True),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_18062026/bin/python",
+    ),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=GCPSlurmSetup(
+        gpu_partition="gpurtxpro6000spotinteractive",
+        bundle_size=1,
+        setup_ray_for_slurm_shared_resources_environment=False,
+    ),
+    prefetch_model_weights=False,
+)
+
+benchmark_plan.setup_jobs()
+```
+
+---
+
+## 2026-07-07 — tabfm_07072026
+
+- **Model(s):** TabFM (0 — default config only)
+- **Git SHA:** `f6815255`
+- **Purpose:** TabFM (in-context tabular foundation model, GPU) on TabArena-v0.1, single-node
+  GCP GPU run over the full suite. Supports binary / multiclass / regression, so all problem
+  types are included (unlike the regression-only Nori plan). Re-run of the earlier
+  `tabfm_30062026` against the current build.
+- **Notes:** GPU partition `gpurtxpro6000spotinteractive`, 1 GPU, `bundle_size=1`,
+  `time_limit=8h`. Empty search space (`can_hpo=False`), so it runs its single default config
+  (0 random configs). No `fake_memory_for_estimates`: TabFM reports
+  `can_estimate_memory_usage_static = False` (no static estimate to compare against a budget),
+  unlike the VRAM-faking DenseLight. Its `google/tabfm-1.0.0-pytorch` checkpoint is prefetched
+  from Hugging Face by the registry's `prefetch_weights` before the parallel fits. Requires the
+  `tabfm[pytorch]` dependency in the run venv. This snapshot runs the whole suite (`TaskSubset()`)
+  at a flat 8h walltime, folding in the earlier run's per-dataset time-limit bumps
+  (`customer_satisfaction_in_airline` / `APSFailure` / `GiveMeSomeCredit`).
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import TabArenaContext
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaBenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+benchmark_plan = TabArenaBenchmarkPlan(
+    benchmark_name="tabfm_07072026",
+    model_jobs=[
+        ModelJob(
+            models=("TabFM", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "time_limit": 8 * 60 * 60},
+        ),
+    ],
+    context=TabArenaContext(),
+    task_subset=TaskSubset(),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_18062026/bin/python",
+    ),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000spotinteractive", bundle_size=1),
+)
+
+benchmark_plan.setup_jobs()
+```
+
+---
+
 ## 2026-07-06 — tabswift_06072026
 
 - **Model(s):** TabSwift (0 — default config only)

@@ -91,6 +91,7 @@ def get_model_family(model_name: str) -> str:
             "TA-LIMIX",
             "BETA",
             "TABFLEX",
+            "TABFM",
             "REALTABPFN-V2.5",
             "SAP-RPT-OSS",
             "TABICLV2",

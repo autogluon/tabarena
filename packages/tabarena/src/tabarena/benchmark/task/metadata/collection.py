@@ -27,6 +27,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _beyond_arena_subset_predicates() -> dict[str, SubsetPredicate]:
+    from tabarena.contexts import BeyondArenaContext
+
+    return BeyondArenaContext.SUBSET_PREDICATES
+
+
+def _tabarena_subset_predicates() -> dict[str, SubsetPredicate]:
+    from tabarena.contexts import TabArenaContext
+
+    return TabArenaContext.SUBSET_PREDICATES
+
+
 def _preset_subset_predicates_provider(
     suite_name: str,
 ) -> Callable[[], dict[str, SubsetPredicate]] | None:
@@ -34,23 +46,13 @@ def _preset_subset_predicates_provider(
 
     Returns a zero-arg thunk so the (heavier) arena-context import happens only when the
     subset filter actually runs — never at :meth:`TaskMetadataCollection.from_preset` time.
+    Module-level functions (not local closures) so a collection holding one stays picklable
+    (e.g. for the process-parallel ``generate_all_figs``).
     """
     if suite_name == "BeyondArena":
-
-        def _beyond() -> dict[str, SubsetPredicate]:
-            from tabarena.contexts import BeyondArenaContext
-
-            return BeyondArenaContext.SUBSET_PREDICATES
-
-        return _beyond
+        return _beyond_arena_subset_predicates
     if suite_name == "TabArena-v0.1":
-
-        def _tabarena() -> dict[str, SubsetPredicate]:
-            from tabarena.contexts import TabArenaContext
-
-            return TabArenaContext.SUBSET_PREDICATES
-
-        return _tabarena
+        return _tabarena_subset_predicates
     return None
 
 

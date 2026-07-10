@@ -439,18 +439,28 @@ def merge_metadata_frames(df_list: list[pd.DataFrame]) -> pd.DataFrame:
     def merge_pair(left: pd.DataFrame, right: pd.DataFrame) -> pd.DataFrame:
         overlapping_non_keys = (set(left.columns) & set(right.columns)) - set(join_cols)
 
+        # The suffixes must not collide with real column names: the schema has
+        # `target_feature_left` / `target_feature_right`, so suffixing the overlapping
+        # `target_feature` with plain "_left"/"_right" duplicates them — pandas raises
+        # MergeError, or the coalesce loop below consumes the wrong columns.
+        suffix_l, suffix_r = "_left", "_right"
+        all_cols = set(left.columns) | set(right.columns)
+        while any(f"{col}{suffix}" in all_cols for col in overlapping_non_keys for suffix in (suffix_l, suffix_r)):
+            suffix_l = f"_{suffix_l}"
+            suffix_r = f"_{suffix_r}"
+
         merged = pd.merge(
             left,
             right,
             on=join_cols,
             how="outer",
-            suffixes=("_left", "_right"),
+            suffixes=(suffix_l, suffix_r),
             sort=False,
         )
 
         for col in overlapping_non_keys:
-            col_l = f"{col}_left"
-            col_r = f"{col}_right"
+            col_l = f"{col}{suffix_l}"
+            col_r = f"{col}{suffix_r}"
 
             has_l = col_l in merged.columns
             has_r = col_r in merged.columns

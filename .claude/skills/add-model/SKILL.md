@@ -101,6 +101,8 @@ The search-space generator. By default use an **empty search space** (like TabPF
 
 Defines `{ModelKey}_method_metadata: MethodMetadata` and `{ModelKey}_info: ModelInfo`. `info.py` is the single source the auto-discovery registry walks — populating it correctly is how the model becomes visible to `discover_models()`. See template in `references/model_patterns.md` section "info.py template".
 
+**When you set `ag_key`/`model_key` here, also classify the model in `get_model_family` (Step 4d)** — those keys decide the model's leaderboard family, and skipping this makes it show as ❓ Other on the website.
+
 ### 3e. Multi-file support code (optional)
 
 If the wrapper needs helper modules (preprocessors, vendored upstream code, large internal classes), put them in a private subfolder of `packages/tabarena/src/tabarena/models/{ModelKey}/`:
@@ -196,13 +198,13 @@ python -m tabarena.tools.sync_pyproject_extras
 
 ### 4d. `packages/tabarena/src/tabarena/website/website_format.py` — leaderboard model family
 
-`get_model_family()` decides the model's leaderboard **Type** (emoji) and **TypeName** — one of `Tree-based`, `Foundation Model`, `Neural Network`, `Baseline`, `Reference Pipeline`, or `Other`. It prefix-matches the model's `config_type` (which equals its `ag_key`) against `prefixes_mapping`. Add the new model's **uppercased `ag_key`** to the correct family list:
+`get_model_family()` decides the model's leaderboard **Type** (emoji) and **TypeName** — one of `Tree-based`, `Foundation Model`, `Neural Network`, `Baseline`, `Reference Pipeline`, or `Other`. It prefix-matches the model's `config_type` against `prefixes_mapping`. A model's `config_type` is its **`model_key`** — which defaults to `ag_key` only when `model_key` is left unset, so the two can differ: e.g. TabFM sets `model_key="TABFM"` with `ag_key="TA-TABFM"`, so its `config_type` is `TABFM`. Add the **uppercased `config_type`** to the correct family list (a leading `TA-` is stripped before matching, so the `TA-`/bare forms are equivalent):
 
 ```python
 prefixes_mapping = {
-    Constants.tree:           [..., "{ag_key_upper}"],   # tree-based boosters/forests
-    Constants.foundational:   [..., "{ag_key_upper}"],   # pre-trained / in-context-learning models
-    Constants.neural_network: [..., "{ag_key_upper}"],   # NNs trained from scratch
+    Constants.tree:           [..., "{config_type_upper}"],   # tree-based boosters/forests
+    Constants.foundational:   [..., "{config_type_upper}"],   # pre-trained / in-context-learning models
+    Constants.neural_network: [..., "{config_type_upper}"],   # NNs trained from scratch
     ...
 }
 ```

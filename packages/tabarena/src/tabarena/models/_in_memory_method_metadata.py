@@ -48,18 +48,20 @@ class InMemoryMethodMetadata(MethodMetadata):
     #: Instance attributes holding in-memory artifacts — kept out of ``to_info_dict`` so a
     #: DataFrame never lands in ``MethodMetadataCollection.info()`` (and thus the website
     #: leaderboard merge).
-    _IN_MEMORY_SLOTS = ("_results", "_repo")
+    _IN_MEMORY_SLOTS = ("_results", "_repo", "_hpo_trajectories")
 
     def __init__(
         self,
         *,
         results: pd.DataFrame,
         repo: EvaluationRepository | None = None,
+        hpo_trajectories: pd.DataFrame | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self._results = results
         self._repo = repo
+        self._hpo_trajectories = hpo_trajectories
 
     @classmethod
     def from_results_single(
@@ -118,6 +120,7 @@ class InMemoryMethodMetadata(MethodMetadata):
         config_type: str | None = None,
         method_type: str = "config",
         repo: EvaluationRepository | None = None,
+        hpo_trajectories: pd.DataFrame | None = None,
         display_name: str | None = None,
         can_hpo: bool = True,
     ) -> Self:
@@ -134,6 +137,10 @@ class InMemoryMethodMetadata(MethodMetadata):
         (hence :attr:`MethodMetadata.config_type`), matching the frame's ``config_type`` column
         and the ``"<config_type> (tuned)"`` style method names so the leaderboard renders them as
         one tunable family. Config-only fields are not accepted for other ``method_type`` values.
+
+        ``hpo_trajectories`` is an optional tuning-trajectory frame (e.g. from
+        :meth:`~tabarena.contexts.abstract_arena_context.AbstractArenaContext.generate_portfolio_trajectories`),
+        served by :meth:`load_hpo_trajectories` and picked up by the tuning-trajectory plots.
         """
         # A frame-built method never has a raw artifact, and only has a "processed" repo when one
         # is supplied (and must genuinely belong to this method — i.e. hold its config_type's
@@ -144,6 +151,7 @@ class InMemoryMethodMetadata(MethodMetadata):
             return cls(
                 results=results,
                 repo=repo,
+                hpo_trajectories=hpo_trajectories,
                 method=method,
                 suite=suite,
                 method_type="config",
@@ -157,6 +165,7 @@ class InMemoryMethodMetadata(MethodMetadata):
         return cls(
             results=results,
             repo=repo,
+            hpo_trajectories=hpo_trajectories,
             method=method,
             suite=suite,
             method_type=method_type,
@@ -196,6 +205,8 @@ class InMemoryMethodMetadata(MethodMetadata):
         with open(path / "metadata.yaml", "w") as f:
             yaml.dump(self.to_info_dict(), f, default_flow_style=False)
         self._results.to_parquet(results_dir / _RESULTS_FILENAME_BY_TYPE[self.method_type], index=False)
+        if self._hpo_trajectories is not None:
+            self._hpo_trajectories.to_parquet(results_dir / "hpo_trajectories.parquet", index=False)
         if self._repo is not None:
             self._repo.to_dir(path / "processed")
         return path
@@ -206,14 +217,16 @@ class InMemoryMethodMetadata(MethodMetadata):
 
         Loads the directory as a disk-backed :class:`MethodMetadata` (via
         :meth:`MethodMetadata.from_yaml`) and lifts its artifacts into memory — reusing that
-        method's own ``load_results`` (results parquet, dispatched by ``method_type``) and
-        ``load_processed`` (the ``processed/`` repo, if present, with ``prediction_format``)
-        rather than re-reading the yaml / parquet / repo by hand. ``to_info_dict`` drops the
-        runtime-only ``artifact_dir``/``cache_root``, so the rebuilt method is fully in-memory.
+        method's own ``load_results`` (results parquet, dispatched by ``method_type``),
+        ``load_hpo_trajectories``, and ``load_processed`` (the ``processed/`` repo, if present,
+        with ``prediction_format``) rather than re-reading the yaml / parquet / repo by hand.
+        ``to_info_dict`` drops the runtime-only ``artifact_dir``/``cache_root``, so the rebuilt
+        method is fully in-memory.
         """
         base = MethodMetadata.from_yaml(path=path)
         repo = base.load_processed(prediction_format=prediction_format) if base.path_processed_exists else None
-        return cls(results=base.load_results(), repo=repo, **base.to_info_dict())
+        hpo_trajectories = base.load_hpo_trajectories() if base.has_hpo_trajectories else None
+        return cls(results=base.load_results(), repo=repo, hpo_trajectories=hpo_trajectories, **base.to_info_dict())
 
     # ------------------------------------------------------------------ in-memory artifacts
     def load_results(self) -> pd.DataFrame:
@@ -224,6 +237,15 @@ class InMemoryMethodMetadata(MethodMetadata):
 
     def load_hpo_results(self) -> pd.DataFrame:
         return self._results.copy(deep=True)
+
+    @property
+    def has_hpo_trajectories(self) -> bool:
+        return self._hpo_trajectories is not None
+
+    def load_hpo_trajectories(self, download: bool | str = "auto") -> pd.DataFrame:
+        if self._hpo_trajectories is None:
+            raise self._unsupported("load_hpo_trajectories (no in-memory hpo_trajectories frame was supplied)")
+        return self._hpo_trajectories.copy(deep=True)
 
     def load_processed(self, *args, **kwargs) -> EvaluationRepository:
         if self._repo is None:

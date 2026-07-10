@@ -1086,13 +1086,23 @@ def _prepare_tuning_trajectories_data(
     caller can run it once and share the results across many per-dataset plotting calls.
     """
     method_metadata_lst_og = tabarena_context.method_metadata_collection.method_metadata_lst
-    method_metadata_lst = [m for m in method_metadata_lst_og if m.method_type == "config"]
+    # Config methods always have trajectories (downloaded on demand); other method types (e.g.
+    # portfolios) contribute when their artifact ships a `results/hpo_trajectories.parquet`.
+    method_metadata_lst = [m for m in method_metadata_lst_og if m.method_type == "config" or m.has_hpo_trajectories]
     results_hpo_lst = []
     for m in method_metadata_lst:
         if methods_to_display is not None and m.method not in methods_to_display:
             continue
         results_hpo_trajectory = m.load_hpo_trajectories()
         results_hpo_trajectory["display_name"] = m.display_name
+        # Non-config trajectories (e.g. portfolio simulations) may lack the config-HPO columns:
+        # `config_type` groups the trajectory as one family, and `seed` may be pre-averaged.
+        if "config_type" not in results_hpo_trajectory.columns:
+            results_hpo_trajectory["config_type"] = m.method
+        else:
+            results_hpo_trajectory["config_type"] = results_hpo_trajectory["config_type"].fillna(m.method)
+        if "seed" not in results_hpo_trajectory.columns:
+            results_hpo_trajectory["seed"] = 0
         results_hpo_lst.append(results_hpo_trajectory)
     if extra_results is not None:
         extra_results = extra_results.copy(deep=True)
