@@ -170,6 +170,11 @@ class MethodMetadata:
     #: The date the method was run (the benchmark run that produced its results), as a
     #: ``"YYYY-MM-DD"`` string. Validated in :meth:`__post_init__` when set.
     date: str | None = None
+    #: The date the method/algorithm was first introduced (paper or library release), e.g.
+    #: ``"2017-06"`` or ``"2001"`` — distinct from :attr:`date` (when it was run on TabArena).
+    #: Precision varies: year for classical methods, month for arXiv-anchored ones. Usually
+    #: anchored to :attr:`reference_url`. Validated in :meth:`__post_init__` when set.
+    date_introduced: str | None = None
     reference_url: str | None = None
     display_name: str | None = None
     #: Whether this method's results are verified / signed-off. Default ``True``; set ``False`` for
@@ -217,6 +222,13 @@ class MethodMetadata:
                 raise AssertionError(
                     f"date {self.date!r} is not a valid calendar date (method={self.method!r})."
                 ) from e
+        # When set, `date_introduced` allows variable precision: 'YYYY', 'YYYY-MM', or 'YYYY-MM-DD'.
+        if self.date_introduced is not None:
+            if not re.fullmatch(r"\d{4}(-\d{2}){0,2}", self.date_introduced):
+                raise AssertionError(
+                    f"date_introduced must be 'YYYY', 'YYYY-MM', or 'YYYY-MM-DD', "
+                    f"got {self.date_introduced!r} (method={self.method!r})."
+                )
         # Guard against arguments that belong to a different method_type, so a mismatched field is
         # surfaced at construction rather than silently ignored. `name` is the baseline/portfolio
         # display-name override; `ag_key` / `model_key` / `config_default` / `name_suffix` are
@@ -1094,12 +1106,13 @@ class ModelDescriptor:
     compute: Literal["cpu", "gpu"] = "cpu"
     is_bag: bool = False
     reference_url: str | None = None
+    date_introduced: str | None = None
 
     def method_metadata(self, *, method: str, **kwargs) -> MethodMetadata:
         """Build a :class:`MethodMetadata` for one benchmark run of this model.
 
         The descriptor's intrinsic fields (``display_name``, ``compute``, ``is_bag``,
-        ``reference_url``) are supplied as defaults; pass any of them in ``**kwargs`` to
+        ``reference_url``, ``date_introduced``) are supplied as defaults; pass any of them in ``**kwargs`` to
         override for a variant (e.g. a CPU build of a GPU model, which keeps the same paper
         but a different ``display_name`` and ``compute``). All other (run-specific)
         :class:`MethodMetadata` fields come from ``**kwargs``.
@@ -1118,6 +1131,7 @@ class ModelDescriptor:
             compute=self.compute,
             is_bag=self.is_bag,
             reference_url=self.reference_url,
+            date_introduced=self.date_introduced,
         )
         # Caller-provided values win, so a variant can override an intrinsic default.
         return MethodMetadata.config(method=method, **{**fields_from_descriptor, **kwargs})

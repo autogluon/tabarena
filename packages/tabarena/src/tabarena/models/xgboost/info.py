@@ -11,6 +11,7 @@ xgboost_descriptor = ModelDescriptor(
     compute="cpu",
     is_bag=True,
     reference_url="https://arxiv.org/abs/1603.02754",
+    date_introduced="2014-03",
 )
 
 xgboost_method_metadata = xgboost_descriptor.method_metadata(

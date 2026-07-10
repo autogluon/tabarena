@@ -13,6 +13,7 @@ tabicl_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2502.05564",
+    date_introduced="2025-02",
 )
 
 tabiclv2_descriptor = ModelDescriptor(
@@ -20,6 +21,7 @@ tabiclv2_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2602.11139",
+    date_introduced="2026-02",
 )
 
 tabicl_method_metadata = tabicl_descriptor.method_metadata(

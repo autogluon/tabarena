@@ -10,6 +10,7 @@ tabm_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=True,
     reference_url="https://arxiv.org/abs/2410.24210",
+    date_introduced="2024-10",
 )
 
 # CPU variant — same model class, same search space, different compute target.

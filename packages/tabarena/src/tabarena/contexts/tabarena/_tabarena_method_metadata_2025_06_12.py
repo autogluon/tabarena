@@ -129,6 +129,17 @@ methods_to_url_map = {
     "TabPFNv2_GPU": "https://www.nature.com/articles/s41586-024-08328-6",
 }
 
+# Date each method was first introduced (paper or library release) — for the methods built by
+# the loop below. `Dummy` is intentionally unset (no invention date).
+methods_to_date_introduced_map = {
+    "ExplainableBM": "2019-09",
+    "KNeighbors": "1951",
+    "LinearModel": "1958",
+    "RealMLP_GPU": "2024-07",
+    "TabDPT_GPU": "2024-10",
+    "TabPFNv2_GPU": "2025-01",  # TabPFN v2 (Nature s41586-024-08328-6)
+}
+
 # Curated name lists (consumed by the 2025-06-12 collections in `methods.py`); these span the full
 # 2025-06-12 method set, including the per-model-`info.py` models seeded above.
 methods_main_paper = [
@@ -186,6 +197,7 @@ for method in methods:
         is_bag=is_bag,
         can_hpo=can_hpo,
         reference_url=reference_url,
+        date_introduced=methods_to_date_introduced_map.get(method),
         **method_kwargs,
     )
     methods_2025_06_12.append(method_metadata)

@@ -17,6 +17,7 @@ perpetual_booster_method_metadata = MethodMetadata.config(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     date="2026-03-06",
+    date_introduced="2024-05",
     reference_url="https://perpetual-ml.com/",
     display_name="PerpetualBooster",
 )
