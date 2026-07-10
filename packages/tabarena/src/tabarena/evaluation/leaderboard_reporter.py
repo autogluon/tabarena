@@ -1303,6 +1303,7 @@ class LeaderboardReporter:
         higher_is_better: bool,
         ylabel: str,
         ymin: float | None = None,
+        xmin: pd.Timestamp | None = None,
         fps: int = 2,
         hold_seconds: float = 3.0,
     ) -> Path | None:
@@ -1310,35 +1311,46 @@ class LeaderboardReporter:
         of introduction date, with the Pareto front redrawn as each arrives.
 
         Writes ``<metric>_vs_date_introduced_timelapse.gif`` to ``output_dir`` (GIF regardless
-        of ``figure_file_type``). Axes are fixed to the full extent up front (a fixed bottom of
-        ``ymin`` when given, data-padded otherwise) so the view doesn't jump between frames, and
-        the final complete frame is held for ``hold_seconds``. Like the static plots, this is a
-        no-op (returns ``None``) when the metric or introduction-date metadata is unavailable,
-        so it never breaks :meth:`eval`.
+        of ``figure_file_type``). Methods introduced before ``xmin`` (default 2013) are never
+        drawn or counted, but seed the Pareto front from the first frame, so their record
+        carries in from the left edge until a visible method beats it. Axes are fixed to the
+        full extent up front (a fixed bottom of ``ymin`` when given, data-padded otherwise) so
+        the view doesn't jump between frames, and the final complete frame is held for
+        ``hold_seconds``. Like the static plots, this is a no-op (returns ``None``) when the
+        metric or introduction-date metadata is unavailable, so it never breaks :meth:`eval`.
         """
         df = self._metric_vs_date_frame(leaderboard, metric=metric, higher_is_better=higher_is_better)
         if df is None:
             return None
+        if xmin is None:
+            xmin = pd.Timestamp("2013-01-01")
         # Reveal chronologically; same-date ties reveal the worst method first so the front
         # only ever improves within a frame step.
         df = df.sort_values(["_date", metric], ascending=[True, higher_is_better])
+        pre = df[df["_date"] < xmin]  # front-seeding only: never drawn, never counted
+        visible = df[df["_date"] >= xmin]
+        if visible.empty:
+            return None
 
         import matplotlib.pyplot as plt
         from matplotlib.animation import PillowWriter
 
-        x_min = min(pd.Timestamp("2013-01-01"), df["_date"].min())
         x_max = df["_date"].max() + pd.DateOffset(months=6)
-        y_pad = 0.05 * (df[metric].max() - df[metric].min() + 1e-12)
-        y_min = ymin if ymin is not None else df[metric].min() - y_pad
-        y_max = df[metric].max() + y_pad
+        # y extent: the visible points plus the pre-xmin front carry-in levels (the only trace
+        # the invisible methods leave inside the view).
+        pre_front = self._date_pareto_front(pre, metric=metric, higher_is_better=higher_is_better)
+        y_values = pd.concat([visible[metric], pre_front[metric]])
+        y_pad = 0.05 * (y_values.max() - y_values.min() + 1e-12)
+        y_min = ymin if ymin is not None else y_values.min() - y_pad
+        y_max = y_values.max() + y_pad
 
         fig, ax = plt.subplots(figsize=(11, 6.5))
 
         def _draw(n_methods: int, offsets: list[tuple[float, float, str]] | None) -> None:
             ax.clear()
-            sub = df.iloc[:n_methods]
+            sub = visible.iloc[:n_methods]
             ax.scatter(sub["_date"], sub[metric], s=45, color="#2b6cb0", zorder=3)
-            front = self._date_pareto_front(sub, metric=metric, higher_is_better=higher_is_better)
+            front = self._date_pareto_front(pd.concat([pre, sub]), metric=metric, higher_is_better=higher_is_better)
             ax.step(
                 front["_date"],
                 front[metric],
@@ -1361,12 +1373,12 @@ class LeaderboardReporter:
             ax.text(
                 0.02,
                 0.96,
-                f"methods through {sub['_date'].max().date().isoformat()}  ({n_methods}/{len(df)})",
+                f"methods through {sub['_date'].max().date().isoformat()}  ({n_methods}/{len(visible)})",
                 transform=ax.transAxes,
                 fontsize=9,
                 verticalalignment="top",
             )
-            ax.set_xlim(x_min, x_max)
+            ax.set_xlim(xmin, x_max)
             ax.set_ylim(y_min, y_max)
             ax.set_xlabel("Date introduced")
             ax.set_ylabel(ylabel)
@@ -1379,14 +1391,14 @@ class LeaderboardReporter:
         # Plan every label once, against the fully-populated final frame (the axes are fixed, so
         # extents are identical in every frame): each frame then reuses its prefix of the plan,
         # and a label never shifts after its point first appears.
-        _draw(len(df), offsets=None)
-        offsets = self._plan_date_label_offsets(ax, df, metric=metric)
+        _draw(len(visible), offsets=None)
+        offsets = self._plan_date_label_offsets(ax, visible, metric=metric)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         out_path = self.output_dir / f"{metric}_vs_date_introduced_timelapse.gif"
         writer = PillowWriter(fps=fps)
         with writer.saving(fig, str(out_path), dpi=120):
-            for n_methods in range(1, len(df) + 1):
+            for n_methods in range(1, len(visible) + 1):
                 _draw(n_methods, offsets=offsets)
                 writer.grab_frame()
             for _ in range(int(hold_seconds * fps)):
@@ -1441,6 +1453,7 @@ class LeaderboardReporter:
         higher_is_better: bool,
         ylabel: str,
         ymin: float | None = None,
+        xmin: pd.Timestamp | None = None,
         show: bool = False,
     ) -> Path | None:
         """Scatter of a leaderboard metric (y) vs. each method's introduction date (x).
@@ -1449,18 +1462,26 @@ class LeaderboardReporter:
         evaluator was constructed with a ``tabarena_context`` (otherwise this is a no-op and
         returns ``None``). Plots one point per method family at its best ``metric`` value,
         labeled by display name, with the SOTA-over-time Pareto front as a step line, and
-        writes ``<metric>_vs_date_introduced.<figure_file_type>`` to ``output_dir``. ``ymin``
-        fixes the y-axis bottom (e.g. ``0`` for ratio-like metrics); the default keeps
-        matplotlib's data-driven limit.
+        writes ``<metric>_vs_date_introduced.<figure_file_type>`` to ``output_dir``.
+
+        Methods introduced before ``xmin`` (default 2013) get no point or label, but still seed
+        the Pareto front, whose record carries in from the left edge until a visible method
+        beats it. ``ymin`` fixes the y-axis bottom (e.g. ``0`` for ratio-like metrics); the
+        default keeps matplotlib's data-driven limit.
         """
         df = self._metric_vs_date_frame(leaderboard, metric=metric, higher_is_better=higher_is_better)
         if df is None:
+            return None
+        if xmin is None:
+            xmin = pd.Timestamp("2013-01-01")
+        visible = df[df["_date"] >= xmin]
+        if visible.empty:
             return None
 
         import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots(figsize=(11, 6.5))
-        ax.scatter(df["_date"], df[metric], s=45, color="#2b6cb0", zorder=3)
+        ax.scatter(visible["_date"], visible[metric], s=45, color="#2b6cb0", zorder=3)
 
         # Pareto front: the running-best metric over time — a method is on the front when no
         # earlier (or same-date) method has a value at least as good. Drawn as a step line, so
@@ -1489,14 +1510,14 @@ class LeaderboardReporter:
         ax.set_xlabel("Date introduced")
         ax.set_ylabel(ylabel)
         ax.set_title(f"TabArena: {ylabel} vs. method introduction date")
-        ax.set_xlim(left=pd.Timestamp("2013-01-01"))
+        ax.set_xlim(left=xmin)
         if ymin is not None:
             ax.set_ylim(bottom=ymin)
         ax.grid(visible=True, alpha=0.3, zorder=0)
         fig.autofmt_xdate()
         fig.tight_layout()
         # Labels last: placement measures text extents against the final axes limits.
-        self._annotate_date_points(ax, df, metric=metric)
+        self._annotate_date_points(ax, visible, metric=metric)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         out_path = self.output_dir / f"{metric}_vs_date_introduced.{self.figure_file_type}"
