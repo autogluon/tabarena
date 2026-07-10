@@ -1303,7 +1303,9 @@ class LeaderboardReporter:
         higher_is_better: bool,
         ylabel: str,
         ymin: float | None = None,
+        ymax: float | None = None,
         xmin: pd.Timestamp | None = None,
+        y_percent: bool = False,
         fps: int = 2,
         hold_seconds: float = 3.0,
     ) -> Path | None:
@@ -1313,11 +1315,14 @@ class LeaderboardReporter:
         Writes ``<metric>_vs_date_introduced_timelapse.gif`` to ``output_dir`` (GIF regardless
         of ``figure_file_type``). Methods introduced before ``xmin`` (default 2013) are never
         drawn or counted, but seed the Pareto front from the first frame, so their record
-        carries in from the left edge until a visible method beats it. Axes are fixed to the
-        full extent up front (a fixed bottom of ``ymin`` when given, data-padded otherwise) so
-        the view doesn't jump between frames, and the final complete frame is held for
-        ``hold_seconds``. Like the static plots, this is a no-op (returns ``None``) when the
-        metric or introduction-date metadata is unavailable, so it never breaks :meth:`eval`.
+        carries in from the left edge until a visible method beats it. Methods outside a fixed
+        ``ymin``/``ymax`` are dropped entirely — no point, label, frame, or front contribution
+        (a running-best front can only miss them when it is itself entirely off-scale).
+        ``y_percent`` renders the y-ticks as percentages (metric values are fractions). Axes
+        are fixed to the full extent up front so the view doesn't jump between frames, and the
+        final complete frame is held for ``hold_seconds``. Like the static plots, this is a
+        no-op (returns ``None``) when the metric or introduction-date metadata is unavailable,
+        so it never breaks :meth:`eval`.
         """
         df = self._metric_vs_date_frame(leaderboard, metric=metric, higher_is_better=higher_is_better)
         if df is None:
@@ -1329,11 +1334,16 @@ class LeaderboardReporter:
         df = df.sort_values(["_date", metric], ascending=[True, higher_is_better])
         pre = df[df["_date"] < xmin]  # front-seeding only: never drawn, never counted
         visible = df[df["_date"] >= xmin]
+        if ymax is not None:
+            visible = visible[visible[metric] <= ymax]
+        if ymin is not None:
+            visible = visible[visible[metric] >= ymin]
         if visible.empty:
             return None
 
         import matplotlib.pyplot as plt
         from matplotlib.animation import PillowWriter
+        from matplotlib.ticker import PercentFormatter
 
         x_max = df["_date"].max() + pd.DateOffset(months=6)
         # y extent: the visible points plus the pre-xmin front carry-in levels (the only trace
@@ -1342,7 +1352,7 @@ class LeaderboardReporter:
         y_values = pd.concat([visible[metric], pre_front[metric]])
         y_pad = 0.05 * (y_values.max() - y_values.min() + 1e-12)
         y_min = ymin if ymin is not None else y_values.min() - y_pad
-        y_max = y_values.max() + y_pad
+        y_max = ymax if ymax is not None else y_values.max() + y_pad
 
         fig, ax = plt.subplots(figsize=(11, 6.5))
 
@@ -1380,6 +1390,8 @@ class LeaderboardReporter:
             )
             ax.set_xlim(xmin, x_max)
             ax.set_ylim(y_min, y_max)
+            if y_percent:
+                ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
             ax.set_xlabel("Date introduced")
             ax.set_ylabel(ylabel)
             ax.set_title(f"TabArena: {ylabel} vs. method introduction date")
@@ -1441,6 +1453,8 @@ class LeaderboardReporter:
             higher_is_better=False,
             ylabel="Improvability",
             ymin=0.0,
+            ymax=0.2,
+            y_percent=True,
             fps=fps,
             hold_seconds=hold_seconds,
         )
@@ -1453,7 +1467,9 @@ class LeaderboardReporter:
         higher_is_better: bool,
         ylabel: str,
         ymin: float | None = None,
+        ymax: float | None = None,
         xmin: pd.Timestamp | None = None,
+        y_percent: bool = False,
         show: bool = False,
     ) -> Path | None:
         """Scatter of a leaderboard metric (y) vs. each method's introduction date (x).
@@ -1466,8 +1482,11 @@ class LeaderboardReporter:
 
         Methods introduced before ``xmin`` (default 2013) get no point or label, but still seed
         the Pareto front, whose record carries in from the left edge until a visible method
-        beats it. ``ymin`` fixes the y-axis bottom (e.g. ``0`` for ratio-like metrics); the
-        default keeps matplotlib's data-driven limit.
+        beats it. ``ymin``/``ymax`` fix the y-axis limits (e.g. ``0``/``0.2`` for ratio-like
+        metrics), and methods outside them are dropped entirely — no point, label, or front
+        contribution (a running-best front can only miss them when it is itself entirely
+        off-scale); the default keeps matplotlib's data-driven limits. ``y_percent`` renders
+        the y-ticks as percentages (metric values are fractions).
         """
         df = self._metric_vs_date_frame(leaderboard, metric=metric, higher_is_better=higher_is_better)
         if df is None:
@@ -1475,10 +1494,15 @@ class LeaderboardReporter:
         if xmin is None:
             xmin = pd.Timestamp("2013-01-01")
         visible = df[df["_date"] >= xmin]
+        if ymax is not None:
+            visible = visible[visible[metric] <= ymax]
+        if ymin is not None:
+            visible = visible[visible[metric] >= ymin]
         if visible.empty:
             return None
 
         import matplotlib.pyplot as plt
+        from matplotlib.ticker import PercentFormatter
 
         fig, ax = plt.subplots(figsize=(11, 6.5))
         ax.scatter(visible["_date"], visible[metric], s=45, color="#2b6cb0", zorder=3)
@@ -1513,6 +1537,10 @@ class LeaderboardReporter:
         ax.set_xlim(left=xmin)
         if ymin is not None:
             ax.set_ylim(bottom=ymin)
+        if ymax is not None:
+            ax.set_ylim(top=ymax)
+        if y_percent:
+            ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
         ax.grid(visible=True, alpha=0.3, zorder=0)
         fig.autofmt_xdate()
         fig.tight_layout()
@@ -1551,6 +1579,8 @@ class LeaderboardReporter:
             higher_is_better=False,
             ylabel="Improvability",
             ymin=0.0,
+            ymax=0.2,
+            y_percent=True,
             show=show,
         )
 
