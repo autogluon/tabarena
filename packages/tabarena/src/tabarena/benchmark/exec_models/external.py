@@ -37,7 +37,9 @@ class ExternalSystemModel(AbstractExecModel):
     Your system is handed the raw data and does its own preprocessing and label handling; TabArena
     fixes the data splits and scoring, so results stay comparable to the leaderboard. Add ``__init__``
     arguments for your system's settings (forward ``**kwargs`` to ``super().__init__``) and a
-    ``cleanup`` method to free files / memory. See
+    ``cleanup`` method to free files / memory. Optionally override the ``warmup_fn`` property to warm
+    your system's environment (imports, JIT/kernel compilation, runtime startup) before the timed
+    fit — it must stay data-independent; see ``AbstractExecModel.warmup_fn``. See
     ``examples/advanced/run_quickstart_tabarena_external_system.py``.
     """
 

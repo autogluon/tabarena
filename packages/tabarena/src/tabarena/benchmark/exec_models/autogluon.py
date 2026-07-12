@@ -17,6 +17,8 @@ from tabarena.benchmark.exec_models.utils import _apply_inv_perm
 from tabarena.benchmark.preprocessing.pipeline import build_feature_generator, resolve_preprocessing_pipeline
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
     from autogluon.tabular import TabularPredictor
 
 
@@ -87,6 +89,50 @@ class AGWrapper(AbstractExecModel):
         self.fit_kwargs = fit_kwargs
         self.use_task_specific_validation = use_task_specific_validation
         self.persist = persist
+
+    # --- Warm-up (untimed) --------------------------------------------------------------
+    @property
+    def warmup_fn(self) -> Callable[[], None] | None:
+        """Warm the AutoGluon stack and every model class configured in ``fit_kwargs``."""
+        return self._warmup
+
+    def _warmup(self) -> None:
+        from tabarena.models.warmup import warmup_imports, warmup_model_cls
+
+        warmup_imports("autogluon.tabular")
+        for model_cls, hyperparameters in self._configured_model_classes():
+            warmup_model_cls(
+                model_cls,
+                problem_type=self.problem_type,
+                num_cpus=self.fit_kwargs.get("num_cpus"),
+                num_gpus=self.fit_kwargs.get("num_gpus"),
+                hyperparameters=hyperparameters,
+            )
+
+    def _configured_model_classes(self) -> Iterator[tuple[type[AbstractModel], dict | None]]:
+        """Yield ``(model_cls, hyperparameters)`` for each model configured in ``fit_kwargs``.
+
+        String keys are resolved via the AutoGluon registry; unresolvable entries are skipped
+        (warm-up is best-effort). A key configured with a list of configs yields the first as
+        representative. A preset-driven fit (no ``hyperparameters`` dict) yields nothing.
+        """
+        hyperparameters = self.fit_kwargs.get("hyperparameters")
+        if not isinstance(hyperparameters, dict):
+            return
+        for key, configs in hyperparameters.items():
+            model_cls = key
+            if isinstance(key, str):
+                try:
+                    from autogluon.tabular.registry import ag_model_registry
+
+                    model_cls = ag_model_registry.key_to_cls(key=key)
+                except Exception as exc:
+                    logger.debug(f"Warm-up: skipping unresolvable model key {key!r} ({exc})")
+                    continue
+            if not (isinstance(model_cls, type) and issubclass(model_cls, AbstractModel)):
+                continue
+            config = configs[0] if isinstance(configs, list) and configs else configs
+            yield model_cls, config if isinstance(config, dict) else None
 
     def _build_predictor_args(
         self,
@@ -621,6 +667,22 @@ class AGModelWrapper(AbstractExecModel):
         # Model-specific preprocessing rides on the model's hyperparameters (the AutoGluon model
         # applies it in its own fit), so this works the same here as in the AGWrapper path.
         self.hyperparameters = pipeline.apply_model_specific(hyperparameters)
+
+    @property
+    def warmup_fn(self) -> Callable[[], None] | None:
+        """Warm this model class's environment (imports / kernels / CUDA context)."""
+        return self._warmup
+
+    def _warmup(self) -> None:
+        from tabarena.models.warmup import warmup_model_cls
+
+        warmup_model_cls(
+            self.model_cls,
+            problem_type=self.problem_type,
+            num_cpus=self.fit_kwargs.get("num_cpus"),
+            num_gpus=self.fit_kwargs.get("num_gpus"),
+            hyperparameters=self.hyperparameters,
+        )
 
     def _make_feature_generator(self):
         """Build the pipeline's model-agnostic feature generator (shared with ``AGWrapper``).

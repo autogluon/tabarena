@@ -29,9 +29,11 @@ class AbstractExecModel:
     Lifecycle (driven by the experiment runner):
 
     1. ``__init__`` — configure preprocessing and inference-shuffle behavior.
-    2. ``fit_custom`` — the end-to-end harness: optionally shuffle features, fit (while
+    2. ``warmup_fn`` — optional untimed environment warm-up, run before any timing starts
+       (see the property).
+    3. ``fit_custom`` — the end-to-end harness: optionally shuffle features, fit (while
        tracking time + memory), then predict on the test data and undo any shuffling.
-    3. ``cleanup`` — release any resources (files, GPU memory, ...).
+    4. ``cleanup`` — release any resources (files, GPU memory, ...).
 
     The public ``fit`` / ``predict`` / ``predict_proba`` methods handle label and feature
     (pre)processing, then delegate to the ``_fit`` / ``_predict`` / ``_predict_proba``
@@ -234,6 +236,27 @@ class AbstractExecModel:
             X = self._feature_generator.fit_transform(X=X, y=y)
         y = self.transform_y(y)
         return X, y
+
+    # --- Warm-up (untimed) -------------------------------------------------------------
+    @property
+    def warmup_fn(self) -> Callable[[], None] | None:
+        """Optional zero-arg callable warming the execution environment before the timed fit.
+
+        The experiment runner calls it (when not ``None``) after constructing the method and
+        *before* ``fit_custom``, so nothing it does counts toward the measured ``time_train_s``
+        / ``time_infer_s`` or any fit time limit. This mirrors reality: one-time per-environment
+        costs (library imports, JIT/kernel compilation, CUDA context initialization) are not
+        paid per fit by a long-lived deployment, so they should not inflate a method's measured
+        speed. Warm-up is best-effort — the runner logs a failure and fits cold.
+
+        Implementations may use everything known at construction time (``problem_type``,
+        ``eval_metric``, hyperparameters, compute budget) but never the task's data, and must
+        not carry task- or data-specific state into the fit. Untimed *inference-side*
+        preparation belongs in ``pre_predict``.
+
+        Default: ``None`` (nothing to warm).
+        """
+        return None
 
     # --- Fit / predict lifecycle hooks (overridable) ----------------------------------
     def post_fit(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame):

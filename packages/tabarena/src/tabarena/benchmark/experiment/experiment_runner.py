@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import datetime
+import traceback
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -19,6 +20,7 @@ from pandas.api.types import is_integer_dtype
 
 from tabarena.benchmark.task.metrics import default_eval_metric
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDF, CacheFunctionDummy
+from tabarena.utils.time_utils import Timer
 
 if TYPE_CHECKING:
     from tabarena.benchmark.exec_models.base import AbstractExecModel
@@ -51,6 +53,7 @@ class ExperimentRunner:
         cacher: AbstractCacheFunction | None = None,
         debug_mode: bool = True,
         eval_metric_name: str | None = None,
+        warmup: bool = True,
     ):
         """Configure the runner and load the split for ``(fold, repeat, sample)``.
 
@@ -83,6 +86,9 @@ class ExperimentRunner:
         eval_metric_name: str, default None
             If provided, will override the default evaluation metric for the task.
             If None, will use the default metric based on the task's problem type.
+        warmup: bool, default True
+            If True, run the method's untimed environment warm-up before fitting
+            (see ``run_warmup``).
         """
         if eval_metric_name is None:
             eval_metric_name = default_eval_metric(task.problem_type)
@@ -104,6 +110,8 @@ class ExperimentRunner:
         self.task_split_idx = self.task.get_split_idx(fold=self.fold, repeat=self.repeat, sample=self.sample)
         self.cacher = cacher
         self.debug_mode = debug_mode
+        self.warmup = warmup
+        self.time_warmup_s: float | None = None
 
         # When lazy-loading, keep the split frames as None and (re)load them on demand; we only
         # materialize ``y`` here to fit the label cleaner.
@@ -176,6 +184,32 @@ class ExperimentRunner:
         return self.task_split_idx
 
     # --- Fit / run lifecycle ----------------------------------------------------------
+    def run_warmup(self) -> float | None:
+        """Run the method's untimed environment warm-up (see ``AbstractExecModel.warmup_fn``).
+
+        Runs after the method is constructed and before any fit timing starts, so warm-up
+        cost (imports, JIT/kernel compilation, CUDA context init) never counts toward
+        ``time_train_s`` / ``time_infer_s`` or a fit time limit — matching the one-time
+        per-environment costs a real deployment would not pay per fit. Warm-up is
+        best-effort: a failure is logged and the fit proceeds cold.
+
+        Returns the warm-up duration in seconds, or None when there was nothing to warm
+        (or warm-up is disabled).
+        """
+        if not self.warmup:
+            return None
+        warmup_fn = self.model.warmup_fn
+        if warmup_fn is None:
+            return None
+        try:
+            with Timer() as timer:
+                warmup_fn()
+        except Exception:
+            print(f"Warm-up of method {self.method!r} failed (fitting cold instead):")
+            traceback.print_exc()
+            return None
+        return timer.duration
+
     def run_model_fit(self) -> dict:
         """Fit the model and predict on the test split (via the method's ``fit_custom``).
 
@@ -210,6 +244,7 @@ class ExperimentRunner:
         time_start_str = utc_time.strftime("%Y-%m-%d %H:%M:%S")
         time_start = utc_time.timestamp()
         self.model = self.init_method()
+        self.time_warmup_s = self.run_warmup()
         try:
             out = self.run_model_fit()
         except Exception as exc:
@@ -281,7 +316,11 @@ class ExperimentRunner:
         return out
 
     def _experiment_metadata(self, time_start: float, time_start_str: str) -> dict:
-        """Build the timing/identity metadata block (start/end timestamps + duration)."""
+        """Build the timing/identity metadata block (start/end timestamps + duration).
+
+        ``total_duration`` includes the warm-up; ``time_warmup_s`` records it separately
+        (None = nothing was warmed) so the untimed share stays auditable.
+        """
         time_end = datetime.datetime.now(datetime.UTC).timestamp()
         return {
             "experiment_cls": self.__class__.__name__,
@@ -290,6 +329,7 @@ class ExperimentRunner:
             "time_end": time_end,
             "total_duration": time_end - time_start,
             "time_start_str": time_start_str,
+            "time_warmup_s": self.time_warmup_s,
         }
 
     def convert_to_output(self, out: dict) -> dict:
