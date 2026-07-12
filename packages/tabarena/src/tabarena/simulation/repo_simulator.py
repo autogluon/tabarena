@@ -89,19 +89,22 @@ class RepoSimulator:
 
         return pd.concat(hpo_results_lst, ignore_index=True)
 
-    def run_ensemble_config_type(
+    def _ensemble_configs_for_config_type(
         self,
         config_type: str | list[str],
-        n_iterations: int,
         n_configs: int | None = None,
         fixed_configs: list[str] | None = None,
-        time_limit: float | None = None,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
-        **kwargs,
-    ) -> pd.DataFrame:
-        # FIXME: Don't recompute this each call, implement `self.repo.configs(config_types=[config_type])`
-        config_type_groups = self.get_config_type_groups()
+        config_type_groups: dict | None = None,
+    ) -> list[str]:
+        """The config subset one HPO-family ensemble pass runs on: the config_type's configs,
+        optionally shuffled (``fit_order="random"`` with ``seed``), with ``fixed_configs``
+        forced to the front, truncated to the first ``n_configs``.
+        """
+        if config_type_groups is None:
+            # FIXME: Don't recompute this each call, implement `self.repo.configs(config_types=[config_type])`
+            config_type_groups = self.get_config_type_groups()
         if isinstance(config_type, list):
             configs = []
             for ct in config_type:
@@ -123,15 +126,18 @@ class RepoSimulator:
             configs = fixed_configs + configs
         if n_configs is not None:
             configs = configs[:n_configs]
-        df_results_family_hpo, _ = self.repo.evaluate_ensembles(
-            configs=configs,
-            ensemble_size=n_iterations,
-            fit_order="original",
-            seed=0,
-            time_limit=time_limit,
-            backend=self.backend,
-            **kwargs,
-        )
+        return configs
+
+    def _postprocess_hpo_family_result(
+        self,
+        df_results_family_hpo: pd.DataFrame,
+        *,
+        config_type: str | list[str],
+        n_iterations: int,
+        n_configs: int | None,
+        time_limit: float | None,
+        fit_order: Literal["original", "random"],
+    ) -> pd.DataFrame:
         df_results_family_hpo = df_results_family_hpo.reset_index()
         df_results_family_hpo["method_type"] = "hpo"
 
@@ -150,6 +156,93 @@ class RepoSimulator:
         df_results_family_hpo["method_metadata"] = [method_metadata] * len(df_results_family_hpo)
 
         return df_results_family_hpo
+
+    def run_ensemble_config_type(
+        self,
+        config_type: str | list[str],
+        n_iterations: int,
+        n_configs: int | None = None,
+        fixed_configs: list[str] | None = None,
+        time_limit: float | None = None,
+        fit_order: Literal["original", "random"] = "original",
+        seed: int = 0,
+        **kwargs,
+    ) -> pd.DataFrame:
+        configs = self._ensemble_configs_for_config_type(
+            config_type=config_type,
+            n_configs=n_configs,
+            fixed_configs=fixed_configs,
+            fit_order=fit_order,
+            seed=seed,
+        )
+        df_results_family_hpo, _ = self.repo.evaluate_ensembles(
+            configs=configs,
+            ensemble_size=n_iterations,
+            fit_order="original",
+            seed=0,
+            time_limit=time_limit,
+            backend=self.backend,
+            **kwargs,
+        )
+        return self._postprocess_hpo_family_result(
+            df_results_family_hpo,
+            config_type=config_type,
+            n_iterations=n_iterations,
+            n_configs=n_configs,
+            time_limit=time_limit,
+            fit_order=fit_order,
+        )
+
+    def run_ensemble_config_type_multi(
+        self,
+        config_type: str | list[str],
+        combos: list[dict],
+        *,
+        n_iterations: int,
+        fixed_configs: list[str] | None = None,
+        time_limit: float | None = None,
+        fit_order: Literal["original", "random"] = "original",
+        **kwargs,
+    ) -> list[pd.DataFrame]:
+        """Run :meth:`run_ensemble_config_type` for every ``{"n_configs": ..., "seed": ...}``
+        combo in one sweep over the tasks, producing identical per-combo results.
+
+        Every task is visited once and evaluates all combos against predictions loaded a
+        single time (see :meth:`EnsembleMixin.evaluate_ensembles_multi`), instead of one full
+        pass over the tasks per combo.
+        """
+        config_type_groups = self.get_config_type_groups()
+        configs_lst = [
+            self._ensemble_configs_for_config_type(
+                config_type=config_type,
+                n_configs=combo["n_configs"],
+                fixed_configs=fixed_configs,
+                fit_order=fit_order,
+                seed=combo["seed"],
+                config_type_groups=config_type_groups,
+            )
+            for combo in combos
+        ]
+        results = self.repo.evaluate_ensembles_multi(
+            configs_lst=configs_lst,
+            ensemble_size=n_iterations,
+            fit_order="original",
+            seed=0,
+            time_limit=time_limit,
+            backend=self.backend,
+            **kwargs,
+        )
+        return [
+            self._postprocess_hpo_family_result(
+                df_results_family_hpo,
+                config_type=config_type,
+                n_iterations=n_iterations,
+                n_configs=combo["n_configs"],
+                time_limit=time_limit,
+                fit_order=fit_order,
+            )
+            for combo, (df_results_family_hpo, _) in zip(combos, results, strict=True)
+        ]
 
     def evaluate_ensembles(
         self,

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
-    from tabarena.nips2025_utils.end_to_end import EndToEndResults
+    from tabarena.end_to_end import EndToEndResults
 
 
 @dataclass
@@ -112,7 +112,7 @@ def post_process_to_results(
 
     Two phases, matching the canonical eval flow:
 
-    1. **Cache:** for each non-``only_load_cache`` method, ``EndToEndSingle.from_path_raw_to_results``
+    1. **Cache:** for each non-``only_load_cache`` method, ``EndToEnd.from_path_raw``
        processes the raw ``results.pkl`` files into per-task results and writes them to the cache
        (keyed by ``(suite, ag_name)``). ``task_metadata`` is a native
        :class:`~tabarena.benchmark.task.metadata.TaskMetadataCollection`, forwarded so custom (e.g.
@@ -121,15 +121,14 @@ def post_process_to_results(
        all cases, including the ones just cached — so the in-memory results always come from the
        same code path (the cache), not from the transient post-processing return value.
     """
-    from tabarena.nips2025_utils.end_to_end import EndToEndResults
-    from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
+    from tabarena.end_to_end import EndToEnd, EndToEndResults
 
     # Phase 1: post-process raw -> cache for each method (skip the cache-only ones).
     for ma in method_artifacts:
         if ma.only_load_cache:
             continue
         print(f"Post-processing raw results for ag_name={ma.ag_name} (artifact={ma.suite})...")
-        EndToEndSingle.from_path_raw_to_results(
+        EndToEnd.from_path_raw(
             path_raw=ma.path_raw,
             name_prefix_raw=ma.ag_name,
             name_suffix=ma.result_suffix,

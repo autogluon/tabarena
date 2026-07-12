@@ -6,10 +6,10 @@ import pytest
 
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.contexts import AbstractArenaContext
+from tabarena.end_to_end import MethodResults
 from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
-from tabarena.nips2025_utils.end_to_end_single import EndToEndResultsSingle
 
 
 def _results_frame(method: str, *, datasets=("d1",), folds=(0,), config_type="MM", ta_name="M", ta_suite="M"):
@@ -119,7 +119,7 @@ class TestCollectionInfo:
 class TestFromResultsSinglePrefixIdentity:
     """new_result_prefix must be baked into identity so the website merge key still matches."""
 
-    def _results_single(self) -> EndToEndResultsSingle:
+    def _results_single(self) -> MethodResults:
         base = MethodMetadata(
             method="MyModel",
             suite="MyModel",
@@ -129,7 +129,7 @@ class TestFromResultsSinglePrefixIdentity:
             display_name="MyModel",
         )
         hpo = _results_frame("MM (default)", config_type="MM", ta_name="MyModel", ta_suite="MyModel")
-        return EndToEndResultsSingle(method_metadata=base, model_results=hpo, hpo_results=hpo)
+        return MethodResults(method_metadata=base, model_results=hpo, hpo_results=hpo)
 
     def test_prefix_applied_to_identity_fields(self):
         im = self._results_single().to_method_metadata(new_result_prefix="[New] ")
@@ -397,7 +397,7 @@ class TestRegister:
         # Stub the heavy raw->methods conversion; register's job is the wiring + scoping.
         im = self._im("NewA", datasets=("d1",))
         monkeypatch.setattr(
-            "tabarena.nips2025_utils.end_to_end.EndToEnd.from_raw_to_methods",
+            "tabarena.end_to_end.end_to_end.EndToEnd.from_raw_to_methods",
             lambda **kwargs: [im],
         )
         ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
@@ -410,7 +410,7 @@ class TestRegister:
     def test_register_without_scoping_keeps_full_task_metadata(self, monkeypatch):
         im = self._im("NewA", datasets=("d1",))
         monkeypatch.setattr(
-            "tabarena.nips2025_utils.end_to_end.EndToEnd.from_raw_to_methods",
+            "tabarena.end_to_end.end_to_end.EndToEnd.from_raw_to_methods",
             lambda **kwargs: [im],
         )
         ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())

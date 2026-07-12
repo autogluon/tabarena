@@ -1,7 +1,7 @@
 """Run the full TabArena pipeline on raw result artifacts and compare to the leaderboard.
 
 This is the "bring your own results" workflow. Given a directory of raw per-run
-``results.pkl`` artifacts, ``EndToEndSingle.from_path_raw`` (1) infers the method
+``results.pkl`` artifacts, ``EndToEnd.from_path_raw`` (1) infers the method
 metadata, (2) caches the raw artifacts, (3) generates and caches the *processed*
 predictions, and (4) simulates HPO + ensembling to produce the *results* -- the same
 raw -> processed -> results pipeline TabArena runs for every method. The resulting
@@ -25,8 +25,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from tabarena.contexts import TabArenaContext
+from tabarena.end_to_end import EndToEnd
 from tabarena.nips2025_utils.artifacts.download_utils import download_and_extract_zip
-from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
 
 if __name__ == "__main__":
     # Public raw artifacts of TabPFN-3, used here as a stand-in for "your own method".
@@ -42,9 +42,14 @@ if __name__ == "__main__":
     # Run raw -> processed -> results end-to-end and cache every artifact under ~/.cache/tabarena/.
     # `name_suffix` renames the regenerated method (and its configs) so it does not collide with
     # the official TabPFN-3 already on the leaderboard. Run once; the cache makes re-runs cheap.
-    end_to_end = EndToEndSingle.from_path_raw(path_raw=path_raw, name_suffix="_reproduced")
+    end_to_end_results = EndToEnd.from_path_raw(
+        path_raw=path_raw,
+        name_suffix="_reproduced",
+        cache_raw=True,
+        cache_processed=True,
+    )
 
     # Compare the reproduced method against the full official TabArena leaderboard.
-    context = TabArenaContext(extra_methods=[end_to_end.method_metadata])
+    context = TabArenaContext(extra_methods=end_to_end_results.method_metadata_lst)
     leaderboard = context.compare(output_dir=fig_output_dir)
     print(leaderboard)

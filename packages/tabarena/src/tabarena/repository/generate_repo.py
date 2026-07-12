@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from tabarena.benchmark.result import BaselineResult, ConfigResult, ExperimentResults
+from tabarena.benchmark.result.raw_loading import load_all_artifacts
 from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
-from tabarena.nips2025_utils.load_artifacts import load_all_artifacts
 from tabarena.utils.pickle_utils import fetch_all_pickles
 
 if TYPE_CHECKING:

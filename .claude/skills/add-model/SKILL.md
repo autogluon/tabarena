@@ -227,24 +227,16 @@ ruff check --fix packages/tabarena/src/tabarena/models/{ModelKey}/
 
 Fix any reported issues.
 
-## Step 7: Metadata artifact (optional — only if the model has been benchmarked)
+## Step 7: Arena registration (optional — only if the model has been benchmarked)
 
-If the model already has benchmark results to register in TabArena's artifact system, add a metadata entry to the dated batch file:
+If the model already has processed + uploaded benchmark results, register it in the arena collection so it appears in the benchmark. For the default `tabarena` arena, edit `packages/tabarena/src/tabarena/contexts/tabarena/methods.py` (read it first):
 
-```
-packages/tabarena/src/tabarena/nips2025_utils/artifacts/_tabarena_method_metadata_YYYY_MM_DD.py
-```
+1. **Import** the `{model_key}_method_metadata` you defined in `info.py` in the alphabetical per-model import block (recent additions use the plain name, e.g. `from tabarena.models.nori.info import nori_method_metadata`).
+2. **Add the entry** to `tabarena_method_metadata_collection.method_metadata_lst`, under the matching group comment (CPU vs neural/GPU/foundation models).
 
-Either add to the latest file or create a new dated file if the benchmarking run is new.
+This mirrors the **`upload-method`** skill's registration step — use that skill for the full process-and-upload flow (the entry only resolves to downloadable artifacts once the results are actually uploaded).
 
-Each entry is a `MethodMetadata(...)` object (same class used in `info.py`, so the entry can be the `{ModelKey}_method_metadata` you already defined). Then import it in `_tabarena_method_metadata.py`:
-```python
-from tabarena.contexts.tabarena._tabarena_method_metadata_YYYY_MM_DD import (
-    {ModelKey}_metadata,
-)
-```
-
-**If the model has not been benchmarked yet, skip this step entirely** — `info.py` already declares the metadata for the registry; the artifact entry is only needed when results files actually exist.
+**If the model has not been benchmarked yet, skip this step entirely** — `info.py` already declares the metadata for the registry; the collection entry is only needed when results artifacts actually exist.
 
 ## Step 8: Report
 

@@ -71,14 +71,13 @@ class TestConfig:
 
 def test_run_eval_orchestration(tmp_path, monkeypatch):
     import tabarena.contexts.tabarena.context as tc
-    import tabarena.nips2025_utils.end_to_end as ee
-    import tabarena.nips2025_utils.end_to_end_single as ees
+    import tabarena.end_to_end.end_to_end as ee
     import tabarena.website.website_format as wf
 
     post_calls: list[dict] = []
     monkeypatch.setattr(
-        ees.EndToEndSingle,
-        "from_path_raw_to_results",
+        ee.EndToEnd,
+        "from_path_raw",
         staticmethod(lambda **kw: post_calls.append(kw)),
     )
 
@@ -88,7 +87,7 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     methods_sentinel = [object()]
 
     class _FakeResults:
-        """Stands in for the EndToEndResults re-loaded from cache (phase 2)."""
+        """Stands in for the EndToEndResults reloaded from cache (phase 2)."""
 
         def to_method_metadata_lst(self, **_kw):
             return methods_sentinel
@@ -104,7 +103,7 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
             compare_calls.append((Path(output_dir), subset))
             return pd.DataFrame({"method": ["m"], "metric": [1.0]})
 
-    # Phase 2 re-loads every method from the cache via EndToEndResults.from_cache; capture the args.
+    # Phase 2 reloads every method from the cache via EndToEndResults.from_cache; capture the args.
     from_cache_calls: list = []
     monkeypatch.setattr(
         ee.EndToEndResults,

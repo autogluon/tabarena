@@ -89,14 +89,130 @@ class EnsembleMixin:
             This can be used for debugging purposes and for deeper analysis.
 
         """
+        return self._evaluate_ensemble_task(
+            dataset=dataset,
+            fold=fold,
+            configs=configs,
+            time_limit=time_limit,
+            ensemble_cls=ensemble_cls,
+            ensemble_kwargs=ensemble_kwargs,
+            ensemble_size=ensemble_size,
+            rank=rank,
+            fit_order=fit_order,
+            seed=seed,
+            patience_callback=patience_callback,
+        )
+
+    def evaluate_ensemble_multi(
+        self,
+        dataset: str,
+        fold: int,
+        configs_lst: list[list[str] | None],
+        *,
+        time_limit: float | None = None,
+        ensemble_cls: type[EnsembleScorer] = EnsembleScorerMaxModels,
+        ensemble_kwargs: dict | None = None,
+        ensemble_size: int = 100,
+        rank: bool = False,
+        fit_order: Literal["original", "random"] = "original",
+        seed: int = 0,
+        patience_callback: list | None = None,
+    ) -> list[tuple[pd.DataFrame, pd.DataFrame]]:
+        """Evaluate many config subsets on one task; identical to calling
+        :meth:`evaluate_ensemble` once per entry of ``configs_lst`` and collecting the results.
+
+        The task's metrics frame, scorer, and model predictions are loaded once and shared
+        across the entries, so this is much faster than per-entry calls when the entries
+        overlap (e.g. HPO-trajectory subsets of one config family). All entries share
+        ``ensemble_size`` and the other keyword settings; only the config subset varies.
+        """
+        task = self.task_name(dataset=dataset, fold=fold)
+        task_tuple = (dataset, fold)
+
+        # Ordered union of all requested configs; any None entry means "all configs".
+        if any(configs is None for configs in configs_lst):
+            union_configs = None
+        else:
+            union_configs = list(dict.fromkeys(config for configs in configs_lst for config in configs))
+        config_metrics_union = self.metrics(
+            tasks=[task_tuple],
+            configs=union_configs,
+            set_index=False,
+        )
+
+        scorer = self._construct_ensemble_selection_config_scorer(
+            tasks=[task],
+            ensemble_size=ensemble_size,
+            ensemble_cls=ensemble_cls,
+            ensemble_kwargs=ensemble_kwargs,
+            backend="native",
+        )
+        # Preload this task's predictions once for every config it has results for; the
+        # per-entry evaluations then slice from the cache instead of re-reading the repo.
+        configs_available_union = list(config_metrics_union["framework"].unique())
+        if configs_available_union:
+            scorer.ensemble_scorer.cache_task_preds(dataset=dataset, fold=fold, models=configs_available_union)
+
+        results = []
+        for configs in configs_lst:
+            if configs is None:
+                config_metrics = config_metrics_union
+            else:
+                # Equivalent to self.metrics(tasks=[task_tuple], configs=configs): both are
+                # pure row masks on the same source frame, so rows and order are identical.
+                config_metrics = config_metrics_union[config_metrics_union["framework"].isin(configs)]
+            results.append(
+                self._evaluate_ensemble_task(
+                    dataset=dataset,
+                    fold=fold,
+                    configs=configs,
+                    time_limit=time_limit,
+                    ensemble_cls=ensemble_cls,
+                    ensemble_kwargs=ensemble_kwargs,
+                    ensemble_size=ensemble_size,
+                    rank=rank,
+                    fit_order=fit_order,
+                    seed=seed,
+                    patience_callback=patience_callback,
+                    config_metrics=config_metrics,
+                    scorer=scorer,
+                ),
+            )
+        return results
+
+    def _evaluate_ensemble_task(
+        self,
+        *,
+        dataset: str,
+        fold: int,
+        configs: list[str] | None,
+        time_limit: float | None,
+        ensemble_cls: type[EnsembleScorer],
+        ensemble_kwargs: dict | None,
+        ensemble_size: int,
+        rank: bool,
+        fit_order: Literal["original", "random"],
+        seed: int,
+        patience_callback: list | None,
+        config_metrics: pd.DataFrame | None = None,
+        scorer: EnsembleSelectionConfigScorer | None = None,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Body of :meth:`evaluate_ensemble`, with injectable shared per-task state.
+
+        ``config_metrics`` (this task's metrics for ``configs``) and ``scorer`` (constructed
+        for this task with the same ensemble settings) are computed when ``None``;
+        :meth:`evaluate_ensemble_multi` passes shared instances so per-subset calls don't
+        recompute them.
+        """
         task = self.task_name(dataset=dataset, fold=fold)
 
         task_tuple = (dataset, fold)
-        config_metrics = self.metrics(
-            tasks=[task_tuple],
-            configs=configs,
-            set_index=False,
-        )
+        if config_metrics is None:
+            config_metrics = self.metrics(
+                tasks=[task_tuple],
+                configs=configs,
+                set_index=False,
+            )
 
         configs_all = sorted(config_metrics["framework"].unique())
         if configs is None:
@@ -164,13 +280,14 @@ class EnsembleMixin:
             imputed = False
             impute_method = np.nan
 
-        scorer = self._construct_ensemble_selection_config_scorer(
-            tasks=[task],
-            ensemble_size=ensemble_size,
-            ensemble_cls=ensemble_cls,
-            ensemble_kwargs=ensemble_kwargs,
-            backend="native",
-        )
+        if scorer is None:
+            scorer = self._construct_ensemble_selection_config_scorer(
+                tasks=[task],
+                ensemble_size=ensemble_size,
+                ensemble_cls=ensemble_cls,
+                ensemble_kwargs=ensemble_kwargs,
+                backend="native",
+            )
 
         # fit the ensemble and retrieve the metric error and ensemble weights
         results = scorer.compute_errors(configs=configs_to_use)
@@ -259,6 +376,7 @@ class EnsembleMixin:
         rank: bool = False,
         backend_group_folds: bool = False,
         backend: Literal["ray", "native"] = "ray",
+        progress_bar: bool = True,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Evaluates an ensemble of a list of configs on a given set of tasks (datasets x folds).
 
@@ -294,6 +412,9 @@ class EnsembleMixin:
             The random seed used to shuffle `configs` if `fit_order="random"`.
         backend: Literal["ray", "native"], default = "ray"
             The backend to use when running the list of tasks.
+        progress_bar: bool, default = True
+            Whether to show the per-task progress bar. Callers that already render an outer
+            progress bar (e.g. across many evaluate_ensembles passes) can silence it.
 
         Returns:
         -------
@@ -362,8 +483,8 @@ class EnsembleMixin:
             inputs=inputs,
             context=context,
             engine=backend,
-            # To reduce log spam in outer parallel mode.
-            progress_bar=backend != "sequential",
+            # Sequential mode is silenced to reduce log spam in outer parallel mode.
+            progress_bar=progress_bar and backend != "sequential",
         )
 
         df_out = pd.concat([l[0] for l in list_rows], axis=0)
@@ -372,6 +493,78 @@ class EnsembleMixin:
         )  # FIXME: Is this guaranteed same columns in each?
 
         return df_out, df_ensemble_weights
+
+    def evaluate_ensembles_multi(
+        self,
+        configs_lst: list[list[str] | None],
+        datasets: list[str] | None = None,
+        folds: list[int] | None = None,
+        *,
+        ensemble_cls: type[EnsembleScorer] = EnsembleScorerMaxModels,
+        ensemble_kwargs: dict | None = None,
+        ensemble_size: int = 100,
+        patience_callback: list | None = None,
+        time_limit: float | None = None,
+        fit_order: Literal["original", "random"] = "original",
+        seed: int = 0,
+        rank: bool = False,
+        backend: Literal["ray", "native"] = "ray",
+        progress_bar: bool = True,
+    ) -> list[tuple[pd.DataFrame, pd.DataFrame]]:
+        """Evaluate many config subsets on a set of tasks; identical to calling
+        :meth:`evaluate_ensembles` once per entry of ``configs_lst`` and collecting the results.
+
+        Parallelizes over tasks (not entries): each task is visited once, evaluating every
+        entry against predictions loaded a single time (see :meth:`evaluate_ensemble_multi`).
+        This makes it much faster than per-entry :meth:`evaluate_ensembles` calls when many
+        overlapping subsets are evaluated on the same tasks (e.g. the (n_config, seed) grid of
+        HPO trajectories). All entries share the keyword settings; only the config subset
+        varies. Returns one ``(result, ensemble_weights)`` pair per entry.
+        """
+        if backend == "native":
+            backend = "sequential"
+        if datasets is None:
+            datasets = self.datasets()
+
+        context = dict(
+            self=self,
+            configs_lst=configs_lst,
+            ensemble_cls=ensemble_cls,
+            ensemble_kwargs=ensemble_kwargs,
+            ensemble_size=ensemble_size,
+            patience_callback=patience_callback,
+            time_limit=time_limit,
+            fit_order=fit_order,
+            seed=seed,
+            rank=rank,
+        )
+
+        if folds is None:
+            tasks = []
+            for dataset in datasets:
+                for fold in self.dataset_to_folds(dataset=dataset):
+                    tasks.append((dataset, fold))
+        else:
+            tasks = list(itertools.product(datasets, folds))
+        inputs = [{"dataset": dataset, "fold": fold} for dataset, fold in tasks]
+
+        list_rows = parallel_for(
+            self.__class__.evaluate_ensemble_multi,
+            inputs=inputs,
+            context=context,
+            engine=backend,
+            progress_bar=progress_bar and backend != "sequential",
+            desc=f"Fitting ensembles ({len(configs_lst)} subsets/task)",
+        )
+
+        # Regroup per entry: concatenate each entry's per-task rows (same task order as
+        # evaluate_ensembles produces).
+        results = []
+        for i in range(len(configs_lst)):
+            df_out = pd.concat([task_rows[i][0] for task_rows in list_rows], axis=0)
+            df_ensemble_weights = pd.concat([task_rows[i][1] for task_rows in list_rows], axis=0)
+            results.append((df_out, df_ensemble_weights))
+        return results
 
     def evaluate_ensembles_per(
         self,
