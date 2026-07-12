@@ -387,6 +387,14 @@ class XRFMModel(AbstractModel):
     def supported_problem_types(cls) -> list[str] | None:
         return ["binary", "multiclass", "regression"]
 
+    @classmethod
+    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
+        """Warm torch (+ CUDA context) and the xRFM library import (untimed, data-independent)."""
+        from tabarena.models.warmup import warmup_imports, warmup_torch
+
+        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
+        warmup_imports("xrfm")
+
     def _get_default_stopping_metric(self):
         return self.eval_metric
 

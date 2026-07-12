@@ -129,6 +129,14 @@ class TabSTARModel(AbstractModel):
     def supported_problem_types(cls) -> list[str] | None:
         return ["binary", "multiclass", "regression"]
 
+    @classmethod
+    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
+        """Warm torch (+ CUDA context) and the TabSTAR/transformers imports (untimed, data-independent)."""
+        from tabarena.models.warmup import warmup_imports, warmup_torch
+
+        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
+        warmup_imports("tabstar.tabstar_model")
+
     def _get_default_resources(self) -> tuple[int, int]:
         # Use only physical cores for better performance based on benchmarks
         num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
