@@ -631,7 +631,7 @@ Conventions:
 
 `info.py` is now the single source of truth for `MethodMetadata`. There's no separate "add a metadata entry" step when first introducing a model.
 
-If/when the model has been benchmarked and the results are ready to be registered in TabArena's downstream artifact-aggregation files, also import the metadata you defined in `info.py` into the dated batch file under `packages/tabarena/src/tabarena/nips2025_utils/artifacts/_tabarena_method_metadata_YYYY_MM_DD.py`. That step is for downstream artifact handling only — it is not required for the model to work in the registry.
+If/when the model has been benchmarked and its results processed + uploaded, also import the metadata you defined in `info.py` into the arena collection in `packages/tabarena/src/tabarena/contexts/tabarena/methods.py` (add it to `tabarena_method_metadata_collection.method_metadata_lst`; see the `upload-method` skill). That step is for downstream artifact handling only — it is not required for the model to work in the registry.
 
 ---
 

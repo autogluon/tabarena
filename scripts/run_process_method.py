@@ -93,7 +93,7 @@ def main() -> None:
         "--backend",
         choices=["ray", "native"],
         default="ray",
-        help="'ray' (parallel) or 'native' (sequential) for the HPO/model-result simulation.",
+        help="'ray' (parallel) or 'native' (sequential) for per-task processing and simulation.",
     )
     args = parser.parse_args()
 

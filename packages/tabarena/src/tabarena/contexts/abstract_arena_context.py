@@ -162,7 +162,7 @@ class AbstractArenaContext:
         """Build a context with ``new_methods`` registered and scoped to the tasks they ran.
 
         ``new_methods`` are the methods to register, typically the (in-memory) ones returned by
-        :meth:`~tabarena.nips2025_utils.end_to_end.EndToEnd.from_raw_to_methods`, though any
+        :meth:`~tabarena.end_to_end.EndToEnd.from_raw_to_methods`, though any
         ``MethodMetadata`` works (in-memory or disk-backed). The baselines / task-metadata preset
         and any other settings (``backend``, ``fillna_method``, ...) come from ``**kwargs`` (and
         the concrete arena's constructor defaults).
@@ -185,7 +185,7 @@ class AbstractArenaContext:
           converted to methods via :meth:`EndToEnd.from_raw_to_methods`, honoring
           ``new_result_prefix``; or
         * already-built methods (``list[MethodMetadata]``, e.g. from
-          ``EndToEnd.from_path_raw_to_results(...).to_method_metadata_lst(...)`` or
+          ``EndToEnd.from_path_raw(...).to_method_metadata_lst(...)`` or
           :meth:`EndToEnd.from_raw_to_methods`) — registered as-is. The prefix is baked in when
           the methods are built, so ``new_result_prefix`` must be ``None`` here (raises
           otherwise).
@@ -209,9 +209,8 @@ class AbstractArenaContext:
                 )
             new_methods = list(results)
         else:
-            # Deferred: tabarena.nips2025_utils.end_to_end imports TabArenaContext at module
-            # level, which would be circular at import time.
-            from tabarena.nips2025_utils.end_to_end import EndToEnd
+            # Deferred: keeps context imports cheap (the pipeline pulls in simulation machinery).
+            from tabarena.end_to_end import EndToEnd
 
             new_methods = EndToEnd.from_raw_to_methods(
                 results_lst=results,

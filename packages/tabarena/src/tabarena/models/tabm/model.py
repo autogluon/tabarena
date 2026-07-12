@@ -1,6 +1,8 @@
-"""Note: This is a custom implementation of TabM based on TabArena. Because the AutoGluon 1.4 release occurred at nearly
-the same time as TabM became available on PyPi, we chose to use TabArena's implementation
-for the AutoGluon 1.4 release as it has already been benchmarked.
+"""AutoGluon model wrapper for TabM.
+
+The model is built on the official ``tabm`` package (https://github.com/yandex-research/tabm);
+this wrapper handles AutoGluon integration (preprocessing, resources, memory estimation)
+and delegates fitting/prediction to ``_internal._tabm_internal.TabMImplementation``.
 """
 
 from __future__ import annotations
@@ -10,7 +12,6 @@ import time
 
 import pandas as pd
 from autogluon.common.utils.resource_utils import ResourceManager
-from autogluon.tabular import __version__
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 from ._internal.tabm_utils import get_tabm_auto_batch_size
@@ -27,8 +28,6 @@ class TabMModel(AbstractTorchModel):
     Authors: Yury Gorishniy, Akim Kotelnikov, Artem Babenko
     Codebase: https://github.com/yandex-research/tabm
     License: Apache-2.0
-
-    Partially adapted from pytabkit's TabM implementation.
     """
 
     ag_key = "TA-TABM"
@@ -59,15 +58,14 @@ class TabMModel(AbstractTorchModel):
         start_time = time.time()
 
         try:
-            # imports various dependencies such as torch
+            # imports various dependencies such as torch, tabm, and rtdl_num_embeddings
             from torch.cuda import is_available
 
             from ._internal._tabm_internal import TabMImplementation
         except ImportError as err:
             logger.log(
                 40,
-                f"\tFailed to import tabm! To use the TabM model, "
-                f"do: `pip install autogluon.tabular[tabm]=={__version__}`.",
+                "\tFailed to import tabm! To use the TabM model, do: `pip install tabarena[tabm]`.",
             )
             raise err
 
@@ -190,7 +188,12 @@ class TabMModel(AbstractTorchModel):
         num_classes: int | None = 1,
         **kwargs,
     ) -> int:
-        """Heuristic memory estimate that correlates strongly with RealMLP."""
+        """Heuristic estimate of the peak tensor footprint of a TabM fit.
+
+        Covers parameters + optimizer state + forward/backward activations. On GPU fits
+        these tensors live in VRAM, so benchmark runs pair this estimate with a VRAM-sized
+        memory budget (``fake_memory_for_estimates``) to cap parallel bagging folds by VRAM.
+        """
         if num_classes is None:
             num_classes = 1
         if hyperparameters is None:
@@ -208,8 +211,6 @@ class TabMModel(AbstractTorchModel):
 
         n_numerical = len(X.select_dtypes(include=["number"]).columns)
 
-        # TODO: This estimates very high memory usage,
-        #  we probably need to adjust batch size automatically to compensate
         return cls._estimate_tabm_ram(
             hyperparameters=hyperparameters,
             n_numerical=n_numerical,
@@ -244,7 +245,8 @@ class TabMModel(AbstractTorchModel):
         tabm_k = hyperparameters.get("tabm_k", 32)
         predict_batch_size = hyperparameters.get("eval_batch_size", "auto")
         if predict_batch_size == "auto":
-            predict_batch_size = batch_size // 2
+            # matches TabMImplementation's "auto" resolution (eval batch = train batch)
+            predict_batch_size = batch_size
         # not completely sure
         n_params_num_emb = n_numerical * (num_emb_n_bins + 1) * d_embedding
         n_params_mlp = (
@@ -256,16 +258,20 @@ class TabMModel(AbstractTorchModel):
         # 4 bytes per float, up to 5 copies of parameters (1 standard, 1 .grad, 2 adam, 1 best_epoch)
         mem_params = 4 * 5 * (n_params_num_emb + n_params_mlp)
 
-        # compute number of floats in forward pass (per batch element)
-        # todo: numerical embedding layer (not sure if this is entirely correct)
-        n_floats_forward = n_numerical * (num_emb_n_bins + d_embedding)
+        # compute number of floats in forward pass (per batch element and ensemble member)
+        # The piecewise-linear encoding materializes several (n_features, n_bins)-wide
+        # intermediates at once (rtdl_num_embeddings builds it via slice + cat, and autograd
+        # keeps copies for backward), hence 4x the single-copy bins term — calibrated on the
+        # observed ~12.2 GiB peak VRAM of a pwl config (n_bins=127, d_block=496, batch=512,
+        # k=32, 169 numerical features).
+        n_floats_forward = n_numerical * (4 * num_emb_n_bins + d_embedding)
         # before and after scale
         n_floats_forward += 2 * (sum(cat_sizes) + n_numerical * d_embedding)
         # 2 for pre-act, post-act
         n_floats_forward += n_blocks * 2 * d_block + 2 * max(1, n_classes)
-        # 2 for forward and backward, 4 bytes per float
-        mem_forward_backward = 4 * predict_batch_size * n_floats_forward * tabm_k
-        # * 8 is pessimistic for the long tensors in the forward pass, 4 would probably suffice
+        # training runs forward+backward at the full train batch size; eval is no_grad at
+        # predict_batch_size, so the train side dominates unless eval_batch_size is larger
+        mem_forward_backward = 4 * max(batch_size, predict_batch_size) * n_floats_forward * tabm_k
 
         mem_ds = n_samples * (4 * n_numerical + 8 * len(cat_sizes))
 

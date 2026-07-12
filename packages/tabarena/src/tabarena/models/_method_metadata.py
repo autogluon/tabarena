@@ -14,9 +14,8 @@ from typing import TYPE_CHECKING, ClassVar, Literal, Self
 import pandas as pd
 import yaml
 
+from tabarena.benchmark.result.raw_loading import get_info_from_result, load_raw, results_to_holdout
 from tabarena.loaders import get_tabarena_cache_root
-from tabarena.nips2025_utils.load_artifacts import results_to_holdout
-from tabarena.nips2025_utils.method_processor import get_info_from_result, load_raw
 from tabarena.repository.evaluation_repository import EvaluationRepository
 from tabarena.repository.generate_repo import generate_repo_from_results_lst
 from tabarena.utils.pickle_utils import fetch_all_pickles
@@ -1046,17 +1045,6 @@ class MethodMetadata:
         path = self.path_raw
         for result in results_lst:
             result.to_dir(path=path)
-
-    def load_end_to_end_results(self):
-        model_results = self.load_model_results()
-        hpo_results = self.load_hpo_results()
-        from tabarena.nips2025_utils.end_to_end_single import EndToEndResultsSingle
-
-        return EndToEndResultsSingle(
-            method_metadata=self,
-            model_results=model_results,
-            hpo_results=hpo_results,
-        )
 
     def cache_processed(self, repo: EvaluationRepository):
         repo.to_dir(self.path_processed)

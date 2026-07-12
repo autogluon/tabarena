@@ -218,6 +218,9 @@ class EnsembleScorer:
         self.optimize_on = optimize_on
         self.return_metric_error_val = return_metric_error_val
 
+        # (dataset, fold) -> (model -> row index, pred_val, pred_test); see cache_task_preds.
+        self._preds_cache: dict[tuple[str, int], tuple[dict[str, int], np.ndarray, np.ndarray]] = {}
+
     # -------------------------
     # Extension hooks
     # -------------------------
@@ -295,10 +298,31 @@ class EnsembleScorer:
             return None
         return get_metric(metric=aux_metric_name, problem_type=problem_type)
 
-    def get_preds_from_models(self, dataset: str, fold: int, models: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    def cache_task_preds(self, dataset: str, fold: int, models: list[str]) -> None:
+        """Preload and cache this task's predictions for ``models``.
+
+        Subsequent :meth:`get_preds_from_models` calls on the task whose models are all cached
+        return row slices of the cached arrays instead of re-reading from the repo (the values
+        are identical — the cache holds exactly what the repo loads, rows keyed by model). Use
+        when evaluating many model subsets on the same task, so the (memmap) predictions are
+        read once. Requests involving an uncached model fall through to the repo.
+        """
+        pred_val, pred_test = self._load_preds_from_repo(dataset=dataset, fold=fold, models=models)
+        self._preds_cache[(dataset, fold)] = ({m: i for i, m in enumerate(models)}, pred_val, pred_test)
+
+    def _load_preds_from_repo(self, dataset: str, fold: int, models: list[str]) -> tuple[np.ndarray, np.ndarray]:
         pred_val = self.repo.predict_val_multi(dataset=dataset, fold=fold, configs=models, enforce_binary_1d=True)
         pred_test = self.repo.predict_test_multi(dataset=dataset, fold=fold, configs=models, enforce_binary_1d=True)
         return pred_val, pred_test
+
+    def get_preds_from_models(self, dataset: str, fold: int, models: list[str]) -> tuple[np.ndarray, np.ndarray]:
+        cached = self._preds_cache.get((dataset, fold))
+        if cached is not None:
+            model_idx, pred_val, pred_test = cached
+            if all(m in model_idx for m in models):
+                idx = [model_idx[m] for m in models]
+                return pred_val[idx], pred_test[idx]
+        return self._load_preds_from_repo(dataset=dataset, fold=fold, models=models)
 
     def _get_train(
         self,

@@ -96,8 +96,10 @@ Then: `sbatch … submit_template.sh <job.json>` → array task picks `jobs[SLUR
 - **Time budget** for `--time` = `ResourcesSetup.time_limit_per_config × configs_per_job +
   time_limit_overhead` (hours). `configs_per_job` is the worst-case bundle size from
   `bundle_items()`.
-- **`fake_memory_for_estimates`** intentionally lies to a model's memory estimator (VRAM-vs-RAM for
-  TFMs); it does not change the SLURM `--mem`.
+- **`fake_memory_for_estimates`** intentionally lies to a model's memory estimator; it does not
+  change the SLURM `--mem`. Set it to the GPU's VRAM in GB for every GPU model — AutoGluon budgets
+  parallel bagging folds against the reported memory limit (node RAM by default) and never accounts
+  VRAM, so without it co-scheduled folds can OOM the GPU. Also usable VRAM-vs-RAM for TFMs.
 
 ## Editing tasks
 

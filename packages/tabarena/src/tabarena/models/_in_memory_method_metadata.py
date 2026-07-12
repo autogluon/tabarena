@@ -23,7 +23,7 @@ from tabarena.models._method_metadata import MethodMetadata
 if TYPE_CHECKING:
     import pandas as pd
 
-    from tabarena.nips2025_utils.end_to_end_single import EndToEndResultsSingle
+    from tabarena.end_to_end.method_results import MethodResults
     from tabarena.repository.evaluation_repository import EvaluationRepository
 
 # Results filename by method_type, mirroring MethodMetadata.load_results' dispatch, so a
@@ -66,21 +66,21 @@ class InMemoryMethodMetadata(MethodMetadata):
     @classmethod
     def from_results_single(
         cls,
-        results_single: EndToEndResultsSingle,
+        results_single: MethodResults,
         *,
         new_result_prefix: str | None = None,
         use_suite_in_prefix: bool = False,
         use_model_results: bool = False,
     ) -> Self:
-        """Build from an ``EndToEndResultsSingle`` (its ``method_metadata`` + in-memory results).
+        """Build from a ``MethodResults`` (its ``method_metadata`` + in-memory results).
 
         ``new_result_prefix`` is treated as part of the method's *identity*: it is applied
-        both to the results frame (via ``EndToEndResultsSingle.get_results``) and to the
+        both to the results frame (via ``MethodResults.get_results``) and to the
         metadata's name fields, so the website leaderboard merge on ``(ta_name, ta_suite)``
         still matches.
 
         ``use_suite_in_prefix`` / ``use_model_results`` are forwarded to
-        :meth:`EndToEndResultsSingle.get_results`. When the artifact-name prefix is applied, the
+        :meth:`MethodResults.get_results`. When the artifact-name prefix is applied, the
         same ``[suite] `` segment get_results prepends to the frame's identity columns is
         baked into the metadata identity here too, so the website merge still matches.
         """
@@ -127,7 +127,7 @@ class InMemoryMethodMetadata(MethodMetadata):
         """Wrap an already-computed results frame as a registerable in-memory method.
 
         The DataFrame-first complement to :meth:`from_results_single`, for results produced
-        directly as a frame rather than via an ``EndToEndResultsSingle`` — e.g. the
+        directly as a frame rather than via a ``MethodResults`` — e.g. the
         default / tuned / tuned+ensemble frame returned by
         :meth:`~tabarena.contexts.abstract_arena_context.AbstractArenaContext.combine_hpo`.
         The frame is returned verbatim by :meth:`load_results`, so it must already carry the
@@ -252,7 +252,7 @@ class InMemoryMethodMetadata(MethodMetadata):
             raise NotImplementedError(
                 f"{type(self).__name__}(method={self.method!r}) has no in-memory repo; "
                 f"repo-backed operations (load_repo / simulation / HPO) are unavailable. "
-                f"Build it from an EndToEndSingle (which retains the repo) to enable these.",
+                f"Build it from a MethodResults that retains the repo (EndToEnd.from_raw) to enable these.",
             )
         return self._repo
 
@@ -282,8 +282,8 @@ class InMemoryMethodMetadata(MethodMetadata):
         raise self._unsupported("method_uploader")
 
 
-def results_single_repo(results_single: EndToEndResultsSingle) -> EvaluationRepository | None:
-    """Return ``results_single.repo`` if it carries one (``EndToEndSingle.to_results`` does
-    not), else ``None`` — keeps the in-memory repo when available for simulation paths.
+def results_single_repo(results_single: MethodResults) -> EvaluationRepository | None:
+    """Return ``results_single.repo`` if it carries one (only in-memory pipeline runs set it),
+    else ``None`` — keeps the in-memory repo when available for simulation paths.
     """
     return getattr(results_single, "repo", None)
