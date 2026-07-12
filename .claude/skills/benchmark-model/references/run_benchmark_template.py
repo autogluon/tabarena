@@ -53,11 +53,16 @@ def setup() -> None:
         model_jobs=[
             ModelJob(
                 models=(MODEL, NUM_CONFIGS),
-                name="gpu",  # CPU model: drop the num_gpus override below and use name="cpu"
-                resources={"num_gpus": 1},
-                # GPU model whose static estimate reports VRAM on a VRAM-rich / RAM-poor
-                # partition? add "fake_memory_for_estimates": <VRAM_GB>. Long tail? add
-                # "time_limit": <seconds>. Omit both when the RAM estimate is already correct.
+                name="gpu",  # CPU model: use name="cpu" and drop the resources dict below
+                resources={
+                    "num_gpus": 1,
+                    # REQUIRED for every GPU model: the gpu_partition's VRAM in GB
+                    # (gpurtxpro6000spotinteractive -> 96; ask the user if unknown).
+                    # AutoGluon budgets parallel bagging folds against this memory figure;
+                    # without it folds are budgeted by node RAM and can OOM the GPU.
+                    "fake_memory_for_estimates": 96,  # EDIT: match gpu_partition's VRAM
+                },
+                # Long tail? add "time_limit": <seconds> to the resources dict above.
             ),
         ],
         context=TabArenaContext(),
