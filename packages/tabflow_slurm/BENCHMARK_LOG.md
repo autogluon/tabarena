@@ -33,6 +33,56 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-07-13 — chimeraboost_13072026
+
+- **Model(s):** ChimeraBoost (all configs)
+- **Git SHA:** `99d494d3` (+ the `add_chimera_fast` metadata split: rerun recorded under
+  `chimeraboost_new_method_metadata`, suite `tabarena-2026-07-13`)
+- **Purpose:** Rerun of `benchmark_chimeraboost_16062026` with the untimed environment warm-up
+  API (#441): the original run's fit times include ChimeraBoost's numba JIT compilation (~10s per
+  cold environment). `ChimeraBoostModel.warmup` now pre-compiles the kernels untimed (warm-up is
+  on by default in the experiment runner) and numba's disk cache carries them into fold workers.
+- **Notes:** Mirrors the original run's shape for comparable timings: full task set (all splits),
+  default config + full 200-config HPO space, CPU partition `cpun416mtspotinteractive`
+  (16 vCPUs, 64 GB RAM, 0 GB VRAM), `memory_limit`/`num_cpus` left `None` so node values are
+  picked up, bundle size 10. Extra dep in the run venv: `chimeraboost>=0.14.1` (adds
+  `chimeraboost.warmup()`). New `(method, suite)` key keeps results separate from the superseded
+  suite `tabarena-2026-06-30`, which stays registered in the arena collection until the rerun is
+  processed/uploaded (the upload step swaps the registration).
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import TabArenaContext
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaBenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaBenchmarkPlan(
+    benchmark_name="chimeraboost_13072026",
+    model_jobs=[
+        ModelJob(models=("ChimeraBoost", "all"), name="cpu"),
+    ],
+    context=TabArenaContext(),
+    task_subset=TaskSubset(),  # all splits of every task (full rerun, like the original)
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_18062026/bin/python",
+    ),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    # Same CPU partition as the original run (16 vCPUs, 64 GB RAM) for comparable timings.
+    scheduler_setup=GCPSlurmSetup(bundle_size=10, cpu_partition="cpun416mtspotinteractive"),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-07-07 — tabfmplus_07072026
 
 - **Model(s):** TabFM+ (system — single default config, 0 random)
