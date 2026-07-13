@@ -229,3 +229,132 @@ def test_resolve_ensembler_drops_ensemble_size_for_unsupported_cls():
     )
     assert cls is GreedyEnsembler
     assert kwargs == {"ensemble_size": 40}
+
+
+# -------------------------
+# Reference ensemblers + guardrails (stage 3)
+# -------------------------
+def test_single_best_ensembler():
+    from tabarena.simulation.ensemble import SingleBestEnsembler
+
+    y, preds = _make_regression_task(n_models=5, seed=4)
+    metric = get_metric(metric="rmse", problem_type="regression")
+    per_model_errors = [metric.error(y, p) for p in preds]
+    best = int(np.argmin(per_model_errors))
+
+    ensembler = SingleBestEnsembler(problem_type="regression", metric=metric)
+    ensembler.fit(predictions=preds, labels=y)
+
+    expected = np.zeros(5)
+    expected[best] = 1.0
+    np.testing.assert_array_equal(ensembler.model_weights(), expected)
+    np.testing.assert_array_equal(ensembler.predict_proba(preds), preds[best])
+    assert ensembler.info() == {"best_index": best}
+    assert ensembler.models_used().sum() == 1
+
+
+def test_top_k_average_ensembler():
+    from tabarena.simulation.ensemble import TopKAverageEnsembler
+
+    y, preds = _make_binary_task(n_models=6, seed=5)
+    metric = get_metric(metric="roc_auc", problem_type="binary")
+    errors = np.array([metric.error(y, p) for p in preds])
+    top3 = set(np.argsort(errors, kind="stable")[:3])
+
+    ensembler = TopKAverageEnsembler(problem_type="binary", metric=metric, k=3)
+    ensembler.fit(predictions=preds, labels=y)
+
+    weights = ensembler.model_weights()
+    assert set(np.flatnonzero(weights)) == top3
+    np.testing.assert_allclose(weights[weights != 0], 1 / 3)
+    # k larger than the model count is capped
+    ensembler_all = TopKAverageEnsembler(problem_type="binary", metric=metric, k=100)
+    ensembler_all.fit(predictions=preds, labels=y)
+    np.testing.assert_allclose(ensembler_all.model_weights(), 1 / 6)
+
+
+def test_fixed_weights_ensembler():
+    from tabarena.simulation.ensemble import FixedWeightsEnsembler
+
+    y, preds = _make_binary_task(n_models=4, seed=6)
+    metric = get_metric(metric="roc_auc", problem_type="binary")
+    weights = [0.5, 0.5, 0.0, 0.0]
+
+    ensembler = FixedWeightsEnsembler(problem_type="binary", metric=metric, weights=weights)
+    ensembler.fit(predictions=preds, labels=y)
+    # use the fitted (float64) weights so dtype promotion matches predict_proba exactly
+    w = ensembler.model_weights()
+    np.testing.assert_array_equal(ensembler.predict_proba(preds), w[0] * preds[0] + w[1] * preds[1])
+    np.testing.assert_array_equal(ensembler.models_used(), [True, True, False, False])
+
+    bad = FixedWeightsEnsembler(problem_type="binary", metric=metric, weights=[1.0])
+    with pytest.raises(ValueError, match="1 weights for 4 models"):
+        bad.fit(predictions=preds, labels=y)
+
+
+def test_ensembler_swap_through_task_evaluator():
+    """Swapping the ensembling method is a single constructor argument."""
+    from tabarena.simulation.ensemble import SingleBestEnsembler, TopKAverageEnsembler
+
+    problem_type, metric, y, preds = _task_for_metric("roc_auc")
+    for ensembler_cls, ensembler_kwargs in [
+        (SingleBestEnsembler, {}),
+        (TopKAverageEnsembler, {"k": 2}),
+    ]:
+        results, ensemble = _run_task_evaluator(
+            ensembler_cls,
+            ensembler_kwargs,
+            problem_type=problem_type,
+            eval_metric=metric,
+            fit_eval_metric=metric,
+            y=y,
+            preds=preds,
+        )
+        assert np.isfinite(results["metric_error"])
+        assert len(results["ensemble_weights"]) == len(preds)
+        assert results["ensemble_models_used"].dtype == bool
+
+
+def test_nonlinear_ensembler_rejected_on_preprocessed_metric_space():
+    """A non-linear ensembler must be rejected when the metric feeds a transformed
+    (linear-only) prediction space, and accepted on untransformed spaces.
+    """
+    from tabarena.metrics._fast_log_loss import fast_log_loss
+    from tabarena.simulation.ensemble import AbstractEnsembler
+    from tabarena.simulation.ensemble_selection_config_scorer import TaskEvaluator
+
+    class NonLinearEnsembler(AbstractEnsembler):
+        linear = False
+
+        def _fit(self, *, predictions, labels, time_limit=None):
+            pass
+
+        def predict_proba(self, predictions):
+            return np.maximum.reduce(list(predictions))
+
+    problem_type, _, y, preds = _task_for_metric("log_loss")
+    evaluator = TaskEvaluator(
+        ensembler_cls=NonLinearEnsembler,
+        ensembler_kwargs={},
+        eval_metric=fast_log_loss,
+        fit_eval_metric=fast_log_loss,
+        problem_type=problem_type,
+    )
+    with pytest.raises(ValueError, match="non-linear"):
+        evaluator.init_ens()
+
+    # Untransformed metric space: allowed
+    rmse = get_metric(metric="rmse", problem_type="regression")
+    y_r, preds_r = _make_regression_task()
+    results, _ = _run_task_evaluator(
+        NonLinearEnsembler,
+        {},
+        problem_type="regression",
+        eval_metric=rmse,
+        fit_eval_metric=rmse,
+        y=y_r,
+        preds=preds_r,
+    )
+    assert np.isfinite(results["metric_error"])
+    assert "ensemble_weights" not in results  # not weight-based
+    assert results["ensemble_models_used"].all()  # conservative default: all models used
