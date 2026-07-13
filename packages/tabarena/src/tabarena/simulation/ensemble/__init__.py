@@ -11,6 +11,7 @@ from tabarena.simulation.ensemble.basic_ensemblers import (
     TopKAverageEnsembler,
 )
 from tabarena.simulation.ensemble.greedy_ensembler import GreedyEnsembler
+from tabarena.simulation.ensemble.stacking_ensembler import StackingEnsembler
 
 __all__ = [
     "AbstractEnsembler",
@@ -18,6 +19,7 @@ __all__ = [
     "GreedyEnsembler",
     "LegacyEnsemblerAdapter",
     "SingleBestEnsembler",
+    "StackingEnsembler",
     "TopKAverageEnsembler",
     "WeightedEnsembler",
 ]
