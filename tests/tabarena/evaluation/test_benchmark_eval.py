@@ -30,6 +30,18 @@ class TestEvalMethod:
         assert EvalMethod("RandomForest", ag_name_override="RF").ag_name == "RF"
 
 
+class TestMethodArtifact:
+    def test_method_name_bakes_in_result_suffix(self):
+        """The suffix is part of the cache identity, so a re-run of a registered baseline
+        registers under a distinct name instead of colliding on the bare method name.
+        """
+        from tabarena.evaluation._eval_common import MethodArtifact
+
+        kwargs = {"ag_name": "RF", "path_raw": Path("/raw"), "suite": "bench"}
+        assert MethodArtifact(**kwargs).method_name == "RF"
+        assert MethodArtifact(**kwargs, result_suffix=" [Rerun]").method_name == "RF [Rerun]"
+
+
 class TestConfig:
     def test_path_raw_is_output_dir_data(self):
         cfg = _config(Path("/base"), output_dir="/x/out/bench")
@@ -131,16 +143,18 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     )
     out = run_eval(cfg)
 
-    # Phase 1: only the non-cache-only method is post-processed, with the suffix baked in.
+    # Phase 1: only the non-cache-only method is post-processed. The raw-folder match uses the
+    # bare ag_name; the suffix is baked into both the result rows (name_suffix) and the cache
+    # method identity (method), so a re-run registers under a distinct name from the original.
     assert len(post_calls) == 1
     assert post_calls[0]["name_prefix_raw"] == "AG_A"
-    assert post_calls[0]["method"] == "AG_A"
+    assert post_calls[0]["method"] == "AG_A [Rerun]"
     assert post_calls[0]["suite"] == "bench"
     assert post_calls[0]["name_suffix"] == " [Rerun]"
     assert Path(post_calls[0]["path_raw"]) == cfg.path_raw
 
-    # Phase 2: every method is re-loaded from cache as (ag_name, suite), exactly once.
-    assert from_cache_calls == [[("AG_A", "bench"), ("AG_B", "bench")]]
+    # Phase 2: every method is re-loaded from cache as (method_name, suite), exactly once.
+    assert from_cache_calls == [[("AG_A [Rerun]", "bench"), ("AG_B", "bench")]]
 
     # The context is built once, with the run's vended methods registered via extra_methods=,
     # and the config's only_valid_tasks forwarded through.

@@ -44,6 +44,13 @@ echo "Memory Limit: $MEMORY_LIMIT"
 echo "Setup Ray for SLURM Shared Resources Environment: $SETUP_RAY"
 echo "Ignore Cache: $IGNORE_CACHE"
 
+# Node-local numba JIT cache.
+export NUMBA_CACHE_DIR="${TMPDIR:-/tmp}/numba_cache_${SLURM_JOB_ID}"
+# Same treatment for the GPU JIT caches
+export TRITON_CACHE_DIR="${TMPDIR:-/tmp}/triton_cache_${SLURM_JOB_ID}"
+export CUDA_CACHE_PATH="${TMPDIR:-/tmp}/nv_cache_${SLURM_JOB_ID}"
+mkdir -p "$NUMBA_CACHE_DIR" "$TRITON_CACHE_DIR" "$CUDA_CACHE_PATH"
+
 run_one() {
     local EXPERIMENT="$1"
     local DATASET="$2"
