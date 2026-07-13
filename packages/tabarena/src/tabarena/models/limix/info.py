@@ -16,6 +16,7 @@ limix_method_metadata = MethodMetadata.config(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     date="2026-05-13",
+    date_introduced="2025-09",
     reference_url="https://arxiv.org/abs/2509.03505",
     display_name="LimiX",
     verified=False,

@@ -14,6 +14,7 @@ realtabpfnv25_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2511.08667",
+    date_introduced="2025-11",
 )
 
 tabpfnv26_descriptor = ModelDescriptor(
@@ -21,6 +22,7 @@ tabpfnv26_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2511.08667",
+    date_introduced="2026-03",
 )
 
 realtabpfnv25_method_metadata = realtabpfnv25_descriptor.method_metadata(

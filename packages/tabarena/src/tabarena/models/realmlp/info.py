@@ -10,6 +10,7 @@ realmlp_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=True,
     reference_url="https://arxiv.org/abs/2407.04491",
+    date_introduced="2024-07",
 )
 
 realmlp_method_metadata = realmlp_descriptor.method_metadata(

@@ -14,6 +14,7 @@ chimeraboost_method_metadata = MethodMetadata.config(
     config_default="ChimeraBoost_c1_default_BAG_L1",
     suite="tabarena-2026-06-30",
     date="2026-06-15",
+    date_introduced="2026-05-26",
     reference_url="https://github.com/bbstats/chimeraboost",
     display_name="ChimeraBoost",
     verified=True,

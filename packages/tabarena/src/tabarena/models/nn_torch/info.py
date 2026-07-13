@@ -16,6 +16,7 @@ nn_torch_method_metadata = MethodMetadata.config(
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     date="2025-06-12",
+    date_introduced="2019-12",
     reference_url="https://arxiv.org/abs/2003.06505",
     display_name="TorchMLP",
 )

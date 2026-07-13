@@ -16,6 +16,7 @@ xrfm_method_metadata = MethodMetadata.config(
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     date="2025-09-03",
+    date_introduced="2025-08",
     reference_url="https://arxiv.org/abs/2508.10053",
     display_name="xRFM",
 )

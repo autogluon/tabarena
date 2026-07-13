@@ -14,6 +14,7 @@ nori_method_metadata = MethodMetadata.config(
     compute="gpu",
     is_bag=False,
     date="2026-06-18",
+    date_introduced="2026-06-12",
     reference_url="https://github.com/Synthefy/synthefy-nori",
     display_name="Nori",
     verified=True,

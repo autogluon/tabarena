@@ -15,6 +15,7 @@ modernnca_method_metadata = MethodMetadata.config(
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     date="2025-06-12",
+    date_introduced="2024-07",
     reference_url="https://arxiv.org/abs/2407.03257",
     display_name="ModernNCA (CPU)",
 )
@@ -31,6 +32,7 @@ modernnca_gpu_method_metadata = MethodMetadata.config(
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     date="2025-06-12",
+    date_introduced="2024-07",
     reference_url="https://arxiv.org/abs/2407.03257",
     display_name="ModernNCA",
 )

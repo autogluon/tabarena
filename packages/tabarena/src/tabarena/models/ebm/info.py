@@ -16,6 +16,7 @@ ebm_method_metadata = MethodMetadata.config(
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     date="2025-09-03",
+    date_introduced="2019-09",
     reference_url="https://www.cs.cornell.edu/~yinlou/papers/lou-kdd13.pdf",
     display_name="EBM",
 )

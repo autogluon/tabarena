@@ -16,6 +16,7 @@ sap_rpt_oss_method_metadata = MethodMetadata.config(
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     date="2025-11-25",
+    date_introduced="2025-06",
     reference_url="https://arxiv.org/abs/2506.10707",
     display_name="SAP-RPT-OSS",
     verified=False,

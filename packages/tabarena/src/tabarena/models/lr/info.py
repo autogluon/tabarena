@@ -11,6 +11,7 @@ lr_descriptor = ModelDescriptor(
     compute="cpu",
     is_bag=True,
     reference_url="https://scikit-learn.org/stable/modules/linear_model.html",
+    date_introduced="1958",
 )
 
 lr_method_metadata = lr_descriptor.method_metadata(

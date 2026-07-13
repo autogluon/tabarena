@@ -15,6 +15,7 @@ tabstar_method_metadata = MethodMetadata.config(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     date="2026-03-02",
+    date_introduced="2025-05",
     reference_url="https://arxiv.org/abs/2505.18125",
     display_name="TabSTAR",
 )
