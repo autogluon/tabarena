@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from autogluon.tabular import TabularPredictor
 
 
-# FIXME: determine if want to persist by default?
 class AGWrapper(AbstractExecModel):
     """An AutoGluon ``TabularPredictor`` wrapped as an exec model.
 
@@ -47,11 +46,12 @@ class AGWrapper(AbstractExecModel):
         Extra keyword arguments for ``TabularPredictor.fit(...)``. ``num_bag_folds`` /
         ``num_bag_sets`` here drive the (optionally task-specific) validation protocol.
     persist:
-        If True, persist the best model in memory around inference (untimed, via
-        ``pre_predict``/``post_predict``), so the measured inference time excludes loading the
-        model from disk. Default False — and no current benchmark configuration enables it —
-        so AutoGluon's (re)loading of the model (and a bag's children) on the first ``predict``
-        is part of the measured inference time today.
+        If True (default), persist the fitted model in memory around inference (untimed, via
+        ``pre_predict``/``post_predict``), so the measured inference time is that of a served,
+        in-memory model rather than including its load from disk. Memory-guarded by AutoGluon's
+        ``max_memory``: when the model (incl. a bag's children) doesn't fit, nothing is
+        persisted and inference falls back to on-demand disk loads — which persisted models
+        were in memory is recorded in the fit metadata (``persisted_models``).
     validation_metadata:
         Task-derived ``ValidationMetadata`` (or a kwargs dict for one) describing the
         validation-split structure. Inherited from ``AbstractExecModel`` (the runner injects it
@@ -79,7 +79,7 @@ class AGWrapper(AbstractExecModel):
         self,
         init_kwargs: dict | None = None,
         fit_kwargs: dict | None = None,
-        persist: bool = False,
+        persist: bool = True,
         use_task_specific_validation: bool = False,
         **kwargs,
     ):
@@ -92,6 +92,7 @@ class AGWrapper(AbstractExecModel):
         self.fit_kwargs = fit_kwargs
         self.use_task_specific_validation = use_task_specific_validation
         self.persist = persist
+        self._persisted_models: list[str] | None = None
 
     # --- Warm-up (untimed) --------------------------------------------------------------
     @property
@@ -340,9 +341,43 @@ class AGWrapper(AbstractExecModel):
         return self.predictor.predict_proba(X)
 
     def pre_predict(self):
-        """Persist the best model in memory before inference when ``persist`` is enabled."""
-        if self.persist:
-            self.predictor.persist(models="best", max_memory=None)
+        """Persist the fitted model(s) in memory and run their untimed inference preparation.
+
+        Runs outside the inference timer, so the measured inference time is that of a served,
+        in-memory model. Persisting is memory-guarded (AutoGluon's ``max_memory``): when the
+        models don't fit, nothing is persisted and inference falls back to on-demand disk loads;
+        either way the outcome is recorded on ``self._persisted_models`` (surfaced in the fit
+        metadata). Each persisted model object — including a bag's loaded children — that
+        declares ``prepare_for_inference()`` gets it called: untimed, model-only inference prep
+        (e.g. moving offloaded weights to the inference device). It must never touch test data.
+
+        Best-effort like warm-up: a failure here is logged and inference proceeds unpersisted
+        (``_persisted_models`` stays ``None``, keeping the fallback auditable).
+        """
+        if not self.persist:
+            return
+        try:
+            self._persisted_models = self.predictor.persist(models="best")
+            for model in self._iter_persisted_model_objects():
+                prepare = getattr(model, "prepare_for_inference", None)
+                if prepare is not None:
+                    prepare()
+        except Exception as exc:
+            self._persisted_models = None
+            logger.warning(f"Persisting the model for untimed inference prep failed; predicting from disk. ({exc})")
+
+    def _iter_persisted_model_objects(self):
+        """Yield the persisted in-memory model objects, including a bag's loaded children."""
+        trainer = self.predictor._trainer
+        for name in self._persisted_models or []:
+            model = trainer.models.get(name)
+            if model is None:
+                continue
+            yield model
+            # A bagged ensemble's children are loaded objects after persist (strings otherwise).
+            for child in getattr(model, "models", None) or []:
+                if not isinstance(child, str):
+                    yield child
 
     def post_predict(self):
         """Release any persisted model after inference when ``persist`` is enabled."""
@@ -515,6 +550,10 @@ class AGSingleWrapper(AGWrapper):
     def get_metadata_fit(self) -> dict:
         """Metadata available only after fitting (info, disk/compute usage, fit metadata)."""
         metadata = {}
+        # Persist outcome: which models were in memory during the timed inference
+        # (None = persist disabled or inference not run; [] = skipped by the memory guard).
+        metadata["persist"] = self.persist
+        metadata["persisted_models"] = self._persisted_models
         model = self._load_model(assert_single_model=False)
         metadata["info"] = model.get_info(include_feature_metadata=False)
         metadata["disk_usage"] = model.disk_usage()

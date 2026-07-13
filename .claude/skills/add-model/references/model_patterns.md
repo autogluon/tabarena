@@ -399,11 +399,12 @@ def warmup(cls, **kwargs) -> None:
 The dispatch always passes `problem_type` / `num_cpus` / `num_gpus` / `hyperparameters` as
 keyword arguments — declare the ones you read, keep `**kwargs` for the rest.
 
-Inference side: there is no model-level predict warm-up — the untimed hooks around the inference
-timer live on the exec model (`pre_predict`/`post_predict`; see `AGWrapper.persist`). In the
-wrapper, avoid deferring one-time work to the first `_predict` (put it in `_fit` or `warmup`),
-and know that offloading weights at the end of `_fit` makes the first predict pay the transfer
-back inside the measured inference time.
+Inference side: the exec model persists the fitted model in memory around the inference timer by
+default (`AGWrapper.persist`, memory-guarded), and calls an optional **instance** method
+`prepare_for_inference(self) -> None` on every persisted model object (incl. bagged children) —
+untimed, for model-only prep like moving weights offloaded at the end of `_fit` back to the
+inference device; never touch test data there. Avoid deferring other one-time work to the first
+`_predict` (put it in `_fit` or `warmup`).
 
 ---
 

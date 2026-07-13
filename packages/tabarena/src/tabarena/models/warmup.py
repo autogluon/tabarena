@@ -23,8 +23,10 @@ Fit vs. predict: this is an environment warm-up, not a fit-only one — the same
 the timed inference, so it de-inflates ``time_infer_s`` too (and a library warm-up like
 ChimeraBoost's compiles the predict kernels alongside the train ones). Data-dependent
 first-call inference work on the real test data is deliberately *not* excluded — it stays in
-the measured inference time; untimed inference-side hooks are ``pre_predict``/``post_predict``
-on the exec model.
+the measured inference time. Untimed inference-side prep happens in the exec model's
+``pre_predict``/``post_predict``: the AutoGluon wrappers persist the fitted model in memory
+there (so measured inference excludes disk loads) and call ``prepare_for_inference()`` on
+persisted model objects that declare it (see ``AGWrapper.pre_predict``).
 
 Model classes opt in by declaring a ``warmup`` classmethod (see :func:`warmup_model_cls`);
 models without one fall back to a generic torch warm-up (``AbstractTorchModel`` subclasses)
