@@ -17,10 +17,11 @@ from tabarena.benchmark.exec_models.utils import _apply_inv_perm
 from tabarena.benchmark.preprocessing.pipeline import build_feature_generator, resolve_preprocessing_pipeline
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
     from autogluon.tabular import TabularPredictor
 
 
-# FIXME: determine if want to persist by default?
 class AGWrapper(AbstractExecModel):
     """An AutoGluon ``TabularPredictor`` wrapped as an exec model.
 
@@ -45,8 +46,12 @@ class AGWrapper(AbstractExecModel):
         Extra keyword arguments for ``TabularPredictor.fit(...)``. ``num_bag_folds`` /
         ``num_bag_sets`` here drive the (optionally task-specific) validation protocol.
     persist:
-        If True, persist the best model in memory around inference (faster repeated
-        prediction at the cost of memory).
+        If True (default), persist the fitted model in memory around inference (untimed, via
+        ``pre_predict``/``post_predict``), so the measured inference time is that of a served,
+        in-memory model rather than including its load from disk. Memory-guarded by AutoGluon's
+        ``max_memory``: when the model (incl. a bag's children) doesn't fit, nothing is
+        persisted and inference falls back to on-demand disk loads — which persisted models
+        were in memory is recorded in the fit metadata (``persisted_models``).
     validation_metadata:
         Task-derived ``ValidationMetadata`` (or a kwargs dict for one) describing the
         validation-split structure. Inherited from ``AbstractExecModel`` (the runner injects it
@@ -74,7 +79,7 @@ class AGWrapper(AbstractExecModel):
         self,
         init_kwargs: dict | None = None,
         fit_kwargs: dict | None = None,
-        persist: bool = False,
+        persist: bool = True,
         use_task_specific_validation: bool = False,
         **kwargs,
     ):
@@ -87,6 +92,51 @@ class AGWrapper(AbstractExecModel):
         self.fit_kwargs = fit_kwargs
         self.use_task_specific_validation = use_task_specific_validation
         self.persist = persist
+        self._persisted_models: list[str] | None = None
+
+    # --- Warm-up (untimed) --------------------------------------------------------------
+    @property
+    def warmup_fn(self) -> Callable[[], None] | None:
+        """Warm the AutoGluon stack and every model class configured in ``fit_kwargs``."""
+        return self._warmup
+
+    def _warmup(self) -> None:
+        from tabarena.models.warmup import warmup_imports, warmup_model_cls
+
+        warmup_imports("autogluon.tabular")
+        for model_cls, hyperparameters in self._configured_model_classes():
+            warmup_model_cls(
+                model_cls,
+                problem_type=self.problem_type,
+                num_cpus=self.fit_kwargs.get("num_cpus"),
+                num_gpus=self.fit_kwargs.get("num_gpus"),
+                hyperparameters=hyperparameters,
+            )
+
+    def _configured_model_classes(self) -> Iterator[tuple[type[AbstractModel], dict | None]]:
+        """Yield ``(model_cls, hyperparameters)`` for each model configured in ``fit_kwargs``.
+
+        String keys are resolved via the AutoGluon registry; unresolvable entries are skipped
+        (warm-up is best-effort). A key configured with a list of configs yields the first as
+        representative. A preset-driven fit (no ``hyperparameters`` dict) yields nothing.
+        """
+        hyperparameters = self.fit_kwargs.get("hyperparameters")
+        if not isinstance(hyperparameters, dict):
+            return
+        for key, configs in hyperparameters.items():
+            model_cls = key
+            if isinstance(key, str):
+                try:
+                    from autogluon.tabular.registry import ag_model_registry
+
+                    model_cls = ag_model_registry.key_to_cls(key=key)
+                except Exception as exc:
+                    logger.debug(f"Warm-up: skipping unresolvable model key {key!r} ({exc})")
+                    continue
+            if not (isinstance(model_cls, type) and issubclass(model_cls, AbstractModel)):
+                continue
+            config = configs[0] if isinstance(configs, list) and configs else configs
+            yield model_cls, config if isinstance(config, dict) else None
 
     def _build_predictor_args(
         self,
@@ -291,9 +341,43 @@ class AGWrapper(AbstractExecModel):
         return self.predictor.predict_proba(X)
 
     def pre_predict(self):
-        """Persist the best model in memory before inference when ``persist`` is enabled."""
-        if self.persist:
-            self.predictor.persist(models="best", max_memory=None)
+        """Persist the fitted model(s) in memory and run their untimed inference preparation.
+
+        Runs outside the inference timer, so the measured inference time is that of a served,
+        in-memory model. Persisting is memory-guarded (AutoGluon's ``max_memory``): when the
+        models don't fit, nothing is persisted and inference falls back to on-demand disk loads;
+        either way the outcome is recorded on ``self._persisted_models`` (surfaced in the fit
+        metadata). Each persisted model object — including a bag's loaded children — that
+        declares ``prepare_for_inference()`` gets it called: untimed, model-only inference prep
+        (e.g. moving offloaded weights to the inference device). It must never touch test data.
+
+        Best-effort like warm-up: a failure here is logged and inference proceeds unpersisted
+        (``_persisted_models`` stays ``None``, keeping the fallback auditable).
+        """
+        if not self.persist:
+            return
+        try:
+            self._persisted_models = self.predictor.persist(models="best")
+            for model in self._iter_persisted_model_objects():
+                prepare = getattr(model, "prepare_for_inference", None)
+                if prepare is not None:
+                    prepare()
+        except Exception as exc:
+            self._persisted_models = None
+            logger.warning(f"Persisting the model for untimed inference prep failed; predicting from disk. ({exc})")
+
+    def _iter_persisted_model_objects(self):
+        """Yield the persisted in-memory model objects, including a bag's loaded children."""
+        trainer = self.predictor._trainer
+        for name in self._persisted_models or []:
+            model = trainer.models.get(name)
+            if model is None:
+                continue
+            yield model
+            # A bagged ensemble's children are loaded objects after persist (strings otherwise).
+            for child in getattr(model, "models", None) or []:
+                if not isinstance(child, str):
+                    yield child
 
     def post_predict(self):
         """Release any persisted model after inference when ``persist`` is enabled."""
@@ -466,6 +550,10 @@ class AGSingleWrapper(AGWrapper):
     def get_metadata_fit(self) -> dict:
         """Metadata available only after fitting (info, disk/compute usage, fit metadata)."""
         metadata = {}
+        # Persist outcome: which models were in memory during the timed inference
+        # (None = persist disabled or inference not run; [] = skipped by the memory guard).
+        metadata["persist"] = self.persist
+        metadata["persisted_models"] = self._persisted_models
         model = self._load_model(assert_single_model=False)
         metadata["info"] = model.get_info(include_feature_metadata=False)
         metadata["disk_usage"] = model.disk_usage()
@@ -622,6 +710,22 @@ class AGModelWrapper(AbstractExecModel):
         # applies it in its own fit), so this works the same here as in the AGWrapper path.
         self.hyperparameters = pipeline.apply_model_specific(hyperparameters)
 
+    @property
+    def warmup_fn(self) -> Callable[[], None] | None:
+        """Warm this model class's environment (imports / kernels / CUDA context)."""
+        return self._warmup
+
+    def _warmup(self) -> None:
+        from tabarena.models.warmup import warmup_model_cls
+
+        warmup_model_cls(
+            self.model_cls,
+            problem_type=self.problem_type,
+            num_cpus=self.fit_kwargs.get("num_cpus"),
+            num_gpus=self.fit_kwargs.get("num_gpus"),
+            hyperparameters=self.hyperparameters,
+        )
+
     def _make_feature_generator(self):
         """Build the pipeline's model-agnostic feature generator (shared with ``AGWrapper``).
 
@@ -652,6 +756,22 @@ class AGModelWrapper(AbstractExecModel):
             **self.fit_kwargs,
         )
         return self
+
+    def pre_predict(self):
+        """Run the fitted model's untimed inference preparation (``prepare_for_inference``).
+
+        The directly-fitted model already lives in memory, so unlike ``AGWrapper`` there is no
+        persist step — this only dispatches the optional model-level hook, under the same
+        convention (untimed, model-only prep such as device placement; never test data).
+        Best-effort: a failure is logged and inference proceeds unprepared.
+        """
+        prepare = getattr(self.model, "prepare_for_inference", None)
+        if prepare is None:
+            return
+        try:
+            prepare()
+        except Exception as exc:
+            logger.warning(f"prepare_for_inference failed; predicting without inference prep. ({exc})")
 
     def _predict(self, X: pd.DataFrame) -> pd.Series:
         """Predict labels with the fitted model, preserving ``X``'s index."""
