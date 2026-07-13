@@ -116,6 +116,7 @@ tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.14.1"]
 nori = ["synthefy-nori>=0.7.0"]
+nori30m = ["synthefy-nori>=0.10.0"]  # 0.10.0 adds the model= variant selector (Nori-30M)
 # TabSwift is vendored under models/tabswift/_vendor/ (not pip-installable). All of its
 # runtime deps (torch, numpy, scikit-learn, scipy, psutil, tqdm, huggingface_hub, packaging)
 # are already in the base tree, so this extra is intentionally empty.
@@ -154,6 +155,7 @@ extended = [
   "tabarena[iltm]",
   "tabarena[chimeraboost]",
   "tabarena[nori]",
+  "tabarena[nori30m]",
   "tabarena[tabswift]",
 ]
 
