@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from autogluon.core.metrics import Scorer, get_metric
-from autogluon.core.models.greedy_ensemble.ensemble_selection import EnsembleSelection
 
 from tabarena.metrics import _fast_log_loss
+from tabarena.simulation.ensemble import AbstractEnsembler, GreedyEnsembler, LegacyEnsemblerAdapter
 from tabarena.utils import task_to_tid_fold
 from tabarena.utils.aux_metric import get_aux_metric_map
 from tabarena.utils.parallel_for import parallel_for
@@ -76,9 +76,19 @@ def get_fast_rmse() -> Scorer:
     return fast_rmse
 
 
+def _accepts_kwarg(cls: type, name: str) -> bool:
+    """Whether ``cls.__init__`` accepts a keyword argument ``name`` (directly or via **kwargs)."""
+    import inspect
+
+    parameters = inspect.signature(cls.__init__).parameters
+    if name in parameters:
+        return True
+    return any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+
+
 class TaskEvaluator:
     """Minimal per-task evaluator:
-      - knows how to fit an ensemble given (y_train, pred_train)
+      - knows how to fit an ensembler given (y_train, pred_train)
       - knows how to predict/score given (y, pred)
     It does NOT know anything about repo/dataset/fold/models or optimize_on.
     """
@@ -86,19 +96,18 @@ class TaskEvaluator:
     def __init__(
         self,
         *,
-        ensemble_method: type,
-        ensemble_kwargs: dict,
+        ensembler_cls: type[AbstractEnsembler],
+        ensembler_kwargs: dict | None = None,
         eval_metric: Scorer,
         fit_eval_metric: Scorer,
         problem_type: str,
         aux_eval_metric: Scorer | None = None,
     ):
-        self._ensemble_method = ensemble_method
-        self._ensemble_kwargs = ensemble_kwargs
+        self._ensembler_cls = ensembler_cls
+        self._ensembler_kwargs = ensembler_kwargs if ensembler_kwargs is not None else {}
         self._eval_metric = eval_metric
         self._fit_eval_metric = fit_eval_metric
         self._aux_eval_metric = aux_eval_metric
-        self._predict_problem_type = getattr(eval_metric, "post_problem_type", problem_type)
         self._fit_problem_type = getattr(fit_eval_metric, "post_problem_type", problem_type)
         self.problem_type = problem_type
 
@@ -108,25 +117,35 @@ class TaskEvaluator:
             y, pred = metric.preprocess_bulk(y, pred)
         return y, pred
 
-    def init_ens(self):
-        return self._ensemble_method(
+    def init_ens(self) -> AbstractEnsembler:
+        ensembler = self._ensembler_cls(
             problem_type=self._fit_problem_type,
             metric=self._fit_eval_metric,
-            **self._ensemble_kwargs,
+            **self._ensembler_kwargs,
         )
+        if not ensembler.linear:
+            # Metric-preprocessed prediction spaces (marked by `post_problem_type`, e.g.
+            # log_loss ground-truth-class probabilities) are only valid to combine
+            # linearly; a non-linear ensembler would silently operate on the wrong space.
+            for metric in (self._fit_eval_metric, self._eval_metric):
+                if getattr(metric, "post_problem_type", None) is not None:
+                    raise ValueError(
+                        f"Ensembler {type(ensembler).__name__} is non-linear (linear=False), but metric "
+                        f"{metric.name!r} preprocesses predictions into a transformed space that only "
+                        f"supports linear combination. Pass use_fast_metrics=False to feed the ensembler "
+                        f"original prediction spaces."
+                    )
+        return ensembler
 
-    def fit(self, *, pred_train: np.ndarray, y_train: np.ndarray):
+    def fit(self, *, pred_train: np.ndarray, y_train: np.ndarray) -> AbstractEnsembler:
         ensemble = self.init_ens()
 
         y_train, pred_train = self._maybe_preprocess_bulk(self._fit_eval_metric, y_train, pred_train)
         ensemble.fit(predictions=pred_train, labels=y_train)
-
-        # Ensure prediction interface aligns with the metric we ultimately evaluate with
-        ensemble.problem_type = self._predict_problem_type
         return ensemble
 
     def predict(
-        self, *, ensemble, pred: np.ndarray, y: np.ndarray, eval_metric: Scorer | None = None
+        self, *, ensemble: AbstractEnsembler, pred: np.ndarray, y: np.ndarray, eval_metric: Scorer | None = None
     ) -> tuple[np.ndarray, np.ndarray]:
         if eval_metric is None:
             eval_metric = self._eval_metric
@@ -134,15 +153,9 @@ class TaskEvaluator:
         y, pred = self._maybe_preprocess_bulk(eval_metric, y, pred)
 
         if eval_metric.needs_pred:
-            reset_problem_type = False
-            original_problem_type = ensemble.problem_type
-            new_problem_type = self.problem_type
-            if original_problem_type != new_problem_type:
-                reset_problem_type = True
-                ensemble.problem_type = new_problem_type
-            y_pred = ensemble.predict(pred)
-            if reset_problem_type:
-                ensemble.problem_type = original_problem_type
+            # Label-space predictions are for the original problem, not the (possibly
+            # metric-preprocessed) problem type the ensembler was fitted on.
+            y_pred = ensemble.predict(pred, problem_type=self.problem_type)
         else:
             y_pred = ensemble.predict_proba(pred)
         return y_pred, y
@@ -192,8 +205,13 @@ class TaskEvaluator:
                     y=y_val_proc_aux, y_pred=y_val_pred_aux, eval_metric=self._aux_eval_metric
                 )
 
-        if hasattr(ensemble, "weights_"):
-            results["ensemble_weights"] = ensemble.weights_
+        weights = ensemble.model_weights()
+        if weights is not None:
+            results["ensemble_weights"] = weights
+        results["ensemble_models_used"] = ensemble.models_used()
+        ensemble_info = ensemble.info()
+        if ensemble_info:
+            results["ensemble_info"] = ensemble_info
 
         return results, ensemble
 
@@ -204,7 +222,9 @@ class EnsembleScorer:
         repo: EvaluationRepository,
         task_metrics_metadata,
         evaluator_cls: type[TaskEvaluator] = TaskEvaluator,
-        ensemble_method: type = EnsembleSelection,
+        ensembler_cls: type[AbstractEnsembler] | None = None,
+        ensembler_kwargs: dict | None = None,
+        ensemble_method: type | None = None,
         ensemble_method_kwargs: dict | None = None,
         proxy_fit_metric_map: dict | None = None,
         use_fast_metrics: bool = True,
@@ -215,8 +235,16 @@ class EnsembleScorer:
         ----------
         repo: EvaluationRepository
         task_metrics_metadata
-        ensemble_method: Type = EnsembleSelection
+        ensembler_cls: type[AbstractEnsembler], default = None
+            The post-hoc ensembling method fitted on each task.
+            If None, defaults to `GreedyEnsembler` (greedy weighted ensemble selection).
+        ensembler_kwargs: dict, default = None
+            kwargs passed to `ensembler_cls` (e.g. `ensemble_size` for `GreedyEnsembler`).
+        ensemble_method: type, default = None
+            [Deprecated] Pre-interface ensemble class (AutoGluon `AbstractWeightedEnsemble`
+            style); wrapped in `LegacyEnsemblerAdapter`. Use `ensembler_cls` instead.
         ensemble_method_kwargs: dict, default = None
+            [Deprecated] Alias for `ensembler_kwargs`, used when `ensembler_kwargs` is None.
         proxy_fit_metric_map: dict, default = None
         use_fast_metrics: bool, default = True
         optimize_on: str, default = "val"
@@ -227,17 +255,16 @@ class EnsembleScorer:
         """
         if proxy_fit_metric_map is None:
             proxy_fit_metric_map = {}
-        if ensemble_method_kwargs is None:
-            ensemble_method_kwargs = {}
 
-        ensemble_method_kwargs = copy.deepcopy(ensemble_method_kwargs)
-        if "ensemble_size" not in ensemble_method_kwargs:
-            ensemble_method_kwargs["ensemble_size"] = 100
+        self.ensembler_cls, self.ensembler_kwargs = self._resolve_ensembler(
+            ensembler_cls=ensembler_cls,
+            ensembler_kwargs=ensembler_kwargs,
+            ensemble_method=ensemble_method,
+            ensemble_method_kwargs=ensemble_method_kwargs,
+        )
 
         self.repo = repo
         self.evaluator_cls = evaluator_cls
-        self.ensemble_method: type = ensemble_method
-        self.ensemble_method_kwargs = ensemble_method_kwargs
         self.task_metrics_metadata = task_metrics_metadata
         self.proxy_fit_metric_map = proxy_fit_metric_map
         self.use_fast_metrics = use_fast_metrics
@@ -249,17 +276,53 @@ class EnsembleScorer:
         # (dataset, fold) -> (model -> row index, pred_val, pred_test); see cache_task_preds.
         self._preds_cache: dict[tuple[str, int], tuple[dict[str, int], np.ndarray, np.ndarray]] = {}
 
+    @staticmethod
+    def _resolve_ensembler(
+        *,
+        ensembler_cls: type[AbstractEnsembler] | None,
+        ensembler_kwargs: dict | None,
+        ensemble_method: type | None,
+        ensemble_method_kwargs: dict | None,
+    ) -> tuple[type[AbstractEnsembler], dict]:
+        """Resolve the (ensembler_cls, ensembler_kwargs) pair from the new-style and
+        deprecated constructor parameters.
+        """
+        if ensembler_kwargs is None:
+            ensembler_kwargs = ensemble_method_kwargs
+        ensembler_kwargs = copy.deepcopy(ensembler_kwargs) if ensembler_kwargs is not None else {}
+
+        if ensemble_method is not None:
+            assert ensembler_cls is None, "Pass either `ensembler_cls` or the deprecated `ensemble_method`, not both"
+            if isinstance(ensemble_method, type) and issubclass(ensemble_method, AbstractEnsembler):
+                ensembler_cls = ensemble_method
+            else:
+                # Pre-interface ensemble class: preserve the historical default of
+                # ensemble_size=100 and wrap in the adapter.
+                ensembler_kwargs.setdefault("ensemble_size", 100)
+                return LegacyEnsemblerAdapter, {
+                    "ensemble_cls": ensemble_method,
+                    "ensemble_kwargs": ensembler_kwargs,
+                }
+        if ensembler_cls is None:
+            ensembler_cls = GreedyEnsembler
+        if "ensemble_size" in ensembler_kwargs and not _accepts_kwarg(ensembler_cls, "ensemble_size"):
+            # `EnsembleSelectionConfigScorer` unconditionally plumbs its greedy iteration
+            # budget in as `ensemble_size`; drop it for ensemblers that don't take one
+            # instead of forcing every alternative method to accept a greedy-specific kwarg.
+            ensembler_kwargs.pop("ensemble_size")
+        return ensembler_cls, ensembler_kwargs
+
     # -------------------------
     # Extension hooks
     # -------------------------
     def filter_models(self, dataset: str, fold: int, models: list[str]) -> list[str]:
         return models
 
-    def get_ensemble_method_for_task(self, dataset: str, fold: int, models: list[str]) -> type:
-        return self.ensemble_method
+    def get_ensembler_cls_for_task(self, dataset: str, fold: int, models: list[str]) -> type[AbstractEnsembler]:
+        return self.ensembler_cls
 
-    def get_ensemble_method_kwargs_for_task(self, dataset: str, fold: int, models: list[str]) -> dict:
-        return copy.deepcopy(self.ensemble_method_kwargs)
+    def get_ensembler_kwargs_for_task(self, dataset: str, fold: int, models: list[str]) -> dict:
+        return copy.deepcopy(self.ensembler_kwargs)
 
     def subsample_val_data(
         self,
@@ -402,12 +465,12 @@ class EnsembleScorer:
 
         y_train, pred_train = self._get_train(y_val=y_val, pred_val=pred_val, y_test=y_test, pred_test=pred_test)
 
-        ensemble_method = self.get_ensemble_method_for_task(dataset=dataset, fold=fold, models=models)
-        ensemble_kwargs = self.get_ensemble_method_kwargs_for_task(dataset=dataset, fold=fold, models=models)
+        ensembler_cls = self.get_ensembler_cls_for_task(dataset=dataset, fold=fold, models=models)
+        ensembler_kwargs = self.get_ensembler_kwargs_for_task(dataset=dataset, fold=fold, models=models)
 
         evaluator = self.evaluator_cls(
-            ensemble_method=ensemble_method,
-            ensemble_kwargs=ensemble_kwargs,
+            ensembler_cls=ensembler_cls,
+            ensembler_kwargs=ensembler_kwargs,
             eval_metric=eval_metric,
             fit_eval_metric=fit_eval_metric,
             problem_type=problem_type,
@@ -424,11 +487,25 @@ class EnsembleScorer:
             y_val=y_val,
         )
 
+        return self._remap_ensemble_results_to_models(
+            results, models_og=models_og, models_filtered_idx=models_filtered_idx
+        )
+
+    @staticmethod
+    def _remap_ensemble_results_to_models(
+        results: dict[str, object], *, models_og: list[str], models_filtered_idx: list[int]
+    ) -> dict[str, object]:
+        """Expand per-model result arrays from the filtered model order back to the
+        caller's original model order (filtered-out models get weight 0 / unused).
+        """
         if "ensemble_weights" in results:
             ensemble_weights_fixed = np.zeros(len(models_og), dtype=np.float64)
             ensemble_weights_fixed[models_filtered_idx] = results["ensemble_weights"]
             results["ensemble_weights"] = ensemble_weights_fixed
-
+        if "ensemble_models_used" in results:
+            models_used_fixed = np.zeros(len(models_og), dtype=bool)
+            models_used_fixed[models_filtered_idx] = results["ensemble_models_used"]
+            results["ensemble_models_used"] = models_used_fixed
         return results
 
     def _get_models_filtered_idx(self, models: list[str], models_filtered: list[str]) -> tuple[list[str], list[int]]:
@@ -598,7 +675,7 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
         self.ensemble_scorer = ensemble_cls(
             repo=repo,
             task_metrics_metadata=task_metrics_metadata,
-            ensemble_method_kwargs=ensemble_selection_kwargs,
+            ensemble_method_kwargs=ensemble_selection_kwargs,  # ensembler_kwargs unless overridden via ensemble_kwargs
             proxy_fit_metric_map=proxy_fit_metric_map,
             use_fast_metrics=self.use_fast_metrics,
             **ensemble_kwargs,

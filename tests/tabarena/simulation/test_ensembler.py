@@ -108,3 +108,124 @@ def test_fit_does_not_mutate_caller_predictions():
     assert all(np.array_equal(a, b) for a, b in zip(preds_list, preds_list_copy, strict=False)), (
         "GreedyEnsembler.fit mutated the caller's predictions"
     )
+
+
+# -------------------------
+# TaskEvaluator integration (stage 2)
+# -------------------------
+def _run_task_evaluator(ensembler_cls, ensembler_kwargs, *, problem_type, eval_metric, fit_eval_metric, y, preds):
+    from tabarena.simulation.ensemble_selection_config_scorer import TaskEvaluator
+
+    evaluator = TaskEvaluator(
+        ensembler_cls=ensembler_cls,
+        ensembler_kwargs=ensembler_kwargs,
+        eval_metric=eval_metric,
+        fit_eval_metric=fit_eval_metric,
+        problem_type=problem_type,
+    )
+    results, ensemble = evaluator.run(
+        pred_train=preds,
+        y_train=y,
+        pred_test=preds,
+        y_test=y,
+        return_metric_error_val=True,
+        pred_val=preds,
+        y_val=y,
+    )
+    return results, ensemble
+
+
+def _task_for_metric(metric_name):
+    if metric_name == "roc_auc":
+        from tabarena.metrics._fast_roc_auc import fast_roc_auc_cpp
+
+        y, preds = _make_binary_task()
+        return "binary", fast_roc_auc_cpp, y, preds
+    if metric_name == "log_loss":
+        from tabarena.metrics._fast_log_loss import fast_log_loss
+
+        rng = np.random.default_rng(0)
+        n_samples, n_classes, n_models = 400, 3, 6
+        y = rng.integers(0, n_classes, n_samples)
+        preds = rng.random((n_models, n_samples, n_classes))
+        preds /= preds.sum(axis=2, keepdims=True)
+        return "multiclass", fast_log_loss, y, preds.astype(np.float32)
+    if metric_name == "rmse":
+        y, preds = _make_regression_task()
+        return "regression", get_metric(metric="rmse", problem_type="regression"), y, preds
+    raise ValueError(metric_name)
+
+
+@pytest.mark.parametrize("metric_name", ["roc_auc", "log_loss", "rmse"])
+def test_task_evaluator_new_interface_matches_legacy(metric_name):
+    """TaskEvaluator with the default GreedyEnsembler must produce identical results to
+    the historical ensemble_method=EnsembleSelection path (resolved via EnsembleScorer),
+    across all three metric regimes (incl. the metric-preprocessed log_loss space and
+    the needs_pred rmse path).
+    """
+    from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer
+
+    problem_type, metric, y, preds = _task_for_metric(metric_name)
+
+    legacy_cls, legacy_kwargs = EnsembleScorer._resolve_ensembler(
+        ensembler_cls=None,
+        ensembler_kwargs=None,
+        ensemble_method=EnsembleSelection,
+        ensemble_method_kwargs={"ensemble_size": 20},
+    )
+    new_cls, new_kwargs = EnsembleScorer._resolve_ensembler(
+        ensembler_cls=None, ensembler_kwargs={"ensemble_size": 20}, ensemble_method=None, ensemble_method_kwargs=None
+    )
+    assert new_cls is GreedyEnsembler
+
+    results_legacy, _ = _run_task_evaluator(
+        legacy_cls,
+        legacy_kwargs,
+        problem_type=problem_type,
+        eval_metric=metric,
+        fit_eval_metric=metric,
+        y=y,
+        preds=preds,
+    )
+    results_new, _ = _run_task_evaluator(
+        new_cls, new_kwargs, problem_type=problem_type, eval_metric=metric, fit_eval_metric=metric, y=y, preds=preds
+    )
+
+    assert results_legacy["metric_error"] == results_new["metric_error"]
+    assert results_legacy["metric_error_val"] == results_new["metric_error_val"]
+    np.testing.assert_array_equal(results_legacy["ensemble_weights"], results_new["ensemble_weights"])
+    np.testing.assert_array_equal(results_legacy["ensemble_models_used"], results_new["ensemble_models_used"])
+    np.testing.assert_array_equal(results_new["ensemble_models_used"], results_new["ensemble_weights"] != 0)
+
+
+def test_resolve_ensembler_drops_ensemble_size_for_unsupported_cls():
+    """EnsembleSelectionConfigScorer always plumbs ensemble_size in; ensemblers that
+    don't take one must not be forced to accept it.
+    """
+    from tabarena.simulation.ensemble import AbstractEnsembler
+    from tabarena.simulation.ensemble_selection_config_scorer import EnsembleScorer
+
+    class NoSizeEnsembler(AbstractEnsembler):
+        def _fit(self, *, predictions, labels, time_limit=None):
+            pass
+
+        def predict_proba(self, predictions):
+            return predictions[0]
+
+    cls, kwargs = EnsembleScorer._resolve_ensembler(
+        ensembler_cls=NoSizeEnsembler,
+        ensembler_kwargs={"ensemble_size": 100},
+        ensemble_method=None,
+        ensemble_method_kwargs=None,
+    )
+    assert cls is NoSizeEnsembler
+    assert "ensemble_size" not in kwargs
+
+    cls, kwargs = EnsembleScorer._resolve_ensembler(
+        ensembler_cls=GreedyEnsembler,
+        ensembler_kwargs={"ensemble_size": 40},
+        ensemble_method=None,
+        ensemble_method_kwargs=None,
+    )
+    assert cls is GreedyEnsembler
+    assert kwargs == {"ensemble_size": 40}
