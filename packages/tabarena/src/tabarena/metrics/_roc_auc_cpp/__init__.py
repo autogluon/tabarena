@@ -40,7 +40,10 @@ class CppAuc:
             float: AUC score.
         """
         n = len(y_true)
-        return self._handle.cpp_auc_ext(y_score.astype(np.float32), y_true, n)
+        # The C++ kernel does not mutate its inputs, so no defensive copy is needed:
+        # this is zero-copy when y_score is already a contiguous float32 array.
+        y_score = np.ascontiguousarray(y_score, dtype=np.float32)
+        return self._handle.cpp_auc_ext(y_score, y_true, n)
 
     def _compile(self):
         # load compilation command

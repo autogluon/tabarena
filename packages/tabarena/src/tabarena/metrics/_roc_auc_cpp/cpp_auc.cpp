@@ -1,101 +1,95 @@
 #include <cstdint>
+#include <cstring>
 #include <algorithm>
-#include <array>
 #include <limits>
 #include <vector>
 
 
+namespace {
+
 inline uint32_t mantissa(uint32_t a) { return a & 0x7FFFFF; }
 
+// Two radix passes covering the 23 mantissa bits: 12 + 11.
+// The histograms (4096 + 2048 uint32 = 24KB) fit comfortably in L1/L2, and two
+// scatter passes move less memory than three (the sort passes are memory-bound,
+// so pass count ~ runtime).
+constexpr int RADIX0_BITS = 12;
+constexpr int RADIX1_BITS = 23 - RADIX0_BITS;
+constexpr uint32_t RADIX0_SIZE = 1u << RADIX0_BITS;
+constexpr uint32_t RADIX1_SIZE = 1u << RADIX1_BITS;
+constexpr uint32_t RADIX0_MASK = RADIX0_SIZE - 1;
+constexpr uint32_t RADIX1_MASK = RADIX1_SIZE - 1;
+
+// Scratch buffers reused across calls (grow-only). Ensemble simulation calls
+// this metric thousands of times with the same `len`, so per-call allocation —
+// and std::vector's zero-fill, two hidden write passes — would dominate.
+thread_local std::vector<uint32_t> scratch1;
+thread_local std::vector<uint32_t> scratch2;
+
+}  // namespace
+
 /*
- * This function is a fast, single-threaded implementation of the binary non-weighted ROC AUC metric.
+ * Fast, single-threaded implementation of the binary non-weighted ROC AUC metric.
  * The primary speed-up comes from a radix sort on the 23 bits of the mantissa of float values.
  * This function assumes y_true and y_pred are both of size `len`.
- * If entries in y_pred are outside the range [0.0, 1.0], they will be clamped into that range.
+ * If entries in y_pred are outside the range [0.0, 1.0], they are treated as clamped into that range.
+ * Inputs are read-only; callers may pass their own buffers without a defensive copy.
  */
-double radix_roc_auc(bool* y_true, float* y_pred, size_t len) {
+double radix_roc_auc(const bool* y_true, const float* y_pred, size_t len) {
 
-  std::vector<uint32_t> storage1(len);
-  std::vector<uint32_t> storage2(len);
+  if (scratch1.size() < len) {
+    scratch1.resize(len);
+    scratch2.resize(len);
+  }
+  uint32_t* __restrict storage1 = scratch1.data();
+  uint32_t* __restrict storage2 = scratch2.data();
 
-  // I use 3 custom sized radixes here: 5, 9, and 9, which I found to be a significant speedup over 3x 8bit radixes.
-  // These were chosen based on testing various radix combinations on an m6i.x32 instance.
-  const int radix0_split = 5;
-  constexpr int radix0_size = 1 << radix0_split;
-  constexpr int radix0_size_minus_1 = radix0_size - 1;
+  // 24KB total; small enough for the stack, avoids a heap allocation per call
+  uint32_t histogram0[RADIX0_SIZE] = {0};
+  uint32_t histogram1[RADIX1_SIZE] = {0};
 
-  const int radix1_split = 9;
-  constexpr int radix1_size = 1 << radix1_split;
-  constexpr int radix1_size_minus_1 = radix1_size - 1;
-
-  const int radix2_split = 23 - radix0_split - radix1_split;
-  constexpr int radix2_size = 1 << radix2_split;
-  constexpr int radix2_size_minus_1 = radix2_size - 1;
-
-  std::array<uint32_t, radix0_size> histogram0 = {0};
-  std::array<uint32_t, radix1_size> histogram1 = {0};
-  std::array<uint32_t, radix2_size> histogram2 = {0};
-
-  // Add 1.0 to all floats and clamp to range [1.0,2.0) to exploit IEEE-754 float memory layout
+  // Single fused pass: clamp each prediction into [1.0, 2.0) to exploit the
+  // IEEE-754 float layout (mantissa order == value order on that interval),
+  // pack the bool label into bit 24 and the 23 mantissa bits into the LSBs,
+  // and build both radix histograms.
+  // The clamp is computed in double and rounded to float exactly as the
+  // previous in-place version did, so scores are bit-identical to it.
   for (size_t i = 0; i < len; ++i) {
-    y_pred[i] = std::clamp(y_pred[i] + 1.0, 1.0, 2.0 - std::numeric_limits<float>::epsilon());
+    const float clamped = static_cast<float>(
+        std::clamp(static_cast<double>(y_pred[i]) + 1.0, 1.0,
+                   2.0 - static_cast<double>(std::numeric_limits<float>::epsilon())));
+    uint32_t bits;
+    std::memcpy(&bits, &clamped, sizeof(bits));
+    const uint32_t entry = (static_cast<uint32_t>(y_true[i]) << 24) | mantissa(bits);
+    storage1[i] = entry;
+    histogram0[entry & RADIX0_MASK]++;
+    histogram1[(entry >> RADIX0_BITS) & RADIX1_MASK]++;
   }
 
-  // Interpret float32 as uint32. Put bool in 8 MSBs and float mantissa in 23 LSBs of the uint32. Save to storage vector.
+  // Exclusive prefix sums turn the histograms into scatter offsets
+  uint32_t sum0 = 0;
+  for (uint32_t i = 0; i < RADIX0_SIZE; ++i) {
+    const uint32_t count = histogram0[i];
+    histogram0[i] = sum0;
+    sum0 += count;
+  }
+  uint32_t sum1 = 0;
+  for (uint32_t i = 0; i < RADIX1_SIZE; ++i) {
+    const uint32_t count = histogram1[i];
+    histogram1[i] = sum1;
+    sum1 += count;
+  }
+
+  // Sort radix0 (least significant 12 bits)
   for (size_t i = 0; i < len; ++i) {
-    uint32_t int_entry = *reinterpret_cast<uint32_t*>(&y_pred[i]);
-    storage1[i] = (static_cast<uint32_t>(y_true[i]) << 24) | (int_entry & 0x7FFFFF);
+    const uint32_t entry = storage1[i];
+    storage2[histogram0[entry & RADIX0_MASK]++] = entry;
   }
 
-  // Populate 3 histograms for radixes
+  // Sort radix1 (most significant 11 bits); result lands sorted in storage1
   for (size_t i = 0; i < len; ++i) {
-    histogram0[storage1[i] & radix0_size_minus_1]++;
-    histogram1[storage1[i] >> radix0_split & radix1_size_minus_1]++;
-    histogram2[storage1[i] >> (radix0_split + radix1_split) & radix2_size_minus_1]++;
-  }
-
-  // Add incremental counts to each histogram
-  uint32_t radix0_cnt = 0;
-  uint32_t temp0;
-
-  for (size_t i = 0; i < radix0_size; ++i) {
-    temp0 = histogram0[i] + radix0_cnt;
-    histogram0[i] = radix0_cnt - 1;
-    radix0_cnt = temp0;
-  }
-
-  uint32_t radix1_cnt = 0;
-  uint32_t temp1;
-  for (size_t i = 0; i < radix1_size; ++i) {
-    temp1 = histogram1[i] + radix1_cnt;
-    histogram1[i] = radix1_cnt - 1;
-    radix1_cnt = temp1;
-  }
-
-  uint32_t radix2_cnt = 0;
-  uint32_t temp2;
-  for (size_t i = 0; i < radix2_size; ++i) {
-    temp2 = histogram2[i] + radix2_cnt;
-    histogram2[i] = radix2_cnt - 1;
-    radix2_cnt = temp2;
-  }
-
-  // Sort radix0 (least significant bits)
-  for (size_t i = 0; i < len; ++i) {
-    uint32_t entry = storage1[i];
-    storage2[++histogram0[entry & radix0_size_minus_1]] = entry;
-  }
-
-  // Sort radix1
-  for (size_t i = 0; i < len; ++i) {
-    uint32_t entry = storage2[i];
-    storage1[++histogram1[entry >> radix0_split & radix1_size_minus_1]] = entry;
-  }
-
-  // Sort radix2 (most significant bits)
-  for (size_t i = 0; i < len; ++i) {
-    uint32_t entry = storage1[i];
-    storage2[++histogram2[entry >> (radix0_split + radix1_split) & radix2_size_minus_1]] = entry;
+    const uint32_t entry = storage2[i];
+    storage1[histogram1[(entry >> RADIX0_BITS) & RADIX1_MASK]++] = entry;
   }
 
   // Perform binary non-weighted roc_auc summation on sorted entries
@@ -107,15 +101,15 @@ double radix_roc_auc(bool* y_true, float* y_pred, size_t len) {
   uint64_t tri_auc = 0;
 
   for (size_t i = 0; i < len; ++i) {
-    uint32_t entry = storage2[len - 1 - i];
-    bool label = entry >> 24 & 0xFF;
+    const uint32_t entry = storage1[len - 1 - i];
+    const bool label = entry >> 24 & 0xFF;
 
     total_true_cnt += label;
     total_false_cnt += !label;
     rect_auc += !label * last_unique_true_cnt;
 
     // Avoid code branches from if statements by using branchless assignments
-    bool diff = (i == len-1) || (mantissa(entry) != mantissa(storage2[len - 2 - i]));
+    const bool diff = (i == len - 1) || (mantissa(entry) != mantissa(storage1[len - 2 - i]));
     tri_auc += diff * (total_true_cnt - last_unique_true_cnt) * (total_false_cnt - last_unique_false_cnt);
     last_unique_true_cnt = diff * total_true_cnt + !diff * last_unique_true_cnt;
     last_unique_false_cnt = diff * total_false_cnt + !diff * last_unique_false_cnt;
@@ -125,8 +119,7 @@ double radix_roc_auc(bool* y_true, float* y_pred, size_t len) {
 }
 
 extern "C" {
-    double cpp_auc_ext(float* ts, bool* st, size_t len) {
+    double cpp_auc_ext(const float* ts, const bool* st, size_t len) {
         return radix_roc_auc(st, ts, len);
     }
 }
-
