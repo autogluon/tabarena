@@ -34,3 +34,28 @@ def test_subset_predicates_cover_beyond_subsets():
         "lite",
     }
     assert expected <= set(BeyondArenaContext.SUBSET_PREDICATES)
+
+
+def test_subset_shortcuts_resolve_on_task_grid():
+    """Every shortcut's expression list (including negated atoms like ``"!large"``) evaluates
+    against the task grid and selects a non-empty, strictly smaller slice than the full grid.
+    """
+    from tabarena.benchmark.task.metadata import BeyondArenaTaskMetadataCollection
+    from tabarena.nips2025_utils.compare import _evaluate_subset_expression
+
+    grid = BeyondArenaTaskMetadataCollection().task_grid()
+    predicates = BeyondArenaContext.SUBSET_PREDICATES
+    for name, expressions in BeyondArenaContext.SUBSET_SHORTCUTS.items():
+        selected = grid
+        for expression in expressions:
+            mask = _evaluate_subset_expression(expression, selected, predicates=predicates)
+            selected = selected[mask.values]
+        assert 0 < len(selected) < len(grid), name
+
+
+def test_subset_shortcut_name_matches_negated_expressions():
+    assert BeyondArenaContext.subset_shortcut_name(["core", "high-cardinality", "!large"]) == "hc_nolarge"
+    # order-insensitive
+    assert BeyondArenaContext.subset_shortcut_name(["!large", "core", "lite", "high-cardinality"]) == "hc_nolarge_lite"
+    assert BeyondArenaContext.subset_shortcut_name(["core", "high-cardinality"]) == "high_cardinality"
+    assert BeyondArenaContext.subset_shortcut_name(["core", "!large"]) is None
