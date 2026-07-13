@@ -12,6 +12,13 @@ per-environment cost in a real deployment (imports, kernel/JIT compilation, CUDA
 initialization, hardware handles). It must never touch the task's data or carry any task-
 or data-specific state into the fit.
 
+Scope: warm-up runs once, in the job's main process, before the timed fit. It warms that
+process and anything disk-backed (e.g. numba's on-disk kernel cache, which parallel-fold
+workers then load instead of recompiling). It does *not* warm the in-memory state of
+processes spawned later: a bagged fit with parallel (Ray) fold fitting still pays each
+worker's imports / CUDA context inside the measured fit time. Where a library offers it,
+prefer a warm-up that persists to disk — it is the only kind that carries over to workers.
+
 Model classes opt in by declaring a ``warmup`` classmethod (see :func:`warmup_model_cls`);
 models without one fall back to a generic torch warm-up (``AbstractTorchModel`` subclasses)
 or an import-only warm-up (:data:`WARMUP_IMPORTS_BY_AG_KEY`).

@@ -191,7 +191,9 @@ class ExperimentRunner:
         cost (imports, JIT/kernel compilation, CUDA context init) never counts toward
         ``time_train_s`` / ``time_infer_s`` or a fit time limit — matching the one-time
         per-environment costs a real deployment would not pay per fit. Warm-up is
-        best-effort: a failure is logged and the fit proceeds cold.
+        best-effort: a failure is logged and the fit proceeds cold. It warms this process
+        and disk-backed caches only — worker processes spawned inside the fit (parallel
+        fold fitting) are not warmed; see ``tabarena.models.warmup`` for the full scope.
 
         Returns the warm-up duration in seconds, or None when there was nothing to warm
         (or warm-up is disabled).

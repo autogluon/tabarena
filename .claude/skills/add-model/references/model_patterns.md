@@ -361,6 +361,46 @@ finally:
 
 ---
 
+## Warm-up classmethod (untimed environment warm-up)
+
+TabArena runs an untimed warm-up before the timed fit (`tabarena.models.warmup.warmup_model_cls`
+dispatches it), so one-time per-environment costs (heavy imports, JIT/kernel compilation, CUDA
+context) don't inflate the measured fit/inference times. `AbstractTorchModel` subclasses are
+covered automatically (generic torch + CUDA warm-up) — declare a classmethod only when the model
+is torch-backed on plain `AbstractModel`, has a heavy extra import, or its library pre-compiles
+kernels. Warm-up must be data-independent (never touch task data), and it only warms the main job
+process + disk-backed caches — parallel-fold (Ray) workers are fresh processes, so prefer library
+warm-ups whose compile cache persists to disk.
+
+```python
+# Torch-backed model on AbstractModel (generic fallback doesn't reach these).
+# References: modernnca, xrfm, tabstar.
+@classmethod
+def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
+    """Warm torch (+ CUDA context) and the library import (untimed, data-independent)."""
+    from tabarena.models.warmup import warmup_imports, warmup_torch
+
+    warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
+    warmup_imports("somelib.model")  # only if the import is heavy (e.g. pulls transformers)
+```
+
+```python
+# Library with its own kernel pre-compilation (numba / JAX / custom kernels).
+# Reference: chimeraboost (warmup() exists from chimeraboost>=0.14.1 — pin the pip extra
+# accordingly). Ask the user for the entry point + minimum version if the docs don't say.
+@classmethod
+def warmup(cls, **kwargs) -> None:
+    """Pre-compile the library's kernels (disk-cached per environment)."""
+    import somelib
+
+    somelib.warmup()
+```
+
+The dispatch always passes `problem_type` / `num_cpus` / `num_gpus` / `hyperparameters` as
+keyword arguments — declare the ones you read, keep `**kwargs` for the rest.
+
+---
+
 ## Categorical & missing-value handling — prefer the library's native path
 
 A frequent review finding: wrappers needlessly label-encode categoricals, impute with `fillna(0)`,
