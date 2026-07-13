@@ -13,6 +13,30 @@ Every model lives in **one folder** at `packages/tabarena/src/tabarena/models/<M
 
 Per model, you create up to 5 source files, then edit three existing files. There is no per-model test file — the model is fit-tested automatically by the registry-driven `tests/tabarena/models/test_all_models.py`.
 
+## First: single model or external system?
+
+TabArena has two integration paths; this skill's steps implement the **single model** path, which is
+the default:
+
+- **Single model** (default — everything below): one AutoGluon wrapper in `models/<ModelKey>/`,
+  fit by TabArena's shared harness. It gets the shared preprocessing + validation protocol, the
+  bagged / holdout / outer execution modes, an HPO search space, registry auto-discovery, and
+  leaderboard integration.
+- **External system**: a self-contained ML system that does its own preprocessing, validation,
+  HPO, and/or ensembling — AutoML frameworks, multi-model stacks, LLM/agent pipelines. Systems do
+  **not** get a per-model folder or registry entry. Instead: subclass `ExternalSystemModel`
+  (`packages/tabarena/src/tabarena/benchmark/exec_models/external.py`) — implement `_fit_system`
+  / `_predict` / `_predict_proba`, optionally `cleanup` and the untimed hooks (`warmup_fn`,
+  `pre_predict`/`post_predict`) — and run it via `ExternalSystemExperiment`, or
+  `SystemConfigGenerator` (`utils/config_utils.py`) with a bundle in `system_experiments=True`
+  mode. Runnable references: `examples/advanced/run_quickstart_tabarena_external_system.py` and
+  `run_async_tabarena_api_system.py` (async/API-driven).
+
+**Ask instead of assuming**: if what the user wants to add looks like a system — it ensembles or
+stacks multiple models, runs its own HPO or validation splits, or is described as a "framework",
+"AutoML tool", "pipeline", or "agent" — ask which integration they want before proceeding. When
+nothing suggests a system, take the single-model path and continue with Step 0.
+
 ## Step 0: Gather inputs
 
 Parse `$ARGUMENTS` for the model name. Then collect (ask only for what's missing or unclear):
