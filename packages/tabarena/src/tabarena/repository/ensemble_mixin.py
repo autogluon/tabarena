@@ -292,7 +292,11 @@ class EnsembleMixin:
         # fit the ensemble and retrieve the metric error and ensemble weights
         results = scorer.compute_errors(configs=configs_to_use)
         metric_error = results[task]["metric_error"]
-        ensemble_weights = results[task]["ensemble_weights"]
+        # weights are None for ensemblers that are not weight-based (see AbstractEnsembler)
+        ensemble_weights = results[task].get("ensemble_weights")
+        models_used = results[task].get("ensemble_models_used")
+        if models_used is None:
+            models_used = [w != 0 for w in ensemble_weights]
         metric_error_val = results[task]["metric_error_val"]
         aux_metric_error = results[task].get("aux_metric_error")
         aux_metric_error_val = results[task].get("aux_metric_error_val")
@@ -318,8 +322,9 @@ class EnsembleMixin:
         )
         time_train_s = sum(runtimes.values())
 
-        # compute the ensemble time_infer_s by summing all considered config's time_infer_s that have non-zero weight
-        config_selected_ensemble = [config for i, config in enumerate(configs_to_use) if ensemble_weights[i] != 0]
+        # compute the ensemble time_infer_s by summing the time_infer_s of the configs the
+        # fitted ensemble needs at inference (for weighted ensembles: non-zero weight)
+        config_selected_ensemble = [config for config, used in zip(configs_to_use, models_used, strict=True) if used]
 
         config_metrics_inference = config_metrics[config_metrics["framework"].isin(config_selected_ensemble)]
 
@@ -355,6 +360,9 @@ class EnsembleMixin:
             output_dict["rank"] = [rank_list]
 
         multiindex = pd.MultiIndex.from_tuples([(dataset, fold)], names=["dataset", "fold"])
+        if ensemble_weights is None:
+            # non-weight-based ensembler: no weights to report
+            ensemble_weights = np.full(len(configs_to_use), np.nan)
         df_ensemble_weights = pd.DataFrame(data=[ensemble_weights], index=multiindex, columns=configs_to_use)
         df_out = pd.DataFrame(data=output_dict, index=multiindex)
 
