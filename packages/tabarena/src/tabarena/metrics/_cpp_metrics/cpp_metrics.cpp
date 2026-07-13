@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <cstring>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -118,8 +119,39 @@ double radix_roc_auc(const bool* y_true, const float* y_pred, size_t len) {
   return (rect_auc + tri_auc / 2.0) / (total_true_cnt * total_false_cnt);
 }
 
+/*
+ * Fused single-pass RMSE: sqrt(mean((a - b)^2)).
+ * numpy needs three passes and two temporaries for the same expression; one fused
+ * pass runs at memory bandwidth (~3-4x faster). Eight independent accumulator
+ * lanes let the compiler vectorize the reduction without -ffast-math (which must
+ * stay off: it would alter the float semantics of the ROC AUC kernel above).
+ */
+double fused_rmse(const double* a, const double* b, size_t len) {
+  constexpr size_t LANES = 8;
+  double acc[LANES] = {0.0};
+  size_t i = 0;
+  for (; i + LANES <= len; i += LANES) {
+    for (size_t j = 0; j < LANES; ++j) {
+      const double diff = a[i + j] - b[i + j];
+      acc[j] += diff * diff;
+    }
+  }
+  double total = 0.0;
+  for (; i < len; ++i) {
+    const double diff = a[i] - b[i];
+    total += diff * diff;
+  }
+  for (size_t j = 0; j < LANES; ++j) {
+    total += acc[j];
+  }
+  return std::sqrt(total / static_cast<double>(len));
+}
+
 extern "C" {
     double cpp_auc_ext(const float* ts, const bool* st, size_t len) {
         return radix_roc_auc(st, ts, len);
+    }
+    double cpp_rmse_ext(const double* y_true, const double* y_pred, size_t len) {
+        return fused_rmse(y_true, y_pred, len);
     }
 }

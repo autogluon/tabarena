@@ -38,7 +38,7 @@ def get_fast_roc_auc() -> Scorer:
     except (OSError, ValueError) as e:
         # OSError covers g++ missing (FileNotFoundError) and read-only filesystems
         # (EROFS, e.g. Singularity containers); ValueError covers a non-zero/timed-out
-        # g++ run, including being unable to write cpp_auc.so into a read-only install dir.
+        # g++ run, including being unable to write cpp_metrics.so into a read-only install dir.
         print(
             f"Warning: Failed to obtain c++ roc_auc metric ({type(e).__name__}: {e}). "
             "Try installing g++ or set TABARENA_SKIP_FAST_ROC_AUC=1. "
@@ -46,6 +46,34 @@ def get_fast_roc_auc() -> Scorer:
         )
         return get_metric(metric="roc_auc", problem_type="binary")
     return fast_roc_auc_cpp
+
+
+@lru_cache(maxsize=1)
+def get_fast_rmse() -> Scorer:
+    """Lazily import the C++ fast rmse metric, falling back to the AutoGluon implementation.
+
+    The import is deferred (rather than performed at module load) because the C++ extension
+    requires g++ to compile and can raise on import. Set the env var
+    ``TABARENA_SKIP_FAST_RMSE=1`` to skip the fast metric entirely and always use the
+    AutoGluon implementation.
+    """
+    if os.environ.get("TABARENA_SKIP_FAST_RMSE", "0") == "1":
+        return get_metric(metric="rmse", problem_type="regression")
+    try:
+        # FIXME: Requires g++, can lead to an exception on import as it needs to compile C code.
+        from tabarena.metrics._fast_rmse import fast_rmse
+    except (OSError, ValueError) as e:
+        # OSError covers g++ missing (FileNotFoundError) and read-only filesystems
+        # (EROFS, e.g. Singularity containers); ValueError covers a non-zero/timed-out
+        # g++ run, including being unable to write cpp_metrics.so into a read-only
+        # install dir.
+        print(
+            f"Warning: Failed to obtain c++ rmse metric ({type(e).__name__}: {e}). "
+            "Try installing g++ or set TABARENA_SKIP_FAST_RMSE=1. "
+            "Falling back to the AutoGluon implementation...",
+        )
+        return get_metric(metric="rmse", problem_type="regression")
+    return fast_rmse
 
 
 class TaskEvaluator:
@@ -270,6 +298,8 @@ class EnsembleScorer:
             return _fast_log_loss.fast_log_loss
         if metric_name == "roc_auc":
             return get_fast_roc_auc()
+        if metric_name in ("rmse", "root_mean_squared_error"):
+            return get_fast_rmse()
         return get_metric(metric=metric_name, problem_type=problem_type)
 
     def _get_metrics(

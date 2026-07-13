@@ -7,7 +7,7 @@ from tabarena.metrics._fast_roc_auc import fast_roc_auc_cpp
 from tabarena.metrics.bench_utils import benchmark_metrics_speed, generate_y_true_and_y_pred_binary
 
 
-def benchmark_root_mean_squared_error(num_samples: int, num_repeats: int):
+def benchmark_roc_auc(num_samples: int, num_repeats: int):
     """Requires compiling C++ code to run `fast_roc_auc_cpp`."""
     print(f"Benchmarking roc_auc... (num_samples={num_samples}, num_repeats={num_repeats}")
     y_true, y_pred = generate_y_true_and_y_pred_binary(num_samples=num_samples)
@@ -38,4 +38,4 @@ if __name__ == "__main__":
         (100000, 20),
         (1000000, 3),
     ]:
-        benchmark_root_mean_squared_error(num_samples=num_samples, num_repeats=num_repeats)
+        benchmark_roc_auc(num_samples=num_samples, num_repeats=num_repeats)
