@@ -47,8 +47,11 @@ class AGWrapper(AbstractExecModel):
         Extra keyword arguments for ``TabularPredictor.fit(...)``. ``num_bag_folds`` /
         ``num_bag_sets`` here drive the (optionally task-specific) validation protocol.
     persist:
-        If True, persist the best model in memory around inference (faster repeated
-        prediction at the cost of memory).
+        If True, persist the best model in memory around inference (untimed, via
+        ``pre_predict``/``post_predict``), so the measured inference time excludes loading the
+        model from disk. Default False — and no current benchmark configuration enables it —
+        so AutoGluon's (re)loading of the model (and a bag's children) on the first ``predict``
+        is part of the measured inference time today.
     validation_metadata:
         Task-derived ``ValidationMetadata`` (or a kwargs dict for one) describing the
         validation-split structure. Inherited from ``AbstractExecModel`` (the runner injects it

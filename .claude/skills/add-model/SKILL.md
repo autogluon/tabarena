@@ -157,6 +157,16 @@ worker processes whose imports / CUDA init still land in the measured fit time �
 compile caches (e.g. numba's) carry over to workers. See the `tabarena/models/warmup.py` module
 docstring for the authoritative scope.
 
+**Inference-side (untimed predict prep)**: the untimed hooks around the inference timer are
+`pre_predict`/`post_predict` on the *exec model* (`AGWrapper.persist` uses them to keep the fitted
+model in memory) — model wrappers have no channel into them, and benchmark configs currently run
+with `persist=False`, so model loading from disk counts toward the measured inference time. What
+the wrapper controls: do **not** defer heavy one-time work to the first `_predict` when it can
+live in `_fit` or `warmup`, and if `_fit` offloads weights (e.g. `.to("cpu")` before saving), flag
+to the user that the transfer back to GPU lands in the measured inference time. Data-dependent
+first-predict work (e.g. `torch.compile` on the real batch) is deliberately measured — don't try
+to warm it.
+
 ## Step 4: Edit existing files
 
 Edit both locations **in a single pass** (read each file first, then edit):

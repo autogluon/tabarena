@@ -276,10 +276,17 @@ class AbstractExecModel:
         """
 
     def pre_predict(self):
-        """Hook run immediately before inference (e.g. to persist a model). Default: no-op."""
+        """Hook run immediately before inference, *outside* the inference timer. Default: no-op.
+
+        The untimed inference-side counterpart of ``warmup_fn``: use it for preparation a
+        deployment would have done before serving — loading/persisting the fitted model in
+        memory (see ``AGWrapper.persist``) or placing weights on the inference device. It may
+        touch the fitted model but never the test data, and must not precompute anything
+        prediction-specific.
+        """
 
     def post_predict(self):
-        """Hook run immediately after inference (e.g. to unpersist a model). Default: no-op."""
+        """Hook run immediately after inference, outside the timer (e.g. to unpersist a model). Default: no-op."""
 
     # --- End-to-end execution harness -------------------------------------------------
     def fit_custom(

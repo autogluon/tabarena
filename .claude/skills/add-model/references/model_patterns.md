@@ -399,6 +399,12 @@ def warmup(cls, **kwargs) -> None:
 The dispatch always passes `problem_type` / `num_cpus` / `num_gpus` / `hyperparameters` as
 keyword arguments — declare the ones you read, keep `**kwargs` for the rest.
 
+Inference side: there is no model-level predict warm-up — the untimed hooks around the inference
+timer live on the exec model (`pre_predict`/`post_predict`; see `AGWrapper.persist`). In the
+wrapper, avoid deferring one-time work to the first `_predict` (put it in `_fit` or `warmup`),
+and know that offloading weights at the end of `_fit` makes the first predict pay the transfer
+back inside the measured inference time.
+
 ---
 
 ## Categorical & missing-value handling — prefer the library's native path
