@@ -116,8 +116,7 @@ class ChimeraBoostModel(AbstractModel):
         """Pre-compile the numba kernels (~10s cold start, then disk-cached per environment)."""
         import chimeraboost
 
-        if hasattr(chimeraboost, "warmup"):  # added in chimeraboost 0.14.1
-            chimeraboost.warmup()
+        chimeraboost.warmup()  # requires chimeraboost>=0.14.1 (the pinned extra)
 
     def _get_default_resources(self) -> tuple[int, int]:
         # Physical cores only (matches RealMLP/XRFM); ChimeraBoost is CPU-only.
