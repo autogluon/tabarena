@@ -403,8 +403,9 @@ Inference side: the exec model persists the fitted model in memory around the in
 default (`AGWrapper.persist`, memory-guarded), and calls an optional **instance** method
 `prepare_for_inference(self) -> None` on every persisted model object (incl. bagged children) —
 untimed, for model-only prep like moving weights offloaded at the end of `_fit` back to the
-inference device; never touch test data there. Avoid deferring other one-time work to the first
-`_predict` (put it in `_fit` or `warmup`).
+inference device; never touch test data there. Outer/direct fits (`AGModelWrapper`) dispatch the
+same hook on their in-memory model, so declaring it covers every fit path. Avoid deferring other
+one-time work to the first `_predict` (put it in `_fit` or `warmup`).
 
 ---
 

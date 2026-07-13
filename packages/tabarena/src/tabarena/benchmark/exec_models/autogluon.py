@@ -757,6 +757,22 @@ class AGModelWrapper(AbstractExecModel):
         )
         return self
 
+    def pre_predict(self):
+        """Run the fitted model's untimed inference preparation (``prepare_for_inference``).
+
+        The directly-fitted model already lives in memory, so unlike ``AGWrapper`` there is no
+        persist step — this only dispatches the optional model-level hook, under the same
+        convention (untimed, model-only prep such as device placement; never test data).
+        Best-effort: a failure is logged and inference proceeds unprepared.
+        """
+        prepare = getattr(self.model, "prepare_for_inference", None)
+        if prepare is None:
+            return
+        try:
+            prepare()
+        except Exception as exc:
+            logger.warning(f"prepare_for_inference failed; predicting without inference prep. ({exc})")
+
     def _predict(self, X: pd.DataFrame) -> pd.Series:
         """Predict labels with the fitted model, preserving ``X``'s index."""
         y_pred = self.model.predict(X)

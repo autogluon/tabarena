@@ -163,7 +163,8 @@ from disk is untimed when it fits in memory. A model wrapper can additionally de
 **instance** method `prepare_for_inference(self) -> None` — called untimed on every persisted
 model object (including bagged children) right before the inference timer — for model-only prep
 such as moving weights offloaded at the end of `_fit` back to the inference device. It must never
-touch test data. Beyond that: do **not** defer heavy one-time work to the first `_predict` when
+touch test data. The hook is dispatched on every fit path: bagged/holdout via persist, and
+outer/direct fits (`AGModelWrapper`, whose model is already in memory) directly. Beyond that: do **not** defer heavy one-time work to the first `_predict` when
 it can live in `_fit` or `warmup`; data-dependent first-predict work (e.g. `torch.compile` on the
 real batch) is deliberately measured — don't try to warm it.
 

@@ -10,8 +10,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from autogluon.core.metrics import get_metric
+from autogluon.core.models import AbstractModel
 
-from tabarena.benchmark.exec_models.autogluon import AGWrapper
+from tabarena.benchmark.exec_models.autogluon import AGModelWrapper, AGWrapper
 
 
 class _PreparableModel:
@@ -93,3 +94,38 @@ def test_post_predict_unpersists_only_when_enabled():
     wrapper.predictor = _FakePredictor(persist_returns=[], trainer_models={})
     wrapper.post_predict()
     assert wrapper.predictor.calls == []
+
+
+# --- outer/direct fits (AGModelWrapper) — model already in memory, same hook ---------------
+
+
+def _make_outer_wrapper() -> AGModelWrapper:
+    return AGModelWrapper(
+        model_cls=AbstractModel,
+        problem_type="regression",
+        eval_metric=get_metric("rmse", problem_type="regression"),
+    )
+
+
+def test_outer_wrapper_dispatches_prepare_for_inference():
+    prepared: list[str] = []
+    wrapper = _make_outer_wrapper()
+    wrapper.model = _PreparableModel("direct", prepared)
+    wrapper.pre_predict()
+    assert prepared == ["direct"]
+
+
+def test_outer_wrapper_without_hook_is_a_noop():
+    wrapper = _make_outer_wrapper()
+    wrapper.model = _PlainModel()
+    wrapper.pre_predict()  # no hook declared -> nothing to do, no error
+
+
+def test_outer_wrapper_prepare_failure_is_non_fatal():
+    class _Boom:
+        def prepare_for_inference(self):
+            raise RuntimeError("prep bug")
+
+    wrapper = _make_outer_wrapper()
+    wrapper.model = _Boom()
+    wrapper.pre_predict()  # logged, inference proceeds unprepared
