@@ -185,8 +185,8 @@ include = ["tabarena*"]
 
 [tool.setuptools.package-data]
 tabarena = [
-  "metrics/_roc_auc_cpp/compile.sh",
-  "metrics/_roc_auc_cpp/cpp_auc.cpp",
+  "metrics/_cpp_metrics/compile.sh",
+  "metrics/_cpp_metrics/cpp_metrics.cpp",
   "benchmark/task/metadata/data/curated_tabarena_dataset_metadata.csv",
   "benchmark/task/metadata/sources/data/*.csv",
   "contexts/beyondarena/data/*.csv",

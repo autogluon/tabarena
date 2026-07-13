@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import sklearn
-from autogluon.core.metrics import log_loss, roc_auc
+from autogluon.core.metrics import log_loss, roc_auc, root_mean_squared_error
 
-from tabarena.metrics import _fast_log_loss, _fast_roc_auc
+from tabarena.metrics import _fast_log_loss, _fast_rmse, _fast_roc_auc
 from tabarena.metrics.bench_utils import (
     generate_y_true_and_y_pred_binary,
     generate_y_true_and_y_pred_proba,
@@ -149,3 +149,38 @@ def test_fast_log_loss_bulk(num_configs, num_samples, num_classes):
     ag_loss_ensemble = log_loss(y_true, y_pred_ensemble)
 
     np.testing.assert_allclose(ag_loss_ensemble, fast_loss_ensemble, rtol=rtol)
+
+
+def assert_fast_rmse_equivalence(y_true, y_pred, rtol=1e-9):
+    ag_score = root_mean_squared_error(y_true, y_pred)
+    sk_score = -sklearn.metrics.root_mean_squared_error(y_true, y_pred)
+    np.testing.assert_allclose(ag_score, sk_score, rtol=rtol)
+
+    fast_score = _fast_rmse.fast_rmse(y_true, y_pred)
+    np.testing.assert_allclose(ag_score, fast_score, rtol=rtol)
+    np.testing.assert_allclose(
+        root_mean_squared_error.error(y_true, y_pred), _fast_rmse.fast_rmse.error(y_true, y_pred), rtol=rtol
+    )
+
+
+@pytest.mark.parametrize(
+    ("y_true", "y_pred"),
+    [
+        ([0.0, 1.0, 2.0, 3.0], [0.0, 1.0, 2.0, 3.0]),
+        ([0.0, 1.0, 2.0, 3.0], [3.0, 2.0, 1.0, 0.0]),
+        ([1.5], [-2.5]),
+        ([-1e6, 1e6, 0.0], [1e6, -1e6, 0.5]),
+    ],
+)
+def test_fast_rmse(y_true, y_pred):
+    """Ensure fast_rmse produces equivalent scores to the AutoGluon and Scikit-Learn rmse implementations."""
+    assert_fast_rmse_equivalence(y_true=np.array(y_true), y_pred=np.array(y_pred))
+
+
+@pytest.mark.parametrize("num_samples", [100, 1000, 10000, 100000])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_fast_rmse_large(num_samples, dtype):
+    rng = np.random.default_rng(42)
+    y_true = rng.normal(0, 10, num_samples).astype(dtype)
+    y_pred = (y_true + rng.normal(0, 3, num_samples)).astype(dtype)
+    assert_fast_rmse_equivalence(y_true=y_true, y_pred=y_pred, rtol=1e-6 if dtype == np.float32 else 1e-9)

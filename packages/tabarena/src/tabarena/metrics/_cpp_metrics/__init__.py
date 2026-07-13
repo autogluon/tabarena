@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ctypes
-import os
 import subprocess
 import time
 from pathlib import Path
@@ -10,7 +9,7 @@ import numpy as np
 from numpy.ctypeslib import ndpointer
 
 
-class CppAuc:
+class CppMetrics:
     """A python wrapper class for a C++ library, used to load it once and make fast calls after.
     NB be aware of data types accepted, see method docstrings.
     """
@@ -19,7 +18,7 @@ class CppAuc:
         if not self.plugin_path().exists():
             self._compile()
             assert self.plugin_path().exists(), (
-                "Missing cpp_auc.so compiled file... You must first compile the C++ code to use this metric. "
+                "Missing cpp_metrics.so compiled file... You must first compile the C++ code to use this metric. "
             )
         self._handle = ctypes.CDLL(self.plugin_path())
         self._handle.cpp_auc_ext.argtypes = [
@@ -28,6 +27,12 @@ class CppAuc:
             ctypes.c_size_t,
         ]
         self._handle.cpp_auc_ext.restype = ctypes.c_double
+        self._handle.cpp_rmse_ext.argtypes = [
+            ndpointer(ctypes.c_double, flags="C_CONTIGUOUS"),
+            ndpointer(ctypes.c_double, flags="C_CONTIGUOUS"),
+            ctypes.c_size_t,
+        ]
+        self._handle.cpp_rmse_ext.restype = ctypes.c_double
 
     def roc_auc_score(self, y_true: np.array, y_score: np.array) -> float:
         """A method to calculate AUC via C++ lib.
@@ -40,7 +45,25 @@ class CppAuc:
             float: AUC score.
         """
         n = len(y_true)
-        return self._handle.cpp_auc_ext(y_score.astype(np.float32), y_true, n)
+        # The C++ kernel does not mutate its inputs, so no defensive copy is needed:
+        # this is zero-copy when y_score is already a contiguous float32 array.
+        y_score = np.ascontiguousarray(y_score, dtype=np.float32)
+        return self._handle.cpp_auc_ext(y_score, y_true, n)
+
+    def rmse(self, y_true: np.array, y_pred: np.array) -> float:
+        """A method to calculate root mean squared error via C++ lib.
+
+        Args:
+            y_true (np.array): 1D numpy array of regression targets.
+            y_pred (np.array): 1D numpy array of predictions.
+
+        Returns:
+            float: RMSE.
+        """
+        # Zero-copy when the inputs are already contiguous float64 arrays.
+        y_true = np.ascontiguousarray(y_true, dtype=np.float64)
+        y_pred = np.ascontiguousarray(y_pred, dtype=np.float64)
+        return self._handle.cpp_rmse_ext(y_true, y_pred, len(y_true))
 
     def _compile(self):
         # load compilation command
@@ -50,7 +73,7 @@ class CppAuc:
         assert compile_command.startswith("g++")
 
         # execute compilation command
-        print(f'Running "{compile_command}" to compile c++ auc implementation.')
+        print(f'Running "{compile_command}" to compile the c++ metric implementations.')
         # Discard g++ stdout. It was previously redirected to a "std.out" file in the
         # *current working directory* (the `cwd` arg below only applies to the subprocess,
         # not to `open`), which littered the launch dir and crashed on read-only
@@ -82,8 +105,8 @@ class CppAuc:
 
     @staticmethod
     def plugin_path() -> Path:
-        return Path(__file__).parent / "cpp_auc.so"
+        return Path(__file__).parent / "cpp_metrics.so"
 
     @staticmethod
     def clean_plugin():
-        CppAuc.plugin_path().unlink(missing_ok=True)
+        CppMetrics.plugin_path().unlink(missing_ok=True)
