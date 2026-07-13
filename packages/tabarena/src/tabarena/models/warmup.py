@@ -19,6 +19,13 @@ processes spawned later: a bagged fit with parallel (Ray) fold fitting still pay
 worker's imports / CUDA context inside the measured fit time. Where a library offers it,
 prefer a warm-up that persists to disk — it is the only kind that carries over to workers.
 
+Fit vs. predict: this is an environment warm-up, not a fit-only one — the same process runs
+the timed inference, so it de-inflates ``time_infer_s`` too (and a library warm-up like
+ChimeraBoost's compiles the predict kernels alongside the train ones). Data-dependent
+first-call inference work on the real test data is deliberately *not* excluded — it stays in
+the measured inference time; untimed inference-side hooks are ``pre_predict``/``post_predict``
+on the exec model.
+
 Model classes opt in by declaring a ``warmup`` classmethod (see :func:`warmup_model_cls`);
 models without one fall back to a generic torch warm-up (``AbstractTorchModel`` subclasses)
 or an import-only warm-up (:data:`WARMUP_IMPORTS_BY_AG_KEY`).

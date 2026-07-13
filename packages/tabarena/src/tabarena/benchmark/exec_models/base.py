@@ -249,10 +249,19 @@ class AbstractExecModel:
         paid per fit by a long-lived deployment, so they should not inflate a method's measured
         speed. Warm-up is best-effort — the runner logs a failure and fits cold.
 
+        This is an *environment* warm-up, not a fit-only one: it runs once per job, and since
+        the same process serves the timed fit and the timed inference, everything it warms
+        (imports, CUDA context, compiled kernels) also benefits ``time_infer_s``. Two things it
+        deliberately does **not** cover: (1) data-dependent first-call inference work (e.g. lazy
+        compilation triggered by the first ``predict`` on real data) stays in the measured
+        inference time — ``pre_predict`` / ``post_predict`` are the untimed hooks around
+        inference (used e.g. for model persistence); (2) worker processes spawned inside the fit
+        (parallel/Ray fold fitting) start cold — only disk-backed caches carry over (see
+        ``tabarena.models.warmup``).
+
         Implementations may use everything known at construction time (``problem_type``,
         ``eval_metric``, hyperparameters, compute budget) but never the task's data, and must
-        not carry task- or data-specific state into the fit. Untimed *inference-side*
-        preparation belongs in ``pre_predict``.
+        not carry task- or data-specific state into the fit.
 
         Default: ``None`` (nothing to warm).
         """
