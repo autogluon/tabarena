@@ -15,6 +15,7 @@ knn_method_metadata = MethodMetadata.config(
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     date="2025-10-20",
+    date_introduced="1951",
     reference_url="https://scikit-learn.org/stable/modules/neighbors.html",
     display_name="KNN",
     # FIXME: technically kNN is not verified

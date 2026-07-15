@@ -142,13 +142,13 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
 
         pred_val, pred_test = self.get_preds_from_models(dataset=dataset, fold=fold, models=models)
 
-        # Choose ensemble method/kwargs via hooks
-        ensemble_method = self.get_ensemble_method_for_task(dataset=dataset, fold=fold, models=models)
-        ensemble_kwargs = self.get_ensemble_method_kwargs_for_task(dataset=dataset, fold=fold, models=models)
+        # Choose ensembler via hooks
+        ensembler_cls = self.get_ensembler_cls_for_task(dataset=dataset, fold=fold, models=models)
+        ensembler_kwargs = self.get_ensembler_kwargs_for_task(dataset=dataset, fold=fold, models=models)
 
         evaluator = self.evaluator_cls(
-            ensemble_method=ensemble_method,
-            ensemble_kwargs=ensemble_kwargs,
+            ensembler_cls=ensembler_cls,
+            ensembler_kwargs=ensembler_kwargs,
             eval_metric=eval_metric,
             fit_eval_metric=fit_eval_metric,
             problem_type=problem_type,
@@ -203,13 +203,17 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
         if self.return_metric_error_val:
             results["metric_error_val"] = evaluator.error(y=y_val_proc, y_pred=y_val_pred)
 
-        if hasattr(ensemble, "weights_"):
-            weights = ensemble.weights_
-            ensemble_weights_fixed = np.zeros(len(models_og), dtype=np.float64)
-            ensemble_weights_fixed[models_filtered_idx] = weights
-            results["ensemble_weights"] = ensemble_weights_fixed
+        weights = ensemble.model_weights()
+        if weights is not None:
+            results["ensemble_weights"] = weights
+        results["ensemble_models_used"] = ensemble.models_used()
+        ensemble_info = ensemble.info()
+        if ensemble_info:
+            results["ensemble_info"] = ensemble_info
 
-        return results
+        return self._remap_ensemble_results_to_models(
+            results, models_og=models_og, models_filtered_idx=models_filtered_idx
+        )
 
 
 class EnsembleScorerCalibratedCV(EnsembleScorerCalibrated):

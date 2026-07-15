@@ -29,9 +29,11 @@ class AbstractExecModel:
     Lifecycle (driven by the experiment runner):
 
     1. ``__init__`` — configure preprocessing and inference-shuffle behavior.
-    2. ``fit_custom`` — the end-to-end harness: optionally shuffle features, fit (while
+    2. ``warmup_fn`` — optional untimed environment warm-up, run before any timing starts
+       (see the property).
+    3. ``fit_custom`` — the end-to-end harness: optionally shuffle features, fit (while
        tracking time + memory), then predict on the test data and undo any shuffling.
-    3. ``cleanup`` — release any resources (files, GPU memory, ...).
+    4. ``cleanup`` — release any resources (files, GPU memory, ...).
 
     The public ``fit`` / ``predict`` / ``predict_proba`` methods handle label and feature
     (pre)processing, then delegate to the ``_fit`` / ``_predict`` / ``_predict_proba``
@@ -235,6 +237,36 @@ class AbstractExecModel:
         y = self.transform_y(y)
         return X, y
 
+    # --- Warm-up (untimed) -------------------------------------------------------------
+    @property
+    def warmup_fn(self) -> Callable[[], None] | None:
+        """Optional zero-arg callable warming the execution environment before the timed fit.
+
+        The experiment runner calls it (when not ``None``) after constructing the method and
+        *before* ``fit_custom``, so nothing it does counts toward the measured ``time_train_s``
+        / ``time_infer_s`` or any fit time limit. This mirrors reality: one-time per-environment
+        costs (library imports, JIT/kernel compilation, CUDA context initialization) are not
+        paid per fit by a long-lived deployment, so they should not inflate a method's measured
+        speed. Warm-up is best-effort — the runner logs a failure and fits cold.
+
+        This is an *environment* warm-up, not a fit-only one: it runs once per job, and since
+        the same process serves the timed fit and the timed inference, everything it warms
+        (imports, CUDA context, compiled kernels) also benefits ``time_infer_s``. Two things it
+        deliberately does **not** cover: (1) data-dependent first-call inference work (e.g. lazy
+        compilation triggered by the first ``predict`` on real data) stays in the measured
+        inference time — ``pre_predict`` / ``post_predict`` are the untimed hooks around
+        inference (used e.g. for model persistence); (2) worker processes spawned inside the fit
+        (parallel/Ray fold fitting) start cold — only disk-backed caches carry over (see
+        ``tabarena.models.warmup``).
+
+        Implementations may use everything known at construction time (``problem_type``,
+        ``eval_metric``, hyperparameters, compute budget) but never the task's data, and must
+        not carry task- or data-specific state into the fit.
+
+        Default: ``None`` (nothing to warm).
+        """
+        return None
+
     # --- Fit / predict lifecycle hooks (overridable) ----------------------------------
     def post_fit(self, X: pd.DataFrame, y: pd.Series, X_test: pd.DataFrame):
         """Hook run after fitting, before inference. Default: no-op.
@@ -244,10 +276,17 @@ class AbstractExecModel:
         """
 
     def pre_predict(self):
-        """Hook run immediately before inference (e.g. to persist a model). Default: no-op."""
+        """Hook run immediately before inference, *outside* the inference timer. Default: no-op.
+
+        The untimed inference-side counterpart of ``warmup_fn``: use it for preparation a
+        deployment would have done before serving — loading/persisting the fitted model in
+        memory (see ``AGWrapper.persist``) or placing weights on the inference device. It may
+        touch the fitted model but never the test data, and must not precompute anything
+        prediction-specific.
+        """
 
     def post_predict(self):
-        """Hook run immediately after inference (e.g. to unpersist a model). Default: no-op."""
+        """Hook run immediately after inference, outside the timer (e.g. to unpersist a model). Default: no-op."""
 
     # --- End-to-end execution harness -------------------------------------------------
     def fit_custom(

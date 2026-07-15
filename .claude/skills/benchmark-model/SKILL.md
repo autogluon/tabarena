@@ -1,6 +1,6 @@
 ---
 name: benchmark-model
-description: Scaffold the setup + eval scripts to run one model on the TabArena benchmark cluster. Use this skill whenever a maintainer wants to benchmark an already-integrated model — e.g. "benchmark TabM", "run Nori on the cluster", "create a setup/eval script for DenseLight", "I want to launch <model> on TabArena and evaluate it". Generates a single `tmp_scripts/run_<model>.py` with `setup` and `eval` subcommands that share one benchmark_name + paths (so they cannot drift), auto-filling GPU/CPU, eval subsets, the install reminder, and foundation-model prefetch from the model's registry `info.py`. Complements `add-model` (integrate a model) and `upload-method` (publish its results).
+description: Scaffold the setup + eval scripts to run one model on the TabArena benchmark cluster. Use this skill whenever a maintainer wants to benchmark an already-integrated model — e.g. "benchmark TabM", "run Nori on the cluster", "create a setup/eval script for DenseLight", "I want to launch <model> on TabArena and evaluate it". Generates a single `tmp_scripts/run_<model>.py` with `setup` and `eval` subcommands that share one benchmark_name + paths (so they cannot drift), auto-filling GPU/CPU, eval subsets, the install reminder, foundation-model prefetch from the model's registry `info.py`, and — mandatory for GPU models — the VRAM budget (`fake_memory_for_estimates`; asks the user when the partition's VRAM is not inferable). Complements `add-model` (integrate a model) and `upload-method` (publish its results).
 argument-hint: <ModelRegistryName> [<benchmark_name>] [<n_configs>]
 user-invocable: true
 ---
@@ -26,7 +26,8 @@ Parse `$ARGUMENTS`. Collect (ask only for what's missing or a genuine judgment c
 | `NUM_CONFIGS` | `0`, `25`, `"all"` | `0` if the model has no HPO search space, else ask (foundation models → `0`; tunable models → `"all"` or a capped int under compute limits) |
 | task scope | full / lite / regression / dataset names | `TaskSubset()` — the full task set (all splits); `TaskSubset(subset="lite")` for a quick first-split smoke run |
 | `gpu_partition` | `"gpurtxpro6000spotinteractive"` | that partition (the current default GPU node); ask if a bigger GPU is needed |
-| per-run overrides | `time_limit`, `fake_memory_for_estimates` | none unless the model/partition needs them (Step 1) |
+| `fake_memory_for_estimates` | `96` | **required for every GPU model** — the partition's VRAM in GB (see Step 1a); **ask the user if you cannot determine the VRAM from context** |
+| per-run overrides | `time_limit` | none unless the model/partition needs them |
 
 `WORKSPACE` and `PYTHON_PATH` default to the values in the template (the shared cluster workspace + the `tabarena_18062026` venv). Keep them unless the user names a different venv/workspace.
 
@@ -41,14 +42,36 @@ Given `MODEL`, read the model's contribution under `packages/tabarena/src/tabare
 | **HPO search space** | `info.py` → `search_space` (a `gen_<key>` generator); empty/absent ⇒ no HPO | default `NUM_CONFIGS` (foundation models with no real search space → `0`) |
 | **pip extra** | `info.py` → `ModelInfo(pip_extra=...)` | the "install into the run venv" reminder in the docstring + Step 4 |
 | **weights prefetch** | `info.py` → `ModelInfo(prefetch_weights=...)` (not `None` ⇒ foundation model) | a docstring note that the checkpoint is fetched from HF by the registry before the fits (no per-script action) |
-| **static memory estimate** | `model.py` → `_estimate_memory_usage_static` / `can_estimate_memory_usage_static` | **`fake_memory_for_estimates`** — a nuanced, per-model call, do NOT set it blindly: only add it (in GB) when the estimate reports **VRAM** and the partition is VRAM-rich but RAM-poor (e.g. DenseLight on the RTX PRO 6000). When the estimate reports system RAM (e.g. TabM) or the model cannot estimate statically (`can_estimate...=False`, e.g. TabFM), omit it |
+| **static memory estimate** | `model.py` → `_estimate_memory_usage_static` / `can_estimate_memory_usage_static` | whether `fake_memory_for_estimates` can actually cap fold-parallelism (Step 1a caveat) |
 
 Prefer **reading these files** over importing the model (no optional deps needed). If the venv already has the model installed, you may confirm quickly with:
 `<PYTHON_PATH> -c "from tabarena.models.utils import get_model_info_from_name as g; i=g('<MODEL>'); print(i.method_metadata.compute, i.pip_extra, i.prefetch_weights, i.model_cls.supported_problem_types())"`
 
+## Step 1a: GPU model ⇒ always set `fake_memory_for_estimates`
+
+Every **GPU** job must carry `"fake_memory_for_estimates": <VRAM_GB>` in its `ModelJob.resources`.
+AutoGluon budgets parallel bagging folds by comparing the model's memory estimate against the
+reported memory limit (node RAM by default) and splits the GPU only fractionally — **VRAM is never
+accounted**. On a RAM-rich node, 8 folds co-schedule on one card and OOM it (this killed every
+APSFailure fit of the first `tabm_26062026` TabM run: ~12 GiB VRAM × 8 folds on a 95 GiB card).
+Reporting the VRAM as the budget makes the same scheduling arithmetic cap folds by VRAM; RAM-wise
+it only makes the budget more conservative, which is safe on the VRAM<RAM nodes we use.
+
+- **Determine `<VRAM_GB>` from context**: the chosen `gpu_partition` (`gpurtxpro6000spotinteractive`
+  → RTX PRO 6000 → `96`), the user's request, or the node notes in
+  `packages/tabflow_slurm/src/tabflow_slurm/setup/resources.py` (`BeyondArenaResourcesSetup`:
+  40/80/96 GB nodes). **If the partition's VRAM cannot be determined from context, ask the user —
+  do not guess.**
+- **CPU models: never set it** (their estimate must be compared against real RAM).
+- **Caveat** — the cap works *through the model's estimate*: if
+  `can_estimate_memory_usage_static=False` (e.g. TabFM, TabSwift), AutoGluon falls back to a small
+  data-size estimate and fold-parallelism stays at 8 regardless. Still set the value, but tell the
+  maintainer to sanity-check per-fold VRAM × 8 (or pin `num_folds_parallel` via
+  `ag_args_ensemble`) before launching.
+
 ## Step 2: Generate `tmp_scripts/run_<model>.py`
 
-Copy `references/run_benchmark_template.py` to `tmp_scripts/run_<model-key>.py` and fill every marker: the module docstring notes, `BENCHMARK_NAME`, `MODEL`, `NUM_CONFIGS`, the `ModelJob` resources (GPU/CPU + any `time_limit`/`fake_memory_for_estimates`), `task_subset`, `gpu_partition`, and the eval `subsets`. The template defaults to the **full** task set (`TaskSubset()`) and emits both PDF and PNG figures (`figure_file_type=("pdf", "png")`); narrow `task_subset` and `subsets` to `lite` for a quick smoke run. Remove the guidance comments that don't apply so the result reads like the existing per-model scripts. Keep it importable and lint-clean (`from __future__ import annotations`, 120-col).
+Copy `references/run_benchmark_template.py` to `tmp_scripts/run_<model-key>.py` and fill every marker: the module docstring notes, `BENCHMARK_NAME`, `MODEL`, `NUM_CONFIGS`, the `ModelJob` resources (GPU: `num_gpus` plus the **mandatory** `fake_memory_for_estimates` from Step 1a; any `time_limit`), `task_subset`, `gpu_partition`, and the eval `subsets`. The template defaults to the **full** task set (`TaskSubset()`) and emits both PDF and PNG figures (`figure_file_type=("pdf", "png")`); narrow `task_subset` and `subsets` to `lite` for a quick smoke run. Remove the guidance comments that don't apply so the result reads like the existing per-model scripts. Keep it importable and lint-clean (`from __future__ import annotations`, 120-col).
 
 For a **CPU** model: drop `resources={"num_gpus": 1}`, set `name="cpu"`, and use `scheduler_setup=GCPSlurmSetup(cpu_partition=...)`. For a **local, no-SLURM** run, swap `GCPSlurmSetup` for `LocalSequentialSetup(continue_on_error=True)` and `python_path=sys.executable` (see `packages/tabflow_slurm/experiments/run_tabarena_v0pt1_local.py`).
 

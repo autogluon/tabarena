@@ -64,7 +64,7 @@ from tabarena.models.tabicl.info import (
     tabicl_method_metadata,
     tabiclv2_method_metadata as tabiclv2_metadata,
 )
-from tabarena.models.tabm.info import tabm_gpu_method_metadata
+from tabarena.models.tabm.info import tabm_new_method_metadata
 from tabarena.models.tabpfn_3.info import (
     tabpfn_3_method_metadata as tabpfnv3_method_metadata,
 )
@@ -150,7 +150,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         realmlp_gpu_metadata,
         tabdpt_metadata,
         tabicl_method_metadata,
-        tabm_gpu_method_metadata,
+        tabm_new_method_metadata,
         tabpfnv2_gpu_metadata,
         xrfm_metadata,
         betatabpfn_metadata,

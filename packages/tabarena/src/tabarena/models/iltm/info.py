@@ -15,6 +15,7 @@ iltm_method_metadata = MethodMetadata.config(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     date="2026-05-29",
+    date_introduced="2025-11",
     reference_url="https://arxiv.org/abs/2511.15941",
     display_name="iLTM",
 )

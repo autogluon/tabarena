@@ -108,10 +108,10 @@ class BeyondArenaContext(AbstractArenaContext):
         "core": SubsetPredicate(lambda df: _core_subset_predicate().predicate(df), ("dataset", "split")),
     }
 
-    #: Shortcuts for the standard BeyondArena subslices: each name maps to a list of
-    #: :attr:`SUBSET_PREDICATES` names AND-ed together. Every shortcut is intersected with
-    #: ``"core"`` so the standard slices share the committed core task set. Read via
-    #: :attr:`subset_shortcuts`.
+    #: Shortcuts for the standard BeyondArena subslices: each name maps to a list of subset
+    #: expressions AND-ed together (atoms are :attr:`SUBSET_PREDICATES` names; a leading ``!``
+    #: negates one). Every shortcut is intersected with ``"core"`` so the standard slices share
+    #: the committed core task set. Read via :attr:`subset_shortcuts`.
     SUBSET_SHORTCUTS: dict[str, list[str]] = {
         "large": ["core", "large"],
         "high_dim": ["core", "high-dim"],
@@ -122,6 +122,9 @@ class BeyondArenaContext(AbstractArenaContext):
         "iid": ["core", "iid"],
         "random": ["core", "random"],
         "text": ["core", "text"],
+        # high-cardinality slice with the large size bucket removed (all splits / lite split 0)
+        "hc_nolarge": ["core", "high-cardinality", "!large"],
+        "hc_nolarge_lite": ["core", "lite", "high-cardinality", "!large"],
     }
 
     def __init__(

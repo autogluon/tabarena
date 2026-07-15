@@ -16,8 +16,8 @@ _lazy_state: dict[str, object] = {}
 def _build_tabarena_model_registry() -> tuple[ModelRegistry, list[type]]:
     """Auto-derive `tabarena_model_registry` and `_models_to_add` from the
     per-model `MODEL_REGISTRY`: every model class declared via a `ModelInfo`
-    in `tabarena/models/<key>/info.py`. Multi-compute variants (e.g. TabM CPU +
-    TabM_GPU) share one `model_cls`, hence the set dedup.
+    in `tabarena/models/<key>/info.py`. Multi-compute variants (e.g. ModernNCA
+    CPU + ModernNCA_GPU) share one `model_cls`, hence the set dedup.
     """
     from tabarena.models import get_model_registry
 

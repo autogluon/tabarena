@@ -15,6 +15,7 @@ ag_130_metadata = MethodMetadata.tabarena_legacy_s3(
     name="AutoGluon 1.3 (best, 4h)",
     suite="tabarena-2025-06-12",
     date="2025-06-12",
+    date_introduced="2023-11",  # AutoGluon classic "best" preset
     method_type="baseline",
     compute="cpu",
 )

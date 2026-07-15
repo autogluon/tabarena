@@ -6,13 +6,12 @@ import pandas as pd
 import pytest
 
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
-from tabarena.models._method_metadata import MethodMetadata
-from tabarena.nips2025_utils.end_to_end_single import (
-    EndToEndResultsSingle,
-    EndToEndSingle,
-    _filter_file_paths_by_task_metadata,
-    _reject_legacy_task_metadata,
+from tabarena.end_to_end import EndToEnd, MethodResults
+from tabarena.end_to_end._pipeline import (
+    filter_file_paths_by_task_metadata,
+    reject_legacy_task_metadata,
 )
+from tabarena.models._method_metadata import MethodMetadata
 
 
 def _legacy_df() -> pd.DataFrame:
@@ -43,35 +42,35 @@ def _grouped_paths(*task_dirs: str) -> dict[str, list[Path]]:
 class TestFilterFilePathsByTaskMetadata:
     def test_keeps_matching_tid_drops_others(self):
         coll = TaskMetadataCollection.from_legacy_df(_legacy_df())  # tid 7, slug "d1"
-        kept = _filter_file_paths_by_task_metadata(_grouped_paths("7", "999"), coll)
+        kept = filter_file_paths_by_task_metadata(_grouped_paths("7", "999"), coll)
         assert set(kept) == {"7/0"}
 
     def test_keeps_slug_task_dir(self):
         # User/local tasks use the tabarena_task_name slug as the directory, not the int tid.
         coll = TaskMetadataCollection.from_legacy_df(_legacy_df())  # slug "d1"
-        kept = _filter_file_paths_by_task_metadata(_grouped_paths("d1", "other_slug"), coll)
+        kept = filter_file_paths_by_task_metadata(_grouped_paths("d1", "other_slug"), coll)
         assert set(kept) == {"d1/0"}
 
 
 class TestRejectLegacyTaskMetadata:
     def test_dataframe_rejected(self):
-        with pytest.raises(TypeError, match="no longer accept a legacy"):
-            _reject_legacy_task_metadata(_legacy_df())
+        with pytest.raises(TypeError, match="no longer accepts a legacy"):
+            reject_legacy_task_metadata(_legacy_df())
 
     def test_none_and_collection_ok(self):
-        _reject_legacy_task_metadata(None)  # auto-infer sentinel
-        _reject_legacy_task_metadata(TaskMetadataCollection.from_legacy_df(_legacy_df()))
+        reject_legacy_task_metadata(None)  # auto-infer sentinel
+        reject_legacy_task_metadata(TaskMetadataCollection.from_legacy_df(_legacy_df()))
 
 
 class TestFetchTaskMetadata:
     def test_returns_collection_from_cache(self):
         # tids=[] -> no missing tids -> uses the committed cached metadata (offline), wrapped.
-        coll = EndToEndSingle.fetch_task_metadata(tids=[], verbose=False)
+        coll = EndToEnd.fetch_task_metadata(tids=[], verbose=False)
         assert isinstance(coll, TaskMetadataCollection)
         assert len(coll) > 0
 
 
-def _e2e_single_for_config(config_default: str, *, method: str = "TA-TabPFN-3") -> EndToEndResultsSingle:
+def _method_results_for_config(config_default: str, *, method: str = "TA-TabPFN-3") -> MethodResults:
     """A per-task result whose method completed exactly one config (`config_default`).
 
     Mirrors what ``MethodMetadata.from_raw`` infers for a task whose result set has a single
@@ -86,7 +85,7 @@ def _e2e_single_for_config(config_default: str, *, method: str = "TA-TabPFN-3") 
         can_hpo=False,
     )
     df = pd.DataFrame({"method": [config_default], "dataset": ["d"], "fold": [0], "metric_error": [0.1]})
-    return EndToEndResultsSingle(method_metadata, model_results=df, hpo_results=df)
+    return MethodResults(method_metadata, model_results=df, hpo_results=df)
 
 
 class TestConcatPartialResults:
@@ -99,10 +98,10 @@ class TestConcatPartialResults:
     """
 
     def test_differing_single_config_defaults_defer_to_none(self):
-        merged = EndToEndResultsSingle.concat(
+        merged = MethodResults.concat(
             [
-                _e2e_single_for_config("TA-TabPFN-3_c5_BAG_L1"),
-                _e2e_single_for_config("TA-TabPFN-3_c2_BAG_L1"),
+                _method_results_for_config("TA-TabPFN-3_c5_BAG_L1"),
+                _method_results_for_config("TA-TabPFN-3_c2_BAG_L1"),
             ],
         )
         assert merged.method_metadata.config_default is None
@@ -110,18 +109,18 @@ class TestConcatPartialResults:
 
     def test_order_independent_with_three_tasks(self):
         # A later single-config task must not overwrite the deferred None.
-        merged = EndToEndResultsSingle.concat(
-            [_e2e_single_for_config(f"TA-TabPFN-3_c{i}_BAG_L1") for i in (5, 2, 3)],
+        merged = MethodResults.concat(
+            [_method_results_for_config(f"TA-TabPFN-3_c{i}_BAG_L1") for i in (5, 2, 3)],
         )
         assert merged.method_metadata.config_default is None
         assert merged.method_metadata.can_hpo is True
 
     def test_agreeing_single_config_is_preserved(self):
         # When every task agrees on the same single config, it stays the default.
-        merged = EndToEndResultsSingle.concat(
+        merged = MethodResults.concat(
             [
-                _e2e_single_for_config("TA-TabPFN-3_c1_BAG_L1"),
-                _e2e_single_for_config("TA-TabPFN-3_c1_BAG_L1"),
+                _method_results_for_config("TA-TabPFN-3_c1_BAG_L1"),
+                _method_results_for_config("TA-TabPFN-3_c1_BAG_L1"),
             ],
         )
         assert merged.method_metadata.config_default == "TA-TabPFN-3_c1_BAG_L1"

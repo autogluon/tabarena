@@ -13,6 +13,30 @@ Every model lives in **one folder** at `packages/tabarena/src/tabarena/models/<M
 
 Per model, you create up to 5 source files, then edit three existing files. There is no per-model test file — the model is fit-tested automatically by the registry-driven `tests/tabarena/models/test_all_models.py`.
 
+## First: single model or external system?
+
+TabArena has two integration paths; this skill's steps implement the **single model** path, which is
+the default:
+
+- **Single model** (default — everything below): one AutoGluon wrapper in `models/<ModelKey>/`,
+  fit by TabArena's shared harness. It gets the shared preprocessing + validation protocol, the
+  bagged / holdout / outer execution modes, an HPO search space, registry auto-discovery, and
+  leaderboard integration.
+- **External system**: a self-contained ML system that does its own preprocessing, validation,
+  HPO, and/or ensembling — AutoML frameworks, multi-model stacks, LLM/agent pipelines. Systems do
+  **not** get a per-model folder or registry entry. Instead: subclass `ExternalSystemModel`
+  (`packages/tabarena/src/tabarena/benchmark/exec_models/external.py`) — implement `_fit_system`
+  / `_predict` / `_predict_proba`, optionally `cleanup` and the untimed hooks (`warmup_fn`,
+  `pre_predict`/`post_predict`) — and run it via `ExternalSystemExperiment`, or
+  `SystemConfigGenerator` (`utils/config_utils.py`) with a bundle in `system_experiments=True`
+  mode. Runnable references: `examples/advanced/run_quickstart_tabarena_external_system.py` and
+  `run_async_tabarena_api_system.py` (async/API-driven).
+
+**Ask instead of assuming**: if what the user wants to add looks like a system — it ensembles or
+stacks multiple models, runs its own HPO or validation splits, or is described as a "framework",
+"AutoML tool", "pipeline", or "agent" — ask which integration they want before proceeding. When
+nothing suggests a system, take the single-model path and continue with Step 0.
+
 ## Step 0: Gather inputs
 
 Parse `$ARGUMENTS` for the model name. Then collect (ask only for what's missing or unclear):
@@ -92,6 +116,7 @@ The AutoGluon wrapper class. Use the template in `references/model_patterns.md` 
 - For GPU models: also implement `_get_default_resources()`, `get_minimum_resources()`, `_get_default_ag_args_ensemble()` (with `fold_fitting_strategy: sequential_local` — **and `refit_folds: True` for foundation/pre-trained TFMs**; see the "Foundation models: set `refit_folds=True`" note in `references/model_patterns.md`. From-scratch NNs omit it), `_class_tags()` (with `can_estimate_memory_usage_static: False`), `_more_tags()` (with `can_refit_full: True`). **Only torch models** (`AbstractTorchModel`) additionally implement `get_device()` / `_set_device()`; non-torch GPU models on `AbstractModel` must NOT (they have no `.to(device)`).
 - Docstring must include: description, paper title, authors, codebase URL, license
 - Keep optional third-party imports (the wrapped library itself) inside `_fit` / per-method scope so importing this module never requires the optional dep at top-level
+- Decide the model's untimed **warm-up** (Step 3g) while you have the library docs in hand
 
 ### 3c. `packages/tabarena/src/tabarena/models/{ModelKey}/hpo.py`
 
@@ -124,6 +149,48 @@ a speed-up: add one entry to `SMOKE_OVERRIDES`, keyed by the model's `MethodMeta
 (the registry key), e.g. `"{ModelName}": ModelSmokeTest({"max_epochs": 1})`, or
 `ModelSmokeTest(problem_types=("regression",))` for a regression-only model. If the model
 fits fine with default hyperparameters on all problem types, add nothing.
+
+### 3g. Warm-up (untimed environment warm-up) — decide, don't skip
+
+TabArena runs an untimed warm-up before every timed fit (`AbstractExecModel.warmup_fn` →
+`tabarena.models.warmup.warmup_model_cls`), so one-time per-environment costs — heavy imports,
+JIT/kernel compilation, CUDA context creation — don't inflate the measured `time_train_s` /
+`time_infer_s` or eat into the fit time limit. Decide what the new model needs (code template
+in `references/model_patterns.md` → "Warm-up classmethod"):
+
+| Situation | Warm-up |
+|---|---|
+| Torch model on `AbstractTorchModel` | **Automatic** (generic torch import + CUDA context). Add a `warmup` classmethod only for *extra* one-time costs (a heavy library import like `transformers`, kernel pre-compilation). |
+| Torch-backed model on `AbstractModel` | Declare a `warmup` classmethod calling `warmup_torch(...)` — the generic torch fallback doesn't reach non-`AbstractTorchModel` classes. References: `modernnca`, `xrfm`, `tabstar`. |
+| Library JIT-compiles kernels (numba, JAX, custom CUDA) | Call the library's own warm-up / pre-compile entry point if one exists (reference: `chimeraboost`, which requires `chimeraboost>=0.14.1` for its `warmup()`). Disk-cached compilation is the most valuable kind (see limitation below). |
+| Heavy compiled-CPU import only | `warmup_imports("<lib>")` in a small `warmup` classmethod (AG built-ins like LightGBM/CatBoost/XGBoost are already covered by the `ag_key` map in `warmup.py`). |
+| sklearn-like / lightweight | Nothing. |
+
+Classmethod convention (dispatched by `warmup_model_cls`):
+`warmup(cls, *, problem_type=None, num_cpus=None, num_gpus=None, hyperparameters=None, **kwargs) -> None`
+— keyword-only, accept `**kwargs`, read only what you need. **Fairness contract**: data-independent
+work only; never touch task data or carry task-/data-specific state into the fit.
+
+**This step may need the user's input — ask instead of guessing**: whether the library exposes a
+warm-up / pre-compile function (and from which version), and whether its kernel cache persists to
+disk, is usually not in the docs you fetched. If unclear, ask the user before inventing one.
+
+**Always raise the limitation to the user (in the Step 8 report)**: warm-up warms the *main job
+process* and *disk-backed caches* only. Bagged fits with parallel (Ray) fold fitting spawn fresh
+worker processes whose imports / CUDA init still land in the measured fit time — only disk-backed
+compile caches (e.g. numba's) carry over to workers. See the `tabarena/models/warmup.py` module
+docstring for the authoritative scope.
+
+**Inference-side (untimed predict prep)**: the exec model persists the fitted model in memory
+around the inference timer by default (`AGWrapper.persist`, memory-guarded), so model loading
+from disk is untimed when it fits in memory. A model wrapper can additionally declare an
+**instance** method `prepare_for_inference(self) -> None` — called untimed on every persisted
+model object (including bagged children) right before the inference timer — for model-only prep
+such as moving weights offloaded at the end of `_fit` back to the inference device. It must never
+touch test data. The hook is dispatched on every fit path: bagged/holdout via persist, and
+outer/direct fits (`AGModelWrapper`, whose model is already in memory) directly. Beyond that: do **not** defer heavy one-time work to the first `_predict` when
+it can live in `_fit` or `warmup`; data-dependent first-predict work (e.g. `torch.compile` on the
+real batch) is deliberately measured — don't try to warm it.
 
 ## Step 4: Edit existing files
 
@@ -227,28 +294,22 @@ ruff check --fix packages/tabarena/src/tabarena/models/{ModelKey}/
 
 Fix any reported issues.
 
-## Step 7: Metadata artifact (optional — only if the model has been benchmarked)
+## Step 7: Arena registration (optional — only if the model has been benchmarked)
 
-If the model already has benchmark results to register in TabArena's artifact system, add a metadata entry to the dated batch file:
+If the model already has processed + uploaded benchmark results, register it in the arena collection so it appears in the benchmark. For the default `tabarena` arena, edit `packages/tabarena/src/tabarena/contexts/tabarena/methods.py` (read it first):
 
-```
-packages/tabarena/src/tabarena/nips2025_utils/artifacts/_tabarena_method_metadata_YYYY_MM_DD.py
-```
+1. **Import** the `{model_key}_method_metadata` you defined in `info.py` in the alphabetical per-model import block (recent additions use the plain name, e.g. `from tabarena.models.nori.info import nori_method_metadata`).
+2. **Add the entry** to `tabarena_method_metadata_collection.method_metadata_lst`, under the matching group comment (CPU vs neural/GPU/foundation models).
 
-Either add to the latest file or create a new dated file if the benchmarking run is new.
+This mirrors the **`upload-method`** skill's registration step — use that skill for the full process-and-upload flow (the entry only resolves to downloadable artifacts once the results are actually uploaded).
 
-Each entry is a `MethodMetadata(...)` object (same class used in `info.py`, so the entry can be the `{ModelKey}_method_metadata` you already defined). Then import it in `_tabarena_method_metadata.py`:
-```python
-from tabarena.contexts.tabarena._tabarena_method_metadata_YYYY_MM_DD import (
-    {ModelKey}_metadata,
-)
-```
-
-**If the model has not been benchmarked yet, skip this step entirely** — `info.py` already declares the metadata for the registry; the artifact entry is only needed when results files actually exist.
+**If the model has not been benchmarked yet, skip this step entirely** — `info.py` already declares the metadata for the registry; the collection entry is only needed when results artifacts actually exist.
 
 ## Step 8: Report
 
 Summarize what was created/edited:
 - List new files created
 - List files edited and what was added
+- The warm-up decision (Step 3g): what is warmed and why (or why nothing is needed), any open
+  question for the user (library warm-up entry point / version), and the worker-process limitation
 - Note any TODOs left for the user (e.g., implementing `_predict_proba` if the library API is unclear, tuning `ag_priority`, adding a real search space later, registering benchmark artifacts after a real run)

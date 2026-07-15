@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
-    from tabarena.nips2025_utils.end_to_end import EndToEndResults
+    from tabarena.end_to_end import EndToEndResults
 
 
 @dataclass
@@ -44,6 +44,18 @@ class MethodArtifact:
     """Optional suffix appended to the method name in the leaderboard (baked in at post-process)."""
     only_load_cache: bool = False
     """If True, skip raw->cache post-processing and load the existing cache instead."""
+
+    @property
+    def method_name(self) -> str:
+        """Cache method identity: ``ag_name`` with ``result_suffix`` baked in.
+
+        The suffix is part of the method's *identity*, not just its result rows: it names the
+        cache dir (``{suite}/methods/{method_name}``), is stamped as ``ta_name``, and is the
+        name the method registers under on an arena context — so a re-run of a method that is
+        already a registered baseline (e.g. ``"ChimeraBoost"`` vs ``"ChimeraBoost [Rerun]"``)
+        does not collide with it at registration.
+        """
+        return self.ag_name + (self.result_suffix or "")
 
 
 def init_caches(
@@ -112,35 +124,34 @@ def post_process_to_results(
 
     Two phases, matching the canonical eval flow:
 
-    1. **Cache:** for each non-``only_load_cache`` method, ``EndToEndSingle.from_path_raw_to_results``
+    1. **Cache:** for each non-``only_load_cache`` method, ``EndToEnd.from_path_raw``
        processes the raw ``results.pkl`` files into per-task results and writes them to the cache
-       (keyed by ``(suite, ag_name)``). ``task_metadata`` is a native
+       (keyed by ``(suite, method_name)``). ``task_metadata`` is a native
        :class:`~tabarena.benchmark.task.metadata.TaskMetadataCollection`, forwarded so custom (e.g.
        BeyondArena) task sets match correctly; pass ``None`` to infer it from the results.
     2. **Load:** every method is (re-)loaded from the cache via ``EndToEndResults.from_cache`` — in
        all cases, including the ones just cached — so the in-memory results always come from the
        same code path (the cache), not from the transient post-processing return value.
     """
-    from tabarena.nips2025_utils.end_to_end import EndToEndResults
-    from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
+    from tabarena.end_to_end import EndToEnd, EndToEndResults
 
     # Phase 1: post-process raw -> cache for each method (skip the cache-only ones).
     for ma in method_artifacts:
         if ma.only_load_cache:
             continue
         print(f"Post-processing raw results for ag_name={ma.ag_name} (artifact={ma.suite})...")
-        EndToEndSingle.from_path_raw_to_results(
+        EndToEnd.from_path_raw(
             path_raw=ma.path_raw,
             name_prefix_raw=ma.ag_name,
             name_suffix=ma.result_suffix,
-            method=ma.ag_name,
+            method=ma.method_name,
             suite=ma.suite,
             task_metadata=task_metadata,
             num_cpus=num_cpus,
         )
 
-    # Phase 2: re-load every method from the cache (one (ag_name, suite) per artifact).
-    return EndToEndResults.from_cache(methods=[(ma.ag_name, ma.suite) for ma in method_artifacts])
+    # Phase 2: re-load every method from the cache (one (method_name, suite) per artifact).
+    return EndToEndResults.from_cache(methods=[(ma.method_name, ma.suite) for ma in method_artifacts])
 
 
 def subset_label(subset: list[str]) -> str:

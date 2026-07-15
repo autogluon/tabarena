@@ -1,15 +1,34 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from tabarena.models._artifacts.uploader_utils import zip_in_memory
+from tabarena.models._artifacts.uploader_utils import zip_dir_stream
 
 if TYPE_CHECKING:
     import io
 
     from tabarena.models._method_metadata import MethodMetadata
+
+
+@lru_cache(maxsize=1)
+def _transfer_config():
+    """Multipart transfer settings for artifact uploads (boto3 imported lazily).
+
+    64 MiB parts, 8 concurrent: parallel part uploads saturate the link, buffered memory for
+    the non-seekable zip streams stays bounded (~parts x concurrency = 512 MiB), and even
+    multi-TiB archives stay far below the S3/R2 10k-part limit.
+    """
+    from boto3.s3.transfer import TransferConfig
+
+    part_size = 64 * 1024 * 1024
+    return TransferConfig(
+        multipart_threshold=part_size,
+        multipart_chunksize=part_size,
+        max_concurrency=8,
+    )
 
 
 class MethodUploader(ABC):
@@ -77,27 +96,28 @@ class MethodUploader(ABC):
         self._upload_fileobj(fileobj=fileobj, key=key)
 
     def upload_raw(self):
-        path_raw = Path(self.method_metadata.path_raw)
-
-        print(f"Zipping raw files into memory under: {path_raw}")
-        fileobj = zip_in_memory(path=path_raw)
-        key = self.key_prefix / "raw.zip"
-
-        print(f"Uploading raw zipped files to: {key}")
-        self._upload_fileobj(fileobj=fileobj, key=key)
+        self._upload_dir_zipped(path_local=self.method_metadata.path_raw, key=self.key_prefix / "raw.zip")
 
     def upload_processed(self):
-        path_processed = self.method_metadata.path_processed
-
-        print(f"Zipping processed files into memory under: {path_processed}")
-        fileobj = zip_in_memory(path=path_processed)
-        key = self.key_prefix / "processed.zip"
-
-        print(f"Uploading processed zipped files to: {key}")
-        self._upload_fileobj(fileobj=fileobj, key=key)
+        self._upload_dir_zipped(
+            path_local=self.method_metadata.path_processed,
+            key=self.key_prefix / "processed.zip",
+        )
 
         # Upload configs_hyperparameters as a standalone file for fast access
         self.upload_configs_hyperparameters()
+
+    def _upload_dir_zipped(self, path_local: str | Path, key: str | Path):
+        """Upload a directory as one ZIP object, zipping and uploading concurrently.
+
+        The archive is streamed (see :func:`zip_dir_stream`): compression runs in a background
+        thread while the multipart upload consumes the stream, so wall time is ~max(zip, upload)
+        rather than their sum, and the archive is never held in memory or written to disk.
+        """
+        print(f"Uploading {path_local} as a streamed zip to: {key}")
+        progress_desc = f"Uploading {Path(key).name} ({self.method})"
+        with zip_dir_stream(path=path_local, progress_desc=progress_desc) as fileobj:
+            self._upload_fileobj(fileobj=fileobj, key=key)
 
     def upload_configs_hyperparameters(self):
         self._upload_file(path_local=self.method_metadata.path_configs_hyperparameters())
@@ -110,12 +130,12 @@ class MethodUploader(ABC):
         self._upload_file(path_local=self.method_metadata.path_results_hpo_trajectories())
 
     # -- low-level put ------------------------------------------------------------------------
-    def _upload_fileobj(self, fileobj: io.BytesIO, key: str | Path):
+    def _upload_fileobj(self, fileobj: io.IOBase, key: str | Path):
         if isinstance(key, Path):
             key = key.as_posix()
         extra_args = self._extra_args()
         kwargs = {"ExtraArgs": extra_args} if extra_args else {}
-        self.client.upload_fileobj(Fileobj=fileobj, Bucket=self.bucket, Key=key, **kwargs)
+        self.client.upload_fileobj(Fileobj=fileobj, Bucket=self.bucket, Key=key, Config=_transfer_config(), **kwargs)
 
     def _upload_file(self, path_local: str | Path, key: str | Path | None = None):
         if key is None:
@@ -124,4 +144,6 @@ class MethodUploader(ABC):
             key = key.as_posix()
         extra_args = self._extra_args()
         kwargs = {"ExtraArgs": extra_args} if extra_args else {}
-        self.client.upload_file(Filename=str(path_local), Bucket=self.bucket, Key=key, **kwargs)
+        self.client.upload_file(
+            Filename=str(path_local), Bucket=self.bucket, Key=key, Config=_transfer_config(), **kwargs
+        )

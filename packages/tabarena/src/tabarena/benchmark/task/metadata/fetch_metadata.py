@@ -11,6 +11,42 @@ if TYPE_CHECKING:
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
 
 
+def generate_task_metadata(tids: list[int]) -> pd.DataFrame:
+    """Fetch metadata for a list of OpenML task IDs from live OpenML as a clean DataFrame.
+
+    Verifies that every requested task exists in OpenML, and round-trips the frame through an
+    in-memory CSV buffer so complex column types become simple (Parquet-compatible) ones.
+
+    Raises:
+    ------
+    AssertionError
+        If one or more of the requested task IDs are not found in OpenML's task list.
+    """
+    import io
+
+    import openml
+    import pandas as pd
+
+    tasks = openml.tasks.list_tasks(
+        output_format="dataframe",
+    )
+
+    tasks_filtered = tasks[tasks["tid"].isin(tids)].reset_index(drop=True)
+    tids_filtered = list(tasks_filtered["tid"])
+    tids_missing = [tid for tid in tids if tid not in tids_filtered]
+    if tids_missing:
+        raise AssertionError(
+            f"Missing {len(tids_missing)}/{len(tids)} tids in OpenML, for some reason `openml.tasks.list_tasks` "
+            f"does not contain these tids:\n\t{tids_missing}",
+        )
+
+    # Convert to simple types to be able to save in parquet without issue
+    csv_buffer = io.StringIO()
+    tasks_filtered.to_csv(csv_buffer, index=False)
+    csv_buffer.seek(0)
+    return pd.read_csv(csv_buffer)
+
+
 def _get_n_repeats(n_instances: int, tabarena_lite: bool = False) -> int:
     """Get the number of n_repeats for the full benchmark run based on the 2025 paper.
 
@@ -78,7 +114,7 @@ def task_metadata_collection_from_openml(tids: list[int], *, verbose: bool = Tru
     """Build a (lossy) ``TaskMetadataCollection`` for a list of OpenML task ids.
 
     Prefers TabArena's cached committed task metadata; for any id not in it, falls back to
-    live OpenML (via :func:`~tabarena.nips2025_utils.method_processor.generate_task_metadata`,
+    live OpenML (via :func:`generate_task_metadata`,
     enriched to the legacy schema by :func:`enrich_legacy_task_metadata`). The legacy frame is
     wrapped via :meth:`TaskMetadataCollection.from_legacy_df`, which is lossy (rich fields become
     ``None`` and per-fold sizes are the recorded averages) but sufficient for running and
@@ -96,8 +132,6 @@ def task_metadata_collection_from_openml(tids: list[int], *, verbose: bool = Tru
     tids_missing = [tid for tid in tids if tid not in tids_cached]
     if not tids_missing:
         return cached
-
-    from tabarena.nips2025_utils.method_processor import generate_task_metadata
 
     log(f"Note: Missing {len(tids_missing)} tasks in the cached task_metadata...")
     log("\tFetching task_metadata from OpenML... (this may take ~1 minute)")

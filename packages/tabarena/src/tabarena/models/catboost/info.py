@@ -11,6 +11,7 @@ catboost_descriptor = ModelDescriptor(
     compute="cpu",
     is_bag=True,
     reference_url="https://arxiv.org/abs/1706.09516",
+    date_introduced="2017-06",
 )
 
 catboost_method_metadata = catboost_descriptor.method_metadata(

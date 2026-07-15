@@ -15,7 +15,7 @@ from tabarena.benchmark.experiment import (
 )
 from tabarena.benchmark.task.metadata.fetch_metadata import task_metadata_collection_from_openml
 from tabarena.contexts import AbstractArenaContext
-from tabarena.nips2025_utils.end_to_end import EndToEnd
+from tabarena.end_to_end import EndToEnd
 
 if __name__ == "__main__":
     # Output dirs, resolved next to this script so they don't depend on the working directory.

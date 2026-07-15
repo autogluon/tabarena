@@ -10,6 +10,7 @@ tabdpt_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2410.18164",
+    date_introduced="2024-10",
 )
 
 tabdpt_turbo_descriptor = ModelDescriptor(

@@ -22,6 +22,7 @@ ag_140_metadata = MethodMetadata.tabarena_legacy_s3(
     display_name="AutoGluon 1.4 (4h)",
     compute="gpu",
     date="2025-09-03",
+    date_introduced="2025-07",
     reference_url="https://arxiv.org/abs/2003.06505",
     **_common_kwargs,
 )
@@ -31,6 +32,7 @@ tabflex_metadata = MethodMetadata.tabarena_legacy_s3(
     display_name="TabFlex",
     compute="gpu",
     date="2025-09-03",
+    date_introduced="2025-06",
     ag_key="TABFLEX",
     model_key="TABFLEX_GPU",
     config_default="TabFlex_GPU_c1_BAG_L1",
@@ -46,6 +48,7 @@ betatabpfn_metadata = MethodMetadata.tabarena_legacy_s3(
     display_name="BetaTabPFN",
     compute="gpu",
     date="2025-09-03",
+    date_introduced="2025-02",
     ag_key="BETA",
     model_key="BETA_GPU",
     config_default="BetaTabPFN_GPU_c1_BAG_L1",

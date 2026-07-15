@@ -41,9 +41,12 @@ class EvalMethod:
     result_suffix: str | None = None
     """Optional suffix appended to this method's name in the leaderboard, e.g.
     `" [Rerun]"` renders ``TabPFN-3`` as ``TabPFN-3 [Rerun]``. Useful to distinguish
-    a re-run from the original TabArena baseline. Baked into the cached results at
-    post-processing time (via the engine's ``name_suffix``); for ``only_load_cache``
-    the cache must already have been built with the same suffix."""
+    a re-run from the original TabArena baseline. Part of the method's *identity*: it is
+    baked into the cached result rows (via the engine's ``name_suffix``) and into the cache
+    method name / ``ta_name`` (see ``MethodArtifact.method_name``), which is the name the
+    method registers under on the context — required for a re-run, since registering the
+    bare name of an existing baseline collides. For ``only_load_cache`` the cache must
+    already have been built with the same suffix."""
 
     @property
     def ag_name(self) -> str:

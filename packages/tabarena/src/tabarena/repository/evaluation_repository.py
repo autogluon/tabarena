@@ -297,48 +297,28 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
         )
 
     def to_dir(self, path: str | Path):
-        from tabarena.simulation.benchmark_context import BenchmarkContext, construct_context
-
-        path = os.path.abspath(path) + os.path.sep
-        path_data_dir = path + "model_predictions/"
-
-        # FIXME: use tasks rather than datasets and folds separately
-        datasets = self.datasets()
-        folds = self.folds
-        if folds is not None:
-            # make list serializable to json
-            folds = [int(f) for f in folds]
-
-        self._tabular_predictions.to_data_dir(data_dir=path_data_dir)
-        self._ground_truth.to_data_dir(data_dir=path_data_dir)
-
-        dataset_fold_lst_pp = self._tabular_predictions.dataset_fold_lst()
-        dataset_fold_lst_gt = self._ground_truth.dataset_fold_lst()
-
-        metadata = self._zeroshot_context.to_dir(path=path)
-
-        configs_hyperparameters = metadata["configs_hyperparameters"]
-        if configs_hyperparameters is not None:
-            configs_hyperparameters = [configs_hyperparameters]
-
-        # FIXME: Make this a repo constructor method?
-        # FIXME: s3_download_map doesn't work with is_relative yet
-        context: BenchmarkContext = construct_context(
-            name=None,
-            datasets=datasets,
-            folds=folds,
-            local_prefix=path,
-            local_prefix_is_relative=False,  # TODO: Set to False by default and rename
-            has_baselines=metadata["df_baselines"] is not None,
-            task_metadata=metadata["df_metadata"],
-            configs_hyperparameters=configs_hyperparameters,
-            is_relative=True,
+        self.to_dir_task_data(path=path)
+        write_processed_context(
+            path=path,
+            zeroshot_context=self._zeroshot_context,
+            dataset_fold_lst_pp=self._tabular_predictions.dataset_fold_lst(),
+            dataset_fold_lst_gt=self._ground_truth.dataset_fold_lst(),
+            datasets=self.datasets(),
+            folds=self.folds,
             config_fallback=self._config_fallback,
-            dataset_fold_lst_pp=dataset_fold_lst_pp,
-            dataset_fold_lst_gt=dataset_fold_lst_gt,
         )
 
-        context.to_json(path=str(Path(path) / "context.json"))
+    def to_dir_task_data(self, path: str | Path):
+        """Write only this repo's per-(dataset, fold) artifacts: model predictions + ground truth.
+
+        Files land under ``<path>/model_predictions/<dataset>/<fold>/`` and are disjoint across
+        tasks, so repos covering different tasks can write into the same directory (e.g. from
+        parallel workers). The directory only becomes loadable once
+        :func:`write_processed_context` has written the task-independent context files.
+        """
+        path_data_dir = os.path.abspath(path) + os.path.sep + "model_predictions/"
+        self._tabular_predictions.to_data_dir(data_dir=path_data_dir)
+        self._ground_truth.to_data_dir(data_dir=path_data_dir)
 
     @classmethod
     def from_dir(
@@ -381,3 +361,63 @@ class EvaluationRepository(AbstractRepository, EnsembleMixin, GroundTruthMixin):
                                 f
                             ]["pred_proba_dict_test"][method]
         return simulation_artifacts_full
+
+
+def write_processed_context(
+    path: str | Path,
+    *,
+    zeroshot_context: ZeroshotSimulatorContext,
+    dataset_fold_lst_pp: list[tuple[str, int]],
+    dataset_fold_lst_gt: list[tuple[str, int]],
+    datasets: list[str] | None = None,
+    folds: list[int] | None = None,
+    config_fallback: str | None = None,
+) -> None:
+    """Write the task-independent context files that make a processed directory loadable.
+
+    Serializes ``zeroshot_context`` (configs/baselines/task-metadata frames +
+    ``configs_hyperparameters``) and ``context.json`` into ``path``. The per-task prediction and
+    ground-truth files must already be under ``<path>/model_predictions/`` (see
+    :meth:`EvaluationRepository.to_dir_task_data`) — together the two steps equal
+    :meth:`EvaluationRepository.to_dir`, but this half needs no predictions in memory, so a
+    merged context can be written for task slices produced by parallel workers.
+
+    ``datasets`` / ``folds`` default to the ones present in ``dataset_fold_lst_pp``.
+    """
+    from tabarena.simulation.benchmark_context import BenchmarkContext, construct_context
+
+    path = os.path.abspath(path) + os.path.sep
+
+    # FIXME: use tasks rather than datasets and folds separately
+    if datasets is None:
+        datasets = sorted({dataset for dataset, _ in dataset_fold_lst_pp})
+    if folds is None:
+        folds = sorted({fold for _, fold in dataset_fold_lst_pp})
+    if folds is not None:
+        # make list serializable to json
+        folds = [int(f) for f in folds]
+
+    metadata = zeroshot_context.to_dir(path=path)
+
+    configs_hyperparameters = metadata["configs_hyperparameters"]
+    if configs_hyperparameters is not None:
+        configs_hyperparameters = [configs_hyperparameters]
+
+    # FIXME: Make this a repo constructor method?
+    # FIXME: s3_download_map doesn't work with is_relative yet
+    context: BenchmarkContext = construct_context(
+        name=None,
+        datasets=datasets,
+        folds=folds,
+        local_prefix=path,
+        local_prefix_is_relative=False,  # TODO: Set to False by default and rename
+        has_baselines=metadata["df_baselines"] is not None,
+        task_metadata=metadata["df_metadata"],
+        configs_hyperparameters=configs_hyperparameters,
+        is_relative=True,
+        config_fallback=config_fallback,
+        dataset_fold_lst_pp=dataset_fold_lst_pp,
+        dataset_fold_lst_gt=dataset_fold_lst_gt,
+    )
+
+    context.to_json(path=str(Path(path) / "context.json"))

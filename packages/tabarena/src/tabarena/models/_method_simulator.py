@@ -130,6 +130,25 @@ class MethodSimulator:
             seed=seed,
             **kwargs,
         )
+        return self._decorate_hpo_result(
+            df_results_hpo,
+            n_configs=n_configs,
+            n_iterations=n_iterations,
+            seed=seed,
+            config_type=config_type,
+        )
+
+    def _decorate_hpo_result(
+        self,
+        df_results_hpo: pd.DataFrame,
+        *,
+        n_configs: int | None,
+        n_iterations: int,
+        seed: int,
+        config_type: str | list[str],
+    ) -> pd.DataFrame:
+        """Stamp an HPO-family result frame with the pass identity + this method's identity."""
+        mm = self.method_metadata
         df_results_hpo = df_results_hpo.rename(
             columns={
                 "framework": "method",
@@ -191,8 +210,10 @@ class MethodSimulator:
             assert config_default is not None
             fixed_configs = [config_default]
 
+        # Build the full (n_config, seed) pass list up front; all passes run in one sweep over
+        # the tasks (each task's predictions loaded once), instead of one full pass each.
+        passes: list[tuple[int, int]] = []
         for n_config in n_configs:
-            print(f"Running n_config={n_config} ({mm.method})")
             assert n_config <= n_config_total
             # The trajectory is independent of `seed` whenever no random config
             # selection occurs: either the single config is a fixed one (e.g. the
@@ -202,20 +223,33 @@ class MethodSimulator:
             # yields an identical result -- run a single seed to avoid redundant work.
             seed_invariant = (n_config == 1 and fixed_configs) or n_config == n_config_total
             seeds_for_n_config = seeds[:1] if seed_invariant else seeds
-            for seed in seeds_for_n_config:
-                df_results_hpo = self.generate_hpo_result(
-                    repo=repo,
-                    n_configs=n_config,
-                    seed=seed,
-                    n_iterations=n_iterations,
-                    fixed_configs=fixed_configs,
-                    fit_order=fit_order,
-                    time_limit=time_limit,
-                    backend=backend,
-                    config_type=config_type,
-                )
-                df_results_hpo["always_include_default"] = always_include_default
-                df_results_hpo_lst.append(df_results_hpo)
+            passes.extend((n_config, seed) for seed in seeds_for_n_config)
+
+        if config_type is None:
+            assert mm.config_type is not None
+            config_type = mm.config_type
+        from tabarena.simulation.repo_simulator import RepoSimulator
+
+        print(f"Simulating {len(passes)} HPO-trajectory (n_config, seed) passes ({mm.method})...")
+        simulator = RepoSimulator(repo=repo, backend=backend)
+        df_results_lst = simulator.run_ensemble_config_type_multi(
+            config_type=config_type,
+            combos=[{"n_configs": n_config, "seed": seed} for n_config, seed in passes],
+            n_iterations=n_iterations,
+            fixed_configs=fixed_configs,
+            time_limit=time_limit,
+            fit_order=fit_order,
+        )
+        for (n_config, seed), df_results_hpo in zip(passes, df_results_lst, strict=True):
+            df_results_hpo = self._decorate_hpo_result(
+                df_results_hpo,
+                n_configs=n_config,
+                n_iterations=n_iterations,
+                seed=seed,
+                config_type=config_type,
+            )
+            df_results_hpo["always_include_default"] = always_include_default
+            df_results_hpo_lst.append(df_results_hpo)
         df_results_hpo_combined = pd.concat(df_results_hpo_lst, ignore_index=True)
 
         if cache:

@@ -111,6 +111,13 @@ class ChimeraBoostModel(AbstractModel):
     def supported_problem_types(cls) -> list[str] | None:
         return ["binary", "multiclass", "regression"]
 
+    @classmethod
+    def warmup(cls, **kwargs) -> None:
+        """Pre-compile the numba kernels (~10s cold start, then disk-cached per environment)."""
+        import chimeraboost
+
+        chimeraboost.warmup()  # requires chimeraboost>=0.14.1 (the pinned extra)
+
     def _get_default_resources(self) -> tuple[int, int]:
         # Physical cores only (matches RealMLP/XRFM); ChimeraBoost is CPU-only.
         num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)

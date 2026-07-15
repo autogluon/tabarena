@@ -10,6 +10,7 @@ tabpfn_3_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2605.13986",
+    date_introduced="2026-05",
 )
 
 tabpfn_3_method_metadata = tabpfn_3_descriptor.method_metadata(

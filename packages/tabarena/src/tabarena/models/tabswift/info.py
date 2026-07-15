@@ -14,6 +14,7 @@ tabswift_method_metadata = MethodMetadata.config(
     compute="gpu",
     is_bag=False,
     date="2026-07-06",
+    date_introduced="2026-06-05",
     reference_url="https://github.com/LAMDA-Tabular/TabSwift",
     display_name="TabSwift",
     verified=False,

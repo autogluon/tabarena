@@ -31,6 +31,7 @@ mitra_method_metadata = MethodMetadata.config(
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
     date="2025-09-03",
+    date_introduced="2025-07",
     reference_url="https://arxiv.org/abs/2510.21204",
     display_name="Mitra",
 )

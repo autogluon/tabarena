@@ -14,11 +14,14 @@ from tabarena.evaluation.leaderboard_reporter import LeaderboardReporter
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from tabarena.contexts.abstract_arena_context import AbstractArenaContext
+
 
 def compare(
     df_results: pd.DataFrame,
     output_dir: str | Path,
     task_metadata: TaskMetadataCollection,
+    tabarena_context: AbstractArenaContext | None = None,
     only_valid_tasks: str | list[str] | None = None,
     calibration_framework: str | None = None,
     fillna: str | pd.DataFrame | None = None,
@@ -60,6 +63,7 @@ def compare(
     plotter = LeaderboardReporter(
         output_dir=output_dir,
         task_metadata=task_metadata,
+        tabarena_context=tabarena_context,
         error_col=error_col,
         method_rename_map=method_rename_map,
         figure_file_type=figure_file_type,

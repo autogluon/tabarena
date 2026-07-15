@@ -428,6 +428,13 @@ class ModernNCAModel(AbstractModel):
     def supported_problem_types(cls) -> list[str] | None:
         return ["binary", "multiclass", "regression"]
 
+    @classmethod
+    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
+        """Torch-backed despite subclassing ``AbstractModel``: warm torch + CUDA context."""
+        from tabarena.models.warmup import warmup_torch
+
+        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
+
     def _get_default_stopping_metric(self):
         return self.eval_metric
 

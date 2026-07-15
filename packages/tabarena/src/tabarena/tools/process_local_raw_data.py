@@ -1,26 +1,25 @@
 """Process *already-present* raw TabArena results into method metadata + cached artifacts.
 
-A download/upload-free counterpart to
-``examples/!old/run_download_url_and_cache_to_s3_2025_09_03.py``. That script's job was
-URL-download -> local cache -> S3/R2 upload, orchestrated through ``MethodArtifactManager``.
-Here we assume the raw ``results.pkl`` files are already on local disk (e.g. you unzipped a
-submission yourself), and there is **no download and no upload**. The three concerns are:
+Assumes the raw ``results.pkl`` files are already on local disk (e.g. you unzipped a
+submission yourself); there is **no download and no upload**. The three concerns are:
 
-  1. ``inspect``  — read the raw artifacts and report the fields that drive ``MethodMetadata``
+  1. ``inspect``  — scan the raw artifacts and report the fields that drive ``MethodMetadata``
                     construction (method_type, ag_key, compute -> cpu/gpu, is_bag, can_hpo,
                     config_default, ...), plus task/problem-type/metric coverage. Prints a
                     copy-paste ``MethodMetadata.<type>(...)`` snippet built from the inferred values
                     with instructions for turning it into a committed ``info.py``, and — if you
                     already pass an existing ``MethodMetadata`` — an inferred-vs-provided diff.
+                    Uses :func:`~tabarena.benchmark.result.raw_loading.scan_raw_info`, which
+                    reduces each file to its info row in parallel, so inspection never holds the
+                    run's predictions in memory.
 
   2. ``verify``   — confirm a hand-authored ``MethodMetadata`` is consistent with the raw data
                     (and well-formed) before processing. See :func:`verify_method_metadata`.
 
   3. ``process``  — build the processed ``EvaluationRepository`` + per-task results and cache
                     them locally (``metadata.yaml`` + ``processed/`` + ``results/`` under the
-                    TabArena cache root) via ``EndToEndSingle.from_path_raw(cache=True)``. This
-                    is the same processing the old script ran inside ``MethodArtifactManager.cache``,
-                    minus the raw download and the S3/R2 upload.
+                    TabArena cache root) via ``EndToEnd.from_path_raw(cache_processed=True)``,
+                    which processes and writes each task's slice inside its own worker.
 
 **Processing requires an explicit ``MethodMetadata``.** ``inspect`` can run on raw data alone (and
 exists precisely to help you author the metadata), but ``process`` refuses to guess: you must pass a
@@ -36,18 +35,18 @@ several).
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import pandas as pd
-
-from tabarena.nips2025_utils.end_to_end_single import EndToEndSingle
-from tabarena.nips2025_utils.method_processor import get_info_from_result, load_raw
+from tabarena.benchmark.result.raw_loading import fetch_raw_result_paths, scan_raw_info
+from tabarena.end_to_end import EndToEnd
 
 if TYPE_CHECKING:
+    from tabarena.end_to_end import EndToEndResults
     from tabarena.models._method_metadata import MethodMetadata
 
 
@@ -107,15 +106,17 @@ def _format_py_value(val: object) -> str:
     return repr(val)  # bool/int/float/None render the same under repr and ruff
 
 
-def _infer_from_raw(method: RawMethod, *, engine: str = "ray") -> dict:
-    """Load the raw artifacts at ``method.path_raw`` and return the values that drive
+def _infer_from_raw(method: RawMethod, *, engine: str = "ray", file_paths: list[Path] | None = None) -> dict:
+    """Scan the raw artifacts at ``method.path_raw`` and return the values that drive
     ``MethodMetadata`` construction plus task/problem-type/metric coverage.
 
-    Loading is the expensive step, so callers that both inspect and verify/process should call this
-    once and pass the result into :func:`log_raw_data_info` / :func:`verify_method_metadata`.
+    The scan reduces each ``results.pkl`` to its small info row and discards the predictions
+    (see :func:`~tabarena.benchmark.result.raw_loading.scan_raw_info`), so it stays cheap on
+    memory; still, callers that both inspect and verify should call this once and pass the
+    result into :func:`log_raw_data_info` / :func:`verify_method_metadata`. ``file_paths``
+    are pre-discovered ``results.pkl`` paths, skipping the directory walk.
     """
-    results_lst = load_raw(path_raw=method.path_raw, engine=engine)
-    info_df = pd.DataFrame([get_info_from_result(r) for r in results_lst])
+    info_df = scan_raw_info(path_raw=method.path_raw, file_paths=file_paths, engine=engine)
 
     def _unique(col: str):
         return sorted(info_df[col].dropna().unique().tolist())
@@ -152,7 +153,7 @@ def _infer_from_raw(method: RawMethod, *, engine: str = "ray") -> dict:
     config_task_counts = info_df.groupby("framework").size().sort_index() if "framework" in info_df.columns else None
 
     return {
-        "n_results": len(results_lst),
+        "n_results": len(info_df),
         "method_types": method_types,
         "model_types": model_types,
         "ag_keys": ag_keys,
@@ -510,14 +511,16 @@ def process_raw(
     cache_raw: bool = False,
     cache_hpo_trajectories: bool = False,
     backend: str = "ray",
-) -> EndToEndSingle:
+    file_paths: list[Path] | None = None,
+) -> EndToEndResults:
     """Process the already-present raw data into cached method artifacts (no upload).
 
     Requires an explicit ``method.method_metadata`` (call :func:`verify_method_metadata` first to
     confirm it matches the raw data). Builds the processed ``EvaluationRepository`` and per-task
     results and caches them under the TabArena cache root
     (``~/.cache/tabarena/artifacts/{suite}/methods/{method}/``): ``metadata.yaml`` + ``processed/`` +
-    ``results/``.
+    ``results/``. Processing is per-task parallel (each worker writes its task's raw/processed
+    slice directly), so memory stays flat even for large runs.
 
     Parameters
     ----------
@@ -528,21 +531,26 @@ def process_raw(
     cache_hpo_trajectories
         Whether to also generate and cache HPO trajectories (only applies to ``config`` methods).
     backend
-        ``"ray"`` (parallel) or ``"native"`` (sequential) for the HPO/model-result simulation.
+        ``"ray"`` (parallel) or ``"native"`` (sequential) for processing and simulation.
+    file_paths
+        Pre-discovered ``results.pkl`` paths under ``method.path_raw``; skips the directory walk
+        (e.g. reuse the paths the inspect/verify scan already discovered).
     """
     if method.method_metadata is None:
         raise ValueError(
             f"process_raw requires an explicit `method_metadata` (path_raw={method.path_raw}); "
             f"author one from the inspect snippet and pass it via RawMethod(method_metadata=...)."
         )
-    return EndToEndSingle.from_path_raw(
+    return EndToEnd.from_path_raw(
         path_raw=method.path_raw,
         method_metadata=method.method_metadata,
         name=method.resolved_name,
         model_key=method.resolved_model_key,
         suite=method.resolved_suite,
+        file_paths=file_paths,
         cache=True,
         cache_raw=cache_raw,
+        cache_processed=True,
         cache_hpo_trajectories=cache_hpo_trajectories,
         backend=backend,
     )
@@ -583,8 +591,16 @@ def process_method(
     if not method.path_raw.is_dir():
         raise FileNotFoundError(f"path_raw does not exist or is not a directory: {method.path_raw}")
     ts = time.time()
-    # Load the raw data once and reuse it for both inspection and verification.
-    inferred = _infer_from_raw(method, engine=engine) if (inspect or process) else None
+    # Walk the directory tree once and scan the raw data once; both are reused across
+    # inspection, verification, and processing.
+    file_paths = None
+    inferred = None
+    if inspect or process:
+        file_paths = fetch_raw_result_paths(
+            path_raw=method.path_raw,
+            num_workers=len(os.sched_getaffinity(0)) if engine == "ray" else None,
+        )
+        inferred = _infer_from_raw(method, engine=engine, file_paths=file_paths)
     if inspect:
         log_raw_data_info(method, engine=engine, inferred=inferred)
     if process:
@@ -600,6 +616,7 @@ def process_method(
             cache_raw=cache_raw,
             cache_hpo_trajectories=cache_hpo_trajectories,
             backend=backend,
+            file_paths=file_paths,
         )
     te = time.time()
     print(f"Finished {label} (duration={te - ts:.1f}s)")

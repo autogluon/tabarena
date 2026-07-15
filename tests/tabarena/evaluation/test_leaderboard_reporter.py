@@ -61,3 +61,78 @@ class TestPlotOnlyToHiddenMethods:
         )
         assert hidden == sorted(["CatBoost", "SAP-RPT-OSS"])
         assert "SAP-RPT-1" in capsys.readouterr().out
+
+
+class TestMetricVsDateFrame:
+    """``_metric_vs_date_frame`` powers the metric-vs-introduction-date figures."""
+
+    @staticmethod
+    def _reporter(method_metadata_info) -> LeaderboardReporter:
+        # Only the attributes `_metric_vs_date_frame` reads; the full constructor needs results.
+        reporter = LeaderboardReporter.__new__(LeaderboardReporter)
+        reporter.method_metadata_info = method_metadata_info
+        return reporter
+
+    def test_mixed_precision_dates_all_parse(self):
+        """'YYYY', 'YYYY-MM', and 'YYYY-MM-DD' must all survive parsing regardless of which
+        precision comes first (plain ``pd.to_datetime`` infers the format from the first
+        element and coerces the other precisions to NaT).
+        """
+        import pandas as pd
+
+        meta = pd.DataFrame(
+            {
+                "ta_name": ["A", "B", "C"],
+                "ta_suite": ["s", "s", "s"],
+                "date_introduced": ["2026-06-30", "2017-06", "2006"],  # day-first on purpose
+                "display_name": ["A", "B", "C"],
+            }
+        )
+        leaderboard = pd.DataFrame(
+            {"ta_name": ["A", "B", "C"], "ta_suite": ["s", "s", "s"], "elo": [1500.0, 1400.0, 1300.0]}
+        )
+        df = self._reporter(meta)._metric_vs_date_frame(leaderboard, metric="elo", higher_is_better=True)
+        assert len(df) == 3
+        dates = dict(zip(df["_label"], df["_date"], strict=False))
+        assert dates["A"] == pd.Timestamp("2026-06-30")
+        assert dates["B"] == pd.Timestamp("2017-06-01")
+        assert dates["C"] == pd.Timestamp("2006-01-01")
+
+    def test_best_elo_per_family_and_missing_dates_dropped(self):
+        import pandas as pd
+
+        meta = pd.DataFrame(
+            {
+                "ta_name": ["A", "D"],
+                "ta_suite": ["s", "s"],
+                "date_introduced": ["2020-01", None],
+                "display_name": ["MethodA", "MethodD"],
+            }
+        )
+        leaderboard = pd.DataFrame(
+            {"ta_name": ["A", "A", "D"], "ta_suite": ["s", "s", "s"], "elo": [1200.0, 1350.0, 1500.0]}
+        )
+        df = self._reporter(meta)._metric_vs_date_frame(leaderboard, metric="elo", higher_is_better=True)
+        assert df["_label"].tolist() == ["MethodA"]  # D has no date; A deduped to best Elo
+        assert df["elo"].tolist() == [1350.0]
+
+    def test_no_metadata_is_none(self):
+        import pandas as pd
+
+        leaderboard = pd.DataFrame({"ta_name": ["A"], "ta_suite": ["s"], "elo": [1500.0]})
+        assert self._reporter(None)._metric_vs_date_frame(leaderboard, metric="elo", higher_is_better=True) is None
+
+    def test_lower_is_better_metric_and_missing_metric_column(self):
+        """With ``higher_is_better=False`` the per-family dedup keeps the lowest value; a
+        leaderboard without the metric column is a no-op.
+        """
+        import pandas as pd
+
+        meta = pd.DataFrame(
+            {"ta_name": ["A"], "ta_suite": ["s"], "date_introduced": ["2020-01"], "display_name": ["A"]}
+        )
+        leaderboard = pd.DataFrame({"ta_name": ["A", "A"], "ta_suite": ["s", "s"], "improvability": [0.4, 0.2]})
+        reporter = self._reporter(meta)
+        df = reporter._metric_vs_date_frame(leaderboard, metric="improvability", higher_is_better=False)
+        assert df["improvability"].tolist() == [0.2]
+        assert reporter._metric_vs_date_frame(leaderboard, metric="elo", higher_is_better=True) is None

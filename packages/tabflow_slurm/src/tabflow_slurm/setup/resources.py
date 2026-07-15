@@ -36,17 +36,18 @@ class ResourcesSetup:
     Set to 0 to reserve the GPU for preprocessing (e.g. sentence-transformer
     encoding) while fitting models on CPU only."""
     fake_memory_for_estimates: int | None = None
-    """Experimental parameter that is to be ignored!
-
-    If not None, this value is reported to models in place of `memory_limit`
+    """If not None, this value is reported to models in place of `memory_limit`
     so the model's internal memory estimates are compared against it instead
     of the actually available memory on the system. Values in GB as
     `memory_limit`.
 
-    This can be useful if:
+    Set this to the GPU's VRAM for every GPU model: model tensors live in VRAM,
+    but AutoGluon budgets parallel bagging folds against the reported memory
+    limit (node RAM by default) and never accounts VRAM directly — without
+    this, co-scheduled folds can OOM the GPU. Also useful:
         - To test or overrule (bad) memory estimates.
         - For models that use CPU memory as a proxy for GPU memory (e.g. most
-          TFMs), this can be used if the job has much more VRAM than CPU memory.
+          TFMs), if the job has much more VRAM than CPU memory.
     """
 
     @property

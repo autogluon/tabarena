@@ -15,6 +15,7 @@ tabfm_method_metadata = MethodMetadata.config(
     compute="gpu",
     is_bag=False,
     date="2026-07-07",
+    date_introduced="2026-06-30",
     reference_url="https://github.com/google-research/tabfm",
     display_name="TabFM",
     verified=True,
@@ -45,6 +46,7 @@ tabfm_plus_method_metadata = MethodMetadata.baseline(
     suite="tabarena-2026-06-26",
     compute="gpu",
     date="2026-06-26",
+    date_introduced="2026-06-30",
     reference_url="https://github.com/google-research/tabfm",
     verified=False,
 )
