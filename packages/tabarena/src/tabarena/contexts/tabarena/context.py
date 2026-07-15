@@ -23,6 +23,11 @@ if TYPE_CHECKING:
 #: 50 splits the TabArena v0.1 suite into 36 low-cat and 15 high-cat datasets.
 CAT_FRACTION_THRESHOLD = 50.0
 
+#: Inclusive boundary on the native feature count separating ``low_features`` (at or below it)
+#: from ``high_features`` (above it). TabArena v0.1 does not carry the after-preprocessing feature
+#: count used by BeyondArena's dimensionality predicates, so these variants use ``n_features``.
+FEATURE_COUNT_THRESHOLD = 500
+
 
 @lru_cache(maxsize=1)
 def _datasets_by_cat_fraction() -> tuple[frozenset[str], frozenset[str]]:
@@ -81,6 +86,15 @@ class TabArenaContext(AbstractArenaContext):
         "medium": SubsetPredicate(lambda df: df["max_train_rows"].between(10_001, 100_000), ("max_train_rows",)),
         "small": SubsetPredicate(lambda df: df["max_train_rows"] <= 10_000, ("max_train_rows",)),
         "tiny": SubsetPredicate(lambda df: df["max_train_rows"] <= 2_000, ("max_train_rows",)),
+        # native feature-count buckets (v0.1 has no after-preprocessing feature count)
+        "low_features": SubsetPredicate(
+            lambda df: df["n_features"] <= FEATURE_COUNT_THRESHOLD,
+            ("n_features",),
+        ),
+        "high_features": SubsetPredicate(
+            lambda df: df["n_features"] > FEATURE_COUNT_THRESHOLD,
+            ("n_features",),
+        ),
         # foundation-model compatibility (operates on tabarena task_metadata columns)
         "tabpfn": SubsetPredicate(
             lambda df: (df["max_train_rows"] <= 10_000) & (df["n_features"] <= 500) & (df["n_classes"] <= 10),
@@ -100,6 +114,18 @@ class TabArenaContext(AbstractArenaContext):
         # "split" column (see TaskMetadataCollection.task_grid); a results frame's "fold" is the
         # split, so this maps to fold == 0 there.
         "lite": SubsetPredicate(lambda df: df["split"] == 0, ("split",)),
+    }
+
+    #: Standard TabArena v0.1 variants. ``full`` applies no filtering and ``lite`` keeps split 0
+    #: only. The categorical variants divide datasets by categorical-feature fraction, not
+    #: category cardinality (v0.1's committed metadata has no cardinality counts).
+    SUBSET_SHORTCUTS: dict[str, list[str]] = {
+        "full": [],
+        "lite": ["lite"],
+        "low_cats": ["low_cats"],
+        "high_cats": ["high_cats"],
+        "low_features": ["low_features"],
+        "high_features": ["high_features"],
     }
 
     def __init__(
