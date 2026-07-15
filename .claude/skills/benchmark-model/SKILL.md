@@ -24,7 +24,7 @@ Parse `$ARGUMENTS`. Collect (ask only for what's missing or a genuine judgment c
 | `MODEL` | `"TabM"` | **required** — the registry name (see Step 1) |
 | `BENCHMARK_NAME` | `"tabm_26062026"` | `<model-lowercased>_<DDMMYYYY>` using today's date |
 | `NUM_CONFIGS` | `0`, `25`, `"all"` | `0` if the model has no HPO search space, else ask (foundation models → `0`; tunable models → `"all"` or a capped int under compute limits) |
-| task scope | lite / full / regression / dataset names | `TaskSubset(subset="lite")` — first split of every task |
+| task scope | full / lite / regression / dataset names | `TaskSubset()` — the full task set (all splits); `TaskSubset(subset="lite")` for a quick first-split smoke run |
 | `gpu_partition` | `"gpurtxpro6000spotinteractive"` | that partition (the current default GPU node); ask if a bigger GPU is needed |
 | `fake_memory_for_estimates` | `96` | **required for every GPU model** — the partition's VRAM in GB (see Step 1a); **ask the user if you cannot determine the VRAM from context** |
 | per-run overrides | `time_limit` | none unless the model/partition needs them |
@@ -38,7 +38,7 @@ Given `MODEL`, read the model's contribution under `packages/tabarena/src/tabare
 | Derived value | Where to read it | Drives |
 |---|---|---|
 | **compute** (`"cpu"`/`"gpu"`) | `info.py` → `ModelDescriptor(compute=...)` / `MethodMetadata.compute` | `resources={"num_gpus": 1}` + `name="gpu"` for GPU; drop the override + `name="cpu"` for CPU |
-| **problem types** | `model.py` → `supported_problem_types()` (a classmethod returning a subset of `["binary","multiclass","regression"]`, or `None`/**absent** = all types) | the eval `subsets`: all-types → `[["lite"], ["binary"], ["multiclass"], ["regression"]]`; regression-only (e.g. Nori) → `[["regression"]]` and scope setup with `task_subset=TaskSubset(subset="regression")` |
+| **problem types** | `model.py` → `supported_problem_types()` (a classmethod returning a subset of `["binary","multiclass","regression"]`, or `None`/**absent** = all types) | the eval `subsets`: all-types → `[[], ["binary"], ["multiclass"], ["regression"]]` (`[]` = the full set / overall leaderboard); regression-only (e.g. Nori) → `[["regression"]]` and scope setup with `task_subset=TaskSubset(subset="regression")` |
 | **HPO search space** | `info.py` → `search_space` (a `gen_<key>` generator); empty/absent ⇒ no HPO | default `NUM_CONFIGS` (foundation models with no real search space → `0`) |
 | **pip extra** | `info.py` → `ModelInfo(pip_extra=...)` | the "install into the run venv" reminder in the docstring + Step 4 |
 | **weights prefetch** | `info.py` → `ModelInfo(prefetch_weights=...)` (not `None` ⇒ foundation model) | a docstring note that the checkpoint is fetched from HF by the registry before the fits (no per-script action) |
@@ -71,7 +71,7 @@ it only makes the budget more conservative, which is safe on the VRAM<RAM nodes 
 
 ## Step 2: Generate `tmp_scripts/run_<model>.py`
 
-Copy `references/run_benchmark_template.py` to `tmp_scripts/run_<model-key>.py` and fill every marker: the module docstring notes, `BENCHMARK_NAME`, `MODEL`, `NUM_CONFIGS`, the `ModelJob` resources (GPU: `num_gpus` plus the **mandatory** `fake_memory_for_estimates` from Step 1a; any `time_limit`), `task_subset`, `gpu_partition`, and the eval `subsets`. Remove the guidance comments that don't apply so the result reads like the existing per-model scripts. Keep it importable and lint-clean (`from __future__ import annotations`, 120-col).
+Copy `references/run_benchmark_template.py` to `tmp_scripts/run_<model-key>.py` and fill every marker: the module docstring notes, `BENCHMARK_NAME`, `MODEL`, `NUM_CONFIGS`, the `ModelJob` resources (GPU: `num_gpus` plus the **mandatory** `fake_memory_for_estimates` from Step 1a; any `time_limit`), `task_subset`, `gpu_partition`, and the eval `subsets`. The template defaults to the **full** task set (`TaskSubset()`) and emits both PDF and PNG figures (`figure_file_type=("pdf", "png")`); narrow `task_subset` and `subsets` to `lite` for a quick smoke run. Remove the guidance comments that don't apply so the result reads like the existing per-model scripts. Keep it importable and lint-clean (`from __future__ import annotations`, 120-col).
 
 For a **CPU** model: drop `resources={"num_gpus": 1}`, set `name="cpu"`, and use `scheduler_setup=GCPSlurmSetup(cpu_partition=...)`. For a **local, no-SLURM** run, swap `GCPSlurmSetup` for `LocalSequentialSetup(continue_on_error=True)` and `python_path=sys.executable` (see `packages/tabflow_slurm/experiments/run_tabarena_v0pt1_local.py`).
 

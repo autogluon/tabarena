@@ -33,6 +33,61 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-07-10 — tabdptturbo_10072026
+
+- **Model(s):** TabDPT-Turbo (0 — single default config, no HPO)
+- **Git SHA:** `bb2df761`
+- **Purpose:** First TabArena-v0.1 benchmark of TabDPT-Turbo (TabDPT v1.2), added as a
+  `TabDPTTurboModel` subclass alongside the v1.1 `TabDPTModel` (shared `TabDPTModelBase`).
+  Foundation model (in-context learning), single-node GCP GPU run. Supports binary / multiclass /
+  regression, so all problem types are included.
+- **Notes:** GPU partition `gpurtxpro6000spotinteractive`, 1 GPU, `bundle_size=1`, full task set
+  (`TaskSubset()` — all splits). `NUM_CONFIGS=0`: one in-context-learning default config per task,
+  no HPO search space (`can_hpo=False`). No `fake_memory_for_estimates`: the wrapper cannot estimate
+  memory statically (`can_estimate_memory_usage_static=False`), so there is no VRAM estimate to
+  correct. Extra dep in the run venv: `tabdpt>=1.2.0` (this also upgrades the shared v1.1 install;
+  each wrapper pins its own checkpoint via `model_weight_path`, so v1.1 still loads
+  `tabdpt1_1.safetensors` and Turbo loads `tabdpt1_2.safetensors` from `Layer6/TabDPT`). Turbo
+  defaults: `context_reduction="subsample"`, `clip_sigma=8`, `compile=False` (torch.compile is off
+  for pickling/refit robustness across many small bagged fits — the speedup comes from subsample
+  context + the v1.2 weights). Eval scored on `[[], ["binary"], ["multiclass"], ["regression"]]`.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabarena.contexts import TabArenaContext
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaBenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+benchmark_plan = TabArenaBenchmarkPlan(
+    benchmark_name="tabdptturbo_10072026",
+    model_jobs=[
+        ModelJob(
+            models=("TabDPT-Turbo", 0),
+            name="gpu",
+            resources={"num_gpus": 1},
+        ),
+    ],
+    context=TabArenaContext(),
+    task_subset=TaskSubset(),  # full task set (all splits)
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_18062026/bin/python",
+    ),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000spotinteractive", bundle_size=1),
+)
+benchmark_plan.setup_jobs()
+```
+
+---
+
 ## 2026-07-13 — chimeraboost_13072026
 
 - **Model(s):** ChimeraBoost (all configs)

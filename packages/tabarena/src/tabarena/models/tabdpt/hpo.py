@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from autogluon.common.space import Categorical
 
-from tabarena.models.tabdpt.model import TabDPTModel
+from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel
 from tabarena.utils.config_utils import ConfigGenerator
 
 search_space = {
@@ -43,6 +43,14 @@ gen_tabdpt = ConfigGenerator(
     model_cls=TabDPTModel,
     manual_configs=[{}],
     search_space=search_space,
+)
+
+# TabDPT-Turbo runs its single default config (empty search space); add tunable knobs here later
+# if an HPO run is wanted (the v1.2 defaults are set in TabDPTTurboModel._init_tabdpt_model).
+gen_tabdpt_turbo = ConfigGenerator(
+    model_cls=TabDPTTurboModel,
+    manual_configs=[{}],
+    search_space={},
 )
 
 
