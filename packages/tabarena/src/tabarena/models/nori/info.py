@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.models._model_info import ModelInfo
-from tabarena.models.nori.hpo import gen_nori
-from tabarena.models.nori.model import NoriModel
+from tabarena.models.nori.hpo import gen_nori, gen_nori30m
+from tabarena.models.nori.model import Nori30MModel, NoriModel
 
 nori_method_metadata = MethodMetadata.config(
     method="Nori",
@@ -28,4 +28,29 @@ nori_info = ModelInfo(
     method_metadata=nori_method_metadata,
     pip_extra=("synthefy-nori>=0.7.0",),
     prefetch_weights=NoriModel.prefetch_weights,
+)
+
+# Nori-30M — a larger (~29M) version of Nori; a separate leaderboard entry (does not supersede
+# the base above). Auto-discovered by the model registry alongside nori_info.
+nori30m_method_metadata = MethodMetadata.config(
+    method="Nori-30M",
+    ag_key="TA-NORI-30M",
+    config_default="Nori-30M_c1_default_BAG_L1",
+    can_hpo=False,
+    compute="gpu",
+    is_bag=False,
+    date="2026-07-13",
+    reference_url="https://huggingface.co/Synthefy/Nori-30M",
+    display_name="Nori-30M",
+    # verified=False and no cache: result artifacts are hosted in the official pool by the
+    # maintainers after a verified re-run (as with the base Nori once its results are hosted).
+    verified=False,
+)
+
+nori30m_info = ModelInfo(
+    model_cls=Nori30MModel,
+    search_space=gen_nori30m,
+    method_metadata=nori30m_method_metadata,
+    pip_extra=("synthefy-nori>=0.10.0",),  # >=0.10.0 provides the model= variant selector
+    prefetch_weights=Nori30MModel.prefetch_weights,
 )

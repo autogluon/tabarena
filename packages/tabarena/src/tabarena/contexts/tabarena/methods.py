@@ -48,8 +48,7 @@ from tabarena.models.lr.info import lr_method_metadata as lr_metadata
 from tabarena.models.mitra.info import mitra_method_metadata as mitra_metadata
 from tabarena.models.modernnca.info import modernnca_gpu_method_metadata
 from tabarena.models.nn_torch.info import nn_torch_method_metadata
-from tabarena.models.nori.info import nori_method_metadata
-from tabarena.models.nori30m.info import nori30m_method_metadata
+from tabarena.models.nori.info import nori30m_method_metadata, nori_method_metadata
 from tabarena.models.orionmsp.info import orionmsp_method_metadata as orionmsp_metadata
 from tabarena.models.perpetual_booster.info import (
     perpetual_booster_method_metadata as perpetualbooster_metadata,
