@@ -138,6 +138,10 @@ class WebsiteArtifactGenerator:
             # single Elo-derived order across the whole set (e.g. so the improvability
             # legend ends with the lowest/best method).
             use_elo_method_order=False,
+            # Website styling: Pareto-front methods in family colors with direct
+            # labels, all other trajectories greyed out. Also writes the
+            # interactive tuning_trajectories_explorer.html per subset.
+            focus_mode=True,
         )
 
         zip_results = True

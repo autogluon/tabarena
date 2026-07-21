@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import os
 from pathlib import Path
 
@@ -19,8 +20,11 @@ from tabarena.nips2025_utils.eval_all import (
     get_all_subset_combinations,
     get_website_folder_name,
 )
-from tabarena.plot.plot_pareto_frontier import plot_optimal_arrow
+from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
+from tabarena.plot.plot_pareto_focus import FAMILY_COLORS, MUTED_COLOR
+from tabarena.plot.plot_pareto_frontier import get_pareto_frontier, plot_optimal_arrow
 from tabarena.utils.parallel_for import parallel_for
+from tabarena.website.website_format import get_model_family
 
 
 def _clip_title(title: str, max_chars: int) -> str:
@@ -74,6 +78,9 @@ def plot_hpo(
     left_label_methods: list[str] | None = None,
     below_label_methods: list[str] | None = None,
     clamp_negative_ymin: bool = False,
+    focus_mode: bool = False,
+    family_map: dict[str, str] | None = None,
+    focus_methods: list[str] | None = None,
 ):
     """Plot HPO trajectories for multiple methods.
 
@@ -100,6 +107,19 @@ def plot_hpo(
     sort_col : str | None, default=None
         If provided, sorts each method’s points by this numeric column (ascending),
         and highlights the point with the highest value of this column using a different marker.
+    focus_mode : bool, default=False
+        Focus styling: methods on the Pareto front (plus ``focus_methods``) are
+        drawn in their model-family color with a direct label; every other
+        trajectory recedes to grey. Implies ``show_pareto_frontier`` and
+        replaces the per-method legend with a family legend strip above the
+        axes (the ``dataset_metadata`` legend is not rendered in this mode).
+    family_map : dict[str, str] | None, default=None
+        Method display name -> model family (a key of
+        :data:`tabarena.plot.plot_pareto_focus.FAMILY_COLORS`); used by
+        ``focus_mode`` to pick colors. Unmapped methods fall back to "Other".
+    focus_methods : list[str] | None, default=None
+        Methods to emphasize in ``focus_mode`` in addition to the
+        Pareto-front members.
     clip_title : bool, default=False
         When True, truncate a long ``title`` to ``max_title_chars`` (with an
         ellipsis) so it doesn't widen the ``bbox_inches="tight"`` output canvas
@@ -169,6 +189,42 @@ def plot_hpo(
         # related variants like TabPFN-3 and TabPFN-3-Thinking).
         color_map.update(method_color_overrides)
 
+    # Focus mode: front-defining methods (plus ``focus_methods``) keep their
+    # family color, everything else is muted grey. Overrides the 60-color
+    # per-method palette above.
+    focus_methods = list(focus_methods or [])
+    if display_names is not None:
+        focus_methods = [display_names.get(m, m) for m in focus_methods]
+    emphasized_methods: set[str] | None = None
+    if focus_mode:
+        show_pareto_frontier = True
+        _, front_names = get_pareto_frontier(
+            Xs=df[xlabel].to_numpy(),
+            Ys=df[ylabel].to_numpy(),
+            names=df[method_col].tolist(),
+            max_X=max_X,
+            max_Y=max_Y,
+            include_boundary_edges=False,
+        )
+        front_method_set = {n for n in front_names if n is not None}
+        emphasized_methods = front_method_set | {m for m in focus_methods if m in method_names}
+        family_map = family_map or {}
+        color_map = {
+            m: (
+                FAMILY_COLORS.get(family_map.get(m, "Other"), FAMILY_COLORS["Other"])
+                if m in emphasized_methods
+                else MUTED_COLOR
+            )
+            for m in method_names
+        }
+        if method_color_overrides:
+            color_map.update(method_color_overrides)
+        # Focused-but-not-front methods still get a printed name (front members
+        # are annotated at their frontier vertices further down).
+        force_label_methods = list(force_label_methods or []) + [
+            m for m in focus_methods if m in method_names and m not in (force_label_methods or [])
+        ]
+
     fig, ax = plt.subplots(figsize=figsize)
     if xlog:
         ax.set_xscale("log")
@@ -202,6 +258,9 @@ def plot_hpo(
         times = df_method[xlabel].to_numpy()
         scores = df_method[ylabel].to_numpy()
         color = color_map[method_name]
+        emphasized = emphasized_methods is None or method_name in emphasized_methods
+        line_alpha = 0.9 if emphasized else 0.4
+        marker_size = 64 if emphasized else 25
 
         # 1) Draw the connecting line (no markers)
         (_h,) = ax.plot(
@@ -210,12 +269,13 @@ def plot_hpo(
             "-",  # no point markers
             label=method_name,
             color=color,
-            alpha=0.9,
-            linewidth=1.5,
+            alpha=line_alpha,
+            linewidth=1.5 if emphasized else 1.0,
+            zorder=3 if emphasized else 2,
         )
 
         # 2) Draw circle markers for all-but-the-max (if sort_col used)
-        if max_sort_pos is not None:
+        if max_sort_pos is not None and emphasized:
             mask = np.ones(len(df_method), dtype=bool)
             mask[max_sort_pos] = False
             if mask.any():
@@ -223,7 +283,7 @@ def plot_hpo(
                     times[mask],
                     scores[mask],
                     marker="o",
-                    s=64,  # ~markersize=16 equivalent
+                    s=marker_size,
                     color=color,
                     alpha=0.9,
                     zorder=4,
@@ -241,15 +301,16 @@ def plot_hpo(
                 zorder=5,
             )
         else:
-            # Back-compat: no sort_col → keep circles for all points
+            # Muted methods (and the no-sort_col back-compat path): plain
+            # circles for every point, no bolded max marker.
             ax.scatter(
                 times,
                 scores,
                 marker="o",
-                s=64,
+                s=marker_size,
                 color=color,
-                alpha=0.9,
-                zorder=4,
+                alpha=line_alpha,
+                zorder=4 if emphasized else 3,
             )
         points_legend = ax.scatter([], [], marker="o", s=64, color=color, alpha=0.9)
 
@@ -335,8 +396,6 @@ def plot_hpo(
         # of its trajectory points, not just the peak), then overlay it as
         # a step-style line at zorder=1 so per-method trajectories still
         # render on top.
-        from tabarena.plot.plot_pareto_frontier import get_pareto_frontier
-
         frontier_df = df[df[method_col].isin(sorted_methods)]
         Xs = frontier_df[xlabel].to_numpy()
         Ys = frontier_df[ylabel].to_numpy()
@@ -483,7 +542,35 @@ def plot_hpo(
     if legend_display_names:
         labels_legend = [legend_display_names.get(lbl, lbl) for lbl in labels_legend]
 
-    if legend_in_plot:
+    if focus_mode:
+        # Family legend strip above the axes replaces the per-method legend:
+        # with the grey-out styling, per-method entries would mostly repeat
+        # "grey" and the emphasized methods are already labeled directly.
+        from matplotlib.patches import Patch
+
+        family_map_local = family_map or {}
+        emphasized_families = {
+            family_map_local.get(m, "Other")
+            for m in sorted_methods
+            if emphasized_methods is None or m in emphasized_methods
+        }
+        families_present = [f for f in FAMILY_COLORS if f in emphasized_families]
+        focus_handles = [Patch(facecolor=FAMILY_COLORS[f], edgecolor="none", label=f) for f in families_present]
+        if emphasized_methods is not None and len(emphasized_methods) < len(method_names):
+            focus_handles.append(Patch(facecolor=MUTED_COLOR, edgecolor="none", label="Other methods"))
+        legend1 = ax.legend(
+            handles=focus_handles,
+            loc="lower left",
+            bbox_to_anchor=(0.0, 1.02),
+            ncol=4,
+            frameon=False,
+            fontsize=10,
+            handletextpad=0.5,
+            columnspacing=1.2,
+            borderaxespad=0.0,
+        )
+        bbox1_axes = None
+    elif legend_in_plot:
         legend1 = ax.legend(
             handles_legend,
             labels_legend,
@@ -524,7 +611,7 @@ def plot_hpo(
     # provided and we're rendering the legend outside the axes — the in-plot
     # path is too cramped for an extra legend without overlapping the data).
     legend2 = None
-    if dataset_metadata and not legend_in_plot:
+    if dataset_metadata and not legend_in_plot and bbox1_axes is not None:
         from matplotlib.lines import Line2D
 
         # Render keys in column 1, values in column 2, row-aligned.
@@ -586,7 +673,13 @@ def plot_hpo(
     if title is not None:
         if clip_title:
             title = _clip_title(title, max_title_chars)
-        ax.set_title(title, fontsize=title_fontsize)
+        # In focus mode the family legend strip sits just above the axes, so
+        # push the title up past it (one legend row ≈ 22pt; pad=None keeps
+        # the matplotlib default otherwise).
+        title_pad = None
+        if focus_mode:
+            title_pad = 14 + 22 * math.ceil(len(legend1.get_patches()) / 4)
+        ax.set_title(title, fontsize=title_fontsize, pad=title_pad)
 
     # ``xlabel`` / ``ylabel`` double as DataFrame column names (used for the
     # peak-per-method bookkeeping above); ``*_display`` decouples the axis
@@ -789,6 +882,7 @@ def plot_tuning_trajectories_all(
     engine: str = "auto",
     progress_bar: bool = True,
     use_elo_method_order: bool = True,
+    focus_mode: bool = False,
 ):
     if isinstance(fig_save_dir, str):
         fig_save_dir = Path(fig_save_dir)
@@ -850,6 +944,7 @@ def plot_tuning_trajectories_all(
             "plot_kwargs": plot_kwargs,
             "include_baselines": include_baselines,
             "use_elo_method_order": use_elo_method_order,
+            "focus_mode": focus_mode,
         },
         engine=engine,
         progress_bar=progress_bar,
@@ -1250,6 +1345,7 @@ def _plot_tuning_trajectories_from_prepared(
     show_coverage_legend: bool = False,
     subset_display_names: dict[str, str] | None = None,
     use_elo_method_order: bool = True,
+    focus_mode: bool = False,
 ):
     """Run the per-(dataset-subset, subset_map) leaderboard + plotting steps from already-prepared data."""
     fig_save_dir = Path(fig_save_dir)
@@ -1354,6 +1450,7 @@ def _plot_tuning_trajectories_from_prepared(
             title_prefix=subset_title_prefix,
             use_elo_method_order=use_elo_method_order,
             benchmark_name=getattr(tabarena_context, "benchmark_name", "Arena"),
+            focus_mode=focus_mode,
         )
 
 
@@ -1379,6 +1476,7 @@ def plot_tuning_trajectories(
     show_coverage_legend: bool = False,
     subset_display_names: dict[str, str] | None = None,
     use_elo_method_order: bool = True,
+    focus_mode: bool = False,
 ):
     name_col = "config_type"
     if subset_map is None:
@@ -1428,6 +1526,7 @@ def plot_tuning_trajectories(
         show_coverage_legend=show_coverage_legend,
         subset_display_names=subset_display_names,
         use_elo_method_order=use_elo_method_order,
+        focus_mode=focus_mode,
     )
 
 
@@ -1465,7 +1564,9 @@ def plot_tuning_trajectories_from_leaderboard(
     title_prefix: str | None = None,
     use_elo_method_order: bool = True,
     benchmark_name: str = "Arena",
+    focus_mode: bool = False,
 ):
+    fig_save_dir = Path(fig_save_dir)
     if plot_kwargs is None:
         plot_kwargs = {}
     plot_kwargs = plot_kwargs.copy()
@@ -1473,6 +1574,42 @@ def plot_tuning_trajectories_from_leaderboard(
     plot_kwargs.setdefault("ylim_imp", (0, None))
     # Threaded into every ``plot_hpo`` call below; harmless when ``None``.
     plot_kwargs["dataset_metadata"] = dataset_metadata
+
+    method_col = plot_kwargs.get("method_col", "name")
+
+    # Focus styling (family colors for Pareto-front + focus methods, grey
+    # field otherwise) for every static figure in this set.
+    if focus_mode:
+        plot_kwargs["focus_mode"] = True
+        plot_kwargs.setdefault(
+            "family_map",
+            {m: get_model_family(m) for m in leaderboard[method_col].unique()},
+        )
+
+    # Interactive explorer + underlying data export, mirroring the
+    # ``pareto_n_configs_imp`` figure (improvability vs train time, with an
+    # Elo y-axis toggle). Self-contained HTML embedded by the website.
+    explorer_points = pd.DataFrame(
+        {
+            "method": leaderboard[method_col],
+            "family": leaderboard[method_col].map(get_model_family),
+            "x": leaderboard["Train time per 1K samples (s) (median)"],
+            "imp": leaderboard["Improvability (%)"],
+            "elo": leaderboard["Elo"],
+        }
+    )
+    if "n_configs" in leaderboard.columns:
+        explorer_points["n_configs"] = leaderboard["n_configs"]
+    explorer_points = explorer_points.dropna(subset=["x", "imp", "elo"])
+    if not explorer_points.empty:
+        build_pareto_explorer_html(
+            points=explorer_points,
+            mode="trajectory",
+            x_label="Train time per 1K samples (s), median — log scale",
+            save_path=fig_save_dir / "tuning_trajectories_explorer.html",
+            page_title="TabArena tuning trajectories",
+        )
+        explorer_points.to_csv(fig_save_dir / "tuning_trajectories.csv", index=False)
 
     # Single shared title across every ``plot_hpo`` call in this set.
     # ``<benchmark_name>-<subset>`` prefix matches the format used by the winrate
