@@ -513,9 +513,20 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
   function familyMethods(fam) {
     return [...byMethod.keys()].filter(m => byMethod.get(m)[0].family === fam);
   }
+  // Chips are listed by leaderboard rank — best Elo first when Elo is
+  // configured, otherwise best value of the primary metric.
+  const RANK_METRIC = metricByKey["elo"] || metricByKey[METRICS[0].key];
+  function bestVal(method) {
+    const vals = byMethod.get(method).map(p => mval(p, RANK_METRIC));
+    return RANK_METRIC.lowerBetter ? Math.min(...vals) : Math.max(...vals);
+  }
+  function rankSorted(methods) {
+    return [...methods].sort((a, b) =>
+      RANK_METRIC.lowerBetter ? bestVal(a) - bestVal(b) : bestVal(b) - bestVal(a));
+  }
   function buildChips() {
     for (const fam of FAM_ORDER) {
-      const methods = familyMethods(fam).sort();
+      const methods = rankSorted(familyMethods(fam));
       if (!methods.length) continue;
       const row = document.createElement("div");
       row.className = "chiprow";
