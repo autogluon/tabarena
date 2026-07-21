@@ -88,10 +88,11 @@ class AbstractArenaContext:
         "lite": SubsetPredicate(lambda df: df["split"] == 0, ("split",)),
     }
 
-    #: Named shortcuts for standard subslices, each a list of :attr:`SUBSET_PREDICATES` names
-    #: AND-ed together (the same form ``compare`` / ``build_jobs`` accept as a ``subset``). Lets
+    #: Named shortcuts for standard subslices, each a list of subset expressions AND-ed together
+    #: (the same form ``compare`` / ``build_jobs`` accept as a ``subset``: atoms are
+    #: :attr:`SUBSET_PREDICATES` names, a leading ``!`` negates an atom, ``|`` is a union). Lets
     #: callers refer to a reusable slice (e.g. ``"high_dim"`` -> ``["core", "high-dim"]``) by name
-    #: instead of respelling the predicate list. Base context defines none; subclasses override.
+    #: instead of respelling the expression list. Base context defines none; subclasses override.
     #: Read via :attr:`subset_shortcuts` so subclass overrides take effect.
     SUBSET_SHORTCUTS: dict[str, list[str]] = {}
 
@@ -582,20 +583,21 @@ class AbstractArenaContext:
 
     @property
     def subset_shortcuts(self) -> dict[str, list[str]]:
-        """Named shortcuts for standard subslices (shortcut name -> list of subset-predicate
-        names AND-ed together). Reads from ``type(self).SUBSET_SHORTCUTS`` so subclass overrides
-        take effect.
+        """Named shortcuts for standard subslices (shortcut name -> list of subset expressions
+        AND-ed together; atoms are subset-predicate names, ``!`` negates, ``|`` unions). Reads
+        from ``type(self).SUBSET_SHORTCUTS`` so subclass overrides take effect.
         """
         return type(self).SUBSET_SHORTCUTS
 
     @classmethod
     def subset_shortcut_name(cls, subset: str | list[str] | None) -> str | None:
-        """Reverse of :attr:`subset_shortcuts`: the shortcut name whose predicate list
+        """Reverse of :attr:`subset_shortcuts`: the shortcut name whose expression list
         matches ``subset`` (order-insensitive), or ``None`` if none does.
 
         ``subset`` takes the AND-list forms a single :class:`TaskSubset` view accepts — a lone
-        predicate name (``"core"``), a list (``["core", "high-dim"]``), or ``None``/``[]`` — and is
-        compared as a set, so ``["high-dim", "core"]`` still resolves to ``"high_dim"``.
+        expression (``"core"``), a list (``["core", "high-dim"]``, ``["core", "!large"]``), or
+        ``None``/``[]`` — and is compared as a set of expression strings, so
+        ``["high-dim", "core"]`` still resolves to ``"high_dim"``.
         """
         if subset is None:
             subset = []

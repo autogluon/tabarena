@@ -84,7 +84,7 @@ def _make_result_config(dataset: str, tid: int, config: str, seed: int) -> dict:
         label="class",
     )
     result["method_metadata"] = dict(
-        model_hyperparameters={"param1": seed},
+        model_hyperparameters={"param1": config},
         model_cls="DummyModel",
         model_type="DUMMY",
         ag_key="DUMMY",
@@ -163,7 +163,7 @@ class TestFromPathRawFullTiers:
         repo = reloaded.load_processed()
         assert sorted(repo.datasets()) == ["d1", "d2"]
         assert sorted(repo.configs()) == ["Dummy_c1", "Dummy_c2"]
-        assert repo.config_hyperparameters(config="Dummy_c1") == {"param1": 0}
+        assert repo.config_hyperparameters(config="Dummy_c1") == {"param1": "Dummy_c1"}
         # Predictions round-trip (float32 storage) for a known (task, config).
         expected = _config_results()[0]["simulation_artifacts"]["pred_test"]
         loaded = repo.predict_test(dataset="d1", fold=0, config="Dummy_c1")

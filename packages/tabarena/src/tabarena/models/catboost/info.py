@@ -14,6 +14,7 @@ catboost_descriptor = ModelDescriptor(
     date_introduced="2017-06",
 )
 
+# Superseded by the rerun below; kept so the hosted artifacts stay loadable.
 catboost_method_metadata = catboost_descriptor.method_metadata(
     method="CatBoost",
     suite="tabarena-2025-06-12",
@@ -25,9 +26,20 @@ catboost_method_metadata = catboost_descriptor.method_metadata(
     # FIXME: technically GBDTs are not verified
 )
 
+# Pareto-front rerun with the improved train/infer time measurement.
+catboost_new_method_metadata = catboost_descriptor.method_metadata(
+    method="CatBoost",
+    suite="tabarena-2026-07-13",
+    ag_key="CAT",
+    config_default="CatBoost_c1_default_BAG_L1",
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+    date="2026-07-15",
+)
+
 
 catboost_info = ModelInfo(
     model_cls=CatBoostModel,
     search_space=gen_catboost,
-    method_metadata=catboost_method_metadata,
+    method_metadata=catboost_new_method_metadata,
 )

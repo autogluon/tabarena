@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.constants import BINARY, MULTICLASS, REGRESSION
@@ -12,11 +12,56 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-class TabDPTModel(AbstractTorchModel):
-    ag_key = "TA-TABDPT"
-    ag_name = "TA-TabDPT"
+class TabDPTModelBase(AbstractTorchModel):
+    """Shared AutoGluon wrapper for the TabDPT tabular foundation model.
+
+    TabDPT is a tabular foundation model that performs in-context learning: one pre-trained
+    transformer conditions on (a subset of) the training rows at inference time, with no
+    per-dataset gradient training.
+
+    This base holds everything common across TabDPT versions (preprocessing, device /
+    flash-attention handling, resources, prediction, memory estimate). A concrete subclass pins a
+    version purely by declaring:
+
+    * :attr:`_constructor_defaults` — the estimator constructor kwargs (and this version's default
+      values) to forward, so a version never receives a kwarg its ``tabdpt`` release doesn't accept
+      and each version recovers its own defaults;
+    * :attr:`_predict_hp_names` — the predict-time hyperparameters accepted per task.
+
+    TabDPT auto-selects the matching checkpoint from the installed ``tabdpt`` package, so there is
+    no per-version checkpoint path to set. Not registered directly (no ``info.py`` entry); use the
+    concrete :class:`TabDPTModel` (v1.1) / :class:`TabDPTTurboModel` (v1.2) subclasses.
+
+    Paper: "TabDPT: Scaling Tabular Foundation Models on Real Data" (NeurIPS 2025).
+    Authors: Junwei Ma, Valentin Thomas, Rasa Hosseinzadeh, Alex Labach, Hamidreza Kamkari,
+        Jesse C. Cresswell, Keyvan Golestan, Guangwei Yu, Anthony L. Caterini, Maksims Volkovs.
+    Codebase: https://github.com/layer6ai-labs/TabDPT-inference
+    License: Apache-2.0.
+    """
+
+    ag_key = "NOTSET"
+    ag_name = "NOTSET"
+    ag_priority = 65
     seed_name = "seed"
     default_random_seed = 0
+
+    #: Hugging Face repo hosting every TabDPT checkpoint.
+    _hf_repo_id: ClassVar[str] = "Layer6/TabDPT"
+    #: This version's checkpoint filename in :attr:`_hf_repo_id`. The installed ``tabdpt`` package
+    #: hardcodes a single version (``tabdpt<VER>.safetensors``), so we pin the correct weights per
+    #: version explicitly via ``model_weight_path`` rather than relying on the package default —
+    #: otherwise every version would load whatever weights the installed package points at.
+    #: Set per concrete subclass.
+    _checkpoint_filename: ClassVar[str | None] = None
+
+    #: Estimator constructor kwargs forwarded for this version, mapped to the version's default
+    #: value (resolved from the fit hyperparameters, falling back to the default). Overridden per
+    #: concrete subclass; ``device`` / ``use_flash`` / ``model_weight_path`` are always added on
+    #: top in :meth:`_init_tabdpt_model`.
+    _constructor_defaults: ClassVar[dict[str, object]] = {}
+    #: Predict-time hyperparameters accepted by this version, split by task. ``temperature`` /
+    #: ``permute_classes`` are classification-only. Overridden per concrete subclass.
+    _predict_hp_names: ClassVar[dict[str, tuple[str, ...]]] = {"classifier": (), "regressor": ()}
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -43,10 +88,9 @@ class TabDPTModel(AbstractTorchModel):
             )
         from tabdpt import TabDPTClassifier, TabDPTRegressor
 
-        model_cls = TabDPTClassifier if self.problem_type in [BINARY, MULTICLASS] else TabDPTRegressor
-        supported_predict_hps = (
-            ("context_size", "permute_classes", "temperature") if model_cls is TabDPTClassifier else ("context_size",)
-        )
+        is_classifier = self.problem_type in [BINARY, MULTICLASS]
+        model_cls = TabDPTClassifier if is_classifier else TabDPTRegressor
+        supported_predict_hps = self._predict_hp_names["classifier" if is_classifier else "regressor"]
 
         hps = self._get_model_params()
         random_seed = hps.pop(self.seed_name, self.default_random_seed)
@@ -54,16 +98,51 @@ class TabDPTModel(AbstractTorchModel):
         self._predict_hps["seed"] = random_seed
         X = self.preprocess(X, y=y)
         y = y.to_numpy()
-        self.model = model_cls(
-            device=device,
-            use_flash=self._use_flash(),
-            normalizer=hps.get("normalizer", "standard"),
-            missing_indicators=hps.get("missing_indicators", False),
-            clip_sigma=hps.get("clip_sigma", 4),
-            feature_reduction=hps.get("feature_reduction", "pca"),
-            faiss_metric=hps.get("faiss_metric", "l2"),
-        )
+        self.model = self._init_tabdpt_model(model_cls=model_cls, device=device, hps=hps)
         self.model.fit(X=X, y=y)
+
+    def _init_tabdpt_model(self, *, model_cls, device: str, hps: dict):
+        """Construct (but do not fit) the underlying TabDPT estimator.
+
+        Shared across versions: forwards ``device`` / ``use_flash`` / this version's checkpoint
+        (``model_weight_path``) plus this version's :attr:`_constructor_defaults` (each resolved
+        from ``hps`` with the version's default).
+        """
+        kwargs = {
+            "device": device,
+            "use_flash": self._use_flash(),
+            "model_weight_path": self._download_checkpoint(),
+        }
+        for param, default in self._constructor_defaults.items():
+            kwargs[param] = hps.get(param, default)
+        return model_cls(**kwargs)
+
+    @classmethod
+    def _download_checkpoint(cls) -> str:
+        """Resolve this version's checkpoint to a local path (from cache, else download).
+
+        Tries the local cache first so prefetched / offline compute nodes skip the etag
+        HEAD-request that ``hf_hub_download`` makes by default.
+        """
+        from huggingface_hub import hf_hub_download
+        from huggingface_hub.errors import LocalEntryNotFoundError
+
+        assert cls._checkpoint_filename is not None, (
+            f"{cls.__name__} must set `_checkpoint_filename` to pin its TabDPT weights."
+        )
+        try:
+            return hf_hub_download(
+                repo_id=cls._hf_repo_id,
+                filename=cls._checkpoint_filename,
+                local_files_only=True,
+            )
+        except LocalEntryNotFoundError:
+            return hf_hub_download(repo_id=cls._hf_repo_id, filename=cls._checkpoint_filename)
+
+    @classmethod
+    def prefetch_weights(cls) -> str:
+        """Pre-download this version's TabDPT checkpoint (warms the cache for offline/parallel fits)."""
+        return cls._download_checkpoint()
 
     @staticmethod
     def _use_flash() -> bool:
@@ -144,7 +223,10 @@ class TabDPTModel(AbstractTorchModel):
     @classmethod
     def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
         default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
+        # `sequential_local` fold fitting avoids contention on the shared HF checkpoint cache;
+        # `refit_folds` refits a single model on all data for faster inference at similar quality.
         extra_ag_args_ensemble = {
+            "fold_fitting_strategy": "sequential_local",
             "refit_folds": True,
         }
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
@@ -190,8 +272,67 @@ class TabDPTModel(AbstractTorchModel):
         return int(memory_estimate)
 
 
-def prefetch_weights() -> None:
-    """Pre-download the TabDPT weights (warms the cache for offline / parallel fits)."""
-    from tabdpt.estimator import TabDPTEstimator
+class TabDPTModel(TabDPTModelBase):
+    """TabDPT v1.1 (the original TabArena-benchmarked release).
 
-    TabDPTEstimator.download_weights()
+    Uses FAISS retrieval as its default context reduction (the v1.1 default) and the v1.1
+    constructor defaults. See :class:`TabDPTModelBase` for the shared implementation and paper /
+    codebase / license details.
+    """
+
+    ag_key = "TA-TABDPT"
+    ag_name = "TA-TabDPT"
+
+    _checkpoint_filename: ClassVar[str] = "tabdpt1_1.safetensors"
+    _constructor_defaults: ClassVar[dict[str, object]] = {
+        "normalizer": "standard",
+        "missing_indicators": False,
+        "clip_sigma": 4,
+        "feature_reduction": "pca",
+        "faiss_metric": "l2",
+    }
+    _predict_hp_names: ClassVar[dict[str, tuple[str, ...]]] = {
+        "classifier": ("context_size", "permute_classes", "temperature"),
+        "regressor": ("context_size",),
+    }
+
+
+class TabDPTTurboModel(TabDPTModelBase):
+    """TabDPT-Turbo (TabDPT v1.2).
+
+    Accelerates fitting and inference by ~120x on average on TabArena versus v1.1 while improving
+    predictive performance, chiefly by defaulting to subsampled context reduction (instead of
+    v1.1's FAISS retrieval) plus long-context support and updated weights. Exposes the v1.2 predict
+    knobs (``n_ensembles`` / ``batch_size``) and constructor surface (``compile`` / ``verbose`` /
+    ``context_reduction``); see :class:`TabDPTModelBase` for the shared implementation.
+
+    Paper: "TabDPT-Turbo" — https://openreview.net/pdf?id=Y00pwFyrHR
+
+    Both wrappers share the ``tabdpt`` pip package (extra pinned to ``tabdpt>=1.2.0``), so a shared
+    install runs v1.2 for both; the v1.1 wrapper then uses v1.2 defaults.
+    """
+
+    ag_key = "TA-TABDPT-TURBO"
+    ag_name = "TA-TabDPT-Turbo"
+
+    _checkpoint_filename: ClassVar[str] = "tabdpt1_2.safetensors"
+    _constructor_defaults: ClassVar[dict[str, object]] = {
+        # `compile` is off by default: torch.compile adds per-fit compilation overhead (costly
+        # across TabArena's many small bagged/refit fits) and a compiled module complicates
+        # AutoGluon's CPU-save / GPU-reload pickling cycle. The core Turbo speedup comes from
+        # context_reduction="subsample" + the v1.2 weights, both kept below.
+        "compile": False,
+        "verbose": False,
+        "normalizer": "standard",
+        "missing_indicators": False,
+        "clip_sigma": 8,  # v1.2 default (v1.1 uses 4)
+        "feature_reduction": "pca",
+        "context_reduction": "subsample",
+        "faiss_metric": "l2",
+    }
+    _predict_hp_names: ClassVar[dict[str, tuple[str, ...]]] = {
+        # v1.2 adds `n_ensembles` / `batch_size` to both tasks; `temperature` / `permute_classes`
+        # remain classification-only (the regressor's predict() rejects them).
+        "classifier": ("n_ensembles", "context_size", "batch_size", "permute_classes", "temperature"),
+        "regressor": ("n_ensembles", "context_size", "batch_size"),
+    }

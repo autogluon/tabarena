@@ -84,6 +84,7 @@ def get_model_family(model_name: str) -> str:
         Constants.tree: ["GBM", "CAT", "EBM", "XGB", "XT", "RF", "PB", "CHIMERA"],
         Constants.foundational: [
             "TABDPT",
+            "TABDPT_TURBO",
             "TABICL",
             "TABPFN",
             "MITRA",
@@ -134,6 +135,7 @@ def get_rename_map() -> dict[str, str]:
         "TABPFNV2": "TabPFNv2",
         "EBM": "EBM",
         "TABDPT": "TabDPT",
+        "TABDPT_TURBO": "TabDPT-Turbo",
         "TABICL": "TabICL",
         "KNN": "KNN",
         "LR": "Linear",

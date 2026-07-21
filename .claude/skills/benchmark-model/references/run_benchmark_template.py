@@ -66,7 +66,7 @@ def setup() -> None:
             ),
         ],
         context=TabArenaContext(),
-        task_subset=TaskSubset(subset="lite"),  # "lite" = first split/fold of every task
+        task_subset=TaskSubset(),  # no filter = the full task set (all splits); TaskSubset(subset="lite") for a quick first-split run
         experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
         path_setup=_path_setup(),
         resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
@@ -82,10 +82,10 @@ def evaluate() -> None:
         output_dir=_path_setup().get_output_path(BENCHMARK_NAME),
         methods=[EvalMethod(MODEL)],  # add result_suffix / only_load_cache if needed
         figure_output_dir=Path(__file__).parent / "eval_output" / BENCHMARK_NAME,
-        # One entry per subset the model has results for. Multi-type model:
-        # [["lite"], ["binary"], ["multiclass"], ["regression"]]. Regression-only: [["regression"]].
-        subsets=[["lite"]],
-        # figure_file_type=("pdf", "png"),  # also emit PNGs alongside the PDFs (default "pdf")
+        # One entry per subset to score. `[]` = the full task set (overall leaderboard); add
+        # per-type views as needed, e.g. [[], ["binary"], ["multiclass"], ["regression"]].
+        subsets=[[]],
+        figure_file_type=("pdf", "png"),  # emit PNGs alongside the PDFs (default: "pdf" only)
     )
     run_eval(config)
 
