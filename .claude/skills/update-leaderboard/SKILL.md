@@ -200,20 +200,37 @@ automatically, or `ssh -L 7860:localhost:7860 …`).
 
 ## Step 6: Hand off (maintainer commits + pushes)
 
-Claude does **not** commit/push the Space — it's a HuggingFace Space using **Git LFS + Git Xet** for
-the `.png.zip` files, and there is no HF token on this box. Tell the maintainer to, from
-`<lb_code_dir>`:
+By default the **maintainer** commits/pushes the Space (Git LFS + Git Xet for the `.png.zip` files;
+`hf auth login --add-to-git-credential` is set up on this box, so Claude *can* push when explicitly
+asked). From `<lb_code_dir>`:
 
 ```bash
 git add data website_texts.py && git commit -m "Update leaderboard data + version history" && git push
 ```
 
+`git add data` matters: a refresh both **modifies** the tracked `.png.zip`/CSV files and **adds new
+untracked files** (the `*_explorer.html` + data-export CSVs) — an IDE commit of "changed files only"
+silently drops the interactive plots and the site falls back to static PNGs.
+
 Surface these caveats:
 - The `data/` swap only reflects methods whose results were actually **uploaded** (`upload-method`,
   the real `--no-dry-run`). A method registered in `methods.py` but not uploaded won't have artifacts.
 - `leaderboard-testing` is the **private preview**; pushing to `leaderboard` publishes **live**.
-- If the push is rejected for storage, see the generator's module docstring (Space "Git Storage
-  Usage" cleanup — destructive).
+
+### Storage-limit rejections (`Repository storage limit reached (Max: 1 GB)`)
+
+Space repos cap git-LFS storage at 1 GB and each refresh adds ~85 MB of new figure zips, so this
+rejection recurs every ~10 refreshes. Fix it with the **HEAD-aware purge** script next to this skill
+— it deletes only the stored LFS objects the local HEAD (the state about to be pushed) no longer
+references, so the live revision (incl. `data_beyondarena/`) keeps working, and it leaves history
+un-rewritten so the pending push stays a fast-forward. Old Space revisions permanently lose their
+binaries (fine — artifacts are regenerable):
+
+```bash
+cd <lb_code_dir>   # HEAD must be the commit you are about to push
+<generation_venv>/bin/python <tabarena>/.claude/skills/update-leaderboard/purge_stale_lfs.py            # dry run
+<generation_venv>/bin/python <tabarena>/.claude/skills/update-leaderboard/purge_stale_lfs.py --delete   # purge, then push
+```
 
 ## Note: BeyondArena is a sibling flow
 

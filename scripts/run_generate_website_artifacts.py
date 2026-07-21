@@ -42,13 +42,15 @@ Steps:
 
 4. Commit all Space file changes and push.
 
-5. If the push is still rejected, check the "Git Storage Usage" here:
-   https://huggingface.co/spaces/TabArena/leaderboard/settings
-   If it is >700 MB, you may have to delete the stored files to free up space.
-   NOTE: This is a destructive operation, the old leaderboard will cease to
-   function once this is done. To delete the stored files, go here and click the
-   top-left button to check all files, then click "Remove selected":
-   https://huggingface.co/spaces/TabArena/leaderboard/settings?lfs-files=true
+5. If the push is rejected with "Repository storage limit reached (Max: 1 GB)":
+   run the HEAD-aware LFS purge from within the Space checkout, then push again:
+       python <tabarena>/.claude/skills/update-leaderboard/purge_stale_lfs.py --delete
+   It permanently deletes only the stored LFS objects the local HEAD no longer
+   references (old refreshes' figures), so the revision being pushed — and the
+   untouched data_beyondarena/ files — keep working. Old Space revisions lose
+   their binaries (they are regenerable). Do NOT use the settings-UI
+   "select all + Remove" flow — that also deletes objects the live revision
+   still needs.
 """
 
 from __future__ import annotations
