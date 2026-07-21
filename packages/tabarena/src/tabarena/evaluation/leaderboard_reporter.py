@@ -671,8 +671,16 @@ class LeaderboardReporter:
         winrate_method_rename: dict[str, str] | None = None,
         plot_only: list[str] | None = None,
         method_color_overrides: dict[str, str] | None = None,
+        website_only: bool = False,
     ) -> pd.DataFrame:
         """Compute the leaderboard for ``df_results`` and render the TabArena figures.
+
+        ``website_only`` (default ``False``) renders only the outputs the
+        tabarena.ai website ships (leaderboard CSVs, the vertical
+        ``tuning-impact-elo`` bar plot, the win-rate matrix, and the Pareto
+        figures + interactive explorer), skipping the rest of the paper
+        figure suite (date-introduced scatters and their GIF animations,
+        LaTeX tables, the horizontal Elo bar plot).
 
         ``plot_only`` (default ``None`` -> show everything) restricts the *plots*
         to a subset of methods without affecting any numbers: the leaderboard,
@@ -914,18 +922,19 @@ class LeaderboardReporter:
         leaderboard = leaderboard.reset_index(drop=False)
         save_pd.save(path=f"{self.output_dir}/tabarena_leaderboard.csv", df=leaderboard)
 
-        # Elo vs. method introduction date (no-op unless `date_introduced` method metadata is available).
-        self.plot_elo_vs_date_introduced(leaderboard=leaderboard, show=False)
-        self.animate_elo_vs_date_introduced(leaderboard=leaderboard)
-        self.plot_improvability_vs_date_introduced(leaderboard=leaderboard, show=False)
-        self.animate_improvability_vs_date_introduced(leaderboard=leaderboard)
+        if not website_only:
+            # Elo vs. method introduction date (no-op unless `date_introduced` method metadata is available).
+            self.plot_elo_vs_date_introduced(leaderboard=leaderboard, show=False)
+            self.animate_elo_vs_date_introduced(leaderboard=leaderboard)
+            self.plot_improvability_vs_date_introduced(leaderboard=leaderboard, show=False)
+            self.animate_improvability_vs_date_introduced(leaderboard=leaderboard)
 
-        self.create_leaderboard_latex(
-            leaderboard,
-            framework_types=framework_types,
-            save_dir=self.output_dir,
-            hidden_methods=plot_tuning_kwargs.get("hidden_methods"),
-        )
+            self.create_leaderboard_latex(
+                leaderboard,
+                framework_types=framework_types,
+                save_dir=self.output_dir,
+                hidden_methods=plot_tuning_kwargs.get("hidden_methods"),
+            )
 
         n_tasks = len(df_results_rank_compare[[tabarena.task_col, tabarena.seed_column]].drop_duplicates())
 
@@ -936,23 +945,24 @@ class LeaderboardReporter:
             with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
                 print(leaderboard)
 
-        # horizontal elo barplot
-        self.plot_tuning_impact(
-            df=df_results_rank_compare,
-            df_elo=leaderboard,
-            framework_types=framework_types,
-            save_prefix=f"{self.output_dir}",
-            use_gmean=use_gmean,
-            baselines=baselines,
-            baseline_colors=baseline_colors,
-            name_suffix="-elo-horizontal",
-            imputed_names=imputed_names,
-            plot_tune_types=plot_tune_types,
-            use_y=True,
-            show=False,
-            method_color_overrides=method_color_overrides,
-            **plot_tuning_kwargs,
-        )
+        # horizontal elo barplot (the website ships only the vertical one)
+        if not website_only:
+            self.plot_tuning_impact(
+                df=df_results_rank_compare,
+                df_elo=leaderboard,
+                framework_types=framework_types,
+                save_prefix=f"{self.output_dir}",
+                use_gmean=use_gmean,
+                baselines=baselines,
+                baseline_colors=baseline_colors,
+                name_suffix="-elo-horizontal",
+                imputed_names=imputed_names,
+                plot_tune_types=plot_tune_types,
+                use_y=True,
+                show=False,
+                method_color_overrides=method_color_overrides,
+                **plot_tuning_kwargs,
+            )
 
         # vertical elo barplot
         self.plot_tuning_impact(
@@ -1891,9 +1901,9 @@ class LeaderboardReporter:
         save_pd.save(path=str(Path(self.output_dir) / "pareto_front_points.csv"), df=points)
         build_pareto_explorer_html(
             points=points,
-            # Inference time is the default view (the panel the website led
-            # with historically); train time is the toggle.
-            x_keys=["x_infer", "x_train"],
+            # Single time axis (inference, the panel the website led with
+            # historically); train time stays available in the CSV export.
+            x_keys=["x_infer"],
             save_path=Path(self.output_dir) / "pareto_front_explorer.html",
         )
 

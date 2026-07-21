@@ -89,6 +89,7 @@ class WebsiteArtifactGenerator:
         run_trajectories: bool = True,
         elo_bootstrap_rounds: int = 200,
         zip_raw: bool = False,
+        website_only: bool = True,
     ):
         """Regenerate the raw figures/tables.
 
@@ -99,7 +100,10 @@ class WebsiteArtifactGenerator:
         (Elo CIs are meaningless then); 200 is the official setting. ``zip_raw``
         additionally zips the raw artifacts folder (~hundreds of MB, several
         minutes) — the publishing flow only needs the *clean* zip, so this is
-        off by default.
+        off by default. ``website_only`` (default) renders only the outputs the
+        website ships per subset instead of the full paper figure suite
+        (~35 figures per subset, incl. GIF animations); disable it when the raw
+        artifacts should double as paper material.
         """
         save_path = self.raw_artifacts_dir  # folder to save all figures and tables
 
@@ -143,15 +147,16 @@ class WebsiteArtifactGenerator:
                 use_website_folder_names=True,
                 evaluator_kwargs=evaluator_kwargs,
                 engine=engine,
+                website_only=website_only,
             )
 
         if run_trajectories:
             plot_tuning_trajectories_all(
                 tabarena_context=tabarena_context,
                 fig_save_dir=save_path,
-                # Weak methods (KNN, Linear, ...) are greyed out by the focus
-                # styling instead of being dropped from the plots.
-                ban_bad_methods=False,
+                # Drops the baselines (KNN/Linear) only; weak non-baseline
+                # methods stay, greyed out by the focus styling.
+                ban_bad_methods=True,
                 file_ext=file_ext,
                 engine=engine,
                 # Order methods per-plot by each plot's own y-axis instead of pinning a
@@ -162,6 +167,7 @@ class WebsiteArtifactGenerator:
                 # labels, all other trajectories greyed out. Also writes the
                 # interactive tuning_trajectories_explorer.html per subset.
                 focus_mode=True,
+                website_only=website_only,
             )
 
         if zip_raw:
@@ -230,6 +236,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Also zip the raw artifacts folder (large + slow; the publish flow only needs the clean zip).",
     )
+    parser.add_argument(
+        "--full-figures",
+        action="store_true",
+        help="Render the full paper figure suite per subset instead of only the website-shipped outputs.",
+    )
     args = parser.parse_args()
 
     # Everything (both subfolders and the zips) is written under base_dir.
@@ -241,6 +252,7 @@ if __name__ == "__main__":
         run_trajectories=not args.skip_trajectories,
         elo_bootstrap_rounds=args.elo_bootstrap_rounds,
         zip_raw=args.zip_raw,
+        website_only=not args.full_figures,
     )
 
     # Generate the 'clean_website_artifacts' folder (fast)

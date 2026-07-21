@@ -886,6 +886,7 @@ def plot_tuning_trajectories_all(
     progress_bar: bool = True,
     use_elo_method_order: bool = True,
     focus_mode: bool = False,
+    website_only: bool = False,
 ):
     if isinstance(fig_save_dir, str):
         fig_save_dir = Path(fig_save_dir)
@@ -948,6 +949,7 @@ def plot_tuning_trajectories_all(
             "include_baselines": include_baselines,
             "use_elo_method_order": use_elo_method_order,
             "focus_mode": focus_mode,
+            "website_only": website_only,
         },
         engine=engine,
         progress_bar=progress_bar,
@@ -1349,6 +1351,7 @@ def _plot_tuning_trajectories_from_prepared(
     subset_display_names: dict[str, str] | None = None,
     use_elo_method_order: bool = True,
     focus_mode: bool = False,
+    website_only: bool = False,
 ):
     """Run the per-(dataset-subset, subset_map) leaderboard + plotting steps from already-prepared data."""
     fig_save_dir = Path(fig_save_dir)
@@ -1375,7 +1378,10 @@ def _plot_tuning_trajectories_from_prepared(
         leaderboard["name"] = leaderboard["name"].map(method_rename_map).fillna(leaderboard["name"])
 
         if ban_bad_methods:
-            bad_methods = ["KNN", "Linear", "PerpetualBooster", "TabSTAR", "TabFlex"]
+            # Baselines only: they sit far above every real method and would
+            # stretch the improvability axis. Weak non-baseline methods stay
+            # (greyed out by the focus styling).
+            bad_methods = ["KNN", "Linear"]
             leaderboard = leaderboard[~leaderboard["config_type"].isin(bad_methods)]
 
         if hidden_methods:
@@ -1454,6 +1460,7 @@ def _plot_tuning_trajectories_from_prepared(
             use_elo_method_order=use_elo_method_order,
             benchmark_name=getattr(tabarena_context, "benchmark_name", "Arena"),
             focus_mode=focus_mode,
+            website_only=website_only,
         )
 
 
@@ -1480,6 +1487,7 @@ def plot_tuning_trajectories(
     subset_display_names: dict[str, str] | None = None,
     use_elo_method_order: bool = True,
     focus_mode: bool = False,
+    website_only: bool = False,
 ):
     name_col = "config_type"
     if subset_map is None:
@@ -1530,6 +1538,7 @@ def plot_tuning_trajectories(
         subset_display_names=subset_display_names,
         use_elo_method_order=use_elo_method_order,
         focus_mode=focus_mode,
+        website_only=website_only,
     )
 
 
@@ -1568,6 +1577,7 @@ def plot_tuning_trajectories_from_leaderboard(
     use_elo_method_order: bool = True,
     benchmark_name: str = "Arena",
     focus_mode: bool = False,
+    website_only: bool = False,
 ):
     fig_save_dir = Path(fig_save_dir)
     if plot_kwargs is None:
@@ -1617,9 +1627,9 @@ def plot_tuning_trajectories_from_leaderboard(
         build_pareto_explorer_html(
             points=explorer_points,
             mode="trajectory",
-            # Train time is the default view (tuning budget); inference time
-            # is the toggle.
-            x_keys=["x_train", "x_infer"],
+            # Single time axis (train time = tuning budget); inference time
+            # stays available in the CSV export.
+            x_keys=["x_train"],
             save_path=fig_save_dir / "tuning_trajectories_explorer.html",
             page_title="TabArena tuning trajectories",
         )
@@ -1654,6 +1664,21 @@ def plot_tuning_trajectories_from_leaderboard(
 
     ylim_imp = plot_kwargs.pop("ylim_imp")
     err_ylabel = _test_error_ylabel(error_ylabel_metric)
+
+    # The one trajectory figure the website ships (improvability vs train
+    # time); in website_only mode every other figure variant below is skipped.
+    plot_hpo(
+        df=leaderboard,
+        xlabel="Train time per 1K samples (s) (median)",
+        ylabel="Improvability (%)",
+        save_path=fig_save_dir / f"pareto_n_configs_imp{file_ext}",
+        max_Y=False,
+        ylim=ylim_imp,
+        clamp_negative_ymin=True,
+        **plot_kwargs,
+    )
+    if website_only:
+        return
 
     plot_hpo(
         df=leaderboard,
@@ -1712,16 +1737,6 @@ def plot_tuning_trajectories_from_leaderboard(
         save_path=fig_save_dir / f"pareto_n_configs_elo_val{file_ext}",
         max_Y=True,
         optimal_arrow=False,
-        **plot_kwargs,
-    )
-    plot_hpo(
-        df=leaderboard,
-        xlabel="Train time per 1K samples (s) (median)",
-        ylabel="Improvability (%)",
-        save_path=fig_save_dir / f"pareto_n_configs_imp{file_ext}",
-        max_Y=False,
-        ylim=ylim_imp,
-        clamp_negative_ymin=True,
         **plot_kwargs,
     )
     plot_hpo(

@@ -42,6 +42,9 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     --tooltip-ink: #fbfbf9;
     color-scheme: light;
   }
+  /* Dark tokens twice: the media query follows the OS preference, and the
+     [data-theme="dark"] scope lets an embedding page (e.g. the always-dark
+     leaderboard Space) force dark regardless of the OS setting. */
   @media (prefers-color-scheme: dark) {
     :root {
       --paper: #131316;
@@ -63,6 +66,26 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
       --tooltip-ink: #14161a;
       color-scheme: dark;
     }
+  }
+  :root[data-theme="dark"] {
+    --paper: #131316;
+    --card: #1b1b1f;
+    --ink: #f0efea;
+    --muted: #9b9a92;
+    --line: #2e2e33;
+    --accent: #3987e5;
+    --chip-bg: #232327;
+    --pt-muted: #55555c;
+    --fam-foundation: #3987e5;
+    --fam-tree: #d95926;
+    --fam-nn: #199e70;
+    --fam-other: #9085e9;
+    --fam-reference: #d55181;
+    --fam-baseline: #898781;
+    --optimal: #2ea043;
+    --tooltip-bg: #f0efea;
+    --tooltip-ink: #14161a;
+    color-scheme: dark;
   }
 
   html, body { margin: 0; background: var(--paper); }
@@ -122,7 +145,8 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
   .chip[aria-pressed="true"] .dot { background: var(--fam); }
   .chip:hover { border-color: var(--muted); }
 
-  .chartbox { position: relative; }
+  /* Cap the chart size: at full page width the 960x540 canvas would blow up. */
+  .chartbox { position: relative; max-width: 920px; }
   .chartbox svg { width: 100%; height: auto; display: block; }
   .legendstrip {
     display: flex; flex-wrap: wrap; gap: 5px 16px; align-items: center;
@@ -686,6 +710,25 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     html += "</tbody></table>";
     document.getElementById("tblwrap").innerHTML = html;
   }
+
+  // When embedded, report the content height so the host page can size the
+  // iframe to fit (avoids an inner scrollbar). Works from a sandboxed frame.
+  function postHeight() {
+    if (window.parent !== window) {
+      window.parent.postMessage(
+        { type: "tabarena-explorer-height", height: document.documentElement.scrollHeight },
+        "*",
+      );
+    }
+  }
+  const _renderInner = render;
+  render = function () {
+    _renderInner();
+    postHeight();
+  };
+  document.querySelector("details.datatable").addEventListener("toggle", postHeight);
+  window.addEventListener("resize", postHeight);
+  window.addEventListener("load", postHeight);
 
   buildChips();
   buildLegend();
