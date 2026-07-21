@@ -72,21 +72,41 @@ def strict_merge(
 
 
 def get_model_family(model_name: str) -> str:
+    """Classify a model into its family. Accepts both raw config-type keys
+    (e.g. "GBM", "MNCA") and display names (e.g. "LightGBM", "ModernNCA"),
+    since callers pass whichever identifier they have at hand.
+    """
     prefixes_mapping = {
-        Constants.reference: ["AutoGluon"],
+        Constants.reference: ["AutoGluon", "PORTFOLIO"],
         Constants.neural_network: [
             "REALMLP",
             "TABM",
             "FASTAI",
             "MNCA",
+            "MODERNNCA",
             "NN_TORCH",
+            "TORCHMLP",
         ],
-        Constants.tree: ["GBM", "CAT", "EBM", "XGB", "XT", "RF", "PB", "CHIMERA"],
+        Constants.tree: [
+            "GBM",
+            "LIGHTGBM",
+            "CAT",
+            "EBM",
+            "XGB",
+            "XT",
+            "EXTRATREES",
+            "RF",
+            "RANDOMFOREST",
+            "PB",
+            "PERPETUALBOOSTER",
+            "CHIMERA",
+        ],
         Constants.foundational: [
             "TABDPT",
             "TABDPT_TURBO",
             "TABICL",
             "TABPFN",
+            "REALTABPFN",
             "MITRA",
             "LIMIX",
             "TA-LIMIX",
@@ -99,11 +119,12 @@ def get_model_family(model_name: str) -> str:
             "TABSTAR",
             "TA-TABPFN-3",
             "TA-ORION-MSP",
+            "ORIONMSP",
             "TA-ILTM",
             "TA-NORI",
             "TABSWIFT",
         ],
-        Constants.baseline: ["KNN", "LR"],
+        Constants.baseline: ["KNN", "LR", "LINEAR"],
         Constants.other: ["XRFM"],
     }
 
@@ -226,7 +247,7 @@ def legacy_formatting(df_leaderboard: pd.DataFrame) -> pd.DataFrame:
         lambda s: model_type_emoji[get_model_family(s)],
     )
     df_leaderboard["TypeName"] = df_leaderboard.loc[:, "method"].apply(
-        lambda s: get_model_family(s),
+        get_model_family,
     )
 
     _rename_map = get_rename_map()

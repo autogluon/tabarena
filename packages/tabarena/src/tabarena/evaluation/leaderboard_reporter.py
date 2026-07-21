@@ -22,11 +22,11 @@ from tabarena.evaluation.framework_naming import (
     get_method_rename_map,
 )
 from tabarena.plot.dataset_analysis import plot_train_time_deep_dive
+from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
 from tabarena.plot.plot_ens_weights import create_heatmap
-from tabarena.plot.plot_pareto_frontier import (
-    plot_pareto as _plot_pareto,
-)
+from tabarena.plot.plot_pareto_focus import plot_pareto_focus
 from tabarena.utils.normalized_scorer import NormalizedScorer
+from tabarena.website.website_format import get_model_family
 
 MethodLabelStyle = str | Mapping[str, object]
 
@@ -671,8 +671,16 @@ class LeaderboardReporter:
         winrate_method_rename: dict[str, str] | None = None,
         plot_only: list[str] | None = None,
         method_color_overrides: dict[str, str] | None = None,
+        website_only: bool = False,
     ) -> pd.DataFrame:
         """Compute the leaderboard for ``df_results`` and render the TabArena figures.
+
+        ``website_only`` (default ``False``) renders only the outputs the
+        tabarena.ai website ships (leaderboard CSVs, the vertical
+        ``tuning-impact-elo`` bar plot, the win-rate matrix, and the Pareto
+        figures + interactive explorer), skipping the rest of the paper
+        figure suite (date-introduced scatters and their GIF animations,
+        LaTeX tables, the horizontal Elo bar plot).
 
         ``plot_only`` (default ``None`` -> show everything) restricts the *plots*
         to a subset of methods without affecting any numbers: the leaderboard,
@@ -914,18 +922,19 @@ class LeaderboardReporter:
         leaderboard = leaderboard.reset_index(drop=False)
         save_pd.save(path=f"{self.output_dir}/tabarena_leaderboard.csv", df=leaderboard)
 
-        # Elo vs. method introduction date (no-op unless `date_introduced` method metadata is available).
-        self.plot_elo_vs_date_introduced(leaderboard=leaderboard, show=False)
-        self.animate_elo_vs_date_introduced(leaderboard=leaderboard)
-        self.plot_improvability_vs_date_introduced(leaderboard=leaderboard, show=False)
-        self.animate_improvability_vs_date_introduced(leaderboard=leaderboard)
+        if not website_only:
+            # Elo vs. method introduction date (no-op unless `date_introduced` method metadata is available).
+            self.plot_elo_vs_date_introduced(leaderboard=leaderboard, show=False)
+            self.animate_elo_vs_date_introduced(leaderboard=leaderboard)
+            self.plot_improvability_vs_date_introduced(leaderboard=leaderboard, show=False)
+            self.animate_improvability_vs_date_introduced(leaderboard=leaderboard)
 
-        self.create_leaderboard_latex(
-            leaderboard,
-            framework_types=framework_types,
-            save_dir=self.output_dir,
-            hidden_methods=plot_tuning_kwargs.get("hidden_methods"),
-        )
+            self.create_leaderboard_latex(
+                leaderboard,
+                framework_types=framework_types,
+                save_dir=self.output_dir,
+                hidden_methods=plot_tuning_kwargs.get("hidden_methods"),
+            )
 
         n_tasks = len(df_results_rank_compare[[tabarena.task_col, tabarena.seed_column]].drop_duplicates())
 
@@ -936,23 +945,24 @@ class LeaderboardReporter:
             with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 1000):
                 print(leaderboard)
 
-        # horizontal elo barplot
-        self.plot_tuning_impact(
-            df=df_results_rank_compare,
-            df_elo=leaderboard,
-            framework_types=framework_types,
-            save_prefix=f"{self.output_dir}",
-            use_gmean=use_gmean,
-            baselines=baselines,
-            baseline_colors=baseline_colors,
-            name_suffix="-elo-horizontal",
-            imputed_names=imputed_names,
-            plot_tune_types=plot_tune_types,
-            use_y=True,
-            show=False,
-            method_color_overrides=method_color_overrides,
-            **plot_tuning_kwargs,
-        )
+        # horizontal elo barplot (the website ships only the vertical one)
+        if not website_only:
+            self.plot_tuning_impact(
+                df=df_results_rank_compare,
+                df_elo=leaderboard,
+                framework_types=framework_types,
+                save_prefix=f"{self.output_dir}",
+                use_gmean=use_gmean,
+                baselines=baselines,
+                baseline_colors=baseline_colors,
+                name_suffix="-elo-horizontal",
+                imputed_names=imputed_names,
+                plot_tune_types=plot_tune_types,
+                use_y=True,
+                show=False,
+                method_color_overrides=method_color_overrides,
+                **plot_tuning_kwargs,
+            )
 
         # vertical elo barplot
         self.plot_tuning_impact(
@@ -1690,34 +1700,34 @@ class LeaderboardReporter:
         )
         f_map_suffix = get_f_map_suffix_plots()
         leaderboard_pareto["suffix"] = leaderboard_pareto["Type"].map(f_map_suffix).fillna("")
-        method_order = None
         plot_pareto_kwargs = {}
         if plot_tuning_kwargs is not None:
             if "hidden_methods" in plot_tuning_kwargs:
                 leaderboard_pareto = leaderboard_pareto[
                     ~leaderboard_pareto["Method"].isin(plot_tuning_kwargs["hidden_methods"])
                 ]
-            if "pareto_order" in plot_tuning_kwargs:
-                method_order = plot_tuning_kwargs["pareto_order"]
             if "method_style_map" in plot_tuning_kwargs:
                 method_style_map = plot_tuning_kwargs["method_style_map"]
                 display_name_map = {m: v["display_name"] for m, v in method_style_map.items() if "display_name" in v}
                 leaderboard_pareto["Method"] = (
                     leaderboard_pareto["Method"].map(display_name_map).fillna(leaderboard_pareto["Method"])
                 )
-                if method_order is not None:
-                    method_order = [display_name_map.get(m, m) for m in method_order]
             if "title" in plot_tuning_kwargs:
                 plot_pareto_kwargs["title"] = plot_tuning_kwargs["title"]
 
-        # Per-method color overrides (display name -> matplotlib color). Pins a fixed color for
-        # specific method families instead of letting seaborn auto-assign from the palette, so a
-        # method keeps the same color across runs / subsets. Keyed by the long display name in the
-        # "Method" column (e.g. "TabM", "TabPFN-3"). A standalone arg (not a `plot_tuning_kwargs`
-        # key) because `plot_tuning_kwargs` is splatted into `plot_tuning_impact`, which would
-        # reject an unknown keyword.
-        if method_color_overrides is not None:
-            plot_pareto_kwargs["color_overrides"] = method_color_overrides
+        # Model-family classification drives point colors in the focus-style
+        # scatter (`plot_pareto_focus`); per-method colors/orders (the old
+        # `method_color_overrides` / `pareto_order` inputs) no longer apply.
+        # Prefer the raw config_type key when present (configs); baselines have
+        # NaN config_type, so fall back to the display name — `get_model_family`
+        # accepts both forms.
+        if "config_type" in leaderboard_pareto.columns:
+            leaderboard_pareto["Family"] = [
+                get_model_family(ct if not pd.isna(ct) else m)
+                for ct, m in zip(leaderboard_pareto["config_type"], leaderboard_pareto["Method"], strict=True)
+            ]
+        else:
+            leaderboard_pareto["Family"] = leaderboard_pareto["Method"].map(get_model_family)
 
         leaderboard_pareto[self.method_col] = leaderboard_pareto["Method"] + leaderboard_pareto["suffix"]
         fig_rename_dict = {
@@ -1741,171 +1751,162 @@ class LeaderboardReporter:
         if not with_baselines:
             leaderboard_pareto = leaderboard_pareto[leaderboard_pareto["Type"] != "Baseline"]
 
-        self.plot_pareto_elo_vs_time_infer(
-            leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs
-        )
-        self.plot_pareto_elo_vs_time_train(
-            leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs
-        )
-        self.plot_pareto_improvability_vs_time_infer(
-            leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs
-        )
-        self.plot_pareto_improvability_vs_time_train(
-            leaderboard=leaderboard_pareto, method_order=method_order, **plot_pareto_kwargs
+        self.plot_pareto_elo_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
+        self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
+        self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
+        self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
+        self.build_pareto_explorer(leaderboard=leaderboard_pareto)
+
+    def _plot_pareto_focus_figure(
+        self,
+        leaderboard: pd.DataFrame,
+        *,
+        file_name: str,
+        x_source_col: str,
+        x_name: str,
+        y_source_col: str,
+        y_name: str,
+        max_Y: bool,
+        y_scale: float = 1.0,
+        title: str | None = None,
+        focus_methods: list[str] | None = None,
+    ):
+        """Shared body of the four ``pareto_front_*`` website figures: map the
+        leaderboard's raw columns onto display axes and render the focus-style
+        scatter (family colors, Pareto front + ``focus_methods`` emphasized,
+        every other method greyed out).
+        """
+        data = leaderboard.copy()
+        data[x_name] = data[x_source_col]
+        data[y_name] = data[y_source_col] * y_scale
+
+        plot_pareto_focus(
+            data=data,
+            x_col=x_name,
+            y_col=y_name,
+            method_col="Method",
+            variant_col="Type",
+            family_col="Family",
+            max_X=False,
+            max_Y=max_Y,
+            focus_methods=focus_methods,
+            variant_markers=self.style_markers,
+            title=title,
+            save_path=str(Path(self.output_dir) / f"{file_name}.{self.figure_file_type}"),
+            show=False,
         )
 
     def plot_pareto_elo_vs_time_train(
         self,
         leaderboard: pd.DataFrame,
-        method_order: list[str] | None = None,
         title: str | None = "auto",
-        color_overrides: dict[str, str] | None = None,
+        focus_methods: list[str] | None = None,
     ):
-        save_prefix = Path(self.output_dir)
-        save_path = str(save_prefix / f"pareto_front_elo_vs_time_train.{self.figure_file_type}")
-        y_name = "Elo"
-        x_name = "Train time per 1K samples (s) (median)"
-        if title == "auto":
-            title = "Elo vs Train Time"
-
-        data = leaderboard.copy()
-        data[x_name] = data["median_time_train_s_per_1K"]
-        data[y_name] = data["elo"]
-
-        _plot_pareto(
-            data=data,
-            x_name=x_name,
-            y_name=y_name,
-            max_X=False,
+        self._plot_pareto_focus_figure(
+            leaderboard,
+            file_name="pareto_front_elo_vs_time_train",
+            x_source_col="median_time_train_s_per_1K",
+            x_name="Train time per 1K samples (s) (median)",
+            y_source_col="elo",
+            y_name="Elo",
             max_Y=True,
-            sort_y=True,
-            hue="Method",  # color by family
-            style_col="Type",  # marker by run type
-            style_order=self.style_order,
-            style_markers=self.style_markers,
-            label_col=self.method_col,  # annotate with full method name
-            title=title,
-            save_path=save_path,
-            show=False,
-            aspect=4 / 3,
-            legend_first=method_order,
-            color_overrides=color_overrides,
+            title="Elo vs Train Time" if title == "auto" else title,
+            focus_methods=focus_methods,
         )
 
     def plot_pareto_elo_vs_time_infer(
         self,
         leaderboard: pd.DataFrame,
-        method_order: list[str] | None = None,
         title: str | None = "auto",
-        color_overrides: dict[str, str] | None = None,
+        focus_methods: list[str] | None = None,
     ):
-        save_prefix = Path(self.output_dir)
-        save_path = str(save_prefix / f"pareto_front_elo_vs_time_infer.{self.figure_file_type}")
-        y_name = "Elo"
-        x_name = "Inference time per 1K samples (s) (median)"
-        if title == "auto":
-            title = "Elo vs Inference Time"
-
-        data = leaderboard.copy()
-        data[x_name] = data["median_time_infer_s_per_1K"]
-        data[y_name] = data["elo"]
-
-        _plot_pareto(
-            data=data,
-            x_name=x_name,
-            y_name=y_name,
-            max_X=False,
+        self._plot_pareto_focus_figure(
+            leaderboard,
+            file_name="pareto_front_elo_vs_time_infer",
+            x_source_col="median_time_infer_s_per_1K",
+            x_name="Inference time per 1K samples (s) (median)",
+            y_source_col="elo",
+            y_name="Elo",
             max_Y=True,
-            sort_y=True,
-            hue="Method",  # <-- same color for same method_type
-            style_col="Type",  # <-- different marker per run_type
-            style_order=self.style_order,
-            style_markers=self.style_markers,
-            label_col=self.method_col,  # <-- annotate with full method name
-            title=title,
-            save_path=save_path,
-            show=False,
-            aspect=4 / 3,
-            legend_first=method_order,
-            color_overrides=color_overrides,
+            title="Elo vs Inference Time" if title == "auto" else title,
+            focus_methods=focus_methods,
         )
 
     def plot_pareto_improvability_vs_time_infer(
         self,
         leaderboard: pd.DataFrame,
-        method_order: list[str] | None = None,
         title: str | None = "auto",
-        color_overrides: dict[str, str] | None = None,
+        focus_methods: list[str] | None = None,
     ):
-        save_prefix = Path(self.output_dir)
-        save_path = str(save_prefix / f"pareto_front_improvability_vs_time_infer.{self.figure_file_type}")
-        y_name = "Improvability (%)"
-        x_name = "Inference time per 1K samples (s) (median)"
-        if title == "auto":
-            title = "Improvability vs Inference Time"
-
-        data = leaderboard.copy()
-        data[x_name] = data["median_time_infer_s_per_1K"]
-        data[y_name] = data["improvability"] * 100
-
-        _plot_pareto(
-            data=data,
-            x_name=x_name,
-            y_name=y_name,
-            max_X=False,
+        self._plot_pareto_focus_figure(
+            leaderboard,
+            file_name="pareto_front_improvability_vs_time_infer",
+            x_source_col="median_time_infer_s_per_1K",
+            x_name="Inference time per 1K samples (s) (median)",
+            y_source_col="improvability",
+            y_name="Improvability (%)",
+            y_scale=100,
             max_Y=False,
-            sort_y=True,
-            hue="Method",  # color by family
-            style_col="Type",  # marker by run type
-            style_order=self.style_order,
-            style_markers=self.style_markers,
-            label_col=self.method_col,  # annotate with full method name
-            # ylim=(0, None),
-            title=title,
-            save_path=save_path,
-            show=False,
-            aspect=4 / 3,
-            legend_first=method_order,
-            color_overrides=color_overrides,
+            title="Improvability vs Inference Time" if title == "auto" else title,
+            focus_methods=focus_methods,
         )
 
     def plot_pareto_improvability_vs_time_train(
         self,
         leaderboard: pd.DataFrame,
-        method_order: list[str] | None = None,
         title: str | None = "auto",
-        color_overrides: dict[str, str] | None = None,
+        focus_methods: list[str] | None = None,
     ):
-        save_prefix = Path(self.output_dir)
-        save_path = str(save_prefix / f"pareto_front_improvability_vs_time_train.{self.figure_file_type}")
-        y_name = "Improvability (%)"
-        x_name = "Train time per 1K samples (s) (median)"
-        if title == "auto":
-            title = "Improvability vs Train Time"
-
-        data = leaderboard.copy()
-        data[x_name] = data["median_time_train_s_per_1K"]
-        data[y_name] = data["improvability"] * 100
-
-        _plot_pareto(
-            data=data,
-            x_name=x_name,
-            y_name=y_name,
-            max_X=False,
+        self._plot_pareto_focus_figure(
+            leaderboard,
+            file_name="pareto_front_improvability_vs_time_train",
+            x_source_col="median_time_train_s_per_1K",
+            x_name="Train time per 1K samples (s) (median)",
+            y_source_col="improvability",
+            y_name="Improvability (%)",
+            y_scale=100,
             max_Y=False,
-            sort_y=True,
-            hue="Method",  # color by family
-            style_col="Type",  # marker by run type
-            style_order=self.style_order,
-            style_markers=self.style_markers,
-            label_col=self.method_col,  # annotate with full method name
-            # ylim=(0, None),
-            title=title,
-            save_path=save_path,
-            show=False,
-            aspect=4 / 3,
-            legend_first=method_order,
-            color_overrides=color_overrides,
+            title="Improvability vs Train Time" if title == "auto" else title,
+            focus_methods=focus_methods,
+        )
+
+    def build_pareto_explorer(self, leaderboard: pd.DataFrame):
+        """Write the self-contained interactive Pareto explorer
+        (``pareto_front_explorer.html``) and its underlying data
+        (``pareto_front_points.csv``) next to the static figures.
+        """
+        points = pd.DataFrame(
+            {
+                "method": leaderboard["Method"],
+                "variant": leaderboard["Type"],
+                "family": leaderboard["Family"],
+                "x_infer": leaderboard["median_time_infer_s_per_1K"],
+                "x_train": leaderboard["median_time_train_s_per_1K"],
+                "imp": leaderboard["improvability"] * 100,
+                "elo": leaderboard["elo"],
+            }
+        )
+        # `imputed` is the imputed-task fraction aggregated per method-variant;
+        # older results frames may not carry it.
+        if "imputed" in leaderboard.columns:
+            imputed_frac = leaderboard["imputed"].fillna(0.0).astype(float)
+        else:
+            imputed_frac = pd.Series(0.0, index=leaderboard.index)
+        points["imputed"] = imputed_frac > 0
+        points["imputed_pct"] = imputed_frac * 100
+        points = points.dropna(subset=["x_infer", "x_train", "imp", "elo"]).reset_index(drop=True)
+        if points.empty:
+            return
+
+        save_pd.save(path=str(Path(self.output_dir) / "pareto_front_points.csv"), df=points)
+        build_pareto_explorer_html(
+            points=points,
+            # Single time axis (inference, the panel the website led with
+            # historically); train time stays available in the CSV export.
+            x_keys=["x_infer"],
+            # Mirrored against the trajectories explorer (chips right there).
+            chips_side="left",
+            save_path=Path(self.output_dir) / "pareto_front_explorer.html",
         )
 
     def get_method_rename_map(self) -> dict[str, str]:

@@ -67,3 +67,16 @@ def process_one_folder(
                 base_input_path / fig_path,
                 base_output_path / fig_path,
             )
+
+    # Interactive explorers (self-contained HTML embedded by the leaderboard
+    # app) and their underlying data exports. Copy-if-present so raw artifact
+    # folders generated before these existed still process cleanly.
+    for extra_path in [
+        "pareto_front_explorer.html",
+        "pareto_front_points.csv",
+        Path("tuning_trajectories") / "placeholder_name" / "tuning_trajectories_explorer.html",
+        Path("tuning_trajectories") / "placeholder_name" / "tuning_trajectories.csv",
+    ]:
+        src = base_input_path / extra_path
+        if src.is_file():
+            shutil.copy(src, base_output_path / src.name)

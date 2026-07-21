@@ -82,10 +82,30 @@ class WebsiteArtifactGenerator:
         self.raw_artifacts_dir = self.base_dir / raw_artifacts_dirname
         self.clean_artifacts_dir = self.base_dir / clean_artifacts_dirname
 
-    def generate_website_artifacts(self):
-        save_path = self.raw_artifacts_dir  # folder to save all figures and tables
+    def generate_website_artifacts(
+        self,
+        *,
+        run_evaluate: bool = True,
+        run_trajectories: bool = True,
+        elo_bootstrap_rounds: int = 200,
+        zip_raw: bool = False,
+        website_only: bool = True,
+    ):
+        """Regenerate the raw figures/tables.
 
-        elo_bootstrap_rounds = 200  # 1 for toy, 200 for official
+        ``run_evaluate`` / ``run_trajectories`` allow partial refreshes when only
+        one pipeline's outputs changed (e.g. a trajectory-styling fix): the other
+        phase's existing raw artifacts are left in place and the convert step
+        picks them up unchanged. ``elo_bootstrap_rounds=1`` gives a fast toy run
+        (Elo CIs are meaningless then); 200 is the official setting. ``zip_raw``
+        additionally zips the raw artifacts folder (~hundreds of MB, several
+        minutes) — the publishing flow only needs the *clean* zip, so this is
+        off by default. ``website_only`` (default) renders only the outputs the
+        website ships per subset instead of the full paper figure suite
+        (~35 figures per subset, incl. GIF animations); disable it when the raw
+        artifacts should double as paper material.
+        """
+        save_path = self.raw_artifacts_dir  # folder to save all figures and tables
 
         # Set to True if you have the appropriate latex packages installed for nicer figure style
         # TODO: use_latex=True makes some of the plots look worse, but makes the tuning-impact-elo figures look better.
@@ -119,29 +139,38 @@ class WebsiteArtifactGenerator:
                 save_path=Path(save_path) / "per_dataset",
             )
 
-        tabarena_context.evaluate_all(
-            save_path=save_path,
-            elo_bootstrap_rounds=elo_bootstrap_rounds,
-            use_latex=use_latex,
-            use_website_folder_names=True,
-            evaluator_kwargs=evaluator_kwargs,
-            engine=engine,
-        )
+        if run_evaluate:
+            tabarena_context.evaluate_all(
+                save_path=save_path,
+                elo_bootstrap_rounds=elo_bootstrap_rounds,
+                use_latex=use_latex,
+                use_website_folder_names=True,
+                evaluator_kwargs=evaluator_kwargs,
+                engine=engine,
+                website_only=website_only,
+            )
 
-        plot_tuning_trajectories_all(
-            tabarena_context=tabarena_context,
-            fig_save_dir=save_path,
-            ban_bad_methods=True,
-            file_ext=file_ext,
-            engine=engine,
-            # Order methods per-plot by each plot's own y-axis instead of pinning a
-            # single Elo-derived order across the whole set (e.g. so the improvability
-            # legend ends with the lowest/best method).
-            use_elo_method_order=False,
-        )
+        if run_trajectories:
+            plot_tuning_trajectories_all(
+                tabarena_context=tabarena_context,
+                fig_save_dir=save_path,
+                # Drops the baselines (KNN/Linear) only; weak non-baseline
+                # methods stay, greyed out by the focus styling.
+                ban_bad_methods=True,
+                file_ext=file_ext,
+                engine=engine,
+                # Order methods per-plot by each plot's own y-axis instead of pinning a
+                # single Elo-derived order across the whole set (e.g. so the improvability
+                # legend ends with the lowest/best method).
+                use_elo_method_order=False,
+                # Website styling: Pareto-front methods in family colors with direct
+                # labels, all other trajectories greyed out. Also writes the
+                # interactive tuning_trajectories_explorer.html per subset.
+                focus_mode=True,
+                website_only=website_only,
+            )
 
-        zip_results = True
-        if zip_results:
+        if zip_raw:
             # Place the zip next to (and named after) the raw artifacts folder.
             shutil.make_archive(
                 str(save_path),
@@ -175,12 +204,57 @@ class WebsiteArtifactGenerator:
 
 
 if __name__ == "__main__":
+    import argparse
+
     # See the module docstring for the full publishing procedure.
-    # Everything (both subfolders and both zips) is written under base_dir.
+    parser = argparse.ArgumentParser(
+        description="Regenerate the tabarena.ai website artifacts.",
+    )
+    parser.add_argument(
+        "--skip-evaluate",
+        action="store_true",
+        help="Skip the per-subset evaluation figures/tables (reuse existing raw artifacts).",
+    )
+    parser.add_argument(
+        "--skip-trajectories",
+        action="store_true",
+        help="Skip the tuning-trajectory figures (reuse existing raw artifacts).",
+    )
+    parser.add_argument(
+        "--skip-convert",
+        action="store_true",
+        help="Skip the raw -> website-format conversion step.",
+    )
+    parser.add_argument(
+        "--elo-bootstrap-rounds",
+        type=int,
+        default=200,
+        help="Elo bootstrap rounds (200 = official; 1 = fast toy run without meaningful CIs).",
+    )
+    parser.add_argument(
+        "--zip-raw",
+        action="store_true",
+        help="Also zip the raw artifacts folder (large + slow; the publish flow only needs the clean zip).",
+    )
+    parser.add_argument(
+        "--full-figures",
+        action="store_true",
+        help="Render the full paper figure suite per subset instead of only the website-shipped outputs.",
+    )
+    args = parser.parse_args()
+
+    # Everything (both subfolders and the zips) is written under base_dir.
     generator = WebsiteArtifactGenerator(base_dir=Path("generated_website_artifacts"))
 
-    # Generate the 'raw_website_artifacts' folder (time-consuming, with 192 cores it takes a few minutes)
-    generator.generate_website_artifacts()
+    # Generate the 'raw_website_artifacts' folder (time-consuming; scales with core count).
+    generator.generate_website_artifacts(
+        run_evaluate=not args.skip_evaluate,
+        run_trajectories=not args.skip_trajectories,
+        elo_bootstrap_rounds=args.elo_bootstrap_rounds,
+        zip_raw=args.zip_raw,
+        website_only=not args.full_figures,
+    )
 
     # Generate the 'clean_website_artifacts' folder (fast)
-    generator.convert_to_website_format()
+    if not args.skip_convert:
+        generator.convert_to_website_format()

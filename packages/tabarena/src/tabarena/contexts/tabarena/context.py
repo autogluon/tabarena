@@ -221,6 +221,7 @@ class TabArenaContext(AbstractArenaContext):
         evaluator_kwargs: dict | None = None,
         engine: str = "auto",
         progress_bar: bool = True,
+        website_only: bool = False,
     ):
         if df_results is None:
             df_results = self.load_results(download_results="auto")
@@ -244,4 +245,5 @@ class TabArenaContext(AbstractArenaContext):
             evaluator_kwargs=evaluator_kwargs,
             engine=engine,
             progress_bar=progress_bar,
+            website_only=website_only,
         )

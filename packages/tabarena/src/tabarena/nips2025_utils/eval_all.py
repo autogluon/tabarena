@@ -56,14 +56,17 @@ def evaluate_all(
     evaluator_kwargs: dict | None = None,
     engine: str = "auto",
     progress_bar: bool = True,
+    website_only: bool = False,
 ):
     if evaluator_kwargs is None:
         evaluator_kwargs = {}
-    banned_pareto_methods = ["KNN", "LR", "PB", "TABSTAR"]
 
+    # Only the baselines (KNN/LR) are banned from the Pareto figures — they sit
+    # far above every real method and stretch the improvability axis. Weak
+    # non-baseline methods stay, greyed out by the focus styling.
     evaluator_kwargs_ = {
         "use_latex": use_latex,
-        "banned_pareto_methods": banned_pareto_methods,
+        "banned_pareto_methods": ["KNN", "LR"],
     }
     evaluator_kwargs_.update(evaluator_kwargs)
     evaluator_kwargs = evaluator_kwargs_
@@ -131,6 +134,7 @@ def evaluate_all(
             "baselines": baselines,
             "baseline_colors": baseline_colors,
             "elo_bootstrap_rounds": elo_bootstrap_rounds,
+            "website_only": website_only,
         },
         engine=engine,
         progress_bar=progress_bar,
@@ -153,6 +157,7 @@ def evaluate_single(
     baseline_colors: list[str] | None = None,
     elo_bootstrap_rounds: int = 200,
     custom_folder_name: str | None = None,
+    website_only: bool = False,
 ):
     from tabarena.nips2025_utils.compare import subset_tasks
 
@@ -231,8 +236,11 @@ def evaluate_single(
     leaderboard = plotter.eval(
         df_results=df_results,
         plot_extra_barplots=False,
-        include_norm_score=True,
-        plot_times=True,
+        # The website ships neither the normalized-score bar plots nor the
+        # per-method time plots — skip them in website_only mode.
+        include_norm_score=not website_only,
+        plot_times=not website_only,
+        website_only=website_only,
         average_seeds=average_seeds,
         # Keep baselines out of evaluate_all's Pareto plots: LeaderboardReporter.eval now
         # defaults plot_with_baselines=True for the compare paths, but the paper-figure /
