@@ -1590,13 +1590,15 @@ def plot_tuning_trajectories_from_leaderboard(
         )
 
     # Interactive explorer + underlying data export, mirroring the
-    # ``pareto_n_configs_imp`` figure (improvability vs train time, with an
-    # Elo y-axis toggle). Self-contained HTML embedded by the website.
+    # ``pareto_n_configs_imp`` figure (improvability vs train time, with
+    # Elo y-axis and inference-time x-axis toggles). Self-contained HTML
+    # embedded by the website.
     explorer_points = pd.DataFrame(
         {
             "method": leaderboard[method_col],
             "family": leaderboard[method_col].map(get_model_family),
-            "x": leaderboard["Train time per 1K samples (s) (median)"],
+            "x_train": leaderboard["Train time per 1K samples (s) (median)"],
+            "x_infer": leaderboard["Inference time per 1K samples (s) (median)"],
             "imp": leaderboard["Improvability (%)"],
             "elo": leaderboard["Elo"],
         }
@@ -1610,12 +1612,14 @@ def plot_tuning_trajectories_from_leaderboard(
         imputed_frac = leaderboard["imputed"].fillna(0.0).astype(float)
         explorer_points["imputed"] = imputed_frac > 0
         explorer_points["imputed_pct"] = imputed_frac * 100
-    explorer_points = explorer_points.dropna(subset=["x", "imp", "elo"])
+    explorer_points = explorer_points.dropna(subset=["x_train", "x_infer", "imp", "elo"])
     if not explorer_points.empty:
         build_pareto_explorer_html(
             points=explorer_points,
             mode="trajectory",
-            x_label="Train time per 1K samples (s), median — log scale",
+            # Train time is the default view (tuning budget); inference time
+            # is the toggle.
+            x_keys=["x_train", "x_infer"],
             save_path=fig_save_dir / "tuning_trajectories_explorer.html",
             page_title="TabArena tuning trajectories",
         )

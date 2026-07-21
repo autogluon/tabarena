@@ -44,16 +44,33 @@ _METRIC_SPECS: dict[str, dict] = {
     },
 }
 
+#: Time-axis definitions the explorer's x-axis selector can offer, keyed by
+#: the column name expected in ``points``. All are log-scale seconds per 1K
+#: samples (median over datasets).
+_X_AXIS_SPECS: dict[str, dict] = {
+    "x_infer": {
+        "key": "x_infer",
+        "label": "Inference time",
+        "axisLabel": "Inference time per 1K samples (s), median — log scale",
+        "short": "Inference (s/1K, median)",
+    },
+    "x_train": {
+        "key": "x_train",
+        "label": "Train time",
+        "axisLabel": "Train time per 1K samples (s), median — log scale",
+        "short": "Train (s/1K, median)",
+    },
+}
+
 
 def build_pareto_explorer_html(
     points: pd.DataFrame,
     *,
     save_path: str | Path,
     mode: str = "scatter",
-    x_label: str,
-    x_short: str | None = None,
     title: str | None = None,
     metric_keys: list[str] | None = None,
+    x_keys: list[str] | None = None,
     page_title: str = "TabArena Pareto explorer",
 ) -> Path:
     """Render the interactive explorer HTML for a set of method points.
@@ -62,24 +79,23 @@ def build_pareto_explorer_html(
     ----------
     points
         One row per plotted point. Required columns: ``method`` (display
-        name), ``family`` (model family, e.g. "Foundation Model"), ``x``
-        (positive; plotted on a log axis) and at least one metric column
-        (``imp`` and/or ``elo``). Optional columns: ``variant`` (scatter
-        mode: "Default"/"Tuned"/"Tuned + Ens."), ``n_configs`` (trajectory
-        mode), ``imputed`` (bool) and ``imputed_pct`` (0-100).
+        name), ``family`` (model family, e.g. "Foundation Model"), at least
+        one x column (``x_infer`` and/or ``x_train``; positive, plotted on a
+        log axis) and at least one metric column (``imp`` and/or ``elo``).
+        Optional columns: ``variant`` (scatter mode:
+        "Default"/"Tuned"/"Tuned + Ens."), ``n_configs`` (trajectory mode),
+        ``imputed`` (bool) and ``imputed_pct`` (0-100).
     mode
         ``"scatter"`` (one point per method-variant, connectors link a
         method's variants) or ``"trajectory"`` (one line per method over
         ``n_configs``).
-    x_label
-        Full x-axis caption (e.g. "Inference time per 1K samples (s), median
-        — log scale").
-    x_short
-        Short x label used in the tooltip and data table; derived from
-        ``mode`` when omitted.
     metric_keys
         Which metrics of :data:`_METRIC_SPECS` to offer on the y-axis
         selector; defaults to every metric whose column is present.
+    x_keys
+        Which time axes of :data:`_X_AXIS_SPECS` to offer on the x-axis
+        selector (first entry is the default view); defaults to every axis
+        whose column is present.
     """
     if mode not in ("scatter", "trajectory"):
         raise ValueError(f"Unknown mode: {mode!r}")
@@ -89,7 +105,12 @@ def build_pareto_explorer_html(
     missing = [k for k in metric_keys if k not in points.columns]
     if not metric_keys or missing:
         raise ValueError(f"points must contain at least one metric column; missing={missing}, available={metric_keys}")
-    for col in ("method", "family", "x"):
+    if x_keys is None:
+        x_keys = [k for k in _X_AXIS_SPECS if k in points.columns]
+    missing_x = [k for k in x_keys if k not in points.columns]
+    if not x_keys or missing_x:
+        raise ValueError(f"points must contain at least one x column; missing={missing_x}, available={x_keys}")
+    for col in ("method", "family"):
         if col not in points.columns:
             raise ValueError(f"points is missing required column {col!r}")
 
@@ -101,9 +122,10 @@ def build_pareto_explorer_html(
     data["imputed"] = data["imputed"].fillna(False).astype(bool)
     data["imputed_pct"] = data["imputed_pct"].fillna(0.0).astype(float)
 
-    # The x-axis is logarithmic: rows without a positive x cannot be placed.
-    data = data.dropna(subset=["x", *metric_keys])
-    data = data[data["x"] > 0]
+    # The x-axes are logarithmic: rows without positive times cannot be placed.
+    data = data.dropna(subset=[*x_keys, *metric_keys])
+    for x_key in x_keys:
+        data = data[data[x_key] > 0]
 
     # Point order per method defines the connector/trajectory line direction.
     if mode == "scatter":
@@ -113,24 +135,20 @@ def build_pareto_explorer_html(
         else:
             data["_rank"] = len(variant_rank)
     else:
-        data["_rank"] = data["n_configs"] if "n_configs" in data.columns else data["x"]
+        data["_rank"] = data["n_configs"] if "n_configs" in data.columns else data[x_keys[0]]
     data = data.sort_values(["method", "_rank"]).drop(columns=["_rank"]).reset_index(drop=True)
 
-    keep_cols = ["method", "family", "x", *metric_keys, "imputed", "imputed_pct"]
+    keep_cols = ["method", "family", *x_keys, *metric_keys, "imputed", "imputed_pct"]
     for opt in ("variant", "n_configs"):
         if opt in data.columns:
             keep_cols.append(opt)
     data = data[keep_cols]
 
-    if x_short is None:
-        x_short = "Inference (s/1K, median)" if mode == "scatter" else "Train time (s/1K, median)"
-
     config = {
         "mode": mode,
         "title": title,
-        "x_label": x_label,
-        "x_short": x_short,
         "metrics": [_METRIC_SPECS[k] for k in metric_keys],
+        "xAxes": [_X_AXIS_SPECS[k] for k in x_keys],
     }
 
     html = (

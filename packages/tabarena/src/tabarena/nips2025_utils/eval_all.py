@@ -59,11 +59,11 @@ def evaluate_all(
 ):
     if evaluator_kwargs is None:
         evaluator_kwargs = {}
-    banned_pareto_methods = ["KNN", "LR", "PB", "TABSTAR"]
 
+    # All methods are shown on the Pareto figures — weak methods are greyed
+    # out by the focus styling rather than banned.
     evaluator_kwargs_ = {
         "use_latex": use_latex,
-        "banned_pareto_methods": banned_pareto_methods,
     }
     evaluator_kwargs_.update(evaluator_kwargs)
     evaluator_kwargs = evaluator_kwargs_

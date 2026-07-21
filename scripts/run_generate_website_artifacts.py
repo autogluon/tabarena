@@ -131,7 +131,9 @@ class WebsiteArtifactGenerator:
         plot_tuning_trajectories_all(
             tabarena_context=tabarena_context,
             fig_save_dir=save_path,
-            ban_bad_methods=True,
+            # Weak methods (KNN, Linear, ...) are greyed out by the focus
+            # styling instead of being dropped from the plots.
+            ban_bad_methods=False,
             file_ext=file_ext,
             engine=engine,
             # Order methods per-plot by each plot's own y-axis instead of pinning a

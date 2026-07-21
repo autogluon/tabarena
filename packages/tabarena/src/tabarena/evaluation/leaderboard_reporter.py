@@ -1870,7 +1870,8 @@ class LeaderboardReporter:
                 "method": leaderboard["Method"],
                 "variant": leaderboard["Type"],
                 "family": leaderboard["Family"],
-                "x": leaderboard["median_time_infer_s_per_1K"],
+                "x_infer": leaderboard["median_time_infer_s_per_1K"],
+                "x_train": leaderboard["median_time_train_s_per_1K"],
                 "imp": leaderboard["improvability"] * 100,
                 "elo": leaderboard["elo"],
             }
@@ -1883,14 +1884,16 @@ class LeaderboardReporter:
             imputed_frac = pd.Series(0.0, index=leaderboard.index)
         points["imputed"] = imputed_frac > 0
         points["imputed_pct"] = imputed_frac * 100
-        points = points.dropna(subset=["x", "imp", "elo"]).reset_index(drop=True)
+        points = points.dropna(subset=["x_infer", "x_train", "imp", "elo"]).reset_index(drop=True)
         if points.empty:
             return
 
         save_pd.save(path=str(Path(self.output_dir) / "pareto_front_points.csv"), df=points)
         build_pareto_explorer_html(
             points=points,
-            x_label="Inference time per 1K samples (s), median — log scale",
+            # Inference time is the default view (the panel the website led
+            # with historically); train time is the toggle.
+            x_keys=["x_infer", "x_train"],
             save_path=Path(self.output_dir) / "pareto_front_explorer.html",
         )
 

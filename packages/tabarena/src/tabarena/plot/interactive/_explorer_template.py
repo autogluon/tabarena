@@ -163,6 +163,9 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     <label class="metricpick" id="metricpick" hidden>Y-axis
       <select id="metric-select"></select>
     </label>
+    <label class="metricpick" id="xaxispick" hidden>X-axis
+      <select id="xaxis-select"></select>
+    </label>
     <div class="btnrow">
       <button class="btn" id="btn-front">Pareto front</button>
       <button class="btn" id="btn-all">All</button>
@@ -330,19 +333,25 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
   const metricByKey = {};
   for (const m of METRICS) metricByKey[m.key] = m;
 
+  const X_AXES = CONFIG.xAxes;
+  let xKey = X_AXES[0].key;
+  const xAxisByKey = {};
+  for (const xa of X_AXES) xAxisByKey[xa.key] = xa;
+
   function mval(p, metric) { return p[metric.key]; }
 
-  function computeFront(metric) {
+  function computeFront(metric, xAxis) {
+    const xk = xAxis.key;
     const pts = [...POINTS].sort((a, b) =>
-      a.x - b.x || (metric.lowerBetter ? mval(a, metric) - mval(b, metric) : mval(b, metric) - mval(a, metric)));
+      a[xk] - b[xk] || (metric.lowerBetter ? mval(a, metric) - mval(b, metric) : mval(b, metric) - mval(a, metric)));
     const verts = [];
     const methods = new Set();
     let best = null;
     for (const p of pts) {
       const v = mval(p, metric);
       if (best === null || (metric.lowerBetter ? v < best : v > best)) {
-        if (best !== null) verts.push([p.x, best]);
-        verts.push([p.x, v]);
+        if (best !== null) verts.push([p[xk], best]);
+        verts.push([p[xk], v]);
         best = v;
         methods.add(p.method);
       }
@@ -350,18 +359,21 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     return { verts, methods };
   }
 
-  const state = { active: new Set(computeFront(metricByKey[metricKey]).methods) };
+  const state = { active: new Set(computeFront(metricByKey[metricKey], xAxisByKey[xKey]).methods) };
 
   // ---------- chart ----------
   const W = 960, H = 540, M = { l: 62, r: 18, t: 14, b: 52 };
-  const xsAll = POINTS.map(p => p.x);
-  const xmin = Math.min(...xsAll) * 0.65, xmax = Math.max(...xsAll) * 1.6;
-  const lx0 = Math.log10(xmin), lx1 = Math.log10(xmax);
-  const X = v => M.l + (Math.log10(v) - lx0) / (lx1 - lx0) * (W - M.l - M.r);
 
   function render() {
     const metric = metricByKey[metricKey];
+    const xAxis = xAxisByKey[xKey];
     svg.textContent = "";
+
+    // x scale (log), recomputed per render since the x-axis is switchable
+    const xsAll = POINTS.map(p => p[xKey]);
+    const xmin = Math.min(...xsAll) * 0.65, xmax = Math.max(...xsAll) * 1.6;
+    const lx0 = Math.log10(xmin), lx1 = Math.log10(xmax);
+    const X = v => M.l + (Math.log10(v) - lx0) / (lx1 - lx0) * (W - M.l - M.r);
 
     const vals = POINTS.map(p => mval(p, metric));
     let y0, y1;
@@ -390,14 +402,14 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     }
     el("rect", { x: M.l, y: M.t, width: W - M.l - M.r, height: H - M.t - M.b, fill: "none", stroke: "var(--line)" }, grid);
     el("text", { x: (M.l + W - M.r) / 2, y: H - 10, "text-anchor": "middle", "font-size": 14, fill: "var(--ink)" }, grid)
-      .textContent = CONFIG.x_label;
+      .textContent = xAxis.axisLabel;
     el("text", { x: 0, y: 0, "text-anchor": "middle", "font-size": 14, fill: "var(--ink)",
       transform: `translate(16 ${(M.t + H - M.b) / 2}) rotate(-90)` }, grid).textContent = metric.axisLabel;
 
     drawOptimalArrow(grid, metric.lowerBetter, M, W, H);
 
     // pareto front (always shown)
-    const front = computeFront(metric);
+    const front = computeFront(metric, xAxis);
     const fv = front.verts;
     if (fv.length) {
       let d = `M${X(fv[0][0])},${metric.lowerBetter ? M.t : H - M.b}`;
@@ -414,7 +426,7 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
       if (pts.length < 2) continue;
       const on = isOn(method);
       if (!TRAJECTORY && !on) continue; // scatter: connectors only for active methods
-      const dd = pts.map((p, i) => `${i ? "L" : "M"}${X(p.x)},${Y(mval(p, metric))}`).join(" ");
+      const dd = pts.map((p, i) => `${i ? "L" : "M"}${X(p[xKey])},${Y(mval(p, metric))}`).join(" ");
       el("path", {
         d: dd, fill: "none",
         stroke: on ? FAM_VAR[pts[0].family] : "var(--pt-muted)",
@@ -433,12 +445,12 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
         const color = on ? FAM_VAR[p.family] : "var(--pt-muted)";
         const size = (on ? 7 : 5) * (TRAJECTORY ? 0.8 : 1);
         const op = on ? 0.95 : 0.5;
-        drawMark(on ? ptsOn : ptsOff, X(p.x), Y(mval(p, metric)), p.variant, color, size, op, p.method, on);
+        drawMark(on ? ptsOn : ptsOff, X(p[xKey]), Y(mval(p, metric)), p.variant, color, size, op, p.method, on);
         // Imputation ring: every affected point in scatter mode; only the
         // trajectory's end point in trajectory mode (a ring on all ~8 line
         // points would read as beads, and the chip's ‡ already flags the line).
         if (p.imputed && (!TRAJECTORY || p === pts[pts.length - 1])) {
-          drawImputedRing(on ? ptsOn : ptsOff, X(p.x), Y(mval(p, metric)), size, color, op, p.method);
+          drawImputedRing(on ? ptsOn : ptsOff, X(p[xKey]), Y(mval(p, metric)), size, color, op, p.method);
         }
       }
     }
@@ -449,7 +461,7 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
       if (!isOn(method)) continue;
       const best = pts.reduce((a, b) =>
         (metric.lowerBetter ? mval(a, metric) < mval(b, metric) : mval(a, metric) > mval(b, metric)) ? a : b);
-      labels.push({ method, family: best.family, x: X(best.x) + 10, y: Y(mval(best, metric)) - 10 });
+      labels.push({ method, family: best.family, x: X(best[xKey]) + 10, y: Y(mval(best, metric)) - 10 });
     }
     labels.sort((a, b) => a.y - b.y);
     for (let i = 1; i < labels.length; i++) {
@@ -472,7 +484,7 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     // invisible hit targets on top (bigger than marks)
     const hits = el("g", {}, svg);
     for (const p of POINTS) {
-      const h = el("circle", { cx: X(p.x), cy: Y(mval(p, metric)), r: 12, fill: "transparent", cursor: "pointer" }, hits);
+      const h = el("circle", { cx: X(p[xKey]), cy: Y(mval(p, metric)), r: 12, fill: "transparent", cursor: "pointer" }, hits);
       h.addEventListener("mouseenter", ev => showTip(p, ev));
       h.addEventListener("mousemove", ev => tip.move(ev));
       h.addEventListener("mouseleave", () => hideTip(p.method));
@@ -502,7 +514,9 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     for (const m of METRICS) {
       html += `<div>${m.label}: <b>${fmtMetric(m, mval(p, m))}</b></div>`;
     }
-    html += `<div>${CONFIG.x_short}: <b>${fmtTime(p.x)}</b></div>`;
+    for (const xa of X_AXES) {
+      html += `<div>${xa.short}: <b>${fmtTime(p[xa.key])}</b></div>`;
+    }
     if (p.imputed) html += `<div class="t-imp">Imputed on ${p.imputed_pct.toFixed(0)}% of datasets</div>`;
     tip.show(html, ev);
   }
@@ -595,7 +609,7 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     render();
   }
   document.getElementById("btn-front").addEventListener("click",
-    () => setActive(computeFront(metricByKey[metricKey]).methods));
+    () => setActive(computeFront(metricByKey[metricKey], xAxisByKey[xKey]).methods));
   document.getElementById("btn-all").addEventListener("click", () => setActive([...byMethod.keys()]));
   document.getElementById("btn-none").addEventListener("click", () => setActive([]));
 
@@ -612,6 +626,23 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     }
     metricSelect.addEventListener("change", ev => {
       metricKey = ev.target.value;
+      render();
+    });
+  }
+
+  // x-axis selector (hidden when only one time axis is configured)
+  const xAxisPick = document.getElementById("xaxispick");
+  const xAxisSelect = document.getElementById("xaxis-select");
+  if (X_AXES.length > 1) {
+    xAxisPick.hidden = false;
+    for (const xa of X_AXES) {
+      const opt = document.createElement("option");
+      opt.value = xa.key;
+      opt.textContent = xa.label;
+      xAxisSelect.appendChild(opt);
+    }
+    xAxisSelect.addEventListener("change", ev => {
+      xKey = ev.target.value;
       render();
     });
   }
@@ -644,11 +675,13 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     html += TRAJECTORY ? "<th>Configs</th>" : "<th>Variant</th>";
     html += "<th>Family</th>";
     for (const m of METRICS) html += `<th>${m.label}</th>`;
-    html += `<th>${CONFIG.x_short}</th><th>Imputed</th></tr></thead><tbody>`;
+    for (const xa of X_AXES) html += `<th>${xa.short}</th>`;
+    html += "<th>Imputed</th></tr></thead><tbody>";
     for (const p of rows) {
       html += `<tr><td>${p.method}</td><td>${TRAJECTORY ? (p.n_configs != null ? p.n_configs : "—") : p.variant}</td><td>${p.family}</td>`;
       for (const m of METRICS) html += `<td>${fmtMetric(m, mval(p, m))}</td>`;
-      html += `<td>${p.x.toFixed(3)}</td><td>${p.imputed ? p.imputed_pct.toFixed(0) + "%" : "—"}</td></tr>`;
+      for (const xa of X_AXES) html += `<td>${p[xa.key].toFixed(3)}</td>`;
+      html += `<td>${p.imputed ? p.imputed_pct.toFixed(0) + "%" : "—"}</td></tr>`;
     }
     html += "</tbody></table>";
     document.getElementById("tblwrap").innerHTML = html;
