@@ -37,6 +37,7 @@ tabicl_method_metadata = tabicl_descriptor.method_metadata(
 )
 
 
+# Superseded by the rerun below; kept so the hosted artifacts stay loadable.
 tabiclv2_method_metadata = tabiclv2_descriptor.method_metadata(
     method="TabICLv2",
     date="2026-02-16",
@@ -46,6 +47,20 @@ tabiclv2_method_metadata = tabiclv2_descriptor.method_metadata(
     suite="tabarena-2026-02-16",
     cache_type="s3",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache", "upload_as_public": True},
+)
+
+# Pareto-front rerun with the improved train/infer time measurement.
+tabiclv2_new_method_metadata = tabiclv2_descriptor.method_metadata(
+    method="TabICLv2",
+    date="2026-07-15",
+    # ag_key matches the rerun's raw data; model_key stays "TABICLV2" for stable registry naming.
+    ag_key="TA-TABICLv2",
+    model_key="TABICLV2",
+    config_default="TabICLv2_c1_default_BAG_L1",
+    can_hpo=False,
+    suite="tabarena-2026-07-13",
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 
@@ -61,7 +76,7 @@ tabicl_info = ModelInfo(
 tabiclv2_info = ModelInfo(
     model_cls=TabICLv2Model,
     search_space=gen_tabiclv2,
-    method_metadata=tabiclv2_method_metadata,
+    method_metadata=tabiclv2_new_method_metadata,
     pip_extra=("tabicl>=2.0.0",),
     prefetch_weights=TabICLv2Model.prefetch_weights,
 )
