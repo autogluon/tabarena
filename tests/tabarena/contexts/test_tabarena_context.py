@@ -289,6 +289,29 @@ class TestCatFractionPredicates:
         assert grid.loc[high, "dataset"].nunique() == 15
 
 
+class TestNumericalOnlyPredicate:
+    """`numerical` keeps the v0.1 datasets with `percentage_cat_features == 0` (curated CSV)."""
+
+    @staticmethod
+    def _grid() -> pd.DataFrame:
+        return TaskMetadataCollection.from_preset("TabArena-v0.1").task_grid()
+
+    def test_registered_on_context(self):
+        preds = TabArenaContext.SUBSET_PREDICATES
+        assert "numerical" in preds
+        assert preds["numerical"].required_columns == ("dataset",)
+
+    def test_selects_the_numerical_only_datasets(self):
+        grid = self._grid()
+        preds = TabArenaContext.SUBSET_PREDICATES
+        numerical = preds["numerical"].evaluate(grid, name="numerical")
+        # 6 of the 51 v0.1 datasets have a purely numerical feature space.
+        assert grid.loc[numerical, "dataset"].nunique() == 6
+        # a subset of low_cats (0% categorical is below the 50% threshold)
+        low = preds["low_cats"].evaluate(grid, name="low_cats")
+        assert (numerical & ~low).sum() == 0
+
+
 class TestComparePlotOnlyForwarding:
     """compare(plot_only=) reaches the lower-level compare (and thus eval) via kwargs."""
 
