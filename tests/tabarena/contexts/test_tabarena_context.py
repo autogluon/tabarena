@@ -5,6 +5,7 @@ import pytest
 
 from tabarena.benchmark.task.metadata import TaskMetadataCollection, TaskSubset
 from tabarena.contexts import AbstractArenaContext, TabArenaContext
+from tabarena.contexts.tabarena.context import FEATURE_COUNT_THRESHOLD
 
 
 def _ctx() -> TabArenaContext:
@@ -310,6 +311,49 @@ class TestNumericalOnlyPredicate:
         # a subset of low_cats (0% categorical is below the 50% threshold)
         low = preds["low_cats"].evaluate(grid, name="low_cats")
         assert (numerical & ~low).sum() == 0
+
+
+class TestStandardSubsetVariants:
+    """TabArena exposes explicit lite and categorical-fraction variant definitions."""
+
+    def test_shortcuts_are_registered(self):
+        assert TabArenaContext.SUBSET_SHORTCUTS == {
+            "full": [],
+            "lite": ["lite"],
+            "low_cats": ["low_cats"],
+            "high_cats": ["high_cats"],
+            "low_features": ["low_features"],
+            "high_features": ["high_features"],
+            "numerical": ["numerical"],
+        }
+
+    @pytest.mark.parametrize(
+        ("subset", "name"),
+        [
+            (None, "full"),
+            ([], "full"),
+            ("lite", "lite"),
+            ("low_cats", "low_cats"),
+            ("high_cats", "high_cats"),
+            ("low_features", "low_features"),
+            ("high_features", "high_features"),
+            ("numerical", "numerical"),
+        ],
+    )
+    def test_shortcut_reverse_lookup(self, subset, name):
+        assert TabArenaContext.subset_shortcut_name(subset) == name
+
+    def test_feature_buckets_partition_task_grid(self):
+        grid = TaskMetadataCollection.from_preset("TabArena-v0.1").task_grid()
+        predicates = TabArenaContext.SUBSET_PREDICATES
+        low = predicates["low_features"].evaluate(grid, name="low_features")
+        high = predicates["high_features"].evaluate(grid, name="high_features")
+
+        assert not (low & high).any()
+        assert (low | high).all()
+        assert (grid.loc[low, "n_features"] <= FEATURE_COUNT_THRESHOLD).all()
+        assert (grid.loc[high, "n_features"] > FEATURE_COUNT_THRESHOLD).all()
+        assert low.any() and high.any()
 
 
 class TestComparePlotOnlyForwarding:
