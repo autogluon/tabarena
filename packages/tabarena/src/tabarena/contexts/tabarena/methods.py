@@ -178,6 +178,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabpfn_3_new_method_metadata,
         iltm_method_metadata,
         nori_new_method_metadata,
+        nori30m_method_metadata,
         tabfm_new_method_metadata,
         tabswift_new_method_metadata,
     ],
@@ -187,7 +188,6 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
 methods_superseded_2026_07_13: list[MethodMetadata] = [
     chimeraboost_method_metadata,
     nori_method_metadata,
-    nori30m_method_metadata,
     tabfm_method_metadata,
     tabswift_method_metadata,
     tabpfnv3_method_metadata,

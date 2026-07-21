@@ -53,17 +53,19 @@ nori_info = ModelInfo(
 # the base above). Auto-discovered by the model registry alongside nori_info.
 nori30m_method_metadata = MethodMetadata.config(
     method="Nori-30M",
+    suite="tabarena-2026-07-13",
     ag_key="TA-NORI-30M",
     config_default="Nori-30M_c1_default_BAG_L1",
     can_hpo=False,
     compute="gpu",
     is_bag=False,
-    date="2026-07-13",
+    date="2026-07-21",
+    date_introduced="2026-07-21",
     reference_url="https://huggingface.co/Synthefy/Nori-30M",
     display_name="Nori-30M",
-    # verified=False and no cache: result artifacts are hosted in the official pool by the
-    # maintainers after a verified re-run (as with the base Nori once its results are hosted).
-    verified=False,
+    verified=True,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 nori30m_info = ModelInfo(
