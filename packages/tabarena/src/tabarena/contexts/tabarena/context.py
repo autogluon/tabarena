@@ -47,6 +47,32 @@ def _datasets_by_cat_fraction() -> tuple[frozenset[str], frozenset[str]]:
     return low, high
 
 
+@lru_cache(maxsize=1)
+def _numerical_only_datasets() -> frozenset[str]:
+    """Dataset names with a purely numerical feature space (``percentage_cat_features == 0``).
+
+    Like :func:`_datasets_by_cat_fraction`, sourced from the committed curated metadata CSV
+    because the v0.1 task grid carries no categorical-feature counts. Loaded once on first use.
+    """
+    from tabarena.benchmark.task.metadata.fetch_metadata import load_curated_task_metadata
+
+    df = load_curated_task_metadata()
+    return frozenset(df.loc[df["percentage_cat_features"] == 0, "dataset_name"].astype(str))
+
+
+def _numerical_only_predicate() -> SubsetPredicate:
+    """A :class:`SubsetPredicate` keeping grid rows whose dataset has only numerical features.
+
+    Data-dependent like :func:`_cat_fraction_predicate`: closes over the curated-metadata
+    selection, so it only requires the always-present ``dataset`` column.
+    """
+
+    def _mask(df: pd.DataFrame) -> pd.Series:
+        return df["dataset"].astype(str).isin(_numerical_only_datasets())
+
+    return SubsetPredicate(_mask, ("dataset",))
+
+
 def _cat_fraction_predicate(*, low: bool) -> SubsetPredicate:
     """A :class:`SubsetPredicate` keeping grid rows whose dataset is in the low/high cat bucket.
 
@@ -110,6 +136,8 @@ class TabArenaContext(AbstractArenaContext):
         # datasets, high_cats 15.
         "low_cats": _cat_fraction_predicate(low=True),
         "high_cats": _cat_fraction_predicate(low=False),
+        # purely numerical feature space (percentage_cat_features == 0); a subset of low_cats.
+        "numerical": _numerical_only_predicate(),
         # split-level filter: keeps split 0 == (fold 0, repeat 0). Evaluated on the task grid's
         # "split" column (see TaskMetadataCollection.task_grid); a results frame's "fold" is the
         # split, so this maps to fold == 0 there.
@@ -126,6 +154,7 @@ class TabArenaContext(AbstractArenaContext):
         "high_cats": ["high_cats"],
         "low_features": ["low_features"],
         "high_features": ["high_features"],
+        "numerical": ["numerical"],
     }
 
     def __init__(

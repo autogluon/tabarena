@@ -7,7 +7,8 @@ nothing from ``TabArenaContext``, whose only addition over the base is the TabAr
 
 * **Subset predicates** — size buckets keyed on ``max_train_rows``, plus split-regime
   (``iid``/``temporal``/``grouped``, with ``grouped`` further split by label granularity into
-  ``grouped_lpg``/``grouped_lps``), feature-dimensionality, text and high-cardinality subsets.
+  ``grouped_lpg``/``grouped_lps``), feature-dimensionality, text, high-cardinality and
+  numerical-only subsets.
 * **Task metadata** — the committed BeyondArena reference CSV, loaded as a
   :class:`~tabarena.benchmark.task.metadata.BeyondArenaTaskMetadataCollection` (whose tasks already
   carry the warehouse fields inline, so no separate ``warehouse_metadata.csv`` merge is needed). The
@@ -99,6 +100,14 @@ class BeyondArenaContext(AbstractArenaContext):
         "high-cardinality": SubsetPredicate(
             lambda df: df["num_high_cardinality_cats"] > 0, ("num_high_cardinality_cats",)
         ),
+        # purely numerical feature space: no categorical, datetime, or text columns (binary 0/1
+        # columns count as numerical — they are only excluded when typed as categorical).
+        "numerical": SubsetPredicate(
+            lambda df: (
+                ~df["has_categorical"].astype(bool) & ~df["has_datetime"].astype(bool) & (df["num_text_cols"] == 0)
+            ),
+            ("has_categorical", "has_datetime", "num_text_cols"),
+        ),
         # split-level filter: keeps split 0 == (fold 0, repeat 0); a results frame's "fold"
         # column is the split, so this maps to fold == 0 there (matching the original
         # results-frame "lite" lambda and the base context's convention).
@@ -122,6 +131,7 @@ class BeyondArenaContext(AbstractArenaContext):
         "iid": ["core", "iid"],
         "random": ["core", "random"],
         "text": ["core", "text"],
+        "numerical": ["core", "numerical"],
         # high-cardinality slice with the large size bucket removed (all splits / lite split 0)
         "hc_nolarge": ["core", "high-cardinality", "!large"],
         "hc_nolarge_lite": ["core", "lite", "high-cardinality", "!large"],

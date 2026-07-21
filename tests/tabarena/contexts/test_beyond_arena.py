@@ -31,9 +31,28 @@ def test_subset_predicates_cover_beyond_subsets():
         "high-dim",
         "text",
         "high-cardinality",
+        "numerical",
         "lite",
     }
     assert expected <= set(BeyondArenaContext.SUBSET_PREDICATES)
+
+
+def test_numerical_predicate_excludes_cat_datetime_and_text():
+    """``numerical`` keeps only datasets whose feature space is purely numerical."""
+    from tabarena.benchmark.task.metadata import BeyondArenaTaskMetadataCollection
+
+    grid = BeyondArenaTaskMetadataCollection().task_grid()
+    mask = BeyondArenaContext.SUBSET_PREDICATES["numerical"].evaluate(grid, name="numerical")
+    selected = grid[mask.values]
+    assert 0 < len(selected) < len(grid)
+    assert not selected["has_categorical"].any()
+    assert not selected["has_datetime"].any()
+    assert (selected["num_text_cols"] == 0).all()
+    # disjoint from the text and high-cardinality slices by construction
+    text = BeyondArenaContext.SUBSET_PREDICATES["text"].evaluate(grid, name="text")
+    hc = BeyondArenaContext.SUBSET_PREDICATES["high-cardinality"].evaluate(grid, name="high-cardinality")
+    assert not (mask & text).any()
+    assert not (mask & hc).any()
 
 
 def test_subset_shortcuts_resolve_on_task_grid():
