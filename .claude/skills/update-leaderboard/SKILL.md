@@ -85,6 +85,12 @@ cd <tabarena>/scripts
 nohup <generation_venv>/bin/python run_generate_website_artifacts.py > <scratch>/gen_website.log 2>&1 &
 ```
 
+Useful flags (defaults = the fast website-only publish run): `--skip-evaluate` /
+`--skip-trajectories` reuse the existing raw artifacts for one pipeline when only the other's
+outputs changed; `--elo-bootstrap-rounds 1` for a toy run (Elo CIs meaningless);
+`--full-figures` restores the full per-subset paper figure suite (incl. GIF animations);
+`--zip-raw` re-enables the large raw-artifacts zip (the publish flow only needs the clean zip).
+
 Monitor until the process exits, then verify outputs — **don't trust "exited" alone**:
 
 - **Harmless noise to ignore:** at the end ray tears down its workers and each logs a
@@ -104,7 +110,9 @@ Monitor until the process exits, then verify outputs — **don't trust "exited" 
     PY
     ```
   - Structural sanity in `website_data/`: **60** `website_leaderboard.csv`, **60** `n_datasets_*`
-    markers, **240** `*.png.zip`, and **0** raw `*.png` (figures are zipped, not extracted).
+    markers, **240** `*.png.zip`, **0** raw `*.png` (figures are zipped, not extracted), **120**
+    interactive `*_explorer.html` (60 Pareto + 60 trajectories) and their **120** data CSVs
+    (`pareto_front_points.csv` + `tuning_trajectories.csv`).
 
 ## Step 3: Refresh the Space repo's `data/` (the stale-PNG gotcha)
 
