@@ -743,6 +743,9 @@ def compute_tuning_trajectories_leaderboard(
             "time_infer_s_per_1K",
             "time_total_s",
             "time_total_s_per_1K",
+            # Aggregates to the per-method fraction of imputed tasks, used to
+            # mark partially imputed methods in the interactive explorer.
+            "imputed",
         ],
         groupby_columns=["problem_type", "metric"],
         seed_column="fold",
@@ -1600,6 +1603,13 @@ def plot_tuning_trajectories_from_leaderboard(
     )
     if "n_configs" in leaderboard.columns:
         explorer_points["n_configs"] = leaderboard["n_configs"]
+    # `imputed` aggregates to the per-method-point fraction of imputed tasks
+    # (0 everywhere on the no-imputation subsets, where imputed methods are
+    # dropped up front).
+    if "imputed" in leaderboard.columns:
+        imputed_frac = leaderboard["imputed"].fillna(0.0).astype(float)
+        explorer_points["imputed"] = imputed_frac > 0
+        explorer_points["imputed_pct"] = imputed_frac * 100
     explorer_points = explorer_points.dropna(subset=["x", "imp", "elo"])
     if not explorer_points.empty:
         build_pareto_explorer_html(

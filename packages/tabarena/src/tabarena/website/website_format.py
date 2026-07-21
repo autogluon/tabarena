@@ -119,6 +119,7 @@ def get_model_family(model_name: str) -> str:
             "TABSTAR",
             "TA-TABPFN-3",
             "TA-ORION-MSP",
+            "ORIONMSP",
             "TA-ILTM",
             "TA-NORI",
             "TABSWIFT",

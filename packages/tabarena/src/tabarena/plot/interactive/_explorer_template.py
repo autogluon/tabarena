@@ -434,7 +434,12 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
         const size = (on ? 7 : 5) * (TRAJECTORY ? 0.8 : 1);
         const op = on ? 0.95 : 0.5;
         drawMark(on ? ptsOn : ptsOff, X(p.x), Y(mval(p, metric)), p.variant, color, size, op, p.method, on);
-        if (p.imputed) drawImputedRing(on ? ptsOn : ptsOff, X(p.x), Y(mval(p, metric)), size, color, op, p.method);
+        // Imputation ring: every affected point in scatter mode; only the
+        // trajectory's end point in trajectory mode (a ring on all ~8 line
+        // points would read as beads, and the chip's ‡ already flags the line).
+        if (p.imputed && (!TRAJECTORY || p === pts[pts.length - 1])) {
+          drawImputedRing(on ? ptsOn : ptsOff, X(p.x), Y(mval(p, metric)), size, color, op, p.method);
+        }
       }
     }
 
