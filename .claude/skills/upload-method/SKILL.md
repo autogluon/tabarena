@@ -1,6 +1,6 @@
 ---
 name: upload-method
-description: Process, upload, and register one benchmarked method's results in TabArena. Use this skill whenever a maintainer points at a benchmark run's output directory and wants to turn its raw `results.pkl` files into cached + hosted + registered TabArena artifacts — e.g. "upload this method", "process and upload these results", "host/publish <model>'s results", "register <model> in the leaderboard". Produces the exact command sheet the maintainer runs (inspect → process → upload dry-run → upload), and edits the things Claude can do right away: the model's `info.py` `MethodMetadata` (suite / date / cache_type / cache_kwargs / verified) and the arena collection registration in `methods.py`.
+description: Process, upload, and register one benchmarked method's results in TabArena. Use this skill whenever a maintainer points at a benchmark run's output directory and wants to turn its raw `results.pkl` files into cached + hosted + registered TabArena artifacts — e.g. "upload this method", "process and upload these results", "host/publish <model>'s results", "register <model> in the leaderboard". By default Claude runs the whole flow itself (inspect → fix `info.py` → process → upload dry-run → real r2 upload → register in `methods.py`) after first telling the maintainer what it will do; it hands a step off via a command sheet only when the environment can't run it (no `tabarena[benchmark]` venv, no R2 credentials).
 argument-hint: <run-data-dir> [<model>]
 user-invocable: true
 ---
@@ -14,24 +14,33 @@ a submission, or it's a fresh run's `output/<run>/data` dir).
 
 The authoritative prose for this flow is **AGENTS.md → "Processing & uploading method artifacts
 (maintainers)"** and the two scripts' module docstrings (`scripts/run_process_method.py`,
-`scripts/run_upload_results.py`). This skill operationalizes it: split the work into *what the
-maintainer runs* (the slow, data-touching, credentialed commands) and *what Claude does right away*
-(the small, deterministic code edits).
+`scripts/run_upload_results.py`). This skill operationalizes it: **Claude executes the flow itself
+by default**, and makes the small deterministic code edits along the way.
 
 ## What this skill delivers
 
-1. **A command sheet** the maintainer copy-pastes and runs, in order:
+1. **A plan, stated first**: which methods, which run dir, which suite, and that the flow ends in a
+   real r2 upload — tell the maintainer before executing (no need to wait for approval unless they
+   asked to review something first).
+2. **Claude-run execution**, in order per method:
    - `inspect` — read the raw data, print inferred fields + a metadata diff.
    - `process` — build + cache `metadata.yaml` + `processed/` + `results/` locally.
    - `upload` (dry-run, then `--no-dry-run`) — push the cached artifacts to r2.
-2. **Edits Claude makes now** (no run needed):
-   - The model's `info.py` `MethodMetadata` — fill in the manual upload fields.
+3. **Code edits**:
+   - The model's `info.py` `MethodMetadata` — fill in the manual upload fields, fix any
+     raw-data mismatches the inspect diff surfaces.
    - The arena collection registration in `methods.py` so the method appears in the benchmark.
+4. **A fallback command sheet** only for steps the environment can't run.
 
-The maintainer runs the commands because they (a) load the raw data with `ray` and need
-`tabarena[benchmark]` installed, (b) touch their local cache, and (c) need r2 credentials in the
-environment for the real upload. Claude *may* run `inspect` itself if the env is available and it
-helps confirm field values, but never the credentialed upload.
+Execution requirements (check before starting; hand off the affected step if missing):
+- a venv with **`tabarena[benchmark]`** installed (look under `~/.venvs/tabarena_*`; run scripts with
+  its python from the repo root),
+- **R2 credentials in the environment** for the real upload (`printenv | grep -o '^R2_[A-Z_]*'`
+  should show `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`; never pass them as flags).
+
+Processing and uploads are long-running: run them **in the background** (per-method), watch with a
+monitor (per-method DONE/FAILED lines + a stall watchdog), and for multi-method batches pipeline the
+uploads — start each method's dry-run + real upload as soon as its processing finishes.
 
 ## Step 0: Gather inputs
 
@@ -63,10 +72,10 @@ tabarena.models.<model>.info:<varname>
   `models/<model>/info.py` from it (use the **`add-model`** skill if the model also needs a wrapper).
   Processing **requires** an explicit committed `MethodMetadata` — it refuses to guess.
 
-## Step 2: Inspect the raw data (maintainer runs; confirms inference)
+## Step 2: Inspect the raw data (Claude runs; confirms inference)
 
 ```bash
-python scripts/run_process_method.py <run_data_dir>
+<venv>/bin/python scripts/run_process_method.py <run_data_dir>
 ```
 
 This prints the fields inferred from the raw data (`method_type`, `ag_key`, `compute`,
@@ -79,8 +88,12 @@ diff**. Use it to confirm `info.py` matches the raw data before processing. Two 
   the post-rename value — use that.
 - **`method != suite`**: `process` fails if they're equal (suite defaults to method when unset).
 
-Claude may run this itself if the venv (`tabarena[benchmark]`) and the data are available and it
-helps resolve a field; otherwise hand it to the maintainer.
+**Multi-method run dirs**: if the run's `data/` holds several methods' config dirs side by side,
+`run_process_method.py` can't split them — write a small gitignored driver in `tmp_scripts/` that
+discovers the `results.pkl` paths once, splits them by top-level config-dir prefix, and calls
+`_infer_from_raw` / `verify_method_metadata` / `process_raw(file_paths=...)` per method (see the
+`multi-method-run-upload` pattern; a `--c1-only` pass over just the `_c1_` dirs makes
+`config_default` inferable even for HPO methods with hundreds of configs).
 
 ## Step 3: Edit `info.py` (Claude does now)
 
@@ -119,31 +132,36 @@ chimeraboost_method_metadata = MethodMetadata.config(
 )
 ```
 
-## Step 4: Build the command sheet
+## Step 4: Execute process → upload (Claude runs, in the background)
 
-Assemble the exact commands with the resolved dotted reference. This is the block to hand the
-maintainer (see the final report). Using `chimeraboost` as the example:
+Run these with the resolved dotted reference, per method — background + monitor for the slow ones.
+The same block doubles as the fallback command sheet if a step must be handed to the maintainer.
+Using `chimeraboost` as the example:
 
 ```bash
-# 1. Inspect (confirm inferred fields match info.py)
-python scripts/run_process_method.py <run_data_dir>
+# 1. Inspect (confirm inferred fields match info.py) — already done in Step 2
 
-# 2. (Claude already edited info.py: suite + cache_type/cache_kwargs + date)
+# 2. (info.py edited: suite + cache_type/cache_kwargs + date, plus any inspect-diff fixes)
 
 # 3. Process: build + cache metadata.yaml + processed/ + results/ locally
-python scripts/run_process_method.py <run_data_dir> \
+<venv>/bin/python scripts/run_process_method.py <run_data_dir> \
     --method-metadata tabarena.models.chimeraboost.info:chimeraboost_method_metadata --process
 
 # 4. Upload dry-run: verifies every part exists locally and prints what/where (no creds needed)
-python scripts/run_upload_results.py \
+<venv>/bin/python scripts/run_upload_results.py \
     --method-metadata tabarena.models.chimeraboost.info:chimeraboost_method_metadata
 
 # 5. Real upload (R2 creds via env, NEVER flags):
-python scripts/run_upload_results.py \
+<venv>/bin/python scripts/run_upload_results.py \
     --method-metadata tabarena.models.chimeraboost.info:chimeraboost_method_metadata --no-dry-run
 ```
 
-Notes to pass along:
+After the real upload, verify on the bucket (ListObjects via boto3 against the R2 endpoint): each
+method should have the full object set under
+`cache/artifacts/<suite>/methods/<Method>/` (`metadata.yaml`, `processed.zip`,
+`processed/configs_hyperparameters.json`, `raw.zip`, `results/*.parquet`).
+
+Notes:
 - `process` requires the explicit `--method-metadata` and verifies it against the raw data first; a
   real mismatch errors (override with `--ignore-metadata-mismatch`, a `method`-name mismatch only
   warns). Raw + HPO trajectories are cached by default (`--no-cache-raw` / `--no-cache-hpo-trajectories`).
@@ -187,8 +205,12 @@ Touched files are the model's `info.py` and `contexts/<arena>/methods.py`. Fix a
 
 Tell the maintainer:
 
+- **What was executed and verified**: inspect diff results, processing outcome per method, and the
+  r2 destinations confirmed after the real upload — plus any data-quality warnings from processing
+  (e.g. `Not close TEST` prediction-fidelity lines, with affected datasets and severity).
 - **Edits Claude made**: the `info.py` upload fields (suite / cache_type / cache_kwargs / date /
-  verified) and the `methods.py` import + collection entry.
-- **The command sheet** from Step 4 (inspect → process → upload dry-run → upload), ready to run.
-- **Open decisions / TODOs**: whether to flip `verified` to `True` (only after sign-off), and the
-  caveat that the collection entry needs the real upload to complete before others can download it.
+  verified, plus any inspect-diff fixes) and the `methods.py` import + collection entry.
+- **Steps handed off** (only if the env couldn't run one): the exact command(s) from Step 4.
+- **Open decisions / TODOs**: whether to flip `verified` to `True` (only after sign-off), committing
+  the working-tree edits, and — if the method should appear on the website — that `update-leaderboard`
+  is the next lifecycle step.

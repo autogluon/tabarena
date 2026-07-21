@@ -14,6 +14,7 @@ extra_trees_descriptor = ModelDescriptor(
     date_introduced="2006",
 )
 
+# Superseded by the rerun below; kept so the hosted artifacts stay loadable.
 extra_trees_method_metadata = extra_trees_descriptor.method_metadata(
     method="ExtraTrees",
     suite="tabarena-2025-06-12",
@@ -25,9 +26,20 @@ extra_trees_method_metadata = extra_trees_descriptor.method_metadata(
     # FIXME: technically baselines are not verified
 )
 
+# Pareto-front rerun with the improved train/infer time measurement.
+extra_trees_new_method_metadata = extra_trees_descriptor.method_metadata(
+    method="ExtraTrees",
+    suite="tabarena-2026-07-13",
+    ag_key="XT",
+    config_default="ExtraTrees_c1_default_BAG_L1",
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+    date="2026-07-15",
+)
+
 
 extra_trees_info = ModelInfo(
     model_cls=XTModel,
     search_space=gen_extratrees,
-    method_metadata=extra_trees_method_metadata,
+    method_metadata=extra_trees_new_method_metadata,
 )

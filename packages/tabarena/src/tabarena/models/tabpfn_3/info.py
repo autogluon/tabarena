@@ -13,6 +13,7 @@ tabpfn_3_descriptor = ModelDescriptor(
     date_introduced="2026-05",
 )
 
+# Superseded by the rerun below; kept so the hosted artifacts stay loadable.
 tabpfn_3_method_metadata = tabpfn_3_descriptor.method_metadata(
     method="TabPFN-3",
     ag_key="TA-TABPFN-3",
@@ -24,11 +25,23 @@ tabpfn_3_method_metadata = tabpfn_3_descriptor.method_metadata(
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
+# Pareto-front rerun with the improved train/infer time measurement.
+tabpfn_3_new_method_metadata = tabpfn_3_descriptor.method_metadata(
+    method="TabPFN-3",
+    ag_key="TA-TABPFN-3",
+    config_default="TabPFN-3_c1_default_BAG_L1",
+    can_hpo=False,
+    date="2026-07-15",
+    cache_type="r2",
+    suite="tabarena-2026-07-13",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+)
+
 
 tabpfn_3_info = ModelInfo(
     model_cls=TabPFN3Model,
     search_space=gen_tabpfn_3,
-    method_metadata=tabpfn_3_method_metadata,
+    method_metadata=tabpfn_3_new_method_metadata,
     pip_extra=("tabpfn>=8.0.8",),
     prefetch_weights=prefetch_weights,
 )

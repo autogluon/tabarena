@@ -35,10 +35,16 @@ from tabarena.models._method_metadata_collection import MethodMetadataCollection
 # Per-model `info.py` is the canonical source for each method's `MethodMetadata`; the collection
 # below references these directly. (Some keep their historical alias, used by the per-suite full
 # lists / downstream collections.)
-from tabarena.models.catboost.info import catboost_method_metadata
-from tabarena.models.chimeraboost.info import chimeraboost_method_metadata
-from tabarena.models.ebm.info import ebm_method_metadata as ebm_metadata
-from tabarena.models.extra_trees.info import extra_trees_method_metadata
+from tabarena.models.catboost.info import catboost_new_method_metadata
+from tabarena.models.chimeraboost.info import (
+    chimeraboost_method_metadata,
+    chimeraboost_new_method_metadata,
+)
+from tabarena.models.ebm.info import (
+    ebm_method_metadata as ebm_metadata,
+    ebm_new_method_metadata,
+)
+from tabarena.models.extra_trees.info import extra_trees_new_method_metadata
 from tabarena.models.fastai.info import fastai_method_metadata
 from tabarena.models.iltm.info import iltm_method_metadata
 from tabarena.models.knn.info import knn_method_metadata as knn_metadata
@@ -48,7 +54,7 @@ from tabarena.models.lr.info import lr_method_metadata as lr_metadata
 from tabarena.models.mitra.info import mitra_method_metadata as mitra_metadata
 from tabarena.models.modernnca.info import modernnca_gpu_method_metadata
 from tabarena.models.nn_torch.info import nn_torch_method_metadata
-from tabarena.models.nori.info import nori_method_metadata
+from tabarena.models.nori.info import nori30m_method_metadata, nori_method_metadata, nori_new_method_metadata
 from tabarena.models.orionmsp.info import orionmsp_method_metadata as orionmsp_metadata
 from tabarena.models.perpetual_booster.info import (
     perpetual_booster_method_metadata as perpetualbooster_metadata,
@@ -58,22 +64,27 @@ from tabarena.models.realmlp.info import realmlp_method_metadata as realmlp_gpu_
 from tabarena.models.sap_rpt_oss.info import (
     sap_rpt_oss_method_metadata as contexttab_metadata,
 )
-from tabarena.models.tabdpt.info import tabdpt_method_metadata as tabdpt_metadata
-from tabarena.models.tabfm.info import tabfm_method_metadata
+from tabarena.models.tabdpt.info import (
+    tabdpt_method_metadata as tabdpt_metadata,
+    tabdpt_turbo_method_metadata,
+)
+from tabarena.models.tabfm.info import tabfm_method_metadata, tabfm_new_method_metadata
 from tabarena.models.tabicl.info import (
     tabicl_method_metadata,
     tabiclv2_method_metadata as tabiclv2_metadata,
+    tabiclv2_new_method_metadata,
 )
 from tabarena.models.tabm.info import tabm_new_method_metadata
 from tabarena.models.tabpfn_3.info import (
     tabpfn_3_method_metadata as tabpfnv3_method_metadata,
+    tabpfn_3_new_method_metadata,
 )
 from tabarena.models.tabpfnv2_5.info import (
     realtabpfnv25_method_metadata as realtabpfn25_metadata,
     tabpfnv26_method_metadata as tabpfn26_metadata,
 )
 from tabarena.models.tabstar.info import tabstar_method_metadata as tabstar_metadata
-from tabarena.models.tabswift.info import tabswift_method_metadata
+from tabarena.models.tabswift.info import tabswift_method_metadata, tabswift_new_method_metadata
 from tabarena.models.xgboost.info import xgboost_method_metadata
 from tabarena.models.xrfm.info import xrfm_method_metadata as xrfm_metadata
 
@@ -133,10 +144,10 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         ag_140_bq_4h8c_metadata,
         ag_150_eq_4h8c_metadata,
         # Default tabular models (CPU)
-        catboost_method_metadata,
-        chimeraboost_method_metadata,
-        ebm_metadata,
-        extra_trees_method_metadata,
+        catboost_new_method_metadata,
+        chimeraboost_new_method_metadata,
+        ebm_new_method_metadata,
+        extra_trees_new_method_metadata,
         knn_metadata,
         lightgbm_method_metadata,
         lr_metadata,
@@ -149,6 +160,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         modernnca_gpu_method_metadata,
         realmlp_gpu_metadata,
         tabdpt_metadata,
+        tabdpt_turbo_method_metadata,
         tabicl_method_metadata,
         tabm_new_method_metadata,
         tabpfnv2_gpu_metadata,
@@ -157,19 +169,30 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabflex_metadata,
         realtabpfn25_metadata,
         contexttab_metadata,
-        tabiclv2_metadata,
+        tabiclv2_new_method_metadata,
         tabstar_metadata,
         perpetualbooster_metadata,
         tabpfn26_metadata,
         limix_metadata,
         orionmsp_metadata,
-        tabpfnv3_method_metadata,
+        tabpfn_3_new_method_metadata,
         iltm_method_metadata,
-        nori_method_metadata,
-        tabfm_method_metadata,
-        tabswift_method_metadata,
+        nori_new_method_metadata,
+        nori30m_method_metadata,
+        tabfm_new_method_metadata,
+        tabswift_new_method_metadata,
     ],
 )
+
+# Superseded predecessors of the tabarena-2026-07-13 reruns that appear in no dated suite list above.
+methods_superseded_2026_07_13: list[MethodMetadata] = [
+    chimeraboost_method_metadata,
+    nori_method_metadata,
+    tabfm_method_metadata,
+    tabswift_method_metadata,
+    tabpfnv3_method_metadata,
+    tabiclv2_metadata,
+]
 
 # All historical results for each method = the latest collection + every superseded variant: the
 # replaced / CPU-only / extra-AutoGluon-preset / non-paper entries from the dated suite lists (and
@@ -183,6 +206,7 @@ methods_historical = [
         *methods_2025_10_20,
         *methods_2025_11_01_ag,
         *methods_misc,
+        *methods_superseded_2026_07_13,
     ]
     if m not in _collection_methods
 ]

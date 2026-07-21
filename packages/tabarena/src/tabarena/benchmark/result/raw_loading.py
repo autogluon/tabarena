@@ -103,7 +103,10 @@ def fetch_raw_result_paths(
     name_pattern: str | None = None,
     num_workers: int | None = None,
 ) -> list[Path]:
-    """Find all ``results.pkl`` files under ``path_raw`` (recursively).
+    """Find all ``results.pkl`` files under ``path_raw`` (recursively), sorted by path.
+
+    Sorting makes downstream processing independent of filesystem enumeration order (e.g. the
+    per-task merge keeps the first-seen hyperparameters per config).
 
     Raises with the most common file names found when no ``results.pkl`` exists, so a wrong
     directory is diagnosed instead of silently yielding zero results.
@@ -124,7 +127,7 @@ def fetch_raw_result_paths(
             f"No valid {suffix!r} files found under path: {path_raw!r} "
             f"(name_pattern={name_pattern!r})!\nMost common file names:\n{common_str}",
         )
-    return file_paths
+    return sorted(file_paths)
 
 
 def load_raw(

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from tabarena.models.knn.model import KNNNewModel
     from tabarena.models.limix.model import LimiXModel
     from tabarena.models.modernnca.model import ModernNCAModel
-    from tabarena.models.nori.model import NoriModel
+    from tabarena.models.nori.model import Nori30MModel, NoriModel
     from tabarena.models.orionmsp.model import OrionMSPModel
     from tabarena.models.perpetual_booster.model import PerpetualBoosterModel
     from tabarena.models.realmlp.model import RealMLPModel
@@ -46,6 +46,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "LimiXModel": "tabarena.models.limix.model",
     "ModernNCAModel": "tabarena.models.modernnca.model",
     "NoriModel": "tabarena.models.nori.model",
+    "Nori30MModel": "tabarena.models.nori.model",
     "OrionMSPModel": "tabarena.models.orionmsp.model",
     "PerpetualBoosterModel": "tabarena.models.perpetual_booster.model",
     "RealMLPModel": "tabarena.models.realmlp.model",

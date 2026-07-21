@@ -31,17 +31,15 @@ tabdpt_method_metadata = tabdpt_descriptor.method_metadata(
     date="2025-10-20",
 )
 
-# TabDPT-Turbo (v1.2) is not yet benchmarked in TabArena: `verified=False` and the `suite`/`date`
-# are placeholders for the upcoming run (finalized by the upload-method flow). A distinct
-# `model_key`/`ag_key` keeps it a separate leaderboard method from TabDPT (v1.1) above.
+# A distinct `model_key`/`ag_key` keeps TabDPT-Turbo (v1.2) a separate leaderboard method from TabDPT above.
 tabdpt_turbo_method_metadata = tabdpt_turbo_descriptor.method_metadata(
     method="TabDPT-Turbo",
-    suite="tabarena-2026-07-10",
+    suite="tabarena-2026-07-13",
     ag_key="TA-TABDPT-TURBO",
     model_key="TABDPT_TURBO",
-    config_default="TabDPT_Turbo_c1_default_BAG_L1",
+    config_default="TabDPT-Turbo_c1_default_BAG_L1",
     can_hpo=False,
-    date="2026-07-10",
+    date="2026-07-15",
     verified=False,
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},

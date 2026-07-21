@@ -197,3 +197,32 @@ class NoriModel(AbstractTorchModel):
         from synthefy_nori.hf import download_checkpoint
 
         download_checkpoint()
+
+
+class Nori30MModel(NoriModel):
+    """Nori-30M: the ~29M-parameter version of Nori (in-context tabular regression).
+
+    A version of :class:`NoriModel` — same fit/predict/preprocessing/resource logic, only the
+    checkpoint differs. The ``model="nori-30m"`` default (set below) routes ``NoriRegressor`` to the
+    30M weights via ``synthefy-nori``'s variant registry (``>=0.10.0``), which resolves to the public
+    `Synthefy/Nori-30M <https://huggingface.co/Synthefy/Nori-30M>`_ Hugging Face repo.
+    """
+
+    ag_key = "TA-NORI-30M"
+    ag_name = "TA-Nori-30M"
+    ag_priority = 64  # just below the base Nori (65)
+
+    def _set_default_params(self):
+        super()._set_default_params()
+        # Route NoriRegressor(model=...) to the 30M variant (synthefy-nori >= 0.10.0).
+        self._set_default_param_value("model", "nori-30m")
+
+    @classmethod
+    def prefetch_weights(cls) -> None:
+        """Pre-download the Nori-30M checkpoint (``Synthefy/Nori-30M``) from the Hugging Face Hub.
+
+        Warms the cache before parallel fit runs. The repo is public, so no token is required.
+        """
+        from synthefy_nori.hf import download_checkpoint
+
+        download_checkpoint(model="nori-30m")
