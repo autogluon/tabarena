@@ -1904,6 +1904,8 @@ class LeaderboardReporter:
             # Single time axis (inference, the panel the website led with
             # historically); train time stays available in the CSV export.
             x_keys=["x_infer"],
+            # Mirrored against the trajectories explorer (chips right there).
+            chips_side="left",
             save_path=Path(self.output_dir) / "pareto_front_explorer.html",
         )
 

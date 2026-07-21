@@ -13,9 +13,26 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from tabarena.plot.interactive._explorer_template import EXPLORER_TEMPLATE
+from tabarena.plot.plot_pareto_focus import FAMILY_COLORS
 
 if TYPE_CHECKING:
     import pandas as pd
+
+#: Family display name -> the template's CSS custom property carrying its color.
+_FAMILY_CSS_TOKENS: dict[str, str] = {
+    "Foundation Model": "--fam-foundation",
+    "Neural Network": "--fam-nn",
+    "Tree-based": "--fam-tree",
+    "Reference Pipeline": "--fam-reference",
+    "Baseline": "--fam-baseline",
+    "Other": "--fam-other",
+}
+
+
+def _family_css_vars() -> str:
+    """CSS custom-property lines carrying the shared family colors."""
+    return "\n".join(f"    {token}: {FAMILY_COLORS[family]};" for family, token in _FAMILY_CSS_TOKENS.items())
+
 
 #: Variant display order used to sort each method's points so the connector
 #: line runs default -> tuned -> tuned + ensembled.
@@ -71,6 +88,7 @@ def build_pareto_explorer_html(
     title: str | None = None,
     metric_keys: list[str] | None = None,
     x_keys: list[str] | None = None,
+    chips_side: str = "left",
     page_title: str = "TabArena Pareto explorer",
 ) -> Path:
     """Render the interactive explorer HTML for a set of method points.
@@ -93,10 +111,15 @@ def build_pareto_explorer_html(
         Which metrics of :data:`_METRIC_SPECS` to offer on the y-axis
         selector; defaults to every metric whose column is present.
     x_keys
-        Which time axes of :data:`_X_AXIS_SPECS` to offer on the x-axis
-        selector (first entry is the default view); defaults to every axis
-        whose column is present.
+        Which time axis of :data:`_X_AXIS_SPECS` the chart uses (only the
+        first entry is rendered); defaults to the first axis whose column is
+        present.
+    chips_side
+        ``"left"`` places the controls + method chips left of the chart,
+        ``"right"`` mirrors the columns.
     """
+    if chips_side not in ("left", "right"):
+        raise ValueError(f"Unknown chips_side: {chips_side!r}")
     if mode not in ("scatter", "trajectory"):
         raise ValueError(f"Unknown mode: {mode!r}")
 
@@ -149,10 +172,12 @@ def build_pareto_explorer_html(
         "title": title,
         "metrics": [_METRIC_SPECS[k] for k in metric_keys],
         "xAxes": [_X_AXIS_SPECS[k] for k in x_keys],
+        "chipsSide": chips_side,
     }
 
     html = (
         EXPLORER_TEMPLATE.replace("__PAGE_TITLE__", page_title)
+        .replace("__FAMILY_CSS_VARS__", _family_css_vars())
         .replace("__CONFIG_JSON__", json.dumps(config))
         .replace("__POINTS_JSON__", data.to_json(orient="records"))
     )

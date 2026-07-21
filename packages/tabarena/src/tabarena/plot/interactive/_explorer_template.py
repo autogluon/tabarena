@@ -31,12 +31,9 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     --accent: #2a78d6;
     --chip-bg: #f2f1ec;
     --pt-muted: #b9b8b1;
-    --fam-foundation: #2a78d6;
-    --fam-tree: #eb6834;
-    --fam-nn: #1baf7a;
-    --fam-other: #4a3aa7;
-    --fam-reference: #e87ba4;
-    --fam-baseline: #898781;
+    /* Family colors: injected from FAMILY_COLORS (same scheme as the
+       leaderboard tables), identical in light and dark mode. */
+__FAMILY_CSS_VARS__
     --optimal: #228b22;
     --tooltip-bg: #14161a;
     --tooltip-ink: #fbfbf9;
@@ -55,12 +52,6 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
       --accent: #3987e5;
       --chip-bg: #232327;
       --pt-muted: #55555c;
-      --fam-foundation: #3987e5;
-      --fam-tree: #d95926;
-      --fam-nn: #199e70;
-      --fam-other: #9085e9;
-      --fam-reference: #d55181;
-      --fam-baseline: #898781;
       --optimal: #2ea043;
       --tooltip-bg: #f0efea;
       --tooltip-ink: #14161a;
@@ -76,12 +67,6 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     --accent: #3987e5;
     --chip-bg: #232327;
     --pt-muted: #55555c;
-    --fam-foundation: #3987e5;
-    --fam-tree: #d95926;
-    --fam-nn: #199e70;
-    --fam-other: #9085e9;
-    --fam-reference: #d55181;
-    --fam-baseline: #898781;
     --optimal: #2ea043;
     --tooltip-bg: #f0efea;
     --tooltip-ink: #14161a;
@@ -94,6 +79,20 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     line-height: 1.5;
     padding: 10px 12px 14px;
+  }
+  /* The [hidden] attribute must beat author display rules (e.g. the
+     inline-flex on .metricpick), else hidden controls render empty. */
+  [hidden] { display: none !important; }
+
+  /* Two-column layout: controls + chips in a side panel, chart beside it.
+     ``chips-right`` mirrors the columns. Wraps to stacked when narrow. */
+  .explorer-grid { display: flex; gap: 18px; align-items: flex-start; }
+  .explorer-grid.chips-right { flex-direction: row-reverse; }
+  .sidebox { flex: 0 0 330px; min-width: 250px; display: flex; flex-direction: column; gap: 10px; }
+  .mainbox { flex: 1 1 auto; min-width: 0; }
+  @media (max-width: 860px) {
+    .explorer-grid { flex-wrap: wrap; }
+    .sidebox { flex: 1 1 100%; }
   }
 
   .explorer-title { font-size: 15px; font-weight: 650; margin: 0 0 8px; }
@@ -116,13 +115,14 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     padding: 5px 7px; cursor: pointer;
   }
 
-  .chips { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-  .chiprow { display: flex; align-items: flex-start; gap: 9px; }
+  .chips { display: flex; flex-direction: column; gap: 9px; }
+  /* One block per family: the family toggle on top, its chips wrapping below. */
+  .chiprow { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
   .famchip {
-    flex: 0 0 152px; display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end;
+    display: inline-flex; align-items: center; gap: 6px;
     font: 650 10.5px/1.3 system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase;
     color: var(--muted); background: var(--chip-bg); border: 1px dashed var(--line);
-    border-radius: 999px; padding: 5px 10px; cursor: pointer; margin-top: 1px;
+    border-radius: 999px; padding: 5px 10px; cursor: pointer;
   }
   .famchip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fam); flex: none; }
   .famchip .count { font-weight: 500; letter-spacing: 0; opacity: 0.75; }
@@ -145,8 +145,7 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
   .chip[aria-pressed="true"] .dot { background: var(--fam); }
   .chip:hover { border-color: var(--muted); }
 
-  /* Cap the chart size: at full page width the 960x540 canvas would blow up. */
-  .chartbox { position: relative; max-width: 920px; }
+  .chartbox { position: relative; }
   .chartbox svg { width: 100%; height: auto; display: block; }
   .legendstrip {
     display: flex; flex-wrap: wrap; gap: 5px 16px; align-items: center;
@@ -183,25 +182,29 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
 </head>
 <body>
   <p class="explorer-title" id="title"></p>
-  <div class="controls">
-    <label class="metricpick" id="metricpick" hidden>Y-axis
-      <select id="metric-select"></select>
-    </label>
-    <label class="metricpick" id="xaxispick" hidden>X-axis
-      <select id="xaxis-select"></select>
-    </label>
-    <div class="btnrow">
-      <button class="btn" id="btn-front">Pareto front</button>
-      <button class="btn" id="btn-all">All</button>
-      <button class="btn" id="btn-none">Clear</button>
+  <div class="explorer-grid" id="grid">
+    <div class="sidebox">
+      <div class="controls">
+        <label class="metricpick" id="metricpick" hidden>Y-axis
+          <select id="metric-select"></select>
+        </label>
+        <div class="btnrow">
+          <button class="btn" id="btn-front">Pareto front</button>
+          <button class="btn" id="btn-all">All</button>
+          <button class="btn" id="btn-none">Clear</button>
+        </div>
+        <span class="hint">Click methods or family buttons to highlight &middot; hover points for details</span>
+      </div>
+      <div class="chips" id="chips"></div>
     </div>
-    <span class="hint">Click methods or family buttons to highlight &middot; hover points for details</span>
-  </div>
-  <div class="chips" id="chips"></div>
-  <div class="legendstrip" id="legendstrip"></div>
-  <div class="chartbox" id="chartbox">
-    <svg id="chart" viewBox="0 0 960 540" role="img" aria-label="Pareto front explorer"></svg>
-    <div class="tooltip"></div>
+    <div class="mainbox">
+      <!-- Legend above the chart so readers decode the marks before the data. -->
+      <div class="legendstrip" id="legendstrip"></div>
+      <div class="chartbox" id="chartbox">
+        <svg id="chart" viewBox="0 0 960 540" role="img" aria-label="Pareto front explorer"></svg>
+        <div class="tooltip"></div>
+      </div>
+    </div>
   </div>
   <details class="datatable">
     <summary>Data table</summary>
@@ -228,6 +231,9 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
 
   const titleEl = document.getElementById("title");
   if (CONFIG.title) titleEl.textContent = CONFIG.title; else titleEl.hidden = true;
+
+  // Column order: chips/controls left of the chart, or mirrored.
+  document.getElementById("grid").classList.add(CONFIG.chipsSide === "right" ? "chips-right" : "chips-left");
 
   const svg = document.getElementById("chart");
   const box = document.getElementById("chartbox");
@@ -357,15 +363,15 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
   const metricByKey = {};
   for (const m of METRICS) metricByKey[m.key] = m;
 
-  const X_AXES = CONFIG.xAxes;
-  let xKey = X_AXES[0].key;
-  const xAxisByKey = {};
-  for (const xa of X_AXES) xAxisByKey[xa.key] = xa;
+  // Single time axis per explorer (the scatter ships inference time, the
+  // trajectories train time).
+  const X_AXIS = CONFIG.xAxes[0];
+  const xKey = X_AXIS.key;
 
   function mval(p, metric) { return p[metric.key]; }
 
-  function computeFront(metric, xAxis) {
-    const xk = xAxis.key;
+  function computeFront(metric) {
+    const xk = xKey;
     const pts = [...POINTS].sort((a, b) =>
       a[xk] - b[xk] || (metric.lowerBetter ? mval(a, metric) - mval(b, metric) : mval(b, metric) - mval(a, metric)));
     const verts = [];
@@ -383,17 +389,16 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     return { verts, methods };
   }
 
-  const state = { active: new Set(computeFront(metricByKey[metricKey], xAxisByKey[xKey]).methods) };
+  const state = { active: new Set(computeFront(metricByKey[metricKey]).methods) };
 
   // ---------- chart ----------
   const W = 960, H = 540, M = { l: 62, r: 18, t: 14, b: 52 };
 
   function render() {
     const metric = metricByKey[metricKey];
-    const xAxis = xAxisByKey[xKey];
     svg.textContent = "";
 
-    // x scale (log), recomputed per render since the x-axis is switchable
+    // x scale (log)
     const xsAll = POINTS.map(p => p[xKey]);
     const xmin = Math.min(...xsAll) * 0.65, xmax = Math.max(...xsAll) * 1.6;
     const lx0 = Math.log10(xmin), lx1 = Math.log10(xmax);
@@ -426,14 +431,14 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     }
     el("rect", { x: M.l, y: M.t, width: W - M.l - M.r, height: H - M.t - M.b, fill: "none", stroke: "var(--line)" }, grid);
     el("text", { x: (M.l + W - M.r) / 2, y: H - 10, "text-anchor": "middle", "font-size": 14, fill: "var(--ink)" }, grid)
-      .textContent = xAxis.axisLabel;
+      .textContent = X_AXIS.axisLabel;
     el("text", { x: 0, y: 0, "text-anchor": "middle", "font-size": 14, fill: "var(--ink)",
       transform: `translate(16 ${(M.t + H - M.b) / 2}) rotate(-90)` }, grid).textContent = metric.axisLabel;
 
     drawOptimalArrow(grid, metric.lowerBetter, M, W, H);
 
     // pareto front (always shown)
-    const front = computeFront(metric, xAxis);
+    const front = computeFront(metric);
     const fv = front.verts;
     if (fv.length) {
       let d = `M${X(fv[0][0])},${metric.lowerBetter ? M.t : H - M.b}`;
@@ -538,9 +543,7 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     for (const m of METRICS) {
       html += `<div>${m.label}: <b>${fmtMetric(m, mval(p, m))}</b></div>`;
     }
-    for (const xa of X_AXES) {
-      html += `<div>${xa.short}: <b>${fmtTime(p[xa.key])}</b></div>`;
-    }
+    html += `<div>${X_AXIS.short}: <b>${fmtTime(p[xKey])}</b></div>`;
     if (p.imputed) html += `<div class="t-imp">Imputed on ${p.imputed_pct.toFixed(0)}% of datasets</div>`;
     tip.show(html, ev);
   }
@@ -633,7 +636,7 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     render();
   }
   document.getElementById("btn-front").addEventListener("click",
-    () => setActive(computeFront(metricByKey[metricKey], xAxisByKey[xKey]).methods));
+    () => setActive(computeFront(metricByKey[metricKey]).methods));
   document.getElementById("btn-all").addEventListener("click", () => setActive([...byMethod.keys()]));
   document.getElementById("btn-none").addEventListener("click", () => setActive([]));
 
@@ -650,23 +653,6 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     }
     metricSelect.addEventListener("change", ev => {
       metricKey = ev.target.value;
-      render();
-    });
-  }
-
-  // x-axis selector (hidden when only one time axis is configured)
-  const xAxisPick = document.getElementById("xaxispick");
-  const xAxisSelect = document.getElementById("xaxis-select");
-  if (X_AXES.length > 1) {
-    xAxisPick.hidden = false;
-    for (const xa of X_AXES) {
-      const opt = document.createElement("option");
-      opt.value = xa.key;
-      opt.textContent = xa.label;
-      xAxisSelect.appendChild(opt);
-    }
-    xAxisSelect.addEventListener("change", ev => {
-      xKey = ev.target.value;
       render();
     });
   }
@@ -699,12 +685,11 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
     html += TRAJECTORY ? "<th>Configs</th>" : "<th>Variant</th>";
     html += "<th>Family</th>";
     for (const m of METRICS) html += `<th>${m.label}</th>`;
-    for (const xa of X_AXES) html += `<th>${xa.short}</th>`;
-    html += "<th>Imputed</th></tr></thead><tbody>";
+    html += `<th>${X_AXIS.short}</th><th>Imputed</th></tr></thead><tbody>`;
     for (const p of rows) {
       html += `<tr><td>${p.method}</td><td>${TRAJECTORY ? (p.n_configs != null ? p.n_configs : "—") : p.variant}</td><td>${p.family}</td>`;
       for (const m of METRICS) html += `<td>${fmtMetric(m, mval(p, m))}</td>`;
-      for (const xa of X_AXES) html += `<td>${p[xa.key].toFixed(3)}</td>`;
+      html += `<td>${p[xKey].toFixed(3)}</td>`;
       html += `<td>${p.imputed ? p.imputed_pct.toFixed(0) + "%" : "—"}</td></tr>`;
     }
     html += "</tbody></table>";
@@ -713,13 +698,17 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
 
   // When embedded, report the content height so the host page can size the
   // iframe to fit (avoids an inner scrollbar). Works from a sandboxed frame.
+  // Measure the body (viewport-independent) — documentElement.scrollHeight is
+  // clamped to at least the iframe's current viewport, which turns the
+  // resize round-trip into a grow-forever feedback loop. The change guard
+  // stops re-posting once the height settles.
+  let lastPostedHeight = 0;
   function postHeight() {
-    if (window.parent !== window) {
-      window.parent.postMessage(
-        { type: "tabarena-explorer-height", height: document.documentElement.scrollHeight },
-        "*",
-      );
-    }
+    if (window.parent === window) return;
+    const height = Math.ceil(document.body.offsetHeight);
+    if (Math.abs(height - lastPostedHeight) < 3) return;
+    lastPostedHeight = height;
+    window.parent.postMessage({ type: "tabarena-explorer-height", height: height }, "*");
   }
   const _renderInner = render;
   render = function () {

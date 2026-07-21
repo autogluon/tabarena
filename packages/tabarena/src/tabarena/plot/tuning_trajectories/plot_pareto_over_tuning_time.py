@@ -1630,6 +1630,8 @@ def plot_tuning_trajectories_from_leaderboard(
             # Single time axis (train time = tuning budget); inference time
             # stays available in the CSV export.
             x_keys=["x_train"],
+            # Mirrored against the Pareto scatter explorer (chips left there).
+            chips_side="right",
             save_path=fig_save_dir / "tuning_trajectories_explorer.html",
             page_title="TabArena tuning trajectories",
         )

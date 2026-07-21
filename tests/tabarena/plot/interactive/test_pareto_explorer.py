@@ -32,12 +32,12 @@ def test_build_scatter_explorer(tmp_path):
     assert "__CONFIG_JSON__" not in html
     assert "__POINTS_JSON__" not in html
     assert "__PAGE_TITLE__" not in html
+    assert "__FAMILY_CSS_VARS__" not in html
     assert '"mode": "scatter"' in html
     assert '"method":"A"' in html
     assert "Pareto front" in html
-    # Both time axes offered on the x-axis selector.
-    assert '"key": "x_infer"' in html
-    assert '"key": "x_train"' in html
+    # Family colors injected from the shared leaderboard scheme.
+    assert "--fam-foundation: #b07cf0;" in html
 
 
 def test_x_keys_selects_and_orders_axes(tmp_path):

@@ -21,15 +21,17 @@ if TYPE_CHECKING:
     import pandas as pd
 
 #: Family display name (see ``tabarena.website.website_format.Constants``) -> color.
-#: Palette validated for color-vision deficiency; family identity is always backed
-#: by a direct text label on emphasized methods, never color alone.
+#: Mirrors the leaderboard website's ``model_type_color`` (the Space repo's
+#: ``constants.py``), which colors model names in the tables — every surface
+#: speaks the same family color language. Family identity is always backed by
+#: a direct text label on emphasized methods, never color alone.
 FAMILY_COLORS: dict[str, str] = {
-    "Foundation Model": "#2a78d6",  # blue
-    "Tree-based": "#eb6834",  # orange
-    "Neural Network": "#1baf7a",  # aqua
-    "Other": "#4a3aa7",  # violet
-    "Reference Pipeline": "#e87ba4",  # magenta
-    "Baseline": "#898781",  # grey
+    "Foundation Model": "#b07cf0",  # purple
+    "Neural Network": "#5aa9e6",  # blue
+    "Tree-based": "#5cb85c",  # green
+    "Reference Pipeline": "#f0a35a",  # orange
+    "Baseline": "#9e9e9e",  # gray
+    "Other": "#9e9e9e",  # gray
 }
 
 #: Grey used for non-emphasized ("field") methods.
