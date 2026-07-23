@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 from collections import defaultdict
 from functools import reduce
 from typing import TYPE_CHECKING, Literal, Self
@@ -8,6 +9,8 @@ from typing import TYPE_CHECKING, Literal, Self
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_float_dtype, is_integer_dtype
+
+logger = logging.getLogger(__name__)
 
 from tabarena.simulation.dense_utils import prune_zeroshot_gt
 from tabarena.simulation.ground_truth import GroundTruth
@@ -402,17 +405,31 @@ def merge_ground_truth(ground_truths: list[GroundTruth]) -> GroundTruth:
     return GroundTruth(label_test_dict=label_test_dict, label_val_dict=label_val_dict)
 
 
+#: Task-metadata columns that define evaluation semantics: a cross-repo disagreement here
+#: means the repos genuinely describe different tasks, so merging must fail loudly.
+#: Every other column is descriptive/statistical metadata, where artifact generations are
+#: known to disagree by convention (legacy artifacts store integer
+#: ``n_samples_{train,test}_per_fold`` while newer converters store fractional across-fold
+#: means; newer converters repurpose ``task_type`` for the split type; ``n_classes``
+#: encodes "not classification" as NaN, 0, or -1 depending on the converter) — those
+#: conflicts resolve to the first repo's value with a logged warning.
+STRICT_METADATA_COLUMNS = frozenset({"problem_type", "metric"})
+
+
 def merge_metadata_frames(df_list: list[pd.DataFrame]) -> pd.DataFrame:
     """Merge a list of metadata DataFrames such that:
     - Only well-defined instance key columns are used as join keys.
     - For non-key columns:
         * If one side is NaN and the other has a value, the value is used.
         * If both have the same non-NaN value, that value is used.
-        * If both have different non-NaN values, this is treated as a conflict.
-          (By default we raise; you can change to keep multiple rows if you want.).
+        * If both have different non-NaN values, this is a conflict: for columns in
+          :data:`STRICT_METADATA_COLUMNS` we raise; for all other (descriptive) columns
+          the earlier frame's value wins and a warning is logged, so that legacy and
+          new-generation processed artifacts (whose converters use different conventions
+          for derived columns) can be merged into one collection.
 
     Result:
-        - There is at most one row per instance unless there is a true conflict.
+        - There is at most one row per instance unless there is a strict conflict.
         - NaN vs value does NOT create duplicate rows.
     """
     if not df_list:
@@ -481,8 +498,20 @@ def merge_metadata_frames(df_list: list[pd.DataFrame]) -> pd.DataFrame:
                 mask_conflict = mask_both_notnull & (s_l != s_r)
                 if mask_conflict.any():
                     conflict_examples = merged.loc[mask_conflict, [*join_cols, col_l, col_r]]
-                    raise ValueError(
-                        f"Conflict detected in column '{col}' for some instances.\nExamples:\n{conflict_examples}",
+                    if col in STRICT_METADATA_COLUMNS:
+                        raise ValueError(
+                            f"Conflict detected in column '{col}' for some instances.\nExamples:\n{conflict_examples}",
+                        )
+                    # Descriptive metadata: keep the earlier frame's values (the coalesce
+                    # below already prefers left) so legacy and new-generation artifacts
+                    # can coexist in one collection despite their convention differences.
+                    example = conflict_examples.iloc[0]
+                    logger.warning(
+                        f"Task-metadata conflict in column '{col}' for {int(mask_conflict.sum())} instance(s) "
+                        f"while merging repos; keeping the first repo's values. "
+                        f"Example: {join_cols[0]}={example[join_cols[0]]!r}: "
+                        f"{example[col_l]!r} vs {example[col_r]!r}. "
+                        f"(Artifact generations use different conventions for derived metadata columns.)",
                     )
 
                 # 2) coalesce: keep left where present, else take right. `.where` upcasts to a

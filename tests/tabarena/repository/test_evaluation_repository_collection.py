@@ -56,3 +56,33 @@ class TestMergeMetadataFrames:
         b = pd.DataFrame({"foo": [2]})
         with pytest.raises(ValueError, match="identity key"):
             merge_metadata_frames([a, b])
+
+    def test_descriptive_conflict_keeps_first_and_warns(self, caplog):
+        # Legacy artifacts store integer per-fold sample counts; newer converters store
+        # fractional across-fold means. Such conflicts must not fail the merge: the
+        # earlier frame's value wins, with a warning.
+        import logging
+
+        legacy = pd.DataFrame({"dataset": ["ds"], "n_samples_test_per_fold": [299]})
+        new = pd.DataFrame({"dataset": ["ds"], "n_samples_test_per_fold": [299.3333333]})
+        with caplog.at_level(logging.WARNING):
+            merged = merge_metadata_frames([legacy, new])
+        assert len(merged) == 1
+        assert merged.loc[0, "n_samples_test_per_fold"] == 299
+        assert any("n_samples_test_per_fold" in r.message and "first repo" in r.message for r in caplog.records)
+
+    def test_repurposed_task_type_conflict_keeps_first(self):
+        # Newer converters put the split type into `task_type`; the legacy OpenML task
+        # type from the earlier frame must win.
+        legacy = pd.DataFrame({"dataset": ["ds"], "task_type": ["Supervised Regression"]})
+        new = pd.DataFrame({"dataset": ["ds"], "task_type": ["random"]})
+        merged = merge_metadata_frames([legacy, new])
+        assert merged.loc[0, "task_type"] == "Supervised Regression"
+
+    def test_descriptive_conflict_does_not_mask_strict_conflict(self):
+        # A frame pair with both a descriptive conflict and a strict (problem_type)
+        # conflict must still raise on the strict column.
+        a = pd.DataFrame({"dataset": ["ds"], "problem_type": ["binary"], "n_samples_test_per_fold": [100]})
+        b = pd.DataFrame({"dataset": ["ds"], "problem_type": ["regression"], "n_samples_test_per_fold": [100.5]})
+        with pytest.raises(ValueError, match="problem_type"):
+            merge_metadata_frames([a, b])
