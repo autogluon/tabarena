@@ -1871,9 +1871,10 @@ class LeaderboardReporter:
         )
 
     def build_pareto_explorer(self, leaderboard: pd.DataFrame):
-        """Write the self-contained interactive Pareto explorer
-        (``pareto_front_explorer.html``) and its underlying data
-        (``pareto_front_points.csv``) next to the static figures.
+        """Write the self-contained interactive Pareto explorers — one per time axis:
+        ``pareto_front_explorer.html`` (inference time) and
+        ``pareto_front_explorer_time_train.html`` (train time) — and their underlying
+        data (``pareto_front_points.csv``) next to the static figures.
         """
         points = pd.DataFrame(
             {
@@ -1899,14 +1900,21 @@ class LeaderboardReporter:
             return
 
         save_pd.save(path=str(Path(self.output_dir) / "pareto_front_points.csv"), df=points)
+        # One explorer per time axis (each page renders a single x-axis): inference is
+        # the panel the website led with historically, train time complements it.
         build_pareto_explorer_html(
             points=points,
-            # Single time axis (inference, the panel the website led with
-            # historically); train time stays available in the CSV export.
             x_keys=["x_infer"],
             # Mirrored against the trajectories explorer (chips right there).
             chips_side="left",
             save_path=Path(self.output_dir) / "pareto_front_explorer.html",
+        )
+        build_pareto_explorer_html(
+            points=points,
+            x_keys=["x_train"],
+            chips_side="left",
+            save_path=Path(self.output_dir) / "pareto_front_explorer_time_train.html",
+            page_title="TabArena Pareto explorer — train time",
         )
 
     def get_method_rename_map(self) -> dict[str, str]:
