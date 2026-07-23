@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -8,6 +9,8 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from .abstract_repository import AbstractRepository
+
+logger = logging.getLogger(__name__)
 
 
 # FIXME: Should move into repo?
@@ -52,10 +55,21 @@ def get_runtime(
                 f"available: {list(runtime_configs.keys())}.",
             )
         # todo take mean of framework
+        fill_value = None
         if repo._config_fallback is not None:
             config_metrics_fallback = repo.metrics(tasks=[task], configs=[repo._config_fallback])
-            fill_value = config_metrics_fallback.loc[(dataset, fold, repo._config_fallback), runtime_col]
-        else:
+            try:
+                fill_value = config_metrics_fallback.loc[(dataset, fold, repo._config_fallback), runtime_col]
+            except KeyError:
+                # The fallback config has no result on this task (e.g. the repo was
+                # subset to a config list that dropped the fallback's data); impute
+                # from the available configs instead of failing the evaluation.
+                logger.warning(
+                    f"Fallback config {repo._config_fallback!r} has no {runtime_col!r} result on task {task}; "
+                    f"imputing runtimes for {sorted(missing_configurations)} with the mean of the "
+                    f"{len(runtime_configs)} available config(s).",
+                )
+        if fill_value is None:
             fill_value = np.mean(list(runtime_configs.values()))
         # print(f"Imputing missing value {fill_value} for configurations {missing_configurations} on task {task}")
         for configuration in missing_configurations:
