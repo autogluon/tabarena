@@ -358,3 +358,117 @@ def test_nonlinear_ensembler_rejected_on_preprocessed_metric_space():
     assert np.isfinite(results["metric_error"])
     assert "ensemble_weights" not in results  # not weight-based
     assert results["ensemble_models_used"].all()  # conservative default: all models used
+
+
+# -------------------------
+# StackingEnsembler
+# -------------------------
+def _make_multiclass_task(n_models=6, n_samples=400, n_classes=3, seed=0):
+    rng = np.random.default_rng(seed)
+    y = rng.integers(0, n_classes, n_samples)
+    preds = rng.random((n_models, n_samples, n_classes))
+    # make predictions informative
+    for m in range(n_models):
+        preds[m, np.arange(n_samples), y] += rng.uniform(0.5, 2.0)
+    preds /= preds.sum(axis=2, keepdims=True)
+    return y, preds.astype(np.float32)
+
+
+@pytest.mark.parametrize("problem_type", ["binary", "multiclass", "regression"])
+def test_stacking_ensembler_basic(problem_type):
+    from tabarena.simulation.ensemble import StackingEnsembler
+
+    if problem_type == "binary":
+        y, preds = _make_binary_task(seed=7)
+        metric = get_metric(metric="roc_auc", problem_type=problem_type)
+    elif problem_type == "multiclass":
+        y, preds = _make_multiclass_task(seed=7)
+        metric = get_metric(metric="log_loss", problem_type=problem_type)
+    else:
+        y, preds = _make_regression_task(seed=7)
+        metric = get_metric(metric="rmse", problem_type=problem_type)
+
+    ensembler = StackingEnsembler(problem_type=problem_type, metric=metric)
+    ensembler.fit(predictions=preds, labels=y)
+    assert ensembler.info() == {"n_splits_used": 5}
+
+    # new data (a copy) uses the full refit model
+    out = ensembler.predict_proba(preds.copy())
+    assert out.shape[0] == len(y)
+    if problem_type == "multiclass":
+        assert out.shape == (len(y), preds.shape[2])
+        np.testing.assert_allclose(out.sum(axis=1), 1.0, rtol=1e-6)
+    else:
+        assert out.ndim == 1
+    assert ensembler.model_weights() is None
+    assert ensembler.models_used().all()
+
+
+def test_stacking_ensembler_oof_val_predictions():
+    """Predicting on the fit input returns out-of-fold predictions (honest val error);
+    predicting on any other input uses the full refit model.
+    """
+    from tabarena.simulation.ensemble import StackingEnsembler
+
+    y, preds = _make_binary_task(seed=8)
+    metric = get_metric(metric="roc_auc", problem_type="binary")
+    ensembler = StackingEnsembler(problem_type="binary", metric=metric)
+    ensembler.fit(predictions=preds, labels=y)
+
+    oof = ensembler.predict_proba(preds)  # same object as fit input -> OOF
+    in_sample = ensembler.predict_proba(preds.copy())  # different object -> refit model
+    assert not np.array_equal(oof, in_sample)
+    # in-sample predictions of the refit model must score better than (or equal to) OOF
+    assert metric.error(y, in_sample) <= metric.error(y, oof)
+
+
+def test_stacking_ensembler_small_data_falls_back():
+    """With classes rarer than 2 per fold, CV is skipped and the fit input predicts
+    in-sample instead of failing.
+    """
+    from tabarena.simulation.ensemble import StackingEnsembler
+
+    metric = get_metric(metric="roc_auc", problem_type="binary")
+    y = np.array([True] + [False] * 9)  # minority class count 1 -> no stratified CV possible
+    rng = np.random.default_rng(9)
+    preds = rng.random((3, 10)).astype(np.float32)
+
+    ensembler = StackingEnsembler(problem_type="binary", metric=metric)
+    ensembler.fit(predictions=preds, labels=y)
+    assert ensembler.info() == {"n_splits_used": 1}
+    np.testing.assert_array_equal(ensembler.predict_proba(preds), ensembler.predict_proba(preds.copy()))
+
+
+def test_stacking_ensembler_custom_meta_model():
+    """The meta-model is pluggable per problem kind (e.g. a foundation model)."""
+    from sklearn.tree import DecisionTreeRegressor
+
+    from tabarena.simulation.ensemble import StackingEnsembler
+
+    y, preds = _make_regression_task(seed=10)
+    metric = get_metric(metric="rmse", problem_type="regression")
+    ensembler = StackingEnsembler(
+        problem_type="regression",
+        metric=metric,
+        regressor_cls=DecisionTreeRegressor,
+        regressor_kwargs={"max_depth": 3, "random_state": 0},
+    )
+    ensembler.fit(predictions=preds, labels=y)
+    assert np.isfinite(metric.error(y, ensembler.predict_proba(preds.copy())))
+
+
+def test_stacking_ensembler_rejected_on_fast_log_loss():
+    """linear=False: the guardrail rejects stacking on metric-preprocessed spaces."""
+    from tabarena.metrics._fast_log_loss import fast_log_loss
+    from tabarena.simulation.ensemble import StackingEnsembler
+    from tabarena.simulation.ensemble_selection_config_scorer import TaskEvaluator
+
+    evaluator = TaskEvaluator(
+        ensembler_cls=StackingEnsembler,
+        ensembler_kwargs={},
+        eval_metric=fast_log_loss,
+        fit_eval_metric=fast_log_loss,
+        problem_type="multiclass",
+    )
+    with pytest.raises(ValueError, match="non-linear"):
+        evaluator.init_ens()
