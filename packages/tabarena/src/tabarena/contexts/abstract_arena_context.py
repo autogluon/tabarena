@@ -1380,7 +1380,12 @@ class AbstractArenaContext:
                 ]
             repo = self.load_repo(methods=methods, config_fallback=config_fallback)
 
-        # TODO: also include config_fallback
+        # Keep the fallback config's data in the subset: without it, tasks where a
+        # portfolio config is missing crash on the fallback runtime/metrics lookup.
+        # When no explicit config_fallback is passed, the passed-in repo's own fallback
+        # (set at construction) must survive the subset for the same reason.
+        if config_fallback is None:
+            config_fallback = repo._config_fallback
         configs_w_fallback = copy.deepcopy(configs)
         if config_fallback is not None:
             if config_fallback not in configs_w_fallback:

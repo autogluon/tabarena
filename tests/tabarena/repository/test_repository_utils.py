@@ -57,3 +57,29 @@ def test_filter_configs_by_runtime():
             max_cumruntime=max_cumruntime,
         )
         assert selected_configs == config_names[:num_config_expected]
+
+
+def test_get_runtime_missing_fallback_imputes_mean(caplog):
+    """A missing config whose fallback has no result on the task (e.g. the repo was
+    subset to a config list that dropped the fallback's data) imputes the mean of the
+    available runtimes with a warning, instead of raising KeyError."""
+    import logging
+
+    repo_fb = load_repo_artificial()
+    repo_fb.set_config_fallback(repo_fb.configs()[0])
+    # subset to one non-fallback config: the fallback's rows are gone but the
+    # attribute still names it
+    sub = repo_fb.subset(configs=[repo_fb.configs()[1]])
+    assert sub._config_fallback == repo_fb.configs()[0]
+
+    with caplog.at_level(logging.WARNING):
+        runtime_dict = get_runtime(
+            sub,
+            dataset="ada",
+            fold=1,
+            config_names=[*sub.configs(), "MissingConfig_r1"],
+            fail_if_missing=False,
+        )
+    assert "MissingConfig_r1" in runtime_dict
+    assert runtime_dict["MissingConfig_r1"] == 2.0  # mean of the one available runtime
+    assert any("has no" in r.message and "imputing" in r.message for r in caplog.records)
