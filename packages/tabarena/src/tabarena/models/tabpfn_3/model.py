@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
@@ -9,9 +10,47 @@ from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorch
 if TYPE_CHECKING:
     import pandas as pd
 
+CAT_MASK_PARAM_NAMES = ("cat_mask_drop_prob", "cat_mask_add_prob", "cat_mask_seed")
+"""Wrapper-only hyperparameters that corrupt the categorical mask (see
+:func:`perturb_categorical_mask`); popped in :meth:`TabPFN3Model._fit` so they never
+reach the tabpfn estimator."""
+
+
+def perturb_categorical_mask(
+    cat_indices: list[int],
+    n_cols: int,
+    *,
+    drop_prob: float,
+    add_prob: float,
+    seed: int,
+) -> tuple[list[int], list[int]]:
+    """Randomly corrupt a categorical-feature mask to simulate imperfect type detection.
+
+    Each true categorical index is removed from the mask independently with probability
+    ``drop_prob`` (the model will see that column as numeric) and each non-categorical
+    column index is added independently with probability ``add_prob`` (the model will
+    treat that numeric column as categorical).
+
+    Returns ``(perturbed_mask, dropped_indices)``, both sorted.
+    """
+    rng = np.random.default_rng(seed)
+    cat_set = set(cat_indices)
+    dropped = [i for i in sorted(cat_set) if rng.random() < drop_prob]
+    added = [i for i in range(n_cols) if i not in cat_set and rng.random() < add_prob]
+    kept = sorted((cat_set - set(dropped)) | set(added))
+    return kept, dropped
+
 
 class TabPFN3Model(AbstractTorchModel):
-    """TabPFN-3 TabArena Integration."""
+    """TabPFN-3 TabArena Integration.
+
+    Supports an optional categorical-mask corruption experiment via wrapper-only
+    hyperparameters: ``cat_mask_drop_prob`` (probability that each true categorical
+    column is passed to tabpfn as numeric), ``cat_mask_add_prob`` (probability that
+    each numeric column is falsely marked categorical) and ``cat_mask_seed``
+    (perturbation RNG seed, default 0). Dropped columns are label-encoded to numeric
+    codes at fit and predict time, so tabpfn cannot recover them from their dtype.
+    """
 
     ag_key = "TA-TABPFN-3"
     ag_name = "TA-TabPFN-3"
@@ -34,6 +73,9 @@ class TabPFN3Model(AbstractTorchModel):
 
     _categorical_indices: list[int] | None
     """The indices of the categorical features, detected during preprocessing."""
+    _cat_mask_dropped_cols: list[str] | None = None
+    """Columns removed from the categorical mask by the corruption experiment; they are
+    label-encoded to numeric codes at fit and predict time."""
     fixed_random_state: int = 0
     """Using a fixed random seed, as in TabPFN-2.6."""
 
@@ -47,6 +89,30 @@ class TabPFN3Model(AbstractTorchModel):
                 self._categorical_indices = [X.columns.get_loc(col) for col in categorical_cols]
             else:
                 self._categorical_indices = None
+
+            params = self._get_model_params()
+            drop_prob = params.get("cat_mask_drop_prob", 0.0)
+            add_prob = params.get("cat_mask_add_prob", 0.0)
+            if drop_prob or add_prob:
+                mask, dropped = perturb_categorical_mask(
+                    self._categorical_indices or [],
+                    X.shape[1],
+                    drop_prob=drop_prob,
+                    add_prob=add_prob,
+                    seed=params.get("cat_mask_seed", 0),
+                )
+                self._categorical_indices = mask or None
+                self._cat_mask_dropped_cols = [X.columns[i] for i in dropped]
+
+        # Dropped categoricals must genuinely look numeric to tabpfn (which otherwise
+        # re-detects them from their dtype): replace them with their category codes.
+        # AutoGluon fixes each column's categories at train time, so the codes are
+        # consistent between fit and predict.
+        if self._cat_mask_dropped_cols:
+            X = X.copy()
+            for col in self._cat_mask_dropped_cols:
+                codes = X[col].cat.codes.astype("float32")
+                X[col] = codes.mask(codes < 0)  # cat.codes encodes NaN as -1
 
         return X
 
@@ -95,6 +161,8 @@ class TabPFN3Model(AbstractTorchModel):
         # Set hyperparameters
         hps = dict(self._get_model_params())
         checkpoint_per_problem_type = hps.pop(self.checkpoint_param_name, None)
+        for param in CAT_MASK_PARAM_NAMES:  # wrapper-only, consumed in _preprocess
+            hps.pop(param, None)
         default_hps = dict(
             model_path=self._get_model_checkpoint(checkpoint_per_problem_type),
             device=self._resolve_tabpfn_device(num_gpus=num_gpus),
