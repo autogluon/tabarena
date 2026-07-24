@@ -672,6 +672,8 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
         ensemble_selection_kwargs = copy.deepcopy(ensemble_selection_kwargs)
         ensemble_selection_kwargs["ensemble_size"] = ensemble_size
 
+        self.ensemble_cls = ensemble_cls
+        self.ensemble_kwargs = ensemble_kwargs
         self.ensemble_scorer = ensemble_cls(
             repo=repo,
             task_metrics_metadata=task_metrics_metadata,
@@ -750,13 +752,16 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
         ranks = self.compute_ranks(errors=errors)
         return np.mean(list(ranks.values()))
 
+    def _compute_task_errors(self, configs: list[str]) -> dict[str, float]:
+        """Per-task ``metric_error`` of the ensemble over ``configs``."""
+        results = self.compute_errors(configs=configs)
+        return {task: result["metric_error"] for task, result in results.items()}
+
     def score(self, configs: list[str]) -> float:
-        errors, _ensemble_weights = self.compute_errors(configs=configs)
-        return self.compute_rank_mean(errors)
+        return self.compute_rank_mean(self._compute_task_errors(configs=configs))
 
     def score_per_dataset(self, configs: list[str]) -> dict[str, float]:
-        errors, _ensemble_weights = self.compute_errors(configs=configs)
-        return self.compute_ranks(errors=errors)
+        return self.compute_ranks(errors=self._compute_task_errors(configs=configs))
 
     def subset(self, tasks):
         return self.__class__(
@@ -767,4 +772,9 @@ class EnsembleSelectionConfigScorer(ConfigurationListScorer):
             ensemble_selection_kwargs=self.ensemble_selection_kwargs,
             tid_to_dataset_name_dict=self.tid_to_dataset_name_dict,
             task_metrics_metadata=self.ensemble_scorer.task_metrics_metadata,
+            backend=self.backend,
+            use_fast_metrics=self.use_fast_metrics,
+            proxy_fit_metric_map=self.proxy_fit_metric_map,
+            ensemble_cls=self.ensemble_cls,
+            ensemble_kwargs=copy.deepcopy(self.ensemble_kwargs),
         )
