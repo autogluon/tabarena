@@ -213,9 +213,16 @@ class TabMImplementation:
                 ]
             )
             x_num_train_np = self.num_prep_.fit_transform(self._numeric_array(X_train))
-            # Drop columns that are constant on the training split (preprocessing can
-            # re-introduce them); AutoGluon already removes the obvious ones.
-            self.num_col_mask_ = ~np.all(x_num_train_np == x_num_train_np[:1], axis=0)
+            # Drop columns that are near-constant on the training split (preprocessing can
+            # re-introduce them); AutoGluon already removes the obvious ones. The tolerance
+            # (vs exact equality) matters: float32 mean-imputation of a constant column yields
+            # a second value one ulp off the constant, which would otherwise survive as a
+            # "two-valued" column and build a single ~1e-9-wide piecewise-linear-embedding bin
+            # whose unclamped encoding explodes on out-of-range values at predict time. The
+            # pipeline's outputs are bounded (quantile-transformed |z| <= 5.2, indicators 0/1),
+            # so an absolute tolerance is safe: legitimate columns have a range >= ~1e-3.
+            col_range = x_num_train_np.max(axis=0) - x_num_train_np.min(axis=0)
+            self.num_col_mask_ = col_range > 1e-6
             x_num_train_np = x_num_train_np[:, self.num_col_mask_]
         else:
             self.num_prep_ = None
