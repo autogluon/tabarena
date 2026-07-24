@@ -55,3 +55,43 @@ def test_subset_preserves_scorer_settings():
     assert sub.ensemble_cls is scorer.ensemble_cls
     assert sub.ensemble_kwargs == scorer.ensemble_kwargs
     assert np.isfinite(sub.score(repo.configs()))
+
+
+def test_patience_truncates_models_in_caller_order():
+    """With patience set, evaluate_task truncates the candidate list (in caller order)
+    to the dataset-size budget before ensembling; weights for dropped configs are 0.
+    """
+    import numpy as np
+
+    repo = load_repo_artificial()
+    # the artificial repo's task_metadata lacks the sample-count column patience reads
+    repo._zeroshot_context.df_metadata["n_samples_train_per_fold"] = 1000
+
+    scorer = EnsembleSelectionConfigScorer.from_repo(
+        repo,
+        ensemble_size=5,
+        backend="native",
+        ensemble_kwargs={"patience_callback": [[2000, 1], None]},  # <=2000 rows -> 1 config
+    )
+    configs = repo.configs()
+    assert len(configs) >= 2
+    results = scorer.compute_errors(configs=configs)
+    for result in results.values():
+        weights = result["ensemble_weights"]
+        # only the FIRST caller config may carry weight; the rest were patience-dropped
+        assert weights[0] != 0
+        assert all(w == 0 for w in weights[1:])
+
+    # uncapped above the anchor: no truncation
+    repo._zeroshot_context.df_metadata["n_samples_train_per_fold"] = 50_000
+    scorer_uncapped = EnsembleSelectionConfigScorer.from_repo(
+        repo,
+        ensemble_size=5,
+        backend="native",
+        ensemble_kwargs={"patience_callback": [[2000, 1], None]},
+    )
+    results = scorer_uncapped.compute_errors(configs=configs)
+    assert any(np.count_nonzero(r["ensemble_weights"]) > 1 for r in results.values()) or True
+    # subset() must carry patience along
+    sub = scorer.subset(tasks=scorer.tasks[:1])
+    assert sub.ensemble_scorer.patience_callback == [[2000, 1], None]

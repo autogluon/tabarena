@@ -108,6 +108,7 @@ class EnsembleScorerCalibrated(EnsembleScorerMaxModels):
 
     def evaluate_task(self, dataset: str, fold: int, models: list[str]) -> dict[str, object]:
         models_og = models
+        models = self.apply_patience(dataset=dataset, models=models)
 
         task_metadata = self.task_metrics_metadata[dataset]
         metric_name = task_metadata["metric"]

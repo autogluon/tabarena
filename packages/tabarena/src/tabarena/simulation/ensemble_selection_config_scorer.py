@@ -230,6 +230,7 @@ class EnsembleScorer:
         use_fast_metrics: bool = True,
         optimize_on: str = "val",
         return_metric_error_val: bool = True,
+        patience_callback: list | None = None,
     ):
         """Parameters
         ----------
@@ -252,6 +253,11 @@ class EnsembleScorer:
             If "test", optimizes on the test data (cheat mode, use this only for debugging and testing generalization gaps)
         return_metric_error_val: bool, default = True
             If True, will compute and return `metric_error_val` using the fitted ensemble in the output dict of `evaluate_task`.
+        patience_callback: list, default = None
+            Patience points-spec (anchor pairs ``[n_train_rows, max_configs]``, optional
+            trailing ``None``): per task, the candidate ``models`` list is truncated in
+            caller order to the dataset-size-dependent budget before ensembling —
+            matching `EnsembleMixin._evaluate_ensemble_task`'s patience semantics.
         """
         if proxy_fit_metric_map is None:
             proxy_fit_metric_map = {}
@@ -272,6 +278,7 @@ class EnsembleScorer:
         assert optimize_on in ["val", "test"]
         self.optimize_on = optimize_on
         self.return_metric_error_val = return_metric_error_val
+        self.patience_callback = patience_callback
 
         # (dataset, fold) -> (model -> row index, pred_val, pred_test); see cache_task_preds.
         self._preds_cache: dict[tuple[str, int], tuple[dict[str, int], np.ndarray, np.ndarray]] = {}
@@ -317,6 +324,24 @@ class EnsembleScorer:
     # -------------------------
     def filter_models(self, dataset: str, fold: int, models: list[str]) -> list[str]:
         return models
+
+    def apply_patience(self, dataset: str, models: list[str]) -> list[str]:
+        """Truncate ``models`` (in caller order) to the dataset-size-dependent budget
+        of ``patience_callback``; no-op when unset or uncapped for this dataset.
+        """
+        if self.patience_callback is None:
+            return models
+        from autogluon.core.callbacks._smooth_count import max_models_from_num_samples_val
+
+        task_metadata = self.repo.task_metadata
+        num_samples_train = task_metadata.loc[task_metadata["dataset"] == dataset, "n_samples_train_per_fold"].iloc[0]
+        max_models = max_models_from_num_samples_val(
+            num_samples_val=num_samples_train,
+            points=self.patience_callback,
+        )
+        if max_models is None:
+            return models
+        return models[:max_models]
 
     def get_ensembler_cls_for_task(self, dataset: str, fold: int, models: list[str]) -> type[AbstractEnsembler]:
         return self.ensembler_cls
@@ -435,6 +460,7 @@ class EnsembleScorer:
     # -------------------------
     def evaluate_task(self, dataset: str, fold: int, models: list[str]) -> dict[str, object]:
         models_og = models
+        models = self.apply_patience(dataset=dataset, models=models)
 
         task_metadata = self.task_metrics_metadata[dataset]
         metric_name = task_metadata["metric"]
