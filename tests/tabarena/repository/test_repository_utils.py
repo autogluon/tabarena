@@ -62,7 +62,8 @@ def test_filter_configs_by_runtime():
 def test_get_runtime_missing_fallback_imputes_mean(caplog):
     """A missing config whose fallback has no result on the task (e.g. the repo was
     subset to a config list that dropped the fallback's data) imputes the mean of the
-    available runtimes with a warning, instead of raising KeyError."""
+    available runtimes with a warning, instead of raising KeyError.
+    """
     import logging
 
     repo_fb = load_repo_artificial()
