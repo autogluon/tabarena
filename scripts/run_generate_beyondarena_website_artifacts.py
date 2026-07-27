@@ -84,10 +84,24 @@ class BeyondArenaWebsiteArtifactGenerator:
         base_dir: str | Path,
         raw_artifacts_dirname: str = "raw_website_artifacts",
         clean_artifacts_dirname: str = "clean_website_artifacts",
+        subsets: dict[str, list[str]] | None = None,
+        base_subset: tuple[str, ...] = ("core",),
     ):
+        """Args:
+        base_dir: Directory all output (both subfolders and both zips) is written under.
+        raw_artifacts_dirname: Name of the generate step's output subfolder.
+        clean_artifacts_dirname: Name of the convert step's output subfolder.
+        subsets: The subset axis to evaluate (label -> extra predicate(s) layered on top of
+            ``base_subset``); defaults to :data:`BEYOND_SUBSETS`.
+        base_subset: Subset expressions ANDed into *every* subset. Defaults to ``("core",)`` —
+            the recommended BeyondArena evaluation protocol; variants may append further
+            predicates (e.g. ``("core", "!large")`` for the <=100k-train-rows generator).
+        """
         self.base_dir = Path(base_dir)
         self.raw_artifacts_dir = self.base_dir / raw_artifacts_dirname
         self.clean_artifacts_dir = self.base_dir / clean_artifacts_dirname
+        self.subsets = BEYOND_SUBSETS if subsets is None else subsets
+        self.base_subset = list(base_subset)
 
     def generate_website_artifacts(self):
         figure_file_type = "png"
@@ -98,8 +112,8 @@ class BeyondArenaWebsiteArtifactGenerator:
         ta_results = context.load_results(download_results="auto")
 
         leaderboards = {}
-        for label, extra in BEYOND_SUBSETS.items():
-            subset = ["core", *extra]  # ALWAYS core — the recommended BeyondArena evaluation protocol.
+        for label, extra in self.subsets.items():
+            subset = [*self.base_subset, *extra]  # base_subset ALWAYS contains core.
             out_dir = self.raw_artifacts_dir / "subsets" / label
             print(f"\n############### Evaluating subset: {label} (subset={subset})")
 
