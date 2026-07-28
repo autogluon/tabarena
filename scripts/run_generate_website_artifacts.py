@@ -63,6 +63,32 @@ from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_
 from tabarena.website.process_artifacts_to_website import process_one_folder
 from tabarena.website.process_pngs import process_png_bulk
 
+# Subset folder segment -> the human label the website shows. Mirrors
+# ``data_loading.TASK_LABELS`` / ``DATASET_LABELS`` in the leaderboard Space.
+_SUBSET_LABELS: dict[str, str] = {
+    "tasks_all": "All Tasks",
+    "tasks_classification": "Classification",
+    "tasks_regression": "Regression",
+    "tasks_binary": "Binary",
+    "tasks_multiclass": "Multiclass",
+    "datasets_all": "All Datasets",
+    "datasets_small": "Small",
+    "datasets_medium": "Medium",
+    "splits_lite": "Lite",
+    "imputation_no": "no imputation",
+}
+
+
+def _subset_label(rel_path: Path) -> str:
+    """Human-readable label for a subset folder, e.g. "All Tasks | Small".
+
+    Only the parts that carry information are shown: the default imputation and
+    splits settings are dropped, so a path like
+    ``imputation_yes/splits_all/tasks_all/datasets_small`` reads as
+    "<tasks> | <datasets>".
+    """
+    return " | ".join(_SUBSET_LABELS[part] for part in rel_path.parts if part in _SUBSET_LABELS)
+
 
 class WebsiteArtifactGenerator:
     """Regenerate, convert, and zip the tabarena.ai website artifacts.
@@ -188,12 +214,12 @@ class WebsiteArtifactGenerator:
 
         for path in file_paths:
             base_input_path = Path(path).parent
-            base_output_path = output_path / base_input_path.relative_to(
-                input_path,
-            )
+            rel_path = base_input_path.relative_to(input_path)
+            base_output_path = output_path / rel_path
             process_one_folder(
                 base_input_path=Path(path).parent,
                 base_output_path=base_output_path,
+                subset_label=_subset_label(rel_path),
             )
             process_png_bulk(path=base_output_path)
 

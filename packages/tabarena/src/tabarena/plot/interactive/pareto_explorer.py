@@ -8,31 +8,14 @@ self-contained it also works as a local artifact anyone can open in a browser.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tabarena.plot.interactive._explorer_shared import render_explorer_html
 from tabarena.plot.interactive._explorer_template import EXPLORER_TEMPLATE
-from tabarena.plot.plot_pareto_focus import FAMILY_COLORS
 
 if TYPE_CHECKING:
     import pandas as pd
-
-#: Family display name -> the template's CSS custom property carrying its color.
-_FAMILY_CSS_TOKENS: dict[str, str] = {
-    "Foundation Model": "--fam-foundation",
-    "Neural Network": "--fam-nn",
-    "Tree-based": "--fam-tree",
-    "Reference Pipeline": "--fam-reference",
-    "Baseline": "--fam-baseline",
-    "Other": "--fam-other",
-}
-
-
-def _family_css_vars() -> str:
-    """CSS custom-property lines carrying the shared family colors."""
-    return "\n".join(f"    {token}: {FAMILY_COLORS[family]};" for family, token in _FAMILY_CSS_TOKENS.items())
-
 
 #: Variant display order used to sort each method's points so the connector
 #: line runs default -> tuned -> tuned + ensembled.
@@ -175,12 +158,7 @@ def build_pareto_explorer_html(
         "chipsSide": chips_side,
     }
 
-    html = (
-        EXPLORER_TEMPLATE.replace("__PAGE_TITLE__", page_title)
-        .replace("__FAMILY_CSS_VARS__", _family_css_vars())
-        .replace("__CONFIG_JSON__", json.dumps(config))
-        .replace("__POINTS_JSON__", data.to_json(orient="records"))
-    )
+    html = render_explorer_html(EXPLORER_TEMPLATE, page_title=page_title, config=config, points=data)
 
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)

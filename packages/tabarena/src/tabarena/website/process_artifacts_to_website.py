@@ -7,12 +7,20 @@ from pathlib import Path
 
 import pandas as pd
 
+from tabarena.plot.interactive.leaderboard_explorer import build_leaderboard_explorer_html
+
 
 def process_one_folder(
     *,
     base_input_path: Path,
     base_output_path: Path,
+    subset_label: str | None = None,
 ):
+    """Copy one subset's artifacts into the website layout.
+
+    ``subset_label`` is the human-readable subset name used in the interactive
+    explorers' headline (e.g. "All Tasks | Small"); omitted when ``None``.
+    """
     base_output_path.mkdir(parents=True, exist_ok=True)
 
     figure_file_type = "png"
@@ -80,3 +88,17 @@ def process_one_folder(
         src = base_input_path / extra_path
         if src.is_file():
             shutil.copy(src, base_output_path / src.name)
+
+    # The interactive twin of `tuning-impact-elo.png`. Built here rather than in
+    # the evaluation step because it needs nothing beyond the website table it
+    # sits next to — so a styling fix is a re-run of the (fast) conversion step,
+    # and the chart can never disagree with the table below it on the site.
+    build_leaderboard_explorer_html(
+        pd.read_csv(base_output_path / "website_leaderboard.csv"),
+        save_path=base_output_path / "leaderboard_overview_explorer.html",
+        # No in-page heading: the website's panel header already names the
+        # figure and the subset. The label identifies the standalone file.
+        page_title=f"TabArena leaderboard explorer — {subset_label}"
+        if subset_label
+        else "TabArena leaderboard explorer",
+    )
