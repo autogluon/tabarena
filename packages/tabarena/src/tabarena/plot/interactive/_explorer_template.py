@@ -2,8 +2,11 @@
 
 Kept as a Python string constant (rather than a package-data file) so it ships
 with the package without any build-system data-file configuration. The
-placeholders ``__PAGE_TITLE__``, ``__CONFIG_JSON__`` and ``__POINTS_JSON__``
-are substituted by :func:`tabarena.plot.interactive.pareto_explorer.build_pareto_explorer_html`.
+placeholders (``__BASE_CSS__``, ``__BASE_JS__``, ``__PAGE_TITLE__``,
+``__CONFIG_JSON__``, ``__POINTS_JSON__``) are substituted by
+:func:`tabarena.plot.interactive._explorer_shared.render_explorer_html`; the
+chrome and helpers spliced in via the first two are shared with the other
+explorers (see :mod:`tabarena.plot.interactive._explorer_shared`).
 
 The rendered page has zero external dependencies (no plotting library, fonts,
 or CDN assets), renders in light and dark mode via ``prefers-color-scheme``,
@@ -22,67 +25,7 @@ EXPLORER_TEMPLATE = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__PAGE_TITLE__</title>
 <style>
-  :root {
-    --paper: #ffffff;
-    --card: #ffffff;
-    --ink: #14161a;
-    --muted: #6d6c65;
-    --line: #e4e3db;
-    --accent: #2a78d6;
-    --chip-bg: #f2f1ec;
-    --pt-muted: #b9b8b1;
-    /* Family colors: injected from FAMILY_COLORS (same scheme as the
-       leaderboard tables), identical in light and dark mode. */
-__FAMILY_CSS_VARS__
-    --optimal: #228b22;
-    --tooltip-bg: #14161a;
-    --tooltip-ink: #fbfbf9;
-    color-scheme: light;
-  }
-  /* Dark tokens twice: the media query follows the OS preference, and the
-     [data-theme="dark"] scope lets an embedding page (e.g. the always-dark
-     leaderboard Space) force dark regardless of the OS setting. */
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper: #131316;
-      --card: #1b1b1f;
-      --ink: #f0efea;
-      --muted: #9b9a92;
-      --line: #2e2e33;
-      --accent: #3987e5;
-      --chip-bg: #232327;
-      --pt-muted: #55555c;
-      --optimal: #2ea043;
-      --tooltip-bg: #f0efea;
-      --tooltip-ink: #14161a;
-      color-scheme: dark;
-    }
-  }
-  :root[data-theme="dark"] {
-    --paper: #131316;
-    --card: #1b1b1f;
-    --ink: #f0efea;
-    --muted: #9b9a92;
-    --line: #2e2e33;
-    --accent: #3987e5;
-    --chip-bg: #232327;
-    --pt-muted: #55555c;
-    --optimal: #2ea043;
-    --tooltip-bg: #f0efea;
-    --tooltip-ink: #14161a;
-    color-scheme: dark;
-  }
-
-  html, body { margin: 0; background: var(--paper); }
-  body {
-    color: var(--ink);
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    line-height: 1.5;
-    padding: 10px 12px 14px;
-  }
-  /* The [hidden] attribute must beat author display rules (e.g. the
-     inline-flex on .metricpick), else hidden controls render empty. */
-  [hidden] { display: none !important; }
+__BASE_CSS__
 
   /* Two-column layout: controls + chips in a side panel, chart beside it.
      ``chips-right`` mirrors the columns. Wraps to stacked when narrow. */
@@ -95,92 +38,24 @@ __FAMILY_CSS_VARS__
     .sidebox { flex: 1 1 100%; }
   }
 
-  .explorer-title { font-size: 15px; font-weight: 650; margin: 0 0 8px; }
-  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 10px; }
-  .controls .hint { font-size: 12.5px; color: var(--muted); }
-  .btnrow { display: flex; gap: 6px; flex-wrap: wrap; }
-  .btn {
-    font: 600 12.5px/1 system-ui, sans-serif; color: var(--ink);
-    background: var(--chip-bg); border: 1px solid var(--line); border-radius: 7px;
-    padding: 6px 11px; cursor: pointer;
-  }
-  .btn:hover { border-color: var(--muted); }
-  .btn:focus-visible, .chip:focus-visible, .famchip:focus-visible, select:focus-visible {
-    outline: 2px solid var(--accent); outline-offset: 2px;
-  }
-  .metricpick { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
-  .metricpick select {
-    font: 600 12.5px/1.2 system-ui, sans-serif; color: var(--ink);
-    background: var(--chip-bg); border: 1px solid var(--line); border-radius: 7px;
-    padding: 5px 7px; cursor: pointer;
-  }
-
-  .chips { display: flex; flex-direction: column; gap: 9px; }
-  /* One block per family: the family toggle on top, its chips wrapping below. */
-  .chiprow { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
-  .famchip {
-    display: inline-flex; align-items: center; gap: 6px;
-    font: 650 10.5px/1.3 system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase;
-    color: var(--muted); background: var(--chip-bg); border: 1px dashed var(--line);
-    border-radius: 999px; padding: 5px 10px; cursor: pointer;
-  }
-  .famchip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fam); flex: none; }
-  .famchip .count { font-weight: 500; letter-spacing: 0; opacity: 0.75; }
-  .famchip:hover { border-color: var(--fam); color: var(--ink); }
-  .famchip[aria-pressed="true"] {
-    border: 1px solid var(--fam);
-    background: color-mix(in srgb, var(--fam) 13%, transparent);
-    color: var(--ink);
-  }
-  .chipset { display: flex; flex-wrap: wrap; gap: 4px; }
-  .chip {
-    display: inline-flex; align-items: center; gap: 5px;
-    font: 500 12.5px/1 system-ui, sans-serif; color: var(--ink);
-    background: none; border: 1px solid var(--line); border-radius: 999px;
-    padding: 5px 10px 5px 8px; cursor: pointer;
-  }
-  .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pt-muted); flex: none; }
-  .chip .imp-mark { color: var(--muted); font-weight: 700; margin-left: -2px; }
-  .chip[aria-pressed="true"] { border-color: var(--fam); background: color-mix(in srgb, var(--fam) 13%, transparent); font-weight: 650; }
-  .chip[aria-pressed="true"] .dot { background: var(--fam); }
-  .chip:hover { border-color: var(--muted); }
-
+  .legendstrip .legendbreak { flex-basis: 100%; height: 0; }
   .chartbox { position: relative; }
-  .chartbox svg { width: 100%; height: auto; display: block; }
-  .legendstrip {
-    display: flex; flex-wrap: wrap; gap: 5px 16px; align-items: center;
-    font-size: 12.5px; color: var(--muted); padding: 2px 2px 8px;
-  }
-  .legendstrip .item { display: inline-flex; align-items: center; gap: 6px; }
-
-  .tooltip {
-    position: absolute; pointer-events: none; display: none;
-    background: var(--tooltip-bg); color: var(--tooltip-ink);
-    border-radius: 8px; padding: 8px 11px; font-size: 12px; line-height: 1.45;
-    max-width: 260px; z-index: 5; font-variant-numeric: tabular-nums;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
-  }
-  .tooltip .t-name { font-weight: 700; font-size: 12.5px; }
-  .tooltip .t-var { opacity: 0.75; }
-  .tooltip .t-imp { opacity: 0.85; font-style: italic; }
-
-  details.datatable { margin-top: 8px; font-size: 12.5px; }
-  details.datatable summary { cursor: pointer; color: var(--muted); font-weight: 600; }
-  details.datatable .tblwrap { overflow-x: auto; margin-top: 8px; }
-  details.datatable table { border-collapse: collapse; font-variant-numeric: tabular-nums; min-width: 560px; }
-  details.datatable th, details.datatable td {
-    text-align: left; padding: 3px 12px 3px 0; border-bottom: 1px solid var(--line);
-  }
-  details.datatable th { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
-
-  svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-
-  @media (prefers-reduced-motion: no-preference) {
-    .chip, .btn, .famchip { transition: border-color 120ms ease, background-color 120ms ease; }
+  /* The chart is sized in device pixels by render() rather than scaled from a
+     viewBox: scaling stretched the type along with the plot, and a viewBox tall
+     enough to read made the whole panel own the screen. */
+  .chartbox svg { display: block; }
+  /* Chips scroll within the column so the panel height follows the chart. */
+  .sidebox .chips { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--pt-muted) transparent; }
+  .sidebox .chips::-webkit-scrollbar { width: 9px; }
+  .sidebox .chips::-webkit-scrollbar-thumb {
+    background: var(--pt-muted); border-radius: 8px; border: 3px solid transparent; background-clip: content-box;
   }
 </style>
 </head>
 <body>
+  <div class="viewbar">
+    <button class="btn" id="btn-paper" title="White background, chart and legend only — for slides and papers">Paper view</button>
+  </div>
   <p class="explorer-title" id="title"></p>
   <div class="explorer-grid" id="grid">
     <div class="sidebox">
@@ -198,10 +73,11 @@ __FAMILY_CSS_VARS__
       <div class="chips" id="chips"></div>
     </div>
     <div class="mainbox">
+      <p class="papercap" id="papercap"></p>
       <!-- Legend above the chart so readers decode the marks before the data. -->
       <div class="legendstrip" id="legendstrip"></div>
       <div class="chartbox" id="chartbox">
-        <svg id="chart" viewBox="0 0 960 540" role="img" aria-label="Pareto front explorer"></svg>
+        <svg id="chart" role="img" aria-label="Pareto front explorer"></svg>
         <div class="tooltip"></div>
       </div>
     </div>
@@ -217,16 +93,8 @@ __FAMILY_CSS_VARS__
   const CONFIG = __CONFIG_JSON__;
   const POINTS = __POINTS_JSON__;
 
-  const FAM_ORDER = ["Foundation Model", "Tree-based", "Neural Network", "Other", "Reference Pipeline", "Baseline"];
-  const FAM_VAR = {
-    "Foundation Model": "var(--fam-foundation)",
-    "Tree-based": "var(--fam-tree)",
-    "Neural Network": "var(--fam-nn)",
-    "Other": "var(--fam-other)",
-    "Reference Pipeline": "var(--fam-reference)",
-    "Baseline": "var(--fam-baseline)",
-  };
-  const NS = "http://www.w3.org/2000/svg";
+__BASE_JS__
+
   const TRAJECTORY = CONFIG.mode === "trajectory";
 
   const titleEl = document.getElementById("title");
@@ -237,26 +105,9 @@ __FAMILY_CSS_VARS__
 
   const svg = document.getElementById("chart");
   const box = document.getElementById("chartbox");
-  const tipEl = box.querySelector(".tooltip");
-  const tip = {
-    show(html, ev) { tipEl.innerHTML = html; tipEl.style.display = "block"; this.move(ev); },
-    move(ev) {
-      const r = box.getBoundingClientRect();
-      let tx = ev.clientX - r.left + 14, ty = ev.clientY - r.top + 12;
-      if (tx > r.width - 270) tx = ev.clientX - r.left - 274;
-      tipEl.style.left = tx + "px";
-      tipEl.style.top = ty + "px";
-    },
-    hide() { tipEl.style.display = "none"; },
-  };
-
-  // ---------- helpers ----------
-  function el(name, attrs, parent) {
-    const node = document.createElementNS(NS, name);
-    for (const k in attrs) node.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(node);
-    return node;
-  }
+  const chipsBox = document.getElementById("chips");
+  const controlsBox = document.querySelector(".controls");
+  const tip = makeTooltip(box);
 
   // Marker glyph per variant at (cx, cy); trajectories use circles everywhere.
   function drawMark(parent, cx, cy, variant, color, size, opacity, dataM, whiteStroke) {
@@ -328,29 +179,6 @@ __FAMILY_CSS_VARS__
     t.textContent = "Optimal";
   }
 
-  function ticks(min, max, target) {
-    const raw = (max - min) / target;
-    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-    let step = mag;
-    for (const m of [1, 2, 5, 10]) {
-      if (mag * m >= raw) { step = mag * m; break; }
-    }
-    const out = [];
-    for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) out.push(v);
-    return out;
-  }
-
-  function fmtTime(v) {
-    if (v >= 100) return v.toFixed(0) + " s";
-    if (v >= 1) return v.toFixed(1) + " s";
-    if (v >= 0.1) return v.toFixed(2) + " s";
-    return v.toFixed(3) + " s";
-  }
-
-  function fmtMetric(metric, v) {
-    return v.toFixed(metric.decimals) + (metric.suffix || "");
-  }
-
   // ---------- data ----------
   const byMethod = new Map();
   for (const p of POINTS) {
@@ -392,11 +220,19 @@ __FAMILY_CSS_VARS__
   const state = { active: new Set(computeFront(metricByKey[metricKey]).methods) };
 
   // ---------- chart ----------
-  const W = 960, H = 540, M = { l: 62, r: 18, t: 14, b: 52 };
+  // A flat, fixed-height plot: two of these panels then fit on one screen.
+  const CHART_H = 400;
+  const M = { l: 62, r: 18, t: 14, b: 52 };
 
   function render() {
     const metric = metricByKey[metricKey];
     svg.textContent = "";
+    const W = Math.max(360, Math.round(box.clientWidth));
+    const H = CHART_H;
+    svg.setAttribute("width", W);
+    svg.setAttribute("height", H);
+    // Keep the chip list from outgrowing the chart beside it.
+    chipsBox.style.maxHeight = Math.max(170, H - controlsBox.offsetHeight + 20) + "px";
 
     // x scale (log)
     const xsAll = POINTS.map(p => p[xKey]);
@@ -419,15 +255,15 @@ __FAMILY_CSS_VARS__
     for (let e = Math.ceil(lx0); Math.pow(10, e) < xmax; e++) {
       const gx = X(Math.pow(10, e));
       el("line", { x1: gx, y1: M.t, x2: gx, y2: H - M.b, stroke: "var(--line)", "stroke-width": 1 }, grid);
-      const lbl = e >= 0 ? String(Math.pow(10, e)) : Math.pow(10, e).toFixed(-e);
-      el("text", { x: gx, y: H - M.b + 20, "text-anchor": "middle", "font-size": 12, fill: "var(--muted)" }, grid)
+      const lbl = fmtNum(Math.pow(10, e), e >= 0 ? 0 : -e);
+      el("text", { x: gx, y: H - M.b + 20, "text-anchor": "middle", "font-size": 12.5, fill: "var(--muted)" }, grid)
         .textContent = lbl;
     }
     for (const yv of ticks(y0, y1, 6)) {
       const gy = Y(yv);
       el("line", { x1: M.l, y1: gy, x2: W - M.r, y2: gy, stroke: "var(--line)", "stroke-width": 1 }, grid);
-      el("text", { x: M.l - 8, y: gy + 4, "text-anchor": "end", "font-size": 12, fill: "var(--muted)" }, grid)
-        .textContent = yv;
+      el("text", { x: M.l - 8, y: gy + 4, "text-anchor": "end", "font-size": 12.5, fill: "var(--muted)" }, grid)
+        .textContent = fmtNum(yv, Number.isInteger(yv) ? 0 : metric.decimals);
     }
     el("rect", { x: M.l, y: M.t, width: W - M.l - M.r, height: H - M.t - M.b, fill: "none", stroke: "var(--line)" }, grid);
     el("text", { x: (M.l + W - M.r) / 2, y: H - 10, "text-anchor": "middle", "font-size": 14, fill: "var(--ink)" }, grid)
@@ -544,7 +380,7 @@ __FAMILY_CSS_VARS__
       html += `<div>${m.label}: <b>${fmtMetric(m, mval(p, m))}</b></div>`;
     }
     html += `<div>${X_AXIS.short}: <b>${fmtTime(p[xKey])}</b></div>`;
-    if (p.imputed) html += `<div class="t-imp">Imputed on ${p.imputed_pct.toFixed(0)}% of datasets</div>`;
+    if (p.imputed) html += `<div class="t-imp">Imputed on ${fmtNum(p.imputed_pct, 0)}% of datasets</div>`;
     tip.show(html, ev);
   }
   function hideTip(method) {
@@ -553,7 +389,6 @@ __FAMILY_CSS_VARS__
   }
 
   // ---------- chips ----------
-  const chipsBox = document.getElementById("chips");
   const chipByMethod = new Map();
   const famChips = new Map();
   function familyMethods(fam) {
@@ -620,6 +455,7 @@ __FAMILY_CSS_VARS__
     if (state.active.has(m)) state.active.delete(m); else state.active.add(m);
     syncChips();
     render();
+    if (refreshCaption) refreshCaption();
   }
   function toggleFamily(fam) {
     const methods = familyMethods(fam);
@@ -634,6 +470,7 @@ __FAMILY_CSS_VARS__
     state.active = new Set(methods);
     syncChips();
     render();
+    if (refreshCaption) refreshCaption();
   }
   document.getElementById("btn-front").addEventListener("click",
     () => setActive(computeFront(metricByKey[metricKey]).methods));
@@ -673,8 +510,37 @@ __FAMILY_CSS_VARS__
     if (POINTS.some(p => p.imputed)) {
       html += '<span class="item"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--muted)"/><circle cx="9" cy="9" r="7.5" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="3 2.5"/></svg> &Dagger; partially imputed</span>';
     }
+    // Model family, named: highlighted points are colored by family, and in paper
+    // view the chip list that would otherwise decode them is hidden.
+    const families = FAM_ORDER.filter(f => POINTS.some(p => p.family === f));
+    if (families.length > 1) {
+      html += '<span class="legendbreak"></span><span class="item">Family:</span>';
+      for (const fam of families) {
+        html += `<span class="item"><svg width="12" height="12" viewBox="0 0 12 12">` +
+          `<circle cx="6" cy="6" r="5" fill="${FAM_VAR[fam]}"/></svg> ` +
+          `<span style="color:${FAM_INK[fam]}">${fam}</span></span>`;
+      }
+    }
     box2.innerHTML = html;
   }
+
+  // ---------- paper view ----------
+  // Highlighting is this chart's editorial choice, so the caption records it:
+  // the front is always drawn, and anything highlighted beyond it is the reader's
+  // own selection, which a screenshot would otherwise leave unexplained.
+  // Silent for the default view (front highlighted, full axes) — the axis labels
+  // already say what is plotted. It only reports a reader's own choices, which a
+  // screenshot would otherwise leave unexplained.
+  function paperCaption() {
+    const m = metricByKey[metricKey];
+    const front = computeFront(m).methods;
+    const isFront = state.active.size === front.size && [...state.active].every(x => front.has(x));
+    const notes = [];
+    if (!state.active.size) notes.push("nothing highlighted");
+    else if (!isFront) notes.push(`highlighted: ${[...state.active].join(", ")}`);
+    return notes.join(" &middot; ");
+  }
+  let refreshCaption = setUpPaperView(paperCaption, render);
 
   // ---------- data table ----------
   function buildTable() {
@@ -689,34 +555,24 @@ __FAMILY_CSS_VARS__
     for (const p of rows) {
       html += `<tr><td>${p.method}</td><td>${TRAJECTORY ? (p.n_configs != null ? p.n_configs : "—") : p.variant}</td><td>${p.family}</td>`;
       for (const m of METRICS) html += `<td>${fmtMetric(m, mval(p, m))}</td>`;
-      html += `<td>${p[xKey].toFixed(3)}</td>`;
-      html += `<td>${p.imputed ? p.imputed_pct.toFixed(0) + "%" : "—"}</td></tr>`;
+      html += `<td>${fmtNum(p[xKey], 3)}</td>`;
+      html += `<td>${p.imputed ? fmtNum(p.imputed_pct, 0) + "%" : "—"}</td></tr>`;
     }
     html += "</tbody></table>";
     document.getElementById("tblwrap").innerHTML = html;
   }
 
-  // When embedded, report the content height so the host page can size the
-  // iframe to fit (avoids an inner scrollbar). Works from a sandboxed frame.
-  // Measure the body (viewport-independent) — documentElement.scrollHeight is
-  // clamped to at least the iframe's current viewport, which turns the
-  // resize round-trip into a grow-forever feedback loop. The change guard
-  // stops re-posting once the height settles.
-  let lastPostedHeight = 0;
-  function postHeight() {
-    if (window.parent === window) return;
-    const height = Math.ceil(document.body.offsetHeight);
-    if (Math.abs(height - lastPostedHeight) < 3) return;
-    lastPostedHeight = height;
-    window.parent.postMessage({ type: "tabarena-explorer-height", height: height }, "*");
-  }
   const _renderInner = render;
   render = function () {
     _renderInner();
     postHeight();
   };
   document.querySelector("details.datatable").addEventListener("toggle", postHeight);
-  window.addEventListener("resize", postHeight);
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(render, 120);
+  });
   window.addEventListener("load", postHeight);
 
   buildChips();
