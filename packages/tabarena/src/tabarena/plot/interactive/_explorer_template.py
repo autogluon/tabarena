@@ -73,7 +73,12 @@ __BASE_CSS__
       <div class="chips" id="chips"></div>
     </div>
     <div class="mainbox">
-      <p class="papercap" id="papercap"></p>
+      <div class="exportbar" id="exportbar" hidden>
+        <span class="hint">Export figure</span>
+        <button class="btn" id="btn-svg" title="Download as SVG — vector, keeps text selectable">SVG</button>
+        <button class="btn" id="btn-pdf" title="Download as a one-page PDF">PDF</button>
+        <button class="btn" id="btn-png" title="Download as PNG at 3x scale">PNG</button>
+      </div>
       <!-- Legend above the chart so readers decode the marks before the data. -->
       <div class="legendstrip" id="legendstrip"></div>
       <div class="chartbox" id="chartbox">
@@ -266,10 +271,14 @@ __BASE_JS__
         .textContent = fmtNum(yv, Number.isInteger(yv) ? 0 : metric.decimals);
     }
     el("rect", { x: M.l, y: M.t, width: W - M.l - M.r, height: H - M.t - M.b, fill: "none", stroke: "var(--line)" }, grid);
-    el("text", { x: (M.l + W - M.r) / 2, y: H - 10, "text-anchor": "middle", "font-size": 14, fill: "var(--ink)" }, grid)
-      .textContent = X_AXIS.axisLabel;
-    el("text", { x: 0, y: 0, "text-anchor": "middle", "font-size": 14, fill: "var(--ink)",
-      transform: `translate(16 ${(M.t + H - M.b) / 2}) rotate(-90)` }, grid).textContent = metric.axisLabel;
+    el("text", {
+      x: (M.l + W - M.r) / 2, y: H - 10, "text-anchor": "middle", "font-size": 14,
+      "font-weight": 650, fill: "var(--ink)",
+    }, grid).textContent = X_AXIS.axisLabel;
+    el("text", {
+      x: 0, y: 0, "text-anchor": "middle", "font-size": 14, "font-weight": 650, fill: "var(--ink)",
+      transform: `translate(16 ${(M.t + H - M.b) / 2}) rotate(-90)`,
+    }, grid).textContent = metric.axisLabel;
 
     drawOptimalArrow(grid, metric.lowerBetter, M, W, H);
 
@@ -455,7 +464,6 @@ __BASE_JS__
     if (state.active.has(m)) state.active.delete(m); else state.active.add(m);
     syncChips();
     render();
-    if (refreshCaption) refreshCaption();
   }
   function toggleFamily(fam) {
     const methods = familyMethods(fam);
@@ -470,7 +478,6 @@ __BASE_JS__
     state.active = new Set(methods);
     syncChips();
     render();
-    if (refreshCaption) refreshCaption();
   }
   document.getElementById("btn-front").addEventListener("click",
     () => setActive(computeFront(metricByKey[metricKey]).methods));
@@ -525,22 +532,8 @@ __BASE_JS__
   }
 
   // ---------- paper view ----------
-  // Highlighting is this chart's editorial choice, so the caption records it:
-  // the front is always drawn, and anything highlighted beyond it is the reader's
-  // own selection, which a screenshot would otherwise leave unexplained.
-  // Silent for the default view (front highlighted, full axes) — the axis labels
-  // already say what is plotted. It only reports a reader's own choices, which a
-  // screenshot would otherwise leave unexplained.
-  function paperCaption() {
-    const m = metricByKey[metricKey];
-    const front = computeFront(m).methods;
-    const isFront = state.active.size === front.size && [...state.active].every(x => front.has(x));
-    const notes = [];
-    if (!state.active.size) notes.push("nothing highlighted");
-    else if (!isFront) notes.push(`highlighted: ${[...state.active].join(", ")}`);
-    return notes.join(" &middot; ");
-  }
-  let refreshCaption = setUpPaperView(paperCaption, render);
+  setUpPaperView(render);
+  setUpExport(() => [{ svg: svg, dx: 0 }], () => slugify(document.title));
 
   // ---------- data table ----------
   function buildTable() {

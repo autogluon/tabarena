@@ -61,18 +61,16 @@ _LIGHT_TOKENS = """
     --fam-reference-ink: #a4600f;
     --fam-baseline-ink: #5f5f5f;
     --fam-other-ink: #5f5f5f;
-    /* Tuning-variant series (default / tuned / tuned + ensembled). Same three
-       hues as the static bar figures, stepped per mode and then muted toward
-       grey — blue/green by 15%, the orange by 24% since it read loudest. That
-       costs some colorblind separation (green vs. orange, 9.2 deutan ΔE at full
-       strength) which the fixed concentric bar widths, the legend and the data
-       table supply. Light mode goes softer still — a further 25% toward white,
-       for the paper view's white surface — landing at 6.0 ΔE; the seaborn
-       pastels the static figures use would be 4.0, which is why we stop here
-       rather than matching them exactly. */
-    --var-default: #6799d4;
-    --var-tuned: #dc9274;
-    --var-tunedens: #61bf9e;
+    /* Tuning-variant series (default / tuned / tuned + ensembled). Light mode
+       is the paper view's surface, so it uses the *static figures' own* seaborn
+       pastels — figures exported from here drop straight into a paper beside
+       them. The cost is colorblind separation: green vs. orange is 4.0 deutan
+       ΔE, well inside the band that needs secondary encoding, which here is the
+       fixed concentric bar widths plus the legend and the data table. Dark mode
+       (the website) keeps the stepped, better-separated version below. */
+    --var-default: #a1c9f4;
+    --var-tuned: #ffb482;
+    --var-tunedens: #8de5a1;
     --optimal: #228b22;
     --tooltip-bg: #14161a;
     --tooltip-ink: #fbfbf9;
@@ -233,15 +231,14 @@ EXPLORER_BASE_CSS = "".join(
   /* One toggle, in the same place in both states and never hidden — an exit
      tucked into a corner of the figure was easy to miss. */
   .viewbar { display: flex; align-items: center; gap: 10px; margin: 0 0 9px; }
-  .papercap { display: none; }
   body.paper .controls,
   body.paper .chips,
   body.paper .sidebox,
   body.paper details.datatable { display: none !important; }
-  /* Only shown when the view departs from the default, so a screenshot cannot
-     quietly hide a filter; the axis labels carry the metric either way. */
-  body.paper .papercap:not(:empty) { display: block; margin: 0 0 9px; font-size: 12.5px; color: var(--muted); }
   body.paper { padding: 14px 18px 18px; }
+  /* Export controls, revealed with the paper view. */
+  .exportbar { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
+  .exportbar .hint { font-size: 12.5px; font-weight: 600; color: var(--muted); }
 """,
     ]
 )
@@ -342,15 +339,15 @@ EXPLORER_BASE_JS = r"""
     };
   }
 
-  // Paper view: white surface, caption + legend + chart only. `caption()` is
-  // supplied by each template — the figure has to stay self-describing once the
-  // controls are gone, so it states the subset and anything non-default about
-  // the current view. `afterToggle` re-renders charts whose size is measured.
-  function setUpPaperView(caption, afterToggle) {
+  // Paper view — white surface, legend + chart only — is the *default*: what a
+  // reader wants first is the figure, and it is the state worth exporting. The
+  // controls, chip list and data table are one click away behind "Edit view".
+  // `afterToggle` re-renders charts whose size is measured from the layout.
+  function setUpPaperView(afterToggle) {
     const root = document.documentElement;
     let hostTheme = null;   // the embedding page's choice, captured on entry
     const btn = document.getElementById("btn-paper");
-    const capEl = document.getElementById("papercap");
+    const embedded = window.parent !== window;
 
     function setPaper(on) {
       document.body.classList.toggle("paper", on);
@@ -362,26 +359,262 @@ EXPLORER_BASE_JS = r"""
       } else {
         root.removeAttribute("data-theme");
       }
-      btn.textContent = on ? "Interactive view" : "Paper view";
-      capEl.innerHTML = on ? caption() : "";
+      btn.textContent = on ? "Edit view" : "Paper view";
+      document.getElementById("exportbar").hidden = !on || embedded;
       if (afterToggle) requestAnimationFrame(afterToggle);
       postHeight();
     }
     btn.addEventListener("click", () => setPaper(!document.body.classList.contains("paper")));
-    // Embedded, the host page owns the control (it sits beside the panel's
-    // static-figure toggle) and drives it from the outside; standalone — the
-    // shareable single file — this page needs its own button.
-    if (window.parent !== window) document.querySelector(".viewbar").hidden = true;
+    // Embedded, the host page owns these controls — they sit beside the panel's
+    // static-figure toggle and are driven from the outside. Standalone (the
+    // shareable single file) this page needs its own.
+    if (embedded) document.querySelector(".viewbar").hidden = true;
     window.addEventListener("message", ev => {
       const d = ev.data;
       if (d && d.type === "tabarena-explorer-paper" && typeof d.on === "boolean") setPaper(d.on);
     });
-    document.addEventListener("keydown", ev => {
-      if (ev.key === "Escape" && document.body.classList.contains("paper")) setPaper(false);
+    // Only standalone: embedded, the host owns the button and would not see the
+    // key press, so its label would fall out of step with the frame.
+    if (!embedded) {
+      document.addEventListener("keydown", ev => {
+        if (ev.key === "Escape" && !document.body.classList.contains("paper")) setPaper(true);
+      });
+    }
+    setPaper(true);   // the figure is what opens
+  }
+
+  // --- Figure export ---------------------------------------------------------
+  // The chart is live SVG, so a file can be built from it directly. Three things
+  // a copy has to fix up: the colors are CSS custom properties (var(--x) means
+  // nothing outside this document), it has no background or font of its own, and
+  // the legend is HTML rather than part of the SVG.
+
+  // Rebuild the HTML legend as SVG, reusing its live layout: each item's glyph is
+  // cloned and its label re-emitted at the measured position. foreignObject would
+  // be far simpler, but Chrome refuses to rasterize it onto a canvas, which would
+  // break the PNG path.
+  // Rewrite every var(--x) in a clone's paint attributes; they resolve to nothing
+  // once the node leaves this document.
+  function resolveVars(root, resolve) {
+    for (const node of [root, ...root.querySelectorAll("*")]) {
+      for (const attr of ["fill", "stroke"]) {
+        const value = node.getAttribute(attr);
+        if (value && value.includes("var(")) node.setAttribute(attr, resolve(value));
+      }
+    }
+  }
+
+  function legendToSvg(container, resolve) {
+    const base = container.getBoundingClientRect();
+    const group = document.createElementNS(NS, "g");
+    let height = 0;
+    for (const item of container.querySelectorAll(".item")) {
+      const box = item.getBoundingClientRect();
+      if (!box.width) continue;
+      height = Math.max(height, box.bottom - base.top);
+      let textLeft = box.left - base.left;
+      const glyph = item.querySelector("svg");
+      if (glyph) {
+        const gbox = glyph.getBoundingClientRect();
+        const wrap = el("g", {
+          transform: `translate(${gbox.left - base.left} ${gbox.top - base.top})`,
+        }, group);
+        const glyphClone = glyph.cloneNode(true);
+        resolveVars(glyphClone, resolve);
+        wrap.appendChild(glyphClone);
+        textLeft = gbox.right - base.left + 5;
+      }
+      const label = item.textContent.trim();
+      if (!label) continue;
+      const colored = item.querySelector("[style*='color']");
+      const text = el("text", {
+        x: textLeft, y: box.top - base.top + box.height / 2 + 4, "font-size": 12.5,
+        fill: resolve(getComputedStyle(colored || item).color),
+      }, group);
+      text.textContent = label;
+    }
+    return { group, height: Math.ceil(height) };
+  }
+
+  // `parts` is a list of {svg, dx}, so a chart split across panes (the sticky
+  // y-axis beside the scrolling plot) still exports as one figure.
+  function buildExportSvg(parts, legendEl, pad = 10) {
+    const rootStyle = getComputedStyle(document.documentElement);
+    const resolve = value => String(value).replace(
+      /var\((--[\w-]+)\)/g, (_, name) => rootStyle.getPropertyValue(name).trim() || "none");
+    const paper = rootStyle.getPropertyValue("--paper").trim() || "#ffffff";
+
+    let chartW = 0, chartH = 0;
+    for (const part of parts) {
+      chartW = Math.max(chartW, part.dx + Number(part.svg.getAttribute("width")));
+      chartH = Math.max(chartH, Number(part.svg.getAttribute("height")));
+    }
+
+    const out = document.createElementNS(NS, "svg");
+    out.setAttribute("xmlns", NS);
+    out.setAttribute("font-family", 'system-ui, -apple-system, "Segoe UI", sans-serif');
+    let top = pad;
+    const later = [];   // built after the width is known
+    const legend = legendEl ? legendToSvg(legendEl, resolve) : null;
+    if (legend && legend.height) {
+      legend.group.setAttribute("transform", `translate(${pad} ${top})`);
+      later.push(() => out.appendChild(legend.group));
+      top += legend.height + 8;
+    }
+
+    const width = Math.max(chartW, legendEl ? legendEl.getBoundingClientRect().width : 0) + pad * 2;
+    const height = top + chartH + pad;
+    out.setAttribute("width", Math.ceil(width));
+    out.setAttribute("height", Math.ceil(height));
+    el("rect", { x: 0, y: 0, width: Math.ceil(width), height: Math.ceil(height), fill: paper }, out);
+    for (const build of later) build();
+
+    for (const part of parts) {
+      const group = el("g", { transform: `translate(${part.dx + pad} ${top})` }, out);
+      const clone = part.svg.cloneNode(true);
+      resolveVars(clone, resolve);
+      while (clone.firstChild) group.appendChild(clone.firstChild);
+    }
+    return out;
+  }
+
+  // Page title -> a safe file stem, e.g. "tabarena-leaderboard-explorer-all-tasks".
+  function slugify(text) {
+    return (text || "chart").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+  }
+
+  function downloadUrl(url, filename) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // Rasterize the export SVG into a canvas at `scale`, then hand it to `done`.
+  function rasterize(svg, scale, done, fail) {
+    const width = Number(svg.getAttribute("width")), height = Number(svg.getAttribute("height"));
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      ctx.drawImage(img, 0, 0);
+      done(canvas, width, height);
+    };
+    img.onerror = fail;
+    img.src = "data:image/svg+xml;charset=utf-8,"
+      + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+  }
+
+  // A one-page PDF wrapping the rendered figure, written by hand: a library would
+  // cost this page its zero-dependency, single-file property. The image is stored
+  // losslessly (raw RGB + /FlateDecode via CompressionStream) and the page is sized
+  // in points to the figure's CSS size, so it prints at the size it appears here
+  // and the pixels land at 96*scale dpi.
+  async function buildPdf(canvas, cssWidth, cssHeight) {
+    const pixels = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+    const rgb = new Uint8Array((pixels.length / 4) * 3);
+    for (let i = 0, j = 0; i < pixels.length; i += 4, j += 3) {
+      rgb[j] = pixels[i];
+      rgb[j + 1] = pixels[i + 1];
+      rgb[j + 2] = pixels[i + 2];
+    }
+    const deflated = new Uint8Array(await new Response(
+      new Blob([rgb]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer());
+
+    const encoder = new TextEncoder();
+    const chunks = [];
+    const offsets = [];
+    let cursor = 0;
+    const put = data => {
+      const bytes = typeof data === "string" ? encoder.encode(data) : data;
+      chunks.push(bytes);
+      cursor += bytes.length;
+    };
+    const object = (id, body, stream) => {
+      offsets[id] = cursor;
+      put(`${id} 0 obj\n${body}\n`);
+      if (stream) {
+        put("stream\n");
+        put(stream);
+        put("\nendstream\n");
+      }
+      put("endobj\n");
+    };
+
+    const ptW = (cssWidth * 0.75).toFixed(2), ptH = (cssHeight * 0.75).toFixed(2);
+    const content = `q ${ptW} 0 0 ${ptH} 0 0 cm /Im0 Do Q`;
+    put("%PDF-1.4\n");
+    put(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));   // binary marker
+    object(1, "<< /Type /Catalog /Pages 2 0 R >>");
+    object(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+    object(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${ptW} ${ptH}] `
+      + "/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>");
+    object(4, "<< /Type /XObject /Subtype /Image "
+      + `/Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB `
+      + `/BitsPerComponent 8 /Filter /FlateDecode /Length ${deflated.length} >>`, deflated);
+    object(5, `<< /Length ${content.length} >>`, content);
+
+    const xref = cursor;
+    let table = "xref\n0 6\n0000000000 65535 f \n";
+    for (let id = 1; id <= 5; id++) table += String(offsets[id]).padStart(10, "0") + " 00000 n \n";
+    put(table);
+    put(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    return new Blob(chunks, { type: "application/pdf" });
+  }
+
+  // Wire up the export buttons; `getParts` is called per click so the file always
+  // matches what is on screen. Returns a `run(format)` the host page can drive.
+  function setUpExport(getParts, basename) {
+    const buttons = {
+      svg: document.getElementById("btn-svg"),
+      png: document.getElementById("btn-png"),
+      pdf: document.getElementById("btn-pdf"),
+    };
+    const figure = () => buildExportSvg(getParts(), document.getElementById("legendstrip"));
+
+    // A sandboxed frame has no modals, so a failure is reported on the button.
+    function complain(format) {
+      const button = buttons[format];
+      if (!button) return;
+      const label = button.textContent;
+      button.textContent = "failed";
+      setTimeout(() => { button.textContent = label; }, 2500);
+    }
+
+    function run(format) {
+      const svg = figure();
+      const name = basename();
+      if (format === "svg") {
+        downloadUrl("data:image/svg+xml;charset=utf-8,"
+          + encodeURIComponent(new XMLSerializer().serializeToString(svg)), name + ".svg");
+        return;
+      }
+      // 3x for a screen-resolution PNG; 2x for the PDF, whose page is sized in
+      // points so the pixels already land near 200 dpi at print size.
+      rasterize(svg, format === "pdf" ? 2 : 3, (canvas, cssWidth, cssHeight) => {
+        if (format === "png") {
+          canvas.toBlob(blob => downloadUrl(URL.createObjectURL(blob), name + ".png"), "image/png");
+        } else {
+          buildPdf(canvas, cssWidth, cssHeight)
+            .then(blob => downloadUrl(URL.createObjectURL(blob), name + ".pdf"))
+            .catch(() => complain("pdf"));
+        }
+      }, () => complain(format));
+    }
+
+    for (const format of Object.keys(buttons)) {
+      if (buttons[format]) buttons[format].addEventListener("click", () => run(format));
+    }
+    // Embedded, the buttons live in the host's panel header (see main.taExport).
+    window.addEventListener("message", ev => {
+      const d = ev.data;
+      if (d && d.type === "tabarena-explorer-export" && buttons[d.format] !== undefined) run(d.format);
     });
-    // Keep the caption current while in paper view (a control can still be
-    // driven by keyboard before entering, and re-renders happen on resize).
-    return () => { if (document.body.classList.contains("paper")) capEl.innerHTML = caption(); };
   }
 
   // When embedded, report the content height so the host page can size the

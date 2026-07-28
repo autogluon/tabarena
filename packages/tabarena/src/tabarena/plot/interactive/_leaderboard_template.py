@@ -76,7 +76,12 @@ __BASE_CSS__
     </div>
     <span class="hint">Click a column or chip to remove a method &middot; hover for exact values</span>
   </div>
-  <p class="papercap" id="papercap"></p>
+  <div class="exportbar" id="exportbar" hidden>
+    <span class="hint">Export figure</span>
+    <button class="btn" id="btn-svg" title="Download as SVG — vector, keeps text selectable">SVG</button>
+    <button class="btn" id="btn-pdf" title="Download as a one-page PDF">PDF</button>
+    <button class="btn" id="btn-png" title="Download as PNG at 3x scale">PNG</button>
+  </div>
   <div class="legendstrip" id="legendstrip"></div>
   <div class="lb-chartwrap" id="chartwrap">
     <svg id="axis" class="lb-axis" role="presentation"></svg>
@@ -173,8 +178,6 @@ __BASE_JS__
     refs: new Set(refs.map(r => r.method)),
     variants: new Set(VARIANT_ORDER),
   };
-
-  let refreshCaption = null;   // assigned once setUpPaperView has the DOM
 
   function metric() { return metricByKey[state.metric]; }
 
@@ -335,8 +338,8 @@ __BASE_JS__
     el("line", { x1: 0, y1: baseY, x2: plotW, y2: baseY, stroke: "var(--muted)", "stroke-width": 1 }, grid);
     el("line", { x1: AXIS_W - 1, y1: TOP, x2: AXIS_W - 1, y2: baseY, stroke: "var(--muted)", "stroke-width": 1 }, axisSvg);
     el("text", {
-      x: 0, y: 0, "text-anchor": "middle", "font-size": LABEL_SIZE, fill: "var(--ink)",
-      transform: `translate(15 ${TOP + PLOT_H / 2}) rotate(-90)`,
+      x: 0, y: 0, "text-anchor": "middle", "font-size": LABEL_SIZE, "font-weight": 650,
+      fill: "var(--ink)", transform: `translate(15 ${TOP + PLOT_H / 2}) rotate(-90)`,
     }, axisSvg).textContent = m.axisLabel;
 
     // -- hover band behind the marks (highlights the whole column group)
@@ -345,12 +348,16 @@ __BASE_JS__
     }, svg);
 
     const defs = el("defs", {}, svg);
-    // -- imputed hatch, reused by every partially imputed bar
+    // -- imputed hatch, reused by every partially imputed bar. Crossed diagonals,
+    //    matching the "x" hatch matplotlib draws in the static figure; the
+    //    diagonals meet the tile corners exactly, so the grid tiles seamlessly.
     const pat = el("pattern", {
-      id: "imp-hatch", width: 6, height: 6, patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)",
+      id: "imp-hatch", width: 8, height: 8, patternUnits: "userSpaceOnUse",
     }, defs);
-    el("rect", { width: 6, height: 6, fill: "none" }, pat);
-    el("line", { x1: 0, y1: 0, x2: 0, y2: 6, stroke: "var(--paper)", "stroke-width": 2.2, opacity: 0.75 }, pat);
+    el("path", {
+      d: "M0,0 L8,8 M8,0 L0,8", stroke: "var(--paper)", "stroke-width": 1.5,
+      opacity: 0.85, fill: "none",
+    }, pat);
 
     // -- Everything data-bearing is clipped to the plot area. The axis floor is
     //    set from the bar values (a couple of very wide intervals would
@@ -412,7 +419,7 @@ __BASE_JS__
         }, xg);
       }
       const t = el("text", {
-        x: cx, y, "font-size": LABEL_SIZE, "text-anchor": "middle",
+        x: cx, y, "font-size": LABEL_SIZE, "text-anchor": "middle", "font-weight": 650,
         fill: FAM_INK[entry.family] || "var(--ink)",
       }, xg);
       t.textContent = labels[i];
@@ -447,7 +454,6 @@ __BASE_JS__
       }, axisSvg).textContent = fmtMetric(m, r[state.metric]);
     });
     buildLegend(m, shownRefs);
-    if (refreshCaption) refreshCaption();
 
     // -- hit targets: one full-height column per method (>= 34px wide)
     const hits = el("g", {}, svg);
@@ -679,7 +685,8 @@ __BASE_JS__
     if (POINTS.some(p => p.imputed)) {
       parts.push('<span class="item"><svg width="14" height="14" viewBox="0 0 14 14">' +
         '<rect x="1" y="1" width="12" height="12" rx="2" fill="var(--pt-muted)"/>' +
-        '<path d="M-2,4 L6,-4 M-2,10 L10,-2 M2,14 L14,2 M8,14 L14,8" stroke="var(--paper)" stroke-width="2.2"/>' +
+        '<path d="M1,1 L7,7 M7,1 L1,7 M7,7 L13,13 M13,7 L7,13 M1,7 L7,13 M7,7 L13,1" ' +
+        'stroke="var(--paper)" stroke-width="1.5" fill="none"/>' +
         "</svg> &Dagger; partially imputed</span>");
     }
     // Model family, named rather than merely pointed at: without the colors
@@ -713,20 +720,9 @@ __BASE_JS__
   }
 
   // ---------- paper view ----------
-  // Nothing when the view is the default one — the axis labels already name the
-  // metric and its direction. It only speaks up about what a screenshot would
-  // otherwise hide: a filtered set, a hidden variant, a raised axis floor.
-  function paperCaption() {
-    const m = metric();
-    const entries = visibleEntries();
-    const notes = [];
-    if (entries.length !== byMethod.size) notes.push(`${entries.length} of ${byMethod.size} methods shown`);
-    const hidden = VARIANT_ORDER.filter(v => !state.variants.has(v) && POINTS.some(p => p.variant === v));
-    if (hidden.length) notes.push(`${hidden.join(" and ")} hidden`);
-    if (state.yMin != null) notes.push(`axis from ${fmtNum(state.yMin, m.decimals)}`);
-    return notes.join(" &middot; ");
-  }
-  refreshCaption = setUpPaperView(paperCaption, render);
+  setUpPaperView(render);
+  // The y-axis lives in its own pane, so it is offset back into place.
+  setUpExport(() => [{ svg: axisSvg, dx: 0 }, { svg: svg, dx: AXIS_W }], () => slugify(document.title));
 
   // ---------- boot ----------
   document.querySelector("details.datatable").addEventListener("toggle", postHeight);
