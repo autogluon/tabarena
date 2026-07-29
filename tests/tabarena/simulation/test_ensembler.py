@@ -472,3 +472,55 @@ def test_stacking_ensembler_rejected_on_fast_log_loss():
     )
     with pytest.raises(ValueError, match="non-linear"):
         evaluator.init_ens()
+
+
+@pytest.mark.parametrize("problem_type", ["binary", "multiclass", "regression"])
+def test_stacking_with_autogluon_abstract_model(problem_type):
+    """StackingEnsembler stacks with any AutoGluon AbstractModel via the adapters."""
+    from autogluon.tabular.models import LGBModel
+
+    from tabarena.simulation.ensemble import (
+        AutoGluonStackerClassifier,
+        AutoGluonStackerRegressor,
+        StackingEnsembler,
+    )
+
+    hyperparameters = {"n_estimators": 10}
+    if problem_type == "binary":
+        y, preds = _make_binary_task(seed=11)
+        metric = get_metric(metric="roc_auc", problem_type=problem_type)
+    elif problem_type == "multiclass":
+        rng = np.random.default_rng(11)
+        n_samples, n_classes, n_models = 300, 3, 5
+        # non-contiguous labels exercise the classes_ mapping
+        y = rng.choice([0, 2, 5], size=n_samples)
+        preds = rng.random((n_models, n_samples, n_classes)).astype(np.float32)
+        preds /= preds.sum(axis=2, keepdims=True)
+        metric = get_metric(metric="log_loss", problem_type=problem_type)
+    else:
+        y, preds = _make_regression_task(seed=11)
+        metric = get_metric(metric="rmse", problem_type=problem_type)
+
+    ensembler = StackingEnsembler(
+        problem_type=problem_type,
+        metric=metric,
+        classifier_cls=AutoGluonStackerClassifier,
+        classifier_kwargs={"model_cls": LGBModel, "hyperparameters": hyperparameters},
+        regressor_cls=AutoGluonStackerRegressor,
+        regressor_kwargs={"model_cls": LGBModel, "hyperparameters": hyperparameters},
+        n_splits=2,
+    )
+    if problem_type == "multiclass":
+        # StackingEnsembler's class-count bookkeeping is positional (0..k-1); remap
+        y = np.searchsorted(np.unique(y), y)
+    ensembler.fit(predictions=preds, labels=y)
+    out = ensembler.predict_proba(preds.copy())  # full refit model (non-fit input)
+    assert np.isfinite(np.asarray(out, dtype=float)).all()
+    if problem_type == "multiclass":
+        assert out.shape == (len(y), 3)
+        np.testing.assert_allclose(np.asarray(out).sum(axis=1), 1.0, rtol=1e-5)
+    else:
+        assert np.asarray(out).ndim == 1
+    # label-space predictions work through the ensembler
+    labels_pred = ensembler.predict(preds.copy(), problem_type=problem_type)
+    assert len(labels_pred) == len(y)

@@ -122,6 +122,11 @@ class EvaluationRepositoryZeroshot(EvaluationRepository):
         """
         if config_scorer_kwargs is None:
             config_scorer_kwargs = {}
+        else:
+            config_scorer_kwargs = config_scorer_kwargs.copy()
+        # The generator parallelizes candidate scoring with ray; each score() call must
+        # therefore evaluate its tasks sequentially instead of nesting ray-in-ray.
+        config_scorer_kwargs.setdefault("backend", "native")
         if config_scorer_type == "ensemble":
             config_scorer = self._construct_ensemble_selection_config_scorer(**config_scorer_kwargs)
         elif config_scorer_type == "single":

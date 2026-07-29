@@ -5,7 +5,6 @@ import os
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-import boto3
 from autogluon.common.savers import save_pkl
 
 from .config_generator import ZeroshotConfigGeneratorCV
@@ -133,6 +132,8 @@ def plot_results_multi(
     plt.show()
 
     if save_prefix is not None and save_to_s3:
+        import boto3
+
         s3 = boto3.resource("s3")
 
         # FIXME: Won't work nicely if save_prefix is absolute path

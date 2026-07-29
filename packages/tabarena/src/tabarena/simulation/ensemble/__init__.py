@@ -5,6 +5,10 @@ from tabarena.simulation.ensemble.abstract_ensembler import (
     LegacyEnsemblerAdapter,
     WeightedEnsembler,
 )
+from tabarena.simulation.ensemble.autogluon_stacker import (
+    AutoGluonStackerClassifier,
+    AutoGluonStackerRegressor,
+)
 from tabarena.simulation.ensemble.basic_ensemblers import (
     FixedWeightsEnsembler,
     SingleBestEnsembler,
@@ -15,6 +19,8 @@ from tabarena.simulation.ensemble.stacking_ensembler import StackingEnsembler
 
 __all__ = [
     "AbstractEnsembler",
+    "AutoGluonStackerClassifier",
+    "AutoGluonStackerRegressor",
     "FixedWeightsEnsembler",
     "GreedyEnsembler",
     "LegacyEnsemblerAdapter",
