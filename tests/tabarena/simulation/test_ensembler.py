@@ -476,8 +476,12 @@ def test_stacking_ensembler_rejected_on_fast_log_loss():
 
 @pytest.mark.parametrize("problem_type", ["binary", "multiclass", "regression"])
 def test_stacking_with_autogluon_abstract_model(problem_type):
-    """StackingEnsembler stacks with any AutoGluon AbstractModel via the adapters."""
-    from autogluon.tabular.models import LGBModel
+    """StackingEnsembler stacks with any AutoGluon AbstractModel via the adapters.
+
+    Uses ``RFModel`` because it ships with the base ``autogluon.tabular`` install, so this
+    runs without the optional model libraries (LightGBM, CatBoost, ...).
+    """
+    from autogluon.tabular.models import RFModel
 
     from tabarena.simulation.ensemble import (
         AutoGluonStackerClassifier,
@@ -505,9 +509,9 @@ def test_stacking_with_autogluon_abstract_model(problem_type):
         problem_type=problem_type,
         metric=metric,
         classifier_cls=AutoGluonStackerClassifier,
-        classifier_kwargs={"model_cls": LGBModel, "hyperparameters": hyperparameters},
+        classifier_kwargs={"model_cls": RFModel, "hyperparameters": hyperparameters},
         regressor_cls=AutoGluonStackerRegressor,
-        regressor_kwargs={"model_cls": LGBModel, "hyperparameters": hyperparameters},
+        regressor_kwargs={"model_cls": RFModel, "hyperparameters": hyperparameters},
         n_splits=2,
     )
     if problem_type == "multiclass":
@@ -524,3 +528,20 @@ def test_stacking_with_autogluon_abstract_model(problem_type):
     # label-space predictions work through the ensembler
     labels_pred = ensembler.predict(preds.copy(), problem_type=problem_type)
     assert len(labels_pred) == len(y)
+
+
+def test_autogluon_stacker_leaves_no_cwd_artifacts(monkeypatch, tmp_path):
+    """The adapter must not drop an ``AutogluonModels/`` dir into the cwd, which is what
+    AbstractModel does when constructed without a path.
+    """
+    from autogluon.tabular.models import RFModel
+
+    from tabarena.simulation.ensemble import AutoGluonStackerRegressor
+
+    monkeypatch.chdir(tmp_path)
+    y, preds = _make_regression_task(n_models=3, n_samples=50, seed=12)
+    regressor = AutoGluonStackerRegressor(model_cls=RFModel, hyperparameters={"n_estimators": 5})
+    regressor.fit(preds.T, y)
+
+    assert np.isfinite(regressor.predict(preds.T)).all()
+    assert list(tmp_path.iterdir()) == []
