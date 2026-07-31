@@ -154,18 +154,13 @@ _COLUMNS: list[dict] = [
 _RANK_KEY = "elo"
 
 
-
 def leaderboard_table_points(df_website_leaderboard: pd.DataFrame) -> pd.DataFrame:
     """One record per leaderboard row, with the fields the table renders."""
     df = df_website_leaderboard.reset_index(drop=True)
     parsed = [_parse_model(m) for m in df["Model"]]
     points = pd.DataFrame(
         {
-            "position": (
-                pd.to_numeric(df["#"], errors="coerce")
-                if "#" in df.columns
-                else pd.Series(range(len(df)))
-            ),
+            "position": (pd.to_numeric(df["#"], errors="coerce") if "#" in df.columns else pd.Series(range(len(df)))),
             "method": [p[0] for p in parsed],
             "variant": [p[1] for p in parsed],
             "family": df["TypeName"].to_numpy(),
@@ -174,23 +169,17 @@ def leaderboard_table_points(df_website_leaderboard: pd.DataFrame) -> pd.DataFra
     )
     points["family_symbol"] = [_FAMILY_SYMBOL.get(f, "❓") for f in df["TypeName"]]
     points["verified"] = (
-        df["Verified"].astype(str).str.strip().eq("✔️").to_numpy()
-        if "Verified" in df.columns
-        else False
+        df["Verified"].astype(str).str.strip().eq("✔️").to_numpy() if "Verified" in df.columns else False
     )
     for spec in _COLUMNS:
         column = spec.get("column")
         if not column:
             continue
         if spec.get("text"):
-            points[spec["key"]] = (
-                df[column].to_numpy() if column in df.columns else None
-            )
+            points[spec["key"]] = df[column].to_numpy() if column in df.columns else None
         else:
             points[spec["key"]] = (
-                pd.to_numeric(df[column], errors="coerce").to_numpy()
-                if column in df.columns
-                else pd.NA
+                pd.to_numeric(df[column], errors="coerce").to_numpy() if column in df.columns else pd.NA
             )
     points["elo_ci"] = df["Elo 95% CI"].to_numpy() if "Elo 95% CI" in df.columns else None
 
@@ -253,9 +242,7 @@ def build_leaderboard_table_html(
         "rankKey": _RANK_KEY,
         "variants": list(_VARIANT_LABELS.values()),
     }
-    html = render_explorer_html(
-        LEADERBOARD_TABLE_TEMPLATE, page_title=page_title, config=config, points=points
-    )
+    html = render_explorer_html(LEADERBOARD_TABLE_TEMPLATE, page_title=page_title, config=config, points=points)
 
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)

@@ -112,7 +112,5 @@ def process_one_folder(
     build_leaderboard_table_html(
         website_leaderboard,
         save_path=base_output_path / "leaderboard_table.html",
-        page_title=f"TabArena leaderboard table — {subset_label}"
-        if subset_label
-        else "TabArena leaderboard table",
+        page_title=f"TabArena leaderboard table — {subset_label}" if subset_label else "TabArena leaderboard table",
     )

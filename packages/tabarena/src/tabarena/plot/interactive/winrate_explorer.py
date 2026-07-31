@@ -79,10 +79,7 @@ def build_winrate_explorer_html(
     families = _families(methods)
     # The mean excludes the diagonal (a method against itself is not a comparison).
     numeric = matrix.astype(float)
-    means = [
-        float(numeric.iloc[i].drop(numeric.index[i]).mean(skipna=True))
-        for i in range(len(methods))
-    ]
+    means = [float(numeric.iloc[i].drop(numeric.index[i]).mean(skipna=True)) for i in range(len(methods))]
     split = [_split_label(m) for m in methods]
     points = pd.DataFrame(
         {
@@ -100,9 +97,7 @@ def build_winrate_explorer_html(
         "matrix": values,
         "variants": list(_VARIANT_LABELS.values()),
     }
-    html = render_explorer_html(
-        WINRATE_TEMPLATE, page_title=page_title, config=config, points=points
-    )
+    html = render_explorer_html(WINRATE_TEMPLATE, page_title=page_title, config=config, points=points)
 
     save_path = Path(save_path)
     save_path.parent.mkdir(parents=True, exist_ok=True)
