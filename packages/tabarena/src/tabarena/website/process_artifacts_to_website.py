@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from tabarena.plot.interactive.leaderboard_explorer import build_leaderboard_explorer_html
+from tabarena.plot.interactive.leaderboard_table import build_leaderboard_table_html
 
 
 def process_one_folder(
@@ -82,6 +83,8 @@ def process_one_folder(
     for extra_path in [
         "pareto_front_explorer.html",
         "pareto_front_points.csv",
+        "winrate_explorer.html",
+        "winrate_matrix.csv",
         Path("tuning_trajectories") / "placeholder_name" / "tuning_trajectories_explorer.html",
         Path("tuning_trajectories") / "placeholder_name" / "tuning_trajectories.csv",
     ]:
@@ -93,12 +96,23 @@ def process_one_folder(
     # the evaluation step because it needs nothing beyond the website table it
     # sits next to — so a styling fix is a re-run of the (fast) conversion step,
     # and the chart can never disagree with the table below it on the site.
+    website_leaderboard = pd.read_csv(base_output_path / "website_leaderboard.csv")
     build_leaderboard_explorer_html(
-        pd.read_csv(base_output_path / "website_leaderboard.csv"),
+        website_leaderboard,
         save_path=base_output_path / "leaderboard_overview_explorer.html",
         # No in-page heading: the website's panel header already names the
         # figure and the subset. The label identifies the standalone file.
         page_title=f"TabArena leaderboard explorer — {subset_label}"
         if subset_label
         else "TabArena leaderboard explorer",
+    )
+    # The leaderboard table itself, for the same reason and from the same frame:
+    # the app embeds this instead of rendering its own table, so the two cannot
+    # style or sort the numbers differently.
+    build_leaderboard_table_html(
+        website_leaderboard,
+        save_path=base_output_path / "leaderboard_table.html",
+        page_title=f"TabArena leaderboard table — {subset_label}"
+        if subset_label
+        else "TabArena leaderboard table",
     )

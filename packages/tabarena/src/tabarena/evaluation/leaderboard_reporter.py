@@ -23,6 +23,7 @@ from tabarena.evaluation.framework_naming import (
 )
 from tabarena.plot.dataset_analysis import plot_train_time_deep_dive
 from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
+from tabarena.plot.interactive.winrate_explorer import build_winrate_explorer_html
 from tabarena.plot.plot_ens_weights import create_heatmap
 from tabarena.plot.plot_pareto_focus import plot_pareto_focus
 from tabarena.utils.normalized_scorer import NormalizedScorer
@@ -1123,6 +1124,21 @@ class LeaderboardReporter:
                         f"Warning: Error encountered during winrate matrix plotting. {e}"
                         "This likely means the CLI does not have access to the correct Chromium version...",
                     )
+
+                # The same matrix as data and as an interactive page, so the
+                # website can offer the static / interactive / paper triple it
+                # offers for every other figure. Written next to the PNG; the
+                # conversion step copies both when present.
+                save_pd.save(
+                    path=str(Path(self.output_dir) / "winrate_matrix.csv"),
+                    df=winrate_matrix,
+                    index=True,
+                )
+                build_winrate_explorer_html(
+                    winrate_matrix=winrate_matrix,
+                    save_path=Path(self.output_dir) / "winrate_explorer.html",
+                    page_title=winrate_title or f"{self.benchmark_name} win-rate matrix",
+                )
 
             # Off by default while the FIXME above (diagram possibly incorrect) stands.
             if plot_critical_diagrams and len(results_te_per_task) != 0:
