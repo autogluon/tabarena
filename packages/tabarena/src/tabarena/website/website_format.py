@@ -150,6 +150,8 @@ def get_rename_map() -> dict[str, str]:
         "XGB": "XGBoost",
         "XT": "ExtraTrees",
         "RF": "RandomForest",
+        "PB": "PerpetualBooster",
+        "CHIMERA": "ChimeraBoost",
         "MNCA": "ModernNCA",
         "NN_TORCH": "TorchMLP",
         "FASTAI": "FastaiMLP",

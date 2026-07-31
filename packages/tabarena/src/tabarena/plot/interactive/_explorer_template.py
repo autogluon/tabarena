@@ -423,7 +423,7 @@ __BASE_JS__
       const famBtn = document.createElement("button");
       famBtn.className = "famchip";
       famBtn.style.setProperty("--fam", FAM_VAR[fam]);
-      famBtn.innerHTML = `<span class="dot"></span>${fam} <span class="count">&times;${methods.length}</span>`;
+      famBtn.innerHTML = famChipLabel(fam, methods.length);
       famBtn.title = `Toggle all ${methods.length} ${fam} methods`;
       famBtn.addEventListener("click", () => toggleFamily(fam));
       row.appendChild(famBtn);

@@ -130,9 +130,15 @@ EXPLORER_BASE_CSS = "".join(
         _scope(':root[data-theme="light"]', _LIGHT_TOKENS),
         r"""
   html, body { margin: 0; background: var(--paper); }
+  /* The colour emoji fonts are named *before* the generic `sans-serif`. A generic
+     family matches every character through the browser's own fallback chain, so
+     anything listed after it is unreachable — and that fallback resolves emoji to
+     a monochrome font on Linux, which flattens the family symbols on the chips.
+     Latin glyphs are unaffected: the emoji fonts carry none. */
   body {
     color: var(--ink);
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-family: system-ui, -apple-system, "Segoe UI",
+      "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
     line-height: 1.5;
     padding: 10px 12px 14px;
   }
@@ -171,12 +177,31 @@ EXPLORER_BASE_CSS = "".join(
   }
   .famchip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fam); flex: none; }
   .famchip .count { font-weight: 500; letter-spacing: 0; opacity: 0.75; }
+  /* The family symbol sits at text size, not the chip's small-caps size. */
+  .famchip .sym { font-size: 1.05em; letter-spacing: 0; }
   .famchip:hover { border-color: var(--fam); color: var(--ink); }
   .famchip[aria-pressed="true"] {
     border: 1px solid var(--fam);
     background: color-mix(in srgb, var(--fam) 13%, transparent);
     color: var(--ink);
   }
+  /* A toggle button that carries its own colour: off is faded with a neutral
+     border, on takes the colour as border and tint. Opt-in via `.toggle` so the
+     older explorers, which fade their variant buttons with inline styles, are
+     unaffected. */
+  .btn.toggle[aria-pressed] { opacity: 0.5; }
+  .btn.toggle[aria-pressed="true"] {
+    opacity: 1;
+    border-color: var(--fam);
+    background: color-mix(in srgb, var(--fam) 18%, var(--chip-bg));
+  }
+  .btn.toggle .swatch {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--fam); margin-right: 6px; vertical-align: middle;
+  }
+  .btn.toggle[aria-pressed="false"] .swatch { background: var(--pt-muted); }
+  .grouplabel { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+
   .chipset { display: flex; flex-wrap: wrap; gap: 4px; }
   .chip {
     display: inline-flex; align-items: center; gap: 5px;
@@ -216,7 +241,10 @@ EXPLORER_BASE_CSS = "".join(
   }
   details.datatable th { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 
-  svg text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  svg text {
+    font-family: system-ui, -apple-system, "Segoe UI",
+      "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  }
 
   @media (prefers-reduced-motion: no-preference) {
     .chip, .btn, .famchip { transition: border-color 120ms ease, background-color 120ms ease; }
@@ -264,6 +292,30 @@ EXPLORER_BASE_JS = r"""
     "Reference Pipeline": "var(--fam-reference)",
     [FAM_MERGED]: "var(--fam-baseline)",
   };
+  // The symbol the website shows for each family, so a family chip here reads the
+  // same as the Type column on the site. Baseline and Other are one bucket, so
+  // that chip carries both symbols.
+  const FAM_SYMBOL = {
+    "Foundation Model": "🧠⚡",
+    "Tree-based": "🌳",
+    "Neural Network": "🧠🔁",
+    "Reference Pipeline": "📊",
+    [FAM_MERGED]: "📏 ❓",
+  };
+  // Tuning-variant colours, matching the --var-* tokens the charts plot with.
+  const VARIANT_VAR = {
+    "Default": "var(--var-default)",
+    "Tuned": "var(--var-tuned)",
+    "Tuned + Ens.": "var(--var-tunedens)",
+  };
+
+  // A family chip's label: its symbol, its name and how many methods it holds.
+  function famChipLabel(family, count) {
+    const symbol = FAM_SYMBOL[family];
+    return '<span class="dot"></span>' + (symbol ? '<span class="sym">' + symbol + "</span> " : "") +
+      family + ' <span class="count">&times;' + count + "</span>";
+  }
+
   // The same hues stepped for use as text (see the --fam-*-ink tokens).
   const FAM_INK = {
     "Foundation Model": "var(--fam-foundation-ink)",
@@ -343,7 +395,11 @@ EXPLORER_BASE_JS = r"""
   // reader wants first is the figure, and it is the state worth exporting. The
   // controls, chip list and data table are one click away behind "Edit view".
   // `afterToggle` re-renders charts whose size is measured from the layout.
-  function setUpPaperView(afterToggle) {
+  // `options.openInPaper` (default true) decides the state the page opens in. A
+  // chart opens as the figure; the leaderboard table opens with its controls,
+  // since there the interaction is the point rather than scaffolding around it.
+  function setUpPaperView(afterToggle, options) {
+    const opts = options || {};
     const root = document.documentElement;
     let hostTheme = null;   // the embedding page's choice, captured on entry
     const btn = document.getElementById("btn-paper");
@@ -380,7 +436,7 @@ EXPLORER_BASE_JS = r"""
         if (ev.key === "Escape" && !document.body.classList.contains("paper")) setPaper(true);
       });
     }
-    setPaper(true);   // the figure is what opens
+    setPaper(opts.openInPaper !== false);   // for a chart, the figure is what opens
   }
 
   // --- Figure export ---------------------------------------------------------
