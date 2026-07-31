@@ -52,6 +52,7 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "Nori-30M": ModelSmokeTest(problem_types=("regression",)),
     "iLTM": ModelSmokeTest({"finetuning_max_steps": 1, "n_ensemble": 1, "tree_n_estimators": 1}),
     "OrionMSP": ModelSmokeTest({"n_estimators": 1}),
+    "EXAONE-Tabular": ModelSmokeTest({"ensemble_count": 1}),
 }
 
 
