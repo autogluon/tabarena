@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 
-class CacheMode(str, Enum):
+class CacheMode(StrEnum):
     """How to interact with the on-disk cache."""
 
     USE_IF_EXISTS = "use_if_exists"  # load if exists else compute+save
