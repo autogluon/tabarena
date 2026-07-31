@@ -19,6 +19,8 @@ classification problem type is inferred from the fit labels.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -51,11 +53,16 @@ class _AutoGluonStackerBase:
         return pd.DataFrame(X, columns=[f"f{i}" for i in range(X.shape[1])])
 
     def _fit_model(self, X, y, problem_type: str) -> None:
+        model_kwargs = dict(self.model_kwargs or {})
+        # An AbstractModel constructed without a path creates an `AutogluonModels/ag-<timestamp>`
+        # directory in the cwd. The meta-model is only kept in memory (never saved), so default to
+        # a temp location; pass `model_kwargs={"path": ...}` to persist it somewhere specific.
+        model_kwargs.setdefault("path", os.path.join(tempfile.gettempdir(), "tabarena_stacker"))
         model = self.model_cls(
             problem_type=problem_type,
             eval_metric=self.eval_metric,
             hyperparameters=dict(self.hyperparameters) if self.hyperparameters else None,
-            **(self.model_kwargs or {}),
+            **model_kwargs,
         )
         model.fit(X=self._to_frame(X), y=pd.Series(np.asarray(y)))
         self._model = model
