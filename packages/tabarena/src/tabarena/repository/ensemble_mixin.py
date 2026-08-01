@@ -18,6 +18,36 @@ from tabarena.utils.parallel_for import parallel_for
 from .time_utils import filter_configs_by_runtime, get_runtime
 
 
+def filter_configs_by_constraints(
+    configs: list[str],
+    config_constraints: dict[str, dict] | None,
+    n_train_rows: float,
+) -> list[str]:
+    """Drop configs whose per-config row constraints exclude a task of ``n_train_rows``.
+
+    ``config_constraints`` maps config name -> constraint dict with optional ``max_rows``
+    / ``min_rows`` (inclusive bounds, mirroring AutoGluon's ``ag.max_rows`` /
+    ``ag.min_rows`` fit-time checks): a config is dropped when ``n_train_rows`` falls
+    outside its bounds. Configs without an entry are kept. Applied *before* patience
+    truncation, matching AutoGluon where a constraint-skipped model never consumes a
+    patience slot (and its train time is not spent).
+    """
+    if not config_constraints:
+        return configs
+    kept = []
+    for config in configs:
+        constraints = config_constraints.get(config)
+        if constraints:
+            max_rows = constraints.get("max_rows")
+            min_rows = constraints.get("min_rows")
+            if max_rows is not None and n_train_rows > max_rows:
+                continue
+            if min_rows is not None and n_train_rows < min_rows:
+                continue
+        kept.append(config)
+    return kept
+
+
 # FIXME: Type hints for AbstractRepository, how to do? Protocol?
 class EnsembleMixin:
     # TODO: rank=False by default?
@@ -38,6 +68,7 @@ class EnsembleMixin:
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
         patience_callback: list | None = None,
+        config_constraints: dict[str, dict] | None = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Evaluates an ensemble of a list of configs on a given task (dataset, fold).
 
@@ -66,6 +97,12 @@ class EnsembleMixin:
             Whether to simulate the models being fit in their original order sequentially or randomly.
         seed: int, default = 0
             The random seed used to shuffle `configs` if `fit_order="random"`.
+        config_constraints: dict[str, dict], default = None
+            Per-config row constraints: maps config name to a dict with optional
+            `max_rows` / `min_rows` (inclusive bounds on the task's train rows, mirroring
+            AutoGluon's `ag.max_rows` / `ag.min_rows`). Constraint-excluded configs are
+            skipped before patience truncation, so they consume no patience slot and no
+            train time. See `filter_configs_by_constraints`.
 
         Returns:
         -------
@@ -101,6 +138,7 @@ class EnsembleMixin:
             fit_order=fit_order,
             seed=seed,
             patience_callback=patience_callback,
+            config_constraints=config_constraints,
         )
 
     def evaluate_ensemble_multi(
@@ -117,6 +155,7 @@ class EnsembleMixin:
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
         patience_callback: list | None = None,
+        config_constraints: dict[str, dict] | None = None,
     ) -> list[tuple[pd.DataFrame, pd.DataFrame]]:
         """Evaluate many config subsets on one task; identical to calling
         :meth:`evaluate_ensemble` once per entry of ``configs_lst`` and collecting the results.
@@ -174,6 +213,7 @@ class EnsembleMixin:
                     fit_order=fit_order,
                     seed=seed,
                     patience_callback=patience_callback,
+                    config_constraints=config_constraints,
                     config_metrics=config_metrics,
                     scorer=scorer,
                 ),
@@ -194,6 +234,7 @@ class EnsembleMixin:
         fit_order: Literal["original", "random"],
         seed: int,
         patience_callback: list | None,
+        config_constraints: dict[str, dict] | None = None,
         config_metrics: pd.DataFrame | None = None,
         scorer: EnsembleSelectionConfigScorer | None = None,
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -240,10 +281,21 @@ class EnsembleMixin:
 
         configs_available = [c for c in configs if c in set(configs_all)]
 
-        if patience_callback is not None:
+        if config_constraints or patience_callback is not None:
             # FIXME: Not correct for temporal
             dataset_metadata = self.task_metadata[self.task_metadata["dataset"] == dataset].iloc[0]
             num_samples_train = dataset_metadata["n_samples_train_per_fold"]
+
+        if config_constraints:
+            # Row-constraint skips happen before patience, so a skipped config does not
+            # consume a patience slot (matching AutoGluon fit behavior).
+            configs_available = filter_configs_by_constraints(
+                configs=configs_available,
+                config_constraints=config_constraints,
+                n_train_rows=num_samples_train,
+            )
+
+        if patience_callback is not None:
             from autogluon.core.callbacks._smooth_count import max_models_from_num_samples_val
 
             max_models = max_models_from_num_samples_val(
@@ -378,6 +430,7 @@ class EnsembleMixin:
         ensemble_kwargs: dict | None = None,
         ensemble_size: int = 100,
         patience_callback: list | None = None,
+        config_constraints: dict[str, dict] | None = None,
         time_limit: float | None = None,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
@@ -458,6 +511,7 @@ class EnsembleMixin:
             ensemble_kwargs=ensemble_kwargs,
             ensemble_size=ensemble_size,
             patience_callback=patience_callback,
+            config_constraints=config_constraints,
             time_limit=time_limit,
             fit_order=fit_order,
             seed=seed,
@@ -512,6 +566,7 @@ class EnsembleMixin:
         ensemble_kwargs: dict | None = None,
         ensemble_size: int = 100,
         patience_callback: list | None = None,
+        config_constraints: dict[str, dict] | None = None,
         time_limit: float | None = None,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
@@ -541,6 +596,7 @@ class EnsembleMixin:
             ensemble_kwargs=ensemble_kwargs,
             ensemble_size=ensemble_size,
             patience_callback=patience_callback,
+            config_constraints=config_constraints,
             time_limit=time_limit,
             fit_order=fit_order,
             seed=seed,
@@ -581,6 +637,7 @@ class EnsembleMixin:
         ensemble_cls: type[EnsembleScorer] = EnsembleScorerMaxModels,
         ensemble_kwargs: dict | None = None,
         ensemble_size: int = 100,
+        config_constraints: dict[str, dict] | None = None,
         time_limit: float | None = None,
         fit_order: Literal["original", "random"] = "original",
         seed: int = 0,
@@ -644,6 +701,7 @@ class EnsembleMixin:
             ensemble_cls=ensemble_cls,
             ensemble_kwargs=ensemble_kwargs,
             ensemble_size=ensemble_size,
+            config_constraints=config_constraints,
             time_limit=time_limit,
             fit_order=fit_order,
             seed=seed,
