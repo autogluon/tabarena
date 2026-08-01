@@ -19,11 +19,15 @@ import dataclasses
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
-from tabarena.benchmark.experiment import BeyondArenaExperimentBundle, Experiment
+from tabarena.benchmark.experiment import (
+    BeyondArenaExperimentBundle,
+    Experiment,
+    TabArenaV0pt1ExperimentBundle,
+)
 from tabarena.benchmark.task.metadata import TaskSubset
-from tabarena.contexts import BeyondArenaContext
+from tabarena.contexts import BeyondArenaContext, TabArenaContext
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
-from tabflow_slurm.setup.resources import BeyondArenaResourcesSetup
+from tabflow_slurm.setup.resources import BeyondArenaResourcesSetup, TabArenaV0pt1ResourcesSetup
 from tabflow_slurm.setup.scheduler import GCPSlurmSetup
 
 if TYPE_CHECKING:
@@ -370,6 +374,31 @@ class TabArenaBenchmarkPlan:
         else:
             print("\nNothing to launch — all runs are already cached / filtered out.\n")
         return all_commands
+
+
+@dataclass(kw_only=True)
+class TabArenaV0pt1BenchmarkPlan(TabArenaBenchmarkPlan):
+    """:class:`TabArenaBenchmarkPlan` pre-wired with the TabArena-v0.1 building blocks.
+
+    Every TabArena-v0.1 launch script pairs the same four pieces: the
+    :class:`~tabarena.contexts.TabArenaContext`, a
+    :class:`~tabarena.benchmark.experiment.TabArenaV0pt1ExperimentBundle` template, the
+    :class:`~tabflow_slurm.setup.scheduler.GCPSlurmSetup` scheduler, and
+    :class:`~tabflow_slurm.setup.resources.TabArenaV0pt1ResourcesSetup`. This subclass
+    supplies them as defaults (via ``default_factory`` so each plan gets its own
+    instances), so a launch script only states what is actually being run —
+    ``benchmark_name``, ``model_jobs``, ``path_setup``, and an optional ``task_subset``.
+
+    Any default is still overridable by passing the field explicitly (e.g.
+    ``context=TabArenaContext(extra_methods=[...])`` or
+    ``scheduler_setup=GCPSlurmSetup(bundle_size=2)``). The BeyondArena counterpart is
+    :class:`BeyondArenaBenchmarkPlan`.
+    """
+
+    context: AbstractArenaContext = field(default_factory=TabArenaContext)
+    experiment_bundle: TabArenaExperimentBundle = field(default_factory=TabArenaV0pt1ExperimentBundle)
+    scheduler_setup: SchedulerSetup = field(default_factory=GCPSlurmSetup)
+    resources_setup: ResourcesSetup = field(default_factory=TabArenaV0pt1ResourcesSetup)
 
 
 @dataclass(kw_only=True)

@@ -7,7 +7,8 @@ the evaluation can never drift apart::
     python experiments/run_tabarena_v0pt1.py setup   # generate + print the sbatch command(s)
     python experiments/run_tabarena_v0pt1.py eval     # build the leaderboard from the results
 
-`setup` composes a ``TabArenaBenchmarkPlan`` and calls ``setup_jobs()`` to launch several models
+`setup` composes a ``TabArenaV0pt1BenchmarkPlan`` (a ``TabArenaBenchmarkPlan`` pre-wired with the
+TabArena-v0.1 building blocks) and calls ``setup_jobs()`` to launch several models
 with different per-model hardware on one shared default setup: TabPFN-3 on a GPU node and Linear
 on a CPU node. The differing ``num_gpus`` puts them in two groups, so ``setup_jobs()`` emits two
 ``sbatch`` commands (one GPU run, one CPU run). Run it on the head node, then run the printed
@@ -19,17 +20,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task.metadata import TaskSubset
 from tabarena.contexts import TabArenaContext
 from tabarena.evaluation import EvalMethod, TabArenaEvalConfig, run_eval
-from tabflow_slurm import (
-    GCPSlurmSetup,
-    ModelJob,
-    PathSetup,
-    TabArenaBenchmarkPlan,
-    TabArenaV0pt1ResourcesSetup,
-)
+from tabflow_slurm import ModelJob, PathSetup, TabArenaV0pt1BenchmarkPlan
 
 # ── Shared identity — the ONE place these live; setup + eval both read them ──
 BENCHMARK_NAME = "example_tabarena_v0pt1_29052026"
@@ -51,7 +45,11 @@ def _path_setup() -> PathSetup:
 
 def setup() -> None:
     """Generate the job JSON and emit the ``sbatch`` command(s) for the run."""
-    plan = TabArenaBenchmarkPlan(
+    # TabArenaV0pt1BenchmarkPlan pre-wires the v0.1 building blocks (TabArenaContext,
+    # TabArenaV0pt1ExperimentBundle, GCPSlurmSetup, TabArenaV0pt1ResourcesSetup); any of them
+    # can still be passed explicitly to override — as done for `context` here, which carries
+    # the shared CACHE_CONFIG.
+    plan = TabArenaV0pt1BenchmarkPlan(
         benchmark_name=BENCHMARK_NAME,
         model_jobs=[
             # GPU model: override the base (CPU-only) resources to request a GPU.
@@ -63,10 +61,7 @@ def setup() -> None:
         # scopes `context.build_jobs` (here `subset="lite"` keeps each dataset's first split).
         context=TabArenaContext(cache_config=CACHE_CONFIG),
         task_subset=TaskSubset(subset="lite"),
-        experiment_bundle=TabArenaV0pt1ExperimentBundle(),
         path_setup=_path_setup(),
-        resources_setup=TabArenaV0pt1ResourcesSetup(),
-        scheduler_setup=GCPSlurmSetup(),
     )
     plan.setup_jobs()
 

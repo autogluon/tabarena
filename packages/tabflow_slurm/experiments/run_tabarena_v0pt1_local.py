@@ -1,6 +1,6 @@
 """Local, sequential variant of ``run_tabarena_v0pt1.py`` (no SLURM): `setup` + `eval` in one file.
 
-Same authoring model as the SLURM script — compose a ``TabArenaBenchmarkPlan`` and call
+Same authoring model as the SLURM script — compose a ``TabArenaV0pt1BenchmarkPlan`` and call
 ``setup_jobs()`` — but swaps ``GCPSlurmSetup`` for ``LocalSequentialSetup``. Instead of ``sbatch``
 commands, `setup` emits a single ``python -m tabflow_slurm.run_local <json>`` command that runs
 every ``(task, fold, repeat, config)`` item one at a time, each in its own subprocess. With
@@ -22,15 +22,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task.metadata import TaskSubset
-from tabarena.contexts import TabArenaContext
 from tabarena.evaluation import EvalMethod, TabArenaEvalConfig, run_eval
 from tabflow_slurm import (
     LocalSequentialSetup,
     ModelJob,
     PathSetup,
-    TabArenaBenchmarkPlan,
+    TabArenaV0pt1BenchmarkPlan,
     TabArenaV0pt1ResourcesSetup,
 )
 
@@ -47,7 +45,10 @@ def _path_setup() -> PathSetup:
 
 def setup() -> None:
     """Generate the local job JSON and (if ``RUN_NOW``) run every item sequentially."""
-    plan = TabArenaBenchmarkPlan(
+    # TabArenaV0pt1BenchmarkPlan pre-wires the v0.1 defaults (TabArenaContext,
+    # TabArenaV0pt1ExperimentBundle, GCPSlurmSetup, TabArenaV0pt1ResourcesSetup);
+    # the resources/scheduler fields below override them for a local machine.
+    plan = TabArenaV0pt1BenchmarkPlan(
         benchmark_name=BENCHMARK_NAME,
         model_jobs=[
             # CPU-only baselines, same `name` so they share one run (one command).
@@ -59,9 +60,7 @@ def setup() -> None:
         ],
         # Scope to one tiny dataset so the demo is fast — the full Lite suite is 51 datasets.
         # Add more names (e.g. "diabetes") to widen it.
-        context=TabArenaContext(),
         task_subset=TaskSubset(dataset_names=["blood-transfusion-service-center"], subset="lite"),
-        experiment_bundle=TabArenaV0pt1ExperimentBundle(),
         path_setup=_path_setup(),
         # Modest resources for a laptop (defaults are 8 CPU / 32 GB / 1h).
         resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=4, memory_limit=8, time_limit=600),

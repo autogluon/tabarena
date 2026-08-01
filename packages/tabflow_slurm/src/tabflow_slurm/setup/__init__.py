@@ -21,6 +21,7 @@ from tabflow_slurm.setup.plan import (
     ModelJob,
     SingleModel,
     TabArenaBenchmarkPlan,
+    TabArenaV0pt1BenchmarkPlan,
 )
 from tabflow_slurm.setup.resources import BeyondArenaResourcesSetup, ResourcesSetup, TabArenaV0pt1ResourcesSetup
 from tabflow_slurm.setup.scheduler import GCPSlurmSetup, LocalSequentialSetup, SchedulerSetup, SlurmSetup
@@ -37,6 +38,7 @@ __all__ = [
     "SingleModel",
     "SlurmSetup",
     "TabArenaBenchmarkPlan",
+    "TabArenaV0pt1BenchmarkPlan",
     "TabArenaV0pt1ResourcesSetup",
     "get_run_script_path",
     "get_submit_script_path",

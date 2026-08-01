@@ -23,13 +23,12 @@ from pathlib import Path
 
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task.metadata import TaskSubset
-from tabarena.contexts import TabArenaContext
 from tabarena.evaluation import EvalMethod, TabArenaEvalConfig, run_eval
 from tabflow_slurm import (
     GCPSlurmSetup,
     ModelJob,
     PathSetup,
-    TabArenaBenchmarkPlan,
+    TabArenaV0pt1BenchmarkPlan,
     TabArenaV0pt1ResourcesSetup,
 )
 
@@ -48,7 +47,10 @@ def _path_setup() -> PathSetup:
 
 def setup() -> None:
     """Generate the job JSON and emit the ``sbatch`` command(s) for the run."""
-    plan = TabArenaBenchmarkPlan(
+    # TabArenaV0pt1BenchmarkPlan pre-wires the v0.1 defaults (TabArenaContext,
+    # TabArenaV0pt1ExperimentBundle, GCPSlurmSetup, TabArenaV0pt1ResourcesSetup);
+    # the explicit fields below are deliberate overrides on those defaults.
+    plan = TabArenaV0pt1BenchmarkPlan(
         benchmark_name=BENCHMARK_NAME,
         model_jobs=[
             ModelJob(
@@ -65,12 +67,13 @@ def setup() -> None:
                 # Long tail? add "time_limit": <seconds> to the resources dict above.
             ),
         ],
-        context=TabArenaContext(),
         task_subset=TaskSubset(),  # no filter = the full task set (all splits); TaskSubset(subset="lite") for a quick first-split run
-        experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
         path_setup=_path_setup(),
-        resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
-        scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000spotinteractive"),
+        experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),  # override: log model fits
+        resources_setup=TabArenaV0pt1ResourcesSetup(
+            num_cpus=None, memory_limit=None
+        ),  # override: auto-detect on the node
+        scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000spotinteractive"),  # override: non-default partition
     )
     plan.setup_jobs()
 

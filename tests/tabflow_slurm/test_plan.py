@@ -21,6 +21,7 @@ from tabflow_slurm.setup.plan import (
     ModelJob,
     SingleModel,
     TabArenaBenchmarkPlan,
+    TabArenaV0pt1BenchmarkPlan,
     _apply_overrides,
 )
 from tabflow_slurm.setup.resources import ResourcesSetup
@@ -268,3 +269,43 @@ class TestBuildSetups:
     def test_num_ray_cpus_forwarded_from_build_setups(self):
         setup = _plan([ModelJob(models=("A", 0))]).build_setups(num_ray_cpus=3)[0]
         assert setup.num_ray_cpus == 3
+
+
+# ---------------------------------------------------------------------------
+# TabArenaV0pt1BenchmarkPlan (preset defaults)
+# ---------------------------------------------------------------------------
+
+
+class TestTabArenaV0pt1BenchmarkPlan:
+    @staticmethod
+    def _preset_plan(**kwargs) -> TabArenaV0pt1BenchmarkPlan:
+        defaults = {
+            "benchmark_name": "my_bench",
+            "model_jobs": [ModelJob(models=("A", 0))],
+            "path_setup": PathSetup(workspace="/ws", python_path="/py"),
+        }
+        defaults.update(kwargs)
+        return TabArenaV0pt1BenchmarkPlan(**defaults)
+
+    def test_defaults_prewired(self):
+        from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+        from tabarena.contexts import TabArenaContext
+        from tabflow_slurm.setup.resources import TabArenaV0pt1ResourcesSetup
+        from tabflow_slurm.setup.scheduler import GCPSlurmSetup
+
+        plan = self._preset_plan()
+        assert isinstance(plan.context, TabArenaContext)
+        assert isinstance(plan.experiment_bundle, TabArenaV0pt1ExperimentBundle)
+        assert isinstance(plan.scheduler_setup, GCPSlurmSetup)
+        assert isinstance(plan.resources_setup, TabArenaV0pt1ResourcesSetup)
+
+    def test_each_plan_gets_own_default_instances(self):
+        plan_a, plan_b = self._preset_plan(), self._preset_plan()
+        assert plan_a.context is not plan_b.context
+        assert plan_a.experiment_bundle is not plan_b.experiment_bundle
+        assert plan_a.scheduler_setup is not plan_b.scheduler_setup
+        assert plan_a.resources_setup is not plan_b.resources_setup
+
+    def test_explicit_field_overrides_default(self):
+        plan = self._preset_plan(resources_setup=_resources(num_gpus=1))
+        assert plan.resources_setup.num_gpus == 1
