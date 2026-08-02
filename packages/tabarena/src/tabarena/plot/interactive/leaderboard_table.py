@@ -150,7 +150,7 @@ _COLUMNS: list[dict] = [
     },
 ]
 
-#: The metric the medals and the chip ordering use.
+#: The metric the default sort and the chip ordering use.
 _RANK_KEY = "elo"
 
 
