@@ -62,10 +62,6 @@ __BASE_CSS__
   table.lbt td.num { font-weight: 600; }
   table.lbt td.na { color: var(--pt-muted); }
   table.lbt tbody tr:hover td { filter: brightness(1.12); }
-  /* A fixed-width medal slot keeps the digits in their own sub-column whether or
-     not a medal is present. */
-  .cell { display: inline-flex; align-items: baseline; }
-  .medal { flex: 0 0 1.45em; width: 1.45em; text-align: left; font-size: 0.78em; }
   .ci { opacity: 0.5; font-weight: 400; font-size: 0.82em; }
   .pill { padding: 1px 7px; border-radius: 999px; font-size: 0.95em; white-space: nowrap; }
   .verified { font-size: 0.85em; }
@@ -264,11 +260,8 @@ __BASE_JS__
       postHeight();
       return;
     }
-    // Medals mark the top three on the ranking metric; they stay on that column
-    // when the reader sorts by another, which is what they mean.
-    const ranked = rows.filter(p => isFinite(p[RANK_KEY]))
-      .sort((a, b) => (colByKey.get(RANK_KEY).lowerBetter ? a[RANK_KEY] - b[RANK_KEY] : b[RANK_KEY] - a[RANK_KEY]));
-    const medalOf = new Map(ranked.slice(0, 3).map((p, i) => [p, ["\u{1F947}", "\u{1F948}", "\u{1F949}"][i]]));
+    // No medals here: this table is the full ranking and already carries the
+    // position column, so podium marks only added a second, competing ordering.
     const heat = new Map();
     for (const col of cols) if (col.heatmap) heat.set(col.key, bounds(rows, col));
 
@@ -296,7 +289,7 @@ __BASE_JS__
         } else if (col.key === "model") {
           html += nameCell(p);
         } else {
-          html += valueCell(p, col, heat.get(col.key), medalOf.get(p));
+          html += valueCell(p, col, heat.get(col.key));
         }
       }
       html += "</tr>";
@@ -313,7 +306,7 @@ __BASE_JS__
     postHeight();
   }
 
-  function valueCell(p, col, span, medal) {
+  function valueCell(p, col, span) {
     const v = p[col.key];
     if (v == null || (typeof v === "number" && !isFinite(v))) return '<td class="na">&ndash;</td>';
     if (col.text) {
@@ -330,11 +323,8 @@ __BASE_JS__
     if (col.key === "elo" && p.elo_ci) {
       ci = ' <span class="ci">(' + escapeHtml(p.elo_ci) + ")</span>";
     }
-    const inner = medal !== undefined || col.key === RANK_KEY
-      ? '<span class="cell"><span class="medal">' + (medal || "") + '</span><span>' + text + ci + "</span></span>"
-      : text + ci;
     return '<td class="num" data-sort="' + v + '"' + (ci ? ' data-ci="' + escapeHtml(p.elo_ci) + '"' : "") +
-      style + ">" + inner + "</td>";
+      style + ">" + text + ci + "</td>";
   }
 
   function sortBy(key) {
