@@ -12,6 +12,7 @@ from tabarena.models._registry import (
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
     from tabarena.models.chimeraboost.model import ChimeraBoostModel
+    from tabarena.models.exaone_tabular.model import EXAONETabularModel
     from tabarena.models.iltm.model import ILTMModel
     from tabarena.models.knn.model import KNNNewModel
     from tabarena.models.limix.model import LimiXModel
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
 _LAZY_CLASSES: dict[str, str] = {
     "MethodMetadata": "tabarena.models._method_metadata",
     "ChimeraBoostModel": "tabarena.models.chimeraboost.model",
+    "EXAONETabularModel": "tabarena.models.exaone_tabular.model",
     "ILTMModel": "tabarena.models.iltm.model",
     "KNNNewModel": "tabarena.models.knn.model",
     "LimiXModel": "tabarena.models.limix.model",

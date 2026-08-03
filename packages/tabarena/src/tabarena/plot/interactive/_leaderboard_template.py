@@ -407,6 +407,11 @@ __BASE_JS__
     // -- x axis: the method name, colored by model family (the legend below
     //    names the colors).
     const xg = el("g", {}, svg);
+    // Hairlines share one group that is painted before every name, so a name
+    // nudged sideways at the edge (see below) passes over a neighbouring
+    // column's hairline instead of being crossed out by it.
+    const xLines = el("g", {}, xg);
+    const xLabels = el("g", {}, xg);
     entries.forEach((entry, i) => {
       const cx = i * slot + slot / 2;
       const row = labelRows === 1 ? 0 : i % 2;
@@ -416,14 +421,24 @@ __BASE_JS__
         el("line", {
           x1: cx, y1: baseY + 3, x2: cx, y2: y - 10,
           stroke: "var(--line)", "stroke-width": 1,
-        }, xg);
+        }, xLines);
       }
       const t = el("text", {
         x: cx, y, "font-size": LABEL_SIZE, "text-anchor": "middle", "font-weight": 650,
         fill: FAM_INK[entry.family] || "var(--ink)",
-      }, xg);
+        // A halo in the surface color keeps the glyphs legible where a nudged
+        // name crosses a hairline, rather than the line running through them.
+        "paint-order": "stroke", stroke: "var(--paper)", "stroke-width": 3,
+      }, xLabels);
       t.textContent = labels[i];
       fitLabel(t, labels[i], labelWidths[i], slot * labelRows - 8);
+      // The outermost columns sit only half a slot from the edge, so a name
+      // wider than one slot would reach past the SVG viewport and be cut off
+      // there (a name may occupy two slots when the rows are staggered). Nudge
+      // it inwards by just enough to stay whole; every other label keeps its
+      // column centre, and the bar below still marks the column.
+      const half = t.getComputedTextLength() / 2;
+      t.setAttribute("x", Math.max(half + 1, Math.min(cx, plotW - half - 1)));
     });
 
     // -- reference pipelines as threshold lines. Their names live in the legend

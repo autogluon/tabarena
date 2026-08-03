@@ -123,6 +123,7 @@ def get_model_family(model_name: str) -> str:
             "TA-ILTM",
             "TA-NORI",
             "TABSWIFT",
+            "EXAONE",
         ],
         Constants.baseline: ["KNN", "LR", "LINEAR"],
         Constants.other: ["XRFM"],
