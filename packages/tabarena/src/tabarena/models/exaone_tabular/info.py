@@ -7,6 +7,7 @@ from tabarena.models.exaone_tabular.model import EXAONETabularModel
 
 exaone_tabular_method_metadata = MethodMetadata.config(
     method="EXAONE-Tabular",
+    suite="tabarena-2026-07-31",
     ag_key="TA-EXAONE-TABULAR",
     config_default="EXAONE-Tabular_c1_default_BAG_L1",
     can_hpo=False,
@@ -16,9 +17,9 @@ exaone_tabular_method_metadata = MethodMetadata.config(
     date_introduced="2026-07-31",
     reference_url="https://github.com/LGAI-Research/EXAONE-Tabular",
     display_name="EXAONE-Tabular",
-    verified=False,
-    # No `suite` / `cache_kwargs` yet: not benchmarked, so the artifacts are local-only. Both are
-    # filled in by the upload flow once a run exists.
+    verified=True,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 

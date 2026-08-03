@@ -44,6 +44,7 @@ from tabarena.models.ebm.info import (
     ebm_method_metadata as ebm_metadata,
     ebm_new_method_metadata,
 )
+from tabarena.models.exaone_tabular.info import exaone_tabular_method_metadata
 from tabarena.models.extra_trees.info import extra_trees_new_method_metadata
 from tabarena.models.fastai.info import fastai_method_metadata
 from tabarena.models.iltm.info import iltm_method_metadata
@@ -181,6 +182,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         nori30m_method_metadata,
         tabfm_new_method_metadata,
         tabswift_new_method_metadata,
+        exaone_tabular_method_metadata,
     ],
 )
 
