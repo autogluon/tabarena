@@ -89,6 +89,9 @@ from tabarena.models.tabswift.info import tabswift_method_metadata, tabswift_new
 from tabarena.models.xgboost.info import xgboost_method_metadata
 from tabarena.models.xrfm.info import xrfm_method_metadata as xrfm_metadata
 
+# Systems (whole pipelines rather than single models) have their own per-system `info.py`.
+from tabarena.systems.tabfm_plus.info import tabfm_plus_method_metadata
+
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
 
@@ -141,9 +144,10 @@ methods_2025_10_20_camera_ready = [
 # `info.py` metadata above and add it here under the appropriate group.
 tabarena_method_metadata_collection = MethodMetadataCollection(
     method_metadata_lst=[
-        # AutoGluon
+        # Systems
         ag_140_bq_4h8c_metadata,
         ag_150_eq_4h8c_metadata,
+        tabfm_plus_method_metadata,
         # Default tabular models (CPU)
         catboost_new_method_metadata,
         chimeraboost_new_method_metadata,

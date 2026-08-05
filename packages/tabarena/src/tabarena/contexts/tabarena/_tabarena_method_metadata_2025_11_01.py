@@ -1,85 +1,22 @@
 from __future__ import annotations
 
-from tabarena.models._method_metadata import MethodMetadata
+from typing import TYPE_CHECKING
 
-_common_kwargs = dict(
-    suite="tabarena-2025-11-01",
-    method_type="baseline",
-    date="2025-11-01",
-    reference_url="https://arxiv.org/abs/2003.06505",
+from tabarena.systems.autogluon.info import (
+    ag_140_bq_1h8c_metadata,
+    ag_140_bq_4h8c_metadata,
+    ag_140_bq_5m8c_metadata,
+    ag_140_eq_1h8c_metadata,
+    ag_140_eq_4h8c_metadata,
+    ag_140_eq_5m8c_metadata,
+    ag_140_hq_4h8c_metadata,
+    ag_140_hq_5m8c_metadata,
+    ag_140_hqil_4h8c_metadata,
+    ag_140_hqil_5m8c_metadata,
 )
 
-_gpu_kwargs = dict(
-    compute="gpu",
-    date_introduced="2025-07",  # AutoGluon 1.4 "extreme" preset
-    **_common_kwargs,
-)
-
-_cpu_kwargs = dict(
-    compute="cpu",
-    date_introduced="2023-11",  # AutoGluon classic "best"/"high"/"fast" presets
-    **_common_kwargs,
-)
-
-ag_140_eq_4h8c_metadata = MethodMetadata.tabarena_legacy_s3(
-    method="AutoGluon_v140_eq_4h8c",
-    name="AutoGluon 1.4 (extreme, 4h)",
-    **_gpu_kwargs,
-)
-
-ag_140_eq_1h8c_metadata = MethodMetadata.tabarena_legacy_s3(
-    method="AutoGluon_v140_eq_1h8c",
-    name="AutoGluon 1.4 (extreme, 1h)",
-    **_gpu_kwargs,
-)
-
-ag_140_eq_5m8c_metadata = MethodMetadata.tabarena_legacy_s3(
-    method="AutoGluon_v140_eq_5m8c",
-    name="AutoGluon 1.4 (extreme, 5m)",
-    **_gpu_kwargs,
-)
-
-ag_140_bq_4h8c_metadata = MethodMetadata.tabarena_legacy_s3(
-    method="AutoGluon_v140_bq_4h8c",
-    name="AutoGluon 1.4 (best, 4h)",
-    **_cpu_kwargs,
-)
-
-ag_140_bq_1h8c_metadata = MethodMetadata.tabarena_legacy_s3(
-    method="AutoGluon_v140_bq_1h8c",
-    name="AutoGluon 1.4 (best, 1h)",
-    **_cpu_kwargs,
-)
-
-ag_140_bq_5m8c_metadata = MethodMetadata.tabarena_legacy_s3(
-    method="AutoGluon_v140_bq_5m8c",
-    name="AutoGluon 1.4 (best, 5m)",
-    **_cpu_kwargs,
-)
-
-ag_140_hq_4h8c_metadata = MethodMetadata.tabarena_legacy_s3(
-    method="AutoGluon_v140_hq_4h8c",
-    name="AutoGluon 1.4 (high, 4h)",
-    **_cpu_kwargs,
-)
-
-ag_140_hq_5m8c_metadata = MethodMetadata.tabarena_legacy_s3(
-    method="AutoGluon_v140_hq_5m8c",
-    name="AutoGluon 1.4 (high, 5m)",
-    **_cpu_kwargs,
-)
-
-ag_140_hqil_4h8c_metadata = MethodMetadata.tabarena_legacy_s3(
-    method="AutoGluon_v140_hqil_4h8c",
-    name="AutoGluon 1.4 (fast, 4h)",
-    **_cpu_kwargs,
-)
-
-ag_140_hqil_5m8c_metadata = MethodMetadata.tabarena_legacy_s3(
-    method="AutoGluon_v140_hqil_5m8c",
-    name="AutoGluon 1.4 (fast, 5m)",
-    **_cpu_kwargs,
-)
+if TYPE_CHECKING:
+    from tabarena.models._method_metadata import MethodMetadata
 
 methods_2025_11_01_ag: list[MethodMetadata] = [
     ag_140_eq_4h8c_metadata,
