@@ -1238,10 +1238,15 @@ class AbstractArenaContext:
             if collect_composite and lb_df is not None:
                 # Always the compact format — the composite reads its metric
                 # columns (Elo / Impro%) from it, regardless of what format
-                # `website_leaderboard_kwargs` chose for the saved CSVs.
+                # `website_leaderboard_kwargs` chose for the saved CSVs. The
+                # `[X% IMPUTED]` name suffix stays off: the composite aligns
+                # subsets by method name, and the imputation rate differs per
+                # subset, so a suffixed name fragments one method into
+                # per-subset rows that never join.
                 lb_compact = self.leaderboard_to_website_format(
                     leaderboard=lb_df,
                     compact=True,
+                    include_imputed_in_name=False,
                 )
         if plot_tuning_trajectories:
             self.plot_tuning_trajectories(
