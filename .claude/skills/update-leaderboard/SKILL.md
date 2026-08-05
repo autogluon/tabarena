@@ -1,6 +1,6 @@
 ---
 name: update-leaderboard
-description: Regenerate the TabArena website artifacts and refresh a leaderboard Space's `data/` with them. Use this skill whenever a maintainer wants to publish the latest results to the leaderboard — e.g. "update the leaderboard", "regenerate the website artifacts and refresh the LB", "push the new results to the leaderboard Space", "refresh leaderboard-testing with the latest". Runs `scripts/run_generate_website_artifacts.py`, pre-checks that any newly added models classify correctly (Foundation Model / Tree-based / … not `❓ Other`), then swaps the generated artifacts into the Space repo's `data/` folder (deleting the old subtree first to dodge the stale-PNG gotcha) and bumps the version history in `website_texts.py`. Optionally serves the Space locally for preview. Complements `upload-method` (which publishes one method's results so they become downloadable — run that first).
+description: Regenerate the TabArena website artifacts and refresh a leaderboard Space's `data/` with them. Use this skill whenever a maintainer wants to publish the latest results to the leaderboard — e.g. "update the leaderboard", "regenerate the website artifacts and refresh the LB", "push the new results to the leaderboard Space", "refresh leaderboard-testing with the latest". Runs `scripts/run_generate_website_artifacts.py`, pre-checks that any newly added *models* classify correctly (Foundation Model / Tree-based / … not `❓ Other`; systems are typed from `method_class` and need no pre-check), then swaps the generated artifacts into the Space repo's `data/` folder (deleting the old subtree first) and bumps the version history in `website_texts.py`. Optionally serves the Space locally for preview. Complements `upload-method` (which publishes one method's results so they become downloadable — run that first).
 argument-hint: <lb-code-dir> [<generation-venv>]
 user-invocable: true
 ---
@@ -15,12 +15,12 @@ It is the last stage of the lifecycle: `add-model` (integrate) → `benchmark-mo
 
 The authoritative prose lives in the module docstring of
 `scripts/run_generate_website_artifacts.py` and the Space repo's `README.md`. This skill
-operationalizes it and bakes in the two things that are easy to get wrong: the **model-type
-pre-check** and the **stale-PNG gotcha**.
+operationalizes it and bakes in the thing that is easy to get wrong: the **model-type pre-check**.
 
 ## What this skill delivers
 
-1. A **model-type pre-check** so newly added models don't ship as `❓ Other`.
+1. A **model-type pre-check** so newly added models don't ship as `❓ Other`. (Systems are exempt: they
+   are typed from `MethodMetadata.method_class`, not from a name prefix.)
 2. A **regeneration run** of `run_generate_website_artifacts.py` (Claude runs it — background +
    monitor; it's slow but needs no credentials).
 3. A **refreshed `data/`** in the leaderboard Space repo, done the safe way (delete-then-copy), with
@@ -53,8 +53,11 @@ How the classification works (read `website_format.py`):
   `model_key` (+ optional `name_suffix`); `model_key` **defaults to `ag_key`** (see
   `_method_metadata.py`).
 - `get_model_family()` lowercases, **strips a leading `TA-`** (case-insensitive), then prefix-matches
-  against `prefixes_mapping` (`foundational`, `neural_network`, `tree`, `baseline`, `reference`,
-  `other`). No match → `Constants.other` (`❓ Other`).
+  against `prefixes_mapping` (`foundational`, `neural_network`, `tree`, `baseline`, `other`). No match
+  → `Constants.other` (`❓ Other`).
+- **Systems skip all of this.** When `method_class == "system"`, `add_metadata` sets the family to
+  `Constants.system` (🧰) directly, and the figure paths recognize them from `system_display_names`.
+  There is no prefix to register, so this pre-check only concerns models.
 - `get_rename_map()` gives the pretty display name (e.g. `TABSWIFT` → `TabSwift`).
 
 Check, for each new model (example: TabSwift, `ag_key="TA-TABSWIFT"`):
@@ -109,33 +112,37 @@ Monitor until the process exits, then verify outputs — **don't trust "exited" 
     print(df.loc[df["Model"].str.contains("TabSwift", case=False), ["Type","TypeName","Model"]].to_string(index=False))
     PY
     ```
-  - Structural sanity in `website_data/`: **60** `website_leaderboard.csv`, **60** `n_datasets_*`
-    markers, **240** `*.png.zip`, **0** raw `*.png` (figures are zipped, not extracted), **120**
-    interactive `*_explorer.html` (60 Pareto + 60 trajectories) and their **120** data CSVs
-    (`pareto_front_points.csv` + `tuning_trajectories.csv`).
+  - Structural sanity in `website_data/`: **4** `entrants_*` roots, **240** `website_leaderboard.csv`
+    (60 subsets x 4 entrant pools), **240** `n_datasets_*` markers, **0** `*.png` and **0** `*.png.zip`
+    (TabArena publishes no static figures), and **1200** interactive `*_explorer.html` (5 per subset:
+    leaderboard overview, table, two Pareto axes, trajectories).
+  - Pool sanity: `entrants_models` must contain **no** AutoGluon row, and a model's Elo must differ
+    between `entrants_models` and `entrants_systems_all` (a wider field re-rates everyone). If they
+    match, the pool filter did not apply.
 
-## Step 3: Refresh the Space repo's `data/` (the stale-PNG gotcha)
+## Step 3: Refresh the Space repo's `data/`
 
 `data/` in the Space repo mirrors the generated `website_data/`. **Delete the old subtree first, then
-copy — do not overlay.** The app's `data_loading.unzip_png` returns an existing `.png` without
-re-extracting its `.png.zip`, so a leftover unzipped `.png` (gitignored via `*.png`) makes the running
-app serve the **stale** figure.
+copy — do not overlay**, so a subset that no longer exists cannot survive as a leftover. TabArena no
+longer ships PNGs, which retires the old stale-unzipped-`.png` gotcha for `data/`; it still applies to
+`data_beyondarena/`, whose figures are zipped PNGs served through `data_loading.unzip_png`.
 
 ```bash
 SRC=<tabarena>/scripts/generated_website_artifacts/clean_website_artifacts/website_data
 DST=<lb_code_dir>/data
 
-# 1. Sanity-check nothing but imputation_* lives in data/ (so the rm is safe):
-find "$DST" -mindepth 1 -maxdepth 1 ! -name 'imputation_*'   # expect: no output
+# 1. Sanity-check nothing but entrants_* lives in data/ (so the rm is safe). A pre-v0.1.8 checkout
+#    still has imputation_* at the top level; those are the old layout and go too.
+find "$DST" -mindepth 1 -maxdepth 1 ! -name 'entrants_*' ! -name 'imputation_*'   # expect: no output
 
 # 2. Delete the old subtree, then copy the fresh one in:
-rm -rf "$DST"/imputation_*
+rm -rf "$DST"/entrants_* "$DST"/imputation_*
 cp -r "$SRC"/. "$DST"/
 
 # 3. Verify the swap:
-echo "raw .png (MUST be 0): $(find "$DST" -name '*.png' | wc -l)"
-echo ".png.zip:             $(find "$DST" -name '*.png.zip' | wc -l)"   # 240
-echo "csv:                  $(find "$DST" -name 'website_leaderboard.csv' | wc -l)"  # 60
+echo "any .png (MUST be 0): $(find "$DST" -name '*.png*' | wc -l)"
+echo "entrant pools:        $(find "$DST" -mindepth 1 -maxdepth 1 -name 'entrants_*' | wc -l)"  # 4
+echo "csv:                  $(find "$DST" -name 'website_leaderboard.csv' | wc -l)"  # 240
 ```
 
 Then confirm the diff is clean — **all modifications, no adds/deletes/untracked** (a new or removed
@@ -160,7 +167,7 @@ Space repo, not in `tabarena`. Read the block first, then `Edit`:
    - New model → `Add new verified model: <Name>` or `Add new unverified model: <Name>`. Pick
      **verified vs unverified from the model's `info.py` `verified` flag** (`verified=False` →
      "unverified"). List multiple on one line if several shipped together.
-   - Other changes (UI, metric, reference pipeline, removals) → mirror the phrasing of past entries.
+   - Other changes (UI, metric, system, removals) → mirror the phrasing of past entries.
 2. **Bump `**Current Version: TabArena-vX.Y.Z**`** at the top of the block to the same new number.
 
 Version bumping: increment the **last** component for a normal model-addition / data refresh
