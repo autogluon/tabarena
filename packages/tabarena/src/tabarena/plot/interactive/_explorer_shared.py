@@ -28,7 +28,7 @@ _FAMILY_CSS_TOKENS: dict[str, str] = {
     "Foundation Model": "--fam-foundation",
     "Neural Network": "--fam-nn",
     "Tree-based": "--fam-tree",
-    "Reference Pipeline": "--fam-reference",
+    "System": "--fam-system",
     "Baseline": "--fam-baseline",
     "Other": "--fam-other",
 }
@@ -58,7 +58,7 @@ _LIGHT_TOKENS = """
     --fam-foundation-ink: #7d3fc2;
     --fam-nn-ink: #1c6fa8;
     --fam-tree-ink: #2f7d32;
-    --fam-reference-ink: #a4600f;
+    --fam-system-ink: #a4600f;
     --fam-baseline-ink: #5f5f5f;
     --fam-other-ink: #5f5f5f;
     /* Tuning-variant series (default / tuned / tuned + ensembled). Light mode
@@ -89,7 +89,7 @@ _DARK_TOKENS = """
     --fam-foundation-ink: var(--fam-foundation);
     --fam-nn-ink: var(--fam-nn);
     --fam-tree-ink: var(--fam-tree);
-    --fam-reference-ink: var(--fam-reference);
+    --fam-system-ink: var(--fam-system);
     --fam-baseline-ink: var(--fam-baseline);
     --fam-other-ink: var(--fam-other);
     --var-default: #4386d5;
@@ -284,12 +284,12 @@ EXPLORER_BASE_JS = r"""
   // the merged family. Both templates declare POINTS above this block.
   for (const p of POINTS) p.family = famOf(p.family);
 
-  const FAM_ORDER = ["Foundation Model", "Tree-based", "Neural Network", "Reference Pipeline", FAM_MERGED];
+  const FAM_ORDER = ["Foundation Model", "Tree-based", "Neural Network", "System", FAM_MERGED];
   const FAM_VAR = {
     "Foundation Model": "var(--fam-foundation)",
     "Tree-based": "var(--fam-tree)",
     "Neural Network": "var(--fam-nn)",
-    "Reference Pipeline": "var(--fam-reference)",
+    "System": "var(--fam-system)",
     [FAM_MERGED]: "var(--fam-baseline)",
   };
   // The symbol the website shows for each family, so a family chip here reads the
@@ -299,7 +299,7 @@ EXPLORER_BASE_JS = r"""
     "Foundation Model": "🧠⚡",
     "Tree-based": "🌳",
     "Neural Network": "🧠🔁",
-    "Reference Pipeline": "📊",
+    "System": "🧰",
     [FAM_MERGED]: "📏 ❓",
   };
   // Tuning-variant colours, matching the --var-* tokens the charts plot with.
@@ -321,7 +321,7 @@ EXPLORER_BASE_JS = r"""
     "Foundation Model": "var(--fam-foundation-ink)",
     "Tree-based": "var(--fam-tree-ink)",
     "Neural Network": "var(--fam-nn-ink)",
-    "Reference Pipeline": "var(--fam-reference-ink)",
+    "System": "var(--fam-system-ink)",
     [FAM_MERGED]: "var(--fam-baseline-ink)",
   };
 

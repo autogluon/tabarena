@@ -121,7 +121,7 @@ def leaderboard_explorer_points(df_website_leaderboard: pd.DataFrame) -> pd.Data
             "variant": [p[1] for p in parsed],
             "family": df["TypeName"].to_numpy(),
             "url": [p[2] for p in parsed],
-            "reference": (df["TypeName"] == Constants.reference).to_numpy(),
+            "system": (df["TypeName"] == Constants.system).to_numpy(),
         },
     )
     for key, (column, _spec) in _METRIC_SPECS.items():

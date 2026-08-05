@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from functools import partial
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from tabarena.models._method_metadata import MethodMetadata
+
+if TYPE_CHECKING:
+    from collections.abc import Container
 
 
 class Constants:
@@ -13,7 +17,9 @@ class Constants:
     foundational: str = "Foundation Model"
     neural_network: str = "Neural Network"
     baseline: str = "Baseline"
-    reference: str = "Reference Pipeline"
+    #: Whole pipelines rather than single models: AutoGluon, TabFM+, an agent, a hosted API,
+    #: a portfolio. Set from `MethodMetadata.method_class`, never from the method's name.
+    system: str = "System"
     other: str = "Other"
 
 
@@ -23,7 +29,14 @@ model_type_emoji = {
     Constants.neural_network: "🧠🔁",
     Constants.baseline: "📏",
     Constants.other: "❓",
-    Constants.reference: "📊",
+    Constants.system: "🧰",
+}
+
+#: Emoji shown next to a system's name for each `MethodTag` it carries, so a reader sees the
+#: caveats without opening the docs.
+tag_emoji = {
+    "with-llm": "🤖",
+    "closed-source-api": "🔒",
 }
 
 
@@ -71,13 +84,20 @@ def strict_merge(
     )
 
 
-def get_model_family(model_name: str) -> str:
-    """Classify a model into its family. Accepts both raw config-type keys
+def get_model_family(model_name: str, system_names: Container[str] = frozenset()) -> str:
+    """Classify a method into its family. Accepts both raw config-type keys
     (e.g. "GBM", "MNCA") and display names (e.g. "LightGBM", "ModernNCA"),
     since callers pass whichever identifier they have at hand.
+
+    Systems are never inferred from the name: pass ``system_names`` (the display names of
+    everything with ``method_class="system"``, see :func:`system_display_names`) and a match
+    short-circuits to :attr:`Constants.system`. That is what keeps a newly added system out of
+    "❓ Other" without anyone remembering to add its prefix to the table below. Callers holding
+    the metadata row itself (:func:`add_metadata`) read ``method_class`` directly instead.
     """
+    if model_name in system_names:
+        return Constants.system
     prefixes_mapping = {
-        Constants.reference: ["AutoGluon", "PORTFOLIO"],
         Constants.neural_network: [
             "REALMLP",
             "TABM",
@@ -142,6 +162,18 @@ def get_model_family(model_name: str) -> str:
     return Constants.other
 
 
+def system_display_names(method_metadata_info: pd.DataFrame | None) -> frozenset[str]:
+    """Display names of every method in ``method_metadata_info`` that is a system.
+
+    Feeds :func:`get_model_family`'s ``system_names`` on the figure paths, which only ever see
+    a method's rendered name and so cannot read ``method_class`` off the row themselves.
+    """
+    if method_metadata_info is None or "method_class" not in method_metadata_info.columns:
+        return frozenset()
+    is_system = method_metadata_info["method_class"] == "system"
+    return frozenset(method_metadata_info.loc[is_system, "display_name"].dropna())
+
+
 def get_rename_map() -> dict[str, str]:
     return {
         "TABM": "TabM",
@@ -192,22 +224,40 @@ def add_metadata(
 ):
     method = row["method"]
     if method not in metadata_df.index:
+        # Same keys as the happy path, so the caller's column assignment lines up either way.
         return pd.Series(
             {
+                "method": method,
                 "Hardware": "Missing",
                 "Verified": "Missing",
-                "ReferenceURL": None,
+                "Type": model_type_emoji[Constants.other],
+                "TypeName": Constants.other,
+                "MethodClass": "model",
+                "Tags": "",
             },
         )
     metadata = metadata_df.loc[method]
     config_type = metadata["config_type"]
 
-    model_family = get_model_family(config_type if not pd.isna(config_type) else method)
+    # A system's family is declared, not guessed: `method_class` says so directly, which is
+    # what keeps a newly added system out of "❓ Other". Only models are name-classified.
+    method_class = metadata.get("method_class", "model")
+    if pd.isna(method_class):
+        method_class = "model"
+    tags = metadata.get("tags", ()) or ()
+    if method_class == "system":
+        model_family = Constants.system
+    else:
+        model_family = get_model_family(config_type if not pd.isna(config_type) else method)
 
     # Add Model Family Information
     out_dict = {
         "Type": model_type_emoji[model_family],
         "TypeName": model_family,
+        "MethodClass": method_class,
+        # Semicolon-joined so the CSV stays one cell per row; the leaderboard splits it back
+        # out into chips.
+        "Tags": ";".join(tags),
     }
 
     display_name = MethodMetadata.compute_method_name(
@@ -244,6 +294,9 @@ def legacy_formatting(df_leaderboard: pd.DataFrame) -> pd.DataFrame:
     df_leaderboard = df_leaderboard.copy(deep=True)
     df_leaderboard["Hardware"] = "Unknown"
     df_leaderboard["Verified"] = "Unknown"
+    # Without a metadata frame there is nothing to declare a system, so every row is a model.
+    df_leaderboard["MethodClass"] = "model"
+    df_leaderboard["Tags"] = ""
 
     # Add Model Family Information
     df_leaderboard["Type"] = df_leaderboard.loc[:, "method"].apply(
@@ -279,10 +332,12 @@ def format_leaderboard(
             df_leaderboard, method_metadata_info.drop(columns=["method_type"]), on=["ta_name", "ta_suite"]
         )
         method_info_map = method_info_map.set_index("method")
-        df_leaderboard[["method", "Hardware", "Verified", "Type", "TypeName"]] = df_leaderboard.apply(
-            partial(add_metadata, metadata_df=method_info_map, include_url=include_url),
-            result_type="expand",
-            axis=1,
+        df_leaderboard[["method", "Hardware", "Verified", "Type", "TypeName", "MethodClass", "Tags"]] = (
+            df_leaderboard.apply(
+                partial(add_metadata, metadata_df=method_info_map, include_url=include_url),
+                result_type="expand",
+                axis=1,
+            )
         )
 
     # elo,elo+,elo-,mrr
@@ -339,6 +394,8 @@ def format_leaderboard(
             "imputed",
             "imputed_bool",
             "Hardware",
+            "MethodClass",
+            "Tags",
         ],
     ]
 
@@ -358,7 +415,7 @@ def format_leaderboard(
     df_leaderboard = df_leaderboard.reset_index(names="#")
 
     if not include_type:
-        df_leaderboard = df_leaderboard.drop(columns=["Type", "TypeName"])
+        df_leaderboard = df_leaderboard.drop(columns=["Type", "TypeName", "MethodClass", "Tags"])
 
     if compact:
         df_leaderboard = df_leaderboard[

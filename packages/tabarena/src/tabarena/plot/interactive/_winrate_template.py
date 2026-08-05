@@ -106,10 +106,11 @@ __BASE_JS__
   const VARIANTS = CONFIG.variants.filter(v => POINTS.some(p => p.variant === v));
   const VARIANT_BTN = { "Tuned + Ens.": "Tuned + Ensembled" };
 
-  // Reference pipelines are AutoML systems rather than models, so a first read of
-  // the matrix should be model against model; they are one chip click away. Falls
-  // back to everything if that would leave nothing to compare.
-  const OFF_BY_DEFAULT = new Set(["Reference Pipeline"]);
+  // Nothing is hidden on load. Which entrants compete is now decided upstream by the
+  // leaderboard's entrant pool (see tabarena.evaluation.entrants): if a system is in this
+  // matrix at all, the reader picked a pool that includes it, and its win-rates were
+  // computed against that field. Hiding it here would contradict that choice.
+  const OFF_BY_DEFAULT = new Set([]);
   const familyOf = new Map(POINTS.map(p => [p.model, p.family]));
   const DEFAULT_MODELS = MODELS.filter(m => !OFF_BY_DEFAULT.has(familyOf.get(m)));
 

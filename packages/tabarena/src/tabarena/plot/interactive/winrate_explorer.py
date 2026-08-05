@@ -32,15 +32,16 @@ def _split_label(label: str) -> tuple[str, str]:
     return _VARIANT_TAG_RE.sub("", label), _VARIANT_LABELS[match.group(1)]
 
 
-def _families(labels: list[str]) -> dict[str, str]:
+def _families(labels: list[str], system_names: frozenset[str] = frozenset()) -> dict[str, str]:
     """Matrix label -> model family, best effort.
 
     Labels are display names (the matrix is built after the reporter's renames),
     which is one of the two forms :func:`get_model_family` accepts. Unknown names
     fall through to its own default rather than raising, so a new model missing
-    from the family table still renders — in the neutral bucket.
+    from the family table still renders — in the neutral bucket. ``system_names`` carries
+    the display names `method_class` declares to be systems, which are never name-inferred.
     """
-    return {label: get_model_family(_split_label(label)[0]) for label in labels}
+    return {label: get_model_family(_split_label(label)[0], system_names=system_names) for label in labels}
 
 
 def build_winrate_explorer_html(
@@ -49,6 +50,7 @@ def build_winrate_explorer_html(
     save_path: str | Path,
     title: str | None = None,
     page_title: str = "TabArena win-rate matrix",
+    system_names: frozenset[str] = frozenset(),
 ) -> Path | None:
     """Render the interactive win-rate matrix.
 
@@ -76,7 +78,7 @@ def build_winrate_explorer_html(
     matrix = winrate_matrix.reindex(index=winrate_matrix.index, columns=winrate_matrix.index)
     values = matrix.astype(float).where(pd.notna(matrix), None).to_numpy().tolist()
 
-    families = _families(methods)
+    families = _families(methods, system_names=system_names)
     # The mean excludes the diagonal (a method against itself is not a comparison).
     numeric = matrix.astype(float)
     means = [float(numeric.iloc[i].drop(numeric.index[i]).mean(skipna=True)) for i in range(len(methods))]

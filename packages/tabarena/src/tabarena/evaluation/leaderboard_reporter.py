@@ -27,7 +27,7 @@ from tabarena.plot.interactive.winrate_explorer import build_winrate_explorer_ht
 from tabarena.plot.plot_ens_weights import create_heatmap
 from tabarena.plot.plot_pareto_focus import plot_pareto_focus
 from tabarena.utils.normalized_scorer import NormalizedScorer
-from tabarena.website.website_format import get_model_family
+from tabarena.website.website_format import get_model_family, system_display_names
 
 MethodLabelStyle = str | Mapping[str, object]
 
@@ -1138,6 +1138,7 @@ class LeaderboardReporter:
                     winrate_matrix=winrate_matrix,
                     save_path=Path(self.output_dir) / "winrate_explorer.html",
                     page_title=winrate_title or f"{self.benchmark_name} win-rate matrix",
+                    system_names=system_display_names(self.method_metadata_info),
                 )
 
             # Off by default while the FIXME above (diagram possibly incorrect) stands.
@@ -1737,13 +1738,18 @@ class LeaderboardReporter:
         # Prefer the raw config_type key when present (configs); baselines have
         # NaN config_type, so fall back to the display name — `get_model_family`
         # accepts both forms.
+        # Systems are recognized by name here (the frame carries only rendered names), from the
+        # set `method_class` declares -- see `website_format.get_model_family`.
+        systems = system_display_names(self.method_metadata_info)
         if "config_type" in leaderboard_pareto.columns:
             leaderboard_pareto["Family"] = [
-                get_model_family(ct if not pd.isna(ct) else m)
+                get_model_family(ct if not pd.isna(ct) else m, system_names=systems)
                 for ct, m in zip(leaderboard_pareto["config_type"], leaderboard_pareto["Method"], strict=True)
             ]
         else:
-            leaderboard_pareto["Family"] = leaderboard_pareto["Method"].map(get_model_family)
+            leaderboard_pareto["Family"] = [
+                get_model_family(m, system_names=systems) for m in leaderboard_pareto["Method"]
+            ]
 
         leaderboard_pareto[self.method_col] = leaderboard_pareto["Method"] + leaderboard_pareto["suffix"]
         fig_rename_dict = {

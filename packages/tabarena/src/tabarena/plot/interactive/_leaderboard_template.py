@@ -150,12 +150,12 @@ __BASE_JS__
   const metricByKey = {};
   for (const m of METRICS) metricByKey[m.key] = m;
 
-  // One entry per method (its variants grouped); reference pipelines are kept
-  // apart — they are drawn as threshold lines, not as columns.
+  // One entry per method (its variants grouped); systems are kept apart — they are
+  // drawn as threshold lines, not as columns.
   const byMethod = new Map();
-  const refs = [];
+  const systemRows = [];
   for (const p of POINTS) {
-    if (p.reference) { refs.push(p); continue; }
+    if (p.system) { systemRows.push(p); continue; }
     let entry = byMethod.get(p.method);
     if (!entry) {
       entry = { method: p.method, family: p.family, url: p.url, points: [] };
@@ -175,7 +175,7 @@ __BASE_JS__
     yMin: null,   // null = the automatic axis floor; a number = zoomed in
 
     methods: new Set(byMethod.keys()),
-    refs: new Set(refs.map(r => r.method)),
+    systems: new Set(systemRows.map(r => r.method)),
     variants: new Set(VARIANT_ORDER),
   };
 
@@ -214,7 +214,7 @@ __BASE_JS__
     return sortedMethods([...byMethod.values()].filter(e => state.methods.has(e.method) && bestOf(e, m) != null), m);
   }
   function visibleRefs() {
-    return refs.filter(r => state.refs.has(r.method) && r[state.metric] != null);
+    return systemRows.filter(r => state.systems.has(r.method) && r[state.metric] != null);
   }
 
   // Rendered width of each label, measured in the live document (font metrics
@@ -450,7 +450,7 @@ __BASE_JS__
       const ry = Y(r[state.metric]);
       if (ry < TOP || ry > baseY) return;
       el("line", {
-        x1: 0, y1: ry, x2: plotW, y2: ry, stroke: "var(--fam-reference)", "stroke-width": 1.8,
+        x1: 0, y1: ry, x2: plotW, y2: ry, stroke: "var(--fam-system)", "stroke-width": 1.8,
         "stroke-dasharray": REF_DASHES[i % REF_DASHES.length], opacity: 0.95,
       }, refG);
       // Sticky value tag in the axis pane, so the threshold stays readable at
@@ -465,7 +465,7 @@ __BASE_JS__
       }
       el("text", {
         x: AXIS_W - 10, y: ty + 4, "text-anchor": "end", "font-size": 11, "font-weight": 650,
-        fill: "var(--fam-reference)",
+        fill: "var(--fam-system)",
       }, axisSvg).textContent = fmtMetric(m, r[state.metric]);
     });
     buildLegend(m, shownRefs);
@@ -510,10 +510,10 @@ __BASE_JS__
 
   function familyMembers(fam) {
     const out = [...byMethod.values()].filter(e => e.family === fam).map(e => e.method);
-    for (const r of refs) if (r.family === fam) out.push(r.method);
+    for (const r of systemRows) if (r.family === fam) out.push(r.method);
     return out;
   }
-  function isOn(name) { return state.methods.has(name) || state.refs.has(name); }
+  function isOn(name) { return state.methods.has(name) || state.systems.has(name); }
 
   function buildChips() {
     const rankMetric = metricByKey[CONFIG.rankMetric] || METRICS[0];
@@ -562,7 +562,7 @@ __BASE_JS__
   function chipRank(name, m) {
     const entry = byMethod.get(name);
     if (entry) return rankVal(entry, m);
-    const r = refs.find(x => x.method === name);
+    const r = systemRows.find(x => x.method === name);
     const v = r ? r[m.key] : null;
     return v == null ? Infinity : (m.lowerBetter ? v : -v);
   }
@@ -572,7 +572,7 @@ __BASE_JS__
   }
 
   function toggleMethod(name) {
-    const set = byMethod.has(name) ? state.methods : state.refs;
+    const set = byMethod.has(name) ? state.methods : state.systems;
     if (set.has(name)) set.delete(name); else set.add(name);
     syncChips();
     render();
@@ -581,7 +581,7 @@ __BASE_JS__
     const members = familyMembers(fam);
     const allOn = members.every(isOn);
     for (const name of members) {
-      const set = byMethod.has(name) ? state.methods : state.refs;
+      const set = byMethod.has(name) ? state.methods : state.systems;
       if (allOn) set.delete(name); else set.add(name);
     }
     syncChips();
@@ -594,11 +594,11 @@ __BASE_JS__
   }
 
   document.getElementById("btn-all").addEventListener("click", () => {
-    state.refs = new Set(refs.map(r => r.method));
+    state.systems = new Set(systemRows.map(r => r.method));
     setMethods(byMethod.keys());
   });
   document.getElementById("btn-none").addEventListener("click", () => {
-    state.refs = new Set();
+    state.systems = new Set();
     setMethods([]);
   });
   document.getElementById("btn-top").addEventListener("click", () => {
@@ -610,7 +610,7 @@ __BASE_JS__
       .sort((a, b) => rankVal(a, m) - rankVal(b, m))
       .slice(0, 15)
       .map(e => e.method);
-    state.refs = new Set(refs.map(r => r.method));
+    state.systems = new Set(systemRows.map(r => r.method));
     setMethods(top);
   });
 
@@ -694,7 +694,7 @@ __BASE_JS__
     }
     shownRefs.forEach((r, i) => {
       parts.push(`<span class="item"><svg width="26" height="8" viewBox="0 0 26 8">` +
-        `<line x1="0" y1="4" x2="26" y2="4" stroke="var(--fam-reference)" stroke-width="1.8" ` +
+        `<line x1="0" y1="4" x2="26" y2="4" stroke="var(--fam-system)" stroke-width="1.8" ` +
         `stroke-dasharray="${REF_DASHES[i % REF_DASHES.length]}"/></svg> ${r.method} · ${fmtMetric(m, r[state.metric])}</span>`);
     });
     if (POINTS.some(p => p.imputed)) {
@@ -706,7 +706,7 @@ __BASE_JS__
     }
     // Model family, named rather than merely pointed at: without the colors
     // spelled out, the swatch under each column decodes to nothing.
-    const families = FAM_ORDER.filter(f => POINTS.some(p => !p.reference && p.family === f));
+    const families = FAM_ORDER.filter(f => POINTS.some(p => !p.system && p.family === f));
     if (families.length > 1) {
       parts.push('<span class="legendbreak"></span><span class="item">Family:</span>');
       for (const fam of families) {

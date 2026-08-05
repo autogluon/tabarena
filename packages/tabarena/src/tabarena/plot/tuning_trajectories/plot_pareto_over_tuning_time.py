@@ -25,7 +25,7 @@ from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
 from tabarena.plot.plot_pareto_focus import FAMILY_COLORS, MUTED_COLOR
 from tabarena.plot.plot_pareto_frontier import get_pareto_frontier, plot_optimal_arrow
 from tabarena.utils.parallel_for import parallel_for
-from tabarena.website.website_format import get_model_family
+from tabarena.website.website_format import get_model_family, system_display_names
 
 
 def _clip_title(title: str, max_chars: int) -> str:
@@ -1475,6 +1475,7 @@ def _plot_tuning_trajectories_from_prepared(
             title_prefix=subset_title_prefix,
             use_elo_method_order=use_elo_method_order,
             benchmark_name=getattr(tabarena_context, "benchmark_name", "Arena"),
+            system_names=system_display_names(tabarena_context.method_metadata_collection.info()),
             focus_mode=focus_mode,
             website_only=website_only,
         )
@@ -1596,6 +1597,7 @@ def plot_tuning_trajectories_from_leaderboard(
     benchmark_name: str = "Arena",
     focus_mode: bool = False,
     website_only: bool = False,
+    system_names: frozenset[str] = frozenset(),
 ):
     fig_save_dir = Path(fig_save_dir)
     if plot_kwargs is None:
@@ -1614,7 +1616,7 @@ def plot_tuning_trajectories_from_leaderboard(
         plot_kwargs["focus_mode"] = True
         plot_kwargs.setdefault(
             "family_map",
-            {m: get_model_family(m) for m in leaderboard[method_col].unique()},
+            {m: get_model_family(m, system_names=system_names) for m in leaderboard[method_col].unique()},
         )
 
     # Interactive explorer + underlying data export, mirroring the
@@ -1624,7 +1626,7 @@ def plot_tuning_trajectories_from_leaderboard(
     explorer_points = pd.DataFrame(
         {
             "method": leaderboard[method_col],
-            "family": leaderboard[method_col].map(get_model_family),
+            "family": [get_model_family(m, system_names=system_names) for m in leaderboard[method_col]],
             "x_train": leaderboard["Train time per 1K samples (s) (median)"],
             "x_infer": leaderboard["Inference time per 1K samples (s) (median)"],
             "imp": leaderboard["Improvability (%)"],

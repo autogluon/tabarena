@@ -32,7 +32,7 @@ _FAMILY_SYMBOL = {
     Constants.neural_network: "🧠🔁",
     Constants.tree: "🌳",
     Constants.baseline: "📏",
-    Constants.reference: "📊",
+    Constants.system: "🧰",
     "Other": "❓",
 }
 

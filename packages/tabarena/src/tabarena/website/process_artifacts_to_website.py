@@ -82,6 +82,9 @@ def process_one_folder(
     # folders generated before these existed still process cleanly.
     for extra_path in [
         "pareto_front_explorer.html",
+        # The train-time twin of the Pareto explorer. The website's "I care about" selector
+        # switches to it for the fast-to-train view; both are rendered from the same points.
+        "pareto_front_explorer_time_train.html",
         "pareto_front_points.csv",
         "winrate_explorer.html",
         "winrate_matrix.csv",
