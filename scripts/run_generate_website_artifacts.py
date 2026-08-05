@@ -66,6 +66,10 @@ from tabarena.website.process_pngs import process_png_bulk
 # Subset folder segment -> the human label the website shows. Mirrors
 # ``data_loading.TASK_LABELS`` / ``DATASET_LABELS`` in the leaderboard Space.
 _SUBSET_LABELS: dict[str, str] = {
+    "entrants_models": "Models only",
+    "entrants_systems_open": "+ Open-source systems",
+    "entrants_systems_llm": "+ Systems with LLMs",
+    "entrants_systems_all": "+ Closed-source API systems",
     "tasks_all": "All Tasks",
     "tasks_classification": "Classification",
     "tasks_regression": "Regression",
@@ -80,12 +84,13 @@ _SUBSET_LABELS: dict[str, str] = {
 
 
 def _subset_label(rel_path: Path) -> str:
-    """Human-readable label for a subset folder, e.g. "All Tasks | Small".
+    """Human-readable label for a subset folder, e.g. "Models only | All Tasks | Small".
 
     Only the parts that carry information are shown: the default imputation and
     splits settings are dropped, so a path like
-    ``imputation_yes/splits_all/tasks_all/datasets_small`` reads as
-    "<tasks> | <datasets>".
+    ``entrants_models/imputation_yes/splits_all/tasks_all/datasets_small`` reads as
+    "<entrants> | <tasks> | <datasets>". The entrant pool is always shown, since which
+    numbers a figure reports depends on who competed.
     """
     return " | ".join(_SUBSET_LABELS[part] for part in rel_path.parts if part in _SUBSET_LABELS)
 

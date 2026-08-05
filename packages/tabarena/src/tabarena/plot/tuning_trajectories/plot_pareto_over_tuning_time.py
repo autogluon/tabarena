@@ -14,12 +14,13 @@ from autogluon.common.loaders import load_pd
 
 from bencheval.evaluator import BenchmarkEvaluator
 from tabarena.contexts import TabArenaContext
+from tabarena.evaluation.entrants import filter_results_to_pool, get_entrant_pool
 from tabarena.evaluation.framework_naming import get_method_rename_map
-from tabarena.nips2025_utils.compare import subset_tasks
-from tabarena.nips2025_utils.eval_all import (
+from tabarena.evaluation.subset_grid import (
     get_all_subset_combinations,
     get_website_folder_name,
 )
+from tabarena.nips2025_utils.compare import subset_tasks
 from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
 from tabarena.plot.plot_pareto_focus import FAMILY_COLORS, MUTED_COLOR
 from tabarena.plot.plot_pareto_frontier import get_pareto_frontier, plot_optimal_arrow
@@ -903,6 +904,7 @@ def plot_tuning_trajectories_all(
     # `context` (ray's object store) instead of being serialized per job.
     inputs = []
     for (
+        entrant_pool,
         use_imputation,
         problem_type,
         _,
@@ -911,6 +913,7 @@ def plot_tuning_trajectories_all(
         average_seeds,
     ) in all_combinations:
         custom_folder_name = get_website_folder_name(
+            entrant_pool=entrant_pool,
             use_imputation=use_imputation,
             problem_type=problem_type,
             dataset_subset=dataset_subset,
@@ -927,6 +930,7 @@ def plot_tuning_trajectories_all(
 
         inputs.append(
             {
+                "entrant_pool": entrant_pool,
                 "subset_map": {"placeholder_name": subset_list},
                 "average_seeds": average_seeds,
                 "exclude_imputed": not use_imputation,
@@ -1179,13 +1183,21 @@ def _prepare_tuning_trajectories_data(
     include_baselines: bool,
     include_portfolio: bool = False,
     include_hpo_seeds: bool = False,
+    entrant_pool: str = "systems_all",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the dataset-independent inputs (combined_data, methods_map) for tuning-trajectory plotting.
 
     Heavy I/O (loading per-method HPO trajectories, baselines, the paper results) lives here so the
     caller can run it once and share the results across many per-dataset plotting calls.
+
+    ``entrant_pool`` narrows the field to one :class:`~tabarena.evaluation.entrants.EntrantPool`
+    before anything is computed, since the improvability the trajectories are plotted against is
+    relative to whoever competes.
     """
-    method_metadata_lst_og = tabarena_context.method_metadata_collection.method_metadata_lst
+    pool = get_entrant_pool(entrant_pool)
+    method_metadata_lst_og = [
+        m for m in tabarena_context.method_metadata_collection.method_metadata_lst if pool.admits_metadata(m)
+    ]
     # Config methods always have trajectories (downloaded on demand); other method types (e.g.
     # portfolios) contribute when their artifact ships a `results/hpo_trajectories.parquet`.
     method_metadata_lst = [m for m in method_metadata_lst_og if m.method_type == "config" or m.has_hpo_trajectories]
@@ -1220,7 +1232,11 @@ def _prepare_tuning_trajectories_data(
     results_hpo = pd.concat(results_hpo_lst, ignore_index=True)
     results_hpo["display_name"] = results_hpo["display_name"].fillna(results_hpo["config_type"])
 
-    result_baselines = tabarena_context.load_results()
+    result_baselines = filter_results_to_pool(
+        df_results=tabarena_context.load_results(),
+        pool=pool,
+        method_metadata_info=tabarena_context.method_metadata_collection.info(),
+    )
 
     results_hpo_mean = (
         results_hpo.copy()
@@ -1488,6 +1504,7 @@ def plot_tuning_trajectories(
     use_elo_method_order: bool = True,
     focus_mode: bool = False,
     website_only: bool = False,
+    entrant_pool: str = "systems_all",
 ):
     name_col = "config_type"
     if subset_map is None:
@@ -1512,6 +1529,7 @@ def plot_tuning_trajectories(
         include_baselines=include_baselines,
         include_portfolio=include_portfolio,
         include_hpo_seeds=False,
+        entrant_pool=entrant_pool,
     )
 
     _plot_tuning_trajectories_from_prepared(
