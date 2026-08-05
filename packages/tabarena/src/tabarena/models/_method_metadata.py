@@ -52,6 +52,54 @@ class MethodType(StrEnum):
 MethodTypeLiteral = Literal["config", "baseline", "portfolio"]
 
 
+class MethodClass(StrEnum):
+    """What kind of thing was benchmarked: a single model, or a whole system.
+
+    Orthogonal to :class:`MethodType`, which describes the *shape of the results*
+    (which parquet ``load_results`` reads, whether HPO simulation applies). A system
+    records its results as ``method_type="baseline"`` like any other non-config method;
+    ``method_class`` is what tells the leaderboard it is a system rather than a model.
+    """
+
+    #: One tabular model, run under TabArena's shared tuning protocol and constraints.
+    MODEL = "model"
+    #: A self-contained pipeline that manages its own budget, model selection and
+    #: ensembling (AutoGluon, LightAutoML, TabFM+, an LLM-driven agent, a hosted API).
+    SYSTEM = "system"
+
+    @classmethod
+    def values(cls) -> list[str]:
+        """The valid ``method_class`` strings, in declaration order."""
+        return [m.value for m in cls]
+
+
+#: String form of :class:`MethodClass`, for annotating ``method_class`` fields and parameters.
+MethodClassLiteral = Literal["model", "system"]
+
+
+class MethodTag(StrEnum):
+    """Properties a reader needs to judge whether a comparison is fair.
+
+    Tags are what the leaderboard's entrant pools filter on, and what it renders as
+    chips next to a method's name. Keep the vocabulary small: a tag earns its place
+    only when someone would reasonably exclude a method because of it.
+    """
+
+    #: An LLM is involved somewhere in the pipeline. Covers agents and LLM-driven
+    #: systems as well as systems that call an LLM for one step, and says nothing
+    #: about whether the system is open-source.
+    WITH_LLM = "with-llm"
+    #: The method runs behind a remote API whose internals we cannot inspect and whose
+    #: behavior can change under us. Being an API implies closed-source here, so this
+    #: is one tag rather than two.
+    CLOSED_SOURCE_API = "closed-source-api"
+
+    @classmethod
+    def values(cls) -> list[str]:
+        """The valid tag strings, in declaration order."""
+        return [m.value for m in cls]
+
+
 # FIXME: Implement `best` and `best-N`
 @dataclass(eq=False)
 class MethodMetadata:
@@ -148,6 +196,17 @@ class MethodMetadata:
     #: the storage/transport config below (where and how artifacts are cached and uploaded).
     name: str | None = None
     name_suffix: str | None = None
+    #: Whether a single model or a whole system was benchmarked (see :class:`MethodClass`).
+    #: Not inferable from raw results, which record a system exactly like any other
+    #: ``method_type="baseline"`` run, so a system must declare it. Drives the leaderboard's
+    #: entrant pools and the model-family it is displayed under.
+    method_class: MethodClassLiteral = "model"
+    #: Properties a reader needs to judge the comparison, from :class:`MethodTag`'s vocabulary
+    #: (e.g. ``("with-llm", "closed-source-api")``). Empty means an open, local, LLM-free method,
+    #: which is the common case. Normalized to a sorted, deduped tuple in :meth:`__post_init__`
+    #: so the serialized YAML is stable; a tuple rather than a list because
+    #: :meth:`MethodMetadataCollection.info` puts this straight into a DataFrame cell.
+    tags: tuple[str, ...] = ()
     #: Storage backend for this method's artifacts. ``None`` (the default) infers it in
     #: :meth:`__post_init__`: ``"r2"`` when ``cache_kwargs`` carries a remote location
     #: (``bucket`` + ``prefix``), else ``"local"``. ``"s3"``/``"r2"`` require that location;
@@ -208,6 +267,21 @@ class MethodMetadata:
         assert self.method_type in MethodType.values(), (
             f"Unknown method_type: {self.method_type!r}. Valid values: {MethodType.values()}"
         )
+        # Same normalize-then-validate treatment for method_class, and for each tag.
+        if isinstance(self.method_class, MethodClass):
+            self.method_class = self.method_class.value
+        assert self.method_class in MethodClass.values(), (
+            f"Unknown method_class: {self.method_class!r}. Valid values: {MethodClass.values()} "
+            f"(method={self.method!r})."
+        )
+        # Sorted + deduped so two metadata objects listing the same tags in a different order
+        # serialize identically.
+        self.tags = tuple(sorted({MethodTag(tag).value if isinstance(tag, MethodTag) else tag for tag in self.tags}))
+        unknown_tags = [tag for tag in self.tags if tag not in MethodTag.values()]
+        if unknown_tags:
+            raise AssertionError(
+                f"Unknown tag(s) {unknown_tags}. Valid values: {MethodTag.values()} (method={self.method!r})."
+            )
         assert self.compute in ["cpu", "gpu"]
         # When set, `date` must be a real calendar date in YYYY-MM-DD format.
         if self.date is not None:
@@ -254,6 +328,16 @@ class MethodMetadata:
                         f"{flag}=True is only valid for method_type='config', but "
                         f"method_type={self.method_type!r} (method={self.method!r})."
                     )
+        elif self.method_class == MethodClass.SYSTEM:
+            # A system is always run through `ExternalSystemModel`, whose results the runner
+            # records as `method_type="baseline"`. `method_type="config"` therefore means one of
+            # the two is wrong; say so rather than silently producing a system that the entrant
+            # pools and the website formatter disagree about.
+            raise AssertionError(
+                "method_class='system' is incompatible with method_type='config': a system's "
+                "results are recorded as a baseline. Use `MethodMetadata.system(...)` "
+                f"(method={self.method!r})."
+            )
 
         if self.display_name is None:
             self.display_name = self._compute_display_name()
@@ -345,6 +429,25 @@ class MethodMetadata:
         Exposes ``name`` (the display-name override); the config-only fields are rejected.
         """
         return cls(method=method, method_type="baseline", name=name, **kwargs)
+
+    @classmethod
+    def system(cls, *, method: str, name: str | None = None, tags: tuple[str, ...] = (), **kwargs) -> Self:
+        """A benchmarked system (see :class:`MethodClass`): AutoGluon, TabFM+, an agent, an API.
+
+        A system's raw results are recorded as ``method_type="baseline"`` (the runner writes that
+        for every non-config result, see ``benchmark.result.raw_loading.get_info_from_result``),
+        so this fixes ``method_type`` and sets ``method_class="system"``. Pass ``tags`` from
+        :class:`MethodTag` for anything a reader should weigh before comparing, e.g.
+        ``tags=("with-llm", "closed-source-api")``.
+        """
+        return cls(
+            method=method,
+            method_type="baseline",
+            method_class="system",
+            name=name,
+            tags=tags,
+            **kwargs,
+        )
 
     @classmethod
     def portfolio(cls, *, method: str, name: str | None = None, has_raw: bool = False, **kwargs) -> Self:
@@ -599,6 +702,21 @@ class MethodMetadata:
     @property
     def has_configs_hyperparameters(self) -> bool:
         return self.method_type == "config"
+
+    @property
+    def is_system(self) -> bool:
+        """Whether a whole system was benchmarked rather than a single model."""
+        return self.method_class == MethodClass.SYSTEM
+
+    @property
+    def uses_llm(self) -> bool:
+        """Whether an LLM is involved anywhere in this method (see :attr:`MethodTag.WITH_LLM`)."""
+        return MethodTag.WITH_LLM in self.tags
+
+    @property
+    def is_closed_api(self) -> bool:
+        """Whether this method runs behind a closed-source remote API."""
+        return MethodTag.CLOSED_SOURCE_API in self.tags
 
     @property
     def _path_root(self) -> Path:
@@ -936,6 +1054,18 @@ class MethodMetadata:
         info.pop("cache_root", None)
         return info
 
+    def _to_yaml_dict(self) -> dict:
+        """:meth:`to_info_dict` with tuples flattened to lists, for the YAML writers.
+
+        The two representations differ deliberately. ``to_info_dict`` keeps ``tags`` a tuple
+        because it lands in a DataFrame cell via :meth:`MethodMetadataCollection.info`, where a
+        list is unhashable and breaks the ``drop_duplicates`` / ``.eq`` comparison in
+        ``website_format.strict_merge``. YAML wants the opposite: ``yaml.safe_dump`` raises on a
+        tuple outright, and ``yaml.dump`` would write a ``!!python/tuple`` tag that only
+        ``yaml.unsafe_load`` reads back.
+        """
+        return {key: list(value) if isinstance(value, tuple) else value for key, value in self.to_info_dict().items()}
+
     @property
     def path_metadata(self) -> Path:
         return self.path / "metadata.yaml"
@@ -946,7 +1076,7 @@ class MethodMetadata:
         assert str(path).endswith(".yaml")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with open(path, "w") as outfile:
-            yaml.dump(self.to_info_dict(), outfile, default_flow_style=False)
+            yaml.dump(self._to_yaml_dict(), outfile, default_flow_style=False)
 
     def to_yaml_fileobj(self) -> io.BytesIO:
         """Serialize this object to YAML and return a BytesIO buffer suitable for
@@ -958,7 +1088,7 @@ class MethodMetadata:
             Buffer positioned at start containing UTF-8 encoded YAML.
         """
         yaml_str = yaml.safe_dump(
-            self.to_info_dict(),
+            self._to_yaml_dict(),
             default_flow_style=False,
             sort_keys=False,
             allow_unicode=True,
