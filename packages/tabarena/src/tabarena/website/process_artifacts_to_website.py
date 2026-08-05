@@ -1,4 +1,15 @@
-"""Collect and preprocess data for leaderboard website."""
+"""Collect and preprocess data for leaderboard website.
+
+Only the interactive artifacts ship. Every TabArena figure has a self-contained HTML explorer
+that the site renders by default and that exports its own SVG / PDF / PNG on demand, so the
+static PNGs were a second copy of what the reader already had: 80 of the 105 MB in the Space's
+``data/``, and the only reason it needed Git LFS. They are still rendered into
+``raw_website_artifacts/`` for paper use; they are simply not published.
+
+BeyondArena is unaffected. It has its own copy path in
+``scripts/run_generate_beyondarena_website_artifacts.py`` and ships PNGs because it has no
+explorers for most of its figures.
+"""
 
 from __future__ import annotations
 
@@ -20,11 +31,9 @@ def process_one_folder(
     """Copy one subset's artifacts into the website layout.
 
     ``subset_label`` is the human-readable subset name used in the interactive
-    explorers' headline (e.g. "All Tasks | Small"); omitted when ``None``.
+    explorers' headline (e.g. "Models only | All Tasks | Small"); omitted when ``None``.
     """
     base_output_path.mkdir(parents=True, exist_ok=True)
-
-    figure_file_type = "png"
 
     # N datasets file
     n_datasets = len(
@@ -39,43 +48,6 @@ def process_one_folder(
             base_input_path / file_name,
             base_output_path / file_name,
         )
-
-    # Copy plots
-    for fig_path in [
-        f"tuning-impact-elo.{figure_file_type}",
-        f"pareto_front_improvability_vs_time_infer.{figure_file_type}",
-        f"winrate_matrix.{figure_file_type}",
-        (
-            Path("tuning_trajectories") / "placeholder_name",
-            f"pareto_n_configs_imp.{figure_file_type}",
-        ),
-    ]:
-        # FIXME: cannot use this on my cluster as I am not able to install poppler.
-        #   Hence, LB code needs to create zips.
-        # import zipfile
-        # from pdf2image import convert_from_path
-        # pdf_path = base_input_path / fig_path
-        # zip_path = (base_output_path / fig_path).with_suffix(".png.zip")
-        # png_path = zip_path.with_suffix(".png")
-        # # PDF to PNG
-        # images = convert_from_path(str(pdf_path), dpi=800)
-        # images[0].save(png_path, "PNG")
-        # # PNG to ZIP
-        # with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zipf:
-        #     zipf.write(png_path, arcname=png_path.name)
-        # png_path.unlink(missing_ok=True)
-
-        # Copy files
-        if isinstance(fig_path, tuple):
-            shutil.copy(
-                base_input_path / fig_path[0] / fig_path[1],
-                base_output_path / fig_path[1],
-            )
-        else:
-            shutil.copy(
-                base_input_path / fig_path,
-                base_output_path / fig_path,
-            )
 
     # Interactive explorers (self-contained HTML embedded by the leaderboard
     # app) and their underlying data exports. Copy-if-present so raw artifact

@@ -9,21 +9,26 @@ Space ``data/`` directory and committed.
 Users who just want a leaderboard should run
 ``examples/plots/run_generate_main_leaderboard.py`` instead.
 
+The published TabArena artifacts are text only (CSVs plus self-contained interactive HTML):
+the static figure PNGs stay in ``raw_website_artifacts/`` for paper use and are no longer
+copied into the Space, since every one of them has an explorer that renders by default and
+exports its own SVG / PDF / PNG. That is what keeps four entrant pools inside the Space's
+storage budget, and it means ``data/`` no longer needs Git LFS at all.
+
 Publishing procedure (run this script, then do the rest manually):
 
 Prerequisites (set up once, before pushing):
-- Install Git and Git LFS, then install the Git Xet extension so the large image
-  files push efficiently to Xet storage. This git workflow needs the Git Xet
-  extension specifically -- the ``huggingface_hub``/``hf_xet`` package only
-  Xet-accelerates Python uploads, not ``git push``. On macOS/Linux:
-      curl --proto '=https' --tlsv1.2 -sSf \
-          https://raw.githubusercontent.com/huggingface/xet-core/refs/heads/main/git_xet/install.sh | sh
-  (or ``brew install git-xet && git xet install``); verify with ``git xet --version``.
-  https://huggingface.co/docs/hub/en/xet/using-xet-storage#git
 - Log in so ``git push`` is authenticated. The ``hf`` CLI ships with
   ``huggingface_hub`` (``pip install -U huggingface_hub``); then run:
       hf auth login --add-to-git-credential
   (the legacy ``huggingface-cli login`` still works but warns it is deprecated).
+- Git LFS + the Git Xet extension are only needed for the BeyondArena artifacts
+  (``data_beyondarena/``), which still ship PNGs. On macOS/Linux:
+      curl --proto '=https' --tlsv1.2 -sSf \
+          https://raw.githubusercontent.com/huggingface/xet-core/refs/heads/main/git_xet/install.sh | sh
+  (or ``brew install git-xet && git xet install``); verify with ``git xet --version``.
+  The ``huggingface_hub``/``hf_xet`` package only Xet-accelerates Python uploads, not
+  ``git push``. https://huggingface.co/docs/hub/en/xet/using-xet-storage#git
 
 - Note: If you want to do a safe preview of a leaderboard release, use the private `leaderboard-testing` repo:
 https://huggingface.co/spaces/TabArena/leaderboard-testing/tree/main
@@ -46,11 +51,12 @@ Steps:
    run the HEAD-aware LFS purge from within the Space checkout, then push again:
        python <tabarena>/.claude/skills/update-leaderboard/purge_stale_lfs.py --delete
    It permanently deletes only the stored LFS objects the local HEAD no longer
-   references (old refreshes' figures), so the revision being pushed — and the
-   untouched data_beyondarena/ files — keep working. Old Space revisions lose
-   their binaries (they are regenerable). Do NOT use the settings-UI
-   "select all + Remove" flow — that also deletes objects the live revision
-   still needs.
+   references, so the revision being pushed — and the untouched data_beyondarena/
+   files — keep working. Old Space revisions lose their binaries (they are
+   regenerable). Do NOT use the settings-UI "select all + Remove" flow — that also
+   deletes objects the live revision still needs. This should be rare now that
+   ``data/`` carries no binaries; the remaining LFS pressure is historical
+   revisions and BeyondArena.
 """
 
 from __future__ import annotations
@@ -61,7 +67,6 @@ from pathlib import Path
 from tabarena.contexts import TabArenaContext
 from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories_all
 from tabarena.website.process_artifacts_to_website import process_one_folder
-from tabarena.website.process_pngs import process_png_bulk
 
 # Subset folder segment -> the human label the website shows. Mirrors
 # ``data_loading.TASK_LABELS`` / ``DATASET_LABELS`` in the leaderboard Space.
@@ -226,7 +231,6 @@ class WebsiteArtifactGenerator:
                 base_output_path=base_output_path,
                 subset_label=_subset_label(rel_path),
             )
-            process_png_bulk(path=base_output_path)
 
         # Place the zip next to (and named after) the clean artifacts folder.
         shutil.make_archive(
