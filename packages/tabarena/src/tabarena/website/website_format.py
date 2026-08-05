@@ -32,11 +32,27 @@ model_type_emoji = {
     Constants.system: "🧰",
 }
 
-#: Emoji shown next to a system's name for each `MethodTag` it carries, so a reader sees the
-#: caveats without opening the docs.
-tag_emoji = {
-    "with-llm": "🤖",
-    "closed-source-api": "🔒",
+#: How each `MethodTag` is presented: the chip shown next to a system's name, and the hover
+#: text explaining why it matters. Keys are the tag strings `MethodMetadata.tags` carries.
+#: The single source of truth for tag presentation, handed to the generated table and the
+#: leaderboard app rather than restated in either.
+TAG_SPECS: dict[str, dict[str, str]] = {
+    "with-llm": {
+        "emoji": "🤖",
+        "label": "with LLMs",
+        "hint": (
+            "An LLM is involved somewhere in this system, possibly as an agent. Its results "
+            "depend on a model that can change and whose training data cannot be audited."
+        ),
+    },
+    "closed-source-api": {
+        "emoji": "🔒",
+        "label": "closed-source API",
+        "hint": (
+            "This system runs behind a remote API whose internals cannot be inspected. Its "
+            "behaviour can change between runs, and the numbers are not reproducible from source."
+        ),
+    },
 }
 
 

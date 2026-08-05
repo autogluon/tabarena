@@ -65,6 +65,13 @@ __BASE_CSS__
   .ci { opacity: 0.5; font-weight: 400; font-size: 0.82em; }
   .pill { padding: 1px 7px; border-radius: 999px; font-size: 0.95em; white-space: nowrap; }
   .verified { font-size: 0.85em; }
+  /* Caveat chips on a system's name: what a reader has to weigh before comparing it to a
+     model. Muted so they read as an annotation, not as part of the name. */
+  .tag-chip {
+    margin-left: 4px; padding: 0 5px; border-radius: 999px;
+    font-size: 0.78em; font-weight: 500; white-space: nowrap;
+    color: var(--muted); background: var(--chip-bg); border: 1px solid var(--line);
+  }
   .link-icon { font-size: 0.78em; opacity: 0.65; margin-left: 2px; }
   /* Grey rather than a dimmed inherit: dimming leaves the tag tinted with the
      family colour, which the model name already carries, and made this table
@@ -201,6 +208,12 @@ __BASE_JS__
     let inner = escapeHtml(p.method);
     if (p.variant) inner += ' <span class="variant-tag">(' + escapeHtml(variantText(p.variant)) + ")</span>";
     if (p.verified) inner += ' <span class="verified" title="Verified implementation">&#10004;&#65039;</span>';
+    for (const tag of (p.tags || [])) {
+      const spec = (CONFIG.tagSpecs || {})[tag];
+      if (!spec) continue;
+      inner += ' <span class="tag-chip" title="' + escapeHtml(spec.hint) + '">' +
+        spec.emoji + " " + escapeHtml(spec.label) + "</span>";
+    }
     if (p.imputed) {
       const pct = isFinite(p.imputed_pct) ? fmtNum(p.imputed_pct, 0) + "% " : "";
       inner += ' <span class="imp-mark" title="' + pct + 'imputed">&#8225;</span>';
