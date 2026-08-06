@@ -65,16 +65,17 @@ import shutil
 from pathlib import Path
 
 from tabarena.contexts import TabArenaContext
+from tabarena.evaluation.entrants import ENTRANT_POOLS
 from tabarena.plot.tuning_trajectories.plot_pareto_over_tuning_time import plot_tuning_trajectories_all
 from tabarena.website.process_artifacts_to_website import process_one_folder
 
 # Subset folder segment -> the human label the website shows. Mirrors
-# ``data_loading.TASK_LABELS`` / ``DATASET_LABELS`` in the leaderboard Space.
+# ``data_loading.TASK_LABELS`` / ``DATASET_LABELS`` in the leaderboard Space. The entrant
+# segments come from ``ENTRANT_POOLS`` rather than a copy of the keys: there is one pool per
+# combination of the system categories, so a hand-written list goes stale as soon as a category
+# is added, and ``_subset_label`` drops what it cannot name.
 _SUBSET_LABELS: dict[str, str] = {
-    "entrants_models": "Models only",
-    "entrants_systems_open": "+ Open-source systems",
-    "entrants_systems_llm": "+ Systems with LLMs",
-    "entrants_systems_all": "+ Closed-source API systems",
+    **{f"entrants_{pool.key}": pool.label for pool in ENTRANT_POOLS},
     "tasks_all": "All Tasks",
     "tasks_classification": "Classification",
     "tasks_regression": "Regression",
@@ -95,8 +96,12 @@ def _subset_label(rel_path: Path) -> str:
     splits settings are dropped, so a path like
     ``entrants_models/imputation_yes/splits_all/tasks_all/datasets_small`` reads as
     "<entrants> | <tasks> | <datasets>". The entrant pool is always shown, since which
-    numbers a figure reports depends on who competed.
+    numbers a figure reports depends on who competed, so an unknown ``entrants_*`` segment
+    is an error rather than something to drop silently.
     """
+    entrants = next((part for part in rel_path.parts if part.startswith("entrants_")), None)
+    if entrants is not None and entrants not in _SUBSET_LABELS:
+        raise KeyError(f"No label for entrant pool {entrants!r}; known: {sorted(_SUBSET_LABELS)}")
     return " | ".join(_SUBSET_LABELS[part] for part in rel_path.parts if part in _SUBSET_LABELS)
 
 
