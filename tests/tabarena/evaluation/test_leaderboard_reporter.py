@@ -136,3 +136,16 @@ class TestMetricVsDateFrame:
         df = reporter._metric_vs_date_frame(leaderboard, metric="improvability", higher_is_better=False)
         assert df["improvability"].tolist() == [0.2]
         assert reporter._metric_vs_date_frame(leaderboard, metric="elo", higher_is_better=True) is None
+
+
+def test_date_introduced_plots_are_opt_in():
+    """``eval`` must not render the date-introduced figures unless asked.
+
+    They are a paper figure, and the four of them (two scatters plus two GIF timelapses)
+    dominate the runtime of an otherwise quick evaluation, so the default stays off. Pinned
+    here because the cost of a silent flip back is paid by every caller.
+    """
+    import inspect
+
+    default = inspect.signature(LeaderboardReporter.eval).parameters["plot_date_introduced"].default
+    assert default is False
