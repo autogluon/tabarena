@@ -14,14 +14,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: Non-default released regression checkpoints the curated configs select via an arm's ``weight``.
-#: Declared here rather than in ``hpo.py`` so the search space and :meth:`prefetch_weights` read the
-#: same list and cannot drift — every file a config can ask for is a file prefetch warms. The
-#: released default is not listed: a config reaches it by saying nothing, and prefetch fetches it
-#: from the checkpoint record instead.
-REGRESSION_WEIGHT_3EED = "exaone-tabular-regressor-v1_3eedbae97394.safetensors"
-REGRESSION_WEIGHT_8BD9 = "exaone-tabular-regressor-v1_8bd9bf482585.safetensors"
-ALTERNATIVE_CHECKPOINTS: tuple[str, ...] = (REGRESSION_WEIGHT_3EED, REGRESSION_WEIGHT_8BD9)
+#: Every released regression checkpoint, selectable by a config's ``regression_weight``. Declared
+#: here rather than in ``hpo.py`` so the search space and :meth:`prefetch_weights` read the same list
+#: and cannot drift — every file a sampled config can ask for is a file prefetch warms. The default
+#: leads so it is the value a non-searching config falls back to. Classification has no counterpart:
+#: only one classifier checkpoint is released, so its diversity is inference-side only.
+REGRESSION_CHECKPOINTS: tuple[str, ...] = (
+    "exaone-tabular-regressor-v1_default.safetensors",
+    "exaone-tabular-regressor-v1_3eedbae97394.safetensors",
+    "exaone-tabular-regressor-v1_45f9e04ea0fc.safetensors",
+    "exaone-tabular-regressor-v1_511b873f561e.safetensors",
+    "exaone-tabular-regressor-v1_8bd9bf482585.safetensors",
+    "exaone-tabular-regressor-v1_aad9e74d4f2e.safetensors",
+    "exaone-tabular-regressor-v1_ae491112a58e.safetensors",
+    "exaone-tabular-regressor-v1_d5c5c527ac37.safetensors",
+)
 
 
 class EXAONETabularModel(AbstractTorchModel):
@@ -125,45 +132,53 @@ class EXAONETabularModel(AbstractTorchModel):
         self.model = estimator_cls.from_pretrained(device=device, manifest=manifest, **kwargs)
         self.model.fit(X_np, y_np)
 
-    #: Arm keys belonging to the manifest's ``preprocessing`` section. Everything else in an arm
-    #: (bar :data:`_WEIGHT_KEY`) tunes the task's own config section.
-    _PREPROCESSING_KEYS = frozenset({"use_quantile_map", "rescale_for_column_count"})
-    #: Arm key naming a checkpoint file inside the released Hub repo.
+    #: Arm suffix naming a checkpoint file inside the released Hub repo.
     _WEIGHT_KEY = "weight"
 
     def _resolve_config(self, hps: dict) -> tuple[dict, object]:
         """Split a config into ``from_pretrained`` kwargs and the inference manifest to load with.
 
-        A config carries the runtime knobs both tasks share at the top level, plus one dict per task
-        under ``"classification"`` / ``"regression"``. Only the arm matching the fitted task is read,
-        so one config describes both halves of the benchmark without either seeing the other's
-        settings — which is what lets a single portfolio span a classification-only and a
-        regression-only checkpoint.
+        Keys are unprefixed where both estimators accept the knob, and carry a ``classification_`` /
+        ``regression_`` prefix where only one does. A prefixed key wins over the shared key of the
+        same name, and the other task's keys are dropped — so one flat config describes both halves
+        of the benchmark, which is what lets a single search space span a classification-only and a
+        regression-only checkpoint while keeping every key a scalar the sampler can draw.
 
-        Within an arm, ``weight`` names an alternative checkpoint file in the released repo (routed
-        to ``filename``, the parameter that keeps the repo/revision coordinates intact), the
-        preprocessing keys land in the manifest's ``preprocessing`` section, and whatever remains
-        tunes the task's own section (``ClassificationConfig`` / ``RegressionConfig``).
+        ``weight`` names a checkpoint file in the released repo (routed to ``filename``, the
+        parameter that keeps the repo/revision coordinates intact). Every other key is routed by
+        which manifest section declares a field of that name, so adding a knob upstream needs no
+        change here; anything no section claims is passed to ``from_pretrained`` and rejected there
+        if it is not a real parameter.
         """
-        from dataclasses import replace
+        from dataclasses import fields, replace
 
         from exaonetabular import released_manifest
 
         task = "regression" if self.problem_type == "regression" else "classification"
-        kwargs = {k: v for k, v in hps.items() if k not in ("classification", "regression")}
-        arm = dict(hps.get(task) or {})
+        shared = {k: v for k, v in hps.items() if not k.startswith(("classification_", "regression_"))}
+        specific = {k[len(task) + 1 :]: v for k, v in hps.items() if k.startswith(f"{task}_")}
+        arm = {**shared, **specific}
 
+        kwargs = {}
         weight = arm.pop(self._WEIGHT_KEY, None)
         if weight is not None:
             kwargs["filename"] = weight
 
         manifest = released_manifest(task)
-        preprocessing = {k: arm.pop(k) for k in list(arm) if k in self._PREPROCESSING_KEYS}
-        if preprocessing:
-            manifest = replace(manifest, preprocessing=replace(manifest.preprocessing, **preprocessing))
-        if arm:
-            manifest = replace(manifest, **{task: replace(getattr(manifest, task), **arm)})
-        return kwargs, manifest
+        # The task's own section first, so a knob it declares wins over a same-named field on the
+        # shared sections rather than silently landing on the wrong one.
+        sections = {name: getattr(manifest, name) for name in (task, "preprocessing", "runtime")}
+        updates: dict[str, dict] = {name: {} for name in sections}
+        for key, value in arm.items():
+            for name, section in sections.items():
+                if any(f.name == key for f in fields(section)):
+                    updates[name][key] = value
+                    break
+            else:
+                kwargs[key] = value
+
+        changed = {name: replace(sections[name], **values) for name, values in updates.items() if values}
+        return kwargs, replace(manifest, **changed) if changed else manifest
 
     def _set_default_params(self):
         # The released checkpoints' runtime defaults, identical for both (exaonetabular.presets).
@@ -266,10 +281,9 @@ class EXAONETabularModel(AbstractTorchModel):
     def prefetch_weights(cls) -> dict[str, str]:
         """Pre-download every checkpoint the search space can select; return ``{name: path}``.
 
-        That is both released defaults (a config reaches those by saying nothing) plus each entry of
-        :data:`ALTERNATIVE_CHECKPOINTS`, so no config can reach a compute node needing a file the
-        head node never warmed.
+        That is the released classifier plus every entry of :data:`REGRESSION_CHECKPOINTS`, so no
+        sampled config can reach a compute node needing a file the head node never warmed.
         """
-        paths = {task: cls.download_checkpoint(task) for task in ("classification", "regression")}
-        paths.update({name: cls.download_checkpoint("regression", filename=name) for name in ALTERNATIVE_CHECKPOINTS})
+        paths = {"classification": cls.download_checkpoint("classification")}
+        paths.update({name: cls.download_checkpoint("regression", filename=name) for name in REGRESSION_CHECKPOINTS})
         return paths
