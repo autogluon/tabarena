@@ -14,17 +14,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: Released regression checkpoints the curated configs select via an arm's ``weight``. Declared here
-#: rather than in ``hpo.py`` so the search space and :meth:`prefetch_weights` read the same list and
-#: cannot drift — every file a config can ask for is a file prefetch warms.
-REGRESSION_WEIGHT_DEFAULT = "exaone-tabular-regressor-v1_default.safetensors"
+#: Non-default released regression checkpoints the curated configs select via an arm's ``weight``.
+#: Declared here rather than in ``hpo.py`` so the search space and :meth:`prefetch_weights` read the
+#: same list and cannot drift — every file a config can ask for is a file prefetch warms. The
+#: released default is not listed: a config reaches it by saying nothing, and prefetch fetches it
+#: from the checkpoint record instead.
 REGRESSION_WEIGHT_3EED = "exaone-tabular-regressor-v1_3eedbae97394.safetensors"
 REGRESSION_WEIGHT_8BD9 = "exaone-tabular-regressor-v1_8bd9bf482585.safetensors"
-REGRESSION_CHECKPOINTS: tuple[str, ...] = (
-    REGRESSION_WEIGHT_DEFAULT,
-    REGRESSION_WEIGHT_3EED,
-    REGRESSION_WEIGHT_8BD9,
-)
+ALTERNATIVE_CHECKPOINTS: tuple[str, ...] = (REGRESSION_WEIGHT_3EED, REGRESSION_WEIGHT_8BD9)
 
 
 class EXAONETabularModel(AbstractTorchModel):
@@ -267,11 +264,12 @@ class EXAONETabularModel(AbstractTorchModel):
 
     @classmethod
     def prefetch_weights(cls) -> dict[str, str]:
-        """Pre-download every checkpoint the search space can select; return ``{filename: path}``.
+        """Pre-download every checkpoint the search space can select; return ``{name: path}``.
 
-        That is the released classifier plus each entry of :data:`REGRESSION_CHECKPOINTS`, so no
-        config can reach a compute node needing a file the head node never warmed.
+        That is both released defaults (a config reaches those by saying nothing) plus each entry of
+        :data:`ALTERNATIVE_CHECKPOINTS`, so no config can reach a compute node needing a file the
+        head node never warmed.
         """
-        paths = {"classification": cls.download_checkpoint("classification")}
-        paths.update({name: cls.download_checkpoint("regression", filename=name) for name in REGRESSION_CHECKPOINTS})
+        paths = {task: cls.download_checkpoint(task) for task in ("classification", "regression")}
+        paths.update({name: cls.download_checkpoint("regression", filename=name) for name in ALTERNATIVE_CHECKPOINTS})
         return paths

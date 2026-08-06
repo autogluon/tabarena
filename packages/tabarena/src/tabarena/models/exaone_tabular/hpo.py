@@ -3,55 +3,49 @@ from __future__ import annotations
 from tabarena.models.exaone_tabular.model import (
     REGRESSION_WEIGHT_3EED,
     REGRESSION_WEIGHT_8BD9,
-    REGRESSION_WEIGHT_DEFAULT,
     EXAONETabularModel,
 )
 from tabarena.utils.config_utils import ConfigGenerator
 
 # No sampled search space: the tuned + ensemble evaluation runs over the fixed portfolio below.
 # Each config zips one classification arm with one regression arm, and the wrapper reads only the
-# arm matching the fitted task, so per task every distinct arm appears exactly once.
+# arm matching the fitted task, so a single portfolio spans both a classification-only and a
+# regression-only checkpoint.
 #
-# The classification arm varies two orthogonal inference knobs — the support-SVD augmentation width
-# and the input transform — because only one classifier checkpoint is released, so its diversity has
-# to come from inference behavior rather than from weights. `n_svd=8` is the released default (see
-# `ClassificationConfig`), so c1/c4 switch the augmentation off rather than on.
+# c1 is empty, which means the released defaults of whichever checkpoint gets loaded. Spelled out,
+# that is: the classifier appending 8 support-SVD components per ensemble member
+# (`ClassificationConfig.n_svd`) with no quantile map, and the default regression checkpoint reading
+# out 999 quantiles as a trimmed mean over a split ensemble (`svd_split=True`, an un-augmented pass
+# pooled with a 16-component one, priced by the NNLS member-weight fit).
 #
-# The regression arm varies the checkpoint and the SVD split, which is where the released weights do
-# offer a choice: `svd_split=True` (the default) pools an un-augmented pass with an augmented one and
-# lets the NNLS weight fit price them, while `False` runs the augmented pass alone.
-#: Every arm names its checkpoint and both inference knobs outright, including where the value
-#: matches the release default. The defaults have already moved once under this portfolio
-#: (`ClassificationConfig.n_svd` became 8 upstream), so spelling them out keeps a config's meaning
-#: fixed to what was benchmarked rather than to whatever the library currently defaults to.
+# c2-c6 are single- or paired-axis divergences from that baseline, along the two axes the release
+# actually exposes: the classification SVD width, and — for regression — the checkpoint together
+# with whether the split ensemble runs. Only the alternative checkpoints are named; the default one
+# is reached by saying nothing, so it never appears as a literal.
 manual_configs = [
-    # c1: no classification augmentation; released regression checkpoint with the SVD split.
+    # c1: released defaults for both tasks (see above).
+    {},
+    # c2: augmentation off for classification; regression on the default checkpoint, unsplit.
     {
-        "classification": {"n_svd": 0, "use_quantile_map": False},
-        "regression": {"weight": REGRESSION_WEIGHT_DEFAULT, "svd_split": True},
+        "classification": {"n_svd": 0},
+        "regression": {"svd_split": False},
     },
-    # c2: released classification default; released regressor without the SVD split.
+    # c3-c6: the wider classification arm and the default one in turn, against the two alternative
+    # regression checkpoints, each taken with and without the split ensemble.
     {
-        "classification": {"n_svd": 8, "use_quantile_map": False},
-        "regression": {"weight": REGRESSION_WEIGHT_DEFAULT, "svd_split": False},
+        "classification": {"n_svd": 16},
+        "regression": {"weight": REGRESSION_WEIGHT_3EED},
     },
-    # c3-c6: wider / quantile-mapped classification arms against the alternative regression
-    # checkpoints, each of those taken without and with the SVD split.
     {
-        "classification": {"n_svd": 16, "use_quantile_map": False},
         "regression": {"weight": REGRESSION_WEIGHT_3EED, "svd_split": False},
     },
     {
-        "classification": {"n_svd": 0, "use_quantile_map": True},
-        "regression": {"weight": REGRESSION_WEIGHT_3EED, "svd_split": True},
+        "classification": {"n_svd": 0},
+        "regression": {"weight": REGRESSION_WEIGHT_8BD9},
     },
     {
-        "classification": {"n_svd": 8, "use_quantile_map": True},
+        "classification": {"n_svd": 16},
         "regression": {"weight": REGRESSION_WEIGHT_8BD9, "svd_split": False},
-    },
-    {
-        "classification": {"n_svd": 16, "use_quantile_map": True},
-        "regression": {"weight": REGRESSION_WEIGHT_8BD9, "svd_split": True},
     },
 ]
 
