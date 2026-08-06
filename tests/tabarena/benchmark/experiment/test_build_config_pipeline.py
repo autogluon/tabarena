@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+
 from tabarena.benchmark.experiment import (
     ModelConstraints,
     TabArenaExperimentBundle,
@@ -214,8 +216,92 @@ def test_autogluon_experiment_tabarena_default_multi_model():
     assert _has_model_specific(hp["XGB"])
 
 
-def test_autogluon_experiment_tabarena_default_preset_only_applies_model_agnostic():
-    """With no `hyperparameters` dict (e.g. preset-driven), only the model-agnostic step applies."""
+def _all_wrapped(hyperparameters: dict) -> bool:
+    return all(
+        _has_model_specific(config)
+        for configs in hyperparameters.values()
+        for config in (configs if isinstance(configs, list) else [configs])
+    )
+
+
+def test_autogluon_experiment_tabarena_default_bare_preset_resolves_its_hyperparameters():
+    """A bare preset run (alias included) takes the `hyperparameters` entry from the preset dict,
+    expands it, and wraps every config — same outcome as passing the portfolio explicitly.
+    """
+    from autogluon.tabular.configs.hyperparameter_configs import get_hyperparameter_config
+    from autogluon.tabular.configs.presets_configs import tabular_presets_dict
+
+    rmk = _apply_tabarena_default({"presets": "extreme"})  # alias of extreme_quality
+    hyperparameters = rmk["fit_kwargs"]["hyperparameters"]
+    expected = get_hyperparameter_config(tabular_presets_dict["extreme_quality"]["hyperparameters"])
+    assert set(hyperparameters) == set(expected)
+    assert _all_wrapped(hyperparameters)
+
+
+def test_autogluon_experiment_tabarena_default_preset_without_hyperparameters_uses_default():
+    """A preset that sets no `hyperparameters` (e.g. medium_quality) falls back to AutoGluon's
+    `"default"` config, expanded and wrapped — matching what `TabularPredictor.fit` would run.
+    """
+    from autogluon.tabular.configs.hyperparameter_configs import get_hyperparameter_config
+
     rmk = _apply_tabarena_default({"presets": "medium_quality"})
+    hyperparameters = rmk["fit_kwargs"]["hyperparameters"]
+    assert set(hyperparameters) == set(get_hyperparameter_config("default"))
+    assert _all_wrapped(hyperparameters)
+
+
+def test_autogluon_experiment_tabarena_default_explicit_none_blocks_the_preset():
+    """An explicit `hyperparameters=None` key beats the preset's value in AutoGluon
+    (`apply_presets` only fills missing keys), so it resolves to `"default"`, not the preset's
+    portfolio.
+    """
+    from autogluon.tabular.configs.hyperparameter_configs import get_hyperparameter_config
+
+    rmk = _apply_tabarena_default({"presets": "extreme", "hyperparameters": None})
+    hyperparameters = rmk["fit_kwargs"]["hyperparameters"]
+    assert set(hyperparameters) == set(get_hyperparameter_config("default"))
+    assert _all_wrapped(hyperparameters)
+
+
+def test_autogluon_experiment_tabarena_default_last_preset_wins():
+    """With a preset list, the last preset that sets `hyperparameters` wins (AutoGluon's
+    first-to-last merge).
+    """
+    from autogluon.tabular.configs.hyperparameter_configs import get_hyperparameter_config
+    from autogluon.tabular.configs.presets_configs import tabular_presets_dict
+
+    rmk = _apply_tabarena_default({"presets": ["medium_quality", "extreme"]})
+    expected = get_hyperparameter_config(tabular_presets_dict["extreme_quality"]["hyperparameters"])
+    assert set(rmk["fit_kwargs"]["hyperparameters"]) == set(expected)
+
+
+def test_autogluon_experiment_tabarena_default_unresolvable_hyperparameters_warns():
+    """Hyperparameters of a type the injection cannot handle warn instead of passing silently."""
+    with pytest.warns(UserWarning, match="model-specific"):
+        rmk = _apply_tabarena_default({"hyperparameters": 123})
     assert rmk["fit_kwargs"]["feature_generator_cls"] is TabArenaModelAgnosticPreprocessing
-    assert "hyperparameters" not in rmk["fit_kwargs"]  # nothing to wrap; no crash
+    assert rmk["fit_kwargs"]["hyperparameters"] == 123  # left untouched for AutoGluon to reject
+
+
+def test_autogluon_experiment_tabarena_default_named_config_is_expanded():
+    """A named AutoGluon config string (what the shipped presets carry, e.g.
+    `"noncommercial_2026_08_05"`) is expanded to its config dict and every config is wrapped,
+    so a preset-driven run gets the same model-specific preprocessing as a dict-driven run.
+    """
+    from autogluon.tabular.configs.hyperparameter_configs import get_hyperparameter_config
+
+    rmk = _apply_tabarena_default({"hyperparameters": "very_light"})
+    hyperparameters = rmk["fit_kwargs"]["hyperparameters"]
+    assert isinstance(hyperparameters, dict)
+    assert set(hyperparameters) == set(get_hyperparameter_config("very_light"))
+    for configs in hyperparameters.values():
+        for config in configs if isinstance(configs, list) else [configs]:
+            assert _has_model_specific(config)
+
+
+def test_autogluon_experiment_tabarena_default_unknown_named_config_raises():
+    """A typo in the named config fails at experiment-preprocessing time with the valid names,
+    not node-side inside the fit.
+    """
+    with pytest.raises(ValueError, match="not_a_real_config"):
+        _apply_tabarena_default({"hyperparameters": "not_a_real_config"})
