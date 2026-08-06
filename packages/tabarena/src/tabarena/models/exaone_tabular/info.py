@@ -28,7 +28,7 @@ exaone_tabular_info = ModelInfo(
     search_space=gen_exaone_tabular,
     method_metadata=exaone_tabular_method_metadata,
     pip_extra=(
-        "exaonetabular @ git+https://github.com/LGAI-Research/EXAONE-Tabular.git@309f01a8743aa4add48edeef2a251ae1587ead96",
+        "exaonetabular @ git+https://github.com/LGAI-Research/EXAONE-Tabular.git@cf55bd2d74aeb9c0b5d5d4f509d05831251a827e",
     ),
     prefetch_weights=EXAONETabularModel.prefetch_weights,
 )
