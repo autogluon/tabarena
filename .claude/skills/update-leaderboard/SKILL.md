@@ -112,12 +112,13 @@ Monitor until the process exits, then verify outputs — **don't trust "exited" 
     print(df.loc[df["Model"].str.contains("TabSwift", case=False), ["Type","TypeName","Model"]].to_string(index=False))
     PY
     ```
-  - Structural sanity in `website_data/`: **4** `entrants_*` roots, **240** `website_leaderboard.csv`
-    (60 subsets x 4 entrant pools), **240** `n_datasets_*` markers, **0** `*.png` and **0** `*.png.zip`
-    (TabArena publishes no static figures), and **1200** interactive `*_explorer.html` (5 per subset:
-    leaderboard overview, table, two Pareto axes, trajectories).
+  - Structural sanity in `website_data/`: **8** `entrants_*` roots (one per combination of the system
+    categories), **480** `website_leaderboard.csv` (60 subsets x 8 entrant pools), **480**
+    `n_datasets_*` markers, **0** `*.png` and **0** `*.png.zip` (TabArena publishes no static figures),
+    and **2400** interactive `*_explorer.html` (5 per subset: leaderboard overview, table, two Pareto
+    axes, trajectories).
   - Pool sanity: `entrants_models` must contain **no** AutoGluon row, and a model's Elo must differ
-    between `entrants_models` and `entrants_systems_all` (a wider field re-rates everyone). If they
+    between `entrants_models` and `entrants_open_llm_api` (a wider field re-rates everyone). If they
     match, the pool filter did not apply.
 
 ## Step 3: Refresh the Space repo's `data/`
@@ -141,8 +142,8 @@ cp -r "$SRC"/. "$DST"/
 
 # 3. Verify the swap:
 echo "any .png (MUST be 0): $(find "$DST" -name '*.png*' | wc -l)"
-echo "entrant pools:        $(find "$DST" -mindepth 1 -maxdepth 1 -name 'entrants_*' | wc -l)"  # 4
-echo "csv:                  $(find "$DST" -name 'website_leaderboard.csv' | wc -l)"  # 240
+echo "entrant pools:        $(find "$DST" -mindepth 1 -maxdepth 1 -name 'entrants_*' | wc -l)"  # 8
+echo "csv:                  $(find "$DST" -name 'website_leaderboard.csv' | wc -l)"  # 480
 ```
 
 Then confirm the diff is clean — **all modifications, no adds/deletes/untracked** (a new or removed

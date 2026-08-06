@@ -624,11 +624,22 @@ __BASE_JS__
   for (const m of METRICS) {
     metricSelect.appendChild(Object.assign(document.createElement("option"), { value: m.key, textContent: m.label }));
   }
-  metricSelect.addEventListener("change", ev => {
-    state.metric = ev.target.value;
+  function setMetric(key) {
+    if (!METRICS.some(m => m.key === key) || key === state.metric) return;
+    state.metric = key;
     state.yMin = null;  // the previous floor means nothing on a new scale
+    if (metricSelect) metricSelect.value = key;
     buildTable();
     render();
+  }
+  metricSelect.addEventListener("change", ev => setMetric(ev.target.value));
+
+  // Embedded, the host can pick the metric for us: the leaderboard's "I care about" control
+  // decides whether the page leads with Elo or Improvability, and every panel follows without
+  // regenerating an artifact per metric. Ignored when the metric is not one this chart offers.
+  window.addEventListener("message", ev => {
+    const d = ev.data;
+    if (d && d.type === "tabarena-explorer-metric") setMetric(d.metric);
   });
 
   const sortSelect = document.getElementById("sort-select");

@@ -107,7 +107,7 @@ __BASE_CSS__
 </head>
 <body>
   <div class="viewbar">
-    <button class="btn" id="btn-paper" title="White background, table only — for slides and papers">Paper view</button>
+    <button class="btn" id="btn-paper" title="White background, table only, for slides and papers">Paper view</button>
   </div>
   <p class="explorer-title" id="title"></p>
   <div class="controls">
@@ -360,7 +360,7 @@ __BASE_JS__
   function buildChips() {
     const head = document.createElement("div");
     head.className = "chips-head";
-    head.textContent = "Models shown — click to remove, click a family to toggle the whole group";
+    head.textContent = "Models shown. Click to remove, or click a family to toggle the whole group";
     chipsBox.appendChild(head);
     for (const fam of FAM_ORDER) {
       const members = familyMembers(fam);
@@ -385,7 +385,7 @@ __BASE_JS__
         b.style.setProperty("--fam", FAM_VAR[fam]);
         b.innerHTML = '<span class="dot"></span><span>' + escapeHtml(name) + "</span>" +
           (imputed ? '<span class="imp-mark">&#8225;</span>' : "");
-        b.title = name + (imputed ? " — partially imputed" : "");
+        b.title = name + (imputed ? " (partially imputed)" : "");
         b.addEventListener("click", () => toggleMethod(name));
         set.appendChild(b);
         chipByMethod.set(name, b);

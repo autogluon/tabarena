@@ -88,10 +88,12 @@ Each config becomes one benchmarked variant. Prefer a small set of meaningful pr
 
 | tag | when | effect |
 |---|---|---|
-| `with-llm` | an LLM is involved anywhere, agents included | excluded from the `models` and `systems_open` pools |
-| `closed-source-api` | runs behind a remote API we cannot inspect | only in `systems_all` |
+| `with-llm` | an LLM is involved anywhere, agents included | competes only where the `llm` category is selected |
+| `closed-source-api` | runs behind a remote API we cannot inspect | competes only where the `api` category is selected |
 
-No tags means open-source, local and LLM-free, which is the common case (AutoGluon, LightAutoML, FLAML, TabFM+). The two are independent: an open-source agent is `("with-llm",)`, and a hosted non-LLM predictor is `("closed-source-api",)`.
+A system carrying both tags needs both categories selected, so it never appears on the strength of a property the reader excluded.
+
+No tags means open-source, local and LLM-free, which is the common case (AutoGluon, LightAutoML, FLAML, TabFM+) and puts the system in the `open` category. The two tags are independent: an open-source agent is `("with-llm",)`, and a hosted non-LLM predictor is `("closed-source-api",)`. Each combination of categories is published as its own pool, so a new tag doubles the artifact count.
 
 If the system needs a property neither tag covers, do not invent one inline. Add it to `MethodTag` in `models/_method_metadata.py`, give it presentation in `website_format.TAG_SPECS`, and decide which pools admit it in `evaluation/entrants.py`. All three or none, otherwise it will not render.
 

@@ -42,15 +42,16 @@ TAG_SPECS: dict[str, dict[str, str]] = {
         "label": "with LLMs",
         "hint": (
             "An LLM is involved somewhere in this system, possibly as an agent. Its results "
-            "depend on a model that can change and whose training data cannot be audited."
+            "depend on a model whose training data cannot be inspected and which may already "
+            "have seen the test data."
         ),
     },
     "closed-source-api": {
         "emoji": "🔒",
         "label": "closed-source API",
         "hint": (
-            "This system runs behind a remote API whose internals cannot be inspected. Its "
-            "behaviour can change between runs, and the numbers are not reproducible from source."
+            "This system runs behind a remote API whose internals cannot be inspected, and whose "
+            "behaviour can change between runs."
         ),
     },
 }
