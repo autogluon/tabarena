@@ -122,8 +122,11 @@ def test_registry_is_cached(patched_discovery):
 
 
 def test_real_registry_discovers_the_shipped_systems():
+    # Keyed on each `SystemInfo`'s method, which for AutoGluon is whichever dated run is the
+    # latest, so match the wrapper class instead of pinning that run's id.
     registry = discover_systems()
-    assert {"AutoGluon_v150_eq_4h8c", "TabFM+"} <= set(registry)
+    assert "TabFM+" in registry
+    assert any(info.system_cls.__name__ == "AutoGluonSystemModel" for info in registry.values())
 
 
 def test_every_discovered_system_declares_method_class_system():

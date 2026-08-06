@@ -151,11 +151,40 @@ ag_150_eq_4h8c_metadata = MethodMetadata.tabarena_legacy_s3(
 #     **_system_kwargs,
 # )
 
+# -- tabarena-2026-08-05: the released AutoGluon 1.6 presets -------------------------------
+# TabArena-Full runs (816 tasks over 51 datasets) of the shipped presets, with only the fit
+# `time_limit` raised to 4 hours. `compute` is set by hand: the runs used one GPU per task, but
+# the raw results record `num_gpus=0`, so the inferred value would be `cpu`.
+_common_kwargs_2026_08_05 = dict(
+    suite="tabarena-2026-08-05",
+    date="2026-08-05",
+    compute="gpu",
+    date_introduced="2026-08",  # AutoGluon 1.6 release
+    reference_url=_AUTOGLUON_PAPER,
+    verified=True,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+)
+
+ag_160_eq_4h_metadata = MethodMetadata.system(
+    method="AutoGluon_16_extreme",
+    name="AutoGluon 1.6 (extreme, 4h)",
+    **_common_kwargs_2026_08_05,
+)
+
+# The `noncommercial` preset is `extreme` plus TabPFN-3, whose license is not commercially
+# permissive. `MethodMetadata` carries no license field, so the display name says it.
+ag_160_noncomm_4h_metadata = MethodMetadata.system(
+    method="AutoGluon_16_noncommercial",
+    name="AutoGluon 1.6 (noncommercial, 4h)",
+    **_common_kwargs_2026_08_05,
+)
+
 
 # Points at the latest registered AutoGluon run, matching how a model's `ModelInfo` points at
 # its latest `MethodMetadata`.
 autogluon_info = SystemInfo(
     system_cls=AutoGluonSystemModel,
     config_generator=gen_autogluon,
-    method_metadata=ag_150_eq_4h8c_metadata,
+    method_metadata=ag_160_eq_4h_metadata,
 )

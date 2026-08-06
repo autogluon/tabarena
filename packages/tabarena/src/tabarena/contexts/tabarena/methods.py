@@ -26,6 +26,11 @@ from tabarena.contexts.tabarena._tabarena_method_metadata_2026_01_23_tabprep imp
     tabprep_realtabpfnv250_metadata,
     tabprep_tabm_metadata,
 )
+from tabarena.contexts.tabarena._tabarena_method_metadata_2026_08_05 import (
+    ag_160_eq_4h_metadata,
+    ag_160_noncomm_4h_metadata,
+    methods_2026_08_05_ag,
+)
 from tabarena.contexts.tabarena._tabarena_method_metadata_misc import (
     gbm_aio_0808_metadata,
     # prep_gbm_v6_metadata,
@@ -147,6 +152,8 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         # Systems
         ag_140_bq_4h8c_metadata,
         ag_150_eq_4h8c_metadata,
+        ag_160_eq_4h_metadata,
+        ag_160_noncomm_4h_metadata,
         tabfm_plus_method_metadata,
         # Default tabular models (CPU)
         catboost_new_method_metadata,
@@ -211,6 +218,7 @@ methods_historical = [
         *methods_2025_09_03,
         *methods_2025_10_20,
         *methods_2025_11_01_ag,
+        *methods_2026_08_05_ag,
         *methods_misc,
         *methods_superseded_2026_07_13,
     ]
