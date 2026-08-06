@@ -173,8 +173,10 @@ def leaderboard_table_points(df_website_leaderboard: pd.DataFrame) -> pd.DataFra
     )
     # Semicolon-joined by `website_format.add_metadata`; empty for every model and for a
     # system that is open-source, local and LLM-free. Older tables have no column at all.
+    # An empty Tags cell round-trips through CSV as NaN, and `str(nan)` is the string "nan",
+    # so test for null rather than truthiness or an untagged system reads as tagged.
     tags = df["Tags"] if "Tags" in df.columns else pd.Series([""] * len(df))
-    points["tags"] = [[t for t in str(v or "").split(";") if t] for v in tags]
+    points["tags"] = [[] if pd.isna(v) else [t for t in str(v).split(";") if t] for v in tags]
     for spec in _COLUMNS:
         column = spec.get("column")
         if not column:

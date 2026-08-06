@@ -501,6 +501,18 @@ __BASE_JS__
     });
   }
 
+  // Embedded, the host can pick the metric for us: the leaderboard's "I care about" control
+  // decides whether the page leads with Elo or Improvability, and every panel follows without
+  // regenerating an artifact per metric. Ignored when the metric is not one this chart offers.
+  window.addEventListener("message", ev => {
+    const d = ev.data;
+    if (!d || d.type !== "tabarena-explorer-metric") return;
+    if (!METRICS.some(m => m.key === d.metric) || d.metric === metricKey) return;
+    metricKey = d.metric;
+    if (metricSelect) metricSelect.value = metricKey;
+    render();
+  });
+
   // ---------- legend strip ----------
   function buildLegend() {
     const box2 = document.getElementById("legendstrip");
