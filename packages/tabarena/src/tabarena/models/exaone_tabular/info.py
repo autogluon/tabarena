@@ -7,13 +7,15 @@ from tabarena.models.exaone_tabular.model import EXAONETabularModel
 
 exaone_tabular_method_metadata = MethodMetadata.config(
     method="EXAONE-Tabular",
-    suite="tabarena-2026-07-31",
+    # Supersedes tabarena-2026-07-31, which held the classification-only sweep. This suite adds
+    # the regression tasks; the classification results in it are the same fits, unchanged.
+    suite="tabarena-2026-08-06",
     ag_key="TA-EXAONE-TABULAR",
     config_default="EXAONE-Tabular_c1_default_BAG_L1",
     can_hpo=False,
     compute="gpu",
     is_bag=False,
-    date="2026-07-31",
+    date="2026-08-06",
     date_introduced="2026-07-31",
     reference_url="https://github.com/LGAI-Research/EXAONE-Tabular",
     display_name="EXAONE-Tabular",
