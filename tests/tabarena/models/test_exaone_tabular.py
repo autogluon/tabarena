@@ -47,8 +47,7 @@ def _require_checkpoint(task: str) -> None:
     """Skip unless the released checkpoint for ``task`` can be resolved to a local file.
 
     Runs the library's own resolution — the one ``from_pretrained`` performs — so a checkpoint
-    supplied through ``EXAONETABULAR_{CLASSIFIER,REGRESSOR}_WEIGHTS`` counts as available. As of
-    2026-08-06 the regressor file is not on the Hub yet, so that half skips rather than fails.
+    supplied through ``EXAONETABULAR_{CLASSIFIER,REGRESSOR}_WEIGHTS`` counts as available.
     """
     from exaonetabular.presets import released_checkpoint
     from exaonetabular.weights import resolve_weights
@@ -64,7 +63,7 @@ def test_fit_on_toy_datasets(tmp_path, monkeypatch, task: str) -> None:
     """AutoGluon's full model verification on the toy datasets backed by each checkpoint.
 
     Covers bagging, ``refit_full``, the save/load device round-trip, and seeding. Split per
-    checkpoint so a missing regressor file does not take the classification coverage with it.
+    checkpoint so an unreachable one does not take the other's coverage with it.
     """
     from autogluon.tabular.testing import FitHelper
 

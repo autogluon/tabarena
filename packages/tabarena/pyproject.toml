@@ -117,9 +117,9 @@ iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.14.1"]
 nori = ["synthefy-nori>=0.10.0"]
 # EXAONE Tabular is not published on PyPI; pinned to a commit so the benchmarked code is fixed.
-# Keep in sync with `pip_extra` in models/exaone_tabular/info.py, which explains the chosen commit.
+# Keep in sync with `pip_extra` in models/exaone_tabular/info.py.
 exaone_tabular = [
-  "exaonetabular @ git+https://github.com/LGAI-Research/EXAONE-Tabular.git@6cca1af2395663837e104d2efd8d37fea89fe688",
+  "exaonetabular @ git+https://github.com/LGAI-Research/EXAONE-Tabular.git@b78c8a02401b246d690faae5ec7e116d011435f8",
 ]
 # TabSwift is vendored under models/tabswift/_vendor/ (not pip-installable). All of its
 # runtime deps (torch, numpy, scikit-learn, scipy, psutil, tqdm, huggingface_hub, packaging)

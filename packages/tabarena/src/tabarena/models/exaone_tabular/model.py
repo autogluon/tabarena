@@ -79,7 +79,7 @@ class EXAONETabularModel(AbstractTorchModel):
         is likewise unused: the library exposes no thread-count knob.
 
         Regression does one extra thing inside ``fit``: from ~10k support rows up, it holds out a
-        fifth of them to solve for non-negative ensemble-member weights, which costs one additional
+        fifth of them to solve for non-negative ensemble-member weights, which costs an additional
         forward pass. Below that threshold the members stay uniformly weighted.
         """
         import torch
