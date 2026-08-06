@@ -29,7 +29,7 @@ model_type_emoji = {
     Constants.neural_network: "🧠🔁",
     Constants.baseline: "📏",
     Constants.other: "❓",
-    Constants.system: "🧰",
+    Constants.system: "📊",
 }
 
 #: How each `MethodTag` is presented: the chip shown next to a system's name, and the hover

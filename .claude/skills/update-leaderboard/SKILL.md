@@ -56,7 +56,7 @@ How the classification works (read `website_format.py`):
   against `prefixes_mapping` (`foundational`, `neural_network`, `tree`, `baseline`, `other`). No match
   → `Constants.other` (`❓ Other`).
 - **Systems skip all of this.** When `method_class == "system"`, `add_metadata` sets the family to
-  `Constants.system` (🧰) directly, and the figure paths recognize them from `system_display_names`.
+  `Constants.system` (📊) directly, and the figure paths recognize them from `system_display_names`.
   There is no prefix to register, so this pre-check only concerns models.
 - `get_rename_map()` gives the pretty display name (e.g. `TABSWIFT` → `TabSwift`).
 

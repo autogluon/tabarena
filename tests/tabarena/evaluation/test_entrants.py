@@ -1,58 +1,73 @@
 from __future__ import annotations
 
-from itertools import pairwise
-
 import pandas as pd
 import pytest
 
 from tabarena.evaluation.entrants import (
     DEFAULT_ENTRANT_POOL,
     ENTRANT_POOLS,
+    SYSTEM_CATEGORIES,
     filter_results_to_pool,
     get_entrant_pool,
+    pool_key,
 )
 
-# One representative entrant per (class, tags) combination the pools discriminate on.
+# One representative entrant per (class, tags) combination the categories discriminate on.
 _MODEL = ("model", ())
 _OPEN_SYSTEM = ("system", ())
 _LLM_SYSTEM = ("system", ("with-llm",))
 _API_SYSTEM = ("system", ("closed-source-api",))
 _API_LLM_SYSTEM = ("system", ("closed-source-api", "with-llm"))
+_ALL = [_MODEL, _OPEN_SYSTEM, _LLM_SYSTEM, _API_SYSTEM, _API_LLM_SYSTEM]
 
 
 @pytest.mark.parametrize(
-    ("pool_key", "expected"),
+    ("pool_key_", "expected"),
     [
-        # A model always competes; systems are admitted only where their tags are allowed.
         ("models", [_MODEL]),
-        ("systems_open", [_MODEL, _OPEN_SYSTEM]),
-        ("systems_llm", [_MODEL, _OPEN_SYSTEM, _LLM_SYSTEM]),
-        ("systems_all", [_MODEL, _OPEN_SYSTEM, _LLM_SYSTEM, _API_SYSTEM, _API_LLM_SYSTEM]),
+        ("open", [_MODEL, _OPEN_SYSTEM]),
+        # The point of independent toggles: LLM systems without the plain open-source ones.
+        ("llm", [_MODEL, _LLM_SYSTEM]),
+        ("api", [_MODEL, _API_SYSTEM]),
+        ("open_llm", [_MODEL, _OPEN_SYSTEM, _LLM_SYSTEM]),
+        ("open_api", [_MODEL, _OPEN_SYSTEM, _API_SYSTEM]),
+        # A system carrying both tags needs both categories, so it appears only here and below.
+        ("llm_api", [_MODEL, _LLM_SYSTEM, _API_SYSTEM, _API_LLM_SYSTEM]),
+        ("open_llm_api", _ALL),
     ],
 )
-def test_pool_admission(pool_key, expected):
-    pool = get_entrant_pool(pool_key)
-    entrants = [_MODEL, _OPEN_SYSTEM, _LLM_SYSTEM, _API_SYSTEM, _API_LLM_SYSTEM]
-    assert [e for e in entrants if pool.admits(*e)] == expected
+def test_pool_admission(pool_key_, expected):
+    pool = get_entrant_pool(pool_key_)
+    assert [e for e in _ALL if pool.admits(*e)] == expected
 
 
-def test_pools_are_cumulative():
-    """Each pool admits everything the previous one does, so the selector reads as a ladder."""
-    entrants = [_MODEL, _OPEN_SYSTEM, _LLM_SYSTEM, _API_SYSTEM, _API_LLM_SYSTEM]
-    admitted = [{e for e in entrants if pool.admits(*e)} for pool in ENTRANT_POOLS]
-    for narrower, wider in pairwise(admitted):
-        assert narrower < wider
+def test_every_combination_of_categories_is_published():
+    assert len(ENTRANT_POOLS) == 2 ** len(SYSTEM_CATEGORIES)
+    assert len({p.key for p in ENTRANT_POOLS}) == len(ENTRANT_POOLS)
+
+
+def test_pool_key_is_order_independent():
+    # The reader ticks boxes in any order; the folder segment must not depend on that.
+    assert pool_key(["llm", "open"]) == pool_key(["open", "llm"]) == "open_llm"
+    assert pool_key([]) == "models"
+
+
+def test_a_multi_tagged_system_needs_every_one_of_its_categories():
+    """Never admitted on the strength of a property the reader excluded."""
+    assert not get_entrant_pool("llm").admits(*_API_LLM_SYSTEM)
+    assert not get_entrant_pool("api").admits(*_API_LLM_SYSTEM)
+    assert get_entrant_pool("llm_api").admits(*_API_LLM_SYSTEM)
 
 
 def test_default_pool_is_models_only():
     # The website opens on this one, so a change here changes the published front page.
     assert DEFAULT_ENTRANT_POOL.key == "models"
-    assert not DEFAULT_ENTRANT_POOL.include_systems
+    assert not DEFAULT_ENTRANT_POOL.categories
 
 
 def test_get_entrant_pool_rejects_unknown_keys():
     with pytest.raises(ValueError, match="Unknown entrant pool"):
-        get_entrant_pool("systems_open_source")
+        get_entrant_pool("systems_all")
 
 
 def _info_frame() -> pd.DataFrame:
@@ -76,16 +91,17 @@ def _results_frame() -> pd.DataFrame:
 
 
 @pytest.mark.parametrize(
-    ("pool_key", "expected"),
+    ("pool_key_", "expected"),
     [
         ("models", ["TabM"]),
-        ("systems_open", ["TabM", "AutoGluon"]),
-        ("systems_llm", ["TabM", "AutoGluon", "Agent"]),
-        ("systems_all", ["TabM", "AutoGluon", "Agent", "HostedAPI"]),
+        ("open", ["TabM", "AutoGluon"]),
+        ("llm", ["TabM", "Agent"]),
+        ("api", ["TabM", "HostedAPI"]),
+        ("open_llm_api", ["TabM", "AutoGluon", "Agent", "HostedAPI"]),
     ],
 )
-def test_filter_results_to_pool(pool_key, expected):
-    kept = filter_results_to_pool(_results_frame(), get_entrant_pool(pool_key), _info_frame())
+def test_filter_results_to_pool(pool_key_, expected):
+    kept = filter_results_to_pool(_results_frame(), get_entrant_pool(pool_key_), _info_frame())
     assert list(kept["ta_name"]) == expected
 
 

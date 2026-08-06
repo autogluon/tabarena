@@ -45,12 +45,12 @@ def test_website_folder_name_layout():
     ) == Path("website_data/entrants_models/imputation_yes/splits_all/tasks_all/datasets_all")
 
     assert get_website_folder_name(
-        entrant_pool="systems_all",
+        entrant_pool="open_llm_api",
         use_imputation=False,
         problem_type="regression",
         dataset_subset="small",
         lite=True,
-    ) == Path("website_data/entrants_systems_all/imputation_no/splits_lite/tasks_regression/datasets_small")
+    ) == Path("website_data/entrants_open_llm_api/imputation_no/splits_lite/tasks_regression/datasets_small")
 
 
 def test_every_grid_cell_maps_to_a_distinct_folder():

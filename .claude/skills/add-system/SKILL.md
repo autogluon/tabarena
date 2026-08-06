@@ -109,4 +109,4 @@ There is no per-system fit test. Verify the wrapper with the quickstart in `exam
 
 ## What happens on the leaderboard
 
-The system appears under the 🧰 **System** family, typed from `method_class` rather than from its name, with a chip per tag. It shows up in whichever entrant pools admit it, and its presence changes every other entrant's Elo and Improvability in those pools, since both are measured against the field.
+The system appears under the 📊 **System** family, typed from `method_class` rather than from its name, with a chip per tag. It shows up in whichever entrant pools admit it, and its presence changes every other entrant's Elo and Improvability in those pools, since both are measured against the field.

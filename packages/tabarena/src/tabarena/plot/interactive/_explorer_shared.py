@@ -299,7 +299,7 @@ EXPLORER_BASE_JS = r"""
     "Foundation Model": "🧠⚡",
     "Tree-based": "🌳",
     "Neural Network": "🧠🔁",
-    "System": "🧰",
+    "System": "📊",
     [FAM_MERGED]: "📏 ❓",
   };
   // Tuning-variant colours, matching the --var-* tokens the charts plot with.

@@ -128,9 +128,11 @@ The website types a system from `method_class`, never from its name. `website_fo
 
 Every headline number is relative to who competed: Elo is pairwise over the participants, `improvability` is `1 - best_error_in_pool / error`, and the ranks are positions in the field. Narrowing the field therefore needs a recompute, not a row filter, which is why the entrant pool is a subset axis alongside imputation and splits rather than a toggle on the published table.
 
-`evaluation/entrants.py` defines four cumulative pools: `models`, `systems_open`, `systems_llm`, `systems_all`. A method is admitted iff it is not a system, or the pool includes systems and its tags are a subset of `allow_tags`. `evaluation/subset_grid.py` crosses the pools with the other axes into the 240-cell grid and owns the folder layout (`entrants_<key>/imputation_.../splits_.../tasks_.../datasets_...`), which the leaderboard Space's `Subset.rel_path` mirrors segment for segment.
+`evaluation/entrants.py` groups systems into independently selectable `SYSTEM_CATEGORIES`: `open` (untagged, i.e. open-source and local), `llm` (`with-llm`), and `api` (`closed-source-api`). Every combination is published as its own pool, so there are `2 ** len(SYSTEM_CATEGORIES)` = 8, keyed `models`, `open`, `llm`, `api`, `open_llm`, `open_api`, `llm_api`, `open_llm_api`. Models always compete.
 
-Note the toggle shape: two independent checkboxes ("include closed-source", "include LLMs") would imply a fifth field, "closed API without an LLM", which has no published pool. The leaderboard renders one four-stop selector for that reason. Adding the fifth is one entry in `ENTRANT_POOLS` plus a generation pass.
+Independent rather than a cumulative ladder because "LLM-based systems but not the plain open-source ones" is a question people actually have, and a ladder cannot express it. A system carrying several tags belongs to several categories and needs *all* of them selected, so a closed-API LLM system never appears on the strength of a property the reader excluded.
+
+`evaluation/subset_grid.py` crosses the pools with the other axes into a 480-cell grid and owns the folder layout (`entrants_<key>/imputation_.../splits_.../tasks_.../datasets_...`), which the leaderboard Space's `Subset.rel_path` mirrors segment for segment. Adding a fourth category doubles the artifact count and the generation time; that is the price of independent toggles.
 
 ### Data caching
 
