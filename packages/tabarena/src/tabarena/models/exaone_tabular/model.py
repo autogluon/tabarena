@@ -14,6 +14,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+#: Released regression checkpoints the curated configs select via an arm's ``weight``. Declared here
+#: rather than in ``hpo.py`` so the search space and :meth:`prefetch_weights` read the same list and
+#: cannot drift — every file a config can ask for is a file prefetch warms.
+REGRESSION_WEIGHT_DEFAULT = "exaone-tabular-regressor-v1_default.safetensors"
+REGRESSION_WEIGHT_3EED = "exaone-tabular-regressor-v1_3eedbae97394.safetensors"
+REGRESSION_WEIGHT_8BD9 = "exaone-tabular-regressor-v1_8bd9bf482585.safetensors"
+REGRESSION_CHECKPOINTS: tuple[str, ...] = (
+    REGRESSION_WEIGHT_DEFAULT,
+    REGRESSION_WEIGHT_3EED,
+    REGRESSION_WEIGHT_8BD9,
+)
+
 
 class EXAONETabularModel(AbstractTorchModel):
     """EXAONE Tabular: an in-context-learning tabular foundation model from LG AI Research.
@@ -111,9 +123,50 @@ class EXAONETabularModel(AbstractTorchModel):
         # own support set and maps its predictions back, and the classifier encodes the labels.
         y_np = np.asarray(y.to_numpy())
 
+        kwargs, manifest = self._resolve_config(hps)
         estimator_cls = EXAONETabularRegressor if self.problem_type == "regression" else EXAONETabularClassifier
-        self.model = estimator_cls.from_pretrained(device=device, **hps)
+        self.model = estimator_cls.from_pretrained(device=device, manifest=manifest, **kwargs)
         self.model.fit(X_np, y_np)
+
+    #: Arm keys belonging to the manifest's ``preprocessing`` section. Everything else in an arm
+    #: (bar :data:`_WEIGHT_KEY`) tunes the task's own config section.
+    _PREPROCESSING_KEYS = frozenset({"use_quantile_map", "rescale_for_column_count"})
+    #: Arm key naming a checkpoint file inside the released Hub repo.
+    _WEIGHT_KEY = "weight"
+
+    def _resolve_config(self, hps: dict) -> tuple[dict, object]:
+        """Split a config into ``from_pretrained`` kwargs and the inference manifest to load with.
+
+        A config carries the runtime knobs both tasks share at the top level, plus one dict per task
+        under ``"classification"`` / ``"regression"``. Only the arm matching the fitted task is read,
+        so one config describes both halves of the benchmark without either seeing the other's
+        settings — which is what lets a single portfolio span a classification-only and a
+        regression-only checkpoint.
+
+        Within an arm, ``weight`` names an alternative checkpoint file in the released repo (routed
+        to ``filename``, the parameter that keeps the repo/revision coordinates intact), the
+        preprocessing keys land in the manifest's ``preprocessing`` section, and whatever remains
+        tunes the task's own section (``ClassificationConfig`` / ``RegressionConfig``).
+        """
+        from dataclasses import replace
+
+        from exaonetabular import released_manifest
+
+        task = "regression" if self.problem_type == "regression" else "classification"
+        kwargs = {k: v for k, v in hps.items() if k not in ("classification", "regression")}
+        arm = dict(hps.get(task) or {})
+
+        weight = arm.pop(self._WEIGHT_KEY, None)
+        if weight is not None:
+            kwargs["filename"] = weight
+
+        manifest = released_manifest(task)
+        preprocessing = {k: arm.pop(k) for k in list(arm) if k in self._PREPROCESSING_KEYS}
+        if preprocessing:
+            manifest = replace(manifest, preprocessing=replace(manifest.preprocessing, **preprocessing))
+        if arm:
+            manifest = replace(manifest, **{task: replace(getattr(manifest, task), **arm)})
+        return kwargs, manifest
 
     def _set_default_params(self):
         # The released checkpoints' runtime defaults, identical for both (exaonetabular.presets).
@@ -189,33 +242,36 @@ class EXAONETabularModel(AbstractTorchModel):
         warmup_imports("exaonetabular.classifier", "exaonetabular.regressor")
 
     @classmethod
-    def download_checkpoint(cls, task: str) -> str:
-        """Download one released checkpoint (``"classification"`` / ``"regression"``), return its path.
+    def download_checkpoint(cls, task: str, filename: str | None = None) -> str:
+        """Download one released checkpoint, returning its local path.
 
-        The Hub coordinates come from ``exaonetabular.presets`` rather than being hardcoded here, so
-        a checkpoint bump in the library is picked up automatically. Tries the local cache first so
-        offline compute nodes skip the etag HEAD-request ``hf_hub_download`` makes by default.
+        ``task`` (``"classification"`` / ``"regression"``) supplies the Hub coordinates from
+        ``exaonetabular.presets`` rather than hardcoding them here, so a repo or revision bump in
+        the library is picked up automatically. ``filename`` overrides which file inside that repo
+        to fetch, for the alternative checkpoints the curated configs select.
+
+        Deliberately no ``local_files_only`` fast path: the released files are served from a mutable
+        ``main`` revision and have been republished in place at least once, so trusting a cache hit
+        would pin a superseded checkpoint forever and silently benchmark the wrong weights. The
+        normal call revalidates the etag and re-downloads when the bytes changed.
         """
         from exaonetabular import released_checkpoint
         from huggingface_hub import hf_hub_download
-        from huggingface_hub.errors import LocalEntryNotFoundError
 
         checkpoint = released_checkpoint(task)
-        coordinates = {
-            "repo_id": checkpoint.repo_id,
-            "filename": checkpoint.filename,
-            "revision": checkpoint.revision,
-        }
-        try:
-            return hf_hub_download(**coordinates, local_files_only=True)
-        except LocalEntryNotFoundError:
-            return hf_hub_download(**coordinates)
+        return hf_hub_download(
+            repo_id=checkpoint.repo_id,
+            filename=filename or checkpoint.filename,
+            revision=checkpoint.revision,
+        )
 
     @classmethod
     def prefetch_weights(cls) -> dict[str, str]:
-        """Pre-download both released checkpoints; return ``{task: local path}``.
+        """Pre-download every checkpoint the search space can select; return ``{filename: path}``.
 
-        Classification and regression are separate files, so a run covering both problem types
-        needs both warmed before the jobs are dispatched.
+        That is the released classifier plus each entry of :data:`REGRESSION_CHECKPOINTS`, so no
+        config can reach a compute node needing a file the head node never warmed.
         """
-        return {task: cls.download_checkpoint(task) for task in ("classification", "regression")}
+        paths = {"classification": cls.download_checkpoint("classification")}
+        paths.update({name: cls.download_checkpoint("regression", filename=name) for name in REGRESSION_CHECKPOINTS})
+        return paths

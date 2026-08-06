@@ -11,8 +11,8 @@ exaone_tabular_method_metadata = MethodMetadata.config(
     # the regression tasks; the classification results in it are the same fits, unchanged.
     suite="tabarena-2026-08-06",
     ag_key="TA-EXAONE-TABULAR",
-    config_default="EXAONE-Tabular_c1_default_BAG_L1",
-    can_hpo=False,
+    config_default="EXAONE-Tabular_c1_BAG_L1",
+    can_hpo=True,
     compute="gpu",
     is_bag=False,
     date="2026-08-06",
@@ -30,7 +30,7 @@ exaone_tabular_info = ModelInfo(
     search_space=gen_exaone_tabular,
     method_metadata=exaone_tabular_method_metadata,
     pip_extra=(
-        "exaonetabular @ git+https://github.com/LGAI-Research/EXAONE-Tabular.git@b78c8a02401b246d690faae5ec7e116d011435f8",
+        "exaonetabular @ git+https://github.com/LGAI-Research/EXAONE-Tabular.git@309f01a8743aa4add48edeef2a251ae1587ead96",
     ),
     prefetch_weights=EXAONETabularModel.prefetch_weights,
 )
