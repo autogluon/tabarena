@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from tabarena.benchmark.experiment.experiment_constructor import Experiment
+from tabarena.benchmark.experiment.experiment_constructor import AGModelBagExperiment, Experiment
 from tabarena.benchmark.experiment.model_constraints import (
     TABICL_CONSTRAINTS,
     TABPFNV2_CONSTRAINTS,
@@ -193,6 +193,18 @@ class TabArenaExperimentBundle:
     """If True, experiments built by this bundle adapt their validation data
     dynamically based on the task at run time (handled by the run engine).
     WARNING: this can overwrite the configured validation of a configuration!"""
+    bag_experiment_cls: type[AGModelBagExperiment] = AGModelBagExperiment
+    """Which bagged experiment flavour to build, and with it *who* resolves the validation
+    splits when ``dynamic_tabarena_validation_protocol`` is on.
+
+    - ``AGModelBagExperiment`` (default): TabArena resolves the task's grouped / temporal folds
+      and hands AutoGluon explicit ``custom_splits``.
+    - ``AGModelBagExperimentV2``: the structure is declared to
+      ``TabularPredictor.fit(validation_structure=...)`` and AutoGluon resolves the folds itself.
+      Note that TabArena's fold-count *policy* is not applied on this path (AutoGluon owns sizing
+      via ``validation_size_curves``), so pass explicit fold counts or configure those curves.
+
+    Ignored for the holdout / outer / system flavours and for pre-built ``Experiment`` entries."""
     text_cache_mode: TextCacheMode = "require"
     """How a text task's semantic-embedding cache is treated at fit time, enforced on *every*
     experiment this bundle builds (bagged, holdout, and outer alike): ``require`` (default) fails
@@ -694,6 +706,7 @@ class TabArenaExperimentBundle:
             preprocessing_pipeline=preprocessing_pipeline,
             fold_fitting_strategy="sequential_local" if self.sequential_local_fold_fitting else None,
             dynamic_tabarena_validation_protocol=self.dynamic_tabarena_validation_protocol,
+            experiment_cls=self.bag_experiment_cls,
         )
 
 
