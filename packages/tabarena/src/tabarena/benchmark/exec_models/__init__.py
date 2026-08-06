@@ -18,6 +18,11 @@ from tabarena.benchmark.exec_models.autogluon import (
     AGSingleWrapper,
     AGWrapper,
 )
+from tabarena.benchmark.exec_models.autogluon_v2 import (
+    AGSingleBagWrapperV2,
+    AGSingleWrapperV2,
+    AGWrapperV2,
+)
 from tabarena.benchmark.exec_models.base import AbstractExecModel
 from tabarena.benchmark.exec_models.external import ExternalSystemModel
 from tabarena.benchmark.exec_models.registry import infer_model_cls
@@ -25,8 +30,11 @@ from tabarena.benchmark.exec_models.registry import infer_model_cls
 __all__ = [
     "AGModelWrapper",
     "AGSingleBagWrapper",
+    "AGSingleBagWrapperV2",
     "AGSingleWrapper",
+    "AGSingleWrapperV2",
     "AGWrapper",
+    "AGWrapperV2",
     "AbstractExecModel",
     "ExternalSystemModel",
     "infer_model_cls",

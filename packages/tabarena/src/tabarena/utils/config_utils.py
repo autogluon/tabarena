@@ -501,6 +501,7 @@ def generate_bag_experiments(
     add_name_suffix_to_params: bool = True,
     add_seed: AddSeed = "static",
     fold_fitting_strategy: Literal["sequential_local"] | None = None,
+    experiment_cls: type[AGModelBagExperiment] = AGModelBagExperiment,
     **kwargs,
 ) -> list[AGModelBagExperiment]:
     """Build a bagged :class:`AGModelBagExperiment` per config (``num_bag_folds`` x ``num_bag_sets`` children).
@@ -508,15 +509,19 @@ def generate_bag_experiments(
     Each config is first tagged with its random seed (``add_seed``, see
     :func:`_apply_seed_to_bag_configs`) and any ``fold_fitting_strategy``; experiments are then named
     ``{ag_name}{name_suffix}{name_bag_suffix}`` and built. ``**kwargs`` are forwarded to
-    :class:`AGModelBagExperiment` (e.g. ``preprocessing_pipeline``,
-    ``dynamic_tabarena_validation_protocol``).
+    ``experiment_cls`` (e.g. ``preprocessing_pipeline``, ``dynamic_tabarena_validation_protocol``).
+
+    ``experiment_cls`` selects the bagged experiment flavour, and with it which exec-model wrapper
+    fits the folds: :class:`AGModelBagExperiment` (TabArena resolves grouped / temporal splits) or
+    :class:`~tabarena.benchmark.experiment.AGModelBagExperimentV2` (AutoGluon resolves them from a
+    declared ``validation_structure``). Everything else about the build is identical.
     """
     configs = _apply_seed_to_bag_configs(configs, add_seed, num_bag_folds=num_bag_folds, num_bag_sets=num_bag_sets)
     if fold_fitting_strategy is not None:
         configs = [add_fold_fitting_strategy(config, fold_fitting_strategy=fold_fitting_strategy) for config in configs]
 
     def build_experiment(name: str, config: dict) -> AGModelBagExperiment:
-        return AGModelBagExperiment(
+        return experiment_cls(
             name=name,
             model_cls=model_cls,
             model_hyperparameters=config,
