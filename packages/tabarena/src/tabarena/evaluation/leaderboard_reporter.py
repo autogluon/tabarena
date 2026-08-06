@@ -656,6 +656,7 @@ class LeaderboardReporter:
         plot_critical_diagrams: bool = False,
         plot_runtimes: bool = False,
         plot_pareto: bool = True,
+        plot_date_introduced: bool = False,
         compute_fold_stability_curves: bool = False,
         compute_fold_similarity: bool = False,
         fold_similarity_kwargs: dict | None = None,
@@ -680,8 +681,14 @@ class LeaderboardReporter:
         tabarena.ai website ships (leaderboard CSVs, the vertical
         ``tuning-impact-elo`` bar plot, the win-rate matrix, and the Pareto
         figures + interactive explorer), skipping the rest of the paper
-        figure suite (date-introduced scatters and their GIF animations,
-        LaTeX tables, the horizontal Elo bar plot).
+        figure suite (LaTeX tables, the horizontal Elo bar plot).
+
+        ``plot_date_introduced`` (default ``False``) opts into the
+        ``{elo,improvability}_vs_date_introduced`` scatters and their GIF
+        timelapses. They are a paper figure rather than a per-run one, and the
+        four of them dominate the runtime of an otherwise quick evaluation, so
+        they are off unless asked for. ``website_only`` suppresses them either
+        way.
 
         ``plot_only`` (default ``None`` -> show everything) restricts the *plots*
         to a subset of methods without affecting any numbers: the leaderboard,
@@ -923,13 +930,14 @@ class LeaderboardReporter:
         leaderboard = leaderboard.reset_index(drop=False)
         save_pd.save(path=f"{self.output_dir}/tabarena_leaderboard.csv", df=leaderboard)
 
-        if not website_only:
+        if plot_date_introduced and not website_only:
             # Elo vs. method introduction date (no-op unless `date_introduced` method metadata is available).
             self.plot_elo_vs_date_introduced(leaderboard=leaderboard, show=False)
             self.animate_elo_vs_date_introduced(leaderboard=leaderboard)
             self.plot_improvability_vs_date_introduced(leaderboard=leaderboard, show=False)
             self.animate_improvability_vs_date_introduced(leaderboard=leaderboard)
 
+        if not website_only:
             self.create_leaderboard_latex(
                 leaderboard,
                 framework_types=framework_types,
