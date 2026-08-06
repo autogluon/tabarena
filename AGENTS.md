@@ -134,6 +134,8 @@ Independent rather than a cumulative ladder because "LLM-based systems but not t
 
 `evaluation/subset_grid.py` crosses the pools with the other axes into a 480-cell grid and owns the folder layout (`entrants_<key>/imputation_.../splits_.../tasks_.../datasets_...`), which the leaderboard Space's `Subset.rel_path` mirrors segment for segment. Adding a fourth category doubles the artifact count and the generation time; that is the price of independent toggles.
 
+One coupling to know about when you register a system: `eval_all.get_pool_reference_lines` returns the pool's admitted systems as `(baselines, baseline_colors)`, and `baselines` is not only what the figures draw as horizontal reference lines. `LeaderboardReporter.eval` keeps a row only when its method maps to a config framework type *or* is named in `baselines`, and a system is neither, so a system missing from that list is deleted from the pool's published numbers with nothing logged. It is derived from `method_metadata_info` for exactly that reason, and `tests/tabarena/evaluation/test_entrants.py` guards that the widest pool covers every system in the shipped collection.
+
 ### Data caching
 
 TabArena uses five independent caches. Configure them all at once with `tabarena.caching.CacheConfig` — the single, documented surface (`TabArenaContext(cache_config=CacheConfig.from_root(...))`; the context applies it on construction and re-applies it inside `run_jobs`, so distributed workers inherit it). The SLURM path uses the **same** object: the setup embeds `context.cache_config` in the `JobBatch`, and each worker applies it (no `--openml_cache_dir` wiring). See the `CacheConfig` docstring for the authoritative per-cache reference.
