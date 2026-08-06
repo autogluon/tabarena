@@ -11,6 +11,7 @@ from tabarena.evaluation.entrants import (
     get_entrant_pool,
     pool_key,
 )
+from tabarena.evaluation.eval_all import get_pool_reference_lines
 
 # One representative entrant per (class, tags) combination the categories discriminate on.
 _MODEL = ("model", ())
@@ -120,3 +121,53 @@ def test_info_frame_without_the_new_columns_keeps_everything():
     df = pd.DataFrame({"ta_name": ["TabM", "AutoGluon"], "ta_suite": ["s", "s"]})
     kept = filter_results_to_pool(df, get_entrant_pool("models"), info)
     assert list(kept["ta_name"]) == ["TabM", "AutoGluon"]
+
+
+# -- reference lines / leaderboard admission ---------------------------------------------------
+# `get_pool_reference_lines` is not only a plotting concern: `LeaderboardReporter.eval` keeps a
+# non-config row only when its method is named in `baselines`, so a system left out here is
+# deleted from the pool's published numbers.
+
+
+def _named_info_frame() -> pd.DataFrame:
+    info = _info_frame()
+    info["display_name"] = info["method"]
+    return info
+
+
+@pytest.mark.parametrize(
+    ("pool_key_", "expected"),
+    [
+        ("models", []),
+        ("open", ["AutoGluon"]),
+        ("llm", ["Agent"]),
+        ("api", ["HostedAPI"]),
+        ("open_llm_api", ["AutoGluon", "Agent", "HostedAPI"]),
+    ],
+)
+def test_reference_lines_are_every_admitted_system(pool_key_, expected):
+    names, colors = get_pool_reference_lines(pool_key_, _named_info_frame())
+    assert names == expected
+    assert len(colors) == len(names)
+
+
+def test_reference_lines_never_list_a_model():
+    names, _ = get_pool_reference_lines("open_llm_api", _named_info_frame())
+    assert "TabM" not in names
+
+
+def test_the_first_reference_colors_are_the_ones_autogluon_has_always_used():
+    _, colors = get_pool_reference_lines("open_llm_api", _named_info_frame())
+    assert colors[:2] == ["black", "tab:purple"]
+
+
+def test_reference_lines_cover_every_system_in_the_shipped_collection():
+    """The regression this guards: a system registered in the collection but absent from the
+    widest pool's reference lines never reaches the leaderboard, silently.
+    """
+    from tabarena.contexts.tabarena.methods import tabarena_method_metadata_collection
+
+    info = tabarena_method_metadata_collection.info()
+    names, _ = get_pool_reference_lines("open_llm_api", info)
+    systems = {m.display_name for m in tabarena_method_metadata_collection.method_metadata_lst if m.is_system}
+    assert systems == set(names)

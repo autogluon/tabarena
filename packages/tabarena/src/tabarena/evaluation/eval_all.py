@@ -7,6 +7,7 @@ The grid itself (and the folder layout it writes into) lives in
 
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -114,28 +115,38 @@ def evaluate_all(
     )
 
 
-#: Systems drawn as horizontal reference lines in a pool's figures, and their colors. Only
-#: those the pool actually admits are drawn, so the models-only pool gets no reference lines
-#: at all rather than lines for competitors that are not in its field.
-_REFERENCE_LINE_COLORS: dict[str, str] = {
-    "AutoGluon 1.4 (best, 4h)": "black",
-    "AutoGluon 1.5 (extreme, 4h)": "tab:purple",
-}
+#: Line colors for the systems a pool draws as horizontal references, cycled in collection
+#: order. The first two land on AutoGluon 1.4 and 1.5, which is what those lines have always
+#: been drawn in.
+_REFERENCE_LINE_COLORS: list[str] = ["black", "tab:purple", "tab:blue", "tab:red", "darkgray"]
 
 
 def get_pool_reference_lines(
     entrant_pool: str,
     method_metadata_info: pd.DataFrame,
 ) -> tuple[list[str], list[str]]:
-    """The ``(baselines, baseline_colors)`` reference lines to draw for one entrant pool."""
+    """The ``(baselines, baseline_colors)`` for one entrant pool: every system it admits.
+
+    These are the horizontal reference lines the pool's figures draw. They are also, less
+    obviously, the systems that reach the pool's leaderboard at all: ``LeaderboardReporter.eval``
+    keeps a row only when its method maps to a config framework type *or* is named in
+    ``baselines``, and a system is neither. So this has to be the whole admitted set. Naming a
+    subset here does not just leave lines off a figure, it deletes those systems from the
+    published numbers.
+
+    The models-only pool admits none, and correctly gets no reference lines.
+    """
     pool = get_entrant_pool(entrant_pool)
-    admitted_names = {
-        row.display_name
-        for row in method_metadata_info.itertuples()
-        if pool.admits(getattr(row, "method_class", "model"), getattr(row, "tags", ()) or ())
-    }
-    drawn = [name for name in _REFERENCE_LINE_COLORS if name in admitted_names]
-    return drawn, [_REFERENCE_LINE_COLORS[name] for name in drawn]
+    names = list(
+        dict.fromkeys(
+            row.display_name
+            for row in method_metadata_info.itertuples()
+            if getattr(row, "method_class", "model") == "system"
+            and pool.admits("system", getattr(row, "tags", ()) or ())
+        )
+    )
+    colors = list(itertools.islice(itertools.cycle(_REFERENCE_LINE_COLORS), len(names)))
+    return names, colors
 
 
 def evaluate_single(
