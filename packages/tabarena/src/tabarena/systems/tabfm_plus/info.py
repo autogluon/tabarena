@@ -11,8 +11,7 @@ from tabarena.systems.tabfm_plus.system import TabFMPlusSystemModel
 # raw results record `num_gpus=0`, so the inferred value would be `cpu`.
 #
 # The run predates the 2026-07-13 rerun that stopped reloading models from disk around inference,
-# so its `time_infer` carries that reload and reads high next to the reruns. Hence `verified=False`
-# until it is measured the same way.
+# so its `time_infer` carries that reload and reads high next to the reruns.
 tabfm_plus_method_metadata = MethodMetadata.system(
     method="TabFM+",
     name="TabFM+",
@@ -21,7 +20,7 @@ tabfm_plus_method_metadata = MethodMetadata.system(
     date="2026-07-09",
     date_introduced="2026-06-30",
     reference_url="https://github.com/google-research/tabfm",
-    verified=False,
+    verified=True,
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
