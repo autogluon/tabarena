@@ -131,9 +131,10 @@ __BASE_JS__
     "Default": { color: "var(--var-default)", rel: 0.6 },
   };
   const VARIANT_ORDER = ["Default", "Tuned", "Tuned + Ens."];
-  // A system is not a tuning variant of anything, so it gets the System family hue rather
-  // than borrowing a variant colour, and the full bar width (there is nothing to nest).
-  const SYSTEM_STYLE = { color: "var(--fam-system)", rel: 1 };
+  // A system is not a tuning variant of anything, so it gets the System family hue rather than
+  // borrowing a variant colour. It takes the width of a Default bar: a system column stands
+  // alone, so a full-width one only read as heavier than everything beside it.
+  const SYSTEM_STYLE = { color: "var(--fam-system)", rel: VARIANT_STYLE["Default"].rel };
   function styleOf(p) { return p.system ? SYSTEM_STYLE : (VARIANT_STYLE[p.variant] || VARIANT_STYLE["Default"]); }
 
   const titleEl = document.getElementById("title");
