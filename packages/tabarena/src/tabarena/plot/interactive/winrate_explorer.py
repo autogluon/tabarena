@@ -19,9 +19,21 @@ from tabarena.plot.interactive.leaderboard_explorer import _VARIANT_LABELS
 from tabarena.website.website_format import get_model_family
 
 #: A trailing tuning-variant tag on a matrix label, e.g. "RealMLP (tuned)". A
-#: parenthetical that is not a tuning variant (the reference pipeline "AutoGluon
-#: 1.5 (extreme, 4h)") stays part of the model name.
-_VARIANT_TAG_RE = re.compile(r"\s*\((default|tuned \+ ensembled|tuned)\)\s*$")
+#: parenthetical that is not a tuning variant (a system's "AutoGluon 1.5 (extreme, 4h)")
+#: stays part of the model name. The reporter shortens the tuned + ensembled tag to
+#: "(T+E)" before the matrix is computed, so that spelling has to be here too: without it
+#: every tuned + ensembled row reads as variant-less and the variant toggles collapse to
+#: a lone "Default".
+_VARIANT_TAG_RE = re.compile(r"\s*\((default|tuned \+ ensembled?|T\+E|tuned)\)\s*$", re.IGNORECASE)
+
+#: Tag as written in a matrix label -> key in :data:`_VARIANT_LABELS`.
+_VARIANT_TAG_KEYS = {
+    "default": "default",
+    "tuned": "tuned",
+    "tuned + ensemble": "tuned + ensembled",
+    "tuned + ensembled": "tuned + ensembled",
+    "t+e": "tuned + ensembled",
+}
 
 
 def _split_label(label: str) -> tuple[str, str]:
@@ -29,7 +41,7 @@ def _split_label(label: str) -> tuple[str, str]:
     match = _VARIANT_TAG_RE.search(label)
     if not match:
         return label, ""
-    return _VARIANT_TAG_RE.sub("", label), _VARIANT_LABELS[match.group(1)]
+    return _VARIANT_TAG_RE.sub("", label), _VARIANT_LABELS[_VARIANT_TAG_KEYS[match.group(1).lower()]]
 
 
 def _families(labels: list[str], system_names: frozenset[str] = frozenset()) -> dict[str, str]:
@@ -76,12 +88,16 @@ def build_winrate_explorer_html(
     # is the same matrix in both directions.
     methods = [str(m) for m in winrate_matrix.index]
     matrix = winrate_matrix.reindex(index=winrate_matrix.index, columns=winrate_matrix.index)
-    values = matrix.astype(float).where(pd.notna(matrix), None).to_numpy().tolist()
+    # Rounded before serializing: the page prints a win rate to one decimal of a percent, and
+    # a full-variant matrix is a few thousand cells, where the unrounded floats are most of
+    # the file. `None` for the NaN diagonal, which JSON has no literal for.
+    values = matrix.astype(float).round(4).where(pd.notna(matrix), None).to_numpy().tolist()
 
     families = _families(methods, system_names=system_names)
-    # The mean excludes the diagonal (a method against itself is not a comparison).
+    # The mean excludes the diagonal (a method against itself is not a comparison). Rounded
+    # like the cells above, and for the same reason.
     numeric = matrix.astype(float)
-    means = [float(numeric.iloc[i].drop(numeric.index[i]).mean(skipna=True)) for i in range(len(methods))]
+    means = [round(float(numeric.iloc[i].drop(numeric.index[i]).mean(skipna=True)), 4) for i in range(len(methods))]
     split = [_split_label(m) for m in methods]
     points = pd.DataFrame(
         {
