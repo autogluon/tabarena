@@ -131,6 +131,10 @@ __BASE_JS__
     "Default": { color: "var(--var-default)", rel: 0.6 },
   };
   const VARIANT_ORDER = ["Default", "Tuned", "Tuned + Ens."];
+  // A system is not a tuning variant of anything, so it gets the System family hue rather
+  // than borrowing a variant colour, and the full bar width (there is nothing to nest).
+  const SYSTEM_STYLE = { color: "var(--fam-system)", rel: 1 };
+  function styleOf(p) { return p.system ? SYSTEM_STYLE : (VARIANT_STYLE[p.variant] || VARIANT_STYLE["Default"]); }
 
   const titleEl = document.getElementById("title");
   if (CONFIG.title) titleEl.textContent = CONFIG.title; else titleEl.hidden = true;
@@ -151,8 +155,8 @@ __BASE_JS__
   // One entry per method, its variants grouped. Systems are entries like any other: they
   // compete in the pools that admit them, so they are drawn as columns rather than as the
   // threshold lines the old "reference pipeline" framing used. A system has a single point
-  // with no tuning variant, which `VARIANT_STYLE` falls back to the Default style for, and
-  // its name carries the System family colour on the axis.
+  // with no tuning variant, drawn in the System family hue (see `styleOf`), and its name
+  // carries that same colour on the axis.
   const byMethod = new Map();
   for (const p of POINTS) {
     let entry = byMethod.get(p.method);
@@ -371,13 +375,13 @@ __BASE_JS__
       // instead loses a variant outright whenever a narrower bar is the taller
       // of the two (TabSTAR's tuned bar sat 1 Elo above tuned + ensembled, and
       // the wider bar covered it completely).
-      const relOf = p => (VARIANT_STYLE[p.variant] || VARIANT_STYLE["Default"]).rel;
+      const relOf = p => styleOf(p).rel;
       const drawn = entry.points
         .filter(p => shownVariant(p) && p[m.key] != null)
         .slice()
         .sort((a, b) => relOf(b) - relOf(a));
       for (const p of drawn) {
-        const style = VARIANT_STYLE[p.variant] || VARIANT_STYLE["Default"];
+        const style = styleOf(p);
         const w = barUnit * style.rel;
         const top = Y(p[m.key]);
         const rect = {
@@ -657,6 +661,11 @@ __BASE_JS__
       parts.push(
         `<span class="item"${off}><svg width="12" height="12" viewBox="0 0 12 12">` +
         `<rect x="1" y="1" width="10" height="10" rx="2" fill="${VARIANT_STYLE[v].color}"/></svg> ${label}</span>`);
+    }
+    if (POINTS.some(p => p.system)) {
+      parts.push(
+        '<span class="item"><svg width="12" height="12" viewBox="0 0 12 12">' +
+        '<rect x="1" y="1" width="10" height="10" rx="2" fill="var(--fam-system)"/></svg> System</span>');
     }
     if (m.ci) {
       parts.push('<span class="item"><svg width="12" height="14" viewBox="0 0 12 14">' +
