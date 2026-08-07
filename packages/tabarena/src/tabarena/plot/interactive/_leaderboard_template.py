@@ -131,8 +131,6 @@ __BASE_JS__
     "Default": { color: "var(--var-default)", rel: 0.6 },
   };
   const VARIANT_ORDER = ["Default", "Tuned", "Tuned + Ens."];
-  // Dash patterns cycle so several reference lines stay distinguishable.
-  const REF_DASHES = ["8 5", "2 4", "12 4 3 4"];
 
   const titleEl = document.getElementById("title");
   if (CONFIG.title) titleEl.textContent = CONFIG.title; else titleEl.hidden = true;
@@ -150,12 +148,13 @@ __BASE_JS__
   const metricByKey = {};
   for (const m of METRICS) metricByKey[m.key] = m;
 
-  // One entry per method (its variants grouped); systems are kept apart — they are
-  // drawn as threshold lines, not as columns.
+  // One entry per method, its variants grouped. Systems are entries like any other: they
+  // compete in the pools that admit them, so they are drawn as columns rather than as the
+  // threshold lines the old "reference pipeline" framing used. A system has a single point
+  // with no tuning variant, which `VARIANT_STYLE` falls back to the Default style for, and
+  // its name carries the System family colour on the axis.
   const byMethod = new Map();
-  const systemRows = [];
   for (const p of POINTS) {
-    if (p.system) { systemRows.push(p); continue; }
     let entry = byMethod.get(p.method);
     if (!entry) {
       entry = { method: p.method, family: p.family, url: p.url, points: [] };
@@ -175,16 +174,18 @@ __BASE_JS__
     yMin: null,   // null = the automatic axis floor; a number = zoomed in
 
     methods: new Set(byMethod.keys()),
-    systems: new Set(systemRows.map(r => r.method)),
     variants: new Set(VARIANT_ORDER),
   };
 
   function metric() { return metricByKey[state.metric]; }
 
+  // A system has no tuning variant, so the variant toggles must not be able to hide it.
+  function shownVariant(p) { return !p.variant || state.variants.has(p.variant); }
+
   // A method's best value under `m`, ignoring variants the reader switched off.
   function bestOf(entry, m) {
     const vals = entry.points
-      .filter(p => state.variants.has(p.variant) && p[m.key] != null)
+      .filter(p => shownVariant(p) && p[m.key] != null)
       .map(p => p[m.key]);
     if (!vals.length) return null;
     return m.lowerBetter ? Math.min(...vals) : Math.max(...vals);
@@ -213,10 +214,6 @@ __BASE_JS__
     const m = metric();
     return sortedMethods([...byMethod.values()].filter(e => state.methods.has(e.method) && bestOf(e, m) != null), m);
   }
-  function visibleRefs() {
-    return systemRows.filter(r => state.systems.has(r.method) && r[state.metric] != null);
-  }
-
   // Rendered width of each label, measured in the live document (font metrics
   // are not knowable up front): it decides whether the names fit on one row or
   // need the two-row stagger, and which ones have to be shortened.
@@ -246,7 +243,6 @@ __BASE_JS__
   function render() {
     const m = metric();
     const entries = visibleEntries();
-    const shownRefs = visibleRefs();
     svg.textContent = "";
     axisSvg.textContent = "";
     axisSvg.setAttribute("width", AXIS_W);
@@ -258,7 +254,7 @@ __BASE_JS__
       svg.setAttribute("height", 120);
       const t = el("text", { x: avail / 2, y: 60, "text-anchor": "middle", "font-size": 13, fill: "var(--muted)" }, svg);
       t.textContent = "No methods selected — use “All methods” to bring them back.";
-      buildLegend(m, shownRefs);
+      buildLegend(m);
       postHeight();
       return;
     }
@@ -285,13 +281,12 @@ __BASE_JS__
     const allVals = [];
     for (const e of entries) {
       for (const p of e.points) {
-        if (!state.variants.has(p.variant) || p[m.key] == null) continue;
+        if (!shownVariant(p) || p[m.key] == null) continue;
         barVals.push(p[m.key]);
         allVals.push(p[m.key]);
         if (m.ci && p[m.ci.hi] != null) allVals.push(p[m.ci.hi]);
       }
     }
-    for (const r of shownRefs) { barVals.push(r[state.metric]); allVals.push(r[state.metric]); }
     const barMin = Math.min(...barVals), barMax = Math.max(...allVals);
     const span = barMax - barMin || Math.abs(barMax) || 1;
     let autoY0, y1;
@@ -378,7 +373,7 @@ __BASE_JS__
       // the wider bar covered it completely).
       const relOf = p => (VARIANT_STYLE[p.variant] || VARIANT_STYLE["Default"]).rel;
       const drawn = entry.points
-        .filter(p => state.variants.has(p.variant) && p[m.key] != null)
+        .filter(p => shownVariant(p) && p[m.key] != null)
         .slice()
         .sort((a, b) => relOf(b) - relOf(a));
       for (const p of drawn) {
@@ -441,34 +436,7 @@ __BASE_JS__
       t.setAttribute("x", Math.max(half + 1, Math.min(cx, plotW - half - 1)));
     });
 
-    // -- reference pipelines as threshold lines. Their names live in the legend
-    //    (matched by dash pattern) rather than on the line, where they would
-    //    cover the tallest bars at every scroll position.
-    const refG = el("g", {}, svg);
-    const tagYs = [];
-    shownRefs.forEach((r, i) => {
-      const ry = Y(r[state.metric]);
-      if (ry < TOP || ry > baseY) return;
-      el("line", {
-        x1: 0, y1: ry, x2: plotW, y2: ry, stroke: "var(--fam-system)", "stroke-width": 1.8,
-        "stroke-dasharray": REF_DASHES[i % REF_DASHES.length], opacity: 0.95,
-      }, refG);
-      // Sticky value tag in the axis pane, so the threshold stays readable at
-      // any scroll position. Two nearby thresholds would print on top of each
-      // other, so nudge each tag clear of the ones already placed; a tag wins
-      // over a tick label it would sit on.
-      let ty = ry;
-      while (tagYs.some(y => Math.abs(y - ty) < 12)) ty += 12;
-      tagYs.push(ty);
-      for (const t of tickLabels) {
-        if (Math.abs(t.y - ty) < 10) t.node.remove();
-      }
-      el("text", {
-        x: AXIS_W - 10, y: ty + 4, "text-anchor": "end", "font-size": 11, "font-weight": 650,
-        fill: "var(--fam-system)",
-      }, axisSvg).textContent = fmtMetric(m, r[state.metric]);
-    });
-    buildLegend(m, shownRefs);
+    buildLegend(m);
 
     // -- hit targets: one full-height column per method (>= 34px wide)
     const hits = el("g", {}, svg);
@@ -493,11 +461,12 @@ __BASE_JS__
     const m = metric();
     let html = `<div class="t-name">${entry.method}</div><div>${entry.family}</div>`;
     for (const p of entry.points) {
-      if (!state.variants.has(p.variant) || p[m.key] == null) continue;
+      if (!shownVariant(p) || p[m.key] == null) continue;
       const ci = m.ci && p[m.ci.lo] != null
         ? ` <span class="t-var">(${fmtNum(p[m.ci.lo], m.decimals)}–${fmtNum(p[m.ci.hi], m.decimals)})</span>`
         : "";
-      html += `<div><span class="t-var">${p.variant}:</span> <b>${fmtMetric(m, p[m.key])}</b>${ci}</div>`;
+      const vlabel = p.variant || "Whole pipeline";
+      html += `<div><span class="t-var">${vlabel}:</span> <b>${fmtMetric(m, p[m.key])}</b>${ci}</div>`;
     }
     if (entry.imputed) html += `<div class="t-imp">Imputed on ${fmtNum(entry.imputed_pct, 0)}% of datasets</div>`;
     tip.show(html, ev);
@@ -509,11 +478,9 @@ __BASE_JS__
   const famChips = new Map();
 
   function familyMembers(fam) {
-    const out = [...byMethod.values()].filter(e => e.family === fam).map(e => e.method);
-    for (const r of systemRows) if (r.family === fam) out.push(r.method);
-    return out;
+    return [...byMethod.values()].filter(e => e.family === fam).map(e => e.method);
   }
-  function isOn(name) { return state.methods.has(name) || state.systems.has(name); }
+  function isOn(name) { return state.methods.has(name); }
 
   function buildChips() {
     const rankMetric = metricByKey[CONFIG.rankMetric] || METRICS[0];
@@ -561,10 +528,7 @@ __BASE_JS__
   }
   function chipRank(name, m) {
     const entry = byMethod.get(name);
-    if (entry) return rankVal(entry, m);
-    const r = systemRows.find(x => x.method === name);
-    const v = r ? r[m.key] : null;
-    return v == null ? Infinity : (m.lowerBetter ? v : -v);
+    return entry ? rankVal(entry, m) : Infinity;
   }
   function syncChips() {
     for (const [name, b] of chipByMethod) b.setAttribute("aria-pressed", String(isOn(name)));
@@ -572,7 +536,7 @@ __BASE_JS__
   }
 
   function toggleMethod(name) {
-    const set = byMethod.has(name) ? state.methods : state.systems;
+    const set = state.methods;
     if (set.has(name)) set.delete(name); else set.add(name);
     syncChips();
     render();
@@ -581,8 +545,7 @@ __BASE_JS__
     const members = familyMembers(fam);
     const allOn = members.every(isOn);
     for (const name of members) {
-      const set = byMethod.has(name) ? state.methods : state.systems;
-      if (allOn) set.delete(name); else set.add(name);
+      if (allOn) state.methods.delete(name); else state.methods.add(name);
     }
     syncChips();
     render();
@@ -594,11 +557,9 @@ __BASE_JS__
   }
 
   document.getElementById("btn-all").addEventListener("click", () => {
-    state.systems = new Set(systemRows.map(r => r.method));
     setMethods(byMethod.keys());
   });
   document.getElementById("btn-none").addEventListener("click", () => {
-    state.systems = new Set();
     setMethods([]);
   });
   document.getElementById("btn-top").addEventListener("click", () => {
@@ -610,7 +571,6 @@ __BASE_JS__
       .sort((a, b) => rankVal(a, m) - rankVal(b, m))
       .slice(0, 15)
       .map(e => e.method);
-    state.systems = new Set(systemRows.map(r => r.method));
     setMethods(top);
   });
 
@@ -687,9 +647,8 @@ __BASE_JS__
   }
 
   // ---------- legend ----------
-  // Rebuilt on every render: it names the reference lines (each by its dash
-  // pattern and current value), which change with the metric and the selection.
-  function buildLegend(m, shownRefs) {
+  // Rebuilt on every render, since the variant swatches dim with the current selection.
+  function buildLegend(m) {
     const parts = [];
     for (const v of VARIANT_ORDER) {
       if (!POINTS.some(p => p.variant === v)) continue;
@@ -703,11 +662,6 @@ __BASE_JS__
       parts.push('<span class="item"><svg width="12" height="14" viewBox="0 0 12 14">' +
         '<path d="M6,2 V12 M2,2 H10 M2,12 H10" stroke="var(--muted)" stroke-width="1.4" fill="none"/></svg> 95% CI</span>');
     }
-    shownRefs.forEach((r, i) => {
-      parts.push(`<span class="item"><svg width="26" height="8" viewBox="0 0 26 8">` +
-        `<line x1="0" y1="4" x2="26" y2="4" stroke="var(--fam-system)" stroke-width="1.8" ` +
-        `stroke-dasharray="${REF_DASHES[i % REF_DASHES.length]}"/></svg> ${r.method} · ${fmtMetric(m, r[state.metric])}</span>`);
-    });
     if (POINTS.some(p => p.imputed)) {
       parts.push('<span class="item"><svg width="14" height="14" viewBox="0 0 14 14">' +
         '<rect x="1" y="1" width="12" height="12" rx="2" fill="var(--pt-muted)"/>' +
