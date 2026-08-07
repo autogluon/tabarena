@@ -64,22 +64,3 @@ def test_names_paint_above_the_column_hairlines(tmp_path):
     html = out.read_text(encoding="utf-8")
     assert html.index("const xLines =") < html.index("const xLabels =")
     assert '"paint-order": "stroke", stroke: "var(--paper)"' in html
-
-
-def test_long_names_wrap_rather_than_being_cut(tmp_path):
-    """A name too wide for its column breaks at a space instead of ending in an ellipsis.
-
-    Systems carry their whole configuration in the name ("AutoGluon 1.6 (noncommercial,
-    4h)"), which no sensible column width holds on one line. Each line becomes its own
-    tspan on the column centre, and the columns are widened until the widest line fits,
-    so the trimming in `fitLabel` is only reached past `MAX_NAME_SLOT`.
-    """
-    out = build_leaderboard_explorer_html(
-        _website_leaderboard(),
-        save_path=tmp_path / "leaderboard_overview_explorer.html",
-    )
-    html = out.read_text(encoding="utf-8")
-    assert "function wrapName(name, budget)" in html
-    assert "function planLabels(names, avail)" in html
-    assert "const wanted = Math.min(MAX_NAME_SLOT, (widest + 8) / rows);" in html
-    assert 'el("tspan", { x: cx, dy: k ? LABEL_LINE : 0 }, t)' in html

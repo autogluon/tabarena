@@ -109,7 +109,7 @@ __BASE_JS__
   const PLOT_H = 320;     // height of the plot area itself
   const TOP = 14;         // headroom above the tallest bar
   const LABEL_TOP = 18;   // axis line -> first label row
-  const LABEL_LINE = 15;  // baseline to baseline within one wrapped name
+  const LABEL_ROW = 19;   // vertical offset of the staggered second row
   const LABEL_SIZE = 14;  // method names; the slot below scales with it
   const TICK_SIZE = 12.5;
   // Method names are set horizontally (rotated ones are markedly harder to
@@ -120,12 +120,6 @@ __BASE_JS__
   // the columns huddled on the left with dead space beside them, so the slots
   // simply share out whatever width there is.
   const MIN_SLOT = 66;
-  // A name too wide for its slot is wrapped at a space rather than cut, and the
-  // columns are pushed apart until the widest resulting line fits. Systems carry
-  // their whole configuration in the name ("AutoGluon 1.6 (noncommercial, 4h)"),
-  // which no sensible column width would ever hold on one line.
-  const MAX_LABEL_LINES = 2;
-  const MAX_NAME_SLOT = 2 * MIN_SLOT;  // past this a name is trimmed after all
   const BAR_FRAC = 0.88;  // share of the slot the widest bar takes
   const MAX_BAR = 70;     // ...but never wider than this, however few columns
 
@@ -224,57 +218,24 @@ __BASE_JS__
     const m = metric();
     return sortedMethods([...byMethod.values()].filter(e => state.methods.has(e.method) && bestOf(e, m) != null), m);
   }
-  // Real label widths, which is what decides whether the names fit on one row or
-  // need the two-row stagger, where a long one breaks, and how wide the columns
-  // have to be to hold it.
-  const textWidth = makeTextMeasurer(svg, { size: LABEL_SIZE, weight: 650 });
-
-  // Break `name` at its spaces so no line is wider than `budget`. A word that is
-  // itself too wide keeps its line and widens the column instead of being cut,
-  // and once the last allowed line is reached the rest of the name stays on it.
-  function wrapName(name, budget) {
-    const words = name.split(" ");
-    const lines = [];
-    let line = words[0];
-    for (const word of words.slice(1)) {
-      const merged = line + " " + word;
-      if (lines.length + 1 < MAX_LABEL_LINES && textWidth(merged) > budget) {
-        lines.push(line);
-        line = word;
-      } else {
-        line = merged;
-      }
-    }
-    lines.push(line);
-    return lines;
+  // Rendered width of each label, measured in the live document (font metrics
+  // are not knowable up front): it decides whether the names fit on one row or
+  // need the two-row stagger, and which ones have to be shortened.
+  function measureLabels(names) {
+    const probe = el("g", { visibility: "hidden" }, svg);
+    const widths = names.map(name => {
+      const t = el("text", { "font-size": LABEL_SIZE }, probe);
+      t.textContent = name;
+      return t.getComputedTextLength();
+    });
+    probe.remove();
+    return widths;
   }
 
-  // Column width and wrapped names settled together: each depends on the other,
-  // so start from the width the columns would take anyway, wrap the names into
-  // it, and widen the columns until every line fits (or `MAX_NAME_SLOT` stops
-  // us, at which point `fitLabel` trims what is left).
-  //
-  // The stagger is decided once, up front: widening only ever happens because a
-  // name did not fit, so re-deciding it against the widened slot would let the
-  // two answers chase each other.
-  function planLabels(names, avail) {
-    let slot = Math.max(MIN_SLOT, avail / names.length);
-    const rows = names.every(name => textWidth(name) <= slot - 6) ? 1 : 2;
-    let lines = names.map(name => [name]);
-    for (let pass = 0; pass < 4; pass++) {
-      lines = names.map(name => wrapName(name, slot * rows - 8));
-      const widest = Math.max(0, ...lines.flat().map(textWidth));
-      const wanted = Math.min(MAX_NAME_SLOT, (widest + 8) / rows);
-      if (wanted <= slot + 0.5) break;
-      slot = wanted;
-    }
-    return { slot, rows, lines };
-  }
-
-  // Trim a line to `budget` px, ending in an ellipsis. The full name stays one
+  // Trim a name to `budget` px, ending in an ellipsis. The full name stays one
   // hover (and one data-table row) away.
-  function fitLabel(node, name, budget) {
-    if (node.getComputedTextLength() <= budget) return;
+  function fitLabel(node, name, width, budget) {
+    if (width <= budget) return;
     let text = name;
     while (text.length > 1 && node.getComputedTextLength() > budget) {
       text = text.slice(0, -1);
@@ -302,20 +263,16 @@ __BASE_JS__
       return;
     }
 
-    // Names go on one row when they fit side by side, otherwise on two staggered
-    // rows (each label then has two slots of room), wrapped over as many lines as
-    // the name needs. The columns take their width from that plan, so even a long
-    // system name is read whole.
-    const labels = entries.map(e => e.method + (e.imputed ? " ‡" : ""));
-    const plan = planLabels(labels, avail);
-    const slot = plan.slot;
-    const labelRows = plan.rows;
-    const labelLines = Math.max(...plan.lines.map(lines => lines.length));
-    const rowStride = labelLines * LABEL_LINE + 4;
+    const slot = Math.max(MIN_SLOT, avail / entries.length);
     const barUnit = Math.min(MAX_BAR, slot * BAR_FRAC);
     const plotW = Math.max(avail, slot * entries.length);
-    const H = TOP + PLOT_H + LABEL_TOP + (labelRows - 1) * rowStride
-      + (labelLines - 1) * LABEL_LINE + 10;
+    // Names go on one row when they fit side by side, otherwise on two
+    // staggered rows (each label then has two slots of room).
+    const labels = entries.map(e => e.method + (e.imputed ? " ‡" : ""));
+    const labelWidths = measureLabels(labels);
+    const widest = Math.max(...labelWidths);
+    const labelRows = widest <= slot - 6 ? 1 : 2;
+    const H = TOP + PLOT_H + LABEL_TOP + (labelRows - 1) * LABEL_ROW + 10;
     svg.setAttribute("width", plotW);
     svg.setAttribute("height", H);
     axisSvg.setAttribute("height", H);
@@ -457,7 +414,7 @@ __BASE_JS__
     entries.forEach((entry, i) => {
       const cx = i * slot + slot / 2;
       const row = labelRows === 1 ? 0 : i % 2;
-      const y = baseY + LABEL_TOP + row * rowStride;
+      const y = baseY + LABEL_TOP + row * LABEL_ROW;
       // A hairline drops the staggered row back to its own column.
       if (row) {
         el("line", {
@@ -472,21 +429,15 @@ __BASE_JS__
         // name crosses a hairline, rather than the line running through them.
         "paint-order": "stroke", stroke: "var(--paper)", "stroke-width": 3,
       }, xLabels);
-      const budget = slot * labelRows - 8;
-      const spans = plan.lines[i].map((line, k) => {
-        const span = el("tspan", { x: cx, dy: k ? LABEL_LINE : 0 }, t);
-        span.textContent = line;
-        fitLabel(span, line, budget);
-        return span;
-      });
+      t.textContent = labels[i];
+      fitLabel(t, labels[i], labelWidths[i], slot * labelRows - 8);
       // The outermost columns sit only half a slot from the edge, so a name
       // wider than one slot would reach past the SVG viewport and be cut off
       // there (a name may occupy two slots when the rows are staggered). Nudge
       // it inwards by just enough to stay whole; every other label keeps its
       // column centre, and the bar below still marks the column.
-      const half = Math.max(...spans.map(span => span.getComputedTextLength())) / 2;
-      const labelX = Math.max(half + 1, Math.min(cx, plotW - half - 1));
-      for (const span of spans) span.setAttribute("x", labelX);
+      const half = t.getComputedTextLength() / 2;
+      t.setAttribute("x", Math.max(half + 1, Math.min(cx, plotW - half - 1)));
     });
 
     buildLegend(m);
