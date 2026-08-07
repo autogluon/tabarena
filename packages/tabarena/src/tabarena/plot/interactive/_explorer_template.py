@@ -113,6 +113,8 @@ __BASE_JS__
   const chipsBox = document.getElementById("chips");
   const controlsBox = document.querySelector(".controls");
   const tip = makeTooltip(box);
+  // Matches the point labels drawn in `render` — see the side/overlap logic there.
+  const textWidth = makeTextMeasurer(svg, { size: 13, weight: 700 });
 
   // Marker glyph per variant at (cx, cy); trajectories use circles everywhere.
   function drawMark(parent, cx, cy, variant, color, size, opacity, dataM, whiteStroke) {
@@ -222,7 +224,12 @@ __BASE_JS__
     return { verts, methods };
   }
 
-  const state = { active: new Set(computeFront(metricByKey[metricKey]).methods) };
+  // The chart opens on the front, and keeps following it while the metric changes:
+  // each metric has its own front (a method can lead on relative gain and be
+  // mid-field on Elo), so a set carried over from the previous metric would leave
+  // methods drawn on the front but greyed out. `followFront` drops as soon as the
+  // reader picks methods themselves, so their selection is never overwritten.
+  const state = { active: new Set(computeFront(metricByKey[metricKey]).methods), followFront: true };
 
   // ---------- chart ----------
   // A flat, fixed-height plot: two of these panels then fit on one screen.
@@ -329,18 +336,36 @@ __BASE_JS__
       }
     }
 
-    // labels for active methods at their best point, greedy de-overlap
+    // Labels for active methods at their best point. Each one is measured, so it
+    // can be put on whichever side of its point has room for the whole name and
+    // held inside the plot — a system carries its configuration in its name
+    // ("AutoGluon 1.6 (noncommercial, 4h)") and would otherwise run off the edge.
     const labels = [];
     for (const [method, pts] of byMethod) {
       if (!isOn(method)) continue;
       const best = pts.reduce((a, b) =>
         (metric.lowerBetter ? mval(a, metric) < mval(b, metric) : mval(a, metric) > mval(b, metric)) ? a : b);
-      labels.push({ method, family: best.family, x: X(best[xKey]) + 10, y: Y(mval(best, metric)) - 10 });
+      const px = X(best[xKey]);
+      const w = textWidth(method);
+      const toRight = px + 10 + w <= W - M.r;
+      labels.push({
+        method, family: best.family, w,
+        anchor: toRight ? "start" : "end",
+        // Anchored at its start the label runs right from `x`, at its end it runs
+        // left to `x`; either way keep the far side off the plot frame.
+        x: toRight ? px + 10 : Math.max(M.l + w + 2, px - 10),
+        y: Y(mval(best, metric)) - 10,
+      });
     }
+    // Greedy de-overlap: push a label down a line whenever it would sit on top of
+    // one already placed. Measured spans, so a long name displaces its neighbours
+    // for as far as it actually reaches.
+    const spanOf = l => (l.anchor === "start" ? [l.x, l.x + l.w] : [l.x - l.w, l.x]);
     labels.sort((a, b) => a.y - b.y);
     for (let i = 1; i < labels.length; i++) {
       for (let j = 0; j < i; j++) {
-        if (Math.abs(labels[i].x - labels[j].x) < 110 && Math.abs(labels[i].y - labels[j].y) < 15) {
+        const [aL, aR] = spanOf(labels[i]), [bL, bR] = spanOf(labels[j]);
+        if (aL < bR + 6 && bL < aR + 6 && Math.abs(labels[i].y - labels[j].y) < 15) {
           labels[i].y = labels[j].y + 15;
         }
       }
@@ -348,9 +373,9 @@ __BASE_JS__
     const lg = el("g", {}, svg);
     for (const l of labels) {
       const t = el("text", {
-        x: Math.min(l.x, W - M.r - 8), y: Math.max(l.y, M.t + 12), "font-size": 13, "font-weight": 700,
+        x: l.x, y: Math.max(l.y, M.t + 12), "font-size": 13, "font-weight": 700,
         fill: FAM_VAR[l.family], "paint-order": "stroke", stroke: "var(--card)", "stroke-width": 3.5,
-        "text-anchor": l.x > W - 120 ? "end" : "start",
+        "text-anchor": l.anchor,
       }, lg);
       t.textContent = l.method;
     }
@@ -462,6 +487,7 @@ __BASE_JS__
   }
   function toggle(m) {
     if (state.active.has(m)) state.active.delete(m); else state.active.add(m);
+    state.followFront = false;
     syncChips();
     render();
   }
@@ -471,16 +497,25 @@ __BASE_JS__
     for (const m of methods) {
       if (allOn) state.active.delete(m); else state.active.add(m);
     }
+    state.followFront = false;
     syncChips();
     render();
   }
-  function setActive(methods) {
+  function setActive(methods, followFront = false) {
     state.active = new Set(methods);
+    state.followFront = followFront;
     syncChips();
     render();
   }
-  document.getElementById("btn-front").addEventListener("click",
-    () => setActive(computeFront(metricByKey[metricKey]).methods));
+  function showFront() {
+    setActive(computeFront(metricByKey[metricKey]).methods, true);
+  }
+  // Switching the y-axis moves the front, so the highlighted set moves with it.
+  function setMetric(key) {
+    metricKey = key;
+    if (state.followFront) showFront(); else render();
+  }
+  document.getElementById("btn-front").addEventListener("click", showFront);
   document.getElementById("btn-all").addEventListener("click", () => setActive([...byMethod.keys()]));
   document.getElementById("btn-none").addEventListener("click", () => setActive([]));
 
@@ -495,10 +530,7 @@ __BASE_JS__
       opt.textContent = m.label;
       metricSelect.appendChild(opt);
     }
-    metricSelect.addEventListener("change", ev => {
-      metricKey = ev.target.value;
-      render();
-    });
+    metricSelect.addEventListener("change", ev => setMetric(ev.target.value));
   }
 
   // Embedded, the host can pick the metric for us: the leaderboard's "I care about" control
@@ -508,9 +540,8 @@ __BASE_JS__
     const d = ev.data;
     if (!d || d.type !== "tabarena-explorer-metric") return;
     if (!METRICS.some(m => m.key === d.metric) || d.metric === metricKey) return;
-    metricKey = d.metric;
-    if (metricSelect) metricSelect.value = metricKey;
-    render();
+    if (metricSelect) metricSelect.value = d.metric;
+    setMetric(d.metric);
   });
 
   // ---------- legend strip ----------

@@ -333,6 +333,27 @@ EXPLORER_BASE_JS = r"""
     return node;
   }
 
+  // Rendered width of a string, measured in the live document: font metrics are
+  // not knowable up front, and the label layouts need real widths to decide
+  // where a name breaks and on which side of a point it fits. Memoized per
+  // (weight, size), since the layouts measure the same words repeatedly.
+  function makeTextMeasurer(svg, { size = 13, weight = 400 } = {}) {
+    const cache = new Map();
+    return function textWidth(text) {
+      let w = cache.get(text);
+      if (w === undefined) {
+        const probe = el("text", {
+          "font-size": size, "font-weight": weight, visibility: "hidden",
+        }, svg);
+        probe.textContent = text;
+        w = probe.getComputedTextLength();
+        probe.remove();
+        cache.set(text, w);
+      }
+      return w;
+    };
+  }
+
   // Plain, ungrouped numbers with a "." decimal separator. `toFixed` is
   // locale-independent by definition, which is the point: `toLocaleString`
   // would follow the *viewer's* browser locale and print 1234,5 for a German

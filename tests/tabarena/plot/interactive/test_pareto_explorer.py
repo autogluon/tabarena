@@ -94,6 +94,36 @@ def test_missing_x_columns_raise(tmp_path):
         build_pareto_explorer_html(points=points, save_path=tmp_path / "e.html")
 
 
+def test_point_labels_are_measured_so_long_names_stay_inside_the_plot(tmp_path):
+    """A label goes on whichever side of its point has room for the whole name.
+
+    A system's name ("AutoGluon 1.6 (noncommercial, 4h)") is several times the width the
+    old fixed 110px guess assumed, so a point in the right-hand third had its name run
+    off the plot, and the de-overlap pass under-counted how far a name reached.
+    """
+    out = build_pareto_explorer_html(points=_scatter_points(), save_path=tmp_path / "e.html")
+    html = out.read_text(encoding="utf-8")
+    assert "const textWidth = makeTextMeasurer(svg, { size: 13, weight: 700 });" in html
+    assert "const toRight = px + 10 + w <= W - M.r;" in html
+    assert 'const spanOf = l => (l.anchor === "start" ? [l.x, l.x + l.w] : [l.x - l.w, l.x]);' in html
+
+
+def test_the_highlighted_front_follows_the_metric(tmp_path):
+    """Switching the y-axis has to re-highlight, because each metric has its own front.
+
+    A method can lead on relative gain and sit mid-field on Elo, so an active set carried
+    over from the previous metric leaves methods drawn on the front but greyed out. The
+    chart only re-highlights while the reader has not picked methods themselves.
+    """
+    out = build_pareto_explorer_html(points=_scatter_points(), save_path=tmp_path / "e.html")
+    html = out.read_text(encoding="utf-8")
+    assert "if (state.followFront) showFront(); else render();" in html
+    assert 'metricSelect.addEventListener("change", ev => setMetric(ev.target.value));' in html
+    assert "setMetric(d.metric);" in html
+    # ...and a hand-picked selection turns the following off.
+    assert html.count("state.followFront = false;") >= 2
+
+
 def test_unknown_mode_raises(tmp_path):
     with pytest.raises(ValueError, match="mode"):
         build_pareto_explorer_html(points=_scatter_points(), save_path=tmp_path / "e.html", mode="bars")
