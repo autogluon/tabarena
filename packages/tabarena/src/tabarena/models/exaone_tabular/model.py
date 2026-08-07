@@ -18,9 +18,11 @@ logger = logging.getLogger(__name__)
 class EXAONETabularModel(AbstractTorchModel):
     """EXAONE Tabular: an in-context-learning tabular foundation model from LG AI Research.
 
-    A ~20.8M-parameter Cross-axis Summary Transformer (CAST) that conditions on the training rows
-    at inference time, with no per-dataset gradient training. Only the classification checkpoint is
-    released, so this wrapper is classification-only.
+    A Cross-axis Summary Transformer (CAST) that conditions on the training rows at inference time,
+    with no per-dataset gradient training. Classification and regression are two separate released
+    checkpoints of the same architecture, each loaded by its own estimator: a 20.8M-parameter
+    10-class head (ECOC above that) and a 21.1M-parameter 999-quantile head read out as a trimmed
+    mean over the quantile function.
 
     Paper: technical report not yet released (the repository's citation block is a placeholder).
     Authors: LG AI Research
@@ -69,12 +71,16 @@ class EXAONETabularModel(AbstractTorchModel):
         num_gpus: int = 0,
         **kwargs,
     ):
-        """Fit EXAONE Tabular.
+        """Fit EXAONE Tabular, loading the checkpoint that matches the problem type.
 
         As an in-context-learning foundation model there is no training loop and no early stopping,
         so (like the other TFM wrappers) ``X_val`` / ``y_val`` and ``time_limit`` are intentionally
         ignored — fitting loads the pre-trained checkpoint and stores the support set. ``num_cpus``
         is likewise unused: the library exposes no thread-count knob.
+
+        Regression does one extra thing inside ``fit``: from ~10k support rows up, it holds out a
+        fifth of them to solve for non-negative ensemble-member weights, which costs an additional
+        forward pass. Below that threshold the members stay uniformly weighted.
         """
         import torch
 
@@ -91,7 +97,7 @@ class EXAONETabularModel(AbstractTorchModel):
                 "Please switch to CPU usage instead.",
             )
 
-        from exaonetabular import EXAONETabularClassifier
+        from exaonetabular import EXAONETabularClassifier, EXAONETabularRegressor
 
         hps = self._get_model_params()
         if device == "cpu" and hps.get("compute_dtype") == "float16":
@@ -101,17 +107,16 @@ class EXAONETabularModel(AbstractTorchModel):
             hps["compute_dtype"] = "float32"
 
         X_np = self.preprocess(X, y=y, is_train=True)
+        # Passed through unscaled for both tasks: the regressor standardizes the target against its
+        # own support set and maps its predictions back, and the classifier encodes the labels.
         y_np = np.asarray(y.to_numpy())
 
-        self.model = EXAONETabularClassifier.from_pretrained(device=device, **hps)
+        estimator_cls = EXAONETabularRegressor if self.problem_type == "regression" else EXAONETabularClassifier
+        self.model = estimator_cls.from_pretrained(device=device, **hps)
         self.model.fit(X_np, y_np)
 
-    def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
-        X = self.preprocess(X, **kwargs)
-        return self._convert_proba_to_unified_form(self.model.predict_proba(X))
-
     def _set_default_params(self):
-        # The released classifier checkpoint's runtime defaults (exaonetabular.presets).
+        # The released checkpoints' runtime defaults, identical for both (exaonetabular.presets).
         default_params = {
             "ensemble_count": 8,
             "compute_dtype": "float16",
@@ -121,8 +126,7 @@ class EXAONETabularModel(AbstractTorchModel):
 
     @classmethod
     def supported_problem_types(cls) -> list[str] | None:
-        """Classification only: the regression checkpoint is not published on the Hub yet."""
-        return ["binary", "multiclass"]
+        return ["binary", "multiclass", "regression"]
 
     def get_device(self) -> str:
         return self.model.device.type
@@ -175,36 +179,42 @@ class EXAONETabularModel(AbstractTorchModel):
 
         Declaring this overrides the generic ``AbstractTorchModel`` torch warm-up, so the torch part
         is re-done explicitly here; the extra piece is the library's own import chain (safetensors,
-        scikit-learn, the model modules), which would otherwise land in the timed fit.
+        scikit-learn, the model modules), which would otherwise land in the timed fit. Both
+        estimator modules are imported regardless of the problem type: they share almost every
+        dependency, so the second one costs nothing measurable.
         """
         from tabarena.models.warmup import warmup_imports, warmup_torch
 
         warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
-        warmup_imports("exaonetabular.classifier")
+        warmup_imports("exaonetabular.classifier", "exaonetabular.regressor")
 
     @classmethod
-    def prefetch_weights(cls) -> str:
-        """Pre-download the released classifier checkpoint and return its local path.
+    def download_checkpoint(cls, task: str) -> str:
+        """Download one released checkpoint (``"classification"`` / ``"regression"``), return its path.
 
         The Hub coordinates come from ``exaonetabular.presets`` rather than being hardcoded here, so
-        a checkpoint bump in the library is picked up automatically. Tries the local cache first so
-        offline compute nodes skip the etag HEAD-request ``hf_hub_download`` makes by default.
+        a repo or revision bump in the library is picked up automatically.
+
+        Deliberately no ``local_files_only`` fast path: the released files are served from a mutable
+        ``main`` revision and have been republished in place at least once, so trusting a cache hit
+        would pin a superseded checkpoint forever and silently benchmark the wrong weights. The
+        normal call revalidates the etag and re-downloads when the bytes changed.
         """
         from exaonetabular import released_checkpoint
         from huggingface_hub import hf_hub_download
-        from huggingface_hub.errors import LocalEntryNotFoundError
 
-        checkpoint = released_checkpoint("classification")
-        try:
-            return hf_hub_download(
-                repo_id=checkpoint.repo_id,
-                filename=checkpoint.filename,
-                revision=checkpoint.revision,
-                local_files_only=True,
-            )
-        except LocalEntryNotFoundError:
-            return hf_hub_download(
-                repo_id=checkpoint.repo_id,
-                filename=checkpoint.filename,
-                revision=checkpoint.revision,
-            )
+        checkpoint = released_checkpoint(task)
+        return hf_hub_download(
+            repo_id=checkpoint.repo_id,
+            filename=checkpoint.filename,
+            revision=checkpoint.revision,
+        )
+
+    @classmethod
+    def prefetch_weights(cls) -> dict[str, str]:
+        """Pre-download both released checkpoints; return ``{task: local path}``.
+
+        Classification and regression are separate files, so a run covering both problem types
+        needs both warmed before the jobs are dispatched.
+        """
+        return {task: cls.download_checkpoint(task) for task in ("classification", "regression")}
