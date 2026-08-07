@@ -422,14 +422,17 @@ EXPLORER_BASE_JS = r"""
   function setUpPaperView(afterToggle, options) {
     const opts = options || {};
     const root = document.documentElement;
-    let hostTheme = null;   // the embedding page's choice, captured on entry
+    // The embedding page's choice, read before this function touches the stamp. Captured here
+    // and not on entering paper view: a page that opens *out* of paper view (the tables, where
+    // the controls are the point) would otherwise clear the stamp on its very first call and
+    // then follow the viewer's OS preference — rendering light inside the always-dark site.
+    const hostTheme = root.getAttribute("data-theme");
     const btn = document.getElementById("btn-paper");
     const embedded = window.parent !== window;
 
     function setPaper(on) {
       document.body.classList.toggle("paper", on);
       if (on) {
-        hostTheme = root.getAttribute("data-theme");
         root.setAttribute("data-theme", "light");
       } else if (hostTheme) {
         root.setAttribute("data-theme", hostTheme);
