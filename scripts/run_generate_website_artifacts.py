@@ -200,6 +200,11 @@ class WebsiteArtifactGenerator:
                 # Drops the baselines (KNN/Linear) only; weak non-baseline
                 # methods stay, greyed out by the focus styling.
                 ban_bad_methods=True,
+                # Systems compete in the pools that admit them, so they belong on this figure
+                # too, each as the single point it is (no tuning budget of TabArena's to spend).
+                # The metadata list this reads is already pool-filtered, so a models-only pool
+                # still draws none.
+                include_baselines=True,
                 file_ext=file_ext,
                 engine=engine,
                 # Order methods per-plot by each plot's own y-axis instead of pinning a

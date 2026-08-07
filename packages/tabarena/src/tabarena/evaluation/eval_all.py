@@ -264,10 +264,12 @@ def evaluate_single(
         plot_times=not website_only,
         website_only=website_only,
         average_seeds=average_seeds,
-        # Keep baselines out of evaluate_all's Pareto plots: LeaderboardReporter.eval now
-        # defaults plot_with_baselines=True for the compare paths, but the paper-figure /
-        # website-artifact outputs produced here should preserve the prior (baseline-free) plots.
-        plot_with_baselines=False,
+        # Draw the systems as points in the Pareto scatter and as rows in the win-rate matrix,
+        # not only as horizontal reference lines. This used to be False, which is what produced
+        # the inconsistency the entrant pools exist to remove: a system sat in the Elo pool and
+        # so moved every other number, while the figures pretended it was not there. A pool that
+        # admits no system has no baseline row, so this is a no-op for models-only.
+        plot_with_baselines=True,
         **eval_kwargs,
     )
 
