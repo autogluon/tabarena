@@ -232,6 +232,11 @@ class WebsiteArtifactGenerator:
 
         file_paths = input_path.glob("**/website_leaderboard.csv")
 
+        # One row per dataset, the same for every cell, so it is read once here rather than per
+        # subset. The per-dataset browser uses it for the task and size filters and for the
+        # selected dataset's metadata line.
+        dataset_metadata = TabArenaContext().task_metadata_collection.per_dataset_frame()
+
         for path in file_paths:
             base_input_path = Path(path).parent
             rel_path = base_input_path.relative_to(input_path)
@@ -240,6 +245,7 @@ class WebsiteArtifactGenerator:
                 base_input_path=Path(path).parent,
                 base_output_path=base_output_path,
                 subset_label=_subset_label(rel_path),
+                dataset_metadata=dataset_metadata,
             )
 
         # Place the zip next to (and named after) the clean artifacts folder.

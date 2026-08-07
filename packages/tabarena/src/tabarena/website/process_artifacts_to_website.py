@@ -20,6 +20,11 @@ import pandas as pd
 
 from tabarena.plot.interactive.leaderboard_explorer import build_leaderboard_explorer_html
 from tabarena.plot.interactive.leaderboard_table import build_leaderboard_table_html
+from tabarena.plot.interactive.per_dataset_explorer import build_per_dataset_explorer_html
+
+#: Emitted by the trajectory stage next to the aggregate trajectory artifacts, and the marker
+#: for "this cell gets a per-dataset browser".
+_PER_DATASET_TRAJECTORIES = "tuning_trajectories_per_dataset.csv"
 
 
 def process_one_folder(
@@ -27,18 +32,20 @@ def process_one_folder(
     base_input_path: Path,
     base_output_path: Path,
     subset_label: str | None = None,
+    dataset_metadata: pd.DataFrame | None = None,
 ):
     """Copy one subset's artifacts into the website layout.
 
     ``subset_label`` is the human-readable subset name used in the interactive
     explorers' headline (e.g. "Models only | All Tasks | Small"); omitted when ``None``.
+    ``dataset_metadata`` is the benchmark's one-row-per-dataset frame, used by the per-dataset
+    browser; it is the same for every subset, so the caller loads it once.
     """
     base_output_path.mkdir(parents=True, exist_ok=True)
 
     # N datasets file
-    n_datasets = len(
-        pd.read_csv(base_input_path / "results_per_split.csv", low_memory=False)["dataset"].unique(),
-    )
+    results_per_split = pd.read_csv(base_input_path / "results_per_split.csv", low_memory=False)
+    n_datasets = len(results_per_split["dataset"].unique())
     (base_output_path / f"n_datasets_{n_datasets}").touch()
 
     for file_name in [
@@ -89,3 +96,21 @@ def process_one_folder(
         save_path=base_output_path / "leaderboard_table.html",
         page_title=f"TabArena leaderboard table — {subset_label}" if subset_label else "TabArena leaderboard table",
     )
+
+    # The per-dataset browser, for the cells that carry the per-dataset trajectory frame. A
+    # dataset's own numbers do not depend on which other datasets share its leaderboard, so the
+    # evaluation only emits that frame for the unrestricted task/dataset cell and the browser
+    # filters by task and size itself (see `plot_tuning_trajectories_all`).
+    trajectory_path = base_input_path / "tuning_trajectories" / "placeholder_name" / _PER_DATASET_TRAJECTORIES
+    method_info_path = base_input_path / "method_info.csv"
+    if trajectory_path.is_file() and method_info_path.is_file():
+        build_per_dataset_explorer_html(
+            results_per_split=results_per_split,
+            method_info=pd.read_csv(method_info_path),
+            trajectories=pd.read_csv(trajectory_path),
+            dataset_metadata=dataset_metadata,
+            save_path=base_output_path / "per_dataset_explorer.html",
+            page_title=f"TabArena per-dataset results — {subset_label}"
+            if subset_label
+            else "TabArena per-dataset results",
+        )
