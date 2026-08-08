@@ -58,11 +58,11 @@ _LIGHT_TOKENS = """
     --fam-foundation-ink: #7d3fc2;
     --fam-nn-ink: #1c6fa8;
     --fam-tree-ink: #2f7d32;
-    /* Saturated rather than merely darkened. Every other family darkens to a readable version
-       of itself, but a mid orange taken down to that lightness reads as brown, so the System
-       names in paper view no longer matched the swatch beside them. This holds the hue at
-       5.2:1 on white, which is better contrast than the brown it replaces. */
-    --fam-system-ink: #c2410c;
+    /* The one family that does not darken for the light surface: a mid orange taken to the
+       lightness the others use reads as brown, and any tone dark enough to gain contrast stops
+       matching the swatch beside it. The static paper figures print system names in the family
+       colour itself, so this does too, and the two agree. */
+    --fam-system-ink: var(--fam-system);
     --fam-baseline-ink: #5f5f5f;
     --fam-other-ink: #5f5f5f;
     /* Tuning-variant series (default / tuned / tuned + ensembled). Light mode
@@ -82,7 +82,7 @@ _LIGHT_TOKENS = """
        rules out magenta too, close enough to that purple to be read as it. Wine is far from all
        of them and dark enough to hold its own weight; a system bar is never nested inside
        another, so it does not have to stay light to keep one legible. */
-    --var-system: #c05f81;
+    --var-system: #f2aac6;
     --optimal: #228b22;
     --tooltip-bg: #14161a;
     --tooltip-ink: #fbfbf9;
@@ -107,7 +107,7 @@ _DARK_TOKENS = """
     --var-default: #4386d5;
     --var-tuned: #c05f38;
     --var-tunedens: #289972;
-    --var-system: #a02c55;
+    --var-system: #b04a72;
     --optimal: #2ea043;
     --tooltip-bg: #f0efea;
     --tooltip-ink: #14161a;
