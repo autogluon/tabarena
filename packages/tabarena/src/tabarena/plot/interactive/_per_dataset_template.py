@@ -523,8 +523,7 @@ __BASE_JS__
       `<div>${escapeHtml(metricName(ds))} error: <b>${fmtErr(p.e)}</b></div>` +
       `<div>Rank: <b>${fmtNum(p.r, 1)}</b> of ${STATS[d].n}</div>` +
       `<div>Behind the best by <b>${fmtNum(p.i, 1)}%</b></div>` +
-      (p.t != null ? `<div>Mean fit: <b>${fmtTime(p.t)}</b></div>` : "") +
-      (p.q ? '<div class="t-imp">Imputed on this dataset</div>' : "");
+      (p.t != null ? `<div>Mean fit: <b>${fmtTime(p.t)}</b></div>` : "");
   }
 
   // ---------- the list ----------
@@ -785,7 +784,10 @@ __BASE_JS__
       ["Features", fmtInt(ds.features)],
       ds.classes != null && ds.classes > 0 ? ["Classes", fmtInt(ds.classes)] : null,
       ["Splits", fmtInt(ds.splits)],
-      ["Methods", fmtInt(STATS[d].n)],
+      ["Methods that ran", fmtInt(STATS[d].n)],
+      // Imputed results are left out of this page, so the size of the field varies by dataset;
+      // naming the missing ones is what makes that legible rather than puzzling.
+      ds.skipped ? ["Could not run here", fmtInt(ds.skipped)] : null,
       ds.domain ? ["Domain", ds.domain] : null,
       ds.source ? ["Source", ds.source] : null,
       ds.year ? ["Year", String(ds.year)] : null,

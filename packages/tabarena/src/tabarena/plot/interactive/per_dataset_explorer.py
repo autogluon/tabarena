@@ -170,6 +170,13 @@ def per_dataset_points(results_per_split: pd.DataFrame) -> pd.DataFrame:
     so a dataset's numbers here are the per-dataset terms of the leaderboard's averages.
     """
     df = results_per_split.copy()
+    # An imputed score is a stand-in (a default RandomForest's result) for a model that could not
+    # run on this dataset at all. It is a fair penalty in a leaderboard averaged over datasets,
+    # but here it would claim the model was measured on this one, so those pairs are dropped
+    # before anything is computed from them: the best error, the ranks and the gaps are all over
+    # the methods that actually ran here.
+    if "imputed" in df.columns:
+        df = df[~df["imputed"].fillna(False).astype(bool)]
     best_per_split = df.groupby(["dataset", "fold"])["metric_error"].transform("min")
     df["_imp"] = (1 - best_per_split / df["metric_error"]).fillna(0.0) * 100
     df["_rank"] = df.groupby(["dataset", "fold"])["metric_error"].rank(method="average")
@@ -178,8 +185,19 @@ def per_dataset_points(results_per_split: pd.DataFrame) -> pd.DataFrame:
         rank=("_rank", "mean"),
         imp=("_imp", "mean"),
         train_s=("time_train_s", "mean"),
-        imputed=("imputed", "max"),
     )
+
+
+def imputed_counts(results_per_split: pd.DataFrame) -> pd.Series:
+    """How many methods could not run on each dataset, and so were imputed there.
+
+    The per-dataset view drops them, which is why one dataset's field is smaller than another's;
+    this is what lets the page say so rather than leaving the reader to notice.
+    """
+    if "imputed" not in results_per_split.columns:
+        return pd.Series(dtype=int)
+    per_pair = results_per_split.groupby(["dataset", "method"])["imputed"].max()
+    return per_pair.fillna(False).astype(bool).groupby("dataset").sum()
 
 
 def build_per_dataset_explorer_html(
@@ -188,6 +206,7 @@ def build_per_dataset_explorer_html(
     method_info: pd.DataFrame,
     trajectories: pd.DataFrame | None = None,
     dataset_metadata: pd.DataFrame | None = None,
+    default_contender: str | None = None,
     save_path: str | Path,
     title: str | None = None,
     page_title: str = "TabArena per-dataset results",
@@ -209,6 +228,10 @@ def build_per_dataset_explorer_html(
     dataset_metadata
         One row per dataset (``TaskMetadataCollection.per_dataset_frame``), used for the size
         and task filters and the selected dataset's metadata line.
+    default_contender
+        Display name of the method the page should open on; the leaderboard's top row. Falls
+        back to the best mean rank, which is only a fallback because dropping imputed results
+        makes that measure favour a model that ran on few datasets and did well on those.
     title
         Headline shown above the table; omitted when ``None``.
 
@@ -218,6 +241,10 @@ def build_per_dataset_explorer_html(
     """
     methods = method_records(method_info)
     datasets = dataset_records(results_per_split, dataset_metadata)
+    # How many methods each dataset lost to imputation, so the page can say why one field is
+    # smaller than another's rather than leaving the varying counts unexplained.
+    skipped = imputed_counts(results_per_split)
+    datasets["skipped"] = datasets["dataset"].map(skipped).fillna(0).astype(int)
     points = per_dataset_points(results_per_split)
     points = points[points["method"].isin(set(methods["method"]))]
     if points.empty or datasets.empty:
@@ -237,7 +264,6 @@ def build_per_dataset_explorer_html(
             "r": [_round(v, 2) for v in points["rank"]],
             "i": [_round(v, 3) for v in points["imp"]],
             "t": [_significant(v, 4) for v in points["train_s"]],
-            "q": points["imputed"].fillna(0).astype(bool).to_numpy(),
         },
     )
 
@@ -259,11 +285,15 @@ def build_per_dataset_explorer_html(
             for row in usable.to_dict("records")
         ]
 
-    # The contender the page opens on: the method with the best mean rank across this cell's
-    # datasets. Whoever leads the leaderboard is the one a reader is most likely to be checking
-    # for weak spots, and it makes the first paint informative without a click.
-    mean_rank = points.groupby("method")["rank"].mean()
-    default_contender = method_index[mean_rank.idxmin()] if not mean_rank.empty else 0
+    # The contender the page opens on: the leaderboard's own leader, which is who a reader is
+    # most likely to be checking for weak spots. Mean rank is only the fallback — with imputed
+    # results dropped it is computed over each method's *own* datasets, so a model that runs on
+    # a handful and does well there outranks one that runs everywhere.
+    by_name = {name: i for i, name in enumerate(methods["name"])}
+    contender_index = by_name.get(default_contender) if default_contender else None
+    if contender_index is None:
+        mean_rank = points.groupby("method")["rank"].mean()
+        contender_index = method_index[mean_rank.idxmin()] if not mean_rank.empty else 0
 
     config = {
         "title": title,
@@ -276,7 +306,7 @@ def build_per_dataset_explorer_html(
             for key, label, max_rows in _SIZE_BUCKETS
         ],
         "metricDisplay": _METRIC_DISPLAY,
-        "defaultContender": int(default_contender),
+        "defaultContender": int(contender_index),
     }
     html = render_explorer_html(PER_DATASET_TEMPLATE, page_title=page_title, config=config, points=records)
 

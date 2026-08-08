@@ -18,13 +18,22 @@ from pathlib import Path
 
 import pandas as pd
 
-from tabarena.plot.interactive.leaderboard_explorer import build_leaderboard_explorer_html
+from tabarena.plot.interactive.leaderboard_explorer import _parse_model, build_leaderboard_explorer_html
 from tabarena.plot.interactive.leaderboard_table import build_leaderboard_table_html
 from tabarena.plot.interactive.per_dataset_explorer import build_per_dataset_explorer_html
 
 #: Emitted by the trajectory stage next to the aggregate trajectory artifacts, and the marker
 #: for "this cell gets a per-dataset browser".
 _PER_DATASET_TRAJECTORIES = "tuning_trajectories_per_dataset.csv"
+
+
+def _leader_name(website_leaderboard: pd.DataFrame) -> str | None:
+    """Display name of the top row of a website leaderboard, without its link or imputed tag."""
+    if website_leaderboard.empty or "Model" not in website_leaderboard.columns:
+        return None
+    name, variant, _ = _parse_model(str(website_leaderboard["Model"].iloc[0]))
+    suffix = {"Default": " (default)", "Tuned": " (tuned)", "Tuned + Ens.": " (tuned + ensemble)"}
+    return name + suffix.get(variant, "")
 
 
 def process_one_folder(
@@ -109,6 +118,8 @@ def process_one_folder(
             method_info=pd.read_csv(method_info_path),
             trajectories=pd.read_csv(trajectory_path),
             dataset_metadata=dataset_metadata,
+            # The published table is already sorted by Elo, so its first row is the leader.
+            default_contender=_leader_name(website_leaderboard),
             save_path=base_output_path / "per_dataset_explorer.html",
             page_title=f"TabArena per-dataset results — {subset_label}"
             if subset_label

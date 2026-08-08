@@ -795,6 +795,11 @@ def compute_per_dataset_trajectories(
         folds=folds,
     )
     df = df[df["method"].isin(methods_map.index)]
+    # Drop the (dataset, method) pairs that only exist because they were imputed: on this dataset
+    # that model did not run, so it should not appear on this dataset's chart. It stays on the
+    # datasets where it did run.
+    if "imputed" in df.columns:
+        df = df[~df["imputed"].fillna(False).astype(bool)]
     if df.empty:
         return pd.DataFrame(
             columns=["dataset", "method", "n_configs", "x_train", "x_infer", "err", "imp", "imputed"],
