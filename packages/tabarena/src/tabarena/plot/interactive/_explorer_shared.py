@@ -58,7 +58,11 @@ _LIGHT_TOKENS = """
     --fam-foundation-ink: #7d3fc2;
     --fam-nn-ink: #1c6fa8;
     --fam-tree-ink: #2f7d32;
-    --fam-system-ink: #a4600f;
+    /* Saturated rather than merely darkened. Every other family darkens to a readable version
+       of itself, but a mid orange taken down to that lightness reads as brown, so the System
+       names in paper view no longer matched the swatch beside them. This holds the hue at
+       5.2:1 on white, which is better contrast than the brown it replaces. */
+    --fam-system-ink: #c2410c;
     --fam-baseline-ink: #5f5f5f;
     --fam-other-ink: #5f5f5f;
     /* Tuning-variant series (default / tuned / tuned + ensembled). Light mode
