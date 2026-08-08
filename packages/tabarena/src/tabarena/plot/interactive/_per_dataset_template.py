@@ -27,6 +27,22 @@ PER_DATASET_TEMPLATE = r"""<!doctype html>
 <style>
 __BASE_CSS__
 
+  /* The contender's mark is one fixed colour whoever the contender is. Taking its family hue
+     made it compete with the family-coloured field it exists to stand out from — a green star
+     among green tree-based dots — and it had to be re-learned on every change of contender.
+
+     Yellow rather than a softer gold: the nearest family colour is the System orange (#f0a35a),
+     and an amber star sat close enough to it to reintroduce the same confusion. This is well
+     clear of every family hue, and no family owns yellow. Declared across the same four scopes
+     as the shared tokens (see _explorer_shared): base is light, the media query follows the OS,
+     and the two data-theme stamps let an embedding page force either one. */
+  :root { --contender: #cf9200; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --contender: #ffd21e; }
+  }
+  :root[data-theme="dark"] { --contender: #ffd21e; }
+  :root[data-theme="light"] { --contender: #cf9200; }
+
   .pd-page { position: relative; }
 
   .pd-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 8px; }
@@ -141,7 +157,10 @@ __BASE_CSS__
     padding: 3px 5px; border-radius: 6px; cursor: pointer; font-size: 12px;
   }
   .pd-rankrow:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
-  .pd-rankrow.is-contender { background: color-mix(in srgb, var(--accent) 16%, transparent); font-weight: 650; }
+  .pd-rankrow.is-contender {
+    background: color-mix(in srgb, var(--contender) 20%, transparent); font-weight: 650;
+  }
+  .pd-rankrow.is-contender .star { color: var(--contender); }
   .pd-rankrow .pos { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
   .pd-rankrow .who { display: flex; align-items: center; gap: 5px; min-width: 0; }
   .pd-rankrow .who .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -291,7 +310,12 @@ __BASE_JS__
     sort: "rank",
     dir: 1,
     selected: -1,
-    yKey: "i",
+    // The dataset's own metric, which is what a reader looking at one dataset came for.
+    // Improvability is the axis the aggregate figure needs to make datasets comparable; here
+    // it is the second choice. Safe as a default only because the axis clips at the 90th
+    // percentile — raw error is unbounded, and one collapsed model would otherwise flatten
+    // every method worth comparing into a line along the bottom.
+    yKey: "e",
     // Trajectory methods drawn in colour. Empty means "the front plus the contender", which is
     // recomputed per dataset; a non-empty set is the reader's own choice and is left alone.
     picked: new Set(),
@@ -337,13 +361,10 @@ __BASE_JS__
     }
     return d + "Z";
   }
-  function diamondPath(cx, cy, r) {
-    return `M${cx},${cy - r} L${cx + r},${cy} L${cx},${cy + r} L${cx - r},${cy} Z`;
-  }
-
   // ---------- the strip ----------
-  // One row of the list: every method's gap to the best on that dataset, the green diamond at
-  // the winner and the star on the contender.
+  // One row of the list: every method's gap to the best on that dataset, with a star on the
+  // contender. The winner needs no mark of its own — it is the method sitting at zero, which is
+  // where the axis starts — and the Winner column names it.
   //
   // The axis is log(1 + gap). A linear one is unreadable here: on most datasets the field
   // bunches inside a few percent of the best while one or two collapsed models sit at 80%, so
@@ -375,11 +396,10 @@ __BASE_JS__
         cx: at(p.i), cy: mid, r: 2.7, fill: FAM_VAR[METHODS[p.m].family], opacity: 0.6,
       }, svg);
     }
-    el("path", { d: diamondPath(x0, mid, 3.6), fill: "var(--optimal)", opacity: 0.95 }, svg);
     const c = key(d, state.contender);
     if (c && c.i != null) {
       el("path", {
-        d: starPath(at(c.i), mid, 6.4), fill: FAM_VAR[METHODS[state.contender].family],
+        d: starPath(at(c.i), mid, 6.4), fill: "var(--contender)",
         stroke: "var(--card)", "stroke-width": 1,
       }, svg);
     }
@@ -635,7 +655,8 @@ __BASE_JS__
       li.innerHTML =
         `<span class="pos">${i + 1}</span>` +
         '<span class="who"><span class="dot"></span>' +
-        `<span class="nm">${p.m === state.contender ? "★ " : ""}${escapeHtml(m.base)}</span>` +
+        '<span class="nm">' + (p.m === state.contender ? '<span class="star">&#9733;</span> ' : "") +
+        `${escapeHtml(m.base)}</span>` +
         variantBadge(m) + "</span>" +
         `<span class="val">${fmtErr(p.e)}</span>` +
         `<span class="pd-rankbar"><span style="width:${(frac * 100).toFixed(1)}%"></span></span>`;
@@ -688,7 +709,7 @@ __BASE_JS__
       '<circle cx="6" cy="4.5" r="2.6" fill="var(--muted)"/><circle cx="17" cy="4.5" r="2.6" fill="var(--muted)"/>' +
       "</svg> Tuning trajectory (more configs &rarr; more time)</span>" +
       '<span class="item"><svg width="14" height="14" viewBox="0 0 14 14">' +
-      `<path d="${starPath(7, 7, 6)}" fill="var(--accent)"/></svg> Contender</span>` +
+      `<path d="${starPath(7, 7, 6)}" fill="var(--contender)"/></svg> Contender</span>` +
       '<span class="item"><svg width="26" height="9" viewBox="0 0 26 9">' +
       '<line x1="0" y1="4.5" x2="26" y2="4.5" stroke="var(--ink)" stroke-width="1.6" stroke-dasharray="6 4"/>' +
       "</svg> Pareto front on this dataset</span>";
@@ -840,7 +861,7 @@ __BASE_JS__
       if (t === contenderTraj) {
         const bestPt = pts.reduce((a, b) => (b[metric.key] < a[metric.key] ? b : a));
         el("path", {
-          d: starPath(X(bestPt.x), Y(bestPt[metric.key]), 8.5), fill: FAM_VAR[fam],
+          d: starPath(X(bestPt.x), Y(bestPt[metric.key]), 8.5), fill: "var(--contender)",
           stroke: "var(--card)", "stroke-width": 1.2, "data-t": t,
         }, marksOn);
       }
