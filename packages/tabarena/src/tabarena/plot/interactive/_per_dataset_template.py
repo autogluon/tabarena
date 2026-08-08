@@ -141,6 +141,8 @@ __BASE_CSS__
   table.pd-table tbody tr.sel td { background: color-mix(in srgb, var(--accent) 17%, transparent); }
   table.pd-table tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   td.pd-num, th.pd-num { text-align: right; }
+  /* A win is the exception worth spotting; a deficit is the default and stays quiet. */
+  td.pd-margin.is-ahead { color: var(--optimal); font-weight: 650; }
   .pd-pos { color: var(--muted); }
   .pd-name { font-weight: 620; }
   .pd-tag {
@@ -349,7 +351,10 @@ __BASE_JS__
     const imps = rows.map(p => p.i).filter(v => v != null).sort((a, b) => a - b);
     let best = null;
     for (const p of rows) if (p.e != null && (best === null || p.e < best.e)) best = p;
+    const errs = rows.map(p => p.e).filter(v => v != null).sort((a, b) => a - b);
     return {
+      bestErr: errs.length ? errs[0] : null,
+      runnerUpErr: errs.length > 1 ? errs[1] : null,
       spread: quantile(imps, 0.9),
       worst: imps.length ? imps[imps.length - 1] : 0,
       median: quantile(imps, 0.5),
@@ -362,6 +367,29 @@ __BASE_JS__
   // the dataset's own size (a 150,000-row dataset trains on 100,000). The list, the size filter
   // and the detail pane all read it from here so they cannot disagree.
   function trainRows(ds) { return ds.train_rows != null ? ds.train_rows : ds.rows; }
+
+  // The contender's margin on a dataset, signed from its own point of view: negative when it
+  // trails, measured against the best method; positive when it wins, measured against the
+  // runner-up. Reporting only the distance to the best made every dataset the contender won
+  // read "0.0%", which said nothing about whether it won by a hair or a mile.
+  //
+  // Both directions are the same quantity — how much lower the better error is than the worse
+  // one, as a fraction of the worse one — so the two halves are comparable and the sign is the
+  // only thing that changes.
+  function contenderMargin(d) {
+    const c = key(d, state.contender), st = STATS[d];
+    if (!c || c.e == null || st.bestErr == null) return null;
+    if (c.e <= st.bestErr) {
+      if (st.runnerUpErr == null || !(st.runnerUpErr > 0)) return 0;
+      return (1 - c.e / st.runnerUpErr) * 100;
+    }
+    return -(1 - st.bestErr / c.e) * 100;
+  }
+  function fmtMargin(v) {
+    if (v == null || !isFinite(v)) return "—";
+    const sign = v > 0.05 ? "+" : v < -0.05 ? "\u2212" : "";
+    return sign + Math.abs(v).toFixed(1) + "%";
+  }
 
   function sizeKeyOf(ds) {
     const rows = trainRows(ds);
@@ -508,7 +536,8 @@ __BASE_JS__
       hint: "Rows a model actually fits here — the largest training split, not the dataset's size" },
     { key: "features", label: "Feat.", num: true },
     { key: "rank", label: "Rank", num: true, hint: "The contender's mean rank on this dataset" },
-    { key: "gap", label: "Gap", num: true, hint: "How much lower the best method's error is than the contender's" },
+    { key: "gap", label: "Margin", num: true,
+      hint: "The contender's lead over the runner-up (+) or its deficit against the best method (\u2212)" },
     { key: "spread", label: "The field", hint: "How far the field spreads out on this dataset" },
     { key: "winner", label: "Winner", hint: "The method with the lowest error here" },
   ];
@@ -522,7 +551,7 @@ __BASE_JS__
       case "train_rows": return trainRows(ds);
       case "features": return ds.features;
       case "rank": return c ? c.r : null;
-      case "gap": return c ? c.i : null;
+      case "gap": return contenderMargin(d);
       case "spread": return STATS[d].spread;
       case "winner": return STATS[d].best ? METHODS[STATS[d].best.m].name.toLowerCase() : "";
       default: return null;
@@ -667,7 +696,9 @@ __BASE_JS__
         // A second click on the same column flips it; a new column starts in its natural
         // direction — names and ranks read best ascending, sizes and gaps descending.
         if (state.sort === k) state.dir = -state.dir;
-        else { state.sort = k; state.dir = ["train_rows", "features", "spread", "gap"].includes(k) ? -1 : 1; }
+        // Ascending on the margin puts the contender's worst datasets first, which is what a
+        // reader clicking that column is usually after.
+        else { state.sort = k; state.dir = ["train_rows", "features", "spread"].includes(k) ? -1 : 1; }
         renderList();
       });
     }
@@ -687,6 +718,7 @@ __BASE_JS__
       const ds = DATASETS[d];
       const c = key(d, state.contender);
       const st = STATS[d];
+      const margin = contenderMargin(d);
       const tr = document.createElement("tr");
       tr.dataset.d = String(d);
       if (d === state.selected) tr.className = "sel";
@@ -699,7 +731,7 @@ __BASE_JS__
         `<td class="pd-num">${fmtInt(ds.features)}</td>` +
         `<td class="pd-num">${c ? fmtNum(c.r, 1) : "—"}` +
         `<span class="pd-pos"> / ${st.n}</span></td>` +
-        `<td class="pd-num">${c && c.i != null ? fmtNum(c.i, 1) + "%" : "—"}</td>` +
+        `<td class="pd-num pd-margin${margin > 0.05 ? " is-ahead" : ""}">${fmtMargin(margin)}</td>` +
         `<td class="pd-stripcell"></td>` +
         `<td>${st.best ? methodHtml(st.best.m) : "—"}</td>`;
       tr.lastElementChild.previousElementSibling.appendChild(buildStrip(d));
