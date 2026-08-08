@@ -43,6 +43,11 @@ __BASE_CSS__
   :root[data-theme="dark"] { --contender: #ffd21e; }
   :root[data-theme="light"] { --contender: #cf9200; }
 
+  /* Tighter than the shared 12px: this page is a full-width browser filling a panel, not a
+     figure that wants breathing room around it. `body.paper` keeps the roomier figure padding,
+     since there it *is* one. */
+  body { padding: 8px 8px 12px; }
+
   .pd-page { position: relative; }
 
   .pd-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 8px; }
@@ -88,7 +93,7 @@ __BASE_CSS__
   /* "There is more" has to be visible without scrolling first, so the cut-off rows are faded
      under a label rather than left to look like the end of the list. */
   .pd-more {
-    position: absolute; left: 1px; right: 13px; bottom: 1px; height: 40px; pointer-events: none;
+    position: absolute; left: 1px; right: 13px; bottom: 1px; height: 34px; pointer-events: none;
     display: none; align-items: flex-end; justify-content: center; padding-bottom: 3px;
     font: 650 10.5px/1 system-ui, sans-serif; letter-spacing: 0.07em; text-transform: uppercase;
     color: var(--muted); border-radius: 0 0 9px 9px;
@@ -127,7 +132,11 @@ __BASE_CSS__
   table.pd-table td {
     padding: 4px 9px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle;
   }
-  table.pd-table tbody tr { cursor: pointer; }
+  /* Keep a stepped-to row clear of the two things that overlap the scroll box: the sticky
+     header at the top and the "more below" fade at the bottom. `scrollIntoView({block:
+     "nearest"})` stops as soon as a row is inside the box, which put the selection underneath
+     the fade — visibly selected in the frame, unreadable to the reader. */
+  table.pd-table tbody tr { cursor: pointer; scroll-margin-top: 30px; scroll-margin-bottom: 40px; }
   table.pd-table tbody tr:hover td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
   table.pd-table tbody tr.sel td { background: color-mix(in srgb, var(--accent) 17%, transparent); }
   table.pd-table tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
