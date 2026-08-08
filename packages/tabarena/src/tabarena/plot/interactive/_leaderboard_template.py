@@ -156,8 +156,9 @@ __BASE_JS__
   // One entry per method, its variants grouped. Systems are entries like any other: they
   // compete in the pools that admit them, so they are drawn as columns rather than as the
   // threshold lines the old "reference pipeline" framing used. A system has a single point
-  // with no tuning variant, drawn in the System family hue (see `styleOf`), and its name
-  // carries that same colour on the axis.
+  // with no tuning variant, drawn in its own colour (see `styleOf`) because it is not a step in
+  // the tuning progression the other three bars encode; its name on the axis carries the System
+  // family colour, like every other method's does.
   const byMethod = new Map();
   for (const p of POINTS) {
     let entry = byMethod.get(p.method);
@@ -669,10 +670,16 @@ __BASE_JS__
         `<span class="item"${off}><svg width="12" height="12" viewBox="0 0 12 12">` +
         `<rect x="1" y="1" width="10" height="10" rx="2" fill="${VARIANT_STYLE[v].color}"/></svg> ${label}</span>`);
     }
+    // Named for what it is in *this* row, which lists how a method was produced: a system chose,
+    // tuned and combined its own models inside one budget, so none of the three regimes beside
+    // it apply. Calling it "System" here repeated the family entry further down under a
+    // different colour, which read as a contradiction rather than as two separate facts.
     if (POINTS.some(p => p.system)) {
       parts.push(
-        '<span class="item"><svg width="12" height="12" viewBox="0 0 12 12">' +
-        '<rect x="1" y="1" width="10" height="10" rx="2" fill="var(--var-system)"/></svg> System</span>');
+        '<span class="item" title="A system picked, tuned and combined its own models inside one ' +
+        'budget, so none of TabArena\u2019s tuning regimes apply to it">' +
+        '<svg width="12" height="12" viewBox="0 0 12 12">' +
+        '<rect x="1" y="1" width="10" height="10" rx="2" fill="var(--var-system)"/></svg> End-to-end</span>');
     }
     if (m.ci) {
       parts.push('<span class="item"><svg width="12" height="14" viewBox="0 0 12 14">' +
