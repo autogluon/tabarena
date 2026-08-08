@@ -361,10 +361,35 @@ EXPLORER_BASE_JS = r"""
         probe.textContent = text;
         w = probe.getComputedTextLength();
         probe.remove();
-        cache.set(text, w);
+        // A frame that has loaded but not been laid out yet measures every string as 0. Caching
+        // that would bake a broken layout in for good: the label-fitting code would keep reading
+        // 0 on every later redraw and go on stacking names on top of each other. Treat it as
+        // "not measurable yet" and try again next time.
+        if (w > 0 || !text) cache.set(text, w);
       }
       return w;
     };
+  }
+
+  // Redraw when `el` first has a real width, and whenever that width changes.
+  //
+  // A chart sizes itself from its container, so one drawn before layout collapses to its
+  // minimum. `window.onresize` recovers the cases where the viewport changes, but not the one
+  // that actually bites: a frame loaded off-screen is laid out later without its viewport ever
+  // changing, so no resize fires and the collapsed chart is what the reader eventually scrolls
+  // to. A ResizeObserver sees that transition; `onresize` never does.
+  function redrawOnResize(el, draw) {
+    let last = 0, timer = null;
+    const check = () => {
+      const width = Math.round(el.getBoundingClientRect().width);
+      if (!width || width === last) return;
+      last = width;
+      clearTimeout(timer);
+      timer = setTimeout(draw, 60);
+    };
+    if (window.ResizeObserver) new ResizeObserver(check).observe(el);
+    window.addEventListener("resize", check);
+    return check;
   }
 
   // Plain, ungrouped numbers with a "." decimal separator. `toFixed` is

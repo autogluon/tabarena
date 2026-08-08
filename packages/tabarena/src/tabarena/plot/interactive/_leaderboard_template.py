@@ -253,6 +253,7 @@ __BASE_JS__
     axisSvg.textContent = "";
     axisSvg.setAttribute("width", AXIS_W);
 
+    if (!scroller.clientWidth) return;   // see the note in the Pareto template
     const avail = Math.max(240, scroller.clientWidth - 2);
     if (!entries.length) {
       axisSvg.setAttribute("height", 120);
@@ -732,11 +733,9 @@ __BASE_JS__
 
   // ---------- boot ----------
   document.querySelector("details.datatable").addEventListener("toggle", postHeight);
-  let resizeTimer = null;
-  window.addEventListener("resize", () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(render, 120);
-  });
+  // See the note in the Pareto template: the viewport is not what changes when a frame that
+  // loaded off-screen is finally laid out, so the scroller's own width is what to watch.
+  redrawOnResize(scroller, render);
 
   buildChips();
   buildTable();

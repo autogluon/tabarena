@@ -237,6 +237,12 @@ __BASE_JS__
   const M = { l: 62, r: 18, t: 14, b: 52 };
 
   function render() {
+    // Nothing usable to measure yet: the frame is in a collapsed or hidden container, where
+    // the box reports 0 and every string measures 0 too. Drawing now would pin the chart to
+    // its minimum width and stack the labels on top of each other, and that is what the
+    // reader would find when it finally appears. Wait instead — `redrawOnResize` calls back
+    // the moment the box has a real width.
+    if (!box.clientWidth) return;
     const metric = metricByKey[metricKey];
     svg.textContent = "";
     const W = Math.max(360, Math.round(box.clientWidth));
@@ -604,11 +610,10 @@ __BASE_JS__
     postHeight();
   };
   document.querySelector("details.datatable").addEventListener("toggle", postHeight);
-  let resizeTimer = null;
-  window.addEventListener("resize", () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(render, 120);
-  });
+  // Watches the chart's own box, not just the viewport: a frame laid out after it loaded (the
+  // reader scrolled past before it painted) changes this element's width without ever changing
+  // the viewport, and that is the case that leaves a chart stuck at its minimum width.
+  redrawOnResize(box, render);
   window.addEventListener("load", postHeight);
 
   buildChips();

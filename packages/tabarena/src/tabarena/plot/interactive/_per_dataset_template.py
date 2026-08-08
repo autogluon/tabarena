@@ -948,7 +948,8 @@ __BASE_JS__
     for (const arr of perMethod.values()) for (const pt of arr) if (pt[metric.key] != null) all.push(pt);
     if (!all.length) { box.innerHTML = '<p class="pd-empty">Nothing to plot on this axis.</p>'; postHeight(); return; }
 
-    const W = Math.max(340, Math.round(box.clientWidth || 620));
+    if (!box.clientWidth) return;   // see the note in the Pareto template
+    const W = Math.max(340, Math.round(box.clientWidth));
     const H = chartHeight;
     svg.setAttribute("width", W);
     svg.setAttribute("height", H);
@@ -1289,11 +1290,9 @@ __BASE_JS__
     return svg ? [{ svg: svg, dx: 0 }] : [];
   }, () => slugify((DATASETS[state.selected] || {}).name || document.title));
 
-  let resizeTimer = null;
-  window.addEventListener("resize", () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(drawChart, 120);
-  });
+  // The detail chart sizes itself from its column, which only exists once a dataset is
+  // selected, so the observer is attached to the pane that holds it.
+  redrawOnResize(detailEl, drawChart);
   window.addEventListener("load", () => { sizeList(); postHeight(); });
 
   buildContenderSelect();
