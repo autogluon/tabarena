@@ -73,15 +73,42 @@ __BASE_CSS__
      selected row into view, which a scripted scroll of the host page cannot do. */
   /* Resizable, because the list and the detail chart together are taller than a laptop screen
      and which of the two you want more of depends on what you are doing. `height` rather than
-     `max-height`: a max would clamp the drag handle and leave the box ungrowable. */
+     `max-height`: a max would clamp the resize and leave the box ungrowable. */
+  .pd-listbox { position: relative; }
   .pd-listwrap {
-    overflow: auto; height: 340px; min-height: 92px; resize: vertical;
+    overflow: auto; height: 340px; min-height: 92px;
     border: 1px solid var(--line); border-radius: 10px;
-    scrollbar-width: thin; scrollbar-color: var(--pt-muted) transparent;
+    scrollbar-color: var(--muted) transparent;
   }
-  .pd-listwrap::-webkit-scrollbar { width: 11px; height: 11px; }
+  .pd-listwrap::-webkit-scrollbar { width: 12px; height: 12px; }
   .pd-listwrap::-webkit-scrollbar-thumb {
-    background: var(--pt-muted); border-radius: 8px; border: 3px solid transparent; background-clip: content-box;
+    background: var(--muted); border-radius: 8px; border: 3px solid transparent; background-clip: content-box;
+  }
+  .pd-listwrap::-webkit-scrollbar-thumb:hover { background: var(--ink); background-clip: content-box; }
+  /* "There is more" has to be visible without scrolling first, so the cut-off rows are faded
+     under a label rather than left to look like the end of the list. */
+  .pd-more {
+    position: absolute; left: 1px; right: 13px; bottom: 1px; height: 40px; pointer-events: none;
+    display: none; align-items: flex-end; justify-content: center; padding-bottom: 3px;
+    font: 650 10.5px/1 system-ui, sans-serif; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--muted); border-radius: 0 0 9px 9px;
+    background: linear-gradient(to top, var(--paper) 38%, transparent);
+  }
+  .pd-listbox.has-more .pd-more { display: flex; }
+
+  /* An explicit handle: the browser's own resize grip is a few pixels in one corner and nobody
+     finds it. This one spans the list, says what it does, and takes the arrow keys. */
+  .pd-griprow { display: flex; align-items: center; gap: 10px; margin-top: 5px; }
+  .pd-grip {
+    flex: 1 1 auto; display: flex; align-items: center; justify-content: center; gap: 9px;
+    cursor: ns-resize; user-select: none; touch-action: none; padding: 3px 8px; border-radius: 7px;
+    font: 600 10.5px/1 system-ui, sans-serif; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--muted); background: var(--chip-bg); border: 1px solid var(--line);
+  }
+  .pd-grip:hover, .pd-grip.is-dragging { color: var(--ink); border-color: var(--muted); }
+  .pd-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .pd-gripdots {
+    flex: 1 1 auto; height: 0; border-top: 2px dotted currentColor; opacity: 0.55; max-width: 220px;
   }
   .pd-listwrap:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   table.pd-table {
@@ -121,7 +148,7 @@ __BASE_CSS__
      rather than allowed to push the table wider than the frame. */
   table.pd-table td:last-child { max-width: 190px; overflow: hidden; text-overflow: ellipsis; }
   .pd-stripsvg { display: block; }
-  .pd-hint { font-size: 12px; color: var(--muted); margin: 6px 2px 0; }
+  .pd-hint { font-size: 12px; color: var(--muted); margin: 0 2px 6px; }
   .pd-hint kbd {
     font: 600 11px/1 system-ui, sans-serif; border: 1px solid var(--line); border-bottom-width: 2px;
     border-radius: 4px; padding: 2px 5px; background: var(--chip-bg);
@@ -129,11 +156,23 @@ __BASE_CSS__
 
   /* --- The detail pane ------------------------------------------------------ */
   .pd-detail { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-  .pd-dhead { padding: 9px 12px 8px; border-bottom: 1px solid var(--line); }
-  .pd-dtitle { font-size: 14.5px; font-weight: 680; }
-  .pd-dmeta { display: flex; flex-wrap: wrap; gap: 3px 8px; margin-top: 5px; font-size: 11.5px; color: var(--muted); }
-  .pd-dmeta .item { white-space: nowrap; }
-  .pd-dmeta .item b { color: var(--ink); font-weight: 620; }
+  /* What the dataset *is*, reading as a caption under the chart it describes. The tinted panel
+     is what makes it a block rather than a line of grey text the eye slides past; the facts
+     themselves stay a plain run-on list, which packs far more of them onto a line than pills do.
+     The name leads it, and there is no separate header above the chart: the selected row in the
+     table is already highlighted, so a second copy of the name up there said nothing new. */
+  .pd-about {
+    margin-top: 12px; padding: 8px 11px 9px; border-radius: 9px;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
+  }
+  .pd-aboutname { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+  .pd-aboutfacts {
+    display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 3px;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .pd-aboutfacts .item { white-space: nowrap; }
+  .pd-aboutfacts .item b { color: var(--ink); font-weight: 620; font-variant-numeric: tabular-nums; }
   .pd-dbody { display: flex; gap: 14px; align-items: flex-start; padding: 10px 12px 12px; }
   .pd-chartcol { flex: 1 1 auto; min-width: 0; }
   .pd-rankcol { flex: 0 0 268px; min-width: 220px; }
@@ -177,6 +216,8 @@ __BASE_CSS__
   .chartbox { position: relative; }
   .chartbox svg { display: block; }
   body.paper .pd-controls,
+  body.paper .pd-listbox,
+  body.paper .pd-griprow,
   body.paper .pd-listwrap,
   body.paper .pd-hint,
   body.paper .pd-rankcol { display: none !important; }
@@ -208,13 +249,24 @@ __BASE_CSS__
     <button class="btn" id="btn-png" title="Download as PNG at 3x scale">PNG</button>
   </div>
 
-  <div class="pd-listwrap" id="listwrap" tabindex="0" aria-label="Datasets">
-    <table class="pd-table">
-      <thead id="thead"></thead>
-      <tbody id="tbody"></tbody>
-    </table>
-  </div>
   <p class="pd-hint" id="listhint"></p>
+  <div class="pd-listbox" id="listbox">
+    <div class="pd-listwrap" id="listwrap" tabindex="0" aria-label="Datasets">
+      <table class="pd-table">
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="pd-more" id="listmore" aria-hidden="true">more below &#9662;</div>
+  </div>
+  <div class="pd-griprow">
+    <div class="pd-grip" id="listgrip" role="separator" aria-orientation="horizontal" tabindex="0"
+         title="Drag up or down to resize the list (or use the arrow keys)">
+      <span class="pd-gripdots"></span><span>drag to resize the list</span><span class="pd-gripdots"></span>
+    </div>
+    <button class="btn" id="btn-fit" aria-pressed="false"
+            title="Size the list so it and the chart below are on screen together">&#8597; Fit table and figure to screen</button>
+  </div>
 
   <div class="pd-detail" id="detail"></div>
   <div class="tooltip"></div>
@@ -502,10 +554,9 @@ __BASE_JS__
 
   let visible = [];
 
-  // The box fits its rows, up to a ceiling the reader can drag. `listSetHeight` records what
-  // `sizeList` last wrote, so the ResizeObserver can tell a drag apart from its own echo and
-  // adopt the dragged height as the new ceiling — filtering the list must not undo that choice.
-  let listCeiling = 340, listSetHeight = 0;
+  // The box fits its rows, up to a ceiling the reader sets with the grip or the fit button.
+  const LIST_DEFAULT = 340, LIST_MIN = 92;
+  let listCeiling = LIST_DEFAULT;
   function sizeList() {
     // The table, not the box: `scrollHeight` is never smaller than the element's own height, so
     // once a height is set it can no longer report that the content has shrunk, and a list
@@ -516,17 +567,81 @@ __BASE_JS__
     // minimum on the very first render and never recover. Leave the height alone until the rows
     // have a measurable size; `sizeList` is called again once layout has happened.
     if (fits < 20) return;
-    listSetHeight = Math.round(Math.max(92, Math.min(listCeiling, fits)));
-    listWrap.style.height = listSetHeight + "px";
+    listWrap.style.height = Math.round(Math.max(LIST_MIN, Math.min(listCeiling, fits))) + "px";
+    syncScrollCue();
   }
-  new ResizeObserver(() => {
-    const height = Math.round(listWrap.getBoundingClientRect().height);
-    if (Math.abs(height - listSetHeight) > 3) {
-      listCeiling = height;
-      listSetHeight = height;
-    }
+  new ResizeObserver(postHeight).observe(listWrap);
+
+  const listBox = document.getElementById("listbox");
+  function syncScrollCue() {
+    const hidden = listWrap.scrollHeight - listWrap.scrollTop - listWrap.clientHeight;
+    listBox.classList.toggle("has-more", hidden > 2);
+  }
+  listWrap.addEventListener("scroll", syncScrollCue);
+
+  // --- resizing -------------------------------------------------------------------------
+  const grip = document.getElementById("listgrip");
+  let gripFromY = 0, gripFromH = 0;
+  function setCeiling(height) {
+    listCeiling = Math.max(LIST_MIN, Math.round(height));
+    sizeList();
     postHeight();
-  }).observe(listWrap);
+  }
+  grip.addEventListener("pointerdown", ev => {
+    grip.setPointerCapture(ev.pointerId);
+    grip.classList.add("is-dragging");
+    gripFromY = ev.clientY;
+    gripFromH = listWrap.getBoundingClientRect().height;
+    ev.preventDefault();
+  });
+  grip.addEventListener("pointermove", ev => {
+    if (!grip.hasPointerCapture(ev.pointerId)) return;
+    setCeiling(gripFromH + (ev.clientY - gripFromY));
+    setFitPressed(false);
+  });
+  grip.addEventListener("pointerup", ev => {
+    grip.releasePointerCapture(ev.pointerId);
+    grip.classList.remove("is-dragging");
+  });
+  grip.addEventListener("keydown", ev => {
+    const step = { ArrowUp: -40, ArrowDown: 40, PageUp: -160, PageDown: 160 }[ev.key];
+    if (step === undefined) return;
+    // The list's own arrow-key stepping is on `document`; this handle owns the keys while it
+    // has focus.
+    ev.preventDefault();
+    ev.stopPropagation();
+    setCeiling(listWrap.getBoundingClientRect().height + step);
+    setFitPressed(false);
+  });
+
+  // --- fit to screen --------------------------------------------------------------------
+  // How tall the reader's visible band actually is. Embedded, the host measures it and sends it
+  // over (this frame is sized to its own content, so `innerHeight` here says nothing about the
+  // screen). Standalone, `innerHeight` is exactly right.
+  let hostViewport = 0;
+  const fitBtn = document.getElementById("btn-fit");
+  function setFitPressed(on) { fitBtn.setAttribute("aria-pressed", String(on)); }
+  function fitToScreen() {
+    const available = hostViewport || window.innerHeight;
+    // Everything except the two things that give: the list and the chart. What is left is split
+    // between them, the chart taking what it can up to its normal height and the list the rest.
+    const others = document.body.offsetHeight - listWrap.getBoundingClientRect().height - chartHeight;
+    const budget = Math.max(LIST_FIT_MIN + CHART_H_MIN, available - others - 16);
+    chartHeight = Math.max(CHART_H_MIN, Math.min(CHART_H_DEFAULT, budget - LIST_FIT_MIN));
+    drawChart();
+    setCeiling(budget - chartHeight);
+  }
+  fitBtn.addEventListener("click", () => {
+    const on = fitBtn.getAttribute("aria-pressed") !== "true";
+    setFitPressed(on);
+    if (on) {
+      fitToScreen();
+    } else {
+      chartHeight = CHART_H_DEFAULT;
+      drawChart();
+      setCeiling(LIST_DEFAULT);
+    }
+  });
 
   function buildHead() {
     let html = "<tr>";
@@ -634,12 +749,10 @@ __BASE_JS__
       ds.source ? ["Source", ds.source] : null,
       ds.year ? ["Year", String(ds.year)] : null,
     ].filter(Boolean);
+    const facts = items
+      .map(([k, v]) => `<span class="item">${k}: <b>${escapeHtml(v)}</b></span>`)
+      .join("");
     detailEl.innerHTML =
-      '<div class="pd-dhead">' +
-      `<div class="pd-dtitle">${escapeHtml(ds.name)}</div>` +
-      '<div class="pd-dmeta">' +
-      items.map(([k, v]) => `<span class="item">${k}: <b>${escapeHtml(v)}</b></span>`).join("") +
-      "</div></div>" +
       '<div class="pd-dbody">' +
       '<div class="pd-chartcol">' +
       '<div class="pd-chartbar">' +
@@ -652,6 +765,8 @@ __BASE_JS__
       "</div>" +
       '<div class="legendstrip" id="legendstrip"></div>' +
       '<div class="chartbox" id="pd-chartbox"><svg id="pd-chart" role="img" aria-label="Tuning trajectories"></svg></div>' +
+      `<div class="pd-about"><div class="pd-aboutname">${escapeHtml(ds.name)}</div>` +
+      `<div class="pd-aboutfacts">${facts}</div></div>` +
       "</div>" +
       '<div class="pd-rankcol">' +
       `<div class="grouplabel">Every method on ${escapeHtml(ds.name)}</div>` +
@@ -764,7 +879,11 @@ __BASE_JS__
   }
 
   // ---------- the chart ----------
-  const CHART_H = 386;
+  // The chart's own height. Fixed while the page is at its default size, and part of what "fit
+  // to screen" trades against the list: on a laptop the detail pane alone is taller than the
+  // viewport, so a fit that only shrank the list could only ever collapse it to nothing.
+  const CHART_H_DEFAULT = 386, CHART_H_MIN = 220, LIST_FIT_MIN = 150;
+  let chartHeight = CHART_H_DEFAULT;
   const M = { l: 66, r: 18, t: 14, b: 50 };
 
   function drawChart() {
@@ -780,6 +899,8 @@ __BASE_JS__
       return;
     }
     const metric = Y_METRICS.find(m => m.key === state.yKey);
+    const rankList = document.getElementById("pd-rank");
+    if (rankList) rankList.style.maxHeight = Math.max(160, chartHeight - 14) + "px";
     const textWidth = makeTextMeasurer(svg, { size: 12.5, weight: 700 });
     const active = state.picked.size ? state.picked : activeTrajectories(d);
     const all = [];
@@ -787,7 +908,7 @@ __BASE_JS__
     if (!all.length) { box.innerHTML = '<p class="pd-empty">Nothing to plot on this axis.</p>'; postHeight(); return; }
 
     const W = Math.max(340, Math.round(box.clientWidth || 620));
-    const H = CHART_H;
+    const H = chartHeight;
     svg.setAttribute("width", W);
     svg.setAttribute("height", H);
 
@@ -1080,6 +1201,11 @@ __BASE_JS__
   // benchmark the reader already chose in the leaderboard's task and dataset tabs.
   window.addEventListener("message", ev => {
     const data = ev.data;
+    if (data && data.type === "tabarena-perdataset-viewport" && typeof data.height === "number") {
+      hostViewport = data.height;
+      if (fitBtn.getAttribute("aria-pressed") === "true") fitToScreen();
+      return;
+    }
     if (!data || data.type !== "tabarena-perdataset-filter") return;
     // The host re-sends this every time the frame reports a height, so ignore the ones that
     // ask for what is already on screen rather than re-rendering the list for nothing.
@@ -1099,7 +1225,7 @@ __BASE_JS__
     "Click a dataset to see how the field got there · after that first click, " +
     "<kbd>&larr;</kbd> <kbd>&rarr;</kbd> step through the list and " +
     "<kbd>Home</kbd> <kbd>End</kbd> jump to the ends · sort by clicking a column · " +
-    "drag the list's bottom-right corner to make it taller or shorter";
+    "the list scrolls, and the bar below it resizes it";
 
   document.addEventListener("keydown", ev => {
     const tag = (ev.target && ev.target.tagName) || "";
