@@ -140,10 +140,24 @@ def test_dataset_records_fall_back_without_metadata():
 def test_build_per_dataset_explorer(tmp_path):
     metadata = pd.DataFrame(
         [
-            {"dataset": "alpha", "dataset_name": "Alpha set", "num_instances": 500,
-             "num_features": 7, "num_classes": 2, "max_train_rows": 400, "domain": "finance"},
-            {"dataset": "beta", "dataset_name": "Beta set", "num_instances": 200_000,
-             "num_features": 3, "num_classes": -1, "max_train_rows": 160_000, "domain": "physics"},
+            {
+                "dataset": "alpha",
+                "dataset_name": "Alpha set",
+                "num_instances": 500,
+                "num_features": 7,
+                "num_classes": 2,
+                "max_train_rows": 400,
+                "domain": "finance",
+            },
+            {
+                "dataset": "beta",
+                "dataset_name": "Beta set",
+                "num_instances": 200_000,
+                "num_features": 3,
+                "num_classes": -1,
+                "max_train_rows": 160_000,
+                "domain": "physics",
+            },
         ],
     )
     out = build_per_dataset_explorer_html(
