@@ -71,8 +71,12 @@ __BASE_CSS__
      51-row table left to grow would make the frame taller than the screen and put the
      detail chart out of sight. A bounded list also lets the arrow keys scroll the
      selected row into view, which a scripted scroll of the host page cannot do. */
+  /* Resizable, because the list and the detail chart together are taller than a laptop screen
+     and which of the two you want more of depends on what you are doing. `height` rather than
+     `max-height`: a max would clamp the drag handle and leave the box ungrowable. */
   .pd-listwrap {
-    overflow: auto; max-height: 340px; border: 1px solid var(--line); border-radius: 10px;
+    overflow: auto; height: 340px; min-height: 92px; resize: vertical;
+    border: 1px solid var(--line); border-radius: 10px;
     scrollbar-width: thin; scrollbar-color: var(--pt-muted) transparent;
   }
   .pd-listwrap::-webkit-scrollbar { width: 11px; height: 11px; }
@@ -293,8 +297,13 @@ __BASE_JS__
     };
   });
 
+  // What a model on this dataset actually fits: the largest training split, which is well below
+  // the dataset's own size (a 150,000-row dataset trains on 100,000). The list, the size filter
+  // and the detail pane all read it from here so they cannot disagree.
+  function trainRows(ds) { return ds.train_rows != null ? ds.train_rows : ds.rows; }
+
   function sizeKeyOf(ds) {
-    const rows = ds.train_rows != null ? ds.train_rows : ds.rows;
+    const rows = trainRows(ds);
     if (rows == null) return null;
     for (const b of SIZE_BUCKETS) if (b.max == null || rows <= b.max) return b.key;
     return SIZE_BUCKETS.length ? SIZE_BUCKETS[SIZE_BUCKETS.length - 1].key : null;
@@ -434,7 +443,8 @@ __BASE_JS__
     { key: "pos", label: "#", cls: "pd-pos", sortable: false },
     { key: "name", label: "Dataset", hint: "Sort alphabetically" },
     { key: "task", label: "Task" },
-    { key: "rows", label: "Rows", num: true },
+    { key: "train_rows", label: "Train rows", num: true,
+      hint: "Rows a model actually fits here — the largest training split, not the dataset's size" },
     { key: "features", label: "Feat.", num: true },
     { key: "rank", label: "Rank", num: true, hint: "The contender's mean rank on this dataset" },
     { key: "gap", label: "Gap", num: true, hint: "How much lower the best method's error is than the contender's" },
@@ -448,7 +458,7 @@ __BASE_JS__
     switch (sortKey) {
       case "name": return (ds.name || "").toLowerCase();
       case "task": return ds.task || "";
-      case "rows": return ds.rows;
+      case "train_rows": return trainRows(ds);
       case "features": return ds.features;
       case "rank": return c ? c.r : null;
       case "gap": return c ? c.i : null;
@@ -492,6 +502,32 @@ __BASE_JS__
 
   let visible = [];
 
+  // The box fits its rows, up to a ceiling the reader can drag. `listSetHeight` records what
+  // `sizeList` last wrote, so the ResizeObserver can tell a drag apart from its own echo and
+  // adopt the dragged height as the new ceiling — filtering the list must not undo that choice.
+  let listCeiling = 340, listSetHeight = 0;
+  function sizeList() {
+    // The table, not the box: `scrollHeight` is never smaller than the element's own height, so
+    // once a height is set it can no longer report that the content has shrunk, and a list
+    // filtered down to one row would keep its full box.
+    const table = listWrap.querySelector("table");
+    const fits = (table ? table.offsetHeight : 0) + 2;
+    // Before the frame has been laid out that measures 0, which would collapse the box to its
+    // minimum on the very first render and never recover. Leave the height alone until the rows
+    // have a measurable size; `sizeList` is called again once layout has happened.
+    if (fits < 20) return;
+    listSetHeight = Math.round(Math.max(92, Math.min(listCeiling, fits)));
+    listWrap.style.height = listSetHeight + "px";
+  }
+  new ResizeObserver(() => {
+    const height = Math.round(listWrap.getBoundingClientRect().height);
+    if (Math.abs(height - listSetHeight) > 3) {
+      listCeiling = height;
+      listSetHeight = height;
+    }
+    postHeight();
+  }).observe(listWrap);
+
   function buildHead() {
     let html = "<tr>";
     for (const col of COLUMNS) {
@@ -507,7 +543,7 @@ __BASE_JS__
         // A second click on the same column flips it; a new column starts in its natural
         // direction — names and ranks read best ascending, sizes and gaps descending.
         if (state.sort === k) state.dir = -state.dir;
-        else { state.sort = k; state.dir = ["rows", "features", "spread", "gap"].includes(k) ? -1 : 1; }
+        else { state.sort = k; state.dir = ["train_rows", "features", "spread", "gap"].includes(k) ? -1 : 1; }
         renderList();
       });
     }
@@ -535,7 +571,7 @@ __BASE_JS__
         `<td class="pd-pos">${i + 1}</td>` +
         `<td><span class="pd-name" title="${escapeHtml(meta || ds.key)}">${escapeHtml(ds.name)}</span></td>` +
         `<td><span class="pd-tag">${escapeHtml(TASK_SHORT[ds.task] || ds.task || "?")}</span></td>` +
-        `<td class="pd-num">${fmtInt(ds.rows)}</td>` +
+        `<td class="pd-num">${fmtInt(trainRows(ds))}</td>` +
         `<td class="pd-num">${fmtInt(ds.features)}</td>` +
         `<td class="pd-num">${c ? fmtNum(c.r, 1) : "—"}` +
         `<span class="pd-pos"> / ${st.n}</span></td>` +
@@ -551,6 +587,7 @@ __BASE_JS__
     const total = nD, shown = visible.length;
     document.getElementById("count").textContent =
       shown === total ? `${total} datasets` : `${shown} of ${total} datasets`;
+    sizeList();
     if (visible.length && !visible.includes(state.selected)) select(visible[0], { scroll: false });
     else postHeight();
   }
@@ -587,7 +624,8 @@ __BASE_JS__
     const items = [
       ["Task", TASK_SHORT[ds.task] || ds.task],
       ["Metric", metricName(ds)],
-      ["Rows", fmtInt(ds.rows)],
+      ["Train rows", fmtInt(trainRows(ds))],
+      ["Dataset rows", fmtInt(ds.rows)],
       ["Features", fmtInt(ds.features)],
       ds.classes != null && ds.classes > 0 ? ["Classes", fmtInt(ds.classes)] : null,
       ["Splits", fmtInt(ds.splits)],
@@ -1054,10 +1092,14 @@ __BASE_JS__
   });
 
   // ---------- keyboard ----------
+  // The click is spelled out as a precondition, not just as an alternative way to select. This
+  // page is a sandboxed frame inside the site, so it receives no key events at all until the
+  // reader has clicked inside it — without that sentence the arrow keys look broken.
   document.getElementById("listhint").innerHTML =
-    "Click a dataset to see how the field got there · " +
-    "<kbd>&larr;</kbd> <kbd>&rarr;</kbd> step through the list · " +
-    "<kbd>Home</kbd> <kbd>End</kbd> jump to the ends · sort by clicking a column";
+    "Click a dataset to see how the field got there · after that first click, " +
+    "<kbd>&larr;</kbd> <kbd>&rarr;</kbd> step through the list and " +
+    "<kbd>Home</kbd> <kbd>End</kbd> jump to the ends · sort by clicking a column · " +
+    "drag the list's bottom-right corner to make it taller or shorter";
 
   document.addEventListener("keydown", ev => {
     const tag = (ev.target && ev.target.tagName) || "";
@@ -1085,11 +1127,14 @@ __BASE_JS__
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(drawChart, 120);
   });
-  window.addEventListener("load", postHeight);
+  window.addEventListener("load", () => { sizeList(); postHeight(); });
 
   buildContenderSelect();
   buildHead();
   renderList();
+  // The frame is often still being laid out when the first render runs, so the list is sized
+  // again on the next frame, once its rows have a height.
+  requestAnimationFrame(sizeList);
 })();
 </script>
 </body>
