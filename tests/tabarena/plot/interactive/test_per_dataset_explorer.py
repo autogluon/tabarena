@@ -9,6 +9,7 @@ import pytest
 from tabarena.plot.interactive.per_dataset_explorer import (
     build_per_dataset_explorer_html,
     dataset_records,
+    imputed_counts,
     method_records,
     per_dataset_points,
 )
@@ -73,6 +74,51 @@ def _results_per_split() -> pd.DataFrame:
                 },
             )
     return pd.DataFrame(rows)
+
+
+def _results_with_imputation() -> pd.DataFrame:
+    """The system could not run on `beta`, so its score there is imputed."""
+    df = _results_per_split()
+    imputed = (df["dataset"] == "beta") & (df["method"] == "AutoGluon 1.6 (extreme, 4h)")
+    df.loc[imputed, "imputed"] = True
+    return df
+
+
+def test_imputed_pairs_are_dropped_for_that_dataset_only():
+    points = per_dataset_points(_results_with_imputation()).set_index(["dataset", "method"])
+    # Gone where it was imputed...
+    assert ("beta", "AutoGluon 1.6 (extreme, 4h)") not in points.index
+    # ...and still there where it actually ran.
+    assert ("alpha", "AutoGluon 1.6 (extreme, 4h)") in points.index
+    # The ranks on `beta` are now over the two methods that ran, not three.
+    assert points.loc[("beta", "CAT (tuned)"), "rank"] == pytest.approx(1.0)
+    assert points.loc[("beta", "CAT (default)"), "rank"] == pytest.approx(2.0)
+    # `alpha` is untouched.
+    assert points.loc[("alpha", "AutoGluon 1.6 (extreme, 4h)"), "rank"] == pytest.approx(2.0)
+
+
+def test_imputed_counts_are_per_dataset():
+    counts = imputed_counts(_results_with_imputation())
+    assert counts["beta"] == 1
+    assert counts["alpha"] == 0
+
+
+def test_explorer_reports_the_smaller_field(tmp_path):
+    out = build_per_dataset_explorer_html(
+        results_per_split=_results_with_imputation(),
+        method_info=_METHOD_INFO,
+        trajectories=None,
+        dataset_metadata=None,
+        default_contender="CatBoost (tuned)",
+        save_path=tmp_path / "per_dataset_explorer.html",
+    )
+    config = _config(out.read_text(encoding="utf-8"))
+    by_key = {d["key"]: d for d in config["datasets"]}
+    # The page says why one dataset's field is smaller than the other's.
+    assert by_key["beta"]["skipped"] == 1
+    assert "skipped" not in by_key["alpha"] or by_key["alpha"]["skipped"] == 0
+    # The caller's choice of contender wins over the mean-rank fallback.
+    assert config["methods"][config["defaultContender"]]["name"] == "CatBoost (tuned)"
 
 
 def _trajectories() -> pd.DataFrame:

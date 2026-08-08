@@ -104,6 +104,24 @@ def test_rename_map_applies_after_the_hidden_filter():
     assert set(out["method"]) == {"CatBoost (renamed)"}
 
 
+def test_imputed_points_are_dropped_for_that_dataset_only():
+    """A model imputed on one dataset keeps its trajectory on the others."""
+    data = _combined_data()
+    imputed = (data["dataset"] == "beta") & (data["config_type"] == "CatBoost")
+    data.loc[imputed, "imputed"] = True
+    out = compute_per_dataset_trajectories(
+        data,
+        tabarena_context=_StubContext(),
+        methods_map=_methods_map(),
+        fillna_method=None,
+        exclude_imputed=False,
+    )
+    pairs = set(zip(out["dataset"], out["method"], strict=False))
+    assert ("beta", "CatBoost") not in pairs
+    assert ("alpha", "CatBoost") in pairs
+    assert ("beta", "KNN") in pairs
+
+
 def test_empty_input_returns_the_expected_columns():
     out = compute_per_dataset_trajectories(
         _combined_data().iloc[:0],
