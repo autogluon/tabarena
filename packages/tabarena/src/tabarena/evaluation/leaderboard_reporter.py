@@ -27,7 +27,7 @@ from tabarena.plot.interactive.winrate_explorer import build_winrate_explorer_ht
 from tabarena.plot.plot_ens_weights import create_heatmap
 from tabarena.plot.plot_pareto_focus import plot_pareto_focus
 from tabarena.utils.normalized_scorer import NormalizedScorer
-from tabarena.website.website_format import get_model_family
+from tabarena.website.website_format import get_model_family, system_display_names
 
 MethodLabelStyle = str | Mapping[str, object]
 
@@ -1066,10 +1066,23 @@ class LeaderboardReporter:
             results_te_per_task.loc[:, self.method_col] = results_te_per_task[self.method_col].map(rename_model)
             results_te_per_split.loc[:, self.method_col] = results_te_per_split[self.method_col].map(rename_model)
 
+            # The matrix is computed over every tuning variant, not only each model's best
+            # one: the interactive page lets the reader compare "TabM (tuned)" against
+            # "CatBoost (default)", and opens collapsed to one row per model. Win rates are
+            # pairwise and per task, so the one-per-model matrix the static figure and the
+            # CSV keep showing is exactly a submatrix of this one (`_best_variant_labels`).
             if average_seeds:
-                _results_to_use_winrate_matrix = results_te_per_task.copy()
+                _results_to_use_winrate_matrix = results_per_task.copy()
+                _best_variant_filter = per_task_filter
             else:
-                _results_to_use_winrate_matrix = results_te_per_split.copy()
+                _results_to_use_winrate_matrix = results_per_split.copy()
+                _best_variant_filter = per_split_filter
+            _results_to_use_winrate_matrix.loc[:, self.method_col] = _results_to_use_winrate_matrix[
+                self.method_col
+            ].map(rename_model)
+            _best_variant_labels = set(
+                _results_to_use_winrate_matrix.loc[_best_variant_filter, self.method_col],
+            )
 
             # Drop hidden_methods from the winrate matrix. Two surfaces to
             # cover:
@@ -1110,6 +1123,17 @@ class LeaderboardReporter:
                         index=winrate_method_rename,
                         columns=winrate_method_rename,
                     )
+                    _best_variant_labels = {winrate_method_rename.get(label, label) for label in _best_variant_labels}
+                # One row per model, for the static figure and the CSV. Taking the submatrix
+                # rather than recomputing keeps the numbers identical; the rows are re-ranked
+                # because `compute_winrate_matrix` sorts by mean win rate against whoever is
+                # in the matrix, which for the full one is a wider field.
+                winrate_matrix_best = winrate_matrix.loc[
+                    [label for label in winrate_matrix.index if label in _best_variant_labels],
+                    [label for label in winrate_matrix.columns if label in _best_variant_labels],
+                ]
+                _best_order = winrate_matrix_best.mean(axis=1).sort_values(ascending=False).index
+                winrate_matrix_best = winrate_matrix_best.loc[_best_order, _best_order]
                 # Build the suptitle in the same "TabArena-<subset> …"
                 # style used by the tuning-trajectory and tuning-impact bar
                 # plots so the three surfaces read as one report. ``None``
@@ -1123,7 +1147,7 @@ class LeaderboardReporter:
                         winrate_title = f"{self.benchmark_name} Win-rate Matrix"
                 try:
                     tabarena.plot_winrate_matrix(
-                        winrate_matrix=winrate_matrix,
+                        winrate_matrix=winrate_matrix_best,
                         save_path=str(Path(self.output_dir / f"winrate_matrix.{self.figure_file_type}")),
                         title=winrate_title,
                     )
@@ -1136,16 +1160,19 @@ class LeaderboardReporter:
                 # The same matrix as data and as an interactive page, so the
                 # website can offer the static / interactive / paper triple it
                 # offers for every other figure. Written next to the PNG; the
-                # conversion step copies both when present.
+                # conversion step copies both when present. The CSV is the
+                # figure's matrix; the page gets every variant and collapses to
+                # the same one-per-model view on load.
                 save_pd.save(
                     path=str(Path(self.output_dir) / "winrate_matrix.csv"),
-                    df=winrate_matrix,
+                    df=winrate_matrix_best,
                     index=True,
                 )
                 build_winrate_explorer_html(
                     winrate_matrix=winrate_matrix,
                     save_path=Path(self.output_dir) / "winrate_explorer.html",
                     page_title=winrate_title or f"{self.benchmark_name} win-rate matrix",
+                    system_names=system_display_names(self.method_metadata_info),
                 )
 
             # Off by default while the FIXME above (diagram possibly incorrect) stands.
@@ -1745,13 +1772,18 @@ class LeaderboardReporter:
         # Prefer the raw config_type key when present (configs); baselines have
         # NaN config_type, so fall back to the display name — `get_model_family`
         # accepts both forms.
+        # Systems are recognized by name here (the frame carries only rendered names), from the
+        # set `method_class` declares -- see `website_format.get_model_family`.
+        systems = system_display_names(self.method_metadata_info)
         if "config_type" in leaderboard_pareto.columns:
             leaderboard_pareto["Family"] = [
-                get_model_family(ct if not pd.isna(ct) else m)
+                get_model_family(ct if not pd.isna(ct) else m, system_names=systems)
                 for ct, m in zip(leaderboard_pareto["config_type"], leaderboard_pareto["Method"], strict=True)
             ]
         else:
-            leaderboard_pareto["Family"] = leaderboard_pareto["Method"].map(get_model_family)
+            leaderboard_pareto["Family"] = [
+                get_model_family(m, system_names=systems) for m in leaderboard_pareto["Method"]
+            ]
 
         leaderboard_pareto[self.method_col] = leaderboard_pareto["Method"] + leaderboard_pareto["suffix"]
         fig_rename_dict = {

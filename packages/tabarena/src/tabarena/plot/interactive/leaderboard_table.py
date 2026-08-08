@@ -23,7 +23,7 @@ from tabarena.plot.interactive.leaderboard_explorer import (
     _VARIANT_LABELS,
     _parse_model,
 )
-from tabarena.website.website_format import Constants
+from tabarena.website.website_format import TAG_SPECS, Constants
 
 #: Family display name -> the symbol the website shows in its ``Type`` column.
 #: Mirrors ``constants.model_type_emoji`` in the leaderboard app.
@@ -32,7 +32,7 @@ _FAMILY_SYMBOL = {
     Constants.neural_network: "🧠🔁",
     Constants.tree: "🌳",
     Constants.baseline: "📏",
-    Constants.reference: "📊",
+    Constants.system: "📊",
     "Other": "❓",
 }
 
@@ -171,6 +171,12 @@ def leaderboard_table_points(df_website_leaderboard: pd.DataFrame) -> pd.DataFra
     points["verified"] = (
         df["Verified"].astype(str).str.strip().eq("✔️").to_numpy() if "Verified" in df.columns else False
     )
+    # Semicolon-joined by `website_format.add_metadata`; empty for every model and for a
+    # system that is open-source, local and LLM-free. Older tables have no column at all.
+    # An empty Tags cell round-trips through CSV as NaN, and `str(nan)` is the string "nan",
+    # so test for null rather than truthiness or an untagged system reads as tagged.
+    tags = df["Tags"] if "Tags" in df.columns else pd.Series([""] * len(df))
+    points["tags"] = [[] if pd.isna(v) else [t for t in str(v).split(";") if t] for v in tags]
     for spec in _COLUMNS:
         column = spec.get("column")
         if not column:
@@ -241,6 +247,9 @@ def build_leaderboard_table_html(
         "columns": columns,
         "rankKey": _RANK_KEY,
         "variants": list(_VARIANT_LABELS.values()),
+        # Passed through rather than restated in JS, so the chips and their hover text stay
+        # defined once (website_format.TAG_SPECS).
+        "tagSpecs": TAG_SPECS,
     }
     html = render_explorer_html(LEADERBOARD_TABLE_TEMPLATE, page_title=page_title, config=config, points=points)
 

@@ -28,7 +28,7 @@ _FAMILY_CSS_TOKENS: dict[str, str] = {
     "Foundation Model": "--fam-foundation",
     "Neural Network": "--fam-nn",
     "Tree-based": "--fam-tree",
-    "Reference Pipeline": "--fam-reference",
+    "System": "--fam-system",
     "Baseline": "--fam-baseline",
     "Other": "--fam-other",
 }
@@ -58,7 +58,11 @@ _LIGHT_TOKENS = """
     --fam-foundation-ink: #7d3fc2;
     --fam-nn-ink: #1c6fa8;
     --fam-tree-ink: #2f7d32;
-    --fam-reference-ink: #a4600f;
+    /* The one family that does not darken for the light surface: a mid orange taken to the
+       lightness the others use reads as brown, and any tone dark enough to gain contrast stops
+       matching the swatch beside it. The static paper figures print system names in the family
+       colour itself, so this does too, and the two agree. */
+    --fam-system-ink: var(--fam-system);
     --fam-baseline-ink: #5f5f5f;
     --fam-other-ink: #5f5f5f;
     /* Tuning-variant series (default / tuned / tuned + ensembled). Light mode
@@ -71,6 +75,14 @@ _LIGHT_TOKENS = """
     --var-default: #a1c9f4;
     --var-tuned: #ffb482;
     --var-tunedens: #8de5a1;
+    /* Systems are not a tuning variant, so they sit outside the blue -> orange -> green
+       progression rather than inside it. Everything else in that chart already claims a hue:
+       orange reads as Tuned, green as Tuned + Ens., blue as Default, and purple as the
+       Foundation Model family, whose colour the method names below the axis are set in — which
+       rules out magenta too, close enough to that purple to be read as it. Wine is far from all
+       of them and dark enough to hold its own weight; a system bar is never nested inside
+       another, so it does not have to stay light to keep one legible. */
+    --var-system: #f2aac6;
     --optimal: #228b22;
     --tooltip-bg: #14161a;
     --tooltip-ink: #fbfbf9;
@@ -89,12 +101,13 @@ _DARK_TOKENS = """
     --fam-foundation-ink: var(--fam-foundation);
     --fam-nn-ink: var(--fam-nn);
     --fam-tree-ink: var(--fam-tree);
-    --fam-reference-ink: var(--fam-reference);
+    --fam-system-ink: var(--fam-system);
     --fam-baseline-ink: var(--fam-baseline);
     --fam-other-ink: var(--fam-other);
     --var-default: #4386d5;
     --var-tuned: #c05f38;
     --var-tunedens: #289972;
+    --var-system: #b04a72;
     --optimal: #2ea043;
     --tooltip-bg: #f0efea;
     --tooltip-ink: #14161a;
@@ -284,12 +297,12 @@ EXPLORER_BASE_JS = r"""
   // the merged family. Both templates declare POINTS above this block.
   for (const p of POINTS) p.family = famOf(p.family);
 
-  const FAM_ORDER = ["Foundation Model", "Tree-based", "Neural Network", "Reference Pipeline", FAM_MERGED];
+  const FAM_ORDER = ["Foundation Model", "Tree-based", "Neural Network", "System", FAM_MERGED];
   const FAM_VAR = {
     "Foundation Model": "var(--fam-foundation)",
     "Tree-based": "var(--fam-tree)",
     "Neural Network": "var(--fam-nn)",
-    "Reference Pipeline": "var(--fam-reference)",
+    "System": "var(--fam-system)",
     [FAM_MERGED]: "var(--fam-baseline)",
   };
   // The symbol the website shows for each family, so a family chip here reads the
@@ -299,7 +312,7 @@ EXPLORER_BASE_JS = r"""
     "Foundation Model": "🧠⚡",
     "Tree-based": "🌳",
     "Neural Network": "🧠🔁",
-    "Reference Pipeline": "📊",
+    "System": "📊",
     [FAM_MERGED]: "📏 ❓",
   };
   // Tuning-variant colours, matching the --var-* tokens the charts plot with.
@@ -321,7 +334,7 @@ EXPLORER_BASE_JS = r"""
     "Foundation Model": "var(--fam-foundation-ink)",
     "Tree-based": "var(--fam-tree-ink)",
     "Neural Network": "var(--fam-nn-ink)",
-    "Reference Pipeline": "var(--fam-reference-ink)",
+    "System": "var(--fam-system-ink)",
     [FAM_MERGED]: "var(--fam-baseline-ink)",
   };
 
@@ -331,6 +344,52 @@ EXPLORER_BASE_JS = r"""
     for (const k in attrs) node.setAttribute(k, attrs[k]);
     if (parent) parent.appendChild(node);
     return node;
+  }
+
+  // Rendered width of a string, measured in the live document: font metrics are
+  // not knowable up front, and the label layouts need real widths to decide
+  // where a name breaks and on which side of a point it fits. Memoized per
+  // (weight, size), since the layouts measure the same words repeatedly.
+  function makeTextMeasurer(svg, { size = 13, weight = 400 } = {}) {
+    const cache = new Map();
+    return function textWidth(text) {
+      let w = cache.get(text);
+      if (w === undefined) {
+        const probe = el("text", {
+          "font-size": size, "font-weight": weight, visibility: "hidden",
+        }, svg);
+        probe.textContent = text;
+        w = probe.getComputedTextLength();
+        probe.remove();
+        // A frame that has loaded but not been laid out yet measures every string as 0. Caching
+        // that would bake a broken layout in for good: the label-fitting code would keep reading
+        // 0 on every later redraw and go on stacking names on top of each other. Treat it as
+        // "not measurable yet" and try again next time.
+        if (w > 0 || !text) cache.set(text, w);
+      }
+      return w;
+    };
+  }
+
+  // Redraw when `el` first has a real width, and whenever that width changes.
+  //
+  // A chart sizes itself from its container, so one drawn before layout collapses to its
+  // minimum. `window.onresize` recovers the cases where the viewport changes, but not the one
+  // that actually bites: a frame loaded off-screen is laid out later without its viewport ever
+  // changing, so no resize fires and the collapsed chart is what the reader eventually scrolls
+  // to. A ResizeObserver sees that transition; `onresize` never does.
+  function redrawOnResize(el, draw) {
+    let last = 0, timer = null;
+    const check = () => {
+      const width = Math.round(el.getBoundingClientRect().width);
+      if (!width || width === last) return;
+      last = width;
+      clearTimeout(timer);
+      timer = setTimeout(draw, 60);
+    };
+    if (window.ResizeObserver) new ResizeObserver(check).observe(el);
+    window.addEventListener("resize", check);
+    return check;
   }
 
   // Plain, ungrouped numbers with a "." decimal separator. `toFixed` is
@@ -401,14 +460,17 @@ EXPLORER_BASE_JS = r"""
   function setUpPaperView(afterToggle, options) {
     const opts = options || {};
     const root = document.documentElement;
-    let hostTheme = null;   // the embedding page's choice, captured on entry
+    // The embedding page's choice, read before this function touches the stamp. Captured here
+    // and not on entering paper view: a page that opens *out* of paper view (the tables, where
+    // the controls are the point) would otherwise clear the stamp on its very first call and
+    // then follow the viewer's OS preference — rendering light inside the always-dark site.
+    const hostTheme = root.getAttribute("data-theme");
     const btn = document.getElementById("btn-paper");
     const embedded = window.parent !== window;
 
     function setPaper(on) {
       document.body.classList.toggle("paper", on);
       if (on) {
-        hostTheme = root.getAttribute("data-theme");
         root.setAttribute("data-theme", "light");
       } else if (hostTheme) {
         root.setAttribute("data-theme", hostTheme);

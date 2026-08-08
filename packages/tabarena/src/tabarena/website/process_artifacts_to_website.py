@@ -1,4 +1,15 @@
-"""Collect and preprocess data for leaderboard website."""
+"""Collect and preprocess data for leaderboard website.
+
+Only the interactive artifacts ship. Every TabArena figure has a self-contained HTML explorer
+that the site renders by default and that exports its own SVG / PDF / PNG on demand, so the
+static PNGs were a second copy of what the reader already had: 80 of the 105 MB in the Space's
+``data/``, and the only reason it needed Git LFS. They are still rendered into
+``raw_website_artifacts/`` for paper use; they are simply not published.
+
+BeyondArena is unaffected. It has its own copy path in
+``scripts/run_generate_beyondarena_website_artifacts.py`` and ships PNGs because it has no
+explorers for most of its figures.
+"""
 
 from __future__ import annotations
 
@@ -7,8 +18,22 @@ from pathlib import Path
 
 import pandas as pd
 
-from tabarena.plot.interactive.leaderboard_explorer import build_leaderboard_explorer_html
+from tabarena.plot.interactive.leaderboard_explorer import _parse_model, build_leaderboard_explorer_html
 from tabarena.plot.interactive.leaderboard_table import build_leaderboard_table_html
+from tabarena.plot.interactive.per_dataset_explorer import build_per_dataset_explorer_html
+
+#: Emitted by the trajectory stage next to the aggregate trajectory artifacts, and the marker
+#: for "this cell gets a per-dataset browser".
+_PER_DATASET_TRAJECTORIES = "tuning_trajectories_per_dataset.csv"
+
+
+def _leader_name(website_leaderboard: pd.DataFrame) -> str | None:
+    """Display name of the top row of a website leaderboard, without its link or imputed tag."""
+    if website_leaderboard.empty or "Model" not in website_leaderboard.columns:
+        return None
+    name, variant, _ = _parse_model(str(website_leaderboard["Model"].iloc[0]))
+    suffix = {"Default": " (default)", "Tuned": " (tuned)", "Tuned + Ens.": " (tuned + ensemble)"}
+    return name + suffix.get(variant, "")
 
 
 def process_one_folder(
@@ -16,20 +41,20 @@ def process_one_folder(
     base_input_path: Path,
     base_output_path: Path,
     subset_label: str | None = None,
+    dataset_metadata: pd.DataFrame | None = None,
 ):
     """Copy one subset's artifacts into the website layout.
 
     ``subset_label`` is the human-readable subset name used in the interactive
-    explorers' headline (e.g. "All Tasks | Small"); omitted when ``None``.
+    explorers' headline (e.g. "Models only | All Tasks | Small"); omitted when ``None``.
+    ``dataset_metadata`` is the benchmark's one-row-per-dataset frame, used by the per-dataset
+    browser; it is the same for every subset, so the caller loads it once.
     """
     base_output_path.mkdir(parents=True, exist_ok=True)
 
-    figure_file_type = "png"
-
     # N datasets file
-    n_datasets = len(
-        pd.read_csv(base_input_path / "results_per_split.csv", low_memory=False)["dataset"].unique(),
-    )
+    results_per_split = pd.read_csv(base_input_path / "results_per_split.csv", low_memory=False)
+    n_datasets = len(results_per_split["dataset"].unique())
     (base_output_path / f"n_datasets_{n_datasets}").touch()
 
     for file_name in [
@@ -40,48 +65,14 @@ def process_one_folder(
             base_output_path / file_name,
         )
 
-    # Copy plots
-    for fig_path in [
-        f"tuning-impact-elo.{figure_file_type}",
-        f"pareto_front_improvability_vs_time_infer.{figure_file_type}",
-        f"winrate_matrix.{figure_file_type}",
-        (
-            Path("tuning_trajectories") / "placeholder_name",
-            f"pareto_n_configs_imp.{figure_file_type}",
-        ),
-    ]:
-        # FIXME: cannot use this on my cluster as I am not able to install poppler.
-        #   Hence, LB code needs to create zips.
-        # import zipfile
-        # from pdf2image import convert_from_path
-        # pdf_path = base_input_path / fig_path
-        # zip_path = (base_output_path / fig_path).with_suffix(".png.zip")
-        # png_path = zip_path.with_suffix(".png")
-        # # PDF to PNG
-        # images = convert_from_path(str(pdf_path), dpi=800)
-        # images[0].save(png_path, "PNG")
-        # # PNG to ZIP
-        # with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zipf:
-        #     zipf.write(png_path, arcname=png_path.name)
-        # png_path.unlink(missing_ok=True)
-
-        # Copy files
-        if isinstance(fig_path, tuple):
-            shutil.copy(
-                base_input_path / fig_path[0] / fig_path[1],
-                base_output_path / fig_path[1],
-            )
-        else:
-            shutil.copy(
-                base_input_path / fig_path,
-                base_output_path / fig_path,
-            )
-
     # Interactive explorers (self-contained HTML embedded by the leaderboard
     # app) and their underlying data exports. Copy-if-present so raw artifact
     # folders generated before these existed still process cleanly.
     for extra_path in [
         "pareto_front_explorer.html",
+        # The train-time twin of the Pareto explorer. The website's "I care about" selector
+        # switches to it for the fast-to-train view; both are rendered from the same points.
+        "pareto_front_explorer_time_train.html",
         "pareto_front_points.csv",
         "winrate_explorer.html",
         "winrate_matrix.csv",
@@ -114,3 +105,23 @@ def process_one_folder(
         save_path=base_output_path / "leaderboard_table.html",
         page_title=f"TabArena leaderboard table — {subset_label}" if subset_label else "TabArena leaderboard table",
     )
+
+    # The per-dataset browser, for the cells that carry the per-dataset trajectory frame. A
+    # dataset's own numbers do not depend on which other datasets share its leaderboard, so the
+    # evaluation only emits that frame for the unrestricted task/dataset cell and the browser
+    # filters by task and size itself (see `plot_tuning_trajectories_all`).
+    trajectory_path = base_input_path / "tuning_trajectories" / "placeholder_name" / _PER_DATASET_TRAJECTORIES
+    method_info_path = base_input_path / "method_info.csv"
+    if trajectory_path.is_file() and method_info_path.is_file():
+        build_per_dataset_explorer_html(
+            results_per_split=results_per_split,
+            method_info=pd.read_csv(method_info_path),
+            trajectories=pd.read_csv(trajectory_path),
+            dataset_metadata=dataset_metadata,
+            # The published table is already sorted by Elo, so its first row is the leader.
+            default_contender=_leader_name(website_leaderboard),
+            save_path=base_output_path / "per_dataset_explorer.html",
+            page_title=f"TabArena per-dataset results — {subset_label}"
+            if subset_label
+            else "TabArena per-dataset results",
+        )

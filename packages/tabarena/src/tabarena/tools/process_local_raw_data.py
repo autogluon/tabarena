@@ -362,6 +362,18 @@ def _print_method_metadata_snippet(method: RawMethod, inferred: dict) -> None:
     if inferred_method_type in ("baseline", "portfolio"):
         # `name` is the baseline/portfolio display-name override (config uses name_suffix instead).
         manual_fields.append(("name", '"..."', "  # display-name override"))
+    if inferred_method_type == "baseline":
+        # A system and an AMLB-style baseline are recorded identically in the raw results, so the
+        # entrant class cannot be inferred and the author has to say. Flagged here rather than left
+        # silent: getting it wrong types the method as a model on the leaderboard and puts it in the
+        # models-only entrant pool, where a whole pipeline does not belong.
+        manual_fields.append(
+            (
+                "method_class",
+                '"system"',
+                "  # a whole pipeline? use MethodMetadata.system(...) and set `tags`",
+            )
+        )
     manual_fields += [
         ("display_name", '"..."', ""),
         ("reference_url", '"https://..."', ""),

@@ -131,8 +131,11 @@ __BASE_JS__
     "Default": { color: "var(--var-default)", rel: 0.6 },
   };
   const VARIANT_ORDER = ["Default", "Tuned", "Tuned + Ens."];
-  // Dash patterns cycle so several reference lines stay distinguishable.
-  const REF_DASHES = ["8 5", "2 4", "12 4 3 4"];
+  // A system is not a tuning variant of anything, so it takes the palette's fourth colour rather
+  // than borrowing one of the three. Its `rel` no longer decides how wide it draws: a system
+  // column holds one bar, and every column is scaled so its widest bar fills the slot.
+  const SYSTEM_STYLE = { color: "var(--var-system)", rel: 1 };
+  function styleOf(p) { return p.system ? SYSTEM_STYLE : (VARIANT_STYLE[p.variant] || VARIANT_STYLE["Default"]); }
 
   const titleEl = document.getElementById("title");
   if (CONFIG.title) titleEl.textContent = CONFIG.title; else titleEl.hidden = true;
@@ -150,12 +153,14 @@ __BASE_JS__
   const metricByKey = {};
   for (const m of METRICS) metricByKey[m.key] = m;
 
-  // One entry per method (its variants grouped); reference pipelines are kept
-  // apart — they are drawn as threshold lines, not as columns.
+  // One entry per method, its variants grouped. Systems are entries like any other: they
+  // compete in the pools that admit them, so they are drawn as columns rather than as the
+  // threshold lines the old "reference pipeline" framing used. A system has a single point
+  // with no tuning variant, drawn in its own colour (see `styleOf`) because it is not a step in
+  // the tuning progression the other three bars encode; its name on the axis carries the System
+  // family colour, like every other method's does.
   const byMethod = new Map();
-  const refs = [];
   for (const p of POINTS) {
-    if (p.reference) { refs.push(p); continue; }
     let entry = byMethod.get(p.method);
     if (!entry) {
       entry = { method: p.method, family: p.family, url: p.url, points: [] };
@@ -175,16 +180,18 @@ __BASE_JS__
     yMin: null,   // null = the automatic axis floor; a number = zoomed in
 
     methods: new Set(byMethod.keys()),
-    refs: new Set(refs.map(r => r.method)),
     variants: new Set(VARIANT_ORDER),
   };
 
   function metric() { return metricByKey[state.metric]; }
 
+  // A system has no tuning variant, so the variant toggles must not be able to hide it.
+  function shownVariant(p) { return !p.variant || state.variants.has(p.variant); }
+
   // A method's best value under `m`, ignoring variants the reader switched off.
   function bestOf(entry, m) {
     const vals = entry.points
-      .filter(p => state.variants.has(p.variant) && p[m.key] != null)
+      .filter(p => shownVariant(p) && p[m.key] != null)
       .map(p => p[m.key]);
     if (!vals.length) return null;
     return m.lowerBetter ? Math.min(...vals) : Math.max(...vals);
@@ -213,10 +220,6 @@ __BASE_JS__
     const m = metric();
     return sortedMethods([...byMethod.values()].filter(e => state.methods.has(e.method) && bestOf(e, m) != null), m);
   }
-  function visibleRefs() {
-    return refs.filter(r => state.refs.has(r.method) && r[state.metric] != null);
-  }
-
   // Rendered width of each label, measured in the live document (font metrics
   // are not knowable up front): it decides whether the names fit on one row or
   // need the two-row stagger, and which ones have to be shortened.
@@ -246,11 +249,11 @@ __BASE_JS__
   function render() {
     const m = metric();
     const entries = visibleEntries();
-    const shownRefs = visibleRefs();
     svg.textContent = "";
     axisSvg.textContent = "";
     axisSvg.setAttribute("width", AXIS_W);
 
+    if (!scroller.clientWidth) return;   // see the note in the Pareto template
     const avail = Math.max(240, scroller.clientWidth - 2);
     if (!entries.length) {
       axisSvg.setAttribute("height", 120);
@@ -258,7 +261,7 @@ __BASE_JS__
       svg.setAttribute("height", 120);
       const t = el("text", { x: avail / 2, y: 60, "text-anchor": "middle", "font-size": 13, fill: "var(--muted)" }, svg);
       t.textContent = "No methods selected — use “All methods” to bring them back.";
-      buildLegend(m, shownRefs);
+      buildLegend(m);
       postHeight();
       return;
     }
@@ -285,13 +288,12 @@ __BASE_JS__
     const allVals = [];
     for (const e of entries) {
       for (const p of e.points) {
-        if (!state.variants.has(p.variant) || p[m.key] == null) continue;
+        if (!shownVariant(p) || p[m.key] == null) continue;
         barVals.push(p[m.key]);
         allVals.push(p[m.key]);
         if (m.ci && p[m.ci.hi] != null) allVals.push(p[m.ci.hi]);
       }
     }
-    for (const r of shownRefs) { barVals.push(r[state.metric]); allVals.push(r[state.metric]); }
     const barMin = Math.min(...barVals), barMax = Math.max(...allVals);
     const span = barMax - barMin || Math.abs(barMax) || 1;
     let autoY0, y1;
@@ -376,14 +378,20 @@ __BASE_JS__
       // instead loses a variant outright whenever a narrower bar is the taller
       // of the two (TabSTAR's tuned bar sat 1 Elo above tuned + ensembled, and
       // the wider bar covered it completely).
-      const relOf = p => (VARIANT_STYLE[p.variant] || VARIANT_STYLE["Default"]).rel;
+      const relOf = p => styleOf(p).rel;
       const drawn = entry.points
-        .filter(p => state.variants.has(p.variant) && p[m.key] != null)
+        .filter(p => shownVariant(p) && p[m.key] != null)
         .slice()
         .sort((a, b) => relOf(b) - relOf(a));
+      // The widths are relative *within* a column, so a column missing the outermost variant
+      // — a model with no tuned run, a system, or any column at all once the reader switches a
+      // variant off — drew thin beside its neighbours for no reason anyone could read. Scale
+      // each column so its widest bar fills the slot; the nesting inside it is unchanged.
+      const widestRel = drawn.length ? Math.max(...drawn.map(relOf)) : 1;
+      const relScale = widestRel > 0 ? 1 / widestRel : 1;
       for (const p of drawn) {
-        const style = VARIANT_STYLE[p.variant] || VARIANT_STYLE["Default"];
-        const w = barUnit * style.rel;
+        const style = styleOf(p);
+        const w = barUnit * style.rel * relScale;
         const top = Y(p[m.key]);
         const rect = {
           x: cx - w / 2, y: Math.min(top, baseY), width: w, height: Math.max(1, Math.abs(baseY - top)),
@@ -441,34 +449,7 @@ __BASE_JS__
       t.setAttribute("x", Math.max(half + 1, Math.min(cx, plotW - half - 1)));
     });
 
-    // -- reference pipelines as threshold lines. Their names live in the legend
-    //    (matched by dash pattern) rather than on the line, where they would
-    //    cover the tallest bars at every scroll position.
-    const refG = el("g", {}, svg);
-    const tagYs = [];
-    shownRefs.forEach((r, i) => {
-      const ry = Y(r[state.metric]);
-      if (ry < TOP || ry > baseY) return;
-      el("line", {
-        x1: 0, y1: ry, x2: plotW, y2: ry, stroke: "var(--fam-reference)", "stroke-width": 1.8,
-        "stroke-dasharray": REF_DASHES[i % REF_DASHES.length], opacity: 0.95,
-      }, refG);
-      // Sticky value tag in the axis pane, so the threshold stays readable at
-      // any scroll position. Two nearby thresholds would print on top of each
-      // other, so nudge each tag clear of the ones already placed; a tag wins
-      // over a tick label it would sit on.
-      let ty = ry;
-      while (tagYs.some(y => Math.abs(y - ty) < 12)) ty += 12;
-      tagYs.push(ty);
-      for (const t of tickLabels) {
-        if (Math.abs(t.y - ty) < 10) t.node.remove();
-      }
-      el("text", {
-        x: AXIS_W - 10, y: ty + 4, "text-anchor": "end", "font-size": 11, "font-weight": 650,
-        fill: "var(--fam-reference)",
-      }, axisSvg).textContent = fmtMetric(m, r[state.metric]);
-    });
-    buildLegend(m, shownRefs);
+    buildLegend(m);
 
     // -- hit targets: one full-height column per method (>= 34px wide)
     const hits = el("g", {}, svg);
@@ -493,11 +474,12 @@ __BASE_JS__
     const m = metric();
     let html = `<div class="t-name">${entry.method}</div><div>${entry.family}</div>`;
     for (const p of entry.points) {
-      if (!state.variants.has(p.variant) || p[m.key] == null) continue;
+      if (!shownVariant(p) || p[m.key] == null) continue;
       const ci = m.ci && p[m.ci.lo] != null
         ? ` <span class="t-var">(${fmtNum(p[m.ci.lo], m.decimals)}–${fmtNum(p[m.ci.hi], m.decimals)})</span>`
         : "";
-      html += `<div><span class="t-var">${p.variant}:</span> <b>${fmtMetric(m, p[m.key])}</b>${ci}</div>`;
+      const vlabel = p.variant || "Whole pipeline";
+      html += `<div><span class="t-var">${vlabel}:</span> <b>${fmtMetric(m, p[m.key])}</b>${ci}</div>`;
     }
     if (entry.imputed) html += `<div class="t-imp">Imputed on ${fmtNum(entry.imputed_pct, 0)}% of datasets</div>`;
     tip.show(html, ev);
@@ -509,11 +491,9 @@ __BASE_JS__
   const famChips = new Map();
 
   function familyMembers(fam) {
-    const out = [...byMethod.values()].filter(e => e.family === fam).map(e => e.method);
-    for (const r of refs) if (r.family === fam) out.push(r.method);
-    return out;
+    return [...byMethod.values()].filter(e => e.family === fam).map(e => e.method);
   }
-  function isOn(name) { return state.methods.has(name) || state.refs.has(name); }
+  function isOn(name) { return state.methods.has(name); }
 
   function buildChips() {
     const rankMetric = metricByKey[CONFIG.rankMetric] || METRICS[0];
@@ -561,10 +541,7 @@ __BASE_JS__
   }
   function chipRank(name, m) {
     const entry = byMethod.get(name);
-    if (entry) return rankVal(entry, m);
-    const r = refs.find(x => x.method === name);
-    const v = r ? r[m.key] : null;
-    return v == null ? Infinity : (m.lowerBetter ? v : -v);
+    return entry ? rankVal(entry, m) : Infinity;
   }
   function syncChips() {
     for (const [name, b] of chipByMethod) b.setAttribute("aria-pressed", String(isOn(name)));
@@ -572,7 +549,7 @@ __BASE_JS__
   }
 
   function toggleMethod(name) {
-    const set = byMethod.has(name) ? state.methods : state.refs;
+    const set = state.methods;
     if (set.has(name)) set.delete(name); else set.add(name);
     syncChips();
     render();
@@ -581,8 +558,7 @@ __BASE_JS__
     const members = familyMembers(fam);
     const allOn = members.every(isOn);
     for (const name of members) {
-      const set = byMethod.has(name) ? state.methods : state.refs;
-      if (allOn) set.delete(name); else set.add(name);
+      if (allOn) state.methods.delete(name); else state.methods.add(name);
     }
     syncChips();
     render();
@@ -594,11 +570,9 @@ __BASE_JS__
   }
 
   document.getElementById("btn-all").addEventListener("click", () => {
-    state.refs = new Set(refs.map(r => r.method));
     setMethods(byMethod.keys());
   });
   document.getElementById("btn-none").addEventListener("click", () => {
-    state.refs = new Set();
     setMethods([]);
   });
   document.getElementById("btn-top").addEventListener("click", () => {
@@ -610,7 +584,6 @@ __BASE_JS__
       .sort((a, b) => rankVal(a, m) - rankVal(b, m))
       .slice(0, 15)
       .map(e => e.method);
-    state.refs = new Set(refs.map(r => r.method));
     setMethods(top);
   });
 
@@ -624,11 +597,22 @@ __BASE_JS__
   for (const m of METRICS) {
     metricSelect.appendChild(Object.assign(document.createElement("option"), { value: m.key, textContent: m.label }));
   }
-  metricSelect.addEventListener("change", ev => {
-    state.metric = ev.target.value;
+  function setMetric(key) {
+    if (!METRICS.some(m => m.key === key) || key === state.metric) return;
+    state.metric = key;
     state.yMin = null;  // the previous floor means nothing on a new scale
+    if (metricSelect) metricSelect.value = key;
     buildTable();
     render();
+  }
+  metricSelect.addEventListener("change", ev => setMetric(ev.target.value));
+
+  // Embedded, the host can pick the metric for us: the leaderboard's "I care about" control
+  // decides whether the page leads with Elo or Improvability, and every panel follows without
+  // regenerating an artifact per metric. Ignored when the metric is not one this chart offers.
+  window.addEventListener("message", ev => {
+    const d = ev.data;
+    if (d && d.type === "tabarena-explorer-metric") setMetric(d.metric);
   });
 
   const sortSelect = document.getElementById("sort-select");
@@ -676,9 +660,8 @@ __BASE_JS__
   }
 
   // ---------- legend ----------
-  // Rebuilt on every render: it names the reference lines (each by its dash
-  // pattern and current value), which change with the metric and the selection.
-  function buildLegend(m, shownRefs) {
+  // Rebuilt on every render, since the variant swatches dim with the current selection.
+  function buildLegend(m) {
     const parts = [];
     for (const v of VARIANT_ORDER) {
       if (!POINTS.some(p => p.variant === v)) continue;
@@ -688,15 +671,21 @@ __BASE_JS__
         `<span class="item"${off}><svg width="12" height="12" viewBox="0 0 12 12">` +
         `<rect x="1" y="1" width="10" height="10" rx="2" fill="${VARIANT_STYLE[v].color}"/></svg> ${label}</span>`);
     }
+    // Named for what it is in *this* row, which lists how a method was produced: a system chose,
+    // tuned and combined its own models inside one budget, so none of the three regimes beside
+    // it apply. Calling it "System" here repeated the family entry further down under a
+    // different colour, which read as a contradiction rather than as two separate facts.
+    if (POINTS.some(p => p.system)) {
+      parts.push(
+        '<span class="item" title="A system picked, tuned and combined its own models inside one ' +
+        'budget, so none of TabArena\u2019s tuning regimes apply to it">' +
+        '<svg width="12" height="12" viewBox="0 0 12 12">' +
+        '<rect x="1" y="1" width="10" height="10" rx="2" fill="var(--var-system)"/></svg> End-to-end</span>');
+    }
     if (m.ci) {
       parts.push('<span class="item"><svg width="12" height="14" viewBox="0 0 12 14">' +
         '<path d="M6,2 V12 M2,2 H10 M2,12 H10" stroke="var(--muted)" stroke-width="1.4" fill="none"/></svg> 95% CI</span>');
     }
-    shownRefs.forEach((r, i) => {
-      parts.push(`<span class="item"><svg width="26" height="8" viewBox="0 0 26 8">` +
-        `<line x1="0" y1="4" x2="26" y2="4" stroke="var(--fam-reference)" stroke-width="1.8" ` +
-        `stroke-dasharray="${REF_DASHES[i % REF_DASHES.length]}"/></svg> ${r.method} · ${fmtMetric(m, r[state.metric])}</span>`);
-    });
     if (POINTS.some(p => p.imputed)) {
       parts.push('<span class="item"><svg width="14" height="14" viewBox="0 0 14 14">' +
         '<rect x="1" y="1" width="12" height="12" rx="2" fill="var(--pt-muted)"/>' +
@@ -705,8 +694,11 @@ __BASE_JS__
         "</svg> &Dagger; partially imputed</span>");
     }
     // Model family, named rather than merely pointed at: without the colors
-    // spelled out, the swatch under each column decodes to nothing.
-    const families = FAM_ORDER.filter(f => POINTS.some(p => !p.reference && p.family === f));
+    // spelled out, the swatch under each column decodes to nothing. Systems are listed too:
+    // their names under the axis are set in the System family colour like every other method's,
+    // and leaving them out left that colour unexplained. It is the bar that is drawn in the
+    // separate --var-system, not the name.
+    const families = FAM_ORDER.filter(f => POINTS.some(p => p.family === f));
     if (families.length > 1) {
       parts.push('<span class="legendbreak"></span><span class="item">Family:</span>');
       for (const fam of families) {
@@ -741,11 +733,9 @@ __BASE_JS__
 
   // ---------- boot ----------
   document.querySelector("details.datatable").addEventListener("toggle", postHeight);
-  let resizeTimer = null;
-  window.addEventListener("resize", () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(render, 120);
-  });
+  // See the note in the Pareto template: the viewport is not what changes when a frame that
+  // loaded off-screen is finally laid out, so the scroller's own width is what to watch.
+  redrawOnResize(scroller, render);
 
   buildChips();
   buildTable();
