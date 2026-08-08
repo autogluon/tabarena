@@ -131,10 +131,10 @@ __BASE_JS__
     "Default": { color: "var(--var-default)", rel: 0.6 },
   };
   const VARIANT_ORDER = ["Default", "Tuned", "Tuned + Ens."];
-  // A system is not a tuning variant of anything, so it gets the System family hue rather than
-  // borrowing a variant colour. It takes the width of a Default bar: a system column stands
-  // alone, so a full-width one only read as heavier than everything beside it.
-  const SYSTEM_STYLE = { color: "var(--fam-system)", rel: VARIANT_STYLE["Default"].rel };
+  // A system is not a tuning variant of anything, so it takes the palette's fourth colour rather
+  // than borrowing one of the three. Its `rel` no longer decides how wide it draws: a system
+  // column holds one bar, and every column is scaled so its widest bar fills the slot.
+  const SYSTEM_STYLE = { color: "var(--var-system)", rel: 1 };
   function styleOf(p) { return p.system ? SYSTEM_STYLE : (VARIANT_STYLE[p.variant] || VARIANT_STYLE["Default"]); }
 
   const titleEl = document.getElementById("title");
@@ -381,9 +381,15 @@ __BASE_JS__
         .filter(p => shownVariant(p) && p[m.key] != null)
         .slice()
         .sort((a, b) => relOf(b) - relOf(a));
+      // The widths are relative *within* a column, so a column missing the outermost variant
+      // — a model with no tuned run, a system, or any column at all once the reader switches a
+      // variant off — drew thin beside its neighbours for no reason anyone could read. Scale
+      // each column so its widest bar fills the slot; the nesting inside it is unchanged.
+      const widestRel = drawn.length ? Math.max(...drawn.map(relOf)) : 1;
+      const relScale = widestRel > 0 ? 1 / widestRel : 1;
       for (const p of drawn) {
         const style = styleOf(p);
-        const w = barUnit * style.rel;
+        const w = barUnit * style.rel * relScale;
         const top = Y(p[m.key]);
         const rect = {
           x: cx - w / 2, y: Math.min(top, baseY), width: w, height: Math.max(1, Math.abs(baseY - top)),
@@ -666,7 +672,7 @@ __BASE_JS__
     if (POINTS.some(p => p.system)) {
       parts.push(
         '<span class="item"><svg width="12" height="12" viewBox="0 0 12 12">' +
-        '<rect x="1" y="1" width="10" height="10" rx="2" fill="var(--fam-system)"/></svg> System</span>');
+        '<rect x="1" y="1" width="10" height="10" rx="2" fill="var(--var-system)"/></svg> System</span>');
     }
     if (m.ci) {
       parts.push('<span class="item"><svg width="12" height="14" viewBox="0 0 12 14">' +
@@ -680,8 +686,11 @@ __BASE_JS__
         "</svg> &Dagger; partially imputed</span>");
     }
     // Model family, named rather than merely pointed at: without the colors
-    // spelled out, the swatch under each column decodes to nothing.
-    const families = FAM_ORDER.filter(f => POINTS.some(p => !p.system && p.family === f));
+    // spelled out, the swatch under each column decodes to nothing. Systems are listed too:
+    // their names under the axis are set in the System family colour like every other method's,
+    // and leaving them out left that colour unexplained. It is the bar that is drawn in the
+    // separate --var-system, not the name.
+    const families = FAM_ORDER.filter(f => POINTS.some(p => p.family === f));
     if (families.length > 1) {
       parts.push('<span class="legendbreak"></span><span class="item">Family:</span>');
       for (const fam of families) {

@@ -71,6 +71,14 @@ _LIGHT_TOKENS = """
     --var-default: #a1c9f4;
     --var-tuned: #ffb482;
     --var-tunedens: #8de5a1;
+    /* Systems are not a tuning variant, so they sit outside the blue -> orange -> green
+       progression rather than inside it. Everything else in that chart already claims a hue:
+       orange reads as Tuned, green as Tuned + Ens., blue as Default, and purple as the
+       Foundation Model family, whose colour the method names below the axis are set in — which
+       rules out magenta too, close enough to that purple to be read as it. Wine is far from all
+       of them and dark enough to hold its own weight; a system bar is never nested inside
+       another, so it does not have to stay light to keep one legible. */
+    --var-system: #c05f81;
     --optimal: #228b22;
     --tooltip-bg: #14161a;
     --tooltip-ink: #fbfbf9;
@@ -95,6 +103,7 @@ _DARK_TOKENS = """
     --var-default: #4386d5;
     --var-tuned: #c05f38;
     --var-tunedens: #289972;
+    --var-system: #a02c55;
     --optimal: #2ea043;
     --tooltip-bg: #f0efea;
     --tooltip-ink: #14161a;
