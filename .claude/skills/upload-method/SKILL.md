@@ -49,28 +49,34 @@ Parse `$ARGUMENTS`. Collect (ask only for what's missing or ambiguous):
 | Input | Example | Notes |
 |---|---|---|
 | `run_data_dir` | `.../output/benchmark_chimeraboost_16062026/data` | Dir of raw `results.pkl` files (searched recursively). Point at the run's `data/`. |
-| `model` | `chimeraboost` | The `packages/tabarena/src/tabarena/models/<model>/` folder. Usually inferable from the run/data dir name; confirm. |
+| `model` | `chimeraboost` | The `packages/tabarena/src/tabarena/models/<model>/` folder — or `systems/<system>/` when the method is a whole pipeline (AutoML framework, agent, hosted API). Usually inferable from the run/data dir name; confirm. |
 | `suite` | `tabarena-2026-06-30` | The dated run/suite id. **Must differ from `method`** (see Step 3). Default to `tabarena-<run-date>`; ask if unclear. |
 | `arena` | `tabarena` | Which arena collection to register in (default `tabarena`; e.g. `beyondarena` has its own). |
 | `verified` | `False` until signed off | Whether the results are verified. Default keep `False`; flip to `True` only when the maintainer confirms (Step 3). |
 
-## Step 1: Locate the model's `MethodMetadata`
+## Step 1: Locate the method's `MethodMetadata`
 
-Read `packages/tabarena/src/tabarena/models/<model>/info.py` and note the **exact** variable name of
-its `MethodMetadata` (e.g. `chimeraboost_method_metadata`, `nori_method_metadata`). Both scripts take
-it as a dotted reference:
+Read `packages/tabarena/src/tabarena/models/<model>/info.py` (or `systems/<system>/info.py`) and note
+the **exact** variable name of its `MethodMetadata` (e.g. `chimeraboost_method_metadata`,
+`tabfm_plus_method_metadata`). Both scripts take it as a dotted reference:
 
 ```
 tabarena.models.<model>.info:<varname>
+tabarena.systems.<system>.info:<varname>
 ```
 
 - **`info.py` exists** (the normal case — the model was added via the `add-model` skill): it already
   carries the raw-inferable fields (`ag_key`, `config_default`, `can_hpo`, `is_bag`, `compute`,
   `method_type`). Claude only fills the *manual* upload fields in Step 3.
-- **No `info.py`** (a raw external submission): the model isn't integrated yet. Run `inspect`
+- **No `info.py`** (a raw external submission): the method isn't integrated yet. Run `inspect`
   (Step 2) to get the copy-paste `MethodMetadata.<type>(...)` snippet, then author
-  `models/<model>/info.py` from it (use the **`add-model`** skill if the model also needs a wrapper).
-  Processing **requires** an explicit committed `MethodMetadata` — it refuses to guess.
+  `models/<model>/info.py` from it (use the **`add-model`** skill if the model also needs a wrapper,
+  or **`add-system`** if it is a whole pipeline). Processing **requires** an explicit committed
+  `MethodMetadata` — it refuses to guess.
+- **The method is a system**: the inspector cannot tell a system from any other baseline, since the
+  runner records both identically. Use `MethodMetadata.system(...)` rather than `.baseline(...)`, and
+  set `tags` — see the `add-system` skill. Getting this wrong types the method as a model on the
+  leaderboard and puts it in the models-only entrant pool, where it does not belong.
 
 ## Step 2: Inspect the raw data (Claude runs; confirms inference)
 
@@ -107,6 +113,7 @@ maintainer normally hand-edits them — Claude does it now. Read the file first,
 | `cache_kwargs` | `{"bucket": "tabarena", "prefix": "cache"}` | The r2 location (`bucket` + `prefix`). Required when `cache_type="r2"`. |
 | `date` | `"YYYY-MM-DD"` | The run date. Validated as a real calendar date. |
 | `verified` | `False` (until signed off), then `True` | Manual trust flag. Keep `False` until the results are verified; flip to `True` once they are (typically the final step). |
+| `method_class` / `tags` | systems only | `MethodMetadata.system(...)` sets `method_class`; `tags` (`with-llm`, `closed-source-api`) decide which entrant pools the system competes in. Neither is inferable from raw data. |
 
 Leave the raw-inferable fields (`ag_key`, `config_default`, `can_hpo`, `is_bag`, `compute`,
 `method_type`) **as they are** — they came from `add-model`. Only change one if Step 2's diff shows a

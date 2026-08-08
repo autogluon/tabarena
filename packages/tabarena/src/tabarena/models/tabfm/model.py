@@ -42,7 +42,7 @@ def _build_tabfm_estimator(*, problem_type: str, device: str, interface: str, **
     """Construct (but do not fit) a TabFM sklearn-style estimator for ``problem_type``.
 
     The single place both the AutoGluon wrapper (:class:`TabFMModel`) and the system model
-    (:class:`~tabarena.models.tabfm.system.TabFMPlusSystemModel`) build a TabFM estimator, so the
+    (:class:`~tabarena.systems.tabfm_plus.system.TabFMPlusSystemModel`) build a TabFM estimator, so the
     two never drift. ``interface`` selects the estimator's construction preset:
 
     * ``"default"`` — the plain ``TabFMClassifier`` / ``TabFMRegressor`` constructor.

@@ -3,6 +3,12 @@
 Define your system as an ``ExternalSystemModel`` subclass (a minimal ``AutoGluonSystemModel`` is
 shown below), pass it to a ``SystemConfigGenerator``, and run the usual quickstart flow with the
 bundle flipped to ``system_experiments=True``.
+
+The class below is written out in full so this file reads top to bottom. A system that ships
+with TabArena instead lives in its own ``tabarena/systems/<key>/`` package (``system.py`` +
+``hpo.py`` + ``info.py``), where the registry picks it up: see
+``tabarena.systems.autogluon`` for the maintained version of this very wrapper, and
+``tabarena.systems.tabfm_plus`` for one that drives a foundation model.
 """
 
 from __future__ import annotations

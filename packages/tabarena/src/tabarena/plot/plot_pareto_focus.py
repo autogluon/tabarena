@@ -29,7 +29,7 @@ FAMILY_COLORS: dict[str, str] = {
     "Foundation Model": "#b07cf0",  # purple
     "Neural Network": "#5aa9e6",  # blue
     "Tree-based": "#5cb85c",  # green
-    "Reference Pipeline": "#f0a35a",  # orange
+    "System": "#f0a35a",  # orange
     "Baseline": "#9e9e9e",  # gray
     "Other": "#9e9e9e",  # gray
 }

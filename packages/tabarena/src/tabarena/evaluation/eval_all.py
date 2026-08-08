@@ -1,49 +1,23 @@
+"""Evaluate every cell of the leaderboard subset grid, one figure/table set per cell.
+
+The grid itself (and the folder layout it writes into) lives in
+:mod:`tabarena.evaluation.subset_grid`; who competes in each cell lives in
+:mod:`tabarena.evaluation.entrants`.
+"""
+
 from __future__ import annotations
 
-from itertools import product
+import itertools
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tabarena.evaluation.entrants import filter_results_to_pool, get_entrant_pool
 from tabarena.evaluation.leaderboard_reporter import LeaderboardReporter
+from tabarena.evaluation.subset_grid import get_all_subset_combinations, get_website_folder_name
 from tabarena.utils.parallel_for import parallel_for
 
 if TYPE_CHECKING:
     import pandas as pd
-
-
-def get_all_subset_combinations() -> list[tuple[bool, str, bool, str | None, bool, bool]]:
-    use_imputation_lst = [False, True]
-    problem_type_lst = ["all", "classification", "regression", "binary", "multiclass"]
-    dataset_subset_lst = [None, "small", "medium"]
-    with_baselines_lst = [True]
-    lite_lst = [False, True]
-    average_seeds_lst = [False]
-
-    return list(
-        product(
-            use_imputation_lst,
-            problem_type_lst,
-            with_baselines_lst,
-            dataset_subset_lst,
-            lite_lst,
-            average_seeds_lst,
-        )
-    )
-
-
-def get_website_folder_name(
-    *,
-    use_imputation: bool,
-    problem_type: str,
-    dataset_subset: str | None,
-    lite: bool,
-) -> Path:
-    folder_name = Path("website_data")
-    folder_name = folder_name / ("imputation_yes" if use_imputation else "imputation_no")
-    folder_name = folder_name / ("splits_lite" if lite else "splits_all")
-    folder_name = folder_name / f"tasks_{problem_type}"
-    dataset_subset_name = dataset_subset if dataset_subset is not None else "all"
-    return folder_name / f"datasets_{dataset_subset_name}"
 
 
 def evaluate_all(
@@ -76,22 +50,12 @@ def evaluate_all(
     if engine == "auto":
         engine = tabarena_context.engine
 
-    # TODO: Avoid hardcoding baselines
-    baselines = [
-        "AutoGluon 1.4 (best, 4h)",
-        # "AutoGluon 1.4 (extreme, 4h)",
-        "AutoGluon 1.5 (extreme, 4h)",
-    ]
-    baseline_colors = [
-        "black",
-        "tab:purple",
-        # "tab:orange",
-    ]
-
     df_results = df_results.copy(deep=True)
     if "imputed" not in df_results.columns:
         df_results["imputed"] = False
     df_results["imputed"] = df_results["imputed"].fillna(0)
+
+    method_metadata_info = tabarena_context.method_metadata_collection.info()
 
     all_combinations = get_all_subset_combinations()
 
@@ -100,11 +64,20 @@ def evaluate_all(
     # shared once via `parallel_for`'s `context` (ray's object store) instead of being
     # serialized per job. Each `evaluate_single` writes its own figures/tables to disk.
     inputs = []
-    for use_imputation, problem_type, with_baselines, dataset_subset, lite, average_seeds in all_combinations:
+    for (
+        entrant_pool,
+        use_imputation,
+        problem_type,
+        with_baselines,
+        dataset_subset,
+        lite,
+        average_seeds,
+    ) in all_combinations:
         custom_folder_name = None
         if use_website_folder_names:
             custom_folder_name = str(
                 get_website_folder_name(
+                    entrant_pool=entrant_pool,
                     use_imputation=use_imputation,
                     problem_type=problem_type,
                     dataset_subset=dataset_subset,
@@ -113,6 +86,7 @@ def evaluate_all(
             )
         inputs.append(
             {
+                "entrant_pool": entrant_pool,
                 "use_imputation": use_imputation,
                 "problem_type": problem_type,
                 "with_baselines": with_baselines,
@@ -129,10 +103,9 @@ def evaluate_all(
         context={
             "tabarena_context": tabarena_context,
             "df_results": df_results,
+            "method_metadata_info": method_metadata_info,
             "eval_save_path": eval_save_path,
             "evaluator_kwargs": evaluator_kwargs,
-            "baselines": baselines,
-            "baseline_colors": baseline_colors,
             "elo_bootstrap_rounds": elo_bootstrap_rounds,
             "website_only": website_only,
         },
@@ -140,6 +113,40 @@ def evaluate_all(
         progress_bar=progress_bar,
         desc="Generating evaluation figures/tables per subset",
     )
+
+
+#: Line colors for the systems a pool draws as horizontal references, cycled in collection
+#: order. The first two land on AutoGluon 1.4 and 1.5, which is what those lines have always
+#: been drawn in.
+_REFERENCE_LINE_COLORS: list[str] = ["black", "tab:purple", "tab:blue", "tab:red", "darkgray"]
+
+
+def get_pool_reference_lines(
+    entrant_pool: str,
+    method_metadata_info: pd.DataFrame,
+) -> tuple[list[str], list[str]]:
+    """The ``(baselines, baseline_colors)`` for one entrant pool: every system it admits.
+
+    These are the horizontal reference lines the pool's figures draw. They are also, less
+    obviously, the systems that reach the pool's leaderboard at all: ``LeaderboardReporter.eval``
+    keeps a row only when its method maps to a config framework type *or* is named in
+    ``baselines``, and a system is neither. So this has to be the whole admitted set. Naming a
+    subset here does not just leave lines off a figure, it deletes those systems from the
+    published numbers.
+
+    The models-only pool admits none, and correctly gets no reference lines.
+    """
+    pool = get_entrant_pool(entrant_pool)
+    names = list(
+        dict.fromkeys(
+            row.display_name
+            for row in method_metadata_info.itertuples()
+            if getattr(row, "method_class", "model") == "system"
+            and pool.admits("system", getattr(row, "tags", ()) or ())
+        )
+    )
+    colors = list(itertools.islice(itertools.cycle(_REFERENCE_LINE_COLORS), len(names)))
+    return names, colors
 
 
 def evaluate_single(
@@ -153,8 +160,8 @@ def evaluate_single(
     average_seeds,
     eval_save_path,
     evaluator_kwargs,
-    baselines: list[str] | None = None,
-    baseline_colors: list[str] | None = None,
+    method_metadata_info: pd.DataFrame,
+    entrant_pool: str = "systems_all",
     elo_bootstrap_rounds: int = 200,
     custom_folder_name: str | None = None,
     website_only: bool = False,
@@ -164,6 +171,18 @@ def evaluate_single(
     df_results = df_results.copy()
 
     method_rename_map = tabarena_context.get_method_rename_map()
+
+    # Narrow the field first: Elo, improvability and the ranks are all relative to who
+    # competes, so this has to happen before anything is computed.
+    df_results = filter_results_to_pool(
+        df_results=df_results,
+        pool=get_entrant_pool(entrant_pool),
+        method_metadata_info=method_metadata_info,
+    )
+    if len(df_results) == 0:
+        print("\tNo results left in this entrant pool, skipping...")
+        return
+    baselines, baseline_colors = get_pool_reference_lines(entrant_pool, method_metadata_info)
 
     subset = []
     folder_name = "all"
@@ -214,6 +233,9 @@ def evaluate_single(
         folder_name = str(Path("lite") / folder_name)
     if not average_seeds:
         folder_name = str(Path("no_average_seeds") / folder_name)
+    # The pool is part of the cell's identity, so it has to be part of the path here too
+    # (the website layout carries it as its own `entrants_*` segment).
+    folder_name = str(Path(f"entrants_{entrant_pool}") / folder_name)
 
     if custom_folder_name is not None:
         folder_name = custom_folder_name
@@ -242,10 +264,12 @@ def evaluate_single(
         plot_times=not website_only,
         website_only=website_only,
         average_seeds=average_seeds,
-        # Keep baselines out of evaluate_all's Pareto plots: LeaderboardReporter.eval now
-        # defaults plot_with_baselines=True for the compare paths, but the paper-figure /
-        # website-artifact outputs produced here should preserve the prior (baseline-free) plots.
-        plot_with_baselines=False,
+        # Draw the systems as points in the Pareto scatter and as rows in the win-rate matrix,
+        # not only as horizontal reference lines. This used to be False, which is what produced
+        # the inconsistency the entrant pools exist to remove: a system sat in the Elo pool and
+        # so moved every other number, while the figures pretended it was not there. A pool that
+        # admits no system has no baseline row, so this is a no-op for models-only.
+        plot_with_baselines=True,
         **eval_kwargs,
     )
 

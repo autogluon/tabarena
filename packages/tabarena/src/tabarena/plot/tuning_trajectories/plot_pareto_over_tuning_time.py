@@ -14,17 +14,18 @@ from autogluon.common.loaders import load_pd
 
 from bencheval.evaluator import BenchmarkEvaluator
 from tabarena.contexts import TabArenaContext
+from tabarena.evaluation.entrants import filter_results_to_pool, get_entrant_pool
 from tabarena.evaluation.framework_naming import get_method_rename_map
-from tabarena.nips2025_utils.compare import subset_tasks
-from tabarena.nips2025_utils.eval_all import (
+from tabarena.evaluation.subset_grid import (
     get_all_subset_combinations,
     get_website_folder_name,
 )
+from tabarena.nips2025_utils.compare import subset_tasks
 from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
 from tabarena.plot.plot_pareto_focus import FAMILY_COLORS, MUTED_COLOR
 from tabarena.plot.plot_pareto_frontier import get_pareto_frontier, plot_optimal_arrow
 from tabarena.utils.parallel_for import parallel_for
-from tabarena.website.website_format import get_model_family
+from tabarena.website.website_format import get_model_family, system_display_names
 
 
 def _clip_title(title: str, max_chars: int) -> str:
@@ -709,6 +710,131 @@ def plot_hpo(
     plt.close(fig)
 
 
+def _subset_trajectory_data(
+    combined_data: pd.DataFrame,
+    *,
+    tabarena_context: TabArenaContext,
+    fillna_method: str | None,
+    exclude_imputed: bool,
+    subset: str | list[str] | None,
+    folds: list[int] | None,
+) -> pd.DataFrame:
+    """Narrow the trajectory frame to one subset of the grid.
+
+    The three steps every consumer of ``combined_data`` needs before it can report numbers:
+    keep only this subset's tasks and splits, fill the gaps a method left behind, and drop the
+    methods that only exist because of imputation when the subset excludes them.
+    """
+    combined_data = combined_data.copy()
+    if subset is not None or folds is not None:
+        if isinstance(subset, str):
+            subset = [subset]
+        combined_data = subset_tasks(
+            df_results=combined_data,
+            subset=subset,
+            folds=folds,
+            task_metadata_og=tabarena_context.task_metadata_collection,
+            predicates=tabarena_context.subset_predicates,
+        )
+
+    # FIXME: This isn't correct
+    # combined_data = arena.fillna_data(
+    #     data=combined_data,
+    #     fillna_method=calibration_framework,
+    # )
+    # FIXME: Using this since it does it correctly
+    if fillna_method is not None:
+        combined_data = tabarena_context.fillna_metrics(
+            df_to_fill=combined_data,
+            df_fillna=combined_data[combined_data["method"] == fillna_method],
+        )
+
+    if exclude_imputed:
+        imputed_methods_count = combined_data.groupby("method")["imputed"].sum()
+        imputed_methods = sorted(imputed_methods_count[imputed_methods_count > 0].index)
+        print(f"Excluding {len(imputed_methods)} imputed methods: {imputed_methods}")
+        combined_data = combined_data[~combined_data["method"].isin(imputed_methods)]
+    return combined_data
+
+
+def compute_per_dataset_trajectories(
+    combined_data: pd.DataFrame,
+    *,
+    tabarena_context: TabArenaContext,
+    methods_map: pd.DataFrame,
+    fillna_method: str | None,
+    exclude_imputed: bool,
+    subset: str | list[str] | None = None,
+    folds: list[int] | None = None,
+    method_rename_map: dict[str, str] | None = None,
+    hidden_methods: list[str] | None = None,
+) -> pd.DataFrame:
+    """One row per (dataset, method, tuning budget): the trajectory figure, dataset by dataset.
+
+    The aggregate figure asks ``compute_tuning_trajectories_leaderboard`` for Elo, which is a
+    rating over many tasks and says nothing useful about a single one. Everything a per-dataset
+    trajectory needs is an average over that dataset's splits, so this is one vectorized pass
+    over every dataset at once rather than one leaderboard per dataset.
+
+    ``improvability`` keeps the definition the rest of the site uses
+    (:meth:`bencheval.evaluator.BenchmarkEvaluator.compute_improvability_per`): per split, how
+    much lower the best entrant's error is than this one's, averaged over the dataset's splits.
+    The best is taken over every trajectory point, matching the aggregate figure's field.
+
+    Returns columns ``dataset``, ``method``, ``n_configs``, ``err``, ``imp``, ``train_s``,
+    ``infer_s``, ``x_train``, ``x_infer`` and ``imputed``. Both the raw runtimes and the
+    per-1K-sample ones are kept: within a single dataset the two differ only by a constant, and
+    the raw seconds are what a reader can act on ("this took four minutes here").
+    """
+    df = _subset_trajectory_data(
+        combined_data,
+        tabarena_context=tabarena_context,
+        fillna_method=fillna_method,
+        exclude_imputed=exclude_imputed,
+        subset=subset,
+        folds=folds,
+    )
+    df = df[df["method"].isin(methods_map.index)]
+    # Drop the (dataset, method) pairs that only exist because they were imputed: on this dataset
+    # that model did not run, so it should not appear on this dataset's chart. It stays on the
+    # datasets where it did run.
+    if "imputed" in df.columns:
+        df = df[~df["imputed"].fillna(False).astype(bool)]
+    if df.empty:
+        return pd.DataFrame(
+            columns=["dataset", "method", "n_configs", "x_train", "x_infer", "err", "imp", "imputed"],
+        )
+
+    best_per_split = df.groupby(["dataset", "fold"])["metric_error"].transform("min")
+    df = df.assign(
+        _imp=(1 - best_per_split / df["metric_error"]).fillna(0.0) * 100,
+        _name=df["method"].map(methods_map["config_type"]),
+        _n_configs=df["method"].map(methods_map["n_configs"]),
+    )
+    # Hidden methods are matched before the rename, as the aggregate leaderboard matches them
+    # against its own un-renamed ``config_type`` column.
+    if hidden_methods:
+        df = df[~df["_name"].isin(hidden_methods)]
+    if method_rename_map:
+        df["_name"] = df["_name"].map(method_rename_map).fillna(df["_name"])
+
+    per_dataset = (
+        df.groupby(["dataset", "_name", "_n_configs"], dropna=False)
+        .agg(
+            err=("metric_error", "mean"),
+            imp=("_imp", "mean"),
+            train_s=("time_train_s", "median"),
+            infer_s=("time_infer_s", "median"),
+            x_train=("time_train_s_per_1K", "median"),
+            x_infer=("time_infer_s_per_1K", "median"),
+            imputed=("imputed", "mean"),
+        )
+        .reset_index()
+        .rename(columns={"_name": "method", "_n_configs": "n_configs"})
+    )
+    return per_dataset.sort_values(by=["dataset", "method", "n_configs"], ignore_index=True)
+
+
 def compute_tuning_trajectories_leaderboard(
     combined_data: pd.DataFrame,
     tabarena_context: TabArenaContext,
@@ -722,17 +848,14 @@ def compute_tuning_trajectories_leaderboard(
     name_col="config_type",
     folds: list[int] | None = None,
 ):
-    combined_data = combined_data.copy()
-    if subset is not None or folds is not None:
-        if isinstance(subset, str):
-            subset = [subset]
-        combined_data = subset_tasks(
-            df_results=combined_data,
-            subset=subset,
-            folds=folds,
-            task_metadata_og=tabarena_context.task_metadata_collection,
-            predicates=tabarena_context.subset_predicates,
-        )
+    combined_data = _subset_trajectory_data(
+        combined_data,
+        tabarena_context=tabarena_context,
+        fillna_method=fillna_method,
+        exclude_imputed=exclude_imputed,
+        subset=subset,
+        folds=folds,
+    )
 
     tabarena_init_kwargs = dict(
         task_col="dataset",
@@ -760,24 +883,6 @@ def compute_tuning_trajectories_leaderboard(
         **tabarena_init_kwargs,
         error_col="metric_error_val",
     )
-
-    # FIXME: This isn't correct
-    # combined_data = arena.fillna_data(
-    #     data=combined_data,
-    #     fillna_method=calibration_framework,
-    # )
-    # FIXME: Using this since it does it correctly
-    if fillna_method is not None:
-        combined_data = tabarena_context.fillna_metrics(
-            df_to_fill=combined_data,
-            df_fillna=combined_data[combined_data["method"] == fillna_method],
-        )
-
-    if exclude_imputed:
-        imputed_methods_count = combined_data.groupby("method")["imputed"].sum()
-        imputed_methods = sorted(imputed_methods_count[imputed_methods_count > 0].index)
-        print(f"Excluding {len(imputed_methods)} imputed methods: {imputed_methods}")
-        combined_data = combined_data[~combined_data["method"].isin(imputed_methods)]
 
     arena.compute_results_per_task(data=combined_data)
 
@@ -903,6 +1008,7 @@ def plot_tuning_trajectories_all(
     # `context` (ray's object store) instead of being serialized per job.
     inputs = []
     for (
+        entrant_pool,
         use_imputation,
         problem_type,
         _,
@@ -911,6 +1017,7 @@ def plot_tuning_trajectories_all(
         average_seeds,
     ) in all_combinations:
         custom_folder_name = get_website_folder_name(
+            entrant_pool=entrant_pool,
             use_imputation=use_imputation,
             problem_type=problem_type,
             dataset_subset=dataset_subset,
@@ -927,10 +1034,16 @@ def plot_tuning_trajectories_all(
 
         inputs.append(
             {
+                "entrant_pool": entrant_pool,
                 "subset_map": {"placeholder_name": subset_list},
                 "average_seeds": average_seeds,
                 "exclude_imputed": not use_imputation,
                 "fig_save_dir": fig_save_dir / custom_folder_name / "tuning_trajectories",
+                # A dataset's own trajectory does not depend on which *other* datasets are in
+                # the cell, so the per-dataset frame is emitted once per (pool, imputation,
+                # splits) rather than 60 times over. The website's per-dataset browser reads
+                # it from the unrestricted cell and filters by task and size itself.
+                "per_dataset_trajectories": problem_type == "all" and dataset_subset is None,
             }
         )
 
@@ -1179,13 +1292,21 @@ def _prepare_tuning_trajectories_data(
     include_baselines: bool,
     include_portfolio: bool = False,
     include_hpo_seeds: bool = False,
+    entrant_pool: str = "systems_all",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the dataset-independent inputs (combined_data, methods_map) for tuning-trajectory plotting.
 
     Heavy I/O (loading per-method HPO trajectories, baselines, the paper results) lives here so the
     caller can run it once and share the results across many per-dataset plotting calls.
+
+    ``entrant_pool`` narrows the field to one :class:`~tabarena.evaluation.entrants.EntrantPool`
+    before anything is computed, since the improvability the trajectories are plotted against is
+    relative to whoever competes.
     """
-    method_metadata_lst_og = tabarena_context.method_metadata_collection.method_metadata_lst
+    pool = get_entrant_pool(entrant_pool)
+    method_metadata_lst_og = [
+        m for m in tabarena_context.method_metadata_collection.method_metadata_lst if pool.admits_metadata(m)
+    ]
     # Config methods always have trajectories (downloaded on demand); other method types (e.g.
     # portfolios) contribute when their artifact ships a `results/hpo_trajectories.parquet`.
     method_metadata_lst = [m for m in method_metadata_lst_og if m.method_type == "config" or m.has_hpo_trajectories]
@@ -1220,7 +1341,11 @@ def _prepare_tuning_trajectories_data(
     results_hpo = pd.concat(results_hpo_lst, ignore_index=True)
     results_hpo["display_name"] = results_hpo["display_name"].fillna(results_hpo["config_type"])
 
-    result_baselines = tabarena_context.load_results()
+    result_baselines = filter_results_to_pool(
+        df_results=tabarena_context.load_results(),
+        pool=pool,
+        method_metadata_info=tabarena_context.method_metadata_collection.info(),
+    )
 
     results_hpo_mean = (
         results_hpo.copy()
@@ -1352,6 +1477,7 @@ def _plot_tuning_trajectories_from_prepared(
     use_elo_method_order: bool = True,
     focus_mode: bool = False,
     website_only: bool = False,
+    per_dataset_trajectories: bool = False,
 ):
     """Run the per-(dataset-subset, subset_map) leaderboard + plotting steps from already-prepared data."""
     fig_save_dir = Path(fig_save_dir)
@@ -1388,6 +1514,25 @@ def _plot_tuning_trajectories_from_prepared(
             leaderboard = leaderboard[~leaderboard["config_type"].isin(hidden_methods)]
 
         fig_save_dir_subset = fig_save_dir / subset_name if subset_name is not None else fig_save_dir
+
+        # The same trajectories, kept dataset by dataset for the website's per-dataset browser.
+        # Written here because this is where the trajectory frame exists; the conversion step
+        # turns it into the explorer. The same two filters the leaderboard above applies, so a
+        # dataset's chart shows the field the aggregate figure shows.
+        if per_dataset_trajectories:
+            per_dataset = compute_per_dataset_trajectories(
+                combined_data=combined_data,
+                tabarena_context=tabarena_context,
+                methods_map=methods_map,
+                fillna_method=fillna_method,
+                exclude_imputed=exclude_imputed,
+                subset=subset,
+                folds=folds,
+                method_rename_map=method_rename_map,
+                hidden_methods=[*(["KNN", "Linear"] if ban_bad_methods else []), *(hidden_methods or [])],
+            )
+            fig_save_dir_subset.mkdir(parents=True, exist_ok=True)
+            per_dataset.to_csv(fig_save_dir_subset / "tuning_trajectories_per_dataset.csv", index=False)
 
         # Build the coverage-counts metadata for the second legend whenever
         # *either* the titles or the dedicated coverage-legend toggle is
@@ -1459,6 +1604,7 @@ def _plot_tuning_trajectories_from_prepared(
             title_prefix=subset_title_prefix,
             use_elo_method_order=use_elo_method_order,
             benchmark_name=getattr(tabarena_context, "benchmark_name", "Arena"),
+            system_names=system_display_names(tabarena_context.method_metadata_collection.info()),
             focus_mode=focus_mode,
             website_only=website_only,
         )
@@ -1488,6 +1634,8 @@ def plot_tuning_trajectories(
     use_elo_method_order: bool = True,
     focus_mode: bool = False,
     website_only: bool = False,
+    entrant_pool: str = "systems_all",
+    per_dataset_trajectories: bool = False,
 ):
     name_col = "config_type"
     if subset_map is None:
@@ -1512,6 +1660,7 @@ def plot_tuning_trajectories(
         include_baselines=include_baselines,
         include_portfolio=include_portfolio,
         include_hpo_seeds=False,
+        entrant_pool=entrant_pool,
     )
 
     _plot_tuning_trajectories_from_prepared(
@@ -1539,6 +1688,7 @@ def plot_tuning_trajectories(
         use_elo_method_order=use_elo_method_order,
         focus_mode=focus_mode,
         website_only=website_only,
+        per_dataset_trajectories=per_dataset_trajectories,
     )
 
 
@@ -1578,6 +1728,7 @@ def plot_tuning_trajectories_from_leaderboard(
     benchmark_name: str = "Arena",
     focus_mode: bool = False,
     website_only: bool = False,
+    system_names: frozenset[str] = frozenset(),
 ):
     fig_save_dir = Path(fig_save_dir)
     if plot_kwargs is None:
@@ -1596,7 +1747,7 @@ def plot_tuning_trajectories_from_leaderboard(
         plot_kwargs["focus_mode"] = True
         plot_kwargs.setdefault(
             "family_map",
-            {m: get_model_family(m) for m in leaderboard[method_col].unique()},
+            {m: get_model_family(m, system_names=system_names) for m in leaderboard[method_col].unique()},
         )
 
     # Interactive explorer + underlying data export, mirroring the
@@ -1606,7 +1757,7 @@ def plot_tuning_trajectories_from_leaderboard(
     explorer_points = pd.DataFrame(
         {
             "method": leaderboard[method_col],
-            "family": leaderboard[method_col].map(get_model_family),
+            "family": [get_model_family(m, system_names=system_names) for m in leaderboard[method_col]],
             "x_train": leaderboard["Train time per 1K samples (s) (median)"],
             "x_infer": leaderboard["Inference time per 1K samples (s) (median)"],
             "imp": leaderboard["Improvability (%)"],

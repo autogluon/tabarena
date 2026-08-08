@@ -201,9 +201,11 @@ class InMemoryMethodMetadata(MethodMetadata):
         results_dir = path / "results"
         results_dir.mkdir(parents=True, exist_ok=True)
         # to_info_dict already omits the in-memory slots + runtime-only path overrides, leaving
-        # exactly the dataclass fields from_dir feeds back into the constructor.
+        # exactly the dataclass fields from_dir feeds back into the constructor. `_to_yaml_dict`
+        # additionally flattens tuple-valued fields (`tags`) to lists, which is what makes the
+        # file readable by `yaml.safe_load` in from_dir.
         with open(path / "metadata.yaml", "w") as f:
-            yaml.dump(self.to_info_dict(), f, default_flow_style=False)
+            yaml.dump(self._to_yaml_dict(), f, default_flow_style=False)
         self._results.to_parquet(results_dir / _RESULTS_FILENAME_BY_TYPE[self.method_type], index=False)
         if self._hpo_trajectories is not None:
             self._hpo_trajectories.to_parquet(results_dir / "hpo_trajectories.parquet", index=False)

@@ -37,10 +37,10 @@ def test_artifact_dir_excluded_from_info_dict(tmp_path):
 
 
 def _write_committed_method(method_dir, *, method="Foo", suite="s1"):
+    # Written through `to_yaml`, the same writer production uses, so the committed file this
+    # exercises is byte-for-byte what a real cached method has.
     method_dir.mkdir(parents=True, exist_ok=True)
-    info = MethodMetadata.config(method=method, suite=suite).to_info_dict()
-    with open(method_dir / "metadata.yaml", "w") as f:
-        yaml.dump(info, f)
+    MethodMetadata.config(method=method, suite=suite).to_yaml(method_dir / "metadata.yaml")
 
 
 def test_from_yaml_path_resolves_artifacts_next_to_metadata(tmp_path):
@@ -90,11 +90,10 @@ def test_artifact_dir_and_cache_root_are_mutually_exclusive(tmp_path):
 
 
 def _write_layered_cache(cache_root, *, method, suite):
+    # Same reasoning as _write_committed_method: write through the production writer.
     method_dir = cache_root / "artifacts" / suite / "methods" / method
     method_dir.mkdir(parents=True, exist_ok=True)
-    info = MethodMetadata.config(method=method, suite=suite).to_info_dict()
-    with open(method_dir / "metadata.yaml", "w") as f:
-        yaml.dump(info, f)
+    MethodMetadata.config(method=method, suite=suite).to_yaml(method_dir / "metadata.yaml")
 
 
 def test_from_yaml_cache_root_lookup_stamps_the_override(tmp_path):
@@ -180,3 +179,75 @@ def test_from_raw_config_artifact_dir_pins_artifact_location(tmp_path):
     assert mm.path == tmp_path
     assert mm.path_results == tmp_path / "results"
     assert mm.path_processed == tmp_path / "processed"
+
+
+# -- method_class / tags ----------------------------------------------------------------------
+
+
+def test_system_constructor_sets_class_and_baseline_result_shape():
+    """``MethodMetadata.system`` marks the entrant class without changing the result shape:
+    a system's results are recorded as a baseline, so ``method_type`` stays ``"baseline"``.
+    """
+    mm = MethodMetadata.system(method="TabFM+", suite="s", tags=("with-llm",))
+    assert mm.method_class == "system"
+    assert mm.method_type == "baseline"
+    assert mm.is_system
+    assert mm.uses_llm
+    assert not mm.is_closed_api
+
+
+def test_method_class_defaults_to_model():
+    # Every pre-existing method (and every metadata.yaml written before the field existed)
+    # reads back as a model.
+    assert MethodMetadata(method="M", suite="s").method_class == "model"
+    assert MethodMetadata(method="M", suite="s").tags == ()
+    assert not MethodMetadata(method="M", suite="s").is_system
+
+
+def test_tags_are_sorted_and_deduped():
+    # Two metadata objects listing the same tags in a different order must serialize identically.
+    mm = MethodMetadata.system(method="M", suite="s", tags=("with-llm", "closed-source-api", "with-llm"))
+    assert mm.tags == ("closed-source-api", "with-llm")
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"tags": ("gpu-only",)}, "Unknown tag"),
+        ({"method_class": "pipeline"}, "Unknown method_class"),
+        ({"method_type": "config", "method_class": "system"}, "incompatible"),
+    ],
+)
+def test_invalid_method_class_or_tags_are_rejected(kwargs, match):
+    with pytest.raises(AssertionError, match=match):
+        MethodMetadata(method="M", suite="s", **kwargs)
+
+
+def test_info_dict_keeps_tags_hashable_for_dataframes():
+    """``to_info_dict`` feeds ``MethodMetadataCollection.info()`` straight into a DataFrame, where
+    ``website_format.strict_merge`` runs ``drop_duplicates`` / ``.eq`` over the cells. A list
+    would be unhashable there, so tags must stay a tuple.
+    """
+    info = MethodMetadata.system(method="M", suite="s", tags=("with-llm",)).to_info_dict()
+    assert info["tags"] == ("with-llm",)
+    assert isinstance(info["tags"], tuple)
+    pd.DataFrame([info]).drop_duplicates(["method"])  # would raise on a list cell
+
+
+def test_yaml_roundtrip_of_a_tagged_system():
+    # yaml.safe_dump raises on a tuple, so the YAML writers flatten to a list; loading it back
+    # re-normalizes to a tuple.
+    mm = MethodMetadata.system(method="M", suite="s", tags=("closed-source-api", "with-llm"))
+    assert isinstance(mm._to_yaml_dict()["tags"], list)
+    loaded = MethodMetadata(**yaml.safe_load(mm.to_yaml_fileobj()))
+    assert loaded.method_class == "system"
+    assert loaded.tags == ("closed-source-api", "with-llm")
+
+
+def test_legacy_yaml_without_the_new_fields_still_loads(tmp_path):
+    # metadata.yaml written before method_class/tags existed picks up the defaults.
+    path = tmp_path / "metadata.yaml"
+    path.write_text("method: Old\nsuite: s\nmethod_type: baseline\n")
+    loaded = MethodMetadata.from_yaml(path=path)
+    assert loaded.method_class == "model"
+    assert loaded.tags == ()

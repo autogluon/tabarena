@@ -170,7 +170,7 @@ plan.setup_jobs()
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task.metadata import TaskSubset
 from tabarena.contexts import TabArenaContext
-from tabarena.models.tabfm import gen_tabfm_plus
+from tabarena.systems.tabfm_plus import gen_tabfm_plus
 from tabflow_slurm import (
     GCPSlurmSetup,
     ModelJob,

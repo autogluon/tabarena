@@ -130,7 +130,9 @@ dmypy.json
 
 data/results/*
 .DS_Store
-autogluon/
+# Anchored: this is for an AutoGluon checkout sitting at the repo root. Unanchored it matched
+# at any depth and silently swallowed packages/tabarena/src/tabarena/systems/autogluon/.
+/autogluon/
 .pkl
 .idea
 /examples/task_cache/

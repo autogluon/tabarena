@@ -10,7 +10,7 @@ TabArena is a living benchmark for tabular machine learning. It evaluates ML met
 
 This repo is a **uv workspace** (root `pyproject.toml`). Its installable packages live under `packages/` (workspace members `tabarena`, `bencheval`, `tabflow_slurm`), alongside supporting dirs:
 
-- `packages/tabarena/` — Core package. Repository pattern for benchmark data, model wrappers, simulation, evaluation, plotting. Depends on AutoGluon and `bencheval`.
+- `packages/tabarena/` — Core package. Repository pattern for benchmark data, model wrappers (`src/tabarena/models/`), system wrappers (`src/tabarena/systems/`), simulation, evaluation, plotting. Depends on AutoGluon and `bencheval`.
 - `packages/bencheval/` — Standalone lightweight metrics/leaderboard package (ELO, win-rates, ranks, improvability). Computes leaderboards from results DataFrames. No dependency on `tabarena`.
 - `packages/tabflow_slurm/` — Package (own `pyproject.toml`, a uv-workspace member) for running experiments on SLURM clusters. Depends on `tabarena`. See `packages/tabflow_slurm/README.md` and `packages/tabflow_slurm/AGENTS.md`.
 - `examples/` — Usage examples for benchmarking, plotting, meta-learning, custom models.
@@ -103,9 +103,38 @@ Raw predictions → EvaluationRepository → Simulation/Portfolio → Results Da
 - **`EvaluationRepository`** (`packages/tabarena/src/tabarena/repository/evaluation_repository.py`) — Central class combining config metadata/rankings (`ZeroshotSimulatorContext`), cached val/test predictions (`TabularModelPredictions`), and `GroundTruth`. Supports subsetting by datasets/folds/configs/problem_types and ensemble selection via mixins.
 - **`TabularModelPredictions`** (`packages/tabarena/src/tabarena/predictions/`) — Abstract base for prediction storage. Implementations: `TabularPredictionsInMemory` (dict-based) and `TabularPredictionsMemmap` (disk-based memory-mapped for large benchmarks). Structure: `{dataset: {fold: {val/test: {config: predictions}}}}`.
 - **`AbstractExecModel`** (`packages/tabarena/src/tabarena/benchmark/exec_models/base.py`) — Base for the benchmark *execution* wrappers (the AutoGluon wrappers live in `benchmark/exec_models/autogluon.py`). New benchmarked models live in one folder per model at `packages/tabarena/src/tabarena/models/<model>/` (`model.py` = AutoGluon wrapper subclassing AG's `AbstractModel`/`AbstractTorchModel`, `hpo.py` = search-space generator, `info.py` = `ModelInfo`/`MethodMetadata` registry entry), auto-discovered by `packages/tabarena/src/tabarena/models/_registry.py::discover_models()` (which `packages/tabarena/src/tabarena/benchmark/exec_models/registry.py` then derives the AG registry from). Use the **`add-model` skill** — there is no `benchmark/models/ag/<model>/` layout for new models.
+- **`ExternalSystemModel`** (`packages/tabarena/src/tabarena/benchmark/exec_models/external.py`) — Base for a benchmarked **system**: a whole pipeline that picks, tunes and ensembles models inside its own budget (AutoGluon, TabFM+, an agent, a hosted API). Systems live one folder per system at `packages/tabarena/src/tabarena/systems/<system>/` (`system.py` = the `ExternalSystemModel` subclass, `hpo.py` = the `SystemConfigGenerator`, `info.py` = `SystemInfo`/`MethodMetadata`), auto-discovered by `systems/_registry.py::discover_systems()`. See "Systems" below.
 - **`ExperimentRunner` / `ExperimentBatchRunner`** (`packages/tabarena/src/tabarena/benchmark/experiment/`) — Execute model fitting across tasks. Configured via YAML (`experiment_constructor.py`).
 - **`ZeroshotSimulatorContext`** (`packages/tabarena/src/tabarena/simulation/`) — Manages config rankings for HPO simulation and portfolio generation.
 - **`BenchmarkEvaluator`** (`packages/bencheval/src/bencheval/evaluator.py`) — Leaderboard computation from results DataFrames. Independent of the core `tabarena` package.
+- **`EntrantPool`** (`packages/tabarena/src/tabarena/evaluation/entrants.py`) — One field of competitors, evaluated together. The leaderboard publishes one artifact tree per pool. See "Entrant pools" below.
+
+### Systems
+
+A **model** is one method run under TabArena's shared tuning protocol. A **system** manages its own budget, model selection and ensembling; benchmarking it means handing it the data and the constraints and recording what comes back.
+
+Two fields on `MethodMetadata` carry this, both orthogonal to `method_type` (which stays a *result-shape* discriminator: which parquet `load_results` reads, whether HPO simulation applies):
+
+- `method_class` — `"model"` (default) or `"system"`. Not inferable from raw results, which record a system exactly like any other `method_type="baseline"` run, so a system must declare it. Build the metadata with `MethodMetadata.system(...)`.
+- `tags` — from the `MethodTag` vocabulary, for what a reader must weigh before trusting a comparison. Keep it small; a tag earns its place only when someone would reasonably exclude a method because of it.
+  - `with-llm` — an LLM is involved somewhere, agents included. Says nothing about whether the system is open-source.
+  - `closed-source-api` — the method runs behind a remote API we cannot inspect and whose behavior can change. Being an API implies closed-source here, so this is one tag rather than two.
+
+Adding a system mirrors `add-model`: create `systems/<key>/` with `system.py`, `hpo.py` and `info.py`, and export a `<key>_info: SystemInfo` that `discover_systems()` picks up. Systems stay out of the AutoGluon model registry on purpose (no `ag_key`, no search space) and run through the experiment bundle's `system_experiments=True` mode. `SystemInfo.__post_init__` rejects metadata that is not `method_class="system"`, so a misdeclared system fails at import rather than misclassifying downstream.
+
+The website types a system from `method_class`, never from its name. `website_format.get_model_family` classifies models by name prefix, but a system short-circuits to the `System` family via the declared set (`system_display_names`), so a new system never lands in `❓ Other`.
+
+### Entrant pools
+
+Every headline number is relative to who competed: Elo is pairwise over the participants, `improvability` is `1 - best_error_in_pool / error`, and the ranks are positions in the field. Narrowing the field therefore needs a recompute, not a row filter, which is why the entrant pool is a subset axis alongside imputation and splits rather than a toggle on the published table.
+
+`evaluation/entrants.py` groups systems into independently selectable `SYSTEM_CATEGORIES`: `open` (untagged, i.e. open-source and local), `llm` (`with-llm`), and `api` (`closed-source-api`). Every combination is published as its own pool, so there are `2 ** len(SYSTEM_CATEGORIES)` = 8, keyed `models`, `open`, `llm`, `api`, `open_llm`, `open_api`, `llm_api`, `open_llm_api`. Models always compete.
+
+Independent rather than a cumulative ladder because "LLM-based systems but not the plain open-source ones" is a question people actually have, and a ladder cannot express it. A system carrying several tags belongs to several categories and needs *all* of them selected, so a closed-API LLM system never appears on the strength of a property the reader excluded.
+
+`evaluation/subset_grid.py` crosses the pools with the other axes into a 480-cell grid and owns the folder layout (`entrants_<key>/imputation_.../splits_.../tasks_.../datasets_...`), which the leaderboard Space's `Subset.rel_path` mirrors segment for segment. Adding a fourth category doubles the artifact count and the generation time; that is the price of independent toggles.
+
+One coupling to know about when you register a system: `eval_all.get_pool_reference_lines` returns the pool's admitted systems as `(baselines, baseline_colors)`, and `baselines` is not only what the figures draw as horizontal reference lines. `LeaderboardReporter.eval` keeps a row only when its method maps to a config framework type *or* is named in `baselines`, and a system is neither, so a system missing from that list is deleted from the pool's published numbers with nothing logged. It is derived from `method_metadata_info` for exactly that reason, and `tests/tabarena/evaluation/test_entrants.py` guards that the widest pool covers every system in the shipped collection.
 
 ### Data caching
 
