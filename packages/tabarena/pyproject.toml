@@ -43,7 +43,7 @@ dependencies = [
   # `autogluon.timeseries` (torch, transformers, ...). `autogluon.tabular` transitively
   # provides `autogluon.{common,core,features}`, which is everything the code uses.
   # To use `uv`, you need to do `uv pip install --prerelease=allow .` so it recognizes pre-release AutoGluon.
-  "autogluon.tabular>=1.5,<1.6",
+  "autogluon.tabular>=1.6,<1.7",
   "bencheval",
   "openml>=0.14.1",
   "pyyaml",
@@ -88,7 +88,7 @@ tabpfn = [
   "tabpfn-extensions[many_class] @ git+https://github.com/PriorLabs/tabpfn-extensions.git",
 ]
 tabicl = ["tabicl>=2.0.0"]
-ebm = ["autogluon.tabular[interpret]>=1.5,<1.6"]
+ebm = ["autogluon.tabular[interpret]>=1.6,<1.7"]
 search_spaces = ["configspace>=1.2,<2.0"]
 realmlp = ["pytabkit>=1.5.0,<2.0"]
 tabdpt = ["tabdpt>=1.2.0"]
