@@ -24,6 +24,7 @@ class ChimeraBoostModel(AbstractModel):
     ag_key = "CHIMERA"
     ag_name = "ChimeraBoost"
     seed_name = "random_state"  # AutoGluon injects the framework seed here
+    _supported_problem_types = ["binary", "multiclass", "regression"]
 
     def _preprocess(self, X: pd.DataFrame, is_train=False, **kwargs) -> pd.DataFrame:
         """Pass the frame straight to ChimeraBoost with categoricals marked by
@@ -108,15 +109,11 @@ class ChimeraBoostModel(AbstractModel):
         return default_auxiliary_params
 
     @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
-
-    @classmethod
     def warmup(cls, **kwargs) -> None:
         """Pre-compile the numba kernels (~10s cold start, then disk-cached per environment)."""
         import chimeraboost
 
-        chimeraboost.warmup()  # requires chimeraboost>=0.14.1 (the pinned extra)
+        chimeraboost.warmup()
 
     def _get_default_resources(self) -> tuple[int, int]:
         # Physical cores only (matches RealMLP/XRFM); ChimeraBoost is CPU-only.
