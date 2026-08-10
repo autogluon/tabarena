@@ -545,3 +545,79 @@ def test_autogluon_stacker_leaves_no_cwd_artifacts(monkeypatch, tmp_path):
 
     assert np.isfinite(regressor.predict(preds.T)).all()
     assert list(tmp_path.iterdir()) == []
+
+
+# -------------------------
+# Hill climbing (autogluon/autogluon#4505)
+# -------------------------
+def test_hill_climbing_beats_or_matches_single_best_on_synthetic():
+    """HC starts from the best single model and only accepts improving blends, so
+    validation error must be <= single-best error on the fit split.
+    """
+    from tabarena.simulation.ensemble import HillClimbingEnsembler, SingleBestEnsembler
+
+    y, preds = _make_binary_task(n_models=12, n_samples=800, seed=7)
+    metric = get_metric(metric="roc_auc", problem_type="binary")
+
+    single = SingleBestEnsembler(problem_type="binary", metric=metric)
+    single.fit(predictions=preds, labels=y)
+    single_err = metric.error(y, single.predict_proba(preds))
+
+    hc = HillClimbingEnsembler(
+        problem_type="binary",
+        metric=metric,
+        precision=0.05,
+        max_rounds=20,
+        random_state=0,
+    )
+    hc.fit(predictions=preds, labels=y)
+    hc_err = metric.error(y, hc.predict_proba(preds))
+
+    assert hc_err <= single_err + 1e-12
+    assert hc.model_weights() is not None
+    assert np.isclose(hc.model_weights().sum(), 1.0)
+    assert hc.models_used().any()
+
+
+def test_hill_climbing_regression_and_weights_sum():
+    from tabarena.simulation.ensemble import HillClimbingEnsembler
+
+    y, preds = _make_regression_task(n_models=10, n_samples=600, seed=3)
+    metric = get_metric(metric="rmse", problem_type="regression")
+    hc = HillClimbingEnsembler(
+        problem_type="regression",
+        metric=metric,
+        precision=0.05,
+        max_rounds=15,
+        random_state=1,
+    )
+    hc.fit(predictions=preds, labels=y)
+    w = hc.model_weights()
+    assert w is not None
+    assert np.isclose(w.sum(), 1.0)
+    assert (w >= -1e-12).all()
+    # Prediction is a weighted sum of base preds
+    combined = hc.predict_proba(preds)
+    expected = sum(p * wi for p, wi in zip(preds, w, strict=True) if wi != 0)
+    np.testing.assert_allclose(combined, expected, rtol=1e-5, atol=1e-5)
+
+
+def test_hill_climbing_task_evaluator_runs():
+    """Smoke: HillClimbingEnsembler plugs into TaskEvaluator like other ensemblers."""
+    from tabarena.simulation.ensemble import HillClimbingEnsembler
+
+    y, preds = _make_binary_task(seed=11)
+    metric = get_metric(metric="roc_auc", problem_type="binary")
+    results, ensemble = _run_task_evaluator(
+        HillClimbingEnsembler,
+        {"precision": 0.05, "max_rounds": 10, "random_state": 0},
+        problem_type="binary",
+        eval_metric=metric,
+        fit_eval_metric=metric,
+        y=y,
+        preds=preds,
+    )
+    assert "metric_error" in results
+    assert "ensemble_weights" in results
+    assert results["ensemble_weights"] is not None
+    assert ensemble is not None

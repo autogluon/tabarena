@@ -15,6 +15,7 @@ from tabarena.simulation.ensemble.basic_ensemblers import (
     TopKAverageEnsembler,
 )
 from tabarena.simulation.ensemble.greedy_ensembler import GreedyEnsembler
+from tabarena.simulation.ensemble.hill_climbing_ensembler import HillClimbingEnsembler
 from tabarena.simulation.ensemble.stacking_ensembler import StackingEnsembler
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "AutoGluonStackerRegressor",
     "FixedWeightsEnsembler",
     "GreedyEnsembler",
+    "HillClimbingEnsembler",
     "LegacyEnsemblerAdapter",
     "SingleBestEnsembler",
     "StackingEnsembler",
