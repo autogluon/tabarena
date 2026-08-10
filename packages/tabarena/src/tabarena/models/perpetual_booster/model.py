@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 class PerpetualBoosterModel(AbstractModel):
     ag_key = "PB"
     ag_name = "PerpetualBooster"
+    _supported_problem_types = ["binary", "multiclass", "regression"]
 
     # FIXME: random seed not supported
     # seed_name = "random_state"
@@ -89,10 +90,6 @@ class PerpetualBoosterModel(AbstractModel):
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
-
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}

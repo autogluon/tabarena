@@ -307,6 +307,7 @@ class ModernNCAImplementation:
 class ModernNCAModel(AbstractModel):
     ag_key = "MNCA"
     ag_name = "ModernNCA"
+    _supported_problem_types = ["binary", "multiclass", "regression"]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -425,10 +426,6 @@ class ModernNCAModel(AbstractModel):
             self._set_default_param_value(param, val)
 
     @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
-
-    @classmethod
     def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
         """Torch-backed despite subclassing ``AbstractModel``: warm torch + CUDA context."""
         from tabarena.models.warmup import warmup_torch
@@ -446,16 +443,6 @@ class ModernNCAModel(AbstractModel):
         num_gpus = 1 if torch.cuda.is_available() else 0
         return num_cpus, num_gpus
 
-    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
-        hyperparameters = self._get_model_params()
-        return self.estimate_memory_usage_static(
-            X=X,
-            problem_type=self.problem_type,
-            num_classes=self.num_classes,
-            hyperparameters=hyperparameters,
-            **kwargs,
-        )
-
     # FIXME: Find a better estimate for memory usage of TabM. Currently borrowed from FASTAI estimate.
     @classmethod
     def _estimate_memory_usage_static(
@@ -465,10 +452,6 @@ class ModernNCAModel(AbstractModel):
         **kwargs,
     ) -> int:
         return 10 * get_approximate_df_mem_usage(X).sum()
-
-    @classmethod
-    def _class_tags(cls):
-        return {"can_estimate_memory_usage_static": True}
 
     def _more_tags(self) -> dict:
         # TODO: Need to add train params support, track best epoch

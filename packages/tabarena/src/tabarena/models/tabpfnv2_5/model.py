@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
-from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -33,6 +32,8 @@ class TabPFNModel(AbstractTorchModel):
     ag_name = "NOTSET"
     ag_priority = 105
     seed_name = "random_state"
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+
     fixed_random_state: int | None = None
     """If not None, this fixes the random state to a static value to avoid that the
     validation score is misleading for the refit model."""
@@ -40,6 +41,9 @@ class TabPFNModel(AbstractTorchModel):
     custom_model_dir: str | None = None
     default_classification_model: str | None = "NOTSET"
     default_regression_model: str | None = "NOTSET"
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
+    minimum_num_gpus = 1
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -257,23 +261,6 @@ class TabPFNModel(AbstractTorchModel):
                 output_dir=Path(self.path) / "tmp_model",
             )
 
-    def _get_default_resources(self) -> tuple[int, int]:
-        # Use only physical cores for better performance based on benchmarks
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(
-        self,
-        is_gpu_available: bool = False,
-    ) -> dict[str, int | float]:
-        return {
-            "num_cpus": 1,
-            "num_gpus": 1 if is_gpu_available else 0,
-        }
-
     def _set_default_params(self):
         default_params = {
             "ignore_pretraining_limits": True,  # to ignore warnings and size limits
@@ -303,10 +290,6 @@ class TabPFNModel(AbstractTorchModel):
         self._get_base_tabpfn_model().to(device)
 
     @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
-
-    @classmethod
     def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
         """Set fold_fitting_strategy to sequential_local,
         as parallel folding crashes if model weights aren't pre-downloaded.
@@ -319,16 +302,6 @@ class TabPFNModel(AbstractTorchModel):
         }
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
         return default_ag_args_ensemble
-
-    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
-        hyperparameters = self._get_model_params()
-        return self.estimate_memory_usage_static(
-            X=X,
-            problem_type=self.problem_type,
-            num_classes=self.num_classes,
-            hyperparameters=hyperparameters,
-            **kwargs,
-        )
 
     @classmethod
     def _estimate_memory_usage_static(
@@ -364,10 +337,6 @@ class TabPFNModel(AbstractTorchModel):
             model_mem + 4 * X_mem + 2 * activation_mem + baseline_overhead_mem_est,
         )
 
-    @classmethod
-    def _class_tags(cls):
-        return {"can_estimate_memory_usage_static": True}
-
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
 
@@ -393,6 +362,11 @@ class RealTabPFNv25Model(TabPFNModel):
 
     default_classification_model: str | None = "tabpfn-v2.5-classifier-v2.5_default.ckpt"
     default_regression_model: str | None = "tabpfn-v2.5-regressor-v2.5_default.ckpt"
+    _default_auxiliary_params_extra = {
+        "max_rows": 100_000,
+        "max_features": 2000,
+        "max_classes": 10,
+    }
 
     @staticmethod
     def extra_checkpoints_for_tuning(problem_type: str) -> list[str]:
@@ -418,17 +392,6 @@ class RealTabPFNv25Model(TabPFNModel):
             "tabpfn-v2.5-regressor-v2.5_variant.ckpt",
         ]
 
-    def _get_default_auxiliary_params(self) -> dict:
-        default_auxiliary_params = super()._get_default_auxiliary_params()
-        default_auxiliary_params.update(
-            {
-                "max_rows": 100_000,
-                "max_features": 2000,
-                "max_classes": 10,
-            },
-        )
-        return default_auxiliary_params
-
 
 class TabPFNv26Model(TabPFNModel):
     """TabPFN-2.6 version."""
@@ -445,6 +408,14 @@ class TabPFNv26Model(TabPFNModel):
     default_classification_model: str | None = "tabpfn-v2.6-classifier-v2.6_default.ckpt"
     default_regression_model: str | None = "tabpfn-v2.6-regressor-v2.6_default.ckpt"
 
+    _max_batch_size_resolved: int | None = None
+    """Prediction chunk size resolved during `_fit` for large data, or None to use the
+    declared `ag.max_batch_size`. Runtime state rather than a `params_aux` entry, since
+    `params_aux` is resolved configuration and is immutable after construction."""
+    _default_auxiliary_params_extra = {
+        "max_rows": 100_000,
+    }
+
     @staticmethod
     def extra_checkpoints_for_tuning(problem_type: str) -> list[str]:
         """The list of checkpoints to use for hyperparameter tuning."""
@@ -454,15 +425,6 @@ class TabPFNv26Model(TabPFNModel):
 
     # We do not put a limit on number of classes or features anymore for
     # the sake of the benchmark.
-    def _get_default_auxiliary_params(self) -> dict:
-        default_auxiliary_params = super()._get_default_auxiliary_params()
-        default_auxiliary_params.update(
-            {
-                "max_rows": 100_000,
-            },
-        )
-        return default_auxiliary_params
-
     @classmethod
     def _estimate_memory_usage_static(
         cls,
@@ -479,10 +441,15 @@ class TabPFNv26Model(TabPFNModel):
         baseline_overhead_mem_est = 1e9  # 1 GB generic overhead
         return dataset_size_mem_est + baseline_overhead_mem_est
 
+    def _get_max_batch_size(self) -> int | None:
+        if self._max_batch_size_resolved is not None:
+            return self._max_batch_size_resolved
+        return super()._get_max_batch_size()
+
     def _adjust_hyperparameters_for_large_data(self, *, X: pd.DataFrame, hps: dict, is_classification: bool) -> dict:
         if (X.shape[0] > 70_000) and (X.shape[1] > 300):
             print("Adjust max_batch_size and MAX_NUMBER_OF_FEATURES for large data.")
-            self.params_aux["max_batch_size"] = 8192
+            self._max_batch_size_resolved = 8192
             if "inference_config" not in hps:
                 hps["inference_config"] = {}
 

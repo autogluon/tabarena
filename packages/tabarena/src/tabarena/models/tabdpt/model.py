@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar
 
-from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.constants import BINARY, MULTICLASS, REGRESSION
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
@@ -62,6 +61,10 @@ class TabDPTModelBase(AbstractTorchModel):
     #: Predict-time hyperparameters accepted by this version, split by task. ``temperature`` /
     #: ``permute_classes`` are classification-only. Overridden per concrete subclass.
     _predict_hp_names: ClassVar[dict[str, tuple[str, ...]]] = {"classifier": (), "regressor": ()}
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
+    minimum_num_gpus = 0.5
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -174,23 +177,6 @@ class TabDPTModelBase(AbstractTorchModel):
             self.model.use_flash = self._use_flash_og
             self.model.model.use_flash = self._use_flash_og
 
-    def _get_default_resources(self) -> tuple[int, int]:
-        # Use only physical cores for better performance based on benchmarks
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(
-        self,
-        is_gpu_available: bool = False,
-    ) -> dict[str, int | float]:
-        return {
-            "num_cpus": 1,
-            "num_gpus": 0.5 if is_gpu_available else 0,
-        }
-
     def _predict_proba(self, X, **kwargs) -> np.ndarray:
         X = self.preprocess(X, **kwargs)
 
@@ -212,10 +198,6 @@ class TabDPTModelBase(AbstractTorchModel):
                 X=X,
             )
         return X.to_numpy()
-
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}

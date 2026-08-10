@@ -11,7 +11,6 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.models import AbstractModel
 
 if TYPE_CHECKING:
@@ -25,6 +24,8 @@ class ChimeraBoostModel(AbstractModel):
     ag_name = "ChimeraBoost"
     seed_name = "random_state"  # AutoGluon injects the framework seed here
     _supported_problem_types = ["binary", "multiclass", "regression"]
+    _default_auxiliary_params_extra = {"valid_raw_types": ["int", "float", "category"]}
+    default_resources_physical_cores_only = True
 
     def _preprocess(self, X: pd.DataFrame, is_train=False, **kwargs) -> pd.DataFrame:
         """Pass the frame straight to ChimeraBoost with categoricals marked by
@@ -103,31 +104,12 @@ class ChimeraBoostModel(AbstractModel):
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
-    def _get_default_auxiliary_params(self) -> dict:
-        default_auxiliary_params = super()._get_default_auxiliary_params()
-        default_auxiliary_params.update({"valid_raw_types": ["int", "float", "category"]})
-        return default_auxiliary_params
-
     @classmethod
     def warmup(cls, **kwargs) -> None:
         """Pre-compile the numba kernels (~10s cold start, then disk-cached per environment)."""
         import chimeraboost
 
         chimeraboost.warmup()
-
-    def _get_default_resources(self) -> tuple[int, int]:
-        # Physical cores only (matches RealMLP/XRFM); ChimeraBoost is CPU-only.
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-        return num_cpus, 0
-
-    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
-        return self.estimate_memory_usage_static(
-            X=X,
-            problem_type=self.problem_type,
-            num_classes=self.num_classes,
-            hyperparameters=self._get_model_params(),
-            **kwargs,
-        )
 
     @classmethod
     def _estimate_memory_usage_static(
@@ -157,7 +139,3 @@ class ChimeraBoostModel(AbstractModel):
         hist = p * 256 * 2 * cell  # transient per-level histograms
         baseline = 1_000_000_000  # python + numba + autogluon overhead
         return int(baseline + 3 * data + binned + stats + hist)
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        return {"can_estimate_memory_usage_static": True}

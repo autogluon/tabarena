@@ -37,6 +37,14 @@ class NoriModel(AbstractTorchModel):
     ag_key = "TA-NORI"
     ag_name = "TA-Nori"
     ag_priority = 65
+    _supported_problem_types = ["regression"]
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
+    minimum_num_gpus = 1
+    # Cap context size at 100k rows; no feature or class limits (regression-only).
+    _default_auxiliary_params_extra = {
+        "max_rows": 100_000,
+    }
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -104,10 +112,6 @@ class NoriModel(AbstractTorchModel):
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["regression"]
-
     # --- Resource and GPU management ---
     def get_device(self) -> str:
         device = self.model.device
@@ -128,27 +132,6 @@ class NoriModel(AbstractTorchModel):
             if getattr(predictor, "model", None) is not None:
                 predictor.model.to(torch_device)
 
-    def _get_default_resources(self) -> tuple[int, int]:
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(self, is_gpu_available: bool = False) -> dict[str, int | float]:
-        return {
-            "num_cpus": 1,
-            "num_gpus": 1 if is_gpu_available else 0,
-        }
-
-    def _get_default_auxiliary_params(self) -> dict:
-        """Cap context size at 100k rows; no feature or class limits (regression-only)."""
-        default_auxiliary_params = super()._get_default_auxiliary_params()
-        default_auxiliary_params.update(
-            {
-                "max_rows": 100_000,
-            },
-        )
-        return default_auxiliary_params
-
     @classmethod
     def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
         """Fit one fold at a time (avoids contention on the shared checkpoint cache) and
@@ -163,25 +146,12 @@ class NoriModel(AbstractTorchModel):
         )
         return default_ag_args_ensemble
 
-    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
-        return self.estimate_memory_usage_static(
-            X=X,
-            problem_type=self.problem_type,
-            num_classes=self.num_classes,
-            hyperparameters=self._get_model_params(),
-            **kwargs,
-        )
-
     @classmethod
     def _estimate_memory_usage_static(cls, *, X: pd.DataFrame, **kwargs) -> int:
         """Assume a small-model baseline (weights + activations) plus the dataset footprint."""
         baseline_mem_est = 3 * 1e9  # 3 GB for the model + activations
         dataset_mem_est = 5 * get_approximate_df_mem_usage(X).sum()
         return int(baseline_mem_est + dataset_mem_est)
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        return {"can_estimate_memory_usage_static": True}
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}

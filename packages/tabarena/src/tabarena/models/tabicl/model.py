@@ -5,7 +5,6 @@ import tempfile
 from typing import TYPE_CHECKING
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
-from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular import __version__
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -35,6 +34,9 @@ class TabICLModelBase(AbstractTorchModel):
 
     default_classification_model: str | None = None
     default_regression_model: str | None = None
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
+    minimum_num_gpus = 1
 
     def get_model_cls(self):
         if self.problem_type in ["binary", "multiclass"]:
@@ -146,32 +148,6 @@ class TabICLModelBase(AbstractTorchModel):
             y=y,
         )
 
-    def _get_default_resources(self) -> tuple[int, int]:
-        # Use only physical cores for better performance based on benchmarks
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(
-        self,
-        is_gpu_available: bool = False,
-    ) -> dict[str, int | float]:
-        return {
-            "num_cpus": 1,
-            "num_gpus": 1 if is_gpu_available else 0,
-        }
-
-    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
-        hyperparameters = self._get_model_params()
-        return self.estimate_memory_usage_static(
-            X=X,
-            problem_type=self.problem_type,
-            num_classes=self.num_classes,
-            hyperparameters=hyperparameters,
-            **kwargs,
-        )
-
     # TODO: move memory estimate to specific models below.
     @classmethod
     def _estimate_memory_usage_static(
@@ -220,10 +196,6 @@ class TabICLModelBase(AbstractTorchModel):
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
         return default_ag_args_ensemble
 
-    @classmethod
-    def _class_tags(cls) -> dict:
-        return {"can_estimate_memory_usage_static": True}
-
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
 
@@ -265,10 +237,7 @@ class TabICLModel(TabICLModelBase):
     ag_name = "TA-TabICL"
 
     default_classification_model: str | None = "tabicl-classifier-v1.1-20250506.ckpt"
-
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass"]
+    _supported_problem_types = ["binary", "multiclass"]
 
     @staticmethod
     def checkpoint_search_space() -> list[str]:
@@ -293,10 +262,7 @@ class TabICLv2Model(TabICLModelBase):
 
     default_classification_model: str | None = "tabicl-classifier-v2-20260212.ckpt"
     default_regression_model: str | None = "tabicl-regressor-v2-20260212.ckpt"
-
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
+    _supported_problem_types = ["binary", "multiclass", "regression"]
 
     # TODO: search over v1 checkpoints too?
     @staticmethod
