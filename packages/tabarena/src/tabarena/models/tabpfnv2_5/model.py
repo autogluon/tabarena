@@ -446,35 +446,54 @@ class TabPFNv26Model(TabPFNModel):
             return self._max_batch_size_resolved
         return super()._get_max_batch_size()
 
+    #: Per-estimator feature cap applied on wide, large data (the checkpoint ships 500-680).
+    large_data_max_features_per_estimator: int = 300
+
     def _adjust_hyperparameters_for_large_data(self, *, X: pd.DataFrame, hps: dict, is_classification: bool) -> dict:
+        """Trade some feature coverage for memory on data that is both large and wide.
+
+        Caps every preprocessor's ``max_features_per_estimator`` and shrinks the prediction
+        chunk size. The cap is applied to the transforms *the checkpoint itself ships*: a v2.6
+        checkpoint embeds its own ``InferenceConfig``, and tabpfn passes a dict override through
+        ``InferenceConfig.override_with_user_input_and_resolve_auto``, so every field we do not
+        name keeps the checkpoint's value.
+        """
         if (X.shape[0] > 70_000) and (X.shape[1] > 300):
-            print("Adjust max_batch_size and MAX_NUMBER_OF_FEATURES for large data.")
+            print("Adjust max_batch_size and max_features_per_estimator for large data.")
             self._max_batch_size_resolved = 8192
-            if "inference_config" not in hps:
-                hps["inference_config"] = {}
-
-            # More extreme heuristic to avoid OOM
-            import dataclasses
-
-            from tabpfn.inference_config import (
-                _get_v2_6_config,
-                v2_6_classifier_preprocessor_configs,
-                v2_6_regressor_preprocessor_configs,
-            )
-
-            task_type = "multiclass" if is_classification else "regression"
-            preprocessor_configs = (
-                v2_6_classifier_preprocessor_configs() if is_classification else v2_6_regressor_preprocessor_configs()
-            )
-            preprocessor_configs = [
-                dataclasses.replace(cfg, max_features_per_estimator=300) for cfg in preprocessor_configs
-            ]
-            hps["inference_config"] = _get_v2_6_config(
-                preprocessor_configs=preprocessor_configs,
-                task_type=task_type,
-            )
+            inference_config = hps.get("inference_config") or {}
+            hps["inference_config"] = {
+                **inference_config,
+                "PREPROCESS_TRANSFORMS": self._capped_preprocess_transforms(
+                    model_path=hps.get("model_path"),
+                    is_classification=is_classification,
+                ),
+            }
 
         return hps
+
+    def _capped_preprocess_transforms(self, *, model_path, is_classification: bool) -> list:
+        """The checkpoint's own preprocessor transforms, with the feature cap lowered.
+
+        Reads them via ``get_inference_config()``, which loads the checkpoint without fit data
+        for exactly this purpose. Do not rebuild the config from ``tabpfn.inference_config``
+        factories: the v2.6 factories were removed once v2.6 checkpoints started embedding
+        their config, so reconstructing it both breaks on import and discards whatever the
+        checkpoint actually shipped.
+        """
+        import dataclasses
+
+        from tabpfn import TabPFNClassifier, TabPFNRegressor
+
+        model_cls = TabPFNClassifier if is_classification else TabPFNRegressor
+        probe_kwargs = {"device": "cpu"}  # config only; keep the probe off the GPU
+        if model_path is not None:
+            probe_kwargs["model_path"] = model_path
+        transforms = model_cls(**probe_kwargs).get_inference_config().PREPROCESS_TRANSFORMS
+        return [
+            dataclasses.replace(transform, max_features_per_estimator=self.large_data_max_features_per_estimator)
+            for transform in transforms
+        ]
 
 
 def prefetch_weights() -> None:

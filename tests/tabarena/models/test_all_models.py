@@ -36,12 +36,15 @@ def test_model_smoke(method: str) -> None:
     Run a single model during development with ``-k`` (e.g. ``pytest -m models -k TabM``).
 
     Skips (rather than fails) when a model cannot run in the current environment:
-    its optional dependency is not installed (``ImportError``), or it is a
-    GPU-only model (``compute='gpu'``) and no CUDA device is available.
+    its optional dependency is not installed (``ImportError``), it is a
+    GPU-only model (``compute='gpu'``) and no CUDA device is available, or it is
+    ``superseded`` and so pins a version the installed one excludes.
     """
     info = _REGISTRY[method]
     if info.method_metadata.compute == "gpu" and not _CUDA_AVAILABLE:
         pytest.skip(f"{method}: requires a GPU (compute='gpu') and no CUDA device is available")
+    if info.superseded:
+        pytest.skip(f"{method}: superseded; its pip_extra {info.pip_extra} conflicts with the installed version")
 
     cfg = smoke_for(method)
     try:
@@ -53,6 +56,8 @@ def test_model_smoke(method: str) -> None:
         }
         if cfg.problem_types is not None:
             kwargs["problem_types"] = list(cfg.problem_types)
+        if not cfg.verify_single_prediction_equivalent_to_multi:
+            kwargs["verify_single_prediction_equivalent_to_multi"] = False
         FitHelper.verify_model(**kwargs)
     except ImportError as err:
         pytest.skip(f"{method}: optional dependency not installed ({err})")

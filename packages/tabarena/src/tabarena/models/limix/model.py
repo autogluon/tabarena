@@ -293,6 +293,15 @@ def _nan_clean_encoder_cls() -> type:
     ``info.py``, which would otherwise transitively import ``torch``). ``functools.cache``
     gives a stable class identity across calls, which the idempotency check relies on.
 
+    A class built inside a function is normally unpicklable: pickle stores a class by
+    ``__module__`` + ``__qualname__`` and re-looks it up on load, and the default qualname
+    here would be ``_nan_clean_encoder_cls.<locals>._NaNCleanEncoder``, which pickle rejects
+    outright. Since AutoGluon pickles every fitted model (bagging alone pickles each fold
+    child back to the parent), the qualname is rewritten to a plain module-level name and the
+    module ``__getattr__`` below resolves it, rebuilding the class on demand in a process that
+    has not called this factory yet. ``functools.cache`` is what makes that lookup return the
+    *same* object, which is the identity check pickle performs.
+
     The wrapper itself: LimiX's bundled 16M checkpoint starts its preprocess pipeline
     with a ``NanEncoder`` (`_vendor/model/encoders.py:361`) that replaces NaN cells in
     ``x`` with the per-column mean computed over the *train portion only*
@@ -328,4 +337,17 @@ def _nan_clean_encoder_cls() -> type:
                 out["data"] = torch.nan_to_num(out["data"], nan=0.0, posinf=0.0, neginf=0.0)
             return out
 
+    # Make the class reachable as `<this module>._NaNCleanEncoder` so pickle can find it.
+    _NaNCleanEncoder.__qualname__ = _NaNCleanEncoder.__name__
     return _NaNCleanEncoder
+
+
+def __getattr__(name: str) -> type:
+    """Resolve the lazily-built ``_NaNCleanEncoder`` for pickle (PEP 562).
+
+    Only consulted for names missing from the module namespace, so it costs nothing on a
+    normal attribute access and never imports ``torch`` on its own.
+    """
+    if name == "_NaNCleanEncoder":
+        return _nan_clean_encoder_cls()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

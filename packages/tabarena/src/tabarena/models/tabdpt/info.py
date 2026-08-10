@@ -46,12 +46,17 @@ tabdpt_turbo_method_metadata = tabdpt_turbo_descriptor.method_metadata(
 )
 
 
+# Pinned below 1.2: this entry runs the `tabdpt1_1` checkpoint, whose architecture config
+# (8 keys, no `enc_cell_dim`) the 1.2 loader cannot read — `TabDPTModel.load` reads v1.2-only keys
+# with no legacy branch. TabDPT-Turbo below is the current default and needs >=1.2.0, so the two
+# cannot be installed together, which is what `superseded` records.
 tabdpt_info = ModelInfo(
     model_cls=TabDPTModel,
     search_space=gen_tabdpt,
     method_metadata=tabdpt_method_metadata,
-    pip_extra=("tabdpt>=1.2.0",),
+    pip_extra=("tabdpt<1.2",),
     prefetch_weights=TabDPTModel.prefetch_weights,
+    superseded=True,
 )
 
 
