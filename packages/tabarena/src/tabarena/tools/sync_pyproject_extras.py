@@ -30,6 +30,10 @@ def _expected_extras() -> dict[str, list[str]]:
     """
     extras: dict[str, set[str]] = defaultdict(set)
     for info in get_model_registry().values():
+        if info.superseded:
+            # Its pin contradicts the entry that replaced it; unioning them would make the
+            # extra unresolvable. See `ModelInfo.superseded`.
+            continue
         # Resolve the package short name from the model class module path.
         # Example: tabarena.models.ebm.model → "ebm"
         # For multi-class folders (tabicl), this lumps both TabICL and

@@ -33,6 +33,58 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-08-10 — chimeraboost_10082026
+
+- **Model(s):** ChimeraBoost (all configs)
+- **Git SHA:** `c305ab69`
+- **Purpose:** Full rerun on ChimeraBoost 0.30.0 (requested in
+  https://github.com/autogluon/tabarena/issues/463), which reworks the algorithm for better
+  regression and small-data accuracy and better speed on large data. The registered baseline
+  (suite `tabarena-2026-07-13`) is 0.14.1, so this repeats that run's shape to keep accuracy and
+  timings comparable. Processed and uploaded as suite `tabarena-2026-08-10`
+  (`chimeraboost_v030_method_metadata`), which replaces 0.14.1 in the arena collection.
+- **Notes:** Same shape as both 0.14.1 runs: full task set (all splits), default config + the full
+  200-config HPO space, CPU partition `cpun416mtspotinteractive` (16 vCPUs, 64 GB RAM, 0 GB VRAM),
+  `memory_limit`/`num_cpus` left `None` so node values are picked up, bundle size 10. Extra dep in
+  the run venv: `chimeraboost>=0.30.0`. Warm-up stays untimed (`ChimeraBoostModel.warmup`
+  pre-compiles the numba kernels outside the fit and numba's disk cache carries them into the fold
+  workers). 0.30.0's `refit_full="replay"` default is inert by design here: it only fires for fits
+  that use ChimeraBoost's own internal split, and the wrapper passes AutoGluon's bagging validation
+  fold as an explicit `eval_set` — refitting on that fold would train on the rows whose predictions
+  become the out-of-fold predictions used for scoring and ensembling. About 10 h of cluster time
+  (09:34 to 19:45).
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="chimeraboost_10082026",
+    model_jobs=[
+        ModelJob(models=("ChimeraBoost", "all"), name="cpu"),
+    ],
+    task_subset=TaskSubset(),  # all splits of every task, as in the 0.14.1 runs
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    # Same CPU partition as the 0.14.1 runs (16 vCPUs, 64 GB RAM) for comparable timings.
+    scheduler_setup=GCPSlurmSetup(bundle_size=10, cpu_partition="cpun416mtspotinteractive"),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-07-10 — tabdptturbo_10072026
 
 - **Model(s):** TabDPT-Turbo (0 — single default config, no HPO)

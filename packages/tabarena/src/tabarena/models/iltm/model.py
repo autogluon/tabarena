@@ -28,8 +28,13 @@ class ILTMModel(AbstractTorchModel):
     ag_priority = 65
     seed_name = "seed"
 
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+
     _categorical_indices: list[int] | None
     """The indices of the categorical features, detected during preprocessing."""
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
+    minimum_num_gpus = 1
 
     def _preprocess(self, X: pd.DataFrame, *, is_train: bool = False, **kwargs) -> pd.DataFrame:
         """Detect indices of pandas `category`-dtype columns for iLTM's `cat_features`.
@@ -113,10 +118,6 @@ class ILTMModel(AbstractTorchModel):
                 fit_max_time=time_limit,
             )
 
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
-
     def _predict_proba(self, X, **kwargs):
         # See _ensure_iltm_logger_patched docstring: bagged child models are
         # unpickled in the parent process without running iLTM's __init__, so
@@ -132,21 +133,6 @@ class ILTMModel(AbstractTorchModel):
         self.model.device = device
         if getattr(self.model, "_model", None) is not None:
             self.model._model = self.model._model.to(device)
-
-    def _get_default_resources(self) -> tuple[int, int]:
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(self, is_gpu_available: bool = False) -> dict[str, int | float]:
-        return {
-            "num_cpus": 1,
-            "num_gpus": 1 if is_gpu_available else 0,
-        }
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        return {"can_estimate_memory_usage_static": False}
 
 
 def _ensure_iltm_logger_patched() -> None:

@@ -81,8 +81,8 @@ machinery — `get_device()` / `_set_device()` are abstract and the load path ca
 (so a non-torch device string like `"gpu"` would crash it). If the model is **not** torch (JAX/Flax,
 or any library that manages device placement itself at the process level, e.g. via
 `CUDA_VISIBLE_DEVICES` / `jax.devices()`), inherit **`AbstractModel`** even though it runs on GPU, and
-just add the GPU resource methods (`_get_default_resources`, `get_minimum_resources`,
-`_get_default_ag_args_ensemble` with `sequential_local`, `_class_tags`, `_more_tags`) — do **not**
+just add the GPU resource attributes (`default_num_gpus`, `minimum_num_gpus`,
+`_default_ag_args_ensemble_extra` with `sequential_local`, plus `_more_tags`) — do **not**
 implement `get_device`/`_set_device`. `tabstar/model.py` (a GPU foundation model on `AbstractModel`)
 is the reference; `tabfm/model.py` is the JAX example.
 
@@ -110,10 +110,17 @@ __all__ = ["gen_{ModelKey}", "{ModelKey}_info", "{ModelKey}_method_metadata"]
 The AutoGluon wrapper class. Use the template in `references/model_patterns.md` section "Model wrapper template". Key points:
 - Start with `from __future__ import annotations`
 - Inherit from `AbstractTorchModel` (torch-based models) or `AbstractModel` (CPU models **and non-torch GPU models** — see Step 2: JAX/Flax etc. use `AbstractModel`)
-- Set `ag_key`, `ag_name`, `ag_priority = 65`, `seed_name = "random_state"`
-- Implement `_fit()`, `_set_default_params()`, `supported_problem_types()`
+- Set `ag_key`, `ag_name`, `ag_priority = 65`, `seed_name = "random_state"`, and
+  `_supported_problem_types = [...]`
+- Implement `_fit()` and `_set_default_params()`
+- **Declare config as class attributes, not override methods** (AutoGluon 1.6). Read
+  `references/model_patterns.md` → "Declare config as class attributes". Overriding
+  `supported_problem_types()` is the one AutoGluon actively rejects: `verify_model` raises, so the
+  model's smoke test fails. The others (`_get_default_resources`, `get_minimum_resources`,
+  `_get_default_ag_args_ensemble`, `_get_default_auxiliary_params`) still work but are the old
+  style. Never mutate `self.params` / `self.params_aux` after construction — it raises in 1.7.
 - **Honor the `_fit` contract** (read `references/model_patterns.md` → "The `_fit` contract"). The most common review findings on new wrappers are: ignoring the provided `X_val`/`y_val` (and instead auto-splitting a second holdout), ignoring `time_limit`, hardcoding the thread count instead of wiring `num_cpus`, and label-encoding + `fillna(0)` categoricals when the library handles them natively. `models/realmlp/model.py` is the reference for all of these. (In-context-learning foundation models have no train loop / no eval set, so they legitimately ignore `time_limit` + `X_val` — see `sap_rpt_oss`/`tabstar`/`tabfm`.)
-- For GPU models: also implement `_get_default_resources()`, `get_minimum_resources()`, `_get_default_ag_args_ensemble()` (with `fold_fitting_strategy: sequential_local` — **and `refit_folds: True` for foundation/pre-trained TFMs**; see the "Foundation models: set `refit_folds=True`" note in `references/model_patterns.md`. From-scratch NNs omit it), `_class_tags()` (with `can_estimate_memory_usage_static: False`), `_more_tags()` (with `can_refit_full: True`). **Only torch models** (`AbstractTorchModel`) additionally implement `get_device()` / `_set_device()`; non-torch GPU models on `AbstractModel` must NOT (they have no `.to(device)`).
+- For GPU models: also set `default_resources_physical_cores_only = True`, `default_num_gpus = 1`, `minimum_num_gpus = 1`, and `_default_ag_args_ensemble_extra` (with `fold_fitting_strategy: sequential_local` — **and `refit_folds: True` for foundation/pre-trained TFMs**; see the "Foundation models: set `refit_folds=True`" note in `references/model_patterns.md`. From-scratch NNs omit it), plus `_more_tags()` (with `can_refit_full: True`). Do **not** declare a `can_estimate_memory_usage_static` tag: AutoGluon derives it from whether you implement `_estimate_memory_usage_static`. **Only torch models** (`AbstractTorchModel`) additionally implement `get_device()` / `_set_device()`; non-torch GPU models on `AbstractModel` must NOT (they have no `.to(device)`).
 - Docstring must include: description, paper title, authors, codebase URL, license
 - Keep optional third-party imports (the wrapped library itself) inside `_fit` / per-method scope so importing this module never requires the optional dep at top-level
 - Decide the model's untimed **warm-up** (Step 3g) while you have the library docs in hand

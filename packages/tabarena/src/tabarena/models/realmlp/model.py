@@ -8,7 +8,6 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
-from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular import __version__
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 from sklearn.impute import SimpleImputer
@@ -44,6 +43,9 @@ class RealMLPModel(AbstractTorchModel):
     ag_name = "TA-RealMLP"
     ag_priority = 75
     seed_name = "random_state"
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -328,30 +330,8 @@ class RealMLPModel(AbstractTorchModel):
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
-
     def _get_default_stopping_metric(self):
         return self.eval_metric
-
-    def _get_default_resources(self) -> tuple[int, int]:
-        # Use only physical cores for better performance based on benchmarks
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-
-        return num_cpus, num_gpus
-
-    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
-        hyperparameters = self._get_model_params()
-        return self.estimate_memory_usage_static(
-            X=X,
-            problem_type=self.problem_type,
-            num_classes=self.num_classes,
-            hyperparameters=hyperparameters,
-            **kwargs,
-        )
 
     @classmethod
     def _estimate_memory_usage_static(
@@ -423,10 +403,6 @@ class RealMLPModel(AbstractTorchModel):
             mem_error_threshold=mem_error_threshold,
             **kwargs,
         )
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        return {"can_estimate_memory_usage_static": True}
 
     def _more_tags(self) -> dict:
         # TODO: Need to add train params support, track best epoch

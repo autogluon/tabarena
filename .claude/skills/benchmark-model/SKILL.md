@@ -38,11 +38,11 @@ Given `MODEL`, read the model's contribution under `packages/tabarena/src/tabare
 | Derived value | Where to read it | Drives |
 |---|---|---|
 | **compute** (`"cpu"`/`"gpu"`) | `info.py` → `ModelDescriptor(compute=...)` / `MethodMetadata.compute` | `resources={"num_gpus": 1}` + `name="gpu"` for GPU; drop the override + `name="cpu"` for CPU |
-| **problem types** | `model.py` → `supported_problem_types()` (a classmethod returning a subset of `["binary","multiclass","regression"]`, or `None`/**absent** = all types) | the eval `subsets`: all-types → `[[], ["binary"], ["multiclass"], ["regression"]]` (`[]` = the full set / overall leaderboard); regression-only (e.g. Nori) → `[["regression"]]` and scope setup with `task_subset=TaskSubset(subset="regression")` |
+| **problem types** | `model.py` → the `_supported_problem_types` class attribute (a subset of `["binary","multiclass","regression"]`; **absent** = all types). Read it via `model_cls.supported_problem_types()` | the eval `subsets`: all-types → `[[], ["binary"], ["multiclass"], ["regression"]]` (`[]` = the full set / overall leaderboard); regression-only (e.g. Nori) → `[["regression"]]` and scope setup with `task_subset=TaskSubset(subset="regression")` |
 | **HPO search space** | `info.py` → `search_space` (a `gen_<key>` generator); empty/absent ⇒ no HPO | default `NUM_CONFIGS` (foundation models with no real search space → `0`) |
 | **pip extra** | `info.py` → `ModelInfo(pip_extra=...)` | the "install into the run venv" reminder in the docstring + Step 4 |
 | **weights prefetch** | `info.py` → `ModelInfo(prefetch_weights=...)` (not `None` ⇒ foundation model) | a docstring note that the checkpoint is fetched from HF by the registry before the fits (no per-script action) |
-| **static memory estimate** | `model.py` → `_estimate_memory_usage_static` / `can_estimate_memory_usage_static` | whether `fake_memory_for_estimates` can actually cap fold-parallelism (Step 1a caveat) |
+| **static memory estimate** | `model.py` → whether the class implements `_estimate_memory_usage_static` (AutoGluon 1.6 derives `can_estimate_memory_usage_static` from its presence) | whether `fake_memory_for_estimates` can actually cap fold-parallelism (Step 1a caveat) |
 
 Prefer **reading these files** over importing the model (no optional deps needed). If the venv already has the model installed, you may confirm quickly with:
 `<PYTHON_PATH> -c "from tabarena.models.utils import get_model_info_from_name as g; i=g('<MODEL>'); print(i.method_metadata.compute, i.pip_extra, i.prefetch_weights, i.model_cls.supported_problem_types())"`
@@ -63,9 +63,9 @@ it only makes the budget more conservative, which is safe on the VRAM<RAM nodes 
   40/80/96 GB nodes). **If the partition's VRAM cannot be determined from context, ask the user —
   do not guess.**
 - **CPU models: never set it** (their estimate must be compared against real RAM).
-- **Caveat** — the cap works *through the model's estimate*: if
-  `can_estimate_memory_usage_static=False` (e.g. TabFM, TabSwift), AutoGluon falls back to a small
-  data-size estimate and fold-parallelism stays at 8 regardless. Still set the value, but tell the
+- **Caveat** — the cap works *through the model's estimate*: a model that does not implement
+  `_estimate_memory_usage_static` (e.g. TabFM, TabSwift) has no static estimate, so AutoGluon falls
+  back to a small data-size estimate and fold-parallelism stays at 8 regardless. Still set the value, but tell the
   maintainer to sanity-check per-fold VRAM × 8 (or pin `num_folds_parallel` via
   `ag_args_ensemble`) before launching.
 

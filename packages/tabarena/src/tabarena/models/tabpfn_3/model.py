@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
-from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
@@ -21,6 +20,8 @@ class TabPFN3Model(AbstractTorchModel):
     default_classification_model: str | None = "tabpfn-v3-classifier-v3_default.ckpt"
     default_regression_model: str | None = "tabpfn-v3-regressor-v3_default.ckpt"
 
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+
     checkpoint_param_name: str = "checkpoint_per_problem_type"
     """Name of the optional config hyperparameter that overrides the checkpoint per problem type.
 
@@ -36,6 +37,14 @@ class TabPFN3Model(AbstractTorchModel):
     """The indices of the categorical features, detected during preprocessing."""
     fixed_random_state: int = 0
     """Using a fixed random seed, as in TabPFN-2.6."""
+    _default_auxiliary_params_extra = {
+        "max_classes": 160,
+        # Batch inference once we exceed 150_000 samples (batching starts at 150_001).
+        "max_batch_size": 150_000,
+    }
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
+    minimum_num_gpus = 1
 
     def _preprocess(self, X: pd.DataFrame, *, is_train=False, **kwargs) -> pd.DataFrame:
         """Minimal model-specific preprocessing to detect the indices of categorical features."""
@@ -120,25 +129,9 @@ class TabPFN3Model(AbstractTorchModel):
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        """Default code here supports all problem types, but can be overridden if needed."""
-        return ["binary", "multiclass", "regression"]
-
     # TODO:
     #  - add support for many-class wrapper to remove the limit fully
     #  - add row/col limit?
-    def _get_default_auxiliary_params(self) -> dict:
-        default_auxiliary_params = super()._get_default_auxiliary_params()
-        default_auxiliary_params.update(
-            {
-                "max_classes": 160,
-                # Batch inference once we exceed 150_000 samples (batching starts at 150_001).
-                "max_batch_size": 150_000,
-            },
-        )
-        return default_auxiliary_params
-
     @classmethod
     def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
         """Ensure one fold is fit at a time and refits is enabled by default."""
@@ -175,18 +168,6 @@ class TabPFN3Model(AbstractTorchModel):
 
         return [f"cuda:{i}" for i in range(num_gpus)]
 
-    def _get_default_resources(self) -> tuple[int, int]:
-        # Use only physical cores for better performance based on benchmarks
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(self, is_gpu_available: bool = False) -> dict[str, int | float]:
-        return {
-            "num_cpus": 1,
-            "num_gpus": 1 if is_gpu_available else 0,
-        }
-
     def get_device(self) -> str:
         base = self.model
         if hasattr(base, "devices_"):
@@ -202,20 +183,6 @@ class TabPFN3Model(AbstractTorchModel):
 
     def _set_device(self, device: str):
         self.model.to(device)
-
-    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
-        hyperparameters = self._get_model_params()
-        return self.estimate_memory_usage_static(
-            X=X,
-            problem_type=self.problem_type,
-            num_classes=self.num_classes,
-            hyperparameters=hyperparameters,
-            **kwargs,
-        )
-
-    @classmethod
-    def _class_tags(cls):
-        return {"can_estimate_memory_usage_static": True}
 
     # TODO: obtain memory estimation with/without chunking
     @classmethod

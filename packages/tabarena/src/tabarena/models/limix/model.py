@@ -46,12 +46,28 @@ class LimiXModel(AbstractTorchModel):
     ag_priority = 100
     seed_name = "random_state"
 
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+
     subsample_train_n_rows: int = 75_000
     """Empirically, even with 140 GB of VRAM available we still hit OOM on LimiX's retrieval + clustering inference
     path on TabArena-scale datasets, so subsampling is the only reliable lever to keep it running.
     We-sub-sample datasets above 75k rows to 50k rows following the LimiX documentation examples."""
     batch_test_n_rows: int = 5_000
     """We batch forward passes with more than 10k test rows."""
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
+    minimum_num_gpus = 1
+    # Sequential fold fitting avoids contention on the shared HF checkpoint cache.
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+    }
+    # We set the default to 100k to try to run on all of TabArena.
+    # Note, all examples of LimiX code itself says one should skip above 50k.
+    _default_auxiliary_params_extra = {
+        # "max_rows": 50_000, # Technically from LimiX
+        "max_classes": 10,
+    }
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -220,10 +236,6 @@ class LimiXModel(AbstractTorchModel):
 
         return self._convert_proba_to_unified_form(y_pred_proba)
 
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
-
     def get_device(self) -> str:
         return self.model.device.type if self.model is not None else "cpu"
 
@@ -234,43 +246,6 @@ class LimiXModel(AbstractTorchModel):
         self.model.device = device
         if self.model.model is not None:
             self.model.model.to(device)
-
-    def _get_default_resources(self) -> tuple[int, int]:
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(self, is_gpu_available: bool = False) -> dict[str, int | float]:
-        return {
-            "num_cpus": 1,
-            "num_gpus": 1 if is_gpu_available else 0,
-        }
-
-    @classmethod
-    def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
-        """Sequential fold fitting avoids contention on the shared HF checkpoint cache."""
-        default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
-        default_ag_args_ensemble.update(
-            {
-                "fold_fitting_strategy": "sequential_local",
-                "refit_folds": True,
-            },
-        )
-        return default_ag_args_ensemble
-
-    def _get_default_auxiliary_params(self) -> dict:
-        """We set the default to 100k to try to run on all of TabArena.
-
-        Note, all examples of LimiX code itself says one should skip above 50k.
-        """
-        default_auxiliary_params = super()._get_default_auxiliary_params()
-        default_auxiliary_params.update(
-            {
-                # "max_rows": 50_000, # Technically from LimiX
-                "max_classes": 10,
-            },
-        )
-        return default_auxiliary_params
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
@@ -318,6 +293,15 @@ def _nan_clean_encoder_cls() -> type:
     ``info.py``, which would otherwise transitively import ``torch``). ``functools.cache``
     gives a stable class identity across calls, which the idempotency check relies on.
 
+    A class built inside a function is normally unpicklable: pickle stores a class by
+    ``__module__`` + ``__qualname__`` and re-looks it up on load, and the default qualname
+    here would be ``_nan_clean_encoder_cls.<locals>._NaNCleanEncoder``, which pickle rejects
+    outright. Since AutoGluon pickles every fitted model (bagging alone pickles each fold
+    child back to the parent), the qualname is rewritten to a plain module-level name and the
+    module ``__getattr__`` below resolves it, rebuilding the class on demand in a process that
+    has not called this factory yet. ``functools.cache`` is what makes that lookup return the
+    *same* object, which is the identity check pickle performs.
+
     The wrapper itself: LimiX's bundled 16M checkpoint starts its preprocess pipeline
     with a ``NanEncoder`` (`_vendor/model/encoders.py:361`) that replaces NaN cells in
     ``x`` with the per-column mean computed over the *train portion only*
@@ -353,4 +337,17 @@ def _nan_clean_encoder_cls() -> type:
                 out["data"] = torch.nan_to_num(out["data"], nan=0.0, posinf=0.0, neginf=0.0)
             return out
 
+    # Make the class reachable as `<this module>._NaNCleanEncoder` so pickle can find it.
+    _NaNCleanEncoder.__qualname__ = _NaNCleanEncoder.__name__
     return _NaNCleanEncoder
+
+
+def __getattr__(name: str) -> type:
+    """Resolve the lazily-built ``_NaNCleanEncoder`` for pickle (PEP 562).
+
+    Only consulted for names missing from the module namespace, so it costs nothing on a
+    normal attribute access and never imports ``torch`` on its own.
+    """
+    if name == "_NaNCleanEncoder":
+        return _nan_clean_encoder_cls()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

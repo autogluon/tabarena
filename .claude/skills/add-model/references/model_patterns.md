@@ -51,6 +51,21 @@ class {ClassName}Model(AbstractTorchModel):
     ag_priority = 65
     seed_name = "random_state"
 
+    # --- AutoGluon 1.6 declarative config: attributes, not method overrides ---
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+    # GPU models only: count physical cores, take one CUDA GPU, and require a whole GPU
+    # per fit. Drop all three for a CPU model (0 is the inherited default).
+    default_resources_physical_cores_only = True
+    default_num_gpus = 1
+    minimum_num_gpus = 1
+    # sequential_local avoids crashes when weights are not pre-downloaded and folds fit in
+    # parallel. Foundation / pre-trained models ALSO set refit_folds (see the note below);
+    # from-scratch NNs (TabM, RealMLP) omit it.
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+    }
+
     def _fit(
         self,
         X: pd.DataFrame,
@@ -114,61 +129,67 @@ class {ClassName}Model(AbstractTorchModel):
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
-
     def get_device(self) -> str:
         return self.model.device
 
     def _set_device(self, device: str):
         self.model.to(device)
 
-    def _get_default_resources(self) -> tuple[int, int]:
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(self, is_gpu_available: bool = False) -> dict[str, int | float]:
-        return {
-            "num_cpus": 1,
-            "num_gpus": 1 if is_gpu_available else 0,
-        }
-
-    @classmethod
-    def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
-        """Set fold_fitting_strategy to sequential_local to avoid crashes
-        if model weights aren't pre-downloaded when fitting in parallel.
-
-        Foundation / pre-trained (in-context-learning) models ALSO set ``refit_folds=True``
-        here — see the note just below. From-scratch NNs (TabM, RealMLP) omit it.
-        """
-        default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
-        default_ag_args_ensemble.update(
-            {
-                "fold_fitting_strategy": "sequential_local",
-                # Foundation models only — drop this line for from-scratch NNs.
-                "refit_folds": True,
-            },
-        )
-        return default_ag_args_ensemble
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        # TODO: implement memory estimation and set to True
-        return {"can_estimate_memory_usage_static": False}
-
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
 ```
 
-> **Foundation models: set `refit_folds=True` in `_get_default_ag_args_ensemble`.** Every
+Note what is *not* in that body. Problem types, resources, minimum resources and ensemble args
+are declared as class attributes at the top of the class (see the next section), and the
+memory-estimate capability is derived rather than declared.
+
+> **Foundation models: set `refit_folds=True` in `_default_ag_args_ensemble_extra`.** Every
 > pre-trained / in-context-learning wrapper (TabPFN, TabICL, LimiX, TabDPT, SAP-RPT-OSS,
 > OrionMSP, TabSwift, ...) sets `refit_folds=True` *alongside*
 > `fold_fitting_strategy: "sequential_local"`. A TFM has no train loop, so after bagging it
 > refits a single model on all the data — much faster to score, at parity with the bagged
 > ensemble. **Do not ship a TFM wrapper with only `sequential_local`** (a recurring miss).
 > From-scratch NNs (TabM, RealMLP) intentionally omit it and set `can_refit_full=False`.
+
+### Declare config as class attributes (AutoGluon 1.6)
+
+AutoGluon 1.6 replaced a set of override methods with class attributes. Declare the attribute;
+do not override the method. Only `_supported_problem_types` is enforced (AutoGluon's
+`FitHelper.verify_model` raises on the old override, so `pytest -m models -k <Model>` fails),
+but the whole table is the current convention and a new wrapper should follow all of it.
+
+| Do not override | Declare instead |
+|---|---|
+| `supported_problem_types()` | `_supported_problem_types = [...]` |
+| `_get_default_auxiliary_params()` | `_default_auxiliary_params_extra = {...}` |
+| `_get_default_ag_args_ensemble()` | `_default_ag_args_ensemble_extra = {...}` |
+| `_get_default_resources()` | `default_resources_physical_cores_only` + `default_num_gpus` |
+| `get_minimum_resources()` | `minimum_num_gpus` (+ `gpu_required` if the model cannot run on CPU) |
+
+The two `_extra` dicts are merged base-most class first, so a subclass wins over its parent.
+That covers the common `super()` + `.update({...})` shape; keep the method only when the body
+genuinely needs the parent's resolved value (for example
+`refit_folds=parent.pop("refit_folds", True)`) or branches on state. Overriding still works at
+runtime for every row except the first, so an inherited wrapper you have not converted is not
+broken, just old.
+
+`_default_auxiliary_params_extra` gains a typo guard the override never had: `verify_model`
+checks every declared key against the known auxiliary params and fails on an unknown one. A
+misspelled key in an overridden `_get_default_auxiliary_params` is silently ignored instead.
+
+**Memory estimation is derived, not declared.** Do not write
+`_class_tags() -> {"can_estimate_memory_usage_static": ...}`; AutoGluon reads whether the class
+implements `_estimate_memory_usage_static`. And do not write an `_estimate_memory_usage` that
+just forwards to the static estimate — that is the base-class default. So the whole memory story
+for a new model is: implement `_estimate_memory_usage_static` (and it is on), or don't (and it is
+off). Keep `_class_tags` only for other tags, e.g. TabM's `reset_torch_threads`.
+
+**Never mutate `self.params` or `self.params_aux` after construction.** They are resolved
+configuration; mutation warns in AutoGluon 1.6 and raises in 1.7. If `_fit` computes a value that
+a later call needs, store it on the instance and override the getter. The
+`TabPFNv26Model._max_batch_size_resolved` + `_get_max_batch_size()` pair in
+`models/tabpfnv2_5/model.py` is the in-repo example; AutoGluon's own pattern references are
+`AbstractModel.temperature_scalar` and `AbstractModel._get_max_batch_size`.
 
 ### Choosing `AbstractTorchModel` vs `AbstractModel`
 
@@ -200,31 +221,21 @@ class {ClassName}Model(AbstractModel):
     ag_priority = 65
     seed_name = "random_state"
 
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+    default_resources_physical_cores_only = True
+    default_num_gpus = 1
+    minimum_num_gpus = 1
+    # refit_folds=True for foundation models (see note above); drop it for from-scratch NNs.
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+    }
+
     def _fit(self, X, y, num_cpus=1, num_gpus=0, **kwargs):
         # Validate GPU availability against the actual backend (e.g. jax), not torch.
         # Load the (pre-trained) model, build the sklearn-style wrapper, fit.
         ...
 
-    @classmethod
-    def supported_problem_types(cls): return ["binary", "multiclass", "regression"]
-
-    def _get_default_resources(self):
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(self, is_gpu_available=False):
-        return {"num_cpus": 1, "num_gpus": 1 if is_gpu_available else 0}
-
-    @classmethod
-    def _get_default_ag_args_ensemble(cls, **kwargs):
-        d = super()._get_default_ag_args_ensemble(**kwargs)
-        # refit_folds=True for foundation models (see note above); drop it for from-scratch NNs.
-        d.update({"fold_fitting_strategy": "sequential_local", "refit_folds": True})
-        return d
-
-    @classmethod
-    def _class_tags(cls): return {"can_estimate_memory_usage_static": False}
     def _more_tags(self): return {"can_refit_full": True}
     # NOTE: no get_device / _set_device — those are AbstractTorchModel-only.
 ```
@@ -241,6 +252,10 @@ class {ClassName}Model(AbstractModel):
     ag_name = "TA-{ModelName}"
     ag_priority = 65
     seed_name = "random_state"
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+    # CPU model: no GPU attributes. Set this only if the library benchmarks better on
+    # physical cores (most GBDTs and NNs do); leave it off to count logical cores.
+    default_resources_physical_cores_only = True
 
     def _fit(
         self,
@@ -266,14 +281,6 @@ class {ClassName}Model(AbstractModel):
         default_params = {}
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
-
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        return {"can_estimate_memory_usage_static": False}
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
@@ -437,12 +444,18 @@ Decision order:
 
 ## Memory estimation — implement it for CPU models that fan out across folds
 
-`can_estimate_memory_usage_static: False` with a `# TODO` is fine to *ship*, but for CPU models a
-real estimate is what lets the scheduler safely fit cross-validation folds in parallel — a big
-usability win that reviewers will ask for. When you can estimate peak memory from
-`(n_rows, n_features, n_classes, …)`, implement `_estimate_memory_usage` / a static
-`_estimate_memory_usage_static` and flip the tag to `True`. Reference:
+Shipping without an estimate is fine (leave `_estimate_memory_usage_static` unimplemented and add
+a `# TODO`), but for CPU models a real estimate is what lets the scheduler safely fit
+cross-validation folds in parallel — a big usability win that reviewers will ask for. When you can
+estimate peak memory from `(n_rows, n_features, n_classes, …)`, implement the classmethod
+`_estimate_memory_usage_static`. That single method is the whole opt-in: AutoGluon 1.6 derives
+`can_estimate_memory_usage_static` from its presence and the base `_estimate_memory_usage` already
+forwards to it, so there is no tag to flip and no instance wrapper to write. Reference:
 `autogluon/tabular/src/autogluon/tabular/models/ebm/ebm_model.py` (`_estimate_memory_usage_static`).
+
+GPU models have a parallel hook, `_estimate_gpu_memory_usage_static`, which enables VRAM safety
+checks the same way. Without it AutoGluon budgets parallel folds against node RAM, which is why
+benchmark runs pass `fake_memory_for_estimates` (see the `benchmark-model` skill).
 
 ---
 
@@ -712,11 +725,11 @@ if self.fixed_random_state is not None:
 
 ### max_rows / max_features limits
 ```python
-def _get_default_auxiliary_params(self) -> dict:
-    default_auxiliary_params = super()._get_default_auxiliary_params()
-    default_auxiliary_params.update({
-        "max_rows": 100_000,
-        "max_features": 2000,
-    })
-    return default_auxiliary_params
+_default_auxiliary_params_extra = {
+    "max_rows": 100_000,
+    "max_features": 2000,
+}
 ```
+AutoGluon 1.6 also offers `min_features` / `min_cells` / `max_cells`, and reports a constraint
+miss as a skip rather than a failure. Keys are validated, so a typo fails `verify_model`
+instead of being silently ignored.

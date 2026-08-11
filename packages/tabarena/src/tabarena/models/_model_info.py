@@ -39,6 +39,14 @@ class ModelInfo:
         ``None`` (the default) means the model has nothing to prefetch (tree / linear baselines).
         Consumed by :func:`tabarena.models.prefetch.prefetch_weights`, the single standardized entry
         point for warming weights before a benchmark runs.
+    superseded
+        True when a newer entry has replaced this one and the two cannot be installed together,
+        because `pip_extra` pins a version the newer entry excludes. The model stays registered so
+        its published results remain loadable, but it is left out of the installable extras (see
+        :mod:`tabarena.tools.sync_pyproject_extras`) and skipped by the model smoke tests, since the
+        environment necessarily carries the newer entry's dependency. `TabDPT_GPU` (needs
+        `tabdpt<1.2`, superseded by TabDPT-Turbo) is the reference case. Not a way to park a model
+        that merely fails.
     """
 
     model_cls: type
@@ -46,3 +54,4 @@ class ModelInfo:
     method_metadata: MethodMetadata
     pip_extra: tuple[str, ...] = field(default_factory=tuple)
     prefetch_weights: Callable[[], None] | None = None
+    superseded: bool = False

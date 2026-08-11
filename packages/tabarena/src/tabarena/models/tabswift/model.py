@@ -33,6 +33,18 @@ class TabSwiftModel(AbstractTorchModel):
     ag_name = "TA-TabSwift"
     ag_priority = 65
     seed_name = "random_state"
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
+    minimum_num_gpus = 1
+    # Sequential fold fitting avoids contention on the shared HF checkpoint cache.
+    # ``refit_folds=True`` matches the other TFM wrappers (TabICL, LimiX, TabPFN-3, ...):
+    # for an in-context-learning model, refitting one model on all data gives faster
+    # inference at similar quality to the bagged ensemble.
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": True,
+    }
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -158,10 +170,6 @@ class TabSwiftModel(AbstractTorchModel):
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
-
     def get_device(self) -> str:
         return self.model.device_.type if self.model is not None else "cpu"
 
@@ -170,39 +178,6 @@ class TabSwiftModel(AbstractTorchModel):
         self.model.device_ = device
         if self.model.model_ is not None:
             self.model.model_ = self.model.model_.to(device)
-
-    def _get_default_resources(self) -> tuple[int, int]:
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(self, is_gpu_available: bool = False) -> dict[str, int | float]:
-        return {
-            "num_cpus": 1,
-            "num_gpus": 1 if is_gpu_available else 0,
-        }
-
-    @classmethod
-    def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
-        """Sequential fold fitting avoids contention on the shared HF checkpoint cache.
-
-        ``refit_folds=True`` matches the other TFM wrappers (TabICL, LimiX, TabPFN-3, ...):
-        for an in-context-learning model, refitting one model on all data gives faster
-        inference at similar quality to the bagged ensemble.
-        """
-        default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
-        default_ag_args_ensemble.update(
-            {
-                "fold_fitting_strategy": "sequential_local",
-                "refit_folds": True,
-            },
-        )
-        return default_ag_args_ensemble
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        # TODO: implement memory estimation and set to True
-        return {"can_estimate_memory_usage_static": False}
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}

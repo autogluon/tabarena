@@ -36,6 +36,10 @@ class OrionMSPModel(AbstractTorchModel):
     ag_name = "TA-OrionMSP"
     ag_priority = 65
     seed_name = "random_state"
+    _supported_problem_types = ["binary", "multiclass"]
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
+    minimum_num_gpus = 1
 
     def _fit(
         self,
@@ -112,10 +116,6 @@ class OrionMSPModel(AbstractTorchModel):
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
-    @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass"]
-
     def get_device(self) -> str:
         return self.model.device
 
@@ -123,19 +123,6 @@ class OrionMSPModel(AbstractTorchModel):
         self.model.device = device
         if hasattr(self.model, "to"):
             self.model.to(device)
-
-    def _get_default_resources(self) -> tuple[int, int]:
-        # Use only physical cores for better performance based on benchmarks
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(self, is_gpu_available: bool = False) -> dict[str, int | float]:
-        return {
-            "num_cpus": 1,
-            "num_gpus": 1 if is_gpu_available else 0,
-        }
 
     @classmethod
     def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
@@ -149,11 +136,6 @@ class OrionMSPModel(AbstractTorchModel):
         }
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
         return default_ag_args_ensemble
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        # TODO: support memory estimate!
-        return {"can_estimate_memory_usage_static": False}
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}

@@ -8,7 +8,6 @@ from contextlib import contextmanager
 import numpy as np
 import pandas as pd
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
-from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.core.constants import MULTICLASS, REGRESSION
 from autogluon.core.models import AbstractModel
 from sklearn.impute import SimpleImputer
@@ -179,6 +178,9 @@ class XRFMModel(AbstractModel):
     ag_key = "XRFM"
     ag_name = "xRFM"
     seed_name = "random_state"
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -384,10 +386,6 @@ class XRFMModel(AbstractModel):
             self._set_default_param_value(param, val)
 
     @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
-
-    @classmethod
     def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
         """Warm torch (+ CUDA context) and the xRFM library import (untimed, data-independent)."""
         from tabarena.models.warmup import warmup_imports, warmup_torch
@@ -398,14 +396,6 @@ class XRFMModel(AbstractModel):
     def _get_default_stopping_metric(self):
         return self.eval_metric
 
-    def _get_default_resources(self) -> tuple[int, int]:
-        # Use only physical cores for better performance based on benchmarks
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-
-        return num_cpus, num_gpus
-
     def _validate_fit_memory_usage(
         self,
         mem_error_threshold: float = 1.0,
@@ -413,16 +403,6 @@ class XRFMModel(AbstractModel):
     ) -> tuple[int | None, int | None]:
         return super()._validate_fit_memory_usage(
             mem_error_threshold=mem_error_threshold,
-            **kwargs,
-        )
-
-    def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
-        hyperparameters = self._get_model_params()
-        return self.estimate_memory_usage_static(
-            X=X,
-            problem_type=self.problem_type,
-            num_classes=self.num_classes,
-            hyperparameters=hyperparameters,
             **kwargs,
         )
 
@@ -458,10 +438,6 @@ class XRFMModel(AbstractModel):
             3.8e10,
         )  # using the tree strategy caps at <40 GB
         return model_mem_estimate + dataset_size_mem_est
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        return {"can_estimate_memory_usage_static": True}
 
     def _more_tags(self) -> dict:
         # TODO: Need to add train params support, track best epoch

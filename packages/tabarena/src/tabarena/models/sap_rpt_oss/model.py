@@ -21,6 +21,10 @@ class SAPRPTOSSModel(AbstractTorchModel):
     ag_name = "SAP-RPT-OSS"
     ag_priority = 65
     seed_name = "random_state"
+    _supported_problem_types = ["binary", "multiclass", "regression"]
+    default_num_gpus = 1
+    default_resources_physical_cores_only = True
+    minimum_num_gpus = 0.5
 
     # TODO: Figure out if num_cpus could be used somewhere
     # TODO: Pre-download the used LM checkpoint used for the embeddings
@@ -81,26 +85,6 @@ class SAPRPTOSSModel(AbstractTorchModel):
         self.model.model.to(device)
 
     @classmethod
-    def supported_problem_types(cls) -> list[str] | None:
-        return ["binary", "multiclass", "regression"]
-
-    def _get_default_resources(self) -> tuple[int, int]:
-        # Use only physical cores for better performance based on benchmarks
-        num_cpus = ResourceManager.get_cpu_count(only_physical_cores=True)
-
-        num_gpus = min(1, ResourceManager.get_gpu_count_torch(cuda_only=True))
-        return num_cpus, num_gpus
-
-    def get_minimum_resources(
-        self,
-        is_gpu_available: bool = False,
-    ) -> dict[str, int | float]:
-        return {
-            "num_cpus": 1,
-            "num_gpus": 0.5 if is_gpu_available else 0,
-        }
-
-    @classmethod
     def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
         """Set fold_fitting_strategy to sequential_local,
         as parallel folding crashes if model weights aren't pre-downloaded.
@@ -111,11 +95,6 @@ class SAPRPTOSSModel(AbstractTorchModel):
         }
         default_ag_args_ensemble.update(extra_ag_args_ensemble)
         return default_ag_args_ensemble
-
-    @classmethod
-    def _class_tags(cls) -> dict:
-        # TODO: support memory estimate!
-        return {"can_estimate_memory_usage_static": False}
 
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
