@@ -30,6 +30,7 @@ by default**, and makes the small deterministic code edits along the way.
    - The model's `info.py` `MethodMetadata` — fill in the manual upload fields, fix any
      raw-data mismatches the inspect diff surfaces.
    - The arena collection registration in `methods.py` so the method appears in the benchmark.
+   - The run's entry in `packages/tabflow_slurm/BENCHMARK_LOG.md`, if the launch stage never wrote one.
 4. **A fallback command sheet** only for steps the environment can't run.
 
 Execution requirements (check before starting; hand off the affected step if missing):
@@ -194,11 +195,44 @@ edit `packages/tabarena/src/tabarena/contexts/tabarena/methods.py` (read it firs
 It flows into `tabarena_method_metadata_complete_collection` automatically (no separate edit). Other
 arenas (e.g. `beyondarena`) register in their own collection's `methods.py`.
 
+**When the upload is a rerun of an already-registered method** (a new library version, a remeasured
+run), the entry is a *swap*, not an addition: point the collection at the new metadata and append the
+one it replaced to `methods_superseded`, so the predecessor's hosted artifacts stay reachable through
+the complete collection. Say in the report that the default leaderboard now carries only the new run.
+
 **Caveat to surface in the report:** the collection entry only resolves to *downloadable* artifacts
 once the real upload (Step 4.5) has actually run. The code edit is safe to land now, but the method
 won't load for others until uploaded.
 
-## Step 6: Lint touched files
+## Step 6: Record the run in the benchmark log (Claude does now)
+
+`packages/tabflow_slurm/BENCHMARK_LOG.md` is the committed record of every cluster run (the
+`tmp_scripts/run_<model>.py` that launched it is gitignored, so this log is the only surviving copy of
+the setup). The `benchmark-model` skill merely *offers* to write the entry at launch time, before any
+results exist, so in practice runs reach upload unlogged. Check here, where the run is finished:
+
+1. `grep -n "^## " packages/tabflow_slurm/BENCHMARK_LOG.md | head` — if the run's `benchmark_name`
+   is already there, nothing to do.
+2. Otherwise add an entry at the **top** of the log (append-only, newest-first), following the
+   template in the file's "Conventions" section: `## YYYY-MM-DD — <benchmark_name>`, then
+   **Model(s)** / **Git SHA** / **Purpose** / **Notes**, then the verbatim plan.
+
+Two fields need care:
+
+- **Git SHA** is HEAD at *setup* time, not HEAD now. `git reflog --date=iso` shows when HEAD sat on
+  which commit; bracket the launch with the run's own timestamps (the earliest `results.pkl` mtime
+  under the run's `data/`, or the earliest file in `<workspace>/slurm_out/<benchmark_name>/`) and pick
+  the commit that was HEAD then.
+- **The python block** is the launch script's `setup()` body copied verbatim, with its module-level
+  constants (`BENCHMARK_NAME`, `WORKSPACE`, `PYTHON_PATH`, `MODEL`, `NUM_CONFIGS`) inlined as
+  literals and `_path_setup()` expanded, so the snippet stands alone against its SHA. Never refactor
+  a neighbouring entry to match the current API.
+
+The launch script's module docstring usually holds the *why* (issue link, what changed versus the
+previous run, partition choice, model-specific caveats) — that is the Purpose/Notes material. Add the
+processed suite id and the metadata variable name too, so the log ties the run to its artifacts.
+
+## Step 7: Lint touched files
 
 ```bash
 ruff check <touched-files>
@@ -207,8 +241,9 @@ ruff format --check <touched-files>
 
 Touched files are the model's `info.py` and `contexts/<arena>/methods.py`. Fix anything reported
 (the `from __future__ import annotations` import is already present in both — don't drop it).
+`BENCHMARK_LOG.md` is markdown, so ruff does not apply to it.
 
-## Step 7: Report
+## Step 8: Report
 
 Tell the maintainer:
 
@@ -216,7 +251,9 @@ Tell the maintainer:
   r2 destinations confirmed after the real upload — plus any data-quality warnings from processing
   (e.g. `Not close TEST` prediction-fidelity lines, with affected datasets and severity).
 - **Edits Claude made**: the `info.py` upload fields (suite / cache_type / cache_kwargs / date /
-  verified, plus any inspect-diff fixes) and the `methods.py` import + collection entry.
+  verified, plus any inspect-diff fixes), the `methods.py` import + collection entry (and the
+  `methods_superseded` append, for a rerun), and the `BENCHMARK_LOG.md` entry (with the SHA it
+  recorded and how it was determined, since that one is inferred).
 - **Steps handed off** (only if the env couldn't run one): the exact command(s) from Step 4.
 - **Open decisions / TODOs**: whether to flip `verified` to `True` (only after sign-off), committing
   the working-tree edits, and — if the method should appear on the website — that `update-leaderboard`
