@@ -570,6 +570,7 @@ def test_hill_climbing_beats_or_matches_single_best_on_synthetic():
         max_rounds=20,
         random_state=0,
     )
+    assert hc.include_caruana_step is True
     hc.fit(predictions=preds, labels=y)
     hc_err = metric.error(y, hc.predict_proba(preds))
 
@@ -621,3 +622,123 @@ def test_hill_climbing_task_evaluator_runs():
     assert "ensemble_weights" in results
     assert results["ensemble_weights"] is not None
     assert ensemble is not None
+
+
+def test_hill_climbing_invariants_and_edge_cases():
+    """Trajectory monotonicity, sparsity cap, single-model, determinism, hyperparam guards."""
+    from tabarena.simulation.ensemble import HillClimbingEnsembler
+
+    y, preds = _make_binary_task(n_models=12, n_samples=600, seed=13)
+    metric = get_metric(metric="roc_auc", problem_type="binary")
+
+    hc = HillClimbingEnsembler(problem_type="binary", metric=metric, precision=0.05, max_rounds=25, random_state=0)
+    hc.fit(predictions=preds, labels=y)
+    traj = np.asarray(hc.trajectory_)
+    assert traj.ndim == 1 and len(traj) >= 1
+    assert np.all(np.diff(traj) <= 1e-15)
+    single_best_err = min(metric.error(y, p) for p in preds)
+    assert np.isclose(traj[0], single_best_err, rtol=1e-10, atol=1e-12)
+    assert traj[-1] <= single_best_err + 1e-12
+    assert np.isclose(hc.model_weights().sum(), 1.0)
+    assert (hc.model_weights() >= -1e-12).all()
+    assert hc.info()["n_rounds"] >= 1
+
+    # max_models sparsity
+    hc_sparse = HillClimbingEnsembler(
+        problem_type="binary",
+        metric=metric,
+        precision=0.05,
+        max_rounds=25,
+        max_models=3,
+        random_state=0,
+    )
+    hc_sparse.fit(predictions=preds, labels=y)
+    assert int(hc_sparse.models_used().sum()) <= 3
+    assert metric.error(y, hc_sparse.predict_proba(preds)) <= single_best_err + 1e-12
+
+    # single model pool
+    hc_one = HillClimbingEnsembler(problem_type="binary", metric=metric, precision=0.1, max_rounds=5, random_state=0)
+    hc_one.fit(predictions=preds[:1], labels=y)
+    np.testing.assert_allclose(hc_one.model_weights(), [1.0])
+
+    # determinism
+    a = HillClimbingEnsembler(problem_type="binary", metric=metric, precision=0.05, max_rounds=15, random_state=42)
+    b = HillClimbingEnsembler(problem_type="binary", metric=metric, precision=0.05, max_rounds=15, random_state=42)
+    a.fit(predictions=preds, labels=y)
+    b.fit(predictions=preds, labels=y)
+    np.testing.assert_allclose(a.model_weights(), b.model_weights())
+
+    # does not mutate caller arrays
+    preds_copy = preds.copy()
+    HillClimbingEnsembler(problem_type="binary", metric=metric, precision=0.1, max_rounds=5, random_state=0).fit(
+        predictions=preds, labels=y
+    )
+    assert np.array_equal(preds, preds_copy)
+
+    # hyperparam validation
+    with pytest.raises(ValueError, match="precision"):
+        HillClimbingEnsembler(problem_type="binary", metric=metric, precision=0)
+    with pytest.raises(ValueError, match="max_rounds"):
+        HillClimbingEnsembler(problem_type="binary", metric=metric, max_rounds=0)
+    with pytest.raises(ValueError, match="max_models"):
+        HillClimbingEnsembler(problem_type="binary", metric=metric, max_models=0)
+    with pytest.raises(ValueError, match="at least one"):
+        HillClimbingEnsembler(problem_type="binary", metric=metric).fit(predictions=np.zeros((0, 10)), labels=y[:10])
+
+
+def test_hill_climbing_multiclass_simplex():
+    """Multiclass blends stay on the probability simplex; fit error ≤ single-best."""
+    from tabarena.simulation.ensemble import HillClimbingEnsembler
+
+    y, preds = _make_multiclass_task(n_models=8, n_samples=500, n_classes=4, seed=14)
+    metric = get_metric(metric="log_loss", problem_type="multiclass")
+    hc = HillClimbingEnsembler(problem_type="multiclass", metric=metric, precision=0.05, max_rounds=20, random_state=0)
+    hc.fit(predictions=preds, labels=y)
+    out = hc.predict_proba(preds)
+    assert out.shape == (len(y), preds.shape[2])
+    np.testing.assert_allclose(out.sum(axis=1), 1.0, atol=1e-5)
+    assert (out >= -1e-8).all()
+    single_best_err = min(metric.error(y, p) for p in preds)
+    assert metric.error(y, out) <= single_best_err + 1e-10
+
+
+def test_hill_climbing_time_limit_returns_valid_weights():
+    """time_limit may stop early but must still yield a valid weight vector."""
+    from tabarena.simulation.ensemble import HillClimbingEnsembler
+
+    y, preds = _make_binary_task(n_models=30, n_samples=2000, seed=15)
+    metric = get_metric(metric="roc_auc", problem_type="binary")
+    hc = HillClimbingEnsembler(problem_type="binary", metric=metric, precision=0.01, max_rounds=200, random_state=0)
+    hc.fit(predictions=preds, labels=y, time_limit=0.02)
+    w = hc.model_weights()
+    assert w is not None
+    assert np.isclose(w.sum(), 1.0)
+    assert np.isfinite(w).all()
+
+
+def test_hill_climbing_warm_start_from_greedy_weights():
+    """Warm-start HC from Greedy weights: refined val error must be <= Greedy val error."""
+    from tabarena.simulation.ensemble import GreedyEnsembler, HillClimbingEnsembler
+
+    y, preds = _make_binary_task(n_models=12, n_samples=800, seed=21)
+    metric = get_metric(metric="roc_auc", problem_type="binary")
+
+    greedy = GreedyEnsembler(
+        problem_type="binary", metric=metric, ensemble_size=30, random_state=np.random.RandomState(0)
+    )
+    greedy.fit(predictions=preds, labels=y)
+    g_err = metric.error(y, greedy.predict_proba(preds))
+
+    hc = HillClimbingEnsembler(
+        problem_type="binary",
+        metric=metric,
+        precision=0.05,
+        max_rounds=20,
+        initial_weights=greedy.model_weights(),
+        random_state=0,
+    )
+    hc.fit(predictions=preds, labels=y)
+    hc_err = metric.error(y, hc.predict_proba(preds))
+    assert hc_err <= g_err + 1e-12
+    assert hc.info()["warm_started"] is True
+    assert hc.info()["init_val_error"] is not None
