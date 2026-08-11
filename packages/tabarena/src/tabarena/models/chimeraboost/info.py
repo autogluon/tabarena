@@ -26,10 +26,9 @@ chimeraboost_method_metadata = MethodMetadata.config(
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},  # only if uploading (s3 adds "upload_as_public": True)
 )
 
-# Rerun with the untimed environment warm-up (``ChimeraBoostModel.warmup`` pre-compiles the numba
-# kernels outside the timed fit) — the ChimeraBoost used by TabArena going forward once processed
-# and uploaded. ``(method, suite)`` is the unique artifact key, so the new suite keeps these
-# results separate from the superseded run above.
+# Superseded ChimeraBoost 0.14.1 run with the untimed environment warm-up
+# (``ChimeraBoostModel.warmup`` pre-compiles the numba kernels outside the timed fit). Kept so the
+# hosted artifacts stay loadable; superseded by the 0.30.0 rerun below.
 chimeraboost_new_method_metadata = MethodMetadata.config(
     method="ChimeraBoost",
     ag_key="CHIMERA",
@@ -46,9 +45,32 @@ chimeraboost_new_method_metadata = MethodMetadata.config(
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},  # only if uploading (s3 adds "upload_as_public": True)
 )
 
+# ChimeraBoost 0.30.0 (https://github.com/autogluon/tabarena/issues/463), which reworks the
+# algorithm for better regression and small-data accuracy and better speed on large data. Same run
+# shape as the 0.14.1 runs above (default config + the full 200-config search space, all splits, the
+# same CPU partition), so accuracy and timings stay comparable. The ChimeraBoost used by TabArena
+# going forward; ``(method, suite)`` is the unique artifact key, so the new suite keeps these
+# results separate from the superseded runs.
+chimeraboost_v030_method_metadata = MethodMetadata.config(
+    method="ChimeraBoost",
+    ag_key="CHIMERA",
+    compute="cpu",
+    is_bag=True,
+    can_hpo=True,
+    config_default="ChimeraBoost_c1_default_BAG_L1",
+    suite="tabarena-2026-08-10",
+    date="2026-08-10",
+    date_introduced="2026-05-26",
+    reference_url="https://github.com/bbstats/chimeraboost",
+    display_name="ChimeraBoost",
+    verified=True,
+    cache_type="r2",  # one of: "local", "r2", "s3"
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},  # only if uploading (s3 adds "upload_as_public": True)
+)
+
 chimeraboost_info = ModelInfo(
     model_cls=ChimeraBoostModel,
     search_space=gen_chimeraboost,
-    method_metadata=chimeraboost_new_method_metadata,
+    method_metadata=chimeraboost_v030_method_metadata,
     pip_extra=("chimeraboost>=0.30.0",),
 )

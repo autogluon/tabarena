@@ -44,6 +44,7 @@ from tabarena.models.catboost.info import catboost_new_method_metadata
 from tabarena.models.chimeraboost.info import (
     chimeraboost_method_metadata,
     chimeraboost_new_method_metadata,
+    chimeraboost_v030_method_metadata,
 )
 from tabarena.models.ebm.info import (
     ebm_method_metadata as ebm_metadata,
@@ -143,7 +144,7 @@ methods_2025_10_20_camera_ready = [
 ] + methods_2025_10_20
 
 
-# The latest results for each method — exactly the methods in the TabArena paper (one per method),
+# The latest results for each method — exactly the methods on the TabArena LB (one per method),
 # each referencing its per-model `info.py` MethodMetadata directly. TabArenaContext uses this
 # collection as-is (no separate name allowlist). To add a newly processed/uploaded method, import its
 # `info.py` metadata above and add it here under the appropriate group.
@@ -157,7 +158,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabfm_plus_method_metadata,
         # Default tabular models (CPU)
         catboost_new_method_metadata,
-        chimeraboost_new_method_metadata,
+        chimeraboost_v030_method_metadata,
         ebm_new_method_metadata,
         extra_trees_new_method_metadata,
         knn_metadata,
@@ -197,9 +198,12 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
     ],
 )
 
-# Superseded predecessors of the tabarena-2026-07-13 reruns that appear in no dated suite list above.
-methods_superseded_2026_07_13: list[MethodMetadata] = [
-    chimeraboost_method_metadata,
+# Per-model `info.py` metadata that a rerun has replaced. These belong to no dated suite list above,
+# so they are named here to keep their hosted artifacts reachable through the complete collection.
+# Append a method here whenever a rerun takes over its slot in the collection.
+methods_superseded: list[MethodMetadata] = [
+    chimeraboost_method_metadata,  # 0.14.1 before the untimed warm-up (suite tabarena-2026-06-30)
+    chimeraboost_new_method_metadata,  # 0.14.1 with the warm-up (suite tabarena-2026-07-13)
     nori_method_metadata,
     tabfm_method_metadata,
     tabswift_method_metadata,
@@ -220,7 +224,7 @@ methods_historical = [
         *methods_2025_11_01_ag,
         *methods_2026_08_05_ag,
         *methods_misc,
-        *methods_superseded_2026_07_13,
+        *methods_superseded,
     ]
     if m not in _collection_methods
 ]
