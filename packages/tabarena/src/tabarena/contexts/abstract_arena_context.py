@@ -825,93 +825,126 @@ class AbstractArenaContext:
     def compare(
         self,
         output_dir: str | Path | None,
+        *,
+        # what to score
         new_results: pd.DataFrame | None = None,
-        ta_results: pd.DataFrame | None = None,
-        only_valid_tasks: bool | str | list[str] | MethodMetadata | list[MethodMetadata] = False,
-        filter_to_task_metadata: bool = True,
         subset: str | list[str] | None = None,
-        tasks: list[tuple[str, int]] | None = None,
-        datasets: list[str] | None = None,
-        folds: list[int] | None = None,
-        score_on_val: bool = False,
-        average_seeds: bool = False,
-        fillna: str | pd.DataFrame | None = "auto",
-        calibration_method: str | None = "auto",
-        remove_imputed: bool = False,
-        leaderboard_kwargs: dict | None = None,
-        figure_file_type: str = "pdf",
-        compute_fold_similarity: bool = False,
-        fold_similarity_kwargs: dict | None = None,
+        # what to get back
         return_results: bool = False,
         new_methods_only: bool = False,
         return_single: bool = False,
+        plot: bool = True,
+        # what to score it against
+        ta_results: pd.DataFrame | None = None,
+        only_valid_tasks: bool | str | list[str] | MethodMetadata | list[MethodMetadata] = False,
+        filter_to_task_metadata: bool = True,
+        datasets: list[str] | None = None,
+        folds: list[int] | None = None,
+        tasks: list[tuple[str, int]] | None = None,
+        # how to score it
+        fillna: str | pd.DataFrame | None = "auto",
+        calibration_method: str | None = "auto",
+        average_seeds: bool = False,
+        score_on_val: bool = False,
+        remove_imputed: bool = False,
+        leaderboard_kwargs: dict | None = None,
+        # how the figures look
+        figure_file_type: str = "pdf",
         plot_only: list[str] | None = None,
         method_color_overrides: dict[str, str] | None = None,
+        # extra analyses
+        compute_fold_similarity: bool = False,
+        fold_similarity_kwargs: dict | None = None,
         **kwargs,
     ) -> pd.DataFrame | pd.Series | tuple[pd.DataFrame | pd.Series, pd.DataFrame]:
         """Compute the leaderboard comparing ``new_results`` against this arena's baselines.
 
-        ``output_dir`` is where the leaderboard figures / CSVs are written (a real path), or
-        ``None`` when you only want the returned DataFrame — figures then go to a throwaway temp
-        dir that is cleaned up before returning. There is no default; pass a path or ``None``.
+        The results scored are ``ta_results`` (by default this arena's, via :meth:`load_results`)
+        with ``new_results`` concatenated on top. They are scoped to the tasks of interest, scored
+        into a leaderboard, and, when an ``output_dir`` is given, written there together with the
+        report figures.
 
-        ``ta_results`` defaults to :meth:`load_results` (which includes any registered
-        methods); ``new_results`` (if given) are concatenated to them.
-        ``fillna`` / ``calibration_method`` resolve ``"auto"`` to the context's settings.
+        Args:
+            output_dir: where the leaderboard CSVs and figures are written. ``None`` returns
+                the leaderboard without writing or rendering anything, skipping the work
+                that only feeds those artifacts; :meth:`leaderboard` is the named entry point for
+                that mode.
+            new_results: results to score alongside ``ta_results``, e.g. a model just fit. They
+                are concatenated, so the arena's baselines stay in the comparison.
+            subset: task-subset expression(s) to score on, resolved against this context's
+                :attr:`subset_predicates` (e.g. ``"lite"``, ``["lite", "small"]``).
+            return_results: also return the per-(method, dataset, fold) results frame the
+                leaderboard was scored from (columns ``method``, ``dataset``, ``fold``,
+                ``metric_error``, ...).
+            new_methods_only: keep only the registered "new" methods in both the leaderboard and
+                the returned results. Elo, rank and win-rate are still computed against every
+                baseline and the rows are filtered afterwards, so the numbers stay comparable.
+                Raises if no new methods are registered.
+            return_single: like ``new_methods_only``, but requires exactly one matching row and
+                returns it as a ``pd.Series``: the "I evaluated one model" case. Raises on zero
+                or more than one new method.
+            plot: render the report figures (default ``True``). With ``plot=False`` and an
+                ``output_dir``, the CSVs are still written but no bar plot, win-rate matrix,
+                Pareto figure, explorer page or LaTeX table is produced. The leaderboard is the
+                same either way.
+            ta_results: the results to compare against. Defaults to :meth:`load_results`, which
+                covers this context's methods including any registered ones.
+            only_valid_tasks: restrict the leaderboard to a subset of tasks:
 
-        ``filter_to_task_metadata`` (default ``True``) scopes the results to this context's
-        :attr:`task_metadata_collection`: rows whose ``(dataset, fold)`` is not a task of the
-        collection are dropped before scoring. For a full-suite context this is a no-op (the
-        results are already within the suite); for a context constructed with
-        ``only_valid_tasks=True`` (whose ``task_metadata`` was pre-filtered to the registered
-        new methods' tasks) it is what restricts the leaderboard to those tasks — so the
-        pre-filtered context needs nothing more here. Pass ``False`` to evaluate ``ta_results``
-        / ``new_results`` exactly as given (the historical behaviour).
+                * ``False`` (default): no restriction.
+                * ``True``: the tasks the "new" results ran, taken from ``new_results`` when
+                  given, else from the methods registered via ``extra_methods=`` (so a context
+                  built with ``extra_methods=EndToEnd.from_raw_to_methods(...)`` needs nothing
+                  more here).
+                * a ``MethodMetadata`` (or list of them): the tasks those registered methods ran.
+                * a method-column name (or list of them): the tasks where each named method has
+                  results.
 
-        ``only_valid_tasks`` restricts the leaderboard to a subset of tasks:
+            filter_to_task_metadata: drop rows whose ``(dataset, fold)`` is not a task of this
+                context's :attr:`task_metadata_collection` (default ``True``). A no-op for a
+                full-suite context, since its results are already within the suite; for a context
+                built with ``only_valid_tasks=True`` it is what restricts the leaderboard to the
+                registered new methods' tasks. ``False`` scores the results exactly as given.
+            datasets: keep only these datasets.
+            folds: keep only these folds.
+            tasks: keep only these ``(dataset, fold)`` pairs.
+            fillna: name of the method (or a frame of results) whose scores stand in for another
+                method's missing tasks. ``"auto"`` (default) uses this context's
+                ``fillna_method``; ``None`` leaves gaps unfilled.
+            calibration_method: the method pinned to Elo 1000, also used as the leaderboard's
+                baseline for improvability. ``"auto"`` (default) uses this context's
+                ``calibration_method``.
+            average_seeds: average each method's per-fold scores within a dataset before scoring,
+                making the dataset rather than the split the unit of comparison.
+            score_on_val: score on ``metric_error_val`` (validation error) rather than
+                ``metric_error``.
+            remove_imputed: drop every method that has at least one imputed result.
+            leaderboard_kwargs: forwarded to
+                :meth:`bencheval.evaluator.BenchmarkEvaluator.leaderboard` (e.g. ``include_elo``,
+                ``include_winrate``, ``elo_kwargs``).
+            figure_file_type: figure format, e.g. ``"pdf"`` or ``"png"``.
+            plot_only: restrict the figures to these methods without changing any number (the
+                leaderboard, Elo and win-rates are always computed over the full method set).
+                Takes method *display names*: the long config display name for config methods
+                (e.g. ``"LightGBM"``, ``"TabM"``) and the method name for baselines (e.g.
+                ``"TabPFN-3"``). Composes with a ``hidden_methods`` denylist, so anything hidden
+                stays hidden.
+            method_color_overrides: fixed color per method family in the Pareto plots, as a
+                ``{display_name: color}`` map (e.g. ``{"TabPFN-3": "midnightblue"}``).
+            compute_fold_similarity: rank the datasets by how consistently their folds/seeds
+                agree and estimate the folds needed for a stable result, written to
+                ``fold_similarity.csv``. Needs an ``output_dir``.
+            fold_similarity_kwargs: forwarded to
+                :meth:`bencheval.evaluator.BenchmarkEvaluator.rank_datasets_by_fold_similarity`
+                (e.g. ``{"similarity": "pearson", "target_reliability": 0.95}``). Ignored unless
+                ``compute_fold_similarity`` is set.
+            **kwargs: forwarded to :func:`tabarena.nips2025_utils.compare.compare` and on to
+                :meth:`LeaderboardReporter.eval`.
 
-        * ``False`` (default) — no restriction.
-        * ``True`` — restrict to the tasks the "new" results ran: ``new_results`` if given,
-          else the methods registered via ``extra_methods=`` (so a context built with
-          ``extra_methods=EndToEnd.from_raw_to_methods(...)`` needs nothing more here).
-        * a ``MethodMetadata`` (or list) — restrict to the tasks those registered methods ran.
-        * a method-column name (or list) — passed through to the lower-level compare, which
-          restricts to the tasks where each named method has results.
-
-        ``compute_fold_similarity`` ranks datasets by how consistently their folds/seeds agree
-        (and estimates folds-needed-for-stability), writing ``fold_similarity.csv`` to
-        ``output_dir``. ``fold_similarity_kwargs`` is forwarded to
-        :meth:`bencheval.evaluator.BenchmarkEvaluator.rank_datasets_by_fold_similarity` (e.g.
-        ``{"similarity": "pearson", "target_reliability": 0.95}``); ignored unless
-        ``compute_fold_similarity`` is True.
-
-        Two flags shape the return:
-
-        * ``return_results`` (default ``False``) — also return the per-(method, dataset, fold)
-          results frame the leaderboard was scored from (columns ``method`` / ``dataset`` /
-          ``fold`` / ``metric_error`` / ...). The return becomes ``(leaderboard, results)``
-          instead of ``leaderboard``.
-        * ``new_methods_only`` (default ``False``) — restrict *both* the leaderboard and the
-          returned results to the registered "new" methods (matched by :attr:`_new_method_names`).
-          The leaderboard is still computed against all baselines (so elo / rank / win-rate are
-          meaningful), then filtered to the new method's row(s). Raises if no new methods are
-          registered.
-        * ``return_single`` (default ``False``) — like ``new_methods_only`` but asserts there is
-          *exactly one* matching new-method row and returns it as a single leaderboard **row**
-          (``pd.Series``) instead of a one-row frame — the "I evaluated one model" case. Raises if
-          zero or more than one new method is present. Composes with ``return_results`` (the
-          results are still the matched per-split frame).
-
-        ``plot_only`` (default ``None`` -> plot everything) restricts the *figures* to a subset of
-        methods without changing any numbers: the leaderboard, Elo, win-rates and the saved
-        ``tabarena_leaderboard.csv`` are always computed over the full method set, and only the
-        plots (Elo bar plot, win-rate matrix, Pareto frontier, LaTeX table) are filtered down. Pass
-        method *display names* — the long config display name for config methods (e.g.
-        ``"LightGBM"``, ``"TabM"``) and the method name for baselines (e.g. ``"TabPFN-3"``). It
-        composes with a ``hidden_methods`` denylist (anything hidden stays hidden).
-
-        ``method_color_overrides`` (default ``None``) pins a fixed color per method family in the
-        Pareto plots — a ``{display_name: color}`` map (e.g. ``{"TabPFN-3": "midnightblue"}``).
+        Returns:
+            The leaderboard, one row per method, as a ``pd.DataFrame`` (a single ``pd.Series`` row
+            with ``return_single``). With ``return_results`` the return becomes
+            ``(leaderboard, results)``.
         """
         # Deferred import: tabarena.nips2025_utils.compare imports TabArenaContext at module
         # level, which would be circular at import time.
@@ -975,32 +1008,27 @@ class AbstractArenaContext:
         #  Pair with (method, suite)
         method_rename_map = self.get_method_rename_map()
 
-        # `output_dir=None` means "I only want the leaderboard": write the figures / CSVs to a
-        # throwaway temp dir (cleaned up after) instead of persisting them. The dir is only needed
-        # while the lower-level `compare` runs; the post-processing below never touches it.
-        tmp_output_dir = tempfile.TemporaryDirectory() if output_dir is None else None
-        try:
-            leaderboard = compare(
-                df_results=df_results,
-                output_dir=Path(tmp_output_dir.name if tmp_output_dir is not None else output_dir),
-                task_metadata=self.task_metadata_collection,
-                tabarena_context=self,
-                fillna=fillna,
-                calibration_framework=calibration_method,
-                score_on_val=score_on_val,
-                average_seeds=average_seeds,
-                remove_imputed=remove_imputed,
-                leaderboard_kwargs=leaderboard_kwargs,
-                method_rename_map=method_rename_map,
-                figure_file_type=figure_file_type,
-                compute_fold_similarity=compute_fold_similarity,
-                fold_similarity_kwargs=fold_similarity_kwargs,
-                benchmark_name=self.benchmark_name,
-                **kwargs,
-            )
-        finally:
-            if tmp_output_dir is not None:
-                tmp_output_dir.cleanup()
+        # `output_dir=None` means "I only want the leaderboard": the reporter then writes no file
+        # and renders no figure
+        leaderboard = compare(
+            df_results=df_results,
+            output_dir=Path(output_dir) if output_dir is not None else None,
+            task_metadata=self.task_metadata_collection,
+            tabarena_context=self,
+            fillna=fillna,
+            calibration_framework=calibration_method,
+            score_on_val=score_on_val,
+            average_seeds=average_seeds,
+            remove_imputed=remove_imputed,
+            leaderboard_kwargs=leaderboard_kwargs,
+            method_rename_map=method_rename_map,
+            figure_file_type=figure_file_type,
+            compute_fold_similarity=compute_fold_similarity,
+            fold_similarity_kwargs=fold_similarity_kwargs,
+            benchmark_name=self.benchmark_name,
+            plot=plot,
+            **kwargs,
+        )
         if new_methods_only or return_single:
             if not self._new_method_names:
                 raise ValueError(
@@ -1022,6 +1050,16 @@ class AbstractArenaContext:
         if return_results:
             return leaderboard, df_results.reset_index(drop=True)
         return leaderboard
+
+    def leaderboard(self, **kwargs) -> pd.DataFrame | pd.Series | tuple[pd.DataFrame | pd.Series, pd.DataFrame]:
+        """Compute the leaderboard and return it — no files, no figures.
+
+        The compute-only view of :meth:`compare`, which it takes every keyword of except
+        ``output_dir`` / ``plot`` (``subset``, ``new_results``, ``return_results``,
+        ``return_single``, ...) and returns the same thing. Use it when the leaderboard *is* the
+        result.
+        """
+        return self.compare(output_dir=None, plot=False, **kwargs)
 
     def _select_new_methods(self, df: pd.DataFrame) -> pd.DataFrame:
         """Rows of ``df`` whose method (a ``method`` column or the index) is a registered new method."""

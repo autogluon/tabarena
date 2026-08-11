@@ -662,27 +662,58 @@ class TestCompareReturnFlags:
             ctx.compare(output_dir=tmp_path, new_results=new_results, filter_to_task_metadata=False, return_single=True)
 
 
-class TestTempDir:
-    """`output_dir=None` / `expname=None` use a throwaway temp dir, created for the call and removed after."""
+class TestCompareWithoutOutputDir:
+    """No ``output_dir`` means no artifacts: nothing is written and no figure is rendered.
 
-    def test_compare_temp_dir_is_used_and_cleaned(self, monkeypatch):
-        import os
+    ``output_dir=None`` used to build a throwaway temp dir, render the whole figure suite into it
+    and delete it, so the cheapest call paid the most expensive side effects. Both tests pin that
+    ``None`` now reaches the reporter as ``None`` (which is what makes it skip its writes) and that
+    no directory is created for the call.
+    """
 
+    @staticmethod
+    def _spy(monkeypatch) -> dict:
+        """Patch the lower-level ``compare`` and capture the kwargs the context passes it."""
         import tabarena.nips2025_utils.compare as compare_mod
 
         seen: dict = {}
 
         def fake_compare(**kw):
-            seen["path"] = str(kw["output_dir"])
-            seen["existed_during"] = os.path.isdir(seen["path"])
+            seen.update(kw)
             return pd.DataFrame({"method": ["X"]})
 
         monkeypatch.setattr(compare_mod, "compare", fake_compare)
+        return seen
+
+    def test_output_dir_none_is_passed_through(self, monkeypatch, tmp_path):
+        seen = self._spy(monkeypatch)
+        monkeypatch.chdir(tmp_path)
         ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
         out = ctx.compare(output_dir=None, filter_to_task_metadata=False)
         assert isinstance(out, pd.DataFrame)
-        assert seen["existed_during"] is True  # a real temp dir existed during the call
-        assert not os.path.isdir(seen["path"])  # and was cleaned up afterwards
+        assert seen["output_dir"] is None
+        assert list(tmp_path.iterdir()) == []  # no temp dir, and nothing stringified into cwd
+
+    def test_leaderboard_asks_for_neither_artifacts_nor_figures(self, monkeypatch):
+        """``leaderboard()`` is ``compare`` with the report switched off at both levels."""
+        seen = self._spy(monkeypatch)
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        out = ctx.leaderboard(filter_to_task_metadata=False)
+        assert isinstance(out, pd.DataFrame)
+        assert seen["output_dir"] is None
+        assert seen["plot"] is False
+
+    def test_compare_plots_by_default(self, monkeypatch, tmp_path):
+        """Back-compat: an ``output_dir`` call still renders the full report."""
+        seen = self._spy(monkeypatch)
+        ctx = AbstractArenaContext(methods=[], task_metadata=_task_metadata())
+        ctx.compare(output_dir=tmp_path, filter_to_task_metadata=False)
+        assert seen["output_dir"] == tmp_path
+        assert seen["plot"] is True
+
+
+class TestTempDir:
+    """`expname=None` uses a throwaway temp dir, created for the call and removed after."""
 
     def test_run_jobs_temp_dir_is_used_and_cleaned(self, monkeypatch):
         import os

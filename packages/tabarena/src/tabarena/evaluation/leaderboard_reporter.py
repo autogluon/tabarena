@@ -90,7 +90,7 @@ class LeaderboardReporter:
     def __init__(
         self,
         *,
-        output_dir: str | Path,
+        output_dir: str | Path | None,
         task_metadata: TaskMetadataCollection | None = None,
         config_types: dict[str, str] | None = None,
         method_col: str = "method",
@@ -112,6 +112,10 @@ class LeaderboardReporter:
     ):
         """Parameters
         ----------
+        output_dir
+            where the figures / CSVs are written, or ``None`` for a compute-only reporter:
+            :meth:`eval` then writes no file and renders no figure (and the matplotlib /
+            tueplots style setup is skipped along with importing either).
 
         Methods:
             filter methods
@@ -132,7 +136,7 @@ class LeaderboardReporter:
             banned_pareto_methods = []
         if method_rename_map is None:
             method_rename_map = {}
-        self.output_dir: Path = Path(output_dir)
+        self.output_dir: Path | None = Path(output_dir) if output_dir is not None else None
         self.task_metadata = task_metadata
         self.method_col = method_col
         self.error_col = error_col
@@ -151,20 +155,22 @@ class LeaderboardReporter:
         self.banned_model_types = banned_model_types
         self.keep_best = keep_best
 
-        _init_global_rcparams()
+        # A compute-only reporter (``output_dir=None``) renders nothing, so the global
+        # matplotlib style — and importing matplotlib / tueplots at all — is skipped.
         self.use_latex = use_latex
-        if self.use_latex:
-            import matplotlib
-            from tueplots import bundles, fonts, fontsizes
+        self.rc_context_params: dict = {}
+        if self.output_dir is not None:
+            _init_global_rcparams()
+            if self.use_latex:
+                import matplotlib
+                from tueplots import bundles, fonts, fontsizes
 
-            matplotlib.rcParams.update(bundles.neurips2024())
-            matplotlib.rcParams.update(fonts.neurips2024_tex())
-            self.rc_context_params = {
-                "font.family": "serif",
-                "text.usetex": True,
-            } | fontsizes.neurips2024(default_smaller=0)
-        else:
-            self.rc_context_params = {}
+                matplotlib.rcParams.update(bundles.neurips2024())
+                matplotlib.rcParams.update(fonts.neurips2024_tex())
+                self.rc_context_params = {
+                    "font.family": "serif",
+                    "text.usetex": True,
+                } | fontsizes.neurips2024(default_smaller=0)
 
         self.style_order = [
             "Default",
@@ -650,6 +656,7 @@ class LeaderboardReporter:
         baselines: list[str] | str | None = "auto",
         baseline_colors: list[str] | None = None,
         plot_tune_types: list[str] | None = None,
+        plot: bool = True,
         plot_times: bool = False,
         plot_extra_barplots: bool = False,
         plot_cdd: bool = True,
@@ -676,6 +683,15 @@ class LeaderboardReporter:
         website_only: bool = False,
     ) -> pd.DataFrame:
         """Compute the leaderboard for ``df_results`` and render the TabArena figures.
+
+        ``plot`` (default ``True``) is the master switch over every figure: with ``plot=False``
+        the leaderboard is computed identically but nothing is rendered — no bar plots, win-rate
+        matrix, Pareto figures, interactive explorers, GIFs or LaTeX table — and the per-figure
+        flags below are AND-ed with it. The CSVs are still written, so this is the "give me the
+        numbers, skip the pictures" mode. A reporter built with ``output_dir=None`` writes no
+        file either and forces ``plot=False``; that combination is the compute-only path (see
+        :meth:`AbstractArenaContext.leaderboard`), and it also skips the work that only feeds
+        those artifacts (per-task ranks, the win-rate matrix).
 
         ``website_only`` (default ``False``) renders only the outputs the
         tabarena.ai website ships (leaderboard CSVs, the vertical
@@ -708,6 +724,14 @@ class LeaderboardReporter:
         """
         if banned_methods is not None:
             df_results = df_results[~df_results["method"].isin(banned_methods)]
+        # `output_dir=None` is a compute-only reporter: there is nowhere to write, so neither the
+        # CSVs nor the figures are produced, and every step below that exists only to feed them is
+        # skipped. `plot` gates the figures alone (the CSVs still get written).
+        save_artifacts = self.output_dir is not None
+        plot = plot and save_artifacts
+        # Both only produce a CSV, so without an output_dir there is nothing for them to do.
+        compute_fold_stability_curves = compute_fold_stability_curves and save_artifacts
+        compute_fold_similarity = compute_fold_similarity and save_artifacts
         if leaderboard_kwargs is None:
             leaderboard_kwargs = {}
         leaderboard_kwargs = leaderboard_kwargs.copy()
@@ -796,12 +820,13 @@ class LeaderboardReporter:
         # ----- end removing unused methods -----
 
         method_info: pd.DataFrame = self.get_method_info(df=df_results_rank_compare)
-        if self.method_metadata_info is not None:
-            method_info_full = pd.merge(
-                left=method_info.reset_index(), right=self.method_metadata_info, on=["ta_name", "ta_suite"]
-            )
-            save_pd.save(path=self.output_dir / "method_info.csv", df=method_info_full)
-        save_pd.save(path=self.output_dir / "results_per_split.csv", df=df_results_rank_compare)
+        if save_artifacts:
+            if self.method_metadata_info is not None:
+                method_info_full = pd.merge(
+                    left=method_info.reset_index(), right=self.method_metadata_info, on=["ta_name", "ta_suite"]
+                )
+                save_pd.save(path=self.output_dir / "method_info.csv", df=method_info_full)
+            save_pd.save(path=self.output_dir / "results_per_split.csv", df=df_results_rank_compare)
 
         # ----- add times per 1K samples -----
         # Per-dataset mean per-fold train/test sizes, derived natively from the collection's
@@ -827,7 +852,7 @@ class LeaderboardReporter:
             / df_results_rank_compare["dataset"].map(dataset_to_n_samples_test)
         )
 
-        if plot_times:
+        if plot and plot_times:
             self.plot_tabarena_times(df=df_results_rank_compare, output_dir=self.output_dir, show=False)
 
         # TODO: Move this into the `.leaderboard` call
@@ -838,7 +863,7 @@ class LeaderboardReporter:
         )
         df_results_rank_compare["normalized-error"] = df_results_rank_compare["normalized-error-dataset"]
 
-        if include_norm_score:
+        if plot and include_norm_score:
             self.plot_tuning_impact(
                 df=df_results_rank_compare,
                 framework_types=framework_types,
@@ -928,16 +953,17 @@ class LeaderboardReporter:
         leaderboard = leaderboard.join(method_info, on="method")
         leaderboard["elo"]
         leaderboard = leaderboard.reset_index(drop=False)
-        save_pd.save(path=f"{self.output_dir}/tabarena_leaderboard.csv", df=leaderboard)
+        if save_artifacts:
+            save_pd.save(path=f"{self.output_dir}/tabarena_leaderboard.csv", df=leaderboard)
 
-        if plot_date_introduced and not website_only:
+        if plot and plot_date_introduced and not website_only:
             # Elo vs. method introduction date (no-op unless `date_introduced` method metadata is available).
             self.plot_elo_vs_date_introduced(leaderboard=leaderboard, show=False)
             self.animate_elo_vs_date_introduced(leaderboard=leaderboard)
             self.plot_improvability_vs_date_introduced(leaderboard=leaderboard, show=False)
             self.animate_improvability_vs_date_introduced(leaderboard=leaderboard)
 
-        if not website_only:
+        if plot and not website_only:
             self.create_leaderboard_latex(
                 leaderboard,
                 framework_types=framework_types,
@@ -955,7 +981,7 @@ class LeaderboardReporter:
                 print(leaderboard)
 
         # horizontal elo barplot (the website ships only the vertical one)
-        if not website_only:
+        if plot and not website_only:
             self.plot_tuning_impact(
                 df=df_results_rank_compare,
                 df_elo=leaderboard,
@@ -974,27 +1000,35 @@ class LeaderboardReporter:
             )
 
         # vertical elo barplot
-        self.plot_tuning_impact(
-            df=df_results_rank_compare,
-            df_elo=leaderboard,
-            framework_types=framework_types,
-            save_prefix=f"{self.output_dir}",
-            use_gmean=use_gmean,
-            baselines=baselines,
-            baseline_colors=baseline_colors,
-            name_suffix="-elo",
-            imputed_names=imputed_names,
-            plot_tune_types=plot_tune_types,
-            show=False,
-            method_color_overrides=method_color_overrides,
-            **plot_tuning_kwargs,
+        if plot:
+            self.plot_tuning_impact(
+                df=df_results_rank_compare,
+                df_elo=leaderboard,
+                framework_types=framework_types,
+                save_prefix=f"{self.output_dir}",
+                use_gmean=use_gmean,
+                baselines=baselines,
+                baseline_colors=baseline_colors,
+                name_suffix="-elo",
+                imputed_names=imputed_names,
+                plot_tune_types=plot_tune_types,
+                show=False,
+                method_color_overrides=method_color_overrides,
+                **plot_tuning_kwargs,
+            )
+
+        # The win-rate / CDD block is the only consumer of the per-task and per-split rank frames
+        # besides the two fold-* computations, and ranking every method on every task is not cheap
+        # — so they are computed only when something below actually reads them.
+        needs_per_task_results = (
+            compute_fold_stability_curves or compute_fold_similarity or (plot_cdd and (plot or save_artifacts))
         )
+        if needs_per_task_results:
+            results_per_task = tabarena.compute_results_per_task(data=df_results_rank_compare)
+            results_per_split = tabarena.compute_results_per_task(data=df_results_rank_compare, include_seed_col=True)
 
-        results_per_task = tabarena.compute_results_per_task(data=df_results_rank_compare)
-        results_per_split = tabarena.compute_results_per_task(data=df_results_rank_compare, include_seed_col=True)
-
-        results_per_task = results_per_task.join(method_info, on="method")
-        results_per_split = results_per_split.join(method_info, on="method")
+            results_per_task = results_per_task.join(method_info, on="method")
+            results_per_split = results_per_split.join(method_info, on="method")
 
         if compute_fold_stability_curves:
             fold_stability_curves = tabarena.jitter_bootstrap_curve_all_datasets(
@@ -1023,7 +1057,9 @@ class LeaderboardReporter:
         # assert len(results_per_split) == len(results_per_split_w_metadata)
 
         # FIXME: Is critical diagram incorrect?
-        if plot_cdd:
+        # The win-rate matrix is both a figure and a CSV, so this block runs whenever either is
+        # wanted; each output inside is gated on the one that produces it.
+        if plot_cdd and (plot or save_artifacts):
 
             def rename_model(name: str):
                 parts = name.split(" ")
@@ -1145,17 +1181,18 @@ class LeaderboardReporter:
                         winrate_title = f"{self.benchmark_name}-{subset_label} Win-rate Matrix"
                     else:
                         winrate_title = f"{self.benchmark_name} Win-rate Matrix"
-                try:
-                    tabarena.plot_winrate_matrix(
-                        winrate_matrix=winrate_matrix_best,
-                        save_path=str(Path(self.output_dir / f"winrate_matrix.{self.figure_file_type}")),
-                        title=winrate_title,
-                    )
-                except (RuntimeError, ValueError) as e:
-                    print(
-                        f"Warning: Error encountered during winrate matrix plotting. {e}"
-                        "This likely means the CLI does not have access to the correct Chromium version...",
-                    )
+                if plot:
+                    try:
+                        tabarena.plot_winrate_matrix(
+                            winrate_matrix=winrate_matrix_best,
+                            save_path=str(Path(self.output_dir / f"winrate_matrix.{self.figure_file_type}")),
+                            title=winrate_title,
+                        )
+                    except (RuntimeError, ValueError) as e:
+                        print(
+                            f"Warning: Error encountered during winrate matrix plotting. {e}"
+                            "This likely means the CLI does not have access to the correct Chromium version...",
+                        )
 
                 # The same matrix as data and as an interactive page, so the
                 # website can offer the static / interactive / paper triple it
@@ -1163,20 +1200,22 @@ class LeaderboardReporter:
                 # conversion step copies both when present. The CSV is the
                 # figure's matrix; the page gets every variant and collapses to
                 # the same one-per-model view on load.
-                save_pd.save(
-                    path=str(Path(self.output_dir) / "winrate_matrix.csv"),
-                    df=winrate_matrix_best,
-                    index=True,
-                )
-                build_winrate_explorer_html(
-                    winrate_matrix=winrate_matrix,
-                    save_path=Path(self.output_dir) / "winrate_explorer.html",
-                    page_title=winrate_title or f"{self.benchmark_name} win-rate matrix",
-                    system_names=system_display_names(self.method_metadata_info),
-                )
+                if save_artifacts:
+                    save_pd.save(
+                        path=str(Path(self.output_dir) / "winrate_matrix.csv"),
+                        df=winrate_matrix_best,
+                        index=True,
+                    )
+                if plot:
+                    build_winrate_explorer_html(
+                        winrate_matrix=winrate_matrix,
+                        save_path=Path(self.output_dir) / "winrate_explorer.html",
+                        page_title=winrate_title or f"{self.benchmark_name} win-rate matrix",
+                        system_names=system_display_names(self.method_metadata_info),
+                    )
 
             # Off by default while the FIXME above (diagram possibly incorrect) stands.
-            if plot_critical_diagrams and len(results_te_per_task) != 0:
+            if plot and plot_critical_diagrams and len(results_te_per_task) != 0:
                 try:
                     tabarena.plot_critical_diagrams(
                         results_per_task=results_te_per_task,
@@ -1189,10 +1228,10 @@ class LeaderboardReporter:
                         "This likely means there is too little data to compute critical diagrams. Skipping ...",
                     )
 
-        if plot_runtimes:
+        if plot and plot_runtimes:
             self.generate_runtime_plot(df_results=df_results_rank_compare)
 
-        if plot_pareto and (framework_types or plot_with_baselines):
+        if plot and plot_pareto and (framework_types or plot_with_baselines):
             self.plot_pareto(
                 leaderboard=leaderboard,
                 framework_types=framework_types,

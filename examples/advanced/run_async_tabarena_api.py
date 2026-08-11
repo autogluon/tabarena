@@ -103,7 +103,8 @@ def evaluate_tabarena(
         model_hyperparameters: extra TabPFN hyperparameters (``device``, ``n_estimators``,
             ``ignore_pretraining_limits``, ...).
         subset: TabArena task-subset predicate(s) (e.g. ``"lite"``, ``["lite", "small"]``).
-        output_dir: where ``compare`` writes its leaderboard / figures (a temp dir if omitted).
+        output_dir: where ``compare`` writes its leaderboard / figures. Omit it to score without
+            a report at all (``context.leaderboard``): no figures, no CSVs, no temp dir.
 
     Returns:
         Our model's single leaderboard row (a ``pd.Series`` of elo / improvability / rank /
@@ -149,13 +150,13 @@ def evaluate_tabarena(
     context.register(raw_results, new_result_prefix=NEW_RESULT_PREFIX)
     # One call gives our model's single leaderboard row (a pd.Series) + its per-split results
     # frame. return_single asserts exactly one registered model; elo/rank are still computed
-    # against all baselines.
-    return context.compare(
-        output_dir=output_dir,
-        subset=subset,
-        return_results=True,
-        return_single=True,
-    )
+    # against all baselines. `leaderboard(...)` is the scoring-only call — same arguments and same
+    # return as `compare`, but it renders no figure and writes no file; `compare(output_dir=...)`
+    # is the one to use when the report on disk is what you are after.
+    compare_kwargs = dict(subset=subset, return_results=True, return_single=True)
+    if output_dir is None:
+        return context.leaderboard(**compare_kwargs)
+    return context.compare(output_dir=output_dir, **compare_kwargs)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -170,7 +171,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Where compare() writes the leaderboard / figures (temp dir if omitted).",
+        help="Where compare() writes the leaderboard / figures. Omitted: score only, write nothing.",
     )
     return parser.parse_args()
 
