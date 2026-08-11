@@ -163,7 +163,7 @@ def _comparison_baseline(collection: TaskMetadataCollection) -> InMemoryMethodMe
     )
 
 
-def test_async_tabarena_api(tmp_path):
+def test_async_tabarena_api(tmp_path, monkeypatch):
     """The async/fan-out build_jobs -> metadata_for_jobs -> run_job -> register -> compare path
     round-trips end-to-end against a toy local setup and a dummy predictor.
     """
@@ -244,3 +244,21 @@ def test_async_tabarena_api(tmp_path):
         if col in leaderboard_row.index and pd.notna(leaderboard_row[col])
     }
     assert isinstance(scalars, dict)
+
+    # Step 6, scoring-only variant: `leaderboard()` returns the same row and the same frame as the
+    # `compare(output_dir=...)` above while touching the filesystem not at all. Asserted from an
+    # empty cwd, since a path that goes missing is most likely to resurface as a relative one.
+    empty_cwd = tmp_path / "cwd"
+    empty_cwd.mkdir()
+    monkeypatch.chdir(empty_cwd)
+    row_no_report, results_no_report = context.leaderboard(return_results=True, return_single=True)
+    pd.testing.assert_series_equal(row_no_report, leaderboard_row)
+    pd.testing.assert_frame_equal(results_no_report, new_results)
+    assert list(empty_cwd.iterdir()) == []
+
+    # In between the two: `plot=False` keeps the tables and drops the pictures.
+    csv_only_dir = tmp_path / "eval_csv_only"
+    context.compare(output_dir=csv_only_dir, plot=False)
+    written = sorted(path.name for path in csv_only_dir.rglob("*") if path.is_file())
+    assert "tabarena_leaderboard.csv" in written
+    assert all(name.endswith(".csv") for name in written), written

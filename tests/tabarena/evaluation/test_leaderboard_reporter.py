@@ -149,3 +149,31 @@ def test_date_introduced_plots_are_opt_in():
 
     default = inspect.signature(LeaderboardReporter.eval).parameters["plot_date_introduced"].default
     assert default is False
+
+
+class TestComputeOnlyReporter:
+    """``output_dir=None`` builds a reporter that writes nothing and renders nothing."""
+
+    def test_no_output_dir_and_no_matplotlib_style(self, monkeypatch):
+        """The style setup is what imports matplotlib + tueplots, so a compute-only reporter must
+        not run it — that import is the bulk of the reporter's construction cost.
+        """
+        import tabarena.evaluation.leaderboard_reporter as module
+
+        called: list[bool] = []
+        # `_init_global_rcparams` is `functools.cache`d, so patch it to observe the call itself.
+        monkeypatch.setattr(module, "_init_global_rcparams", lambda: called.append(True))
+
+        reporter = LeaderboardReporter(output_dir=None, task_metadata=[], use_latex=True)
+        assert reporter.output_dir is None
+        assert reporter.rc_context_params == {}  # latex rcparams need matplotlib; not applied
+        assert called == []
+
+        LeaderboardReporter(output_dir="some/dir", task_metadata=[])
+        assert called == [True]
+
+    def test_plot_defaults_to_true(self):
+        """Back-compat: every existing caller keeps getting the full figure suite."""
+        import inspect
+
+        assert inspect.signature(LeaderboardReporter.eval).parameters["plot"].default is True

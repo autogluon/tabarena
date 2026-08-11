@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 def compare(
     df_results: pd.DataFrame,
-    output_dir: str | Path,
+    output_dir: str | Path | None,
     task_metadata: TaskMetadataCollection,
     tabarena_context: AbstractArenaContext | None = None,
     only_valid_tasks: str | list[str] | None = None,
@@ -34,12 +34,17 @@ def compare(
     add_dataset_count: bool = False,
     elo_ymin: float | None = None,
     benchmark_name: str = "Arena",
+    plot: bool = True,
     **kwargs,
 ):
     """Evaluate ``df_results`` (already subset to the tasks of interest) into a leaderboard.
 
     Generic over the supplied ``task_metadata``; task subsetting is the caller's job
     (see :meth:`AbstractArenaContext.compare`, which subsets via ``subset_results`` first).
+
+    ``output_dir=None`` makes this compute-only: the leaderboard is returned without writing a
+    file or rendering a figure. ``plot=False`` keeps the CSVs but skips every figure. Both are
+    described in :meth:`LeaderboardReporter.eval`.
     """
     df_results = prepare_data(
         df_results=df_results,
@@ -73,6 +78,7 @@ def compare(
 
     lb_df = plotter.eval(
         df_results=df_results,
+        plot=plot,
         plot_extra_barplots=False,
         plot_times=True,
         calibration_framework=calibration_framework,
