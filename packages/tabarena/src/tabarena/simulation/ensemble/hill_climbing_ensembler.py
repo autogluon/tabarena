@@ -112,9 +112,13 @@ class HillClimbingEnsembler(WeightedEnsembler):
         labels: np.ndarray,
         best_error: float,
     ) -> tuple[float, float, np.ndarray] | None:
+        # The running ensemble stays the raw linear blend so `weights_` describe it
+        # exactly (negative weights can push rows off the simplex, and clamping the
+        # running state would silently divorce the tracked weights from the scored
+        # ensemble). Only the copy that is scored gets renormalized, matching what
+        # `predict_proba` applies to the final linear combination.
         trial = (1.0 - w) * ensemble_pred + w * pred_j
-        trial = self._renormalize_proba(trial)
-        err = self._score_error(labels, trial)
+        err = self._score_error(labels, self._renormalize_proba(trial))
         if err < best_error - 1e-15:
             return err, float(w), trial
         return None
@@ -160,8 +164,8 @@ class HillClimbingEnsembler(WeightedEnsembler):
             if abs(total0) <= 1e-12:
                 raise ValueError("initial_weights sum to ~0; cannot warm-start")
             weights = weights / total0
-            ensemble_pred = self._renormalize_proba(self._combine(predictions, weights))
-            best_error = float(self._score_error(labels, ensemble_pred))
+            ensemble_pred = self._combine(predictions, weights)
+            best_error = float(self._score_error(labels, self._renormalize_proba(ensemble_pred)))
             start_idx = int(np.argmax(np.abs(weights)))
         else:
             single_errors = np.array([self._score_error(labels, pred) for pred in predictions], dtype=np.float64)
