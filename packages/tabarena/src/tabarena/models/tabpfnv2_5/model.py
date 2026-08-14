@@ -92,7 +92,7 @@ class TabPFNModel(AbstractTorchModel):
     ):
         time.time()
 
-        from tabpfn.model.loading import resolve_model_path
+        from tabpfn.model_loading import resolve_model_path
         from torch.cuda import is_available
 
         is_classification = self.problem_type in ["binary", "multiclass"]

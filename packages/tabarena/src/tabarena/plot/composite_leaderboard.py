@@ -70,11 +70,18 @@ ELO_COL: str = "Elo"
 # so list bare names ("all") rather than the on-disk form ("all&lite").
 SUBSET_ORDER: tuple[str, ...] = (
     "all",
+    "tiny",
     "small",
     "medium",
+    "large",
     "binary",
     "multiclass",
+    "classification",
     "regression",
+    "iid",
+    "grouped",
+    "temporal",
+    "text",
 )
 
 # Trailing tuning-variant suffixes recognised on method names. Order
@@ -536,7 +543,7 @@ def generate_composite_leaderboard(
     excluded_method_prefixes: tuple[str, ...] = (),
     top_n: int | None = None,
     subset_order: tuple[str, ...] = SUBSET_ORDER,
-    title: str = "TabArena Leaderboard",
+    title: str = "Leaderboard",
     save_png: bool = True,
     save_per_metric_pngs: bool = True,
 ) -> pd.DataFrame:

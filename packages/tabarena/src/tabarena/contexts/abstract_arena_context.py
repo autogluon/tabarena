@@ -1210,10 +1210,13 @@ class AbstractArenaContext:
         if save_composite_leaderboard and composite_inputs:
             from tabarena.plot.composite_leaderboard import generate_composite_leaderboard
 
+            # The title follows this context's benchmark unless the caller names one explicitly.
+            composite_kwargs = dict(composite_leaderboard_kwargs or {})
+            composite_kwargs.setdefault("title", f"{self.benchmark_name} Leaderboard")
             generate_composite_leaderboard(
                 leaderboards=composite_inputs,
                 output_dir=output_dir,
-                **(composite_leaderboard_kwargs or {}),
+                **composite_kwargs,
             )
 
     def _generate_subset_figs(

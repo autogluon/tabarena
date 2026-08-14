@@ -18,6 +18,7 @@ tabdpt_turbo_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://openreview.net/pdf?id=Y00pwFyrHR",
+    date_introduced="2026-06-05",  # tabdpt1_2.safetensors upload to Layer6/TabDPT
 )
 
 tabdpt_method_metadata = tabdpt_descriptor.method_metadata(

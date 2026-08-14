@@ -680,6 +680,7 @@ class LeaderboardReporter:
         winrate_method_rename: dict[str, str] | None = None,
         plot_only: list[str] | None = None,
         method_color_overrides: dict[str, str] | None = None,
+        pareto_emphasize_all: bool = False,
         website_only: bool = False,
     ) -> pd.DataFrame:
         """Compute the leaderboard for ``df_results`` and render the TabArena figures.
@@ -1238,6 +1239,7 @@ class LeaderboardReporter:
                 with_baselines=plot_with_baselines,
                 plot_tuning_kwargs=plot_tuning_kwargs,
                 method_color_overrides=method_color_overrides,
+                pareto_emphasize_all=pareto_emphasize_all,
             )
 
         return leaderboard
@@ -1283,6 +1285,32 @@ class LeaderboardReporter:
         # One row per family at its best metric value: sort worst-to-best, keep the last.
         return df.sort_values(metric, ascending=higher_is_better).drop_duplicates(subset=["_label"], keep="last")
 
+    def _date_family_colors(self, df: pd.DataFrame) -> tuple[pd.Series, list]:
+        """Per-point family colors for the metric-vs-date figures, with legend handles.
+
+        Families follow the website classification (:func:`get_model_family`): declared for
+        systems via ``method_class``, name-classified for models — the same coloring as the
+        interactive plots.
+        """
+        from matplotlib.lines import Line2D
+
+        from tabarena.plot.plot_pareto_focus import FAMILY_COLORS
+        from tabarena.website.website_format import get_model_family, system_display_names
+
+        info = self.method_metadata_info
+        systems = (
+            system_display_names(info) if info is not None and "method_class" in info.columns else frozenset()
+        )
+        families = df["_label"].map(lambda name: get_model_family(name, system_names=systems))
+        colors = families.map(lambda family: FAMILY_COLORS.get(family, FAMILY_COLORS["Other"]))
+        present = set(families)
+        handles = [
+            Line2D([], [], marker="o", ls="", color=color, label=family)
+            for family, color in FAMILY_COLORS.items()
+            if family in present
+        ]
+        return colors, handles
+
     @staticmethod
     def _date_pareto_front(df: pd.DataFrame, *, metric: str, higher_is_better: bool) -> pd.DataFrame:
         """The SOTA-over-time frontier of a metric-vs-date frame: rows whose ``metric`` beats
@@ -1296,7 +1324,8 @@ class LeaderboardReporter:
             on_front.append(keep)
             if keep:
                 best = sign * value
-        return front[on_front]
+        # Boolean Series, not a bare list: an empty list would select columns, not rows.
+        return front[pd.Series(on_front, index=front.index, dtype=bool)]
 
     @staticmethod
     def _plan_date_label_offsets(ax, df: pd.DataFrame, *, metric: str) -> list[tuple[float, float, str]]:
@@ -1373,12 +1402,14 @@ class LeaderboardReporter:
         *,
         metric: str,
         offsets: list[tuple[float, float, str]] | None = None,
+        bold_labels: set[str] | None = None,
     ) -> None:
         """Label each point of a metric-vs-date scatter at its planned offset.
 
         ``offsets`` are per-row placements from :meth:`_plan_date_label_offsets` (planned here
         on the fly when not supplied). The timelapse plans once against the full frame and
         passes prefixes of that plan, so a point's label never shifts in later frames.
+        ``bold_labels`` names the methods rendered bold (the Pareto-front members).
         """
         if offsets is None:
             offsets = LeaderboardReporter._plan_date_label_offsets(ax, df, metric=metric)
@@ -1391,6 +1422,7 @@ class LeaderboardReporter:
                 xytext=(dx, dy),
                 textcoords="offset points",
                 fontsize=7,
+                fontweight="bold" if bold_labels and str(label) in bold_labels else "normal",
                 ha=ha,
                 zorder=5,
             )
@@ -1406,6 +1438,7 @@ class LeaderboardReporter:
         ymax: float | None = None,
         xmin: pd.Timestamp | None = None,
         y_percent: bool = False,
+        legend_loc: str = "lower right",
         fps: int = 2,
         hold_seconds: float = 3.0,
     ) -> Path | None:
@@ -1428,7 +1461,7 @@ class LeaderboardReporter:
         if df is None:
             return None
         if xmin is None:
-            xmin = pd.Timestamp("2013-01-01")
+            xmin = pd.Timestamp("2014-01-01")
         # Reveal chronologically; same-date ties reveal the worst method first so the front
         # only ever improves within a frame step.
         df = df.sort_values(["_date", metric], ascending=[True, higher_is_better])
@@ -1445,7 +1478,7 @@ class LeaderboardReporter:
         from matplotlib.animation import PillowWriter
         from matplotlib.ticker import PercentFormatter
 
-        x_max = df["_date"].max() + pd.DateOffset(months=6)
+        x_max = df["_date"].max() + pd.DateOffset(months=3)
         # y extent: the visible points plus the pre-xmin front carry-in levels (the only trace
         # the invisible methods leave inside the view).
         pre_front = self._date_pareto_front(pre, metric=metric, higher_is_better=higher_is_better)
@@ -1455,11 +1488,12 @@ class LeaderboardReporter:
         y_max = ymax if ymax is not None else y_values.max() + y_pad
 
         fig, ax = plt.subplots(figsize=(11, 6.5))
+        point_colors, family_handles = self._date_family_colors(visible)
 
         def _draw(n_methods: int, offsets: list[tuple[float, float, str]] | None) -> None:
             ax.clear()
             sub = visible.iloc[:n_methods]
-            ax.scatter(sub["_date"], sub[metric], s=45, color="#2b6cb0", zorder=3)
+            ax.scatter(sub["_date"], sub[metric], s=45, c=point_colors.iloc[:n_methods], zorder=3)
             front = self._date_pareto_front(pd.concat([pre, sub]), metric=metric, higher_is_better=higher_is_better)
             ax.step(
                 front["_date"],
@@ -1468,7 +1502,7 @@ class LeaderboardReporter:
                 color="#dd6b20",
                 linewidth=2,
                 zorder=2,
-                label=f"Pareto front (best {ylabel} over time)",
+                label="Pareto front (best over time)",
             )
             ax.scatter(
                 front["_date"],
@@ -1479,31 +1513,44 @@ class LeaderboardReporter:
                 linewidths=1.6,
                 zorder=4,
             )
-            ax.legend(loc="lower right", fontsize=8)
+            front_handles, _ = ax.get_legend_handles_labels()
+            ax.legend(handles=[*front_handles, *family_handles], loc=legend_loc, fontsize=11)
+            # Bottom-center: clear of the legend (upper/lower left) and both metrics' frontiers.
             ax.text(
+                0.5,
                 0.02,
-                0.96,
                 f"methods through {sub['_date'].max().date().isoformat()}  ({n_methods}/{len(visible)})",
                 transform=ax.transAxes,
                 fontsize=9,
-                verticalalignment="top",
+                horizontalalignment="center",
+                verticalalignment="bottom",
             )
             ax.set_xlim(xmin, x_max)
             ax.set_ylim(y_min, y_max)
             if y_percent:
                 ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0))
-            ax.set_xlabel("Date introduced")
-            ax.set_ylabel(ylabel)
-            ax.set_title(f"TabArena: {ylabel} vs. method introduction date")
+            ax.set_xlabel("Date introduced", fontsize=14)
+            ax.set_ylabel(ylabel, fontsize=14)
+            ax.set_title(f"TabArena: {ylabel} vs. method introduction date", fontsize=16)
             ax.grid(visible=True, alpha=0.3, zorder=0)
+            ax.tick_params(axis="both", labelsize=12)
             ax.tick_params(axis="x", labelrotation=30)
             if offsets is not None:
-                self._annotate_date_points(ax, sub, metric=metric, offsets=offsets[:n_methods])
+                self._annotate_date_points(
+                    ax,
+                    sub,
+                    metric=metric,
+                    offsets=offsets[:n_methods],
+                    bold_labels=set(front["_label"].astype(str)),
+                )
 
         # Plan every label once, against the fully-populated final frame (the axes are fixed, so
         # extents are identical in every frame): each frame then reuses its prefix of the plan,
-        # and a label never shifts after its point first appears.
+        # and a label never shifts after its point first appears. `tight_layout` first, so the
+        # frames carry the same minimal margins as the static figure's `bbox_inches="tight"`
+        # (PillowWriter grabs the raw canvas, so per-save cropping is not available).
         _draw(len(visible), offsets=None)
+        fig.tight_layout()
         offsets = self._plan_date_label_offsets(ax, visible, metric=metric)
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -1533,6 +1580,7 @@ class LeaderboardReporter:
             metric="elo",
             higher_is_better=True,
             ylabel="Elo",
+            legend_loc="upper left",
             fps=fps,
             hold_seconds=hold_seconds,
         )
@@ -1555,6 +1603,7 @@ class LeaderboardReporter:
             ymin=0.0,
             ymax=0.2,
             y_percent=True,
+            legend_loc="lower left",
             fps=fps,
             hold_seconds=hold_seconds,
         )
@@ -1570,6 +1619,7 @@ class LeaderboardReporter:
         ymax: float | None = None,
         xmin: pd.Timestamp | None = None,
         y_percent: bool = False,
+        legend_loc: str = "lower right",
         show: bool = False,
     ) -> Path | None:
         """Scatter of a leaderboard metric (y) vs. each method's introduction date (x).
@@ -1592,7 +1642,7 @@ class LeaderboardReporter:
         if df is None:
             return None
         if xmin is None:
-            xmin = pd.Timestamp("2013-01-01")
+            xmin = pd.Timestamp("2014-01-01")
         visible = df[df["_date"] >= xmin]
         if ymax is not None:
             visible = visible[visible[metric] <= ymax]
@@ -1605,7 +1655,8 @@ class LeaderboardReporter:
         from matplotlib.ticker import PercentFormatter
 
         fig, ax = plt.subplots(figsize=(11, 6.5))
-        ax.scatter(visible["_date"], visible[metric], s=45, color="#2b6cb0", zorder=3)
+        colors, family_handles = self._date_family_colors(visible)
+        ax.scatter(visible["_date"], visible[metric], s=45, c=colors, zorder=3)
 
         # Pareto front: the running-best metric over time — a method is on the front when no
         # earlier (or same-date) method has a value at least as good. Drawn as a step line, so
@@ -1618,7 +1669,7 @@ class LeaderboardReporter:
             color="#dd6b20",
             linewidth=2,
             zorder=2,
-            label=f"Pareto front (best {ylabel} over time)",
+            label="Pareto front (best over time)",
         )
         ax.scatter(
             front["_date"],
@@ -1629,12 +1680,15 @@ class LeaderboardReporter:
             linewidths=1.6,
             zorder=4,
         )
-        ax.legend(loc="lower right", fontsize=8)
+        front_handles, _ = ax.get_legend_handles_labels()
+        ax.legend(handles=[*front_handles, *family_handles], loc=legend_loc, fontsize=11)
 
-        ax.set_xlabel("Date introduced")
-        ax.set_ylabel(ylabel)
-        ax.set_title(f"TabArena: {ylabel} vs. method introduction date")
-        ax.set_xlim(left=xmin)
+        ax.tick_params(axis="both", labelsize=12)
+        ax.set_xlabel("Date introduced", fontsize=14)
+        ax.set_ylabel(ylabel, fontsize=14)
+        ax.set_title(f"TabArena: {ylabel} vs. method introduction date", fontsize=16)
+        # Same right edge as the timelapse, so the .png and .gif frames line up.
+        ax.set_xlim(xmin, df["_date"].max() + pd.DateOffset(months=3))
         if ymin is not None:
             ax.set_ylim(bottom=ymin)
         if ymax is not None:
@@ -1645,7 +1699,7 @@ class LeaderboardReporter:
         fig.autofmt_xdate()
         fig.tight_layout()
         # Labels last: placement measures text extents against the final axes limits.
-        self._annotate_date_points(ax, visible, metric=metric)
+        self._annotate_date_points(ax, visible, metric=metric, bold_labels=set(front["_label"].astype(str)))
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         out_path = self.output_dir / f"{metric}_vs_date_introduced.{self.figure_file_type}"
@@ -1665,6 +1719,7 @@ class LeaderboardReporter:
             metric="elo",
             higher_is_better=True,
             ylabel="Elo",
+            legend_loc="upper left",
             show=show,
         )
 
@@ -1681,6 +1736,7 @@ class LeaderboardReporter:
             ymin=0.0,
             ymax=0.2,
             y_percent=True,
+            legend_loc="lower left",
             show=show,
         )
 
@@ -1772,6 +1828,7 @@ class LeaderboardReporter:
         with_baselines: bool = True,
         plot_tuning_kwargs: dict | None = None,
         method_color_overrides: dict[str, str] | None = None,
+        pareto_emphasize_all: bool = False,
     ):
         _f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
@@ -1791,6 +1848,10 @@ class LeaderboardReporter:
         f_map_suffix = get_f_map_suffix_plots()
         leaderboard_pareto["suffix"] = leaderboard_pareto["Type"].map(f_map_suffix).fillna("")
         plot_pareto_kwargs = {}
+        if pareto_emphasize_all:
+            # Show the Pareto-dominated methods with full family colors and labels
+            # instead of muting them (see `plot_pareto_focus`'s `emphasize_all`).
+            plot_pareto_kwargs["emphasize_all"] = True
         if plot_tuning_kwargs is not None:
             if "hidden_methods" in plot_tuning_kwargs:
                 leaderboard_pareto = leaderboard_pareto[
@@ -1865,6 +1926,7 @@ class LeaderboardReporter:
         y_scale: float = 1.0,
         title: str | None = None,
         focus_methods: list[str] | None = None,
+        emphasize_all: bool = False,
     ):
         """Shared body of the four ``pareto_front_*`` website figures: map the
         leaderboard's raw columns onto display axes and render the focus-style
@@ -1885,6 +1947,7 @@ class LeaderboardReporter:
             max_X=False,
             max_Y=max_Y,
             focus_methods=focus_methods,
+            emphasize_all=emphasize_all,
             variant_markers=self.style_markers,
             title=title,
             save_path=str(Path(self.output_dir) / f"{file_name}.{self.figure_file_type}"),
@@ -1896,6 +1959,7 @@ class LeaderboardReporter:
         leaderboard: pd.DataFrame,
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
+        emphasize_all: bool = False,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -1905,8 +1969,9 @@ class LeaderboardReporter:
             y_source_col="elo",
             y_name="Elo",
             max_Y=True,
-            title="Elo vs Train Time" if title == "auto" else title,
+            title=f"{self.benchmark_name}: Elo vs Train Time" if title == "auto" else title,
             focus_methods=focus_methods,
+            emphasize_all=emphasize_all,
         )
 
     def plot_pareto_elo_vs_time_infer(
@@ -1914,6 +1979,7 @@ class LeaderboardReporter:
         leaderboard: pd.DataFrame,
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
+        emphasize_all: bool = False,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -1923,8 +1989,9 @@ class LeaderboardReporter:
             y_source_col="elo",
             y_name="Elo",
             max_Y=True,
-            title="Elo vs Inference Time" if title == "auto" else title,
+            title=f"{self.benchmark_name}: Elo vs Inference Time" if title == "auto" else title,
             focus_methods=focus_methods,
+            emphasize_all=emphasize_all,
         )
 
     def plot_pareto_improvability_vs_time_infer(
@@ -1932,6 +1999,7 @@ class LeaderboardReporter:
         leaderboard: pd.DataFrame,
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
+        emphasize_all: bool = False,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -1942,8 +2010,9 @@ class LeaderboardReporter:
             y_name="Improvability (%)",
             y_scale=100,
             max_Y=False,
-            title="Improvability vs Inference Time" if title == "auto" else title,
+            title=f"{self.benchmark_name}: Improvability vs Inference Time" if title == "auto" else title,
             focus_methods=focus_methods,
+            emphasize_all=emphasize_all,
         )
 
     def plot_pareto_improvability_vs_time_train(
@@ -1951,6 +2020,7 @@ class LeaderboardReporter:
         leaderboard: pd.DataFrame,
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
+        emphasize_all: bool = False,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -1961,8 +2031,9 @@ class LeaderboardReporter:
             y_name="Improvability (%)",
             y_scale=100,
             max_Y=False,
-            title="Improvability vs Train Time" if title == "auto" else title,
+            title=f"{self.benchmark_name}: Improvability vs Train Time" if title == "auto" else title,
             focus_methods=focus_methods,
+            emphasize_all=emphasize_all,
         )
 
     def build_pareto_explorer(self, leaderboard: pd.DataFrame):
