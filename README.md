@@ -258,3 +258,6 @@ Lennart Purucker, Andrej Tschalzev, Nick Erickson, Gioia Blayer, David Holzmüll
 ## Relation to TabRepo 
 
 TabArena was built upon and now replaces [TabRepo](https://arxiv.org/pdf/2311.02971). To see details about TabRepo, the portfolio simulation repository, refer to [tabrepo.md](tabrepo.md).
+
+## Research code
+This repository contains research code intended for academic research and experimentation. It is not production-ready and should be reviewed, tested, and secured before use in production.
