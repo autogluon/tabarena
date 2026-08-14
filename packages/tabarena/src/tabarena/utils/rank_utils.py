@@ -91,10 +91,17 @@ class RankScorer:
         self.pct = pct
         self.include_partial = include_partial
         df_pivot = df_results.pivot_table(values=metric_error_col, index=task_col, columns=framework_col)
-        df_pivot.values.sort(axis=1)  # NOTE: The framework columns are now no longer correct. Do not use them.
-
-        # tolist to drop the framework col name, since it is no longer ordered.
-        self.error_dict = {dataset: df_pivot.loc[dataset].dropna().tolist() for dataset in tasks}
+        # Sort a materialized copy: under pandas copy-on-write `.values` is a read-only
+        # view (in-place sort raises), and on multi-block frames it is a throwaway copy
+        # (in-place sort silently no-ops, leaving the rows unsorted for `get_rank`).
+        sorted_errors = df_pivot.to_numpy(dtype=np.float64, copy=True)
+        sorted_errors.sort(axis=1)
+        # NOTE: Framework columns are no longer meaningful after row-wise sort.
+        row_by_task = {task: i for i, task in enumerate(df_pivot.index)}
+        self.error_dict = {}
+        for task in tasks:
+            row = sorted_errors[row_by_task[task]]
+            self.error_dict[task] = row[~np.isnan(row)].tolist()
 
     def rank(self, task: str, error: float) -> float:
         """Get the rank of a result on a dataset given an error."""
