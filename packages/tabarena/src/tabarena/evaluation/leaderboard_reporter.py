@@ -1298,9 +1298,7 @@ class LeaderboardReporter:
         from tabarena.website.website_format import get_model_family, system_display_names
 
         info = self.method_metadata_info
-        systems = (
-            system_display_names(info) if info is not None and "method_class" in info.columns else frozenset()
-        )
+        systems = system_display_names(info) if info is not None and "method_class" in info.columns else frozenset()
         families = df["_label"].map(lambda name: get_model_family(name, system_names=systems))
         colors = families.map(lambda family: FAMILY_COLORS.get(family, FAMILY_COLORS["Other"]))
         present = set(families)
