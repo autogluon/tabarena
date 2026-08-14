@@ -44,7 +44,7 @@ ag_140_metadata = MethodMetadata.tabarena_legacy_s3(
     display_name="AutoGluon 1.4 (4h)",
     compute="gpu",
     date="2025-09-03",
-    date_introduced="2025-07",
+    date_introduced="2025-07-29",
     **_system_kwargs,
 )
 
@@ -58,7 +58,7 @@ _common_kwargs_2025_11_01 = dict(
 
 _gpu_kwargs = dict(
     compute="gpu",
-    date_introduced="2025-07",  # AutoGluon 1.4 "extreme" preset
+    date_introduced="2025-07-29",  # AutoGluon 1.4.0 GitHub release ("extreme" preset ships with 1.4)
     **_common_kwargs_2025_11_01,
 )
 

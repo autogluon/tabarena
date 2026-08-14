@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import time
 from pathlib import Path
 
 from tabflow_slurm.slurm_utils import setup_slurm_job
@@ -225,4 +226,12 @@ if __name__ == "__main__":
         )
     finally:
         if ray_temp_dir is not None:
-            shutil.rmtree(ray_temp_dir)
+            # Ray's shutdown flushes worker logs asynchronously, so an immediate delete can
+            # race it (OSError: Directory not empty) and kill the whole task item. The dir is
+            # per-task scratch on node-local disk: retry once after the flush settles, then
+            # delete best-effort.
+            try:
+                shutil.rmtree(ray_temp_dir)
+            except OSError:
+                time.sleep(10)
+                shutil.rmtree(ray_temp_dir, ignore_errors=True)

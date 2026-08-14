@@ -83,6 +83,7 @@ def plot_pareto_focus(
     max_Y: bool = False,
     xlog: bool = True,
     focus_methods: list[str] | None = None,
+    emphasize_all: bool = False,
     x_label: str | None = None,
     y_label: str | None = None,
     title: str | None = None,
@@ -105,6 +106,10 @@ def plot_pareto_focus(
     focus_methods
         Methods to emphasize *in addition to* the Pareto-front members. Focused
         methods get a boxed label; front members a plain colored label.
+    emphasize_all
+        Emphasize (family colors + a plain label) *every* method instead of muting
+        the Pareto-dominated ones. ``focus_methods`` still controls which labels
+        are boxed.
     max_X, max_Y
         Direction of "better" per axis (both False = lower-left is optimal).
     """
@@ -133,6 +138,8 @@ def plot_pareto_focus(
         data, x_col=x_col, y_col=y_col, method_col=method_col, max_X=max_X, max_Y=max_Y
     )
     emphasized = front_methods | {m for m in focus_methods if m in set(data[method_col])}
+    if emphasize_all:
+        emphasized = set(data[method_col])
 
     fig, ax = plt.subplots(figsize=figsize)
     if xlog:
