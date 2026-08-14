@@ -91,16 +91,16 @@ class RankScorer:
         self.pct = pct
         self.include_partial = include_partial
         df_pivot = df_results.pivot_table(values=metric_error_col, index=task_col, columns=framework_col)
-        # Copy: recent pandas/numpy expose read-only views for .values, so in-place sort fails.
-        sorted_errors = np.ascontiguousarray(df_pivot.to_numpy(dtype=np.float64, copy=True))
-        sorted_errors.flags.writeable = True
+        # Sort a materialized copy: under pandas copy-on-write `.values` is a read-only
+        # view (in-place sort raises), and on multi-block frames it is a throwaway copy
+        # (in-place sort silently no-ops, leaving the rows unsorted for `get_rank`).
+        sorted_errors = df_pivot.to_numpy(dtype=np.float64, copy=True)
         sorted_errors.sort(axis=1)
         # NOTE: Framework columns are no longer meaningful after row-wise sort.
-        index_list = list(df_pivot.index)
+        row_by_task = {task: i for i, task in enumerate(df_pivot.index)}
         self.error_dict = {}
         for task in tasks:
-            i = index_list.index(task)
-            row = sorted_errors[i]
+            row = sorted_errors[row_by_task[task]]
             self.error_dict[task] = row[~np.isnan(row)].tolist()
 
     def rank(self, task: str, error: float) -> float:
