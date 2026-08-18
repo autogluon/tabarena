@@ -161,7 +161,7 @@ def evaluate_single(
     eval_save_path,
     evaluator_kwargs,
     method_metadata_info: pd.DataFrame,
-    entrant_pool: str = "systems_all",
+    entrant_pool: str = "open_llm_api",
     elo_bootstrap_rounds: int = 200,
     custom_folder_name: str | None = None,
     website_only: bool = False,

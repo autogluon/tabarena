@@ -996,6 +996,10 @@ class AbstractArenaContext:
         # lower-level `compare` evaluates the results frame as-is.
         if isinstance(subset, str):
             subset = [subset]
+        # Figure titles show "<benchmark_name>-<subset_label>" where one applies; default the
+        # label from the subset expression so per-subset runs are labeled without extra plumbing.
+        if subset is not None and "subset_label" not in kwargs:
+            kwargs["subset_label"] = "_".join(str(s) for s in subset)
         df_results = self.subset_results(
             df_results=df_results,
             subset=subset,

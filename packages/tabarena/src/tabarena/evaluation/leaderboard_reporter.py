@@ -6,9 +6,10 @@ import itertools
 import json
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -605,6 +606,146 @@ class LeaderboardReporter:
             plt.close(fig)
         # TODO: Get rank 1 method per task/split, include alongside as column w/ value for comparison
 
+    #: Per-metric presentation for :meth:`plot_metric_boxplot`: axis label, figure title,
+    #: multiplicative ``scale`` applied to the values, and whether a log x-axis fits the
+    #: metric. Metrics not listed fall back to the column name on a linear axis.
+    _METRIC_BOXPLOT_SPECS: ClassVar[dict[str, dict]] = {
+        "improvability": {"label": "Improvability (%)", "title": "Improvability", "scale": 100.0},
+        "metric_error": {"label": "Metric Error", "title": "Metric Error"},
+        "time_train_s": {"label": "Train Time (s)", "title": "Train Time", "log": True},
+        "time_infer_s": {"label": "Predict Time (s)", "title": "Predict Time", "log": True},
+        "time_train_s_per_1K": {"label": "Train Time (s/1K rows)", "title": "Train Time per 1K", "log": True},
+        "time_infer_s_per_1K": {"label": "Predict Time (s/1K rows)", "title": "Predict Time per 1K", "log": True},
+    }
+
+    def plot_metric_boxplot(
+        self,
+        results_per_task: pd.DataFrame,
+        *,
+        metric: str = "improvability",
+        leaderboard: pd.DataFrame | None = None,
+        top_n: int | None = None,
+        subset_label: str | None = None,
+        show_mean: bool = True,
+        log_scale: bool | None = None,
+        x_cap: float | None = None,
+        method_rename: Callable[[str], str] | None = None,
+    ) -> Path:
+        """One horizontal box per method over its per-dataset distribution of ``metric``.
+
+        ``metric`` is any numeric column of ``results_per_task`` (e.g. ``improvability``,
+        ``time_train_s``, ``time_infer_s_per_1K``); presentation (axis label, unit scale, log
+        axis) comes from :attr:`_METRIC_BOXPLOT_SPECS` with a plain fallback for unlisted
+        columns. Methods are sorted by median (best/cheapest at the top). ``top_n`` keeps only
+        the strongest ``top_n`` methods by leaderboard Elo (requires ``leaderboard``);
+        ``show_mean`` (default on) adds a dashed per-method mean line; ``log_scale`` overrides
+        the spec's axis choice (a log axis silently falls back to linear when the data contain
+        non-positive values). ``x_cap`` (in display units, i.e. after the spec's ``scale``)
+        caps the right edge of the x-axis; box statistics still come from the full data, and
+        each method with values beyond the cap gets a ``+N`` count at the right edge for the
+        hidden instances. ``method_rename`` maps method names to display names for the
+        y-axis labels. The title carries ``benchmark_name`` plus ``subset_label`` when one is
+        given. The x-axis starts at the best observed value, so the figure carries no empty
+        space left of the data. Writes ``boxplots/boxplot_<metric>.<figure_file_type>`` under
+        ``output_dir`` and returns its path.
+        """
+        import matplotlib.pyplot as plt
+
+        if metric not in results_per_task.columns:
+            raise ValueError(f"Unknown metric {metric!r}; not a column of results_per_task.")
+        spec = self._METRIC_BOXPLOT_SPECS.get(metric, {})
+        scale = spec.get("scale", 1.0)
+        if log_scale is None:
+            log_scale = spec.get("log", False)
+
+        df = results_per_task[[self.method_col, "dataset", metric]].dropna(subset=[metric]).copy()
+        if top_n is not None:
+            if leaderboard is None:
+                raise ValueError("top_n requires the leaderboard to rank methods by Elo.")
+            keep = leaderboard.sort_values("elo", ascending=False)[self.method_col].head(top_n).tolist()
+            df = df[df[self.method_col].isin(keep)]
+
+        # Best methods (lowest median) on top; matplotlib draws the first box at the
+        # bottom, so the plotting order is reversed.
+        order = df.groupby(self.method_col)[metric].median().sort_values().index.tolist()
+        data = [df.loc[df[self.method_col] == m, metric].to_numpy() * scale for m in reversed(order)]
+        if log_scale and any((values <= 0).any() for values in data):
+            log_scale = False
+
+        labels = list(reversed(order))
+        if method_rename is not None:
+            labels = [method_rename(m) for m in labels]
+
+        fig, ax = plt.subplots(figsize=(10, max(2.4, 0.26 * len(order) + 1.2)))
+        ax.boxplot(
+            data,
+            tick_labels=labels,
+            vert=False,
+            widths=0.72,
+            patch_artist=True,
+            showmeans=show_mean,
+            meanline=show_mean,
+            boxprops={"facecolor": "#dbe2e8", "edgecolor": "#5b6770", "linewidth": 0.8},
+            whiskerprops={"color": "#5b6770", "linewidth": 0.8},
+            capprops={"color": "#5b6770", "linewidth": 0.8},
+            medianprops={"color": "#1f4e79", "linewidth": 1.6},
+            meanprops={"color": "#c44e52", "linestyle": "--", "linewidth": 1.2},
+            flierprops={
+                "marker": "o",
+                "markersize": 3,
+                "markerfacecolor": "#8a949c",
+                "markeredgecolor": "none",
+                "alpha": 0.6,
+            },
+        )
+        metric_title = spec.get("title", metric)
+        if subset_label and subset_label != "all":
+            title = f"{self.benchmark_name}-{subset_label} {metric_title} per Dataset"
+        else:
+            title = f"{self.benchmark_name} {metric_title} per Dataset"
+        ax.set_title(title)
+        ax.set_xlabel(spec.get("label", metric))
+        if log_scale:
+            ax.set_xscale("log")
+        # Anchor the x-axis at the best observed value; the default margins would
+        # otherwise leave dead space left of the best method's box.
+        best_observed = min(float(values.min()) for values in data if len(values))
+        ax.set_xlim(left=best_observed)
+        if x_cap is not None:
+            from matplotlib.transforms import blended_transform_factory
+
+            ax.set_xlim(right=x_cap)
+            # Count the instances hidden beyond the cap per method (rows are drawn
+            # bottom-up at y = 1..N, matching the order of `data`).
+            annotate_transform = blended_transform_factory(ax.transAxes, ax.transData)
+            for row, values in enumerate(data, start=1):
+                n_hidden = int((values > x_cap).sum())
+                if n_hidden:
+                    ax.text(
+                        0.995,
+                        row,
+                        f"+{n_hidden}",
+                        transform=annotate_transform,
+                        ha="right",
+                        va="center",
+                        fontsize=8,
+                        color="#5b6770",
+                    )
+        ax.margins(y=0.01)
+        ax.tick_params(axis="y", length=0)
+        ax.grid(axis="x", color="0.9", linewidth=0.8)
+        ax.set_axisbelow(True)
+        for spine in ("top", "right", "left"):
+            ax.spines[spine].set_visible(False)
+        fig.tight_layout()
+
+        out_dir = self.output_dir / "boxplots"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"boxplot_{metric}.{self.figure_file_type}"
+        fig.savefig(out_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        return out_path
+
     @staticmethod
     def _plot_only_to_hidden_methods(
         plot_only: list[str],
@@ -663,6 +804,8 @@ class LeaderboardReporter:
         plot_critical_diagrams: bool = False,
         plot_runtimes: bool = False,
         plot_pareto: bool = True,
+        plot_metric_boxplots: str | list[str] | bool = False,
+        metric_boxplot_kwargs: dict | None = None,
         plot_date_introduced: bool = False,
         compute_fold_stability_curves: bool = False,
         compute_fold_similarity: bool = False,
@@ -706,6 +849,14 @@ class LeaderboardReporter:
         four of them dominate the runtime of an otherwise quick evaluation, so
         they are off unless asked for. ``website_only`` suppresses them either
         way.
+
+        ``plot_metric_boxplots`` (default ``False``) renders one horizontal box per method
+        over its per-dataset distribution of each requested metric, written as
+        ``boxplots/boxplot_<metric>.<figure_file_type>``. ``True`` plots ``improvability``; a str or
+        list of str selects any numeric ``results_per_task`` column(s) (e.g.
+        ``["improvability", "time_train_s_per_1K"]``). Options like ``top_n`` (keep only the
+        top-N methods by leaderboard Elo), ``show_mean``, and ``log_scale`` go in
+        ``metric_boxplot_kwargs``; see :meth:`plot_metric_boxplot`.
 
         ``plot_only`` (default ``None`` -> show everything) restricts the *plots*
         to a subset of methods without affecting any numbers: the leaderboard,
@@ -1022,7 +1173,10 @@ class LeaderboardReporter:
         # besides the two fold-* computations, and ranking every method on every task is not cheap
         # — so they are computed only when something below actually reads them.
         needs_per_task_results = (
-            compute_fold_stability_curves or compute_fold_similarity or (plot_cdd and (plot or save_artifacts))
+            compute_fold_stability_curves
+            or compute_fold_similarity
+            or (plot_cdd and (plot or save_artifacts))
+            or (bool(plot_metric_boxplots) and plot)
         )
         if needs_per_task_results:
             results_per_task = tabarena.compute_results_per_task(data=df_results_rank_compare)
@@ -1030,6 +1184,26 @@ class LeaderboardReporter:
 
             results_per_task = results_per_task.join(method_info, on="method")
             results_per_split = results_per_split.join(method_info, on="method")
+
+        if plot_metric_boxplots and plot:
+            boxplot_metrics = ["improvability"] if plot_metric_boxplots is True else plot_metric_boxplots
+            if isinstance(boxplot_metrics, str):
+                boxplot_metrics = [boxplot_metrics]
+
+            def _boxplot_display_name(method: str) -> str:
+                parts = method.split(" ")
+                parts[0] = f_map_type_name.get(parts[0], parts[0])
+                return " ".join(parts)
+
+            for boxplot_metric in boxplot_metrics:
+                self.plot_metric_boxplot(
+                    results_per_task=results_per_task,
+                    metric=boxplot_metric,
+                    leaderboard=leaderboard,
+                    subset_label=subset_label,
+                    method_rename=_boxplot_display_name,
+                    **(metric_boxplot_kwargs or {}),
+                )
 
         if compute_fold_stability_curves:
             fold_stability_curves = tabarena.jitter_bootstrap_curve_all_datasets(
@@ -2308,6 +2482,7 @@ class LeaderboardReporter:
         save_prefix: str,
         baselines: list[str] | None = None,
         baseline_colors: list[str] | None = None,
+        baselines_as_bars: bool = False,
         show: bool = False,
         use_gmean=False,
         use_score: bool = True,
@@ -2387,6 +2562,25 @@ class LeaderboardReporter:
                 "A color must be specified for each baseline via the `baseline_colors` argument."
             )
 
+        # `baselines_as_bars` renders every baseline as its own bar (sorted with the
+        # config-family bars) instead of a dashed reference line, via a single
+        # promote-from-baselines override shared by all of them.
+        if baselines_as_bars and baselines:
+            pastel = sns.color_palette("pastel").as_hex()
+            deep = sns.color_palette("deep").as_hex()
+            tune_method_overrides = [
+                *tune_method_overrides,
+                TuneMethodOverride(
+                    tune_method="baseline_bar",
+                    methods=list(baselines),
+                    bar_label="System / Portfolio",
+                    bar_color=pastel[4],
+                    bar_width=0.6,
+                    err_color=deep[4],
+                    promote_from_baselines=True,
+                ),
+            ]
+
         for ov in tune_method_overrides:
             if not ov.promote_from_baselines:
                 continue
@@ -2429,7 +2623,13 @@ class LeaderboardReporter:
         framework_types = baselines + tick_methods
 
         if plot_tune_types:
-            df = df[df["tune_method"].isin(plot_tune_types) | df[self.method_col].isin(baselines)]
+            # Override tune_methods (including promoted baselines) are always kept:
+            # `plot_tune_types` selects among the standard default/tuned/... bars.
+            override_tune_types = [ov.tune_method for ov in tune_method_overrides]
+            df = df[
+                df["tune_method"].isin([*plot_tune_types, *override_tune_types])
+                | df[self.method_col].isin(baselines)
+            ]
 
         df_plot = df[df["framework_type"].isin(framework_types)]
 
@@ -2498,7 +2698,10 @@ class LeaderboardReporter:
                     pos = metric
                     y = framework_col
                     if figsize is None:
-                        figsize = (4, figheight_horizontal if figheight_horizontal is not None else 5)
+                        # Grow with the row count past 25 bars (promoted baselines can push a
+                        # run well beyond the ~25 config families the fixed 5" was sized for).
+                        auto_height = max(5.0, 0.2 * len(framework_type_order))
+                        figsize = (4, figheight_horizontal if figheight_horizontal is not None else auto_height)
                     xlim = lim
 
                     framework_type_order.reverse()
@@ -2890,17 +3093,20 @@ class LeaderboardReporter:
                             bar.set_facecolor(override_color)
 
                 if not use_y:
-                    # ----- alternate rows of x tick labels -----
-                    # Get current x tick labels
+                    # ----- x tick labels: rotate long names, alternate rows for short ones -----
                     labels = [label.get_text() for label in boxplot.get_xticklabels()]
+                    longest_label = max((len(label) for label in labels), default=0)
 
-                    # Add newline to every second label
-                    new_labels = [
-                        label if i % 2 == 0 else r"$\uparrow$" + "\n" + label for i, label in enumerate(labels)
-                    ]
-
-                    if has_non_baselines:
-                        # Apply modified labels
+                    if has_non_baselines and longest_label > 18:
+                        # Long system/portfolio names on the axis (e.g. promoted baselines):
+                        # the two-row alternation can't keep adjacent long names apart,
+                        # rotation can.
+                        plt.setp(boxplot.get_xticklabels(), rotation=30, ha="right", rotation_mode="anchor")
+                    elif has_non_baselines:
+                        # Add newline to every second label
+                        new_labels = [
+                            label if i % 2 == 0 else r"$\uparrow$" + "\n" + label for i, label in enumerate(labels)
+                        ]
                         boxplot.set_xticks(labels)
                         boxplot.set_xticklabels(new_labels)
 
@@ -2954,11 +3160,14 @@ class LeaderboardReporter:
                 #     bbox_to_anchor=[0.35 if use_y else 0.5, 1.0],
                 # )
 
+                # The horizontal fig is a fixed 4" wide: more than 3 legend entries in a
+                # single row overflow it, so wrap to two rows.
+                legend_two_rows = use_y and (has_imputed or len(labels) > 3)
                 ax.legend(
                     [handles[i] for i in order],
                     [labels[i] for i in order],
                     loc="lower center",
-                    ncol=(len(labels) + 1) // 2 if has_imputed and use_y else len(labels),
+                    ncol=(len(labels) + 1) // 2 if legend_two_rows else len(labels),
                     bbox_to_anchor=[0.35 if use_y else 0.5, 1.01],
                     borderaxespad=0.0,
                     borderpad=0.2,

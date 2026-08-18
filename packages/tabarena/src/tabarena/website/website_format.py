@@ -261,7 +261,11 @@ def add_metadata(
     method_class = metadata.get("method_class", "model")
     if pd.isna(method_class):
         method_class = "model"
-    tags = metadata.get("tags", ()) or ()
+    tags = metadata.get("tags", ())
+    # A method absent from a metadata frame's `tags` column comes back as NaN (a truthy
+    # float), so the falsy-default idiom is not enough here.
+    if tags is None or isinstance(tags, float):
+        tags = ()
     if method_class == "system":
         model_family = Constants.system
     else:
