@@ -267,6 +267,17 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
 
     def _transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Override the default handling for unseen values!"""
+        # Needed here too, but only for the features that were bool-encoded at fit time: such a column
+        # can gain nulls at test time that fit never saw, and the bool encoding below would then raise
+        # "cannot convert NA to integer".
+        X = self._fill_nulls_for_bool_encoding(
+            X,
+            [
+                col
+                for col in self._bool_features
+                if col in X.columns and isinstance(X[col].dtype, pd.StringDtype) and X[col].isna().any()
+            ],
+        )
         if self._bool_features:
             X = self._handle_bool_cols_with_unseen_values_at_test_time(X)
 
@@ -280,8 +291,58 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
 
         return X
 
+    @staticmethod
+    def _string_columns_about_to_be_bool_encoded(X: pd.DataFrame) -> list[str]:
+        """`string` columns that AsType will bool-encode AND that contain nulls.
+
+        Mirrors the condition in ``AsTypeFeatureGenerator._fit_transform``: a feature is bool-encoded
+        when ``len(X[feature].unique()) == 2``. That is the only path that reaches
+        ``get_bool_true_val``, so it is the only path that can hit the pd.NA problem, and therefore the
+        only path where anything needs to be changed.
+        """
+        return [
+            col
+            for col in X.columns
+            if isinstance(X[col].dtype, pd.StringDtype) and X[col].isna().any() and len(X[col].unique()) == 2
+        ]
+
+    @staticmethod
+    def _fill_nulls_for_bool_encoding(X: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+        """Replace nulls with a placeholder string in columns that are about to become booleans.
+
+        ``AsTypeFeatureGenerator`` bool-encodes any column with exactly two unique values. For a pandas
+        ``string`` column holding one real value plus nulls those uniques are ``[value, pd.NA]``, and
+        ``get_bool_true_val`` then evaluates ``np.isnan(pd.NA)``, which *returns* ``pd.NA`` rather than
+        raising -- so its ``except (ValueError, TypeError)`` never fires and the following
+        ``if is_nan:`` raises ``TypeError: boolean value of NA is ambiguous``. Where that branch is
+        passed instead, the subsequent ``(X[col] == true_val).astype(np.int8)`` raises
+        ``ValueError: cannot convert NA to integer`` on the masked comparison.
+
+        An ``object`` column is unaffected because ``np.isnan(np.nan)`` is a real ``True``. It is
+        specifically the nullable ``string`` dtype -- which this class deliberately marks as text so it
+        reaches the text generators -- that trips it.
+
+        Nothing is lost by filling *these* columns: they are on their way to becoming ``int8``, which
+        cannot hold a null anyway, and AutoGluon already defines nulls in a bool feature as ``False``
+        ("Any new unseen values (including nan) at inference time will be mapped to `False`
+        automatically", ``get_bool_true_val``). The placeholder is chosen so it cannot collide with the
+        column's single real value, which keeps the unique count at two and the encoding unchanged.
+
+        Columns that are NOT bool-encoded keep their nulls, so text and categorical features still see
+        missing values as missing.
+        """
+        if not columns:
+            return X
+        X = X.copy()
+        for col in columns:
+            real_values = set(X[col].dropna().unique())
+            placeholder = "" if "" not in real_values else "__NA__"
+            X[col] = X[col].fillna(placeholder)
+        return X
+
     def _fit_transform(self, X: pd.DataFrame, **kwargs) -> tuple[pd.DataFrame, dict]:
         # X arrives here with '.' already replaced by '_' (done in TabArenaModelAgnosticPreprocessing.fit_transform).
+        X = self._fill_nulls_for_bool_encoding(X, self._string_columns_about_to_be_bool_encoded(X))
         X, type_group_map_special = super()._fit_transform(X=X, **kwargs)
 
         found_text_cols = type_group_map_special.get("text", [])
