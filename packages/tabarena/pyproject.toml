@@ -44,6 +44,11 @@ dependencies = [
   # provides `autogluon.{common,core,features}`, which is everything the code uses.
   # To use `uv`, you need to do `uv pip install --prerelease=allow .` so it recognizes pre-release AutoGluon.
   "autogluon.tabular>=1.6,<1.7",
+  # core's [ray] extra is exactly ray[default] at the range autogluon.core pins, so the
+  # two cannot drift apart. (Not autogluon.tabular[ray]: that maps to core[all], which
+  # additionally drags in raytune's hyperopt/stevedore/ray[tune].) autogluon.core is
+  # already a transitive dependency via autogluon.tabular, so this adds only ray.
+  "autogluon.core[ray]>=1.6,<1.7",
   "bencheval",
   "openml>=0.14.1",
   "pyyaml",
@@ -53,7 +58,6 @@ dependencies = [
   "numpy",
   "pandas",
   "loguru",
-  "ray>=2.55,<2.57",  # range matches autogluon.core
 ]
 
 [project.optional-dependencies]
@@ -61,9 +65,9 @@ dependencies = [
 # Plotting / leaderboard visualization (the `tabarena.plot` modules + bencheval plots).
 # All plotting imports are lazy, so the core install never requires these.
 plot = [
-  "matplotlib==3.10.1",
-  "seaborn==0.13.2",
-  "plotly>=6.3.0",
+  # matplotlib/seaborn/plotly pins are single-sourced in bencheval's `plot` extra;
+  # bencheval itself is already a base dependency, so this only activates the extra.
+  "bencheval[plot]",
   "tueplots",
   "autorank==1.2.1",
   "adjusttext",  # for pareto front plots
@@ -100,7 +104,6 @@ xrfm = ["xrfm[cu12]"]
 sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa"]
 # TabFM uses its PyTorch backend; the `[pytorch]` extra pulls `torch` for GPU/CPU execution.
 tabfm = ["tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@53f3fcfb8a3355f55c9fb49f04fbb62b8ba29109"]
-tabprep = []
 tabstar = ["tabstar==1.1.15"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
 orionmsp = ["tabtune @ git+https://github.com/Lexsi-Labs/TabTune.git"] # from main to get newest code
@@ -150,7 +153,6 @@ extended = [
   "tabarena[xrfm]",
   "tabarena[sap-rpt-oss]",
   "tabarena[tabfm]",
-  "tabarena[tabprep]",
   "tabarena[tabstar]",
   "tabarena[perpetualboosting]",
   "tabarena[orionmsp]",
