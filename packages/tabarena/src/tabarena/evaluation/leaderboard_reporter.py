@@ -2627,8 +2627,7 @@ class LeaderboardReporter:
             # `plot_tune_types` selects among the standard default/tuned/... bars.
             override_tune_types = [ov.tune_method for ov in tune_method_overrides]
             df = df[
-                df["tune_method"].isin([*plot_tune_types, *override_tune_types])
-                | df[self.method_col].isin(baselines)
+                df["tune_method"].isin([*plot_tune_types, *override_tune_types]) | df[self.method_col].isin(baselines)
             ]
 
         df_plot = df[df["framework_type"].isin(framework_types)]
