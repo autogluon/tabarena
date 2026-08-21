@@ -39,6 +39,7 @@ class ModelSmokeTest:
 SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "PerpetualBooster": ModelSmokeTest({"iteration_limit": 10, "budget": 0.1}),
     "ChimeraBoost": ModelSmokeTest({"n_estimators": 100}),
+    "CTBoost": ModelSmokeTest({"iterations": 10, "early_stopping_rounds": 3}),
     "ModernNCA": ModelSmokeTest({"n_epochs": 10}),
     "ModernNCA_GPU": ModelSmokeTest({"n_epochs": 10}),
     "RealMLP": ModelSmokeTest({"n_epochs": 10}),
