@@ -46,12 +46,16 @@ class MetricSpec:
 
 
 @dataclass
-class _LeaderboardContext:
+class LeaderboardContext:
     """Mutable state threaded through the leaderboard metric producers.
 
     ``results_agg`` may be replaced by a producer (e.g. ``improvability`` pops its own
     column out of the aggregate and re-emits it with bootstrap CI bars), so the trailing
     aggregate block is read from the context *after* every producer has run.
+
+    ``results_per_task`` is the input a custom :class:`LeaderboardMetric` scores: one row
+    per (method, task[, seed]), already restricted and aggregated the way the built-in
+    metrics see it.
     """
 
     evaluator: BenchmarkEvaluator
@@ -63,33 +67,42 @@ class _LeaderboardContext:
 
 
 @dataclass(frozen=True)
-class _LeaderboardMetric:
-    """One column-group of a leaderboard, produced from a ``_LeaderboardContext``.
+class LeaderboardMetric:
+    """One column-group of a leaderboard, produced from a :class:`LeaderboardContext`.
 
     ``produce`` returns the list of Series/DataFrames to concatenate (in order) for this
-    metric. Adding a leaderboard column is a single registry entry plus a selector key —
-    no new ``leaderboard()`` parameter or ``if`` branch.
+    metric. Adding a leaderboard column is a single registry entry plus a selector key,
+    with no new ``leaderboard()`` parameter or ``if`` branch.
+
+    Instances of this class are also the extension point for callers outside bencheval:
+    pass one in ``leaderboard(metrics=[...])`` alongside the built-in metric keys and its
+    columns are emitted after the built-in ones. Each produced Series needs a name (it
+    becomes the column), and produced rows are indexed by method name; a metric that
+    scores only some of the methods leaves the rest NaN.
+
+    ``always_on`` marks a built-in that every leaderboard emits regardless of selection,
+    and has no effect on a caller-supplied metric, which is enabled by being passed in.
     """
 
     key: str
-    produce: Callable[[_LeaderboardContext], list]
+    produce: Callable[[LeaderboardContext], list]
     requires_baseline: bool = False
     always_on: bool = False
 
 
-def _lb_elo(ctx: _LeaderboardContext) -> list:
+def _lb_elo(ctx: LeaderboardContext) -> list:
     return [ctx.evaluator.compute_elo(results_per_task=ctx.results_per_task, **ctx.elo_kwargs)]
 
 
-def _lb_rank(ctx: _LeaderboardContext) -> list:
+def _lb_rank(ctx: LeaderboardContext) -> list:
     return [ctx.results_agg[RANK]]
 
 
-def _lb_winrate(ctx: _LeaderboardContext) -> list:
+def _lb_winrate(ctx: LeaderboardContext) -> list:
     return [ctx.evaluator.compute_winrate(results_per_task=ctx.results_per_task).to_frame()]
 
 
-def _lb_improvability(ctx: _LeaderboardContext) -> list:
+def _lb_improvability(ctx: LeaderboardContext) -> list:
     ev = ctx.evaluator
     tasks = list(ctx.results_per_task[ev.task_col].unique())
     results_per_task_avg = ctx.results_per_task.groupby(ev.groupby_columns)[IMPROVABILITY].mean().reset_index()
@@ -110,19 +123,19 @@ def _lb_improvability(ctx: _LeaderboardContext) -> list:
     return [improvability, improvability_quantiles]
 
 
-def _lb_baseline_advantage(ctx: _LeaderboardContext) -> list:
+def _lb_baseline_advantage(ctx: LeaderboardContext) -> list:
     return [ctx.evaluator.compute_baseline_advantage(ctx.results_per_task, baseline_method=ctx.baseline_method)]
 
 
-def _lb_frontier_advantage(ctx: _LeaderboardContext) -> list:
+def _lb_frontier_advantage(ctx: LeaderboardContext) -> list:
     return [ctx.evaluator.compute_frontier_advantage(results_per_task=ctx.results_per_task)]
 
 
-def _lb_mrr(ctx: _LeaderboardContext) -> list:
+def _lb_mrr(ctx: LeaderboardContext) -> list:
     return [ctx.evaluator.compute_mrr(results_per_task=ctx.results_per_task).to_frame()]
 
 
-def _lb_relative_error(ctx: _LeaderboardContext) -> list:
+def _lb_relative_error(ctx: LeaderboardContext) -> list:
     return [
         ctx.evaluator.compute_relative_error(
             results_per_task=ctx.results_per_task,
@@ -132,30 +145,31 @@ def _lb_relative_error(ctx: _LeaderboardContext) -> list:
     ]
 
 
-def _lb_skill_score(ctx: _LeaderboardContext) -> list:
+def _lb_skill_score(ctx: LeaderboardContext) -> list:
     return [
         ctx.evaluator.compute_skill_score(results_per_task=ctx.results_per_task, baseline_method=ctx.baseline_method)
     ]
 
 
-def _lb_rank_counts(ctx: _LeaderboardContext) -> list:
+def _lb_rank_counts(ctx: LeaderboardContext) -> list:
     return [ctx.evaluator.compute_rank_counts(results_per_task=ctx.results_per_task)]
 
 
-# Ordered registry: the leaderboard emits these column-groups in this order. ``always_on``
-# metrics are always emitted; the rest are selected via ``leaderboard(metrics=...)`` (or the
-# legacy ``include_*`` flags). ``requires_baseline`` metrics are skipped when no baseline is set.
-_LEADERBOARD_METRICS: tuple[_LeaderboardMetric, ...] = (
-    _LeaderboardMetric("elo", _lb_elo),
-    _LeaderboardMetric("rank", _lb_rank, always_on=True),
-    _LeaderboardMetric("winrate", _lb_winrate),
-    _LeaderboardMetric("improvability", _lb_improvability),
-    _LeaderboardMetric("baseline_advantage", _lb_baseline_advantage, requires_baseline=True),
-    _LeaderboardMetric("frontier_advantage", _lb_frontier_advantage),
-    _LeaderboardMetric("mrr", _lb_mrr),
-    _LeaderboardMetric("relative_error", _lb_relative_error, requires_baseline=True),
-    _LeaderboardMetric("skill_score", _lb_skill_score, requires_baseline=True),
-    _LeaderboardMetric("rank_counts", _lb_rank_counts),
+# Ordered registry of the built-in metrics: the leaderboard emits these column-groups in this
+# order, ahead of any caller-supplied ones. ``always_on`` metrics are always emitted; the rest
+# are selected via ``leaderboard(metrics=...)`` (or the legacy ``include_*`` flags).
+# ``requires_baseline`` metrics are skipped when no baseline is set.
+_LEADERBOARD_METRICS: tuple[LeaderboardMetric, ...] = (
+    LeaderboardMetric("elo", _lb_elo),
+    LeaderboardMetric("rank", _lb_rank, always_on=True),
+    LeaderboardMetric("winrate", _lb_winrate),
+    LeaderboardMetric("improvability", _lb_improvability),
+    LeaderboardMetric("baseline_advantage", _lb_baseline_advantage, requires_baseline=True),
+    LeaderboardMetric("frontier_advantage", _lb_frontier_advantage),
+    LeaderboardMetric("mrr", _lb_mrr),
+    LeaderboardMetric("relative_error", _lb_relative_error, requires_baseline=True),
+    LeaderboardMetric("skill_score", _lb_skill_score, requires_baseline=True),
+    LeaderboardMetric("rank_counts", _lb_rank_counts),
 )
 
 # Maps the legacy ``include_*`` flags onto registry keys (back-compat selector layer).
@@ -170,6 +184,71 @@ _LEADERBOARD_FLAG_TO_KEY = {
     "include_baseline_advantage": "baseline_advantage",
     "include_frontier_advantage": "frontier_advantage",
 }
+
+
+def _emitted_columns(results_lst: list) -> set[str]:
+    """Column names already claimed by the metrics produced so far."""
+    return {c for item in results_lst for c in ([item.name] if isinstance(item, pd.Series) else item.columns)}
+
+
+def _validate_produced(
+    metric: LeaderboardMetric,
+    produced: list,
+    ctx: LeaderboardContext,
+    taken: set[str],
+) -> list:
+    """Check a caller-supplied metric's output before it joins the leaderboard.
+
+    ``pd.concat`` accepts an unnamed Series, a stray index and a duplicate column name
+    without complaint, and the damage only shows up as a mangled leaderboard, so a metric
+    from outside this package is checked at the point it is produced.
+
+    Args:
+        metric: The metric that produced ``produced``, named in every error message.
+        produced: What its ``produce`` returned.
+        ctx: The context it was produced from, holding the methods being scored.
+        taken: Column names already emitted by earlier metrics.
+
+    Returns:
+        ``produced`` unchanged.
+    """
+    if not isinstance(produced, (list, tuple)):
+        raise TypeError(
+            f"Leaderboard metric {metric.key!r} must produce a list of Series/DataFrames, "
+            f"got {type(produced).__name__}. Wrap a single result in a list.",
+        )
+
+    columns: list[str] = []
+    for item in produced:
+        if isinstance(item, pd.Series):
+            if item.name is None:
+                raise ValueError(
+                    f"Leaderboard metric {metric.key!r} produced an unnamed Series. Name it: the name "
+                    "becomes the leaderboard column.",
+                )
+            columns.append(item.name)
+        elif isinstance(item, pd.DataFrame):
+            columns.extend(item.columns)
+        else:
+            raise TypeError(
+                f"Leaderboard metric {metric.key!r} produced a {type(item).__name__}, "
+                "which is neither a Series nor a DataFrame.",
+            )
+        unknown_methods = item.index.difference(ctx.results_agg.index)
+        if len(unknown_methods) > 0:
+            raise ValueError(
+                f"Leaderboard metric {metric.key!r} produced rows for {sorted(unknown_methods)}, which are "
+                "not methods on the leaderboard. Results must be indexed by method name.",
+            )
+
+    clashing = sorted(taken.intersection(columns))
+    if clashing:
+        raise ValueError(
+            f"Leaderboard metric {metric.key!r} produces column(s) another metric already emitted: {clashing}.",
+        )
+    if len(set(columns)) != len(columns):
+        raise ValueError(f"Leaderboard metric {metric.key!r} produces the same column twice: {sorted(columns)}.")
+    return produced
 
 
 # TODO: Should "data" be an init arg? Probably not.
@@ -244,11 +323,11 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         relative_error_kwargs: dict | None = None,
         elo_kwargs: dict | None = None,
         sort_by: str | list[str] | None = "rank",
-        metrics: Sequence[str] | None = None,
+        metrics: Sequence[str | LeaderboardMetric] | None = None,
     ):
         """Build a per-method leaderboard.
 
-        Metric columns are produced by the ordered registry ``_LEADERBOARD_METRICS``.
+        Built-in metric columns are produced by the ordered registry ``_LEADERBOARD_METRICS``.
         Select them either with the legacy ``include_*`` flags or, equivalently, by passing
         ``metrics`` — an iterable of metric keys (e.g. ``["elo", "winrate", "mrr"]``) which,
         when given, overrides the flags. ``rank`` is always included. ``baseline_method`` is
@@ -256,6 +335,17 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         silently skipped without it). ``include_error`` / ``include_rescaled_loss`` toggle
         columns carried over from the aggregate, and ``average_seeds`` controls per-seed
         handling.
+
+        ``metrics`` also accepts :class:`LeaderboardMetric` instances, which score the same
+        per-task results the built-ins do without living in this package::
+
+            def my_metric(ctx: LeaderboardContext) -> list:
+                per_method = my_score(ctx.results_per_task)  # index: method, name: "my_score"
+                return [per_method]
+
+            ev.leaderboard(data, metrics=["elo", LeaderboardMetric("my_score", my_metric)])
+
+        Their columns are emitted after the built-in ones, in the order passed.
         """
         if elo_kwargs is None:
             elo_kwargs = {}
@@ -264,7 +354,7 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         if baseline_method is None:
             baseline_method = elo_kwargs.get("calibration_framework")
 
-        enabled = self._resolve_leaderboard_metrics(
+        enabled, custom_metrics = self._resolve_leaderboard_metrics(
             metrics,
             {
                 "include_elo": include_elo,
@@ -285,7 +375,7 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         # otherwise metrics are computed per seed and averaged afterwards.
         results_per_task = self.compute_results_per_task(data=data, include_seed_col=not average_seeds)
 
-        ctx = _LeaderboardContext(
+        ctx = LeaderboardContext(
             evaluator=self,
             results_per_task=results_per_task,
             results_agg=self.aggregate(results_by_dataset=results_per_task),
@@ -301,6 +391,12 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
             if metric.requires_baseline and baseline_method is None:
                 continue
             results_lst.extend(metric.produce(ctx))
+
+        for metric in custom_metrics:
+            if metric.requires_baseline and baseline_method is None:
+                continue
+            taken = _emitted_columns(results_lst) | set(ctx.results_agg.columns)
+            results_lst.extend(_validate_produced(metric, metric.produce(ctx), ctx, taken))
 
         # Trailing block: every aggregated column except rank (emitted above). A producer may
         # have popped its own column out of ctx.results_agg (e.g. improvability), so read it
@@ -323,23 +419,45 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         return results
 
     @staticmethod
-    def _resolve_leaderboard_metrics(metrics: Sequence[str] | None, include_flags: dict[str, bool]) -> set[str]:
-        """Resolve the set of enabled metric keys from ``metrics`` or the ``include_*`` flags.
+    def _resolve_leaderboard_metrics(
+        metrics: Sequence[str | LeaderboardMetric] | None,
+        include_flags: dict[str, bool],
+    ) -> tuple[set[str], list[LeaderboardMetric]]:
+        """Split ``metrics`` into enabled built-in keys and caller-supplied metrics.
 
-        ``metrics`` (when not ``None``) takes precedence and is validated against the registry;
-        otherwise the legacy boolean flags select the keys. ``rank`` is always emitted and is
-        not part of this set.
+        ``metrics`` (when not ``None``) takes precedence: its string entries are validated
+        against the registry and its :class:`LeaderboardMetric` entries are returned in the
+        order given. Otherwise the legacy boolean flags select the keys and there are no
+        caller-supplied metrics. ``rank`` is always emitted and is not part of the key set.
         """
         all_keys = {m.key for m in _LEADERBOARD_METRICS}
-        if metrics is not None:
-            requested = set(metrics)
-            unknown = requested - all_keys
-            if unknown:
-                raise ValueError(
-                    f"Unknown leaderboard metric(s): {sorted(unknown)}. Available: {sorted(all_keys)}.",
-                )
-            return requested
-        return {_LEADERBOARD_FLAG_TO_KEY[flag] for flag, on in include_flags.items() if on}
+        if metrics is None:
+            return {_LEADERBOARD_FLAG_TO_KEY[flag] for flag, on in include_flags.items() if on}, []
+
+        requested = {m for m in metrics if isinstance(m, str)}
+        custom = [m for m in metrics if not isinstance(m, str)]
+
+        not_a_metric = [m for m in custom if not isinstance(m, LeaderboardMetric)]
+        if not_a_metric:
+            raise TypeError(
+                f"`metrics` takes metric keys and LeaderboardMetric instances, got: {not_a_metric}.",
+            )
+        unknown = requested - all_keys
+        if unknown:
+            raise ValueError(
+                f"Unknown leaderboard metric(s): {sorted(unknown)}. Available: {sorted(all_keys)}. "
+                "Pass a LeaderboardMetric to add one of your own.",
+            )
+        shadowed = sorted({m.key for m in custom} & all_keys)
+        if shadowed:
+            raise ValueError(
+                f"Custom leaderboard metric(s) reuse a built-in key: {shadowed}. Pick a different key.",
+            )
+        custom_keys = [m.key for m in custom]
+        duplicated = sorted({k for k in custom_keys if custom_keys.count(k) > 1})
+        if duplicated:
+            raise ValueError(f"Custom leaderboard metric key(s) passed more than once: {duplicated}.")
+        return requested, custom
 
     # TODO: Consider moving this to a different class or finding a better separation.
     #  The eval code becomes a lot more complicated if we need to account for improperly formatted / invalid data.
