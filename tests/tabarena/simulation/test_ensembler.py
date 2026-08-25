@@ -195,7 +195,7 @@ def test_task_evaluator_new_interface_matches_legacy(metric_name):
     assert results_legacy["metric_error_val"] == results_new["metric_error_val"]
     np.testing.assert_array_equal(results_legacy["ensemble_weights"], results_new["ensemble_weights"])
     np.testing.assert_array_equal(results_legacy["ensemble_models_used"], results_new["ensemble_models_used"])
-    np.testing.assert_array_equal(results_new["ensemble_models_used"], results_new["ensemble_weights"] != 0)
+    np.testing.assert_array_equal(results_legacy["ensemble_models_used"], results_new["ensemble_weights"] != 0)
 
 
 def test_resolve_ensembler_drops_ensemble_size_for_unsupported_cls():
@@ -229,6 +229,70 @@ def test_resolve_ensembler_drops_ensemble_size_for_unsupported_cls():
     )
     assert cls is GreedyEnsembler
     assert kwargs == {"ensemble_size": 40}
+
+
+def _run_no_preprocessing_task_evaluator(
+    ensembler_cls, ensembler_kwargs, *, problem_type, eval_metric, fit_eval_metric, y, preds
+):
+    from tabarena.simulation.ensemble_selection_config_scorer import NoPreprocessingTaskEvaluator
+
+    evaluator = NoPreprocessingTaskEvaluator(
+        ensembler_cls=ensembler_cls,
+        ensembler_kwargs=ensembler_kwargs,
+        eval_metric=eval_metric,
+        fit_eval_metric=fit_eval_metric,
+        problem_type=problem_type,
+    )
+    results, ensemble = evaluator.run(
+        pred_train=preds,
+        y_train=y,
+        pred_test=preds,
+        y_test=y,
+        return_metric_error_val=True,
+        pred_val=preds,
+        y_val=y,
+    )
+    return results, ensemble
+
+
+@pytest.mark.parametrize("metric_name", ["roc_auc", "log_loss", "rmse"])
+def test_no_preprocessing_task_evaluator_matches_task_evaluator(metric_name):
+    """NoPreprocessingTaskEvaluator with a non EnsembleSelection method must match TaskEvaluator across all three metric regimes (incl. the metric-preprocessed log_loss space and the needs_pred rmse path)."""
+    from tabarena.simulation.ensemble import TopKAverageEnsembler
+
+    problem_type, metric, y, preds = _task_for_metric(metric_name)
+
+    ensembler_cls = TopKAverageEnsembler
+    ensembler_kwargs = {}
+
+    results, _ = _run_task_evaluator(
+        ensembler_cls,
+        ensembler_kwargs,
+        problem_type=problem_type,
+        eval_metric=metric,
+        fit_eval_metric=metric,
+        y=y,
+        preds=preds,
+    )
+    results_no_preprocessing, _ = _run_no_preprocessing_task_evaluator(
+        ensembler_cls,
+        ensembler_kwargs,
+        problem_type=problem_type,
+        eval_metric=metric,
+        fit_eval_metric=metric,
+        y=y,
+        preds=preds,
+    )
+
+    if metric_name == "log_loss":
+        assert pytest.approx(results["metric_error"], 1e-6) == results_no_preprocessing["metric_error"]
+        assert pytest.approx(results["metric_error_val"], 1e-6) == results_no_preprocessing["metric_error_val"]
+    else:
+        assert results["metric_error"] == results_no_preprocessing["metric_error"]
+        assert results["metric_error_val"] == results_no_preprocessing["metric_error_val"]
+    np.testing.assert_array_equal(results["ensemble_weights"], results_no_preprocessing["ensemble_weights"])
+    np.testing.assert_array_equal(results["ensemble_models_used"], results_no_preprocessing["ensemble_models_used"])
+    np.testing.assert_array_equal(results["ensemble_models_used"], results_no_preprocessing["ensemble_weights"] != 0)
 
 
 # -------------------------
@@ -358,6 +422,214 @@ def test_nonlinear_ensembler_rejected_on_preprocessed_metric_space():
     assert np.isfinite(results["metric_error"])
     assert "ensemble_weights" not in results  # not weight-based
     assert results["ensemble_models_used"].all()  # conservative default: all models used
+
+
+@pytest.mark.parametrize("problem_type", ["binary", "multiclass", "regression"])
+def test_median_ensembler_basic(problem_type):
+    from tabarena.simulation.ensemble import MedianEnsembler
+
+    if problem_type == "binary":
+        y, preds = _make_binary_task(seed=7)
+        metric = get_metric(metric="roc_auc", problem_type=problem_type)
+    elif problem_type == "multiclass":
+        y, preds = _make_multiclass_task(seed=7)
+        metric = get_metric(metric="log_loss", problem_type=problem_type)
+    else:
+        y, preds = _make_regression_task(seed=7)
+        metric = get_metric(metric="rmse", problem_type=problem_type)
+
+    ensembler = MedianEnsembler(problem_type=problem_type, metric=metric)
+    ensembler.fit(predictions=preds, labels=y)
+
+    # new data (a copy) uses the full refit model
+    out = ensembler.predict_proba(preds.copy())
+    if problem_type == "multiclass":
+        assert out.shape == (len(y), preds.shape[2])
+        np.testing.assert_allclose(out.sum(axis=1), 1.0, rtol=1e-6)
+    else:
+        assert out.shape == (len(y),)
+    if problem_type in ["binary", "multiclass"]:
+        assert np.all(out <= 1.0)
+        assert np.all(out >= 0.0)
+    assert ensembler.model_weights() is None
+
+
+@pytest.mark.parametrize("problem_type", ["binary", "multiclass", "regression"])
+def test_median_predictions(problem_type):
+    from tabarena.simulation.ensemble import MedianEnsembler
+
+    if problem_type == "binary":
+        preds = np.array(
+            [
+                [0.2, 0.7, 0.8, 0.7],
+                [0.4, 0.6, 0.5, 0.4],
+                [0.3, 0.6, 0.6, 0.4],
+            ],
+            dtype=np.float32,
+        )
+        expected_proba = np.array(
+            [0.3, 0.6, 0.6, 0.4],
+            dtype=np.float32,
+        )
+        expected_classes = np.array([0, 1, 1, 0])
+        metric = get_metric(metric="roc_auc", problem_type=problem_type)
+    elif problem_type == "multiclass":
+        preds = np.array(
+            [
+                [
+                    [0.0, 0.1, 0.9],
+                    [0.2, 0.5, 0.3],
+                    [0.6, 0.1, 0.3],
+                ],
+                [
+                    [0.2, 0.4, 0.4],
+                    [0.2, 0.5, 0.3],
+                    [0.2, 0.7, 0.1],
+                ],
+                [
+                    [0.1, 0.1, 0.8],
+                    [0.2, 0.6, 0.2],
+                    [0.5, 0.4, 0.1],
+                ],
+            ],
+            dtype=np.float32,
+        )
+        expected_proba = np.array(
+            [
+                [0.1, 0.1, 0.8],
+                [0.2, 0.5, 0.3],
+                [0.5, 0.4, 0.1],
+            ],
+            dtype=np.float32,
+        )
+        expected_classes = np.array([2, 1, 0])
+        metric = get_metric(metric="log_loss", problem_type=problem_type)
+    elif problem_type == "regression":
+        preds = np.array(
+            [
+                [10, 30, 10],
+                [20, 20, 30],
+                [30, 20, 30],
+            ],
+            dtype=np.float32,
+        )
+        expected_proba = np.array([20, 20, 30], dtype=np.float32)
+        metric = get_metric("rmse", problem_type=problem_type)
+
+    ensembler = MedianEnsembler(problem_type=problem_type, metric=metric)
+
+    out_proba = ensembler.predict_proba(preds.copy())
+    out_classes = ensembler.predict(preds.copy())
+    np.testing.assert_allclose(out_proba, expected_proba, rtol=1e-6)
+    if problem_type in ["binary", "multiclass"]:
+        assert np.all(out_classes == expected_classes)
+
+
+@pytest.mark.parametrize("problem_type", ["binary", "multiclass"])
+def test_hard_voting_ensembler_basic(problem_type):
+    from tabarena.simulation.ensemble import HardVotingEnsembler
+
+    if problem_type == "binary":
+        y, preds = _make_binary_task(seed=7)
+        metric = get_metric(metric="roc_auc", problem_type=problem_type)
+    else:
+        y, preds = _make_multiclass_task(seed=7)
+        metric = get_metric(metric="log_loss", problem_type=problem_type)
+
+    ensembler = HardVotingEnsembler(problem_type=problem_type, metric=metric)
+    ensembler.fit(predictions=preds, labels=y)
+
+    out = ensembler.predict_proba(preds.copy())
+    if problem_type == "multiclass":
+        assert out.shape == (len(y), preds.shape[2])
+        np.testing.assert_allclose(out.sum(axis=1), 1.0, rtol=1e-6)
+    else:
+        assert out.shape == (len(y),)
+    assert np.all(out <= 1.0)
+    assert np.all(out >= 0.0)
+    assert ensembler.model_weights() is None
+
+
+def test_hard_voting_fails_regression():
+    from tabarena.simulation.ensemble import HardVotingEnsembler
+
+    metric = get_metric(metric="rmse", problem_type="regression")
+    with pytest.raises(ValueError):
+        ensembler = HardVotingEnsembler(problem_type="regression", metric=metric)
+
+
+def test_hard_voting_fails_multiclass_with_wrong_dimension():
+    from tabarena.simulation.ensemble import HardVotingEnsembler
+
+    y, preds = _make_binary_task(seed=7)
+    metric = get_metric(metric="log_loss", problem_type="multiclass")
+    ensembler = HardVotingEnsembler(problem_type="multiclass", metric=metric)
+    with pytest.raises(ValueError):
+        ensembler.fit(predictions=preds, labels=y)
+    with pytest.raises(ValueError):
+        ensembler.predict_proba(predictions=preds)
+    with pytest.raises(ValueError):
+        ensembler.predict(predictions=preds)
+
+
+@pytest.mark.parametrize("problem_type", ["binary", "multiclass"])
+def test_hard_voting_predictions(problem_type):
+    from tabarena.simulation.ensemble import HardVotingEnsembler
+
+    if problem_type == "binary":
+        preds = np.array(
+            [
+                [0.2, 0.7, 0.8, 0.7],
+                [0.4, 0.6, 0.5, 0.4],
+                [0.3, 0.6, 0.6, 0.4],
+            ],
+            dtype=np.float32,
+        )
+        expected_proba = np.array(
+            [0, 1, 5 / 6, 1 / 3],
+            dtype=np.float32,
+        )
+        expected_classes = np.array([0, 1, 1, 0])
+        metric = get_metric(metric="roc_auc", problem_type=problem_type)
+    else:
+        preds = np.array(
+            [
+                [
+                    [0.0, 0.1, 0.9],
+                    [0.2, 0.5, 0.3],
+                    [0.6, 0.1, 0.3],
+                ],
+                [
+                    [0.2, 0.4, 0.4],
+                    [0.2, 0.5, 0.3],
+                    [0.2, 0.7, 0.1],
+                ],
+                [
+                    [0.1, 0.1, 0.8],
+                    [0.2, 0.6, 0.2],
+                    [0.5, 0.4, 0.1],
+                ],
+            ],
+            dtype=np.float32,
+        )
+        expected_proba = np.array(
+            [
+                [0, 1 / 6, 5 / 6],
+                [0, 1, 0],
+                [2 / 3, 1 / 3, 0],
+            ],
+            dtype=np.float32,
+        )
+        expected_classes = np.array([2, 1, 0])
+        metric = get_metric(metric="log_loss", problem_type=problem_type)
+
+    ensembler = HardVotingEnsembler(problem_type=problem_type, metric=metric)
+
+    # new data (a copy) uses the full refit model
+    out_proba = ensembler.predict_proba(preds.copy())
+    out_classes = ensembler.predict(preds.copy())
+    np.testing.assert_allclose(out_proba, expected_proba, rtol=1e-6)
+    assert np.all(out_classes == expected_classes)
 
 
 # -------------------------
