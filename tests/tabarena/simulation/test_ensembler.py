@@ -195,7 +195,7 @@ def test_task_evaluator_new_interface_matches_legacy(metric_name):
     assert results_legacy["metric_error_val"] == results_new["metric_error_val"]
     np.testing.assert_array_equal(results_legacy["ensemble_weights"], results_new["ensemble_weights"])
     np.testing.assert_array_equal(results_legacy["ensemble_models_used"], results_new["ensemble_models_used"])
-    np.testing.assert_array_equal(results_legacy["ensemble_models_used"], results_new["ensemble_weights"] != 0)
+    np.testing.assert_array_equal(results_new["ensemble_models_used"], results_new["ensemble_weights"] != 0)
 
 
 def test_resolve_ensembler_drops_ensemble_size_for_unsupported_cls():
@@ -292,7 +292,9 @@ def test_no_preprocessing_task_evaluator_matches_task_evaluator(metric_name):
         assert results["metric_error_val"] == results_no_preprocessing["metric_error_val"]
     np.testing.assert_array_equal(results["ensemble_weights"], results_no_preprocessing["ensemble_weights"])
     np.testing.assert_array_equal(results["ensemble_models_used"], results_no_preprocessing["ensemble_models_used"])
-    np.testing.assert_array_equal(results["ensemble_models_used"], results_no_preprocessing["ensemble_weights"] != 0)
+    np.testing.assert_array_equal(
+        results_no_preprocessing["ensemble_models_used"], results_no_preprocessing["ensemble_weights"] != 0
+    )
 
 
 # -------------------------
