@@ -6,6 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+# Safe AutoGluon import with graceful fallback
 try:
     from autogluon.core.models import AbstractModel
     from autogluon.features import LabelEncoderFeatureGenerator
@@ -23,7 +24,7 @@ except ImportError:
         def _get_model_params(self):
             return self.params
 
-        def _preprocess(self, X: pd.DataFrame, **kwargs):
+        def _preprocess(self, X, **kwargs):
             return X.copy()
 
     class LabelEncoderFeatureGenerator:
@@ -68,7 +69,10 @@ class ZSISABModel(AbstractModel):
     def _get_default_ag_args_ensemble(cls) -> dict:
         return {"fold_fitting_strategy": "sequential_local"}
 
-    def _preprocess(self, X: pd.DataFrame, is_train: bool = False, **kwargs) -> np.ndarray:
+    def _preprocess(self, X, is_train: bool = False, **kwargs) -> np.ndarray:
+        if isinstance(X, np.ndarray):
+            return X.astype(np.float32)
+
         X = super()._preprocess(X, **kwargs)
         if is_train:
             self._feature_generator = LabelEncoderFeatureGenerator(verbosity=0)
@@ -88,8 +92,8 @@ class ZSISABModel(AbstractModel):
 
     def _fit(
         self,
-        X: pd.DataFrame,
-        y: pd.Series,
+        X,
+        y,
         num_cpus: int = 1,
         num_gpus: float = 0,
         time_limit: float | None = None,
@@ -113,15 +117,16 @@ class ZSISABModel(AbstractModel):
 
         self.model = TabPFNClassifier(device=device, N_ensemble_configurations=n_ensemble)
 
-        X_processed = self._preprocess(X, is_train=True)
-        self.model.fit(X_processed, y.to_numpy(), overwrite_warning=True)
+        X_processed = self._preprocess(X, is_train=True) if isinstance(X, pd.DataFrame) else X
+        y_processed = y.to_numpy() if isinstance(y, pd.Series) else y
+        self.model.fit(X_processed, y_processed, overwrite_warning=True)
 
-    def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
-        X_processed = self._preprocess(X, is_train=False)
+    def _predict_proba(self, X, **kwargs) -> np.ndarray:
+        X_processed = self._preprocess(X, is_train=False) if isinstance(X, pd.DataFrame) else X
         return self.model.predict_proba(X_processed)
 
-    def _predict(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
-        X_processed = self._preprocess(X, is_train=False)
+    def _predict(self, X, **kwargs) -> np.ndarray:
+        X_processed = self._preprocess(X, is_train=False) if isinstance(X, pd.DataFrame) else X
         return self.model.predict(X_processed)
 
     def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:

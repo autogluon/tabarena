@@ -23,6 +23,11 @@ def test_zsisab_preprocessing():
     assert not np.isnan(processed).any()
     assert processed.dtype == np.float32
 
+    # Test double preprocessing safety on np.ndarray
+    reprocessed = model._preprocess(processed, is_train=False)
+    assert isinstance(reprocessed, np.ndarray)
+    assert reprocessed.shape == (3, 2)
+
 
 def test_zsisab_memory_estimate():
     df_raw = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
