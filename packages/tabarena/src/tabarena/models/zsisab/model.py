@@ -71,7 +71,7 @@ class ZSISABModel(AbstractModel):
 
     def _preprocess(self, X, is_train: bool = False, **kwargs) -> np.ndarray:
         if isinstance(X, np.ndarray):
-            return X.astype(np.float32)
+            return np.nan_to_num(X, nan=0.0).astype(np.float32)
 
         X = super()._preprocess(X, **kwargs)
         if is_train:
@@ -117,16 +117,16 @@ class ZSISABModel(AbstractModel):
 
         self.model = TabPFNClassifier(device=device, N_ensemble_configurations=n_ensemble)
 
-        X_processed = self._preprocess(X, is_train=True) if isinstance(X, pd.DataFrame) else X
+        X_processed = self._preprocess(X, is_train=True)
         y_processed = y.to_numpy() if isinstance(y, pd.Series) else y
         self.model.fit(X_processed, y_processed, overwrite_warning=True)
 
     def _predict_proba(self, X, **kwargs) -> np.ndarray:
-        X_processed = self._preprocess(X, is_train=False) if isinstance(X, pd.DataFrame) else X
+        X_processed = self._preprocess(X, is_train=False)
         return self.model.predict_proba(X_processed)
 
     def _predict(self, X, **kwargs) -> np.ndarray:
-        X_processed = self._preprocess(X, is_train=False) if isinstance(X, pd.DataFrame) else X
+        X_processed = self._preprocess(X, is_train=False)
         return self.model.predict(X_processed)
 
     def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
