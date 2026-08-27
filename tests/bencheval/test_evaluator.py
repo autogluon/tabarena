@@ -6,7 +6,7 @@ import os
 import pandas as pd
 import pytest
 
-from bencheval.evaluator import BenchmarkEvaluator
+from bencheval.evaluator import BenchmarkEvaluator, LeaderboardContext, LeaderboardMetric
 
 # Headless matplotlib for the plotting smoke tests (must be set before matplotlib import).
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -329,6 +329,106 @@ class TestMetricRegistry:
         lb = ev.leaderboard(data, metrics=["relative_error", "winrate"])
         assert "winrate" in lb.columns
         assert "relative_error" not in lb.columns
+
+
+def _worst_task_error(ctx: LeaderboardContext) -> list:
+    """Stand-in for a metric defined outside bencheval: each method's worst task."""
+    return [ctx.results_per_task.groupby("method")["metric_error"].max().rename("worst_task_error")]
+
+
+class TestCustomLeaderboardMetric:
+    """`metrics=` entries that are LeaderboardMetric instances rather than built-in keys."""
+
+    def test_custom_metric_emits_its_column(self, ev, data):
+        lb = ev.leaderboard(data, metrics=["winrate", LeaderboardMetric("worst", _worst_task_error)])
+        # Worst task per method: A=0.2 (t3), B=0.3 (t2/t3), C=0.6 (t3).
+        assert lb.loc["A", "worst_task_error"] == pytest.approx(0.2)
+        assert lb.loc["B", "worst_task_error"] == pytest.approx(0.3)
+        assert lb.loc["C", "worst_task_error"] == pytest.approx(0.6)
+        # Custom columns land after the built-in metrics and before the aggregate block.
+        cols = list(lb.columns)
+        assert cols.index("winrate") < cols.index("worst_task_error") < cols.index("time_train_s")
+
+    def test_custom_metric_is_sortable(self, ev, data):
+        lb = ev.leaderboard(
+            data,
+            metrics=[LeaderboardMetric("worst", _worst_task_error)],
+            sort_by="worst_task_error",
+        )
+        assert list(lb.index) == ["A", "B", "C"]
+
+    def test_custom_metrics_emitted_in_order_passed(self, ev, data):
+        def second(ctx: LeaderboardContext) -> list:
+            return [ctx.results_per_task.groupby("method")["metric_error"].min().rename("best_task_error")]
+
+        lb = ev.leaderboard(
+            data,
+            metrics=[LeaderboardMetric("worst", _worst_task_error), LeaderboardMetric("best", second)],
+        )
+        cols = list(lb.columns)
+        assert cols.index("worst_task_error") < cols.index("best_task_error")
+
+    def test_custom_metric_sees_the_baseline(self, ev, data):
+        def gap_to_baseline(ctx: LeaderboardContext) -> list:
+            mean_error = ctx.results_per_task.groupby("method")["metric_error"].mean()
+            return [(mean_error - mean_error[ctx.baseline_method]).rename("gap")]
+
+        metric = LeaderboardMetric("gap", gap_to_baseline, requires_baseline=True)
+        lb = ev.leaderboard(data, metrics=[metric], baseline_method="B")
+        assert lb.loc["B", "gap"] == pytest.approx(0.0)
+        assert lb.loc["A", "gap"] < 0
+
+        # Same as the built-in baseline metrics: skipped rather than raising without one.
+        assert "gap" not in ev.leaderboard(data, metrics=[metric]).columns
+
+    def test_partial_coverage_leaves_the_rest_nan(self, ev, data):
+        def only_a(ctx: LeaderboardContext) -> list:
+            return [pd.Series({"A": 1.0}, name="only_a")]
+
+        lb = ev.leaderboard(data, metrics=[LeaderboardMetric("only_a", only_a)])
+        assert lb.loc["A", "only_a"] == pytest.approx(1.0)
+        assert lb.loc[["B", "C"], "only_a"].isna().all()
+
+    def test_shadowing_a_builtin_key_raises(self, ev, data):
+        with pytest.raises(ValueError, match="reuse a built-in key"):
+            ev.leaderboard(data, metrics=[LeaderboardMetric("winrate", _worst_task_error)])
+
+    def test_duplicate_custom_key_raises(self, ev, data):
+        metric = LeaderboardMetric("worst", _worst_task_error)
+        with pytest.raises(ValueError, match="more than once"):
+            ev.leaderboard(data, metrics=[metric, metric])
+
+    def test_non_metric_entry_raises(self, ev, data):
+        with pytest.raises(TypeError, match="LeaderboardMetric"):
+            ev.leaderboard(data, metrics=[_worst_task_error])
+
+    def test_unnamed_series_raises(self, ev, data):
+        def unnamed(ctx: LeaderboardContext) -> list:
+            return [ctx.results_per_task.groupby("method")["metric_error"].max().rename(None)]
+
+        with pytest.raises(ValueError, match="unnamed Series"):
+            ev.leaderboard(data, metrics=[LeaderboardMetric("unnamed", unnamed)])
+
+    def test_bare_series_raises(self, ev, data):
+        def bare(ctx: LeaderboardContext) -> pd.Series:
+            return ctx.results_per_task.groupby("method")["metric_error"].max().rename("worst")
+
+        with pytest.raises(TypeError, match="must produce a list"):
+            ev.leaderboard(data, metrics=[LeaderboardMetric("bare", bare)])
+
+    def test_rows_for_unknown_methods_raise(self, ev, data):
+        def stray_index(ctx: LeaderboardContext) -> list:
+            return [pd.Series({"A": 1.0, "Z": 2.0}, name="stray")]
+
+        with pytest.raises(ValueError, match="not methods on the leaderboard"):
+            ev.leaderboard(data, metrics=[LeaderboardMetric("stray", stray_index)])
+
+    def test_column_clash_raises(self, ev, data):
+        def clashes(ctx: LeaderboardContext) -> list:
+            return [ctx.results_per_task.groupby("method")["metric_error"].max().rename("rank")]
+
+        with pytest.raises(ValueError, match="already emitted"):
+            ev.leaderboard(data, metrics=[LeaderboardMetric("clash", clashes)])
 
 
 class TestDatasetAnalysis:

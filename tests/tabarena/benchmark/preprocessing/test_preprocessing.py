@@ -492,6 +492,84 @@ class TestStringFixAsTypeFeatureGenerator:
 
 
 # ===========================================================================
+# StringFixAsTypeFeatureGenerator – nulls in pandas `string` columns
+# ===========================================================================
+
+
+class TestStringFixAsTypeFeatureGeneratorStringNulls:
+    """Tests for nulls in pandas `string` columns reaching AsType's bool encoding.
+
+    AsTypeFeatureGenerator bool-encodes any column with exactly two unique values. For a `string`
+    column holding one real value plus nulls those uniques are ``[value, pd.NA]``, which used to raise
+    ``TypeError: boolean value of NA is ambiguous`` (or ``ValueError: cannot convert NA to integer``)
+    from AutoGluon's ``get_bool_true_val``.
+    """
+
+    def test_fit_transform_with_single_value_string_column_and_nulls(self):
+        """The exact crash: a `string` column whose uniques are one value plus pd.NA."""
+        X = pd.DataFrame({"num": [1.0, 2.0, 3.0, 4.0]})
+        X["flag"] = pd.array(["ONLY", "ONLY", None, None], dtype="string")
+        assert len(X["flag"].unique()) == 2
+
+        X_out = StringFixAsTypeFeatureGenerator().fit_transform(X.copy())
+        assert "flag" in X_out.columns
+        # It becomes a bool feature, so the nulls are False -- AutoGluon's documented behaviour for
+        # bool features, and an int8 column cannot hold a null in any case.
+        assert X_out["flag"].isna().sum() == 0
+        assert set(X_out["flag"].unique()) <= {0, 1}
+
+    def test_transform_when_bool_encoded_string_column_gains_nulls(self):
+        """Nulls can appear at test time in a bool-encoded column that had none during fit."""
+        X_train = pd.DataFrame({"num": [1.0, 2.0, 3.0, 4.0]})
+        X_train["flag"] = pd.array(["a", "b", "a", "b"], dtype="string")
+        gen = StringFixAsTypeFeatureGenerator()
+        gen.fit_transform(X_train.copy())
+        assert "flag" in gen._bool_features
+
+        X_test = pd.DataFrame({"num": [5.0, 6.0]})
+        X_test["flag"] = pd.array(["a", None], dtype="string")
+        X_out = gen.transform(X_test.copy())
+        assert len(X_out) == 2
+        assert X_out["flag"].isna().sum() == 0
+
+    def test_nulls_are_kept_in_string_columns_that_are_not_bool_encoded(self):
+        """Only the bool-encoding path is touched; every other column keeps its missing values."""
+        values = [f"some free text number {i}" for i in range(20)]
+        X = pd.DataFrame({"num": list(range(20))})
+        X["txt"] = pd.array(values, dtype="string")
+        X.loc[0:4, "txt"] = pd.NA
+        assert len(X["txt"].unique()) > 2
+
+        X_out = StringFixAsTypeFeatureGenerator().fit_transform(X.copy())
+        assert X_out["txt"].isna().sum() == 5, "nulls must survive in a column that is not a bool"
+        assert "txt" in X_out.columns
+
+    def test_multi_value_string_column_with_nulls_is_still_text(self):
+        """Filling must not change how a genuine text column is classified."""
+        values = [f"some free text number {i}" for i in range(20)]
+        X = pd.DataFrame({"num": list(range(20))})
+        X["txt"] = pd.array(values, dtype="string")
+        X.loc[0:4, "txt"] = pd.NA
+
+        gen = StringFixAsTypeFeatureGenerator()
+        gen.fit_transform(X.copy())
+        assert "txt" in gen.feature_metadata_in.get_features(required_special_types=["text"])
+
+    def test_placeholder_cannot_collide_with_the_real_value(self):
+        """An empty string as the real value must not collapse the column to one unique."""
+        X = pd.DataFrame({"num": [1.0, 2.0, 3.0, 4.0]})
+        X["flag"] = pd.array(["", "", None, None], dtype="string")
+        filled = StringFixAsTypeFeatureGenerator._fill_nulls_for_bool_encoding(X, ["flag"])
+        assert len(filled["flag"].unique()) == 2, "the two-value structure must be preserved"
+
+    def test_frames_without_bool_candidate_string_nulls_are_untouched(self):
+        """No candidate columns means the input object is returned as-is."""
+        X = pd.DataFrame({"a": pd.array(["x", "y"], dtype="string"), "b": [1.0, 2.0]})
+        assert StringFixAsTypeFeatureGenerator._string_columns_about_to_be_bool_encoded(X) == []
+        assert StringFixAsTypeFeatureGenerator._fill_nulls_for_bool_encoding(X, []) is X
+
+
+# ===========================================================================
 # StringFixAsTypeFeatureGenerator – categorical dtype special cases
 # ===========================================================================
 

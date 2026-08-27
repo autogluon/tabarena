@@ -588,6 +588,10 @@ def plot_hpo(
         # Outside plot: position legends using axes transform
         # Add small gap (0.01) between plot and legend
         # First legend: method colors (on top) - this is typically the wider one
+        # Wrap into multiple columns once the method list outgrows the axes height
+        # (~26 rows at fontsize 9); a 40-method field otherwise renders a legend
+        # taller than the figure and pushes the metadata block off the canvas.
+        n_legend_cols = max(1, math.ceil(len(labels_legend) / 26))
         legend1 = ax.legend(
             handles_legend,
             labels_legend,
@@ -595,7 +599,7 @@ def plot_hpo(
             bbox_to_anchor=(1.01, 1.0),  # Small gap from axes right edge
             frameon=True,
             fontsize=legend_fontsize,
-            ncol=1,
+            ncol=n_legend_cols,
             labelspacing=0.15,
             handletextpad=0.0,
             borderpad=0.1,
@@ -1292,7 +1296,7 @@ def _prepare_tuning_trajectories_data(
     include_baselines: bool,
     include_portfolio: bool = False,
     include_hpo_seeds: bool = False,
-    entrant_pool: str = "systems_all",
+    entrant_pool: str = "open_llm_api",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the dataset-independent inputs (combined_data, methods_map) for tuning-trajectory plotting.
 
@@ -1634,7 +1638,7 @@ def plot_tuning_trajectories(
     use_elo_method_order: bool = True,
     focus_mode: bool = False,
     website_only: bool = False,
-    entrant_pool: str = "systems_all",
+    entrant_pool: str = "open_llm_api",
     per_dataset_trajectories: bool = False,
 ):
     name_col = "config_type"
