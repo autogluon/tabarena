@@ -1,64 +1,44 @@
-"""
-Zero-Shot ISAB (ZS-ISAB) model wrapper for AutoGluon / TabArena.
-"""
+"""Zero-Shot ISAB (ZS-ISAB) model wrapper for AutoGluon / TabArena."""
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
+import types
+from typing import TYPE_CHECKING
 
-# Safe AutoGluon import with graceful fallback
-try:
-    from autogluon.core.models import AbstractModel
-    from autogluon.features import LabelEncoderFeatureGenerator
-except ImportError:
-    class AbstractModel:
-        ag_key = "ZSISAB"
-        ag_name = "ZS-ISAB"
-        ag_priority = 105
+from autogluon.features.generators import LabelEncoderFeatureGenerator
+from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
-        def __init__(self, problem_type="binary", **kwargs):
-            self.problem_type = problem_type
-            self.params = kwargs
-            self._classes = np.array([0, 1])
-
-        def _get_model_params(self):
-            return self.params
-
-        def _preprocess(self, X, **kwargs):
-            return X.copy()
-
-    class LabelEncoderFeatureGenerator:
-        def __init__(self, verbosity=0):
-            self.features_in = []
-            self.mapping = {}
-
-        def fit(self, X: pd.DataFrame):
-            self.features_in = list(X.select_dtypes(include=["object", "category"]).columns)
-            for col in self.features_in:
-                cats = X[col].astype(str).unique()
-                self.mapping[col] = {cat: float(i) for i, cat in enumerate(cats)}
-            return self
-
-        def transform(self, X: pd.DataFrame):
-            X_out = pd.DataFrame(index=X.index)
-            for col in self.features_in:
-                X_out[col] = X[col].astype(str).map(self.mapping.get(col, {})).fillna(-1.0)
-            return X_out
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
 
 
-class ZSISABModel(AbstractModel):
-    """
-    AutoGluon model wrapper for Zero-Shot ISAB (ZS-ISAB).
+def inject_zsisab_to_instance(tabpfn_classifier, num_prototypes: int = 512, chunk_size: int = 16384):
+    """Injects ZS-ISAB forward attention into only the specified TabPFNClassifier instance, avoiding global class mutation."""
+    from zsisab.engine import get_zsisab_encoder_forward
 
-    Paper: "Zero-Shot ISAB: Linear-Complexity Inducing Point Attention
-            for Frozen Tabular Transformers"
-    Author: Thanniru Sai Teja (https://github.com/iam-saiteja)
-    Code:   https://github.com/iam-saiteja/Zero-Shot-TabPFN
-    """
+    target_model = getattr(tabpfn_classifier, "model", tabpfn_classifier)
+    if hasattr(target_model, "modules"):
+        for module in target_model.modules():
+            if module.__class__.__name__ == "TransformerEncoderLayer":
+                if not hasattr(module, "_original_forward"):
+                    module._original_forward = module.forward
+                patched_fn = get_zsisab_encoder_forward(
+                    module._original_forward,
+                    num_prototypes=num_prototypes,
+                    chunk_size=chunk_size,
+                )
+                module.forward = types.MethodType(patched_fn, module)
+
+
+class ZSISABModel(AbstractTorchModel):
+    """AutoGluon model wrapper for Zero-Shot ISAB (ZS-ISAB)."""
 
     ag_key = "ZSISAB"
     ag_name = "ZS-ISAB"
     ag_priority = 105
+    seed_name = "random_state"
+    _supported_problem_types = ["binary", "multiclass"]
+    default_num_gpus = 1
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -69,42 +49,35 @@ class ZSISABModel(AbstractModel):
     def _get_default_ag_args_ensemble(cls) -> dict:
         return {"fold_fitting_strategy": "sequential_local"}
 
-    def _preprocess(self, X, is_train: bool = False, **kwargs) -> np.ndarray:
-        if isinstance(X, np.ndarray):
-            return np.nan_to_num(X, nan=0.0).astype(np.float32)
-
+    def _preprocess(self, X: pd.DataFrame, is_train: bool = False, **kwargs) -> pd.DataFrame:
         X = super()._preprocess(X, **kwargs)
+
         if is_train:
             self._feature_generator = LabelEncoderFeatureGenerator(verbosity=0)
             self._feature_generator.fit(X=X)
 
         if self._feature_generator is not None and getattr(self._feature_generator, "features_in", None):
             X = X.copy()
-            encoded = self._feature_generator.transform(X=X)
-            if isinstance(encoded, pd.DataFrame):
-                for col in self._feature_generator.features_in:
-                    if col in encoded.columns:
-                        X[col] = encoded[col]
-            else:
-                X[self._feature_generator.features_in] = encoded
+            X[self._feature_generator.features_in] = self._feature_generator.transform(X=X)
 
-        return X.fillna(0).to_numpy(dtype=np.float32)
+        return X
 
     def _fit(
         self,
-        X,
-        y,
+        X: pd.DataFrame,
+        y: pd.Series,
         num_cpus: int = 1,
-        num_gpus: float = 0,
+        num_gpus: int = 0,
         time_limit: float | None = None,
         **kwargs,
     ) -> None:
         import typing
+
         import torch.nn.modules.transformer
+
         torch.nn.modules.transformer.Optional = typing.Optional
 
         from tabpfn import TabPFNClassifier
-        from zsisab.wrapper import inject_zsisab
 
         params = self._get_model_params()
         num_prototypes = params.get("num_prototypes", 512)
@@ -112,23 +85,21 @@ class ZSISABModel(AbstractModel):
         n_ensemble = params.get("n_ensemble", 32)
         device = "cuda" if (num_gpus is not None and num_gpus > 0) else "cpu"
 
-        # Inject ZS-ISAB online cross-attention into TabPFN
-        inject_zsisab(num_prototypes=num_prototypes, chunk_size=chunk_size)
-
         self.model = TabPFNClassifier(device=device, N_ensemble_configurations=n_ensemble)
 
-        X_processed = self._preprocess(X, is_train=True)
-        y_processed = y.to_numpy() if isinstance(y, pd.Series) else y
-        self.model.fit(X_processed, y_processed, overwrite_warning=True)
+        # Inject ZS-ISAB into this specific instance only
+        inject_zsisab_to_instance(self.model, num_prototypes=num_prototypes, chunk_size=chunk_size)
 
-    def _predict_proba(self, X, **kwargs) -> np.ndarray:
-        X_processed = self._preprocess(X, is_train=False)
+        X_processed = self.preprocess(X, y=y, is_train=True)
+        self.model.fit(X_processed, y.to_numpy() if hasattr(y, "to_numpy") else y, overwrite_warning=True)
+
+    def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
+        X_processed = self.preprocess(X, is_train=False)
         return self.model.predict_proba(X_processed)
 
-    def _predict(self, X, **kwargs) -> np.ndarray:
-        X_processed = self._preprocess(X, is_train=False)
+    def _predict(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
+        X_processed = self.preprocess(X, is_train=False)
         return self.model.predict(X_processed)
 
     def _estimate_memory_usage(self, X: pd.DataFrame, **kwargs) -> int:
-        # ZS-ISAB operates with a strictly bounded streaming footprint O(chunk_size * E)
         return 4 * 1024 ** 3  # 4 GB estimate
