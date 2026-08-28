@@ -14,7 +14,7 @@ gen_zsisab = ConfigGenerator(
         {
             "num_prototypes": 512,
             "chunk_size": 16384,
-            "n_ensemble": 32,
+            "n_ensemble": 8,
         }
     ],
 )
