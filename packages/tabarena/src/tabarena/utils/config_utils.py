@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
     from tabarena.benchmark.exec_models.external import ExternalSystemModel
 
-AddSeed = Literal["static", "fold-wise", "fold-config-wise"]
+AddSeed = Literal["static", "fold-wise", "fold-config-wise", "config-wise"]
 
 
 # ---------------------------------------------------------------------------
@@ -472,19 +472,33 @@ def _apply_seed_to_bag_configs(
     * ``"fold-wise"`` — seed 0, varied across the folds of each bag.
     * ``"fold-config-wise"`` — additionally offset each config's seed by ``num_bag_sets * num_bag_folds``
       so different configs explore disjoint seed ranges.
+    * ``"config-wise"`` — per-config seeds ``0, 1, 2, ...``, held constant across a config's folds.
+      Use when configs should not all explore the same randomness, yet a config's folds should
+      differ only in their data split — which makes the bag a cleaner estimate of that config,
+      at the cost of not averaging seed noise within it. The offset is 1 rather than
+      ``num_bag_sets * num_bag_folds``: that block reservation exists so fold-varying seeds get
+      disjoint ranges, and a config that does not vary its seed across folds consumes only one.
     """
     if add_seed == "static":
         return [add_seed_logic(config, random_seed=0, vary_seed_across_folds=False) for config in configs]
     if add_seed == "fold-wise":
         return [add_seed_logic(config, random_seed=0, vary_seed_across_folds=True) for config in configs]
-    if add_seed == "fold-config-wise":
-        offset_between_configs = num_bag_sets * num_bag_folds
+    if add_seed in ("fold-config-wise", "config-wise"):
+        vary_seed_across_folds = add_seed == "fold-config-wise"
+        # Fold-varying seeds consume `num_bag_folds` seeds per config, so they need that much
+        # space between configs to stay disjoint; a config-wise seed consumes exactly one.
+        offset_between_configs = num_bag_sets * num_bag_folds if vary_seed_across_folds else 1
         return [
-            add_seed_logic(config, random_seed=i * offset_between_configs, vary_seed_across_folds=True)
+            add_seed_logic(
+                config,
+                random_seed=i * offset_between_configs,
+                vary_seed_across_folds=vary_seed_across_folds,
+            )
             for i, config in enumerate(configs)
         ]
     raise ValueError(
-        f"Invalid add_seed value: {add_seed!r}. Choose from 'static', 'fold-wise', or 'fold-config-wise'.",
+        f"Invalid add_seed value: {add_seed!r}. "
+        f"Choose from 'static', 'fold-wise', 'fold-config-wise', or 'config-wise'.",
     )
 
 
