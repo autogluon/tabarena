@@ -12,11 +12,11 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-def inject_zsisab_to_instance(tabpfn_classifier, num_prototypes: int = 512, chunk_size: int = 16384):
-    """Injects ZS-ISAB forward attention into only the specified TabPFNClassifier instance, avoiding global class mutation."""
+def inject_zsisab_to_instance(tabpfn_model, num_prototypes: int = 512, chunk_size: int = 16384):
+    """Injects ZS-ISAB forward attention into only the specified TabPFN model instance, avoiding global class mutation."""
     from zsisab.engine import get_zsisab_encoder_forward
 
-    target_model = getattr(tabpfn_classifier, "model", tabpfn_classifier)
+    target_model = getattr(tabpfn_model, "model", tabpfn_model)
     if hasattr(target_model, "modules"):
         for module in target_model.modules():
             if module.__class__.__name__ == "TransformerEncoderLayer":
@@ -37,7 +37,7 @@ class ZSISABModel(AbstractTorchModel):
     ag_name = "ZS-ISAB"
     ag_priority = 105
     seed_name = "random_state"
-    _supported_problem_types = ["binary", "multiclass"]
+    _supported_problem_types = ["binary", "multiclass", "regression"]
     default_num_gpus = 1
 
     def __init__(self, **kwargs):
@@ -77,15 +77,22 @@ class ZSISABModel(AbstractTorchModel):
 
         torch.nn.modules.transformer.Optional = typing.Optional
 
-        from tabpfn import TabPFNClassifier
-
         params = self._get_model_params()
         num_prototypes = params.get("num_prototypes", 512)
         chunk_size = params.get("chunk_size", 16384)
         n_ensemble = params.get("n_ensemble", 32)
         device = "cuda" if (num_gpus is not None and num_gpus > 0) else "cpu"
 
-        self.model = TabPFNClassifier(device=device, N_ensemble_configurations=n_ensemble)
+        if self.problem_type == "regression":
+            try:
+                from tabpfn import TabPFNRegressor
+                self.model = TabPFNRegressor(device=device, N_ensemble_configurations=n_ensemble)
+            except ImportError:
+                from tabpfn import TabPFNClassifier
+                self.model = TabPFNClassifier(device=device, N_ensemble_configurations=n_ensemble)
+        else:
+            from tabpfn import TabPFNClassifier
+            self.model = TabPFNClassifier(device=device, N_ensemble_configurations=n_ensemble)
 
         # Inject ZS-ISAB into this specific instance only
         inject_zsisab_to_instance(self.model, num_prototypes=num_prototypes, chunk_size=chunk_size)
@@ -95,7 +102,9 @@ class ZSISABModel(AbstractTorchModel):
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         X_processed = self.preprocess(X, is_train=False)
-        return self.model.predict_proba(X_processed)
+        if hasattr(self.model, "predict_proba"):
+            return self.model.predict_proba(X_processed)
+        return self.model.predict(X_processed)
 
     def _predict(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         X_processed = self.preprocess(X, is_train=False)
