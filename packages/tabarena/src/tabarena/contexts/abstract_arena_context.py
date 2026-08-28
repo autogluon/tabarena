@@ -1126,12 +1126,54 @@ class AbstractArenaContext:
         return df_results
 
     # ------------------------------------------------------------------ artifacts / simulation / plotting
+    @staticmethod
+    def _resolve_shared_task_scope(
+        name: str,
+        top_level: list | None,
+        compare_kwargs: dict,
+        tuning_trajectory_kwargs: dict,
+    ) -> list | None:
+        """Reduce a task-scoping argument given in up to three places to the one value both passes use.
+
+        ``datasets`` and ``folds`` scope the compare pass and the tuning-trajectory pass alike, so
+        they are accepted as top-level :meth:`generate_all_figs` arguments *and* inside either
+        kwargs dict (where callers used to put them). Whichever spelling is used, the value is
+        removed from the per-pass dicts and returned for both, which is what makes the two grids
+        impossible to desynchronize. Disagreeing values are an error rather than a precedence rule:
+        there is no reading of two different grids that keeps the outputs comparable.
+        """
+        sources: dict[str, list | None] = {}
+        for source, kwargs in (
+            ("compare_kwargs", compare_kwargs),
+            ("tuning_trajectory_kwargs", tuning_trajectory_kwargs),
+        ):
+            if name in kwargs:
+                sources[source] = kwargs.pop(name)
+        if top_level is not None:
+            sources[f"{name}="] = top_level
+
+        specified = {k: v for k, v in sources.items() if v is not None}
+        distinct = []
+        for value in specified.values():
+            if not any(value == seen for seen in distinct):
+                distinct.append(value)
+        if len(distinct) > 1:
+            detail = ", ".join(f"{k}{v!r}" for k, v in specified.items())
+            raise ValueError(
+                f"Conflicting {name!r} for generate_all_figs: {detail}. The leaderboard and the "
+                f"tuning trajectories must be computed over the same tasks; pass {name} once as a "
+                f"generate_all_figs argument.",
+            )
+        return distinct[0] if distinct else None
+
     # FIXME: Finish this, it is WIP
     def generate_all_figs(
         self,
         output_dir,
         subsets: list[list[str] | tuple[str, list[str]]] | str = "auto",
         new_results=None,
+        datasets: list[str] | None = None,
+        folds: list[int] | None = None,
         compare_kwargs=None,
         tuning_trajectory_kwargs=None,
         plot_compare: bool = True,
@@ -1154,6 +1196,16 @@ class AbstractArenaContext:
         (multiple ``n_configs`` rows per method) on the trajectory plot while the leaderboard keeps
         the single-point method results — in one call instead of two.
 
+        ``datasets`` and ``folds`` scope the tasks for the compare pass *and* the
+        tuning-trajectory pass, which must always see the same grid. They may equivalently be
+        given inside ``compare_kwargs`` / ``tuning_trajectory_kwargs``; wherever they appear they
+        are hoisted and shared, and conflicting values raise. Sharing them is not cosmetic: the
+        trajectory pass fills every task a method does not cover via ``fillna_metrics`` and then
+        drops any method carrying an imputed row (``exclude_imputed=True``), so a trajectory grid
+        wider than the leaderboard's silently deletes methods from the trajectory figures and CSVs
+        while the leaderboard still reports them. ``compare``-only task scoping (``tasks``) has no
+        trajectory counterpart and stays in ``compare_kwargs``.
+
         ``save_composite_leaderboard=True`` additionally aggregates the per-subset leaderboards
         into a single composite table (rows = (method, metric), one column per subset) written to
         ``<output_dir>/composite_leaderboard.csv`` plus color-graded PNG renderings — see
@@ -1174,6 +1226,13 @@ class AbstractArenaContext:
             tuning_trajectory_kwargs = {}
         if website_leaderboard_kwargs is None:
             website_leaderboard_kwargs = {}
+        # Hoist the shared task scope out of either kwargs dict so both passes get the same grid.
+        datasets = self._resolve_shared_task_scope(
+            "datasets", datasets, compare_kwargs, tuning_trajectory_kwargs,
+        )
+        folds = self._resolve_shared_task_scope(
+            "folds", folds, compare_kwargs, tuning_trajectory_kwargs,
+        )
         if save_composite_leaderboard and not plot_compare:
             raise ValueError(
                 "save_composite_leaderboard=True requires plot_compare=True: the composite is "
@@ -1186,6 +1245,8 @@ class AbstractArenaContext:
         subset_fig_kwargs = dict(
             output_dir=output_dir,
             new_results=new_results,
+            datasets=datasets,
+            folds=folds,
             compare_kwargs=compare_kwargs,
             tuning_trajectory_kwargs=tuning_trajectory_kwargs,
             plot_compare=plot_compare,
@@ -1229,6 +1290,8 @@ class AbstractArenaContext:
         *,
         output_dir: Path,
         new_results,
+        datasets: list[str] | None,
+        folds: list[int] | None,
         compare_kwargs: dict,
         tuning_trajectory_kwargs: dict,
         plot_compare: bool,
@@ -1268,6 +1331,8 @@ class AbstractArenaContext:
                 subset=subset,
                 new_results=new_results,
                 subset_label=output_suffix,
+                datasets=datasets,
+                folds=folds,
                 **compare_kwargs,
             )
             if save_website_leaderboard and lb_df is not None:
@@ -1298,6 +1363,8 @@ class AbstractArenaContext:
                 save_path=output_dir_subset / "tuning_trajectories",
                 subset=subset,
                 extra_results=trajectory_extra_results if trajectory_extra_results is not None else new_results,
+                datasets=datasets,
+                folds=folds,
                 **tuning_trajectory_kwargs,
             )
         if plot_runtime_per_method:
