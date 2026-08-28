@@ -331,12 +331,17 @@ class TabArenaBenchmarkPlan:
         return self._print_summary_and_collect(runs)
 
     def selected_model_names(self) -> list[str]:
-        """Unique benchmark model names across all jobs (first-appearance order)."""
+        """Unique benchmark *registry* model names across all jobs (first-appearance order).
+
+        Entries built from a `ConfigGenerator` carry the model class directly rather than a
+        registry name, so they contribute nothing here — there is no name to look a model up by,
+        and their weights come from the class (or an explicit checkpoint path) instead.
+        """
         names: list[str] = []
         for job in self.model_jobs:
             for entry in job._model_entries():
                 name = entry[0] if isinstance(entry, tuple) else getattr(entry, "name", None)
-                if name is not None and name not in names:
+                if isinstance(name, str) and name not in names:
                     names.append(name)
         return names
 
