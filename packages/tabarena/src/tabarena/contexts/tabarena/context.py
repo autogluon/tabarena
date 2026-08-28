@@ -112,6 +112,13 @@ class TabArenaContext(AbstractArenaContext):
         "medium": SubsetPredicate(lambda df: df["max_train_rows"].between(10_001, 100_000), ("max_train_rows",)),
         "small": SubsetPredicate(lambda df: df["max_train_rows"] <= 10_000, ("max_train_rows",)),
         "tiny": SubsetPredicate(lambda df: df["max_train_rows"] <= 2_000, ("max_train_rows",)),
+        # `small` minus `tiny`, spelled out rather than a `between` so it stays exactly the
+        # complement whatever `max_train_rows` dtype is (a between(2_001, ...) would drop any
+        # non-integer row count in (2000, 2001]).
+        "2k-10k": SubsetPredicate(
+            lambda df: (df["max_train_rows"] > 2_000) & (df["max_train_rows"] <= 10_000),
+            ("max_train_rows",),
+        ),
         # native feature-count buckets (v0.1 has no after-preprocessing feature count)
         "low_features": SubsetPredicate(
             lambda df: df["n_features"] <= FEATURE_COUNT_THRESHOLD,
