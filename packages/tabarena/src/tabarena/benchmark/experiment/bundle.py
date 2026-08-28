@@ -113,6 +113,11 @@ class TabArenaExperimentBundle:
     """
     n_random_configs: int
     """Number of random hyperparameter configurations to run for each model"""
+    default_seed_config: str = "fold-config-wise"
+    """How bagged random seeds are assigned across configs and folds (an
+    :data:`~tabarena.utils.config_utils.AddSeed` value). The default gives each config its own
+    seed, varied across its folds. Use ``"static"`` for an ablation, where every config must share
+    a seed or the flip being measured is confounded with a seed change."""
     preprocessing_pipelines: list[str]
     """EXPERIMENTAL!
     Preprocessing pipelines to add to the configurations we want to run.
@@ -506,6 +511,7 @@ class TabArenaExperimentBundle:
             time_limit=time_limit,
             time_limit_with_preprocessing=time_limit_with_preprocessing,
             model_hyperparameters=model_hyperparameters,
+            default_seed_config=self.default_seed_config,
         )
 
     def _generate_autogluon_config(
