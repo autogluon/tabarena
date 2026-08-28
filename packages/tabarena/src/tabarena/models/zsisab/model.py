@@ -46,7 +46,7 @@ class ZSISABModel(AbstractTorchModel):
         self.model = None
 
     @classmethod
-    def _get_default_ag_args_ensemble(cls) -> dict:
+    def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
         return {"fold_fitting_strategy": "sequential_local"}
 
     def _preprocess(self, X: pd.DataFrame, is_train: bool = False, **kwargs) -> pd.DataFrame:
