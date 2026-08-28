@@ -473,7 +473,7 @@ class SlurmSetup(SchedulerSetup):
 class GCPSlurmSetup(SlurmSetup):
     """Default Slurm setup for a GCP Slurm cluster used for BeyondArena."""
 
-    gpu_partition: str = "gpua100highmemoryspotmt"
+    gpu_partition: str = "gpurtxpro6000flex"
     cpu_partition: str = "cpuhighmem16mtspot"
     extra_gres: None = None
     exclusive_node: bool = True
