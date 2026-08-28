@@ -68,20 +68,29 @@ class AGBagResult(ConfigResult):
         bag_info = self.result["simulation_artifacts"]["bag_info"]
         if "pred_proba_test_per_child" in bag_info:
             bag_info["pred_test_per_child"] = bag_info.pop("pred_proba_test_per_child")
-        len(self.result["simulation_artifacts"]["y_val_idx"])
         if "val_idx_per_child" in bag_info and "pred_val_per_child" not in bag_info:
             # TODO: verify nothing break if we dont assert anymore
             # Ensure no repeated bagging
             # assert num_samples_val == sum([len(val_idx_child) for val_idx_child in bag_info["val_idx_per_child"]])
             # convert to pred_val_per_child
             pred_val_per_child = []
-            if len(bag_info["val_idx_per_child"]) == 1:
-                # FIXME: Bug in AutoGluon's output! Wrong indices. This logic fixes that.
+            # LEGACY: AutoGluon < 1.6.2 emitted `X.index` *labels* for a single-child model
+            # (`_child_oof` / pre-fix `refit_folds`) while every other case emitted positions.
+            # `get_oof_fold_val_idx` now returns positions uniformly, so only older artifacts
+            # need the remap; drop this branch once none are in circulation.
+            #
+            # Detected from the values rather than a version marker, which the artifacts do not
+            # carry: positions are exactly `arange(n)`, whereas labels are the training rows in
+            # fit order. Where an index happens to be a sorted RangeIndex the two coincide and
+            # the remap would be a no-op anyway, so the test cannot pick the wrong branch.
+            num_samples_val = len(self.result["simulation_artifacts"]["y_val_idx"])
+            val_idx_first = np.asarray(bag_info["val_idx_per_child"][0])
+            if len(bag_info["val_idx_per_child"]) == 1 and not np.array_equal(
+                val_idx_first, np.arange(num_samples_val)
+            ):
                 y_val_idx = self.result["simulation_artifacts"]["y_val_idx"]
                 value_to_index = {value: idx for idx, value in enumerate(y_val_idx)}
-                val_idx_child = bag_info["val_idx_per_child"][0]
-                val_idx_child_iloc = np.array([value_to_index[v] for v in val_idx_child])
-                bag_info["val_idx_per_child"][0] = val_idx_child_iloc
+                bag_info["val_idx_per_child"][0] = np.array([value_to_index[v] for v in val_idx_first])
             for val_idx_child in bag_info["val_idx_per_child"]:
                 pred_val_child_cur = self.result["simulation_artifacts"]["pred_val"][val_idx_child]
                 pred_val_per_child.append(pred_val_child_cur)

@@ -605,22 +605,28 @@ class AGSingleBagWrapper(AGSingleWrapper):
         if model is None:
             model = self._load_model()
         X, y = self.predictor.load_data_internal()
-        all_kfolds = []
-        # TODO: Make this a bagged ensemble method
-        if model._child_oof:
-            all_kfolds = [(None, X.index.values)]
+
+        get_oof_fold_val_idx = getattr(model, "get_oof_fold_val_idx", None)
+        if get_oof_fold_val_idx is not None:
+            val_idx_per_child = get_oof_fold_val_idx(X=X, y=y)
         else:
-            for n_repeat, k in enumerate(model._k_per_n_repeat):
-                kfolds = model._cv_splitters[n_repeat].split(X=X, y=y)
-                cur_kfolds = kfolds[n_repeat * k : (n_repeat + 1) * k]
-                all_kfolds += cur_kfolds
+            # LEGACY: drop this branch once AutoGluon >= 1.6.2 is the floor, and call
+            # `model.get_oof_fold_val_idx` unconditionally.
+            #
+            # It reproduces that method for older AutoGluon, where a bagged model exposes only
+            # its splitters. Note what it *cannot* reproduce: a `refit_folds` model there reports
+            # a single child covering every row, because the folds that made its OOF were
+            # discarded along with their splitters, so the fold structure is simply unavailable.
+            all_kfolds = []
+            if model._child_oof:
+                all_kfolds = [(None, X.index.values)]
+            else:
+                for n_repeat, k in enumerate(model._k_per_n_repeat):
+                    kfolds = model._cv_splitters[n_repeat].split(X=X, y=y)
+                    all_kfolds += kfolds[n_repeat * k : (n_repeat + 1) * k]
+            val_idx_per_child = [val_idx for _train_idx, val_idx in all_kfolds]
 
-        val_idx_per_child = []
-        for _fold_idx, (_train_idx, val_idx) in enumerate(all_kfolds):
-            val_idx = pd.to_numeric(val_idx, downcast="integer")  # memory opt
-            val_idx_per_child.append(val_idx)
-
-        return val_idx_per_child
+        return [pd.to_numeric(val_idx, downcast="integer") for val_idx in val_idx_per_child]  # memory opt
 
     # TODO: Can avoid predicting on test twice by doing it all in one go
     def get_per_child_test(self, X_test: pd.DataFrame, model=None) -> list[np.ndarray]:
