@@ -71,6 +71,8 @@ ELO_COL: str = "Elo"
 SUBSET_ORDER: tuple[str, ...] = (
     "all",
     "tiny",
+    # Size bands ascending: 2k-10k sits between tiny (<=2k rows) and medium (>10k).
+    "2k-10k",
     "small",
     "medium",
     "large",
