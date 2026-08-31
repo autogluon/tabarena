@@ -11,7 +11,7 @@ from ._analysis import DatasetAnalysisMixin
 from ._common import FRONTIER_ADVANTAGE, IMPROVABILITY, LOSS_RESCALED, RANK
 from ._plotting import PlottingMixin
 from ._validation import ResultsValidationMixin
-from .elo_utils import EloHelper
+from .elo_utils import EloHelper, use_fast_elo
 from .mean_utils import compute_weighted_mean_by_task
 from .winrate_utils import compute_winrate, compute_winrate_matrix
 
@@ -658,10 +658,14 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         elo_helper = EloHelper(
             method_col=self.method_col, task_col=self.task_col, error_col=self.error_col, split_col=split_col
         )
-        battles = elo_helper.convert_results_to_battles(results_df=results_per_task)
+        # The rank path covers both the single fit and the bootstrap, so when it applies no battle
+        # table is built at all.
+        use_rank_path = use_fast_elo() and elo_helper.can_compute_elo_from_ranks(results_per_task)
+        needs_bootstrap = use_bootstrap_median or (include_quantiles and BOOTSTRAP_ROUNDS > 1)
 
-        can_compute_elo = len(battles) > 0
-        if not can_compute_elo:
+        battles = None if use_rank_path else elo_helper.convert_results_to_battles(results_df=results_per_task)
+
+        if not use_rank_path and len(battles) == 0:
             task_groupby_cols = [self.task_col]
             if split_col is not None:
                 task_groupby_cols.append(split_col)
@@ -695,9 +699,12 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         bootstrap_median = None
         bootstrap_elo_lu = None
         bars_quantiles = None
-        if use_bootstrap_median or (include_quantiles and BOOTSTRAP_ROUNDS > 1):
-            bootstrap_elo_lu = elo_helper.compute_elo_ratings(
-                battles=battles,
+        if needs_bootstrap:
+            bootstrap_fn = (
+                elo_helper.compute_elo_ratings_from_ranks if use_rank_path else elo_helper.compute_elo_ratings
+            )
+            bootstrap_elo_lu = bootstrap_fn(
+                **({"results_per_task": results_per_task} if use_rank_path else {"battles": battles}),
                 calibration_framework=calibration_framework,
                 calibration_elo=calibration_elo,
                 INIT_RATING=INIT_RATING,
@@ -709,6 +716,14 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
 
         if use_bootstrap_median:
             elo = bootstrap_median
+        elif use_rank_path:
+            elo = elo_helper.compute_mle_elo_from_ranks(
+                results_per_task=results_per_task,
+                INIT_RATING=INIT_RATING,
+                SCALE=SCALE,
+                calibration_framework=calibration_framework,
+                calibration_elo=calibration_elo,
+            )
         else:
             elo = elo_helper.compute_mle_elo(
                 battles=battles,
