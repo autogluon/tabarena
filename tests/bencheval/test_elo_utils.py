@@ -116,3 +116,39 @@ def test_legacy_flag_reproduces_the_looser_fit(monkeypatch):
     assert not np.allclose(legacy.to_numpy(), converged.reindex(legacy.index).to_numpy())
     # Both still order the field the same way; only the scale differs.
     assert legacy.rank().equals(converged.reindex(legacy.index).rank())
+
+
+def test_env_var_enables_the_legacy_tolerance(monkeypatch):
+    """The env var turns the legacy fit on without touching code, and is read per call."""
+    from bencheval import elo_utils
+
+    for truthy in ("1", "true", "TRUE", "yes", " on ".strip(), "Yes"):
+        monkeypatch.setenv(elo_utils.LEGACY_ELO_SOLVER_TOL_ENV_VAR, truthy)
+        expected = truthy.strip().lower() in ("1", "true", "yes")
+        assert elo_utils.use_legacy_elo_solver_tol() is expected, truthy
+
+    for falsey in ("0", "false", "no", ""):
+        monkeypatch.setenv(elo_utils.LEGACY_ELO_SOLVER_TOL_ENV_VAR, falsey)
+        assert elo_utils.use_legacy_elo_solver_tol() is False, falsey
+        assert elo_utils.elo_solver_tol() == elo_utils.ELO_SOLVER_TOL
+
+    monkeypatch.delenv(elo_utils.LEGACY_ELO_SOLVER_TOL_ENV_VAR, raising=False)
+    assert elo_utils.use_legacy_elo_solver_tol() is False
+
+
+def test_module_flag_and_env_var_are_independent(monkeypatch):
+    """Either switch alone is enough; neither can turn the other off."""
+    from bencheval import elo_utils
+
+    monkeypatch.delenv(elo_utils.LEGACY_ELO_SOLVER_TOL_ENV_VAR, raising=False)
+    monkeypatch.setattr(elo_utils, "USE_LEGACY_ELO_SOLVER_TOL", True)
+    assert elo_utils.elo_solver_tol() == elo_utils.LEGACY_ELO_SOLVER_TOL
+
+    monkeypatch.setattr(elo_utils, "USE_LEGACY_ELO_SOLVER_TOL", False)
+    monkeypatch.setenv(elo_utils.LEGACY_ELO_SOLVER_TOL_ENV_VAR, "1")
+    assert elo_utils.elo_solver_tol() == elo_utils.LEGACY_ELO_SOLVER_TOL
+
+    # A falsey env var does not override an explicitly set module flag.
+    monkeypatch.setattr(elo_utils, "USE_LEGACY_ELO_SOLVER_TOL", True)
+    monkeypatch.setenv(elo_utils.LEGACY_ELO_SOLVER_TOL_ENV_VAR, "0")
+    assert elo_utils.elo_solver_tol() == elo_utils.LEGACY_ELO_SOLVER_TOL

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from collections import defaultdict
 
 import numpy as np
@@ -21,16 +22,31 @@ ELO_SOLVER_TOL = 1e-10
 #: after ~7 iterations on a leaderboard-sized field, short of the Bradley-Terry maximum.
 LEGACY_ELO_SOLVER_TOL = 1e-4
 
+#: Env var equivalent of :data:`USE_LEGACY_ELO_SOLVER_TOL`, for turning the legacy fit on without
+#: touching code — a CLI run, a CI job, or a one-off comparison.
+LEGACY_ELO_SOLVER_TOL_ENV_VAR = "TABARENA_LEGACY_ELO_SOLVER_TOL"
+
 #: TEMPORARY. Set True to compute Elo the pre-tightening way, for reproducing numbers published
-#: before the change or for bisecting a leaderboard difference against it. Read through
-#: :func:`elo_solver_tol` rather than captured at import, so flipping it at runtime takes effect.
+#: before the change or for bisecting a leaderboard difference against it.
 #: Remove once nothing needs to reproduce the older ratings.
 USE_LEGACY_ELO_SOLVER_TOL = False
 
 
+def use_legacy_elo_solver_tol() -> bool:
+    """Whether the pre-tightening tolerance is requested, by module flag or env var.
+
+    Both are consulted on every call rather than captured at import, so either can be changed
+    part-way through a process — which is the point of a flag whose job is reproducing an older
+    number alongside the current one.
+    """
+    if USE_LEGACY_ELO_SOLVER_TOL:
+        return True
+    return os.environ.get(LEGACY_ELO_SOLVER_TOL_ENV_VAR, "").strip().lower() in ("1", "true", "yes")
+
+
 def elo_solver_tol() -> float:
-    """The lbfgs tolerance for the Elo fit, honouring :data:`USE_LEGACY_ELO_SOLVER_TOL`."""
-    return LEGACY_ELO_SOLVER_TOL if USE_LEGACY_ELO_SOLVER_TOL else ELO_SOLVER_TOL
+    """The lbfgs tolerance for the Elo fit, honouring :func:`use_legacy_elo_solver_tol`."""
+    return LEGACY_ELO_SOLVER_TOL if use_legacy_elo_solver_tol() else ELO_SOLVER_TOL
 
 
 class EloHelper:
