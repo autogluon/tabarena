@@ -49,6 +49,27 @@ def elo_solver_tol() -> float:
     return LEGACY_ELO_SOLVER_TOL if use_legacy_elo_solver_tol() else ELO_SOLVER_TOL
 
 
+#: Env var equivalent of :data:`USE_FAST_ELO`, for turning the rank path off without touching code.
+DISABLE_FAST_ELO_ENV_VAR = "TABARENA_DISABLE_FAST_ELO"
+
+#: Solve Bradley-Terry from per-task ranks instead of a materialised battle table when the results
+#: allow it. Same ratings, but cost is linear rather than quadratic in the number of methods.
+USE_FAST_ELO = True
+
+
+def use_fast_elo() -> bool:
+    """Whether the rank path may be used, by module flag and env var.
+
+    The legacy tolerance wins: its whole purpose is reproducing ratings from a specific solver
+    run, so a request for it has to reach that solver rather than an equivalent-but-different one.
+    """
+    if use_legacy_elo_solver_tol():
+        return False
+    if not USE_FAST_ELO:
+        return False
+    return os.environ.get(DISABLE_FAST_ELO_ENV_VAR, "").strip().lower() not in ("1", "true", "yes")
+
+
 class EloHelper:
     def __init__(
         self,
@@ -64,6 +85,138 @@ class EloHelper:
 
         self.method_1 = f"{self.method_col}_1"
         self.method_2 = f"{self.method_col}_2"
+
+    def _pivot_errors(self, results_per_task: pd.DataFrame) -> pd.DataFrame:
+        """Errors as a method x unit matrix, one column per unit that battles are paired within.
+
+        That unit is ``(task, split)`` whenever a split column is set, matching
+        :meth:`convert_results_to_battles`, so both paths see the same schedule.
+
+        Only observed units become columns. The (task, split) grid is ragged -- tasks differ in how
+        many splits they have -- so materialising the full cross-product would invent units that no
+        method ran and make every real schedule look incomplete.
+        """
+        on_cols = [self.task_col] if self.split_col is None else [self.task_col, self.split_col]
+        return results_per_task.pivot_table(index=self.method_col, columns=on_cols, values=self.error_col)
+
+    def _rank_win_matrix(self, results_per_task: pd.DataFrame) -> tuple[pd.Index, np.ndarray]:
+        """Per-task win totals implied by the per-unit ranks, shape ``(n_methods, n_tasks)``.
+
+        A method's rank on a unit is one plus the number of methods that beat it, so ``n_methods -
+        rank`` is its win count there -- ties included at half a win each, since ranks are averaged
+        over them. Units are then weighted by ``1 / n_splits(task)`` and summed within their task,
+        so every task contributes total weight 1 however many splits it ran. That is the weighting
+        :meth:`convert_results_to_battles` attaches to each battle, and getting it wrong tilts the
+        ratings toward whichever tasks happen to have the most splits.
+
+        Raises:
+            ValueError: if any method is missing a unit. Win totals are only a sufficient statistic
+                for Bradley-Terry when the schedule is complete and balanced, so this shortcut
+                would otherwise silently give a different answer.
+        """
+        wide = self._pivot_errors(results_per_task=results_per_task)
+        if wide.isna().to_numpy().any():
+            missing = int(wide.isna().to_numpy().sum())
+            raise ValueError(
+                f"The rank path requires every method to have every task; {missing} (method, task) "
+                f"pair(s) are missing. Win totals are only a sufficient statistic for Bradley-Terry "
+                f"when the schedule is complete and balanced."
+            )
+        if len(wide) < 2:
+            raise ValueError(f"The rank path needs at least two methods to compare, got {len(wide)}.")
+
+        n_methods = len(wide)
+        wins_per_unit = n_methods - wide.rank(axis=0, method="average", ascending=True).to_numpy()
+
+        units = wide.columns
+        tasks = units.to_numpy() if self.split_col is None else units.get_level_values(self.task_col).to_numpy()
+        _, task_of_unit = np.unique(tasks, return_inverse=True)
+        n_tasks = int(task_of_unit.max()) + 1
+        weights = 1.0 / np.bincount(task_of_unit)[task_of_unit]
+
+        # Sum each unit's weighted wins into its task's column.
+        unit_to_task = np.zeros((len(task_of_unit), n_tasks))
+        unit_to_task[np.arange(len(task_of_unit)), task_of_unit] = 1.0
+        return wide.index, (wins_per_unit * weights) @ unit_to_task
+
+    def can_compute_elo_from_ranks(self, results_per_task: pd.DataFrame) -> bool:
+        """Whether the rank path applies: at least two methods, no duplicate or missing units."""
+        on_cols = [self.task_col] if self.split_col is None else [self.task_col, self.split_col]
+        if results_per_task.duplicated(subset=[self.method_col, *on_cols]).any():
+            # The battle path rejects these outright; let it raise rather than averaging them away.
+            return False
+        wide = self._pivot_errors(results_per_task=results_per_task)
+        return len(wide) >= 2 and not wide.isna().to_numpy().any()
+
+    def compute_mle_elo_from_ranks(
+        self,
+        results_per_task: pd.DataFrame,
+        SCALE: int | float = 400,
+        INIT_RATING: int | float = 1000,
+        calibration_framework: str | None = None,
+        calibration_elo: float | None = None,
+        max_iter: int = 10_000,
+        tol: float = 1e-12,
+    ) -> pd.Series:
+        """Bradley-Terry Elo computed from per-task ranks, without materialising battles.
+
+        The Bradley-Terry likelihood equations are ``W_i = sum_j n_ij * p_i/(p_i + p_j)``, so when
+        every pair of methods meets on every task -- a complete, balanced schedule -- the data
+        enters only through the per-method win totals, which :meth:`_rank_win_matrix` reads off the
+        ranks.
+
+        That makes the whole battle table unnecessary. The standard path builds
+        ``T * n_methods * (n_methods - 1) / 2`` rows before compressing them back down to an
+        ``n x n`` pair matrix; this reads the same information off an ``n``-vector. Cost falls from
+        quadratic-in-methods to linear, and peak memory stops tracking the battle count.
+        """
+        methods, win_matrix = self._rank_win_matrix(results_per_task=results_per_task)
+        elo = self._bradley_terry_from_win_totals(
+            wins=win_matrix.sum(axis=1),
+            n_tasks=win_matrix.shape[1],
+            SCALE=SCALE,
+            INIT_RATING=INIT_RATING,
+            max_iter=max_iter,
+            tol=tol,
+        )
+        out = pd.Series(elo, index=methods)
+        if calibration_framework is not None:
+            target = INIT_RATING if calibration_elo is None else float(calibration_elo)
+            out += target - out[calibration_framework]
+        return out.sort_values(ascending=False)
+
+    @staticmethod
+    def _bradley_terry_from_win_totals(
+        wins: np.ndarray,
+        n_tasks: int,
+        SCALE: int | float = 400,
+        INIT_RATING: int | float = 1000,
+        max_iter: int = 10_000,
+        tol: float = 1e-12,
+    ) -> np.ndarray:
+        """Maximise the Bradley-Terry likelihood by minorization-maximization.
+
+        The MM update ``p_i <- W_i / sum_j n_ij/(p_i + p_j)`` increases the likelihood at every
+        step and needs no gradients. Strengths are renormalised each iteration because the
+        likelihood only determines them up to a common factor.
+
+        That same indeterminacy means the ratings need a convention to pin them down; ratings are
+        centred so the field averages ``INIT_RATING``, which is where the battle path lands.
+        """
+        n = len(wins)
+        counts = np.full((n, n), float(n_tasks))
+        np.fill_diagonal(counts, 0.0)
+        p = np.ones(n) / n
+        for _ in range(max_iter):
+            denom = (counts / (p[:, None] + p[None, :] + np.eye(n))).sum(axis=1)
+            p_new = wins / denom
+            p_new /= p_new.sum()
+            if np.max(np.abs(p_new - p)) < tol:
+                p = p_new
+                break
+            p = p_new
+        log_p = np.log10(p)
+        return SCALE * (log_p - log_p.mean()) + INIT_RATING
 
     def compute_mle_elo(
         self,
@@ -441,6 +594,46 @@ class EloHelper:
             },
             show_process=show_process,
         )
+
+    def compute_elo_ratings_from_ranks(
+        self,
+        results_per_task: pd.DataFrame,
+        seed: int = 0,
+        calibration_framework=None,
+        calibration_elo=None,
+        INIT_RATING: float = 1000,
+        BOOTSTRAP_ROUNDS: int = 100,
+        SCALE: int = 400,
+        show_process: bool = True,
+    ) -> pd.DataFrame:
+        """Task-level bootstrap of :meth:`compute_mle_elo_from_ranks`, without materialising battles.
+
+        The bootstrap resamples tasks with replacement, which on the rank path is just a
+        multiplicity vector over the columns of :meth:`_rank_win_matrix`. Each round is then a
+        matrix-vector product plus one Bradley-Terry solve, so the battle table -- and the cost of
+        reweighting it every round -- drops out entirely.
+        """
+        methods, win_matrix = self._rank_win_matrix(results_per_task=results_per_task)
+        n_tasks = win_matrix.shape[1]
+
+        rng = np.random.default_rng(seed=seed)
+        rows = []
+        for _ in tqdm(range(BOOTSTRAP_ROUNDS), desc="bootstrap", disable=not show_process):
+            counts = np.bincount(rng.choice(n_tasks, size=n_tasks, replace=True), minlength=n_tasks)
+            elo = self._bradley_terry_from_win_totals(
+                wins=win_matrix @ counts.astype(float),
+                n_tasks=n_tasks,
+                SCALE=SCALE,
+                INIT_RATING=INIT_RATING,
+            )
+            ser = pd.Series(elo, index=methods)
+            if calibration_framework is not None:
+                target = INIT_RATING if calibration_elo is None else float(calibration_elo)
+                ser += target - ser[calibration_framework]
+            rows.append(ser)
+
+        df = pd.DataFrame(rows)
+        return df[df.median().sort_values(ascending=False).index]
 
     def compute_elo_rating_dataset_contributon(
         self,
