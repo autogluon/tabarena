@@ -92,11 +92,13 @@ def test_legacy_flag_reproduces_the_looser_fit(monkeypatch):
     rng = np.random.default_rng(0)
     strengths = np.linspace(6.0, -6.0, n_methods)
     err = -(strengths[:, None] + rng.gumbel(size=(n_methods, n_tasks)))
-    df = pd.DataFrame({
-        "method": np.repeat([f"m{i}" for i in range(n_methods)], n_tasks),
-        "task": np.tile([f"t{j}" for j in range(n_tasks)], n_methods),
-        "metric_error": err.ravel(),
-    })
+    df = pd.DataFrame(
+        {
+            "method": np.repeat([f"m{i}" for i in range(n_methods)], n_tasks),
+            "task": np.tile([f"t{j}" for j in range(n_tasks)], n_methods),
+            "metric_error": err.ravel(),
+        }
+    )
     evaluator = BenchmarkEvaluator(task_col="task", error_col="metric_error")
 
     def elo() -> pd.Series:
