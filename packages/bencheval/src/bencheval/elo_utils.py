@@ -916,9 +916,7 @@ class EloHelper:
                 X_fit, Y_fit, sw_fit = X2, Y2, sw
 
             # Fit LR on the fixed design with per-draw weights
-            lr = LogisticRegression(
-                fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter, tol=ELO_SOLVER_TOL
-            )
+            lr = LogisticRegression(fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter, tol=ELO_SOLVER_TOL)
             lr.fit(X_fit, Y_fit, sample_weight=sw_fit)
 
             # Map coefficients -> ELO
