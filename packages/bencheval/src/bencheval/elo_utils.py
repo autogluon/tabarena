@@ -11,6 +11,12 @@ from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
+# scikit-learn's default `tol=1e-4` stops lbfgs well short of the Bradley-Terry maximum on
+# leaderboard-sized problems (7 iterations on the 84-method TabArena field), leaving ratings
+# shrunk toward the field mean. Converging costs ~4% runtime -- the fit is a small fraction of
+# `compute_elo`, which is dominated by building the battles.
+ELO_SOLVER_TOL = 1e-10
+
 
 class EloHelper:
     def __init__(
@@ -63,7 +69,7 @@ class EloHelper:
                 )
                 SeriesOut = pd.Series(elo_scores, index=models.index)
             else:
-                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6)
+                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=ELO_SOLVER_TOL)
                 lr.fit(X, Y, sample_weight=sample_weight)
                 coef = lr.coef_[0]
                 # map coef -> ELO
@@ -107,7 +113,7 @@ class EloHelper:
                     models=models,
                 )
             else:
-                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6)
+                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=ELO_SOLVER_TOL)
                 lr.fit(X, Y, sample_weight=sample_weight)
                 elo_scores = SCALE * lr.coef_[0] + INIT_RATING
 
@@ -910,7 +916,9 @@ class EloHelper:
                 X_fit, Y_fit, sw_fit = X2, Y2, sw
 
             # Fit LR on the fixed design with per-draw weights
-            lr = LogisticRegression(fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter)
+            lr = LogisticRegression(
+                fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter, tol=ELO_SOLVER_TOL
+            )
             lr.fit(X_fit, Y_fit, sample_weight=sw_fit)
 
             # Map coefficients -> ELO
