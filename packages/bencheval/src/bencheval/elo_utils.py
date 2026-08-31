@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from collections import defaultdict
 
 import numpy as np
@@ -16,6 +17,36 @@ logger = logging.getLogger(__name__)
 # shrunk toward the field mean. Converging costs ~4% runtime -- the fit is a small fraction of
 # `compute_elo`, which is dominated by building the battles.
 ELO_SOLVER_TOL = 1e-10
+
+#: scikit-learn's default, and what shipped before the tolerance was tightened. lbfgs meets it
+#: after ~7 iterations on a leaderboard-sized field, short of the Bradley-Terry maximum.
+LEGACY_ELO_SOLVER_TOL = 1e-4
+
+#: Env var equivalent of :data:`USE_LEGACY_ELO_SOLVER_TOL`, for turning the legacy fit on without
+#: touching code — a CLI run, a CI job, or a one-off comparison.
+LEGACY_ELO_SOLVER_TOL_ENV_VAR = "TABARENA_LEGACY_ELO_SOLVER_TOL"
+
+#: TEMPORARY. Set True to compute Elo the pre-tightening way, for reproducing numbers published
+#: before the change or for bisecting a leaderboard difference against it.
+#: Remove once nothing needs to reproduce the older ratings.
+USE_LEGACY_ELO_SOLVER_TOL = False
+
+
+def use_legacy_elo_solver_tol() -> bool:
+    """Whether the pre-tightening tolerance is requested, by module flag or env var.
+
+    Both are consulted on every call rather than captured at import, so either can be changed
+    part-way through a process — which is the point of a flag whose job is reproducing an older
+    number alongside the current one.
+    """
+    if USE_LEGACY_ELO_SOLVER_TOL:
+        return True
+    return os.environ.get(LEGACY_ELO_SOLVER_TOL_ENV_VAR, "").strip().lower() in ("1", "true", "yes")
+
+
+def elo_solver_tol() -> float:
+    """The lbfgs tolerance for the Elo fit, honouring :func:`use_legacy_elo_solver_tol`."""
+    return LEGACY_ELO_SOLVER_TOL if use_legacy_elo_solver_tol() else ELO_SOLVER_TOL
 
 
 class EloHelper:
@@ -69,7 +100,7 @@ class EloHelper:
                 )
                 SeriesOut = pd.Series(elo_scores, index=models.index)
             else:
-                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=ELO_SOLVER_TOL)
+                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=elo_solver_tol())
                 lr.fit(X, Y, sample_weight=sample_weight)
                 coef = lr.coef_[0]
                 # map coef -> ELO
@@ -113,7 +144,7 @@ class EloHelper:
                     models=models,
                 )
             else:
-                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=ELO_SOLVER_TOL)
+                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=elo_solver_tol())
                 lr.fit(X, Y, sample_weight=sample_weight)
                 elo_scores = SCALE * lr.coef_[0] + INIT_RATING
 
@@ -916,7 +947,7 @@ class EloHelper:
                 X_fit, Y_fit, sw_fit = X2, Y2, sw
 
             # Fit LR on the fixed design with per-draw weights
-            lr = LogisticRegression(fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter, tol=ELO_SOLVER_TOL)
+            lr = LogisticRegression(fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter, tol=elo_solver_tol())
             lr.fit(X_fit, Y_fit, sample_weight=sw_fit)
 
             # Map coefficients -> ELO
