@@ -128,6 +128,10 @@ exaone_tabular = [
 # runtime deps (torch, numpy, scikit-learn, scipy, psutil, tqdm, huggingface_hub, packaging)
 # are already in the base tree, so this extra is intentionally empty.
 tabswift = []
+# TabLDM is vendored under models/tabldm/_vendor/ (not pip-installable). Most of its runtime
+# deps (torch, numpy, scikit-learn, scipy, psutil, tqdm, huggingface_hub) are already in the
+# base tree; `einops` (used by `_model/rope.py`) is the one dependency that is not.
+tabldm = ["einops"]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -163,6 +167,7 @@ extended = [
   "tabarena[nori]",
   "tabarena[tabswift]",
   "tabarena[exaone_tabular]",
+  "tabarena[tabldm]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).
