@@ -55,3 +55,64 @@ class TestEloHelper:
             assert elo_scores[0] < elo_scores[1]
         else:
             assert elo_scores[0] == elo_scores[1]
+
+
+def test_elo_solver_tol_defaults_to_the_converged_value():
+    """The flag is off by default: a fresh import computes the converged ratings."""
+    from bencheval import elo_utils
+
+    assert elo_utils.USE_LEGACY_ELO_SOLVER_TOL is False
+    assert elo_utils.elo_solver_tol() == elo_utils.ELO_SOLVER_TOL
+
+
+def test_legacy_flag_is_read_at_call_time(monkeypatch):
+    """Toggling the flag takes effect without re-importing, so it can be flipped per run."""
+    from bencheval import elo_utils
+
+    monkeypatch.setattr(elo_utils, "USE_LEGACY_ELO_SOLVER_TOL", True)
+    assert elo_utils.elo_solver_tol() == elo_utils.LEGACY_ELO_SOLVER_TOL
+    monkeypatch.setattr(elo_utils, "USE_LEGACY_ELO_SOLVER_TOL", False)
+    assert elo_utils.elo_solver_tol() == elo_utils.ELO_SOLVER_TOL
+
+
+def test_legacy_flag_reproduces_the_looser_fit(monkeypatch):
+    """With the flag on, ratings are the under-converged ones: shrunk toward the field mean.
+
+    The ladder has to be wide for this to be measurable: the shrinkage grows with distance from
+    the field mean, so on a narrow field it is a fraction of an Elo point and the comparison is
+    noise. At +/-6 in log-strength the looser fit is a clear ~2 Elo short at the extremes.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from bencheval import elo_utils
+    from bencheval.evaluator import BenchmarkEvaluator
+
+    n_methods, n_tasks = 12, 400
+    rng = np.random.default_rng(0)
+    strengths = np.linspace(6.0, -6.0, n_methods)
+    err = -(strengths[:, None] + rng.gumbel(size=(n_methods, n_tasks)))
+    df = pd.DataFrame({
+        "method": np.repeat([f"m{i}" for i in range(n_methods)], n_tasks),
+        "task": np.tile([f"t{j}" for j in range(n_tasks)], n_methods),
+        "metric_error": err.ravel(),
+    })
+    evaluator = BenchmarkEvaluator(task_col="task", error_col="metric_error")
+
+    def elo() -> pd.Series:
+        out = evaluator.compute_elo(
+            results_per_task=df, BOOTSTRAP_ROUNDS=1, include_quantiles=False, round_decimals=None
+        )
+        return (out["elo"] if isinstance(out, pd.DataFrame) else out).astype(float)
+
+    converged = elo()
+    monkeypatch.setattr(elo_utils, "USE_LEGACY_ELO_SOLVER_TOL", True)
+    legacy = elo()
+
+    def spread(s: pd.Series) -> float:
+        return float(s.max() - s.min())
+
+    assert spread(legacy) < spread(converged), "the looser fit should report a compressed spread"
+    assert not np.allclose(legacy.to_numpy(), converged.reindex(legacy.index).to_numpy())
+    # Both still order the field the same way; only the scale differs.
+    assert legacy.rank().equals(converged.reindex(legacy.index).rank())

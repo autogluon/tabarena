@@ -17,6 +17,21 @@ logger = logging.getLogger(__name__)
 # `compute_elo`, which is dominated by building the battles.
 ELO_SOLVER_TOL = 1e-10
 
+#: scikit-learn's default, and what shipped before the tolerance was tightened. lbfgs meets it
+#: after ~7 iterations on a leaderboard-sized field, short of the Bradley-Terry maximum.
+LEGACY_ELO_SOLVER_TOL = 1e-4
+
+#: TEMPORARY. Set True to compute Elo the pre-tightening way, for reproducing numbers published
+#: before the change or for bisecting a leaderboard difference against it. Read through
+#: :func:`elo_solver_tol` rather than captured at import, so flipping it at runtime takes effect.
+#: Remove once nothing needs to reproduce the older ratings.
+USE_LEGACY_ELO_SOLVER_TOL = False
+
+
+def elo_solver_tol() -> float:
+    """The lbfgs tolerance for the Elo fit, honouring :data:`USE_LEGACY_ELO_SOLVER_TOL`."""
+    return LEGACY_ELO_SOLVER_TOL if USE_LEGACY_ELO_SOLVER_TOL else ELO_SOLVER_TOL
+
 
 class EloHelper:
     def __init__(
@@ -69,7 +84,7 @@ class EloHelper:
                 )
                 SeriesOut = pd.Series(elo_scores, index=models.index)
             else:
-                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=ELO_SOLVER_TOL)
+                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=elo_solver_tol())
                 lr.fit(X, Y, sample_weight=sample_weight)
                 coef = lr.coef_[0]
                 # map coef -> ELO
@@ -113,7 +128,7 @@ class EloHelper:
                     models=models,
                 )
             else:
-                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=ELO_SOLVER_TOL)
+                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=elo_solver_tol())
                 lr.fit(X, Y, sample_weight=sample_weight)
                 elo_scores = SCALE * lr.coef_[0] + INIT_RATING
 
@@ -916,7 +931,7 @@ class EloHelper:
                 X_fit, Y_fit, sw_fit = X2, Y2, sw
 
             # Fit LR on the fixed design with per-draw weights
-            lr = LogisticRegression(fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter, tol=ELO_SOLVER_TOL)
+            lr = LogisticRegression(fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter, tol=elo_solver_tol())
             lr.fit(X_fit, Y_fit, sample_weight=sw_fit)
 
             # Map coefficients -> ELO
