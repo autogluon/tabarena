@@ -1228,10 +1228,16 @@ class AbstractArenaContext:
             website_leaderboard_kwargs = {}
         # Hoist the shared task scope out of either kwargs dict so both passes get the same grid.
         datasets = self._resolve_shared_task_scope(
-            "datasets", datasets, compare_kwargs, tuning_trajectory_kwargs,
+            "datasets",
+            datasets,
+            compare_kwargs,
+            tuning_trajectory_kwargs,
         )
         folds = self._resolve_shared_task_scope(
-            "folds", folds, compare_kwargs, tuning_trajectory_kwargs,
+            "folds",
+            folds,
+            compare_kwargs,
+            tuning_trajectory_kwargs,
         )
         if save_composite_leaderboard and not plot_compare:
             raise ValueError(
