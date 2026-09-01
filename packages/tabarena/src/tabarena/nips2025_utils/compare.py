@@ -35,6 +35,7 @@ def compare(
     elo_ymin: float | None = None,
     benchmark_name: str = "Arena",
     plot: bool = True,
+    plot_times: bool = False,
     **kwargs,
 ):
     """Evaluate ``df_results`` (already subset to the tasks of interest) into a leaderboard.
@@ -45,6 +46,9 @@ def compare(
     ``output_dir=None`` makes this compute-only: the leaderboard is returned without writing a
     file or rendering a figure. ``plot=False`` keeps the CSVs but skips every figure. Both are
     described in :meth:`LeaderboardReporter.eval`.
+
+    ``plot_times`` opts into the train/infer time figure (``time_plot``), off by default: it is a
+    deep dive rather than part of the leaderboard, and the callers that want it are few.
     """
     df_results = prepare_data(
         df_results=df_results,
@@ -80,7 +84,7 @@ def compare(
         df_results=df_results,
         plot=plot,
         plot_extra_barplots=False,
-        plot_times=True,
+        plot_times=plot_times,
         calibration_framework=calibration_framework,
         average_seeds=average_seeds,
         leaderboard_kwargs=leaderboard_kwargs,
