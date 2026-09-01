@@ -215,8 +215,10 @@ class EloHelper:
                 p = p_new
                 break
             p = p_new
-        log_p = np.log10(p)
-        return SCALE * (log_p - log_p.mean()) + INIT_RATING
+        with np.errstate(divide="ignore"):
+            log_p = np.log10(p)
+        finite = np.isfinite(log_p)
+        return SCALE * (log_p - log_p[finite].mean()) + INIT_RATING
 
     def compute_mle_elo(
         self,

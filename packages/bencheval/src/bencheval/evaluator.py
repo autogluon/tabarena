@@ -699,6 +699,8 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         bootstrap_median = None
         bootstrap_elo_lu = None
         bars_quantiles = None
+        # Set when there is no bootstrap to take quantiles from, so the bars have no width to report.
+        zero_width_bars = False
         if needs_bootstrap:
             bootstrap_fn = (
                 elo_helper.compute_elo_ratings_from_ranks if use_rank_path else elo_helper.compute_elo_ratings
@@ -747,6 +749,7 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
                     "Warning: Returning 95% CI quantiles for elo when BOOTSTRAP_ROUNDS<=1. "
                     "The CI is invalid and widths will be set to 0.",
                 )
+                zero_width_bars = True
                 bars_quantiles = pd.DataFrame(
                     dict(
                         lower=elo,
@@ -768,8 +771,18 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
             relative_to = (
                 bootstrap_median if (use_bootstrap_median_for_quantiles and bootstrap_median is not None) else elo
             )
-            bars["elo+"] = bars_quantiles["upper"] - relative_to
-            bars["elo-"] = relative_to - bars_quantiles["lower"]
+            if zero_width_bars:
+                # Stated directly rather than as `upper - elo`: that subtraction is only zero for
+                # finite ratings, and gives NaN for a method Bradley-Terry places at infinity.
+                bars["elo+"] = 0.0
+                bars["elo-"] = 0.0
+            else:
+                bars["elo+"] = bars_quantiles["upper"] - relative_to
+                bars["elo-"] = relative_to - bars_quantiles["lower"]
+                # A rating Bradley-Terry places at infinity has no interval around it, and
+                # subtracting one infinity from another gives NaN rather than a width.
+                infinite = ~np.isfinite(bars["elo"])
+                bars.loc[infinite, ["elo+", "elo-"]] = 0.0
 
             if clip_negative_ci:
                 bars["elo+"] = bars["elo+"].clip(lower=0)
