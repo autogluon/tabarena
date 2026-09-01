@@ -6,6 +6,7 @@ import pytest
 
 from bencheval import elo_utils
 from bencheval.elo_utils import EloHelper
+from bencheval.evaluator import BenchmarkEvaluator
 
 
 class TestEloHelper:
@@ -333,3 +334,34 @@ def test_fast_elo_is_on_by_default_and_off_under_the_legacy_flag(monkeypatch):
 
     monkeypatch.setenv(elo_utils.DISABLE_FAST_ELO_ENV_VAR, "1")
     assert not elo_utils.use_fast_elo()
+
+
+def _dominance_results() -> pd.DataFrame:
+    """A, B, C strictly ordered on every task, so C never wins a single comparison."""
+    return pd.DataFrame(
+        {
+            "method": ["A", "B", "C"] * 3,
+            "task": ["t1"] * 3 + ["t2"] * 3 + ["t3"] * 3,
+            "metric_error": [0.1, 0.2, 0.3, 0.1, 0.2, 0.4, 0.1, 0.25, 0.5],
+        }
+    )
+
+
+def test_a_winless_method_does_not_contaminate_the_other_ratings():
+    """Bradley-Terry puts a winless method at negative infinity; the rest stay finite and ordered."""
+    evaluator = BenchmarkEvaluator(method_col="method", task_col="task", error_col="metric_error")
+    bars = evaluator.compute_elo(results_per_task=_dominance_results(), BOOTSTRAP_ROUNDS=1, include_quantiles=True)
+
+    assert np.isfinite(bars.loc[["A", "B"], "elo"]).all(), bars
+    assert bars.loc["A", "elo"] > bars.loc["B", "elo"] > bars.loc["C", "elo"]
+    assert bars.loc["C", "elo"] == -np.inf
+    assert np.isfinite(bars[["elo+", "elo-"]].to_numpy()).all(), bars
+
+
+def test_an_infinite_rating_gets_a_zero_width_bar_rather_than_nan():
+    """Subtracting one infinity from another gives NaN, which is not a bar width."""
+    evaluator = BenchmarkEvaluator(method_col="method", task_col="task", error_col="metric_error")
+    bars = evaluator.compute_elo(results_per_task=_dominance_results(), BOOTSTRAP_ROUNDS=20, include_quantiles=True)
+
+    assert np.isfinite(bars[["elo+", "elo-"]].to_numpy()).all(), bars
+    assert (bars.loc["C", ["elo+", "elo-"]] == 0).all()
