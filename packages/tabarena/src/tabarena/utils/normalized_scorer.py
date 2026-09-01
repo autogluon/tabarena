@@ -46,3 +46,15 @@ class NormalizedScorer:
         topline = self.topline_dict[task]
         res = (error - topline) / np.clip(baseline - topline, a_min=1e-5, a_max=None)
         return np.clip(res, 0, 1)
+
+    def rank_many(self, tasks: pd.Index, errors: np.ndarray) -> np.ndarray:
+        """:meth:`rank` over whole columns: one score per (task, error) pair.
+
+        `tasks` indexes the per-task baseline and topline, so it must carry one entry per error --
+        a `MultiIndex` when tasks are (dataset, fold) pairs. Scoring row by row instead spends most
+        of its time in `np.clip`'s dispatch for two scalars, which dwarfs the arithmetic.
+        """
+        baseline = tasks.map(self.baseline_dict).to_numpy(dtype=float)
+        topline = tasks.map(self.topline_dict).to_numpy(dtype=float)
+        res = (np.asarray(errors, dtype=float) - topline) / np.clip(baseline - topline, a_min=1e-5, a_max=None)
+        return np.clip(res, 0, 1)
