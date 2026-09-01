@@ -102,15 +102,20 @@ def _lb_winrate(ctx: LeaderboardContext) -> list:
     return [ctx.evaluator.compute_winrate(results_per_task=ctx.results_per_task).to_frame()]
 
 
+#: Resamples behind the improvability error bars. Separate from the Elo bootstrap, and not
+#: reached by `BOOTSTRAP_ROUNDS`.
+IMPROVABILITY_BOOTSTRAP_ROUNDS = 100
+
+
 def _lb_improvability(ctx: LeaderboardContext) -> list:
     ev = ctx.evaluator
     tasks = list(ctx.results_per_task[ev.task_col].unique())
     results_per_task_avg = ctx.results_per_task.groupby(ev.groupby_columns)[IMPROVABILITY].mean().reset_index()
-    improvability_bootstrap = get_bootstrap_result_lst(
-        data=tasks,
-        func_=ev._weighted_groupby_mean,
-        func_kwargs={"data": results_per_task_avg, "agg_column": IMPROVABILITY},
-        num_round=100,
+    improvability_bootstrap = ev._bootstrap_weighted_task_means(
+        tasks=tasks,
+        data=results_per_task_avg,
+        agg_column=IMPROVABILITY,
+        num_round=IMPROVABILITY_BOOTSTRAP_ROUNDS,
     )
     improvability = ctx.results_agg[IMPROVABILITY]
     ctx.results_agg = ctx.results_agg.drop(columns=[IMPROVABILITY])
@@ -1079,19 +1084,38 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         return results_rank
 
     # TODO: Make faster, can be 100x faster if vectorized properly.
-    def _weighted_groupby_mean(self, tasks: list[str], data: pd.DataFrame, agg_column: str) -> pd.Series:
-        num_tasks = len(tasks)
-        data = data.copy()
+    def _bootstrap_weighted_task_means(
+        self,
+        tasks: list[str],
+        data: pd.DataFrame,
+        agg_column: str,
+        num_round: int,
+        seed: int = 0,
+    ) -> pd.DataFrame:
+        """Bootstrap the per-method, task-weighted mean of ``agg_column`` by resampling tasks.
 
-        counts = {}
-        for task in tasks:
-            counts[task] = counts.get(task, 0) + 1
-        counts = {k: v / num_tasks for k, v in counts.items()}
-        weights = data[self.task_col].map(counts).fillna(0)
-        data["_weighted_column"] = data[agg_column] * weights
-        column_mean = data.groupby(self.method_col)["_weighted_column"].sum()
-        column_mean.index.name = agg_column
-        return column_mean
+        A resample is just a multiplicity vector over tasks, so every round is a column of one
+        matrix product against the (method x task) table of values -- rather than a copy, a map and
+        a groupby per round.
+
+        A (method, task) pair absent from ``data`` contributes nothing, and a task absent from
+        ``tasks`` is ignored, matching the weighting this replaces.
+        """
+        values = (
+            data.pivot_table(index=self.method_col, columns=self.task_col, values=agg_column, aggfunc="sum")
+            .reindex(columns=pd.Index(tasks))
+            .fillna(0.0)
+        )
+
+        num_tasks = len(tasks)
+        rng = np.random.default_rng(seed=seed)
+        counts = np.empty((num_tasks, num_round))
+        for round_idx in range(num_round):
+            counts[:, round_idx] = np.bincount(rng.choice(num_tasks, size=num_tasks, replace=True), minlength=num_tasks)
+
+        means = pd.DataFrame(values.to_numpy() @ counts / num_tasks, index=values.index).T
+        means.columns.name = agg_column
+        return means[means.median().sort_values(ascending=False).index]
 
     def _seed_col_if_present(self, df: pd.DataFrame) -> str | None:
         if self.seed_column is not None and self.seed_column in df.columns:
