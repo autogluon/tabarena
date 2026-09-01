@@ -94,21 +94,10 @@ def compare(
 
 
 def filter_to_valid_tasks(df_to_filter: pd.DataFrame, df_filter: pd.DataFrame) -> pd.DataFrame:
-    dataset_fold_map = df_filter.groupby("dataset")["fold"].apply(set)
-
-    def is_in(dataset: str, fold: int) -> bool:
-        return (dataset in dataset_fold_map.index) and (fold in dataset_fold_map.loc[dataset])
-
-    # filter `df_to_filter` to only the dataset, fold pairs that are present in `df_filter`
-    is_in_lst = [
-        is_in(dataset, fold)
-        for dataset, fold in zip(
-            df_to_filter["dataset"],
-            df_to_filter["fold"],
-            strict=False,
-        )
-    ]
-    return df_to_filter[is_in_lst]
+    """Keep the rows of ``df_to_filter`` whose (dataset, fold) pair appears in ``df_filter``."""
+    valid_tasks = pd.MultiIndex.from_frame(df_filter[["dataset", "fold"]].drop_duplicates())
+    tasks = pd.MultiIndex.from_frame(df_to_filter[["dataset", "fold"]])
+    return df_to_filter[tasks.isin(valid_tasks)]
 
 
 def prepare_data(
