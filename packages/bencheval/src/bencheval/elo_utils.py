@@ -269,28 +269,24 @@ class EloHelper:
 
         if use_pair_aggregation and not force_iterative_elo:
             X, Y, sample_weight, model_to_idx = self._aggregate_battles_for_mle(battles, BASE=BASE)
-            if len(Y) == 0 or (np.unique(Y).size < 2):
-                # Degenerate draw (e.g., total dominance in a bootstrap): fall back.
-                logger.warning(
-                    "compute_mle_elo: only one class present after aggregation; falling back to iterative ELO."
+            if len(Y) == 0:
+                # Every pair is emitted with both labels, so an empty design means no pair of
+                # methods carries any weight -- there is nothing to rank, not a harder fit.
+                raise ValueError(
+                    f"Cannot compute Elo: none of the {len(battles)} battle(s) between "
+                    f"{len(models)} method(s) carry any weight, so no pair of methods has a "
+                    f"comparison to fit."
                 )
-                elo_scores = self.compute_iterative_elo_scores(
-                    df_original,
-                    INIT_RATING=INIT_RATING,
-                    SCALE=SCALE,
-                    models=models,
-                )
-                SeriesOut = pd.Series(elo_scores, index=models.index)
-            else:
-                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=elo_solver_tol())
-                lr.fit(X, Y, sample_weight=sample_weight)
-                coef = lr.coef_[0]
-                # map coef -> ELO
-                elo_vec = SCALE * coef + INIT_RATING
-                # place into full model order
-                out = np.ones(len(models)) * INIT_RATING
-                out[model_to_idx.values] = elo_vec[model_to_idx.values]
-                SeriesOut = pd.Series(out, index=models.index)
+
+            lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=elo_solver_tol())
+            lr.fit(X, Y, sample_weight=sample_weight)
+            coef = lr.coef_[0]
+            # map coef -> ELO
+            elo_vec = SCALE * coef + INIT_RATING
+            # place into full model order
+            out = np.ones(len(models)) * INIT_RATING
+            out[model_to_idx.values] = elo_vec[model_to_idx.values]
+            SeriesOut = pd.Series(out, index=models.index)
         else:
             # duplicate battles
             battles = pd.concat([battles, battles], ignore_index=True)
@@ -858,6 +854,9 @@ class EloHelper:
           - Create two rows with the *same X*:
               y=1, weight = w_Awins + 0.5 * w_ties
               y=0, weight = w_Bwins + 0.5 * w_ties
+
+        Both rows are kept even at zero weight, so which labels appear does not depend on how the
+        pair was canonicalised. Only a pair neither method ever contested is dropped.
         """
         # model index mapping
         all_models = pd.concat([battles[self.method_1], battles[self.method_2]]).unique()
@@ -912,15 +911,17 @@ class EloHelper:
             x[model_to_idx[vi]] = -logB
 
             # y=1 row with A-side effective wins
-            if su > 0.0:
-                X_rows.append(x)
-                y_rows.append(1.0)
-                sw_rows.append(su)
+            # Both rows are emitted even when one side never won. A zero weight contributes nothing
+            # to the fit, but dropping the row would leave the design with a single label whenever
+            # every decisive pair happens to be won by the alphabetically earlier method -- which
+            # `compute_mle_elo` reads as unfittable and answers with a different estimator entirely.
+            X_rows.append(x)
+            y_rows.append(1.0)
+            sw_rows.append(su)
             # y=0 row with B-side effective wins
-            if sv > 0.0:
-                X_rows.append(x)
-                y_rows.append(0.0)
-                sw_rows.append(sv)
+            X_rows.append(x)
+            y_rows.append(0.0)
+            sw_rows.append(sv)
 
         X = np.vstack(X_rows) if X_rows else np.zeros((0, p))
         y = np.asarray(y_rows, dtype=float)
@@ -1131,53 +1132,35 @@ class EloHelper:
         SU_tot = counts @ SU  # (n_pairs,)
         SV_tot = counts @ SV  # (n_pairs,)
 
-        # If one class is missing, fall back to iterative path for this draw
-        has_pos = np.any(SU_tot > 0.0)
-        has_neg = np.any(SV_tot > 0.0)
-        if not (has_pos and has_neg):
-            # Build multiplicity map for tasks in this draw
-            mult_map = dict(zip(task_ids, counts, strict=False))
-            battles_boot = battles.copy()
-            if "weight" not in battles_boot.columns:
-                battles_boot["weight"] = 1.0
-            battles_boot["weight"] = battles_boot["weight"].to_numpy(dtype=float) * battles_boot[self.task_col].map(
-                mult_map
-            ).fillna(0.0).to_numpy(dtype=float)
-            elo_scores = self.compute_iterative_elo_scores(
-                battles_boot,
-                INIT_RATING=INIT_RATING,
-                SCALE=SCALE,
-                models=pd.Series(np.arange(len(model_to_idx)), index=model_to_idx.index),
-            )
-            ser = pd.Series(elo_scores, index=model_to_idx.index)
+        # Every pair contributes both labels, so the design is fittable even when a draw leaves one
+        # side of a pair with no wins at all -- that side simply carries zero weight.
+        # Interleaved sample weights: [SU_tot[0], SV_tot[0], SU_tot[1], SV_tot[1], ...]
+        n_pairs = SU_tot.size
+        sw = np.empty(2 * n_pairs, dtype=float)
+        sw[0::2] = SU_tot
+        sw[1::2] = SV_tot
+
+        # Optionally drop zero-weight pairs to shrink the fit
+        active_pairs = (SU_tot + SV_tot) > 0.0
+        if not np.all(active_pairs):
+            idx_pairs = np.flatnonzero(active_pairs)
+            row_idx = np.empty(2 * idx_pairs.size, dtype=int)
+            row_idx[0::2] = 2 * idx_pairs
+            row_idx[1::2] = 2 * idx_pairs + 1
+            X_fit, Y_fit, sw_fit = X2[row_idx], Y2[row_idx], sw[row_idx]
         else:
-            # Interleaved sample weights: [SU_tot[0], SV_tot[0], SU_tot[1], SV_tot[1], ...]
-            n_pairs = SU_tot.size
-            sw = np.empty(2 * n_pairs, dtype=float)
-            sw[0::2] = SU_tot
-            sw[1::2] = SV_tot
+            X_fit, Y_fit, sw_fit = X2, Y2, sw
 
-            # Optionally drop zero-weight pairs to shrink the fit
-            active_pairs = (SU_tot + SV_tot) > 0.0
-            if not np.all(active_pairs):
-                idx_pairs = np.flatnonzero(active_pairs)
-                row_idx = np.empty(2 * idx_pairs.size, dtype=int)
-                row_idx[0::2] = 2 * idx_pairs
-                row_idx[1::2] = 2 * idx_pairs + 1
-                X_fit, Y_fit, sw_fit = X2[row_idx], Y2[row_idx], sw[row_idx]
-            else:
-                X_fit, Y_fit, sw_fit = X2, Y2, sw
+        # Fit LR on the fixed design with per-draw weights
+        lr = LogisticRegression(fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter, tol=elo_solver_tol())
+        lr.fit(X_fit, Y_fit, sample_weight=sw_fit)
 
-            # Fit LR on the fixed design with per-draw weights
-            lr = LogisticRegression(fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter, tol=elo_solver_tol())
-            lr.fit(X_fit, Y_fit, sample_weight=sw_fit)
-
-            # Map coefficients -> ELO
-            coef = lr.coef_[0]  # aligned with model_to_idx order
-            elo_vec = SCALE * coef + INIT_RATING
-            out = np.ones(len(model_to_idx), dtype=float) * INIT_RATING
-            out[:] = elo_vec
-            ser = pd.Series(out, index=model_to_idx.index)
+        # Map coefficients -> ELO
+        coef = lr.coef_[0]  # aligned with model_to_idx order
+        elo_vec = SCALE * coef + INIT_RATING
+        out = np.ones(len(model_to_idx), dtype=float) * INIT_RATING
+        out[:] = elo_vec
+        ser = pd.Series(out, index=model_to_idx.index)
 
         # ---- Per-draw calibration (apply to the Series) ----
         if calibration_framework is not None:
