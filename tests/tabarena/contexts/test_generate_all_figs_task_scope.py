@@ -80,6 +80,9 @@ def test_generate_all_figs_forwards_the_same_scope_to_both_passes(monkeypatch, t
         compare_kwargs={"folds": [0, 1, 2], "datasets": ["d1"]},
         plot_compare=True,
         plot_tuning_trajectories=True,
+        # This context is a hollow object, and the composite needs a real method metadata
+        # collection to build. Scope forwarding is what is under test here.
+        save_composite_leaderboard=False,
     )
 
     for pass_name in ("compare", "trajectory"):
