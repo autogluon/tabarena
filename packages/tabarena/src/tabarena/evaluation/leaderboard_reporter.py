@@ -241,19 +241,15 @@ class LeaderboardReporter:
             framework_col=method_col,
         )
 
-        df_results["normalized-error-task"] = [
-            normalized_scorer_task.rank(task=(dataset, fold), error=error)
-            for (dataset, fold, error) in zip(
-                df_results["dataset"], df_results["fold"], df_results[self.error_col], strict=False
-            )
-        ]
+        df_results["normalized-error-task"] = normalized_scorer_task.rank_many(
+            tasks=pd.MultiIndex.from_arrays([df_results["dataset"], df_results["fold"]]),
+            errors=df_results[self.error_col].to_numpy(),
+        )
 
-        df_results_per_dataset["normalized-error-dataset"] = [
-            normalized_scorer_dataset.rank(task=dataset, error=error)
-            for (dataset, error) in zip(
-                df_results_per_dataset["dataset"], df_results_per_dataset[self.error_col], strict=False
-            )
-        ]
+        df_results_per_dataset["normalized-error-dataset"] = normalized_scorer_dataset.rank_many(
+            tasks=pd.Index(df_results_per_dataset["dataset"]),
+            errors=df_results_per_dataset[self.error_col].to_numpy(),
+        )
 
         df_results_per_dataset = df_results_per_dataset.set_index(["dataset", method_col], drop=True)[
             "normalized-error-dataset"
