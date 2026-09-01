@@ -784,10 +784,6 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
             else:
                 bars["elo+"] = bars_quantiles["upper"] - relative_to
                 bars["elo-"] = relative_to - bars_quantiles["lower"]
-                # A rating Bradley-Terry places at infinity has no interval around it, and
-                # subtracting one infinity from another gives NaN rather than a width.
-                infinite = ~np.isfinite(bars["elo"])
-                bars.loc[infinite, ["elo+", "elo-"]] = 0.0
 
             if clip_negative_ci:
                 bars["elo+"] = bars["elo+"].clip(lower=0)

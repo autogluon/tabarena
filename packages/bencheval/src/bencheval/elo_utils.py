@@ -194,40 +194,6 @@ class EloHelper:
         return out.sort_values(ascending=False)
 
     @staticmethod
-    def _bradley_terry_by_mm(
-        wins: np.ndarray,
-        n_tasks: int,
-        SCALE: int | float = 400,
-        INIT_RATING: int | float = 1000,
-        max_iter: int = 10_000,
-        tol: float = 1e-12,
-    ) -> np.ndarray:
-        """Maximise the Bradley-Terry likelihood by minorization-maximization.
-
-        The update ``p_i <- W_i / sum_j n_ij/(p_i + p_j)`` increases the likelihood at every step and
-        needs no gradients. It is slow to converge, but it is exact on a winless method: that
-        method's strength updates to 0 and stays there, giving the negative-infinite rating the
-        likelihood actually implies. Infinities are excluded from the centring so they do not spread
-        to the methods that do have a finite rating.
-        """
-        n = len(wins)
-        counts = np.full((n, n), float(n_tasks))
-        np.fill_diagonal(counts, 0.0)
-        p = np.ones(n) / n
-        for _ in range(max_iter):
-            denom = (counts / (p[:, None] + p[None, :] + np.eye(n))).sum(axis=1)
-            p_new = wins / denom
-            p_new /= p_new.sum()
-            if np.max(np.abs(p_new - p)) < tol:
-                p = p_new
-                break
-            p = p_new
-        with np.errstate(divide="ignore"):
-            log_p = np.log10(p)
-        finite = np.isfinite(log_p)
-        return SCALE * (log_p - log_p[finite].mean()) + INIT_RATING
-
-    @staticmethod
     def _bradley_terry_from_win_totals(
         wins: np.ndarray,
         n_tasks: int,
@@ -245,28 +211,17 @@ class EloHelper:
         where the classic MM update needs several hundred, because MM's guaranteed ascent is
         first-order and slows near the optimum.
 
-        The fit carries the same ridge as the battle path (:data:`BT_RIDGE`), which costs nothing on
-        a real field but pins down a separable one, where the unpenalised maximum is at infinity.
+        The fit carries the same ridge as the battle path (:data:`BT_RIDGE`). It costs 4e-6 Elo on a
+        real field, and it is what makes a *degenerate* one answerable at all: where a group of
+        methods beats another on every task, or a method wins nothing, the unpenalised maximum runs
+        off to infinity and the ratings would otherwise be an artifact of wherever the solver's
+        tolerance stopped. Every rating therefore comes back finite, as the battle path's penalty has
+        always made them.
+
         The likelihood fixes strengths only up to a common factor, so ratings are centred to average
         ``INIT_RATING`` -- the convention the battle path lands on. ``init`` warm-starts the search,
         which is worth roughly a third of the iterations when solving many bootstrap resamples.
-
-        A method that won nothing has no finite rating; that case is handed to
-        :meth:`_bradley_terry_by_mm`, which reaches the limit exactly.
         """
-        if not np.all(wins > 0):
-            # A winless method's maximum is at negative infinity. MM reaches that limit exactly --
-            # its strength updates to 0 and stays there -- where a gradient step only ever walks
-            # toward it, so the degenerate case keeps the slower solver.
-            return EloHelper._bradley_terry_by_mm(
-                wins=wins,
-                n_tasks=n_tasks,
-                SCALE=SCALE,
-                INIT_RATING=INIT_RATING,
-                max_iter=max_iter,
-                tol=tol,
-            )
-
         n = len(wins)
         off_diagonal = ~np.eye(n, dtype=bool)
         upper = np.triu_indices(n, 1)
