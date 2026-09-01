@@ -26,6 +26,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import functools
+import os
 import tempfile
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -58,6 +59,19 @@ if TYPE_CHECKING:
 # expname" (fall back to `cache_config.results`, else error) from an explicit `expname=None`
 # (always a throwaway temp dir). Keeps the original "expname is required; None means throwaway" API.
 _EXPNAME_UNSET: Any = object()
+
+
+def _default_max_workers() -> int:
+    """One process per available CPU less one, so the machine keeps a core for everything else.
+
+    Counts the CPUs this process may actually run on rather than the ones the machine has, which
+    differ under an affinity mask or a container quota.
+    """
+    if hasattr(os, "sched_getaffinity"):
+        available = len(os.sched_getaffinity(0))
+    else:
+        available = os.cpu_count() or 1
+    return max(1, available - 1)
 
 
 class AbstractArenaContext:
@@ -1182,10 +1196,10 @@ class AbstractArenaContext:
         save_website_leaderboard: bool = False,
         website_leaderboard_kwargs: dict | None = None,
         website_leaderboard_filename: str = "leaderboard_website.csv",
-        save_composite_leaderboard: bool = False,
+        save_composite_leaderboard: bool | None = None,
         composite_leaderboard_kwargs: dict | None = None,
         trajectory_extra_results: pd.DataFrame | None = None,
-        max_workers: int = 1,
+        max_workers: int | None = None,
     ) -> None:
         """Generate the compare / tuning-trajectory / runtime figures for each subset.
 
@@ -1206,7 +1220,8 @@ class AbstractArenaContext:
         while the leaderboard still reports them. ``compare``-only task scoping (``tasks``) has no
         trajectory counterpart and stays in ``compare_kwargs``.
 
-        ``save_composite_leaderboard=True`` additionally aggregates the per-subset leaderboards
+        ``save_composite_leaderboard`` (``None`` by default: on whenever ``plot_compare`` is)
+        additionally aggregates the per-subset leaderboards
         into a single composite table (rows = (method, metric), one column per subset) written to
         ``<output_dir>/composite_leaderboard.csv`` plus color-graded PNG renderings — see
         :func:`tabarena.plot.composite_leaderboard.generate_composite_leaderboard`, which
@@ -1215,10 +1230,12 @@ class AbstractArenaContext:
         built from the compact website format independently of ``save_website_leaderboard``.
 
         ``max_workers`` parallelizes the per-subset passes across processes (capped at the subset
-        count; 1 = sequential). Each subset's compare/plots are independent and write to their own
-        directory, so they compose freely; processes (not threads) because the passes are CPU-bound
-        (Elo bootstrap, plotting) and matplotlib is not thread-safe. Requires the context (and any
-        results frames passed in) to be picklable.
+        count; 1 = sequential). ``None`` (the default) uses one process per available CPU less one,
+        leaving a core for everything else. Each subset's compare/plots are independent and write to
+        their own directory, so they compose freely; processes (not threads) because the passes are
+        CPU-bound (Elo bootstrap, plotting) and matplotlib is not thread-safe. Requires the context
+        (and any results frames passed in) to be picklable -- pass ``max_workers=1`` for a context
+        that is not.
         """
         if compare_kwargs is None:
             compare_kwargs = {}
@@ -1244,6 +1261,10 @@ class AbstractArenaContext:
                 "save_composite_leaderboard=True requires plot_compare=True: the composite is "
                 "aggregated from the per-subset leaderboards computed by the compare pass.",
             )
+        # Default to writing it whenever the leaderboards it aggregates are being produced, rather
+        # than making a trajectories-only run (`plot_compare=False`) fail on a default it never set.
+        if save_composite_leaderboard is None:
+            save_composite_leaderboard = plot_compare
         if subsets == "auto":
             subsets = self._default_subsets
         output_dir = Path(output_dir)
@@ -1264,6 +1285,8 @@ class AbstractArenaContext:
             collect_composite=save_composite_leaderboard,
             trajectory_extra_results=trajectory_extra_results,
         )
+        if max_workers is None:
+            max_workers = _default_max_workers()
         max_workers = max(1, min(max_workers, len(subsets)))
         if max_workers == 1:
             subset_results = [self._generate_subset_figs(subset, **subset_fig_kwargs) for subset in subsets]
