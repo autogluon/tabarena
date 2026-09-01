@@ -36,6 +36,7 @@ def compare(
     benchmark_name: str = "Arena",
     plot: bool = True,
     plot_times: bool = False,
+    plot_winrate_matrix: bool = True,
     **kwargs,
 ):
     """Evaluate ``df_results`` (already subset to the tasks of interest) into a leaderboard.
@@ -49,6 +50,10 @@ def compare(
 
     ``plot_times`` opts into the train/infer time figure (``time_plot``), off by default: it is a
     deep dive rather than part of the leaderboard, and the callers that want it are few.
+
+    ``plot_winrate_matrix`` skips the win-rate figure and its interactive page when ``False``. The
+    matrix is still computed and written as CSV; on a large field the rendering is what costs, since
+    every cell carries a label.
     """
     df_results = prepare_data(
         df_results=df_results,
@@ -85,6 +90,7 @@ def compare(
         plot=plot,
         plot_extra_barplots=False,
         plot_times=plot_times,
+        plot_winrate_matrix=plot_winrate_matrix,
         calibration_framework=calibration_framework,
         average_seeds=average_seeds,
         leaderboard_kwargs=leaderboard_kwargs,

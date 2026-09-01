@@ -71,3 +71,17 @@ def test_the_time_figure_can_be_asked_for(df_results, task_metadata, captured_ev
     compare_module.compare(df_results=df_results, output_dir=None, task_metadata=task_metadata, plot_times=True)
 
     assert captured_eval_kwargs["plot_times"] is True
+
+
+def test_the_winrate_matrix_figure_is_drawn_by_default(df_results, task_metadata, captured_eval_kwargs):
+    compare_module.compare(df_results=df_results, output_dir=None, task_metadata=task_metadata)
+
+    assert captured_eval_kwargs["plot_winrate_matrix"] is True
+
+
+def test_the_winrate_matrix_figure_can_be_skipped(df_results, task_metadata, captured_eval_kwargs):
+    compare_module.compare(
+        df_results=df_results, output_dir=None, task_metadata=task_metadata, plot_winrate_matrix=False
+    )
+
+    assert captured_eval_kwargs["plot_winrate_matrix"] is False
