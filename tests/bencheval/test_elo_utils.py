@@ -439,3 +439,88 @@ def test_a_separable_field_lands_where_the_battle_path_does():
     from_battles = helper.compute_mle_elo(battles=helper.convert_results_to_battles(results_df=results))
 
     assert (from_ranks - from_battles.reindex(methods)).abs().max() < 1.0
+
+
+def _strict_total_order(names: list[str], n_tasks: int = 10) -> pd.DataFrame:
+    """Every task ranks the methods in the same strict order, so every pair is decisive."""
+    return pd.DataFrame(
+        [(name, f"t{task}", float(i)) for task in range(n_tasks) for i, name in enumerate(names)],
+        columns=["method", "task", "metric_error"],
+    )
+
+
+def test_battle_path_elo_does_not_depend_on_method_names():
+    """Renaming a method must not change its rating, and once did on a decisive field.
+
+    Pairs are canonicalised by name, and a decisive pair contributed only its winning side. When
+    every winner sorted first, the design was left with a single label, which `compute_mle_elo` read
+    as unfittable and answered with an iterative Elo instead -- a different estimator, reached or not
+    according to spelling.
+    """
+    helper = EloHelper(method_col="method", task_col="task", error_col="metric_error")
+
+    ratings = []
+    for names in (["m0", "m1", "m2"], ["c", "b", "a"], ["b", "a", "c"]):
+        results = _strict_total_order(names)
+        elo = helper.compute_mle_elo(battles=helper.convert_results_to_battles(results_df=results))
+        ratings.append(elo.reindex(names).to_numpy())
+
+    for other in ratings[1:]:
+        assert np.abs(other - ratings[0]).max() < 1e-6, ratings
+
+
+def test_a_decisive_field_keeps_both_labels_in_the_design():
+    """The zero-weight row is what stops the fit from seeing a single class."""
+    helper = EloHelper(method_col="method", task_col="task", error_col="metric_error")
+    battles = helper.convert_results_to_battles(results_df=_strict_total_order(["m0", "m1", "m2"]))
+
+    _, labels, weights, _ = helper._aggregate_battles_for_mle(battles, BASE=10)
+
+    assert set(np.unique(labels)) == {0.0, 1.0}
+    assert (weights == 0).any(), "a strictly ordered field should produce zero-weight rows"
+
+
+def test_the_two_paths_agree_on_a_decisive_field():
+    """With both labels present the battle path fits Bradley-Terry, and the rank path matches it."""
+    results = _strict_total_order(["m0", "m1", "m2"])
+    helper = EloHelper(method_col="method", task_col="task", error_col="metric_error")
+
+    from_battles = helper.compute_mle_elo(battles=helper.convert_results_to_battles(results_df=results))
+    methods, win_matrix = helper._rank_win_matrix(results_per_task=results)
+    from_ranks = pd.Series(
+        EloHelper._bradley_terry_from_win_totals(wins=win_matrix.sum(axis=1), n_tasks=win_matrix.shape[1]),
+        index=methods,
+    )
+
+    assert (from_ranks - from_battles.reindex(methods)).abs().max() < 1.0
+
+
+def test_a_decisive_bootstrap_draw_still_fits_bradley_terry():
+    """Every draw must use the same estimator; one silently swapping is worse than a wide interval."""
+    results = _strict_total_order(["m0", "m1", "m2"], n_tasks=6)
+    helper = EloHelper(method_col="method", task_col="task", error_col="metric_error")
+
+    bootstrap = helper.compute_elo_ratings(
+        battles=helper.convert_results_to_battles(results_df=results),
+        BOOTSTRAP_ROUNDS=25,
+        show_process=False,
+    )
+    methods, win_matrix = helper._rank_win_matrix(results_per_task=results)
+    from_ranks = pd.Series(
+        EloHelper._bradley_terry_from_win_totals(wins=win_matrix.sum(axis=1), n_tasks=win_matrix.shape[1]),
+        index=methods,
+    )
+
+    # An iterative-Elo draw would land near INIT_RATING, hundreds of Elo from the Bradley-Terry fit.
+    assert (bootstrap.median() - from_ranks.reindex(bootstrap.columns)).abs().max() < 50
+
+
+def test_battles_with_no_weight_raise_rather_than_returning_a_rating():
+    """Nothing to rank is a broken input, not a harder fit to fall back on."""
+    results = _strict_total_order(["m0", "m1", "m2"], n_tasks=2)
+    helper = EloHelper(method_col="method", task_col="task", error_col="metric_error")
+    battles = helper.convert_results_to_battles(results_df=results)
+    battles["weight"] = 0.0
+
+    with pytest.raises(ValueError, match="carry any weight"):
+        helper.compute_mle_elo(battles=battles)
