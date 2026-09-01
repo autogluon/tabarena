@@ -7,6 +7,7 @@ from collections import defaultdict
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize
 from sklearn.linear_model import LogisticRegression
 from tqdm import tqdm
 
@@ -48,6 +49,13 @@ def elo_solver_tol() -> float:
     """The lbfgs tolerance for the Elo fit, honouring :func:`use_legacy_elo_solver_tol`."""
     return LEGACY_ELO_SOLVER_TOL if use_legacy_elo_solver_tol() else ELO_SOLVER_TOL
 
+
+#: Ridge on the log-strengths, matching the L2 penalty `compute_mle_elo`'s `LogisticRegression`
+#: applies at `C=1e6`. sklearn penalises `beta = t / ln(10)` and scales the likelihood by `C`, so
+#: `0.5 * ||beta||^2` becomes this coefficient on `||t||^2`. Negligible on a real field (4e-6 Elo),
+#: it is what pins down a *separable* one, where the unpenalised maximum runs off to infinity and
+#: any answer would otherwise depend on where the solver's tolerance happened to stop it.
+BT_RIDGE = 0.5 / (1e6 * math.log(10) ** 2)
 
 #: Env var equivalent of :data:`USE_FAST_ELO`, for turning the rank path off without touching code.
 DISABLE_FAST_ELO_ENV_VAR = "TABARENA_DISABLE_FAST_ELO"
@@ -186,7 +194,7 @@ class EloHelper:
         return out.sort_values(ascending=False)
 
     @staticmethod
-    def _bradley_terry_from_win_totals(
+    def _bradley_terry_by_mm(
         wins: np.ndarray,
         n_tasks: int,
         SCALE: int | float = 400,
@@ -196,12 +204,11 @@ class EloHelper:
     ) -> np.ndarray:
         """Maximise the Bradley-Terry likelihood by minorization-maximization.
 
-        The MM update ``p_i <- W_i / sum_j n_ij/(p_i + p_j)`` increases the likelihood at every
-        step and needs no gradients. Strengths are renormalised each iteration because the
-        likelihood only determines them up to a common factor.
-
-        That same indeterminacy means the ratings need a convention to pin them down; ratings are
-        centred so the field averages ``INIT_RATING``, which is where the battle path lands.
+        The update ``p_i <- W_i / sum_j n_ij/(p_i + p_j)`` increases the likelihood at every step and
+        needs no gradients. It is slow to converge, but it is exact on a winless method: that
+        method's strength updates to 0 and stays there, giving the negative-infinite rating the
+        likelihood actually implies. Infinities are excluded from the centring so they do not spread
+        to the methods that do have a finite rating.
         """
         n = len(wins)
         counts = np.full((n, n), float(n_tasks))
@@ -219,6 +226,71 @@ class EloHelper:
             log_p = np.log10(p)
         finite = np.isfinite(log_p)
         return SCALE * (log_p - log_p[finite].mean()) + INIT_RATING
+
+    @staticmethod
+    def _bradley_terry_from_win_totals(
+        wins: np.ndarray,
+        n_tasks: int,
+        SCALE: int | float = 400,
+        INIT_RATING: int | float = 1000,
+        max_iter: int = 10_000,
+        tol: float = 1e-12,
+        init: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Maximise the Bradley-Terry likelihood, working in log-strengths.
+
+        With every pair meeting ``n_tasks`` times, the log-likelihood is
+        ``sum_i W_i t_i - n_tasks * sum_{i<j} log(e^{t_i} + e^{t_j})`` -- concave in ``t``, and
+        expressible from the win totals alone. L-BFGS reaches its maximum in around 15 iterations
+        where the classic MM update needs several hundred, because MM's guaranteed ascent is
+        first-order and slows near the optimum.
+
+        The fit carries the same ridge as the battle path (:data:`BT_RIDGE`), which costs nothing on
+        a real field but pins down a separable one, where the unpenalised maximum is at infinity.
+        The likelihood fixes strengths only up to a common factor, so ratings are centred to average
+        ``INIT_RATING`` -- the convention the battle path lands on. ``init`` warm-starts the search,
+        which is worth roughly a third of the iterations when solving many bootstrap resamples.
+
+        A method that won nothing has no finite rating; that case is handed to
+        :meth:`_bradley_terry_by_mm`, which reaches the limit exactly.
+        """
+        if not np.all(wins > 0):
+            # A winless method's maximum is at negative infinity. MM reaches that limit exactly --
+            # its strength updates to 0 and stays there -- where a gradient step only ever walks
+            # toward it, so the degenerate case keeps the slower solver.
+            return EloHelper._bradley_terry_by_mm(
+                wins=wins,
+                n_tasks=n_tasks,
+                SCALE=SCALE,
+                INIT_RATING=INIT_RATING,
+                max_iter=max_iter,
+                tol=tol,
+            )
+
+        n = len(wins)
+        off_diagonal = ~np.eye(n, dtype=bool)
+        upper = np.triu_indices(n, 1)
+
+        def penalised_negative_log_likelihood(t: np.ndarray) -> tuple[float, np.ndarray]:
+            # log(e^{t_i} + e^{t_j}), shifted by the larger exponent so neither term overflows.
+            largest = np.maximum(t[:, None], t[None, :])
+            log_sum = largest + np.log(np.exp(t[:, None] - largest) + np.exp(t[None, :] - largest))
+            log_likelihood = wins @ t - n_tasks * log_sum[upper].sum()
+            win_probability = np.exp(t[:, None] - log_sum)
+            gradient = wins - n_tasks * np.where(off_diagonal, win_probability, 0.0).sum(axis=1)
+            # The ridge also removes the likelihood's flat direction, so no re-centring is needed
+            # to make the search well posed.
+            return -log_likelihood + BT_RIDGE * (t @ t), -gradient + 2 * BT_RIDGE * t
+
+        result = minimize(
+            penalised_negative_log_likelihood,
+            np.zeros(n) if init is None else np.asarray(init, dtype=float),
+            jac=True,
+            method="L-BFGS-B",
+            options={"maxiter": max_iter, "ftol": tol * 1e-3, "gtol": tol},
+        )
+        log_strength = result.x - result.x.mean()
+        return SCALE * (log_strength / np.log(10)) + INIT_RATING
 
     def compute_mle_elo(
         self,

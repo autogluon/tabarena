@@ -365,3 +365,107 @@ def test_an_infinite_rating_gets_a_zero_width_bar_rather_than_nan():
 
     assert np.isfinite(bars[["elo+", "elo-"]].to_numpy()).all(), bars
     assert (bars.loc["C", ["elo+", "elo-"]] == 0).all()
+
+
+def _tournament_win_totals(n_methods: int, n_tasks: int, rng: np.random.Generator) -> np.ndarray:
+    """Win totals from an actual tournament, which arbitrary vectors are not.
+
+    Bradley-Terry has no finite maximum for win totals no tournament could produce, so a solver
+    comparison over made-up vectors compares two kinds of divergence rather than two answers.
+    """
+    errors = rng.normal(size=(n_methods, n_tasks)) - rng.normal(0, 1, n_methods)[:, None]
+    ranks = pd.DataFrame(errors).rank(axis=0, method="average").to_numpy()
+    return (n_methods - ranks).sum(axis=1)
+
+
+def _log_likelihood(elo: np.ndarray, wins: np.ndarray, n_tasks: int) -> float:
+    strengths = (np.asarray(elo) - 1000) / 400 * np.log(10)
+    largest = np.maximum(strengths[:, None], strengths[None, :])
+    log_sum = largest + np.log(np.exp(strengths[:, None] - largest) + np.exp(strengths[None, :] - largest))
+    return wins @ strengths - n_tasks * log_sum[np.triu_indices(len(strengths), 1)].sum()
+
+
+def test_lbfgs_never_lands_below_mm_on_the_likelihood():
+    """The contract for swapping solvers: never a worse fit, whatever the field looks like.
+
+    Ratings can differ a lot on a near-separable field, where the maximum is extreme and MM is still
+    crawling toward it at its iteration cap -- so the likelihood, not the ratings, is what to assert.
+    """
+    rng = np.random.default_rng(0)
+    checked = 0
+    for _ in range(50):
+        n_methods, n_tasks = int(rng.integers(3, 15)), int(rng.integers(5, 30))
+        wins = _tournament_win_totals(n_methods, n_tasks, rng)
+        if not np.all(wins > 0):
+            continue
+        checked += 1
+        by_mm = EloHelper._bradley_terry_by_mm(wins=wins, n_tasks=n_tasks)
+        by_lbfgs = EloHelper._bradley_terry_from_win_totals(wins=wins, n_tasks=n_tasks)
+        assert _log_likelihood(by_lbfgs, wins, n_tasks) >= _log_likelihood(by_mm, wins, n_tasks) - 1e-9
+    assert checked > 20, checked
+
+
+def test_the_two_solvers_agree_on_a_well_conditioned_field():
+    """Where the maximum is comfortably interior, both solvers reach it and the ratings match."""
+    rng = np.random.default_rng(0)
+    checked = 0
+    for _ in range(50):
+        n_methods, n_tasks = int(rng.integers(4, 15)), int(rng.integers(15, 30))
+        wins = _tournament_win_totals(n_methods, n_tasks, rng)
+        # Skip near-separable fields: a method winning almost nothing pushes the maximum so far out
+        # that MM stops at its iteration cap rather than at the optimum.
+        if wins.min() < 0.1 * n_tasks * (n_methods - 1):
+            continue
+        checked += 1
+        by_mm = EloHelper._bradley_terry_by_mm(wins=wins, n_tasks=n_tasks)
+        by_lbfgs = EloHelper._bradley_terry_from_win_totals(wins=wins, n_tasks=n_tasks)
+        assert np.abs(by_mm - by_lbfgs).max() < 1e-2
+    assert checked > 5, checked
+
+
+def test_a_winless_method_keeps_the_mm_solver():
+    """Its maximum is at negative infinity: MM reaches that limit, a gradient step only approaches it."""
+    rng = np.random.default_rng(0)
+    checked = 0
+    for _ in range(200):
+        n_methods, n_tasks = int(rng.integers(3, 10)), int(rng.integers(2, 6))
+        wins = _tournament_win_totals(n_methods, n_tasks, rng)
+        if np.all(wins > 0):
+            continue
+        checked += 1
+        by_mm = EloHelper._bradley_terry_by_mm(wins=wins, n_tasks=n_tasks)
+        dispatched = EloHelper._bradley_terry_from_win_totals(wins=wins, n_tasks=n_tasks)
+        assert np.array_equal(by_mm, dispatched, equal_nan=True)
+        assert np.isneginf(dispatched[wins == 0]).all()
+    assert checked > 0, "no winless field was generated, so nothing was tested"
+
+
+def test_a_separable_field_lands_where_the_battle_path_does():
+    """{A,B} always beat {C,D}, so the unpenalised maximum is at infinity and no method is winless.
+
+    Without the ridge the answer is whatever the solver's tolerance happened to allow, which is how
+    MM and an unpenalised gradient step end up hundreds of Elo apart on the same data.
+    """
+    rows = []
+    for task in range(4):
+        strong = [0.1, 0.2] if task % 2 == 0 else [0.2, 0.1]
+        weak = [0.5, 0.6] if task % 2 == 0 else [0.6, 0.5]
+        rows += [
+            ("A", f"t{task}", strong[0]),
+            ("B", f"t{task}", strong[1]),
+            ("C", f"t{task}", weak[0]),
+            ("D", f"t{task}", weak[1]),
+        ]
+    results = pd.DataFrame(rows, columns=["method", "task", "metric_error"])
+    helper = EloHelper(method_col="method", task_col="task", error_col="metric_error")
+
+    methods, win_matrix = helper._rank_win_matrix(results_per_task=results)
+    wins = win_matrix.sum(axis=1)
+    assert (wins > 0).all(), "this field is separable but has no winless method"
+
+    from_ranks = pd.Series(
+        EloHelper._bradley_terry_from_win_totals(wins=wins, n_tasks=win_matrix.shape[1]), index=methods
+    )
+    from_battles = helper.compute_mle_elo(battles=helper.convert_results_to_battles(results_df=results))
+
+    assert (from_ranks - from_battles.reindex(methods)).abs().max() < 1.0
