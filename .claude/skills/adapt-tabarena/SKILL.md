@@ -71,11 +71,7 @@ Match TabArena's own bagging default (`num_bag_folds=8`, from `AGModelBagExperim
 - Full-functionality installs (anything needing the git-pinned extra) stay a from-source install (`pip install -e .[full]`) — document this split plainly rather than letting a release silently fail the PyPI publish step.
 - Also check `pip index versions tabarena` before assuming a version pin resolves against the real package — a same-named placeholder can exist on PyPI (currently a `0.0.0` reserved release from the TabArena team itself, not a real release) that a bare `tabarena>=X` requirement would resolve against instead of the git-pinned dependency.
 
-## Step 7: Cluster submission (optional)
-
-If the domain benchmark runs on a SLURM cluster, the submission/resource-resolution tooling does not need to be domain-specific. A generic, profile-driven submit script (institution-specific values in a separate, git-ignored or private profile file; the submission logic itself public and reusable) lets the domain benchmark scale the same job matrix (`model x dataset x target x repeat x fold`) across whatever cluster capacity is available, and lets external contributors without cluster access still run smaller jobs locally against the same tooling.
-
-## Step 8: Report
+## Step 7: Report
 
 Summarize for the user:
 - Which package(s) the downstream benchmark now depends on (`tabarena`, `bencheval`, or both) and why
