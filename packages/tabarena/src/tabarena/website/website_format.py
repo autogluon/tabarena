@@ -161,7 +161,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "TA-NORI",
             "TABSWIFT",
             "EXAONE",
-            "TABLDM",
+            "XIAOMI-TABLDM",
         ],
         Constants.baseline: ["KNN", "LR", "LINEAR"],
         Constants.other: ["XRFM"],
@@ -221,7 +221,7 @@ def get_rename_map() -> dict[str, str]:
         "REALTABPFN-V2.5": "RealTabPFN-v2.5",
         "SAP-RPT-OSS": "SAP-RPT-OSS",
         "TABSWIFT": "TabSwift",
-        "TABLDM": "TabLDM",
+        "XIAOMI-TABLDM": "Xiaomi-TabLDM",
     }
 
 

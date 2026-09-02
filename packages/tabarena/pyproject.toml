@@ -128,10 +128,9 @@ exaone_tabular = [
 # runtime deps (torch, numpy, scikit-learn, scipy, psutil, tqdm, huggingface_hub, packaging)
 # are already in the base tree, so this extra is intentionally empty.
 tabswift = []
-# TabLDM is vendored under models/tabldm/_vendor/ (not pip-installable). Most of its runtime
-# deps (torch, numpy, scikit-learn, scipy, psutil, tqdm, huggingface_hub) are already in the
-# base tree; `einops` (used by `_model/rope.py`) is the one dependency that is not.
-tabldm = ["einops"]
+# TabLDM is not published on PyPI; pinned to a commit so the benchmarked code is fixed.
+# Keep in sync with `pip_extra` in models/tabldm/info.py.
+tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@3090d4f3da420e25a482bead97c9fe061607bffb"]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid

@@ -8,13 +8,13 @@ from tabarena.models.tabldm.model import TabLDMModel
 # Not yet benchmarked: no `suite`/`cache_kwargs` (local, unhosted), `has_raw`/`has_processed`/
 # `has_results` all False since no artifacts exist yet, `date` is the planning date below.
 tabldm_method_metadata = MethodMetadata.config(
-    method="TabLDM",
-    display_name="TabLDM",
+    method="Xiaomi-TabLDM",
+    display_name="Xiaomi-TabLDM",
     compute="gpu",
     date="2026-08-31",
-    ag_key="TA-TABLDM",
-    model_key="TABLDM",
-    config_default="TabLDM_c1_BAG_L1",
+    ag_key="TA-XIAOMI-TABLDM",
+    model_key="XIAOMI-TABLDM",
+    config_default="Xiaomi-TabLDM_c1_BAG_L1",
     can_hpo=False,
     is_bag=False,
     has_raw=False,
@@ -29,9 +29,10 @@ tabldm_info = ModelInfo(
     model_cls=TabLDMModel,
     search_space=gen_tabldm,
     method_metadata=tabldm_method_metadata,
-    # Vendored under `_vendor/` (not on PyPI). Most runtime deps (torch, numpy, scikit-learn,
-    # scipy, psutil, tqdm, huggingface_hub) are already in TabArena's base tree, but `einops`
-    # (used by `_model/rope.py`) is not, so it is the one real extra dependency.
-    pip_extra=("einops",),
+    # TabLDM is not published on PyPI; pinned to a commit so the benchmarked code is fixed.
+    # Keep in sync with the `tabldm` extra in pyproject.toml.
+    pip_extra=(
+        "Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@3090d4f3da420e25a482bead97c9fe061607bffb",
+    ),
     prefetch_weights=TabLDMModel.prefetch_weights,
 )

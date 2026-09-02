@@ -6,12 +6,11 @@ from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
-    import numpy as np
     import pandas as pd
 
 _HF_REPO = "occams/Xiaomi-TabLDM"
-_CLASSIFIER_CHECKPOINT = "checkpoints/clf_stage3_moe1_step-10000.ckpt"
-_REGRESSOR_CHECKPOINT = "checkpoints/reg_stage3_moe1_step-10000.ckpt"
+_CLASSIFIER_CHECKPOINT = "checkpoints/clf_default.ckpt"
+_REGRESSOR_CHECKPOINT = "checkpoints/reg_default.ckpt"
 
 
 class TabLDMModel(AbstractTorchModel):
@@ -20,13 +19,14 @@ class TabLDMModel(AbstractTorchModel):
     Uses the enhanced sklearn estimators (``TabLDMEnhancedClassifier``/``TabLDMEnhancedRegressor``),
     which wrap the base MoE1 model with an ensemble/calibration pipeline on top.
 
-    Codebase: vendored from the ``xiaomi-tabldm`` package (pip name ``tabldm``), not on PyPI.
+    Codebase: pip name ``Xiaomi-TabLDM``, import name ``tabldm``, installed from GitHub since
+    it is not on PyPI.
     Checkpoints: https://huggingface.co/occams/Xiaomi-TabLDM
     License: Apache-2.0 (Copyright Xiaomi Corporation)
     """
 
-    ag_key = "TA-TABLDM"
-    ag_name = "TA-TabLDM"
+    ag_key = "TA-XIAOMI-TABLDM"
+    ag_name = "TA-Xiaomi-TabLDM"
     ag_priority = 65
     seed_name = "random_state"
     _supported_problem_types = ["binary", "multiclass", "regression"]
@@ -43,10 +43,10 @@ class TabLDMModel(AbstractTorchModel):
 
     def get_model_cls(self):
         if self.problem_type in ("binary", "multiclass"):
-            from tabarena.models.tabldm._vendor._sklearn.classifier_enhanced import TabLDMEnhancedClassifier
+            from tabldm import TabLDMEnhancedClassifier
 
             return TabLDMEnhancedClassifier
-        from tabarena.models.tabldm._vendor._sklearn.regressor_enhanced import TabLDMEnhancedRegressor
+        from tabldm import TabLDMEnhancedRegressor
 
         return TabLDMEnhancedRegressor
 
@@ -63,7 +63,7 @@ class TabLDMModel(AbstractTorchModel):
         As an in-context-learning foundation model there is no training loop and no early
         stopping, so (like the other TFM wrappers) ``X_val``/``y_val`` and ``time_limit`` are
         intentionally ignored. Categorical columns and missing values need no upfront handling
-        here: the vendored estimator's own ``TransformToNumerical`` preprocessing ordinal-encodes
+        here: the estimator's own ``TransformToNumerical`` preprocessing ordinal-encodes
         categorical dtypes and mean-imputes numeric NaNs internally when given a DataFrame, and
         for regression it standardizes/inverse-transforms the target itself, so ``X``/``y`` are
         passed straight through.
@@ -91,16 +91,6 @@ class TabLDMModel(AbstractTorchModel):
         self.model = model_cls(device=device, n_jobs=num_cpus, **hps)
         self.model.fit(X, y)
 
-    def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
-        X = self.preprocess(X, **kwargs)
-
-        if self.problem_type == "regression":
-            y_pred_proba = self.model.predict(X)
-        else:
-            y_pred_proba = self.model.predict_proba(X)
-
-        return self._convert_proba_to_unified_form(y_pred_proba)
-
     def get_device(self) -> str:
         return self.model.device_.type
 
@@ -116,12 +106,11 @@ class TabLDMModel(AbstractTorchModel):
     def prefetch_weights(cls) -> None:
         """Pre-download both checkpoints (classifier and regressor) from the public HF repo.
 
-        Constructs each vendored estimator with its default ``checkpoint_version`` and calls its
-        own ``_load_model()`` directly (matching ``tabicl``'s wrapper), rather than reimplementing
-        the cache-first/download-fallback logic that ``_load_model()`` already provides.
+        Constructs each estimator with its default ``checkpoint_version`` and calls its own
+        ``_load_model()`` directly (matching ``tabicl``'s wrapper), rather than reimplementing the
+        cache-first/download-fallback logic that ``_load_model()`` already provides.
         """
-        from tabarena.models.tabldm._vendor._sklearn.classifier_enhanced import TabLDMEnhancedClassifier
-        from tabarena.models.tabldm._vendor._sklearn.regressor_enhanced import TabLDMEnhancedRegressor
+        from tabldm import TabLDMEnhancedClassifier, TabLDMEnhancedRegressor
 
         TabLDMEnhancedClassifier(checkpoint_version=_CLASSIFIER_CHECKPOINT)._load_model()
         TabLDMEnhancedRegressor(checkpoint_version=_REGRESSOR_CHECKPOINT)._load_model()

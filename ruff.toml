@@ -18,7 +18,6 @@ extend-exclude = [
     # --- Vendored upstream sources (not first-party; keep as-imported) ---
     "packages/tabarena/src/tabarena/models/limix/_vendor",       # vendored LimiX (Apache-2.0)
     "packages/tabarena/src/tabarena/models/tabswift/_vendor",     # vendored TabSwift (MIT)
-    "packages/tabarena/src/tabarena/models/tabldm/_vendor",       # vendored TabLDM (Apache-2.0)
     "packages/tabarena/src/tabarena/models/tabm/_internal",      # vendored from yandex-research/tabm
     "packages/tabarena/src/tabarena/models/modernnca/_internal", # vendored from LAMDA-Tabular/TALENT
     # --- Archived / experimental examples & scripts ---
