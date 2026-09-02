@@ -73,7 +73,7 @@ Match TabArena's own bagging default (`num_bag_folds=8`, from `AGModelBagExperim
 
 ## Step 7: Cluster submission (optional)
 
-If the domain benchmark runs on a SLURM cluster, the submission/resource-resolution tooling does not need to be domain-specific. A generic, profile-driven submit script (institution-specific values in a separate, git-ignored or private profile file; the submission logic itself public and reusable) lets the domain benchmark scale the same job matrix (`model x dataset x target x repeat x fold`) across whatever cluster capacity is available, and lets external contributors without cluster access still run smaller jobs locally against the same tooling.
+If the domain benchmark runs on a cluster (SLURM, Kubernetes, or another scheduler), the submission/resource-resolution tooling does not need to be domain-specific or tied to one scheduler. A generic, profile-driven submit layer (institution- or scheduler-specific values in a separate, git-ignored or private profile file; the submission logic itself public and reusable, with the scheduler backend swappable behind that same profile) lets the domain benchmark scale the same job matrix (`model x dataset x target x repeat x fold`) across whatever cluster capacity is available, and lets external contributors without cluster access still run smaller jobs locally against the same tooling.
 
 ## Step 8: Report
 
