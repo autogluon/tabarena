@@ -1,0 +1,48 @@
+# Stable PyPI release of bencheval + tabarena.
+#
+# Trigger: push a tag `v<version>` whose version equals the `version` in both
+# packages/bencheval/pyproject.toml and packages/tabarena/pyproject.toml. The
+# build script refuses to build otherwise. Publishes both distributions to PyPI
+# through trusted publishing (OIDC, no stored token) and creates a GitHub
+# Release with the files attached.
+#
+# One-time setup (PyPI trusted publishers, the `pypi` environment) and the
+# version scheme: AGENTS.md, "Releasing to PyPI (maintainers)".
+
+name: Release (PyPI)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: write   # create the GitHub Release
+      id-token: write   # PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build + verify distributions (tag must match pyproject)
+        run: python scripts/release/build_pypi_dists.py --check-tag "$GITHUB_REF_NAME"
+
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always dist/*
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          tag_name: ${{ github.ref_name }}
