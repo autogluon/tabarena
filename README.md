@@ -163,15 +163,30 @@ uv pip install --prerelease=allow -e "./tabarena/packages/tabarena[benchmark]"
 </details>
 
 <details>
+<summary><b>🧪 PyPI</b> — experimental pre-releases, no clone needed</summary>
+
+`tabarena` and `bencheval` are published to PyPI as pre-releases for projects that cannot depend on git URLs, so pass `--pre` (pip) or `--prerelease=allow` (uv). The core package and `[plot]` are complete. Model extras whose upstream package is only available from git (`tabfm`, `sap-rpt-oss`, `exaone_tabular`) are empty on PyPI; the model's install hint tells you what to install by hand. The git checkout above stays the recommended install.
+
+```bash
+uv pip install --prerelease=allow "tabarena[plot]"   # or: pip install --pre "tabarena[plot]"
+uv pip install --prerelease=allow bencheval          # leaderboard engine only
+```
+</details>
+
+<details>
 <summary><b>📦 Use TabArena as a dependency</b></summary>
 
-Add the following to your project's dependencies:
+Add one of the following to your project's dependencies:
 
 ```toml
 # TabArena depends on a pre-release of AutoGluon, so allow pre-releases when installing
 # (e.g. `uv pip install --prerelease=allow ...` or `pip install --pre ...`).
 # Alternatively, pin AutoGluon to a specific pre-release (an exact `==` pin resolves a
 # pre-release without the flag), e.g. add `"autogluon.tabular==1.5.1b20260626"`.
+
+# From PyPI (experimental pre-releases; each tabarena release pins its matching bencheval):
+"tabarena>=0.1.0a1"
+# From git (tip of main; publishable to PyPI only as a source-only extra, see issue #495):
 "tabarena @ git+https://github.com/autogluon/tabarena.git#subdirectory=packages/tabarena"
 ```
 
