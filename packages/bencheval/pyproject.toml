@@ -1,13 +1,28 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "bencheval"
-version = "0.0.1"
-requires-python = ">=3.10,<3.14"
-license = { text = "Apache-2.0" }
+version = "0.1.0"  # keep equal to packages/tabarena/pyproject.toml; PyPI releases ship both at one version
+description = "Benchmark evaluation for tabular ML: Elo, win-rate, rank and improvability leaderboards (the engine behind TabArena)"
+readme = "README.md"
+license = "Apache-2.0"
 authors = [{ name = "AutoGluon Community" }]
+requires-python = ">=3.10,<3.14"
+keywords = ["benchmark", "leaderboard", "elo", "tabular", "machine-learning", "tabarena"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "scipy",
     "numpy",
@@ -27,13 +42,14 @@ plot = [
     "plotly>=6.3.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/autogluon/tabarena"
+Repository = "https://github.com/autogluon/tabarena"
+Issues = "https://github.com/autogluon/tabarena/issues"
+"TabArena Leaderboard" = "https://tabarena.ai/"
+
+# LICENSE is not in this directory: scripts/release/build_pypi_dists.py copies the repository's
+# LICENSE next to this file when building for PyPI (setuptools picks up LICENSE* automatically).
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bencheval*"]
-
-#[tool.setuptools]
-#package-dir = {}
-#packages = ["bencheval"]
-
-[project.urls]
-Homepage = "https://github.com/autogluon/tabarena"
