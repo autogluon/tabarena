@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 _HF_REPO_ID = "Lexsi/Orion-MSP"
 _DEFAULT_CHECKPOINT_FILE = "OrionMSP-classifier-v1.5-202603.ckpt"
+#: Commit pinned so checkpoints fetched here never silently change if the
+#: repo's default branch moves. Bump deliberately (with a note on what
+#: changed) when picking up newer checkpoints.
+_HF_REVISION = "8b712f6ff699750f7ac5825f31e89e6f6f161577"
 
 
 class OrionMSPModel(AbstractTorchModel):
@@ -147,7 +151,12 @@ def _resolve_checkpoint(filename: str, allow_auto_download: bool = True) -> str:
     from huggingface_hub.errors import LocalEntryNotFoundError
 
     try:
-        return hf_hub_download(repo_id=_HF_REPO_ID, filename=filename, local_files_only=True)
+        return hf_hub_download(
+            repo_id=_HF_REPO_ID,
+            filename=filename,
+            revision=_HF_REVISION,
+            local_files_only=True,
+        )
     except LocalEntryNotFoundError:
         if not allow_auto_download:
             raise ValueError(
@@ -161,7 +170,7 @@ def _resolve_checkpoint(filename: str, allow_auto_download: bool = True) -> str:
             filename,
             _HF_REPO_ID,
         )
-        return hf_hub_download(repo_id=_HF_REPO_ID, filename=filename)
+        return hf_hub_download(repo_id=_HF_REPO_ID, filename=filename, revision=_HF_REVISION)
 
 
 def prefetch_weights(filename: str = _DEFAULT_CHECKPOINT_FILE) -> str:

@@ -115,8 +115,11 @@ class SAPRPTOSSModel(AbstractTorchModel):
 def prefetch_weights() -> None:
     from huggingface_hub import hf_hub_download
 
-    # Hardcoded to the checkpoint we use in TabArena.
+    # Hardcoded to the checkpoint we use in TabArena. Commit pinned so it never
+    # silently changes if the repo's default branch moves; bump deliberately
+    # (with a note on what changed) when picking up a newer checkpoint.
     hf_hub_download(
         repo_id="SAP/sap-rpt-1-oss",
         filename="2025-11-04_sap-rpt-one-oss.pt",
+        revision="bc2c99cc541eeac9d1e10ae79da192d38b9fb27b",
     )
