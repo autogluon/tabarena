@@ -29,5 +29,5 @@ ctboost_info = ModelInfo(
     model_cls=CTBoostModel,
     search_space=gen_ctboost,
     method_metadata=ctboost_method_metadata,
-    pip_extra=("ctboost>=0.1.56",),
+    pip_extra=("ctboost>=0.1.58",),
 )
