@@ -132,6 +132,7 @@ tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.30.0"]
 nori = ["synthefy-nori>=0.10.0"]
+aplr = ["aplr>=10.26.0"]
 # EXAONE Tabular is not published on PyPI; pinned to a commit so the benchmarked code is fixed
 # (empty extra on PyPI). Keep in sync with `pip_extra` in models/exaone_tabular/info.py.
 exaone_tabular = [
@@ -174,6 +175,7 @@ extended = [
   "tabarena[iltm]",
   "tabarena[chimeraboost]",
   "tabarena[nori]",
+  "tabarena[aplr]",
   "tabarena[tabswift]",
   "tabarena[exaone_tabular]",
 ]

@@ -16,6 +16,7 @@ class ModelSmokeTest:
         hyperparameters: passed to ``FitHelper.verify_model(model_hyperparameters=...)``.
         problem_types: restricts the tested problem types; ``None`` tests all
             of binary + multiclass + regression (AutoGluon's default).
+        use_larger_toy_datasets: whether to use AutoGluon's larger toy fixtures.
         verify_single_prediction_equivalent_to_multi: whether predicting one row must match
             that row's value from a batched predict (AutoGluon's default is True, at
             ``atol=1e-5``). Set False only for a model shown to satisfy it on CPU and to
@@ -24,6 +25,7 @@ class ModelSmokeTest:
 
     hyperparameters: dict = field(default_factory=dict)
     problem_types: tuple[str, ...] | None = None
+    use_larger_toy_datasets: bool = False
     verify_single_prediction_equivalent_to_multi: bool = True
 
 
@@ -62,6 +64,8 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "iLTM": ModelSmokeTest({"finetuning_max_steps": 1, "n_ensemble": 1, "tree_n_estimators": 1}),
     "OrionMSP": ModelSmokeTest({"n_estimators": 1}),
     "EXAONE-Tabular": ModelSmokeTest({"ensemble_count": 1}),
+    "aplr_two_way_int": ModelSmokeTest({"cv_folds": 2}, use_larger_toy_datasets=True),
+    "aplr_deep_int": ModelSmokeTest({"cv_folds": 2}, use_larger_toy_datasets=True),
 }
 
 

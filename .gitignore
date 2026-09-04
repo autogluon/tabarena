@@ -168,3 +168,6 @@ AutogluonModels/
 /examples/benchmarking/task_cache/
 /examples/benchmarking/leaderboards/
 /packages/tabflow_slurm/experiments/eval_output/
+
+# vscode
+.vscode/
