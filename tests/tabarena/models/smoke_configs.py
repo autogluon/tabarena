@@ -62,6 +62,10 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "iLTM": ModelSmokeTest({"finetuning_max_steps": 1, "n_ensemble": 1, "tree_n_estimators": 1}),
     "OrionMSP": ModelSmokeTest({"n_estimators": 1}),
     "EXAONE-Tabular": ModelSmokeTest({"ensemble_count": 1}),
+    # Default n_estimators=8 forward passes through the foundation model per fold
+    # (enhance_candidates defaults to False, so the enhanced estimator's other
+    # ensembling/calibration knobs are inactive); drop to 1 for a fast smoke fit.
+    "Xiaomi-TabLDM": ModelSmokeTest({"n_estimators": 1}),
 }
 
 

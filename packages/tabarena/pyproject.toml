@@ -139,6 +139,9 @@ exaone_tabular = [
 # runtime deps (torch, numpy, scikit-learn, scipy, psutil, tqdm, huggingface_hub, packaging)
 # are already in the base tree, so this extra is intentionally empty.
 tabswift = []
+# TabLDM is not published on PyPI; pinned to a commit so the benchmarked code is fixed.
+# Keep in sync with `pip_extra` in models/tabldm/info.py.
+tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@6773a30d43e43fad3e8b474e20ca8c7ec40dcd76"]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -174,6 +177,7 @@ extended = [
   "tabarena[nori]",
   "tabarena[tabswift]",
   "tabarena[exaone_tabular]",
+  "tabarena[tabldm]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).
