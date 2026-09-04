@@ -112,7 +112,9 @@ xrfm = ["xrfm[cu12]"]
 # extras are empty on PyPI (see the note at the top of this table).
 sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa"]
 # TabFM uses its PyTorch backend; the `[pytorch]` extra pulls `torch` for GPU/CPU execution.
-tabfm = ["tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@53f3fcfb8a3355f55c9fb49f04fbb62b8ba29109"]
+# Pinned to the same commit as tabfm/info.py's ModelInfo.pip_extra, so `pip install`
+# and the model registry's own metadata agree on which estimator was tuned.
+tabfm = ["tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@633cd265f498e1d20c9625be0639f6305d8e2541"]
 tabstar = ["tabstar==1.1.15"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
 # The benchmark runs installed TabTune from git main (kept as `pip_extra` in models/orionmsp/info.py);
