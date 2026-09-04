@@ -1,0 +1,86 @@
+---
+name: adapt-tabarena
+description: Adapt TabArena/bencheval as the models/metrics/splitting layer for a new, domain-specific benchmark that lives in its own repository (not a contribution to this repo). Use this skill whenever the user wants to build a benchmark for a different data domain (e.g. spectroscopy, genomics, time series, a vertical-specific tabular task) on top of TabArena's model zoo and bencheval's leaderboard math, rather than reimplementing that layer from scratch. Triggers on "build a benchmark using TabArena", "depend on TabArena for our own benchmark", "port our benchmark onto TabArena/bencheval", "how do we reuse TabArena's models for X". Covers what to depend on vs. reimplement, the repeated k-fold + group-aware splitting protocol, layering domain preprocessing without forking, bagging parity, and the git-dependency PyPI trap downstream packages hit. Complements `add-model` (for contributing a model back into *this* repo) — this skill is for *consuming* TabArena from an external repo.
+argument-hint: <YourBenchmarkName> [<domain>]
+user-invocable: true
+---
+
+# Adapt TabArena for a New Domain Benchmark
+
+This skill is for a **different repository** building its own benchmark on top of TabArena, not for contributing to this repo. If the user wants to add a model, system, or feature to TabArena itself, use `add-model` / `add-system` instead.
+
+The concrete reference implementation this skill distills is **RamanBench**
+(`github.com/ml-lab-htw/RamanBench`), which migrated its model/metrics/splitting layer
+onto `tabarena`/`bencheval` directly for its v1 release, replacing a set of
+hand-rolled patterns that were "inspired by" TabArena with the real thing. Read that
+repo's `src/raman_bench/` if you want a worked example alongside this skill.
+
+## Step 0: Scope the domain benchmark
+
+Ask (or infer from context) what the downstream benchmark actually needs:
+
+| Question | Why it matters |
+|---|---|
+| Does it need the full model zoo, or just leaderboard math over its own results? | Decides whether to depend on `tabarena` (models + HPO + splitting utilities) or only `bencheval` (Elo/win-rates/ranks/improvability from a results DataFrame — no dependency on `tabarena` at all). |
+| Do the domain's datasets have replicate/group structure (multiple measurements per physical sample/subject)? | Decides whether the splitting layer needs group-awareness (Step 3) — a common but easy-to-miss leakage source outside plain tabular data. |
+| Are there domain-specific models to run alongside TabArena's zoo (e.g. signal-specific architectures)? | Decides whether the downstream repo needs its own model registry layered next to TabArena's (Step 2). |
+| Will the package be published to PyPI? | Decides whether the git-dependency isolation in Step 6 is needed now or can wait. |
+
+## Step 1: Depend on the right package(s)
+
+- **`bencheval`** — standalone, lightweight. Computes leaderboards (Elo, win-rates, ranks, improvability) from a results DataFrame you already have. No dependency on `tabarena`. Pull this in alone if the domain benchmark has its own models/splitting and only wants TabArena-grade leaderboard math.
+- **`tabarena`** — the model registry, `ConfigGenerator`s, HPO search spaces, and splitting utilities (`tabarena.splits`, `tabarena.nips2025_utils.fetch_metadata`). Depends on `bencheval` and AutoGluon. Pull this in when the domain benchmark wants to reuse TabArena's existing model wrappers (classical ML, tabular DL, tabular foundation models) rather than reimplementing them.
+
+Both currently install via git URL (`git+https://github.com/autogluon/tabarena.git#subdirectory=packages/<name>`), not a real PyPI release — see Step 6 before publishing the downstream package.
+
+## Step 2: Model registry — reuse vs. layer your own
+
+Do not fork TabArena's model wrappers. Two registries can coexist:
+
+- **TabArena's own registry** (`tabarena.models.registry`) supplies the general-purpose tabular model zoo (classical ML through tabular foundation models) via `ConfigGenerator`. Use these as-is for anything not specific to the new domain.
+- **A domain-specific registry**, layered in the downstream repo, holds only the models that don't belong upstream (a domain-specific architecture, a wrapper around a domain library). Build these the same way TabArena builds its own — an AutoGluon `AbstractModel`/`AbstractTorchModel` subclass with a `ConfigGenerator` for HPO — so they compose with the same fitting/splitting/bagging machinery as everything pulled from TabArena's registry. Do not invent a parallel fitting protocol for just the domain-specific models; the whole point of depending on TabArena is one shared protocol for every model regardless of where it's registered.
+
+If a domain-specific model turns out to be broadly useful outside this one domain, that's a signal it belongs upstream instead — point the user at `add-model` in that case.
+
+## Step 3: Splitting protocol — real repeated k-fold, adaptive repeats, groups
+
+Reuse TabArena's actual splitting logic rather than reimplementing "inspired by" versions of it:
+
+- **Repeated k-fold, not single holdout.** `RepeatedStratifiedKFold`/`RepeatedKFold` for ungrouped data. sklearn has no repeated wrapper for grouped data, so a domain benchmark with replicate structure needs a manually-repeated `StratifiedGroupKFold`/`GroupKFold` loop (repeat the fold assignment with a different `random_state` each pass, same as the ungrouped repeated splitters do internally).
+- **Size-adaptive repeat counts, not a fixed number for every dataset.** Port `tabarena.nips2025_utils.fetch_metadata._get_n_repeats` (or the equivalent in the installed version) rather than picking one repeat count for the whole suite — TabArena's own curated metadata varies repeats by dataset size (more repeats for small datasets, where a single split is noisier) while holding fold count fixed. Verify the ported logic against TabArena's real per-dataset metadata, not just the docstring, before trusting it.
+- **Group-awareness is not optional for domains with replicate measurements.** If the same physical sample/subject/specimen contributes multiple rows (common outside plain tabular data — repeated scans, multiple measurements per patient, technical replicates), every split must keep a group's rows together. Audit every dataset in the suite for this *before* the first real benchmark run: a dataset wrongly treated as row-independent silently leaks information from train into test and inflates every model's score, RamanBench's own experience being a concrete case of catching this late on datasets that had shipped without it.
+
+**Consider going through `UserTask` instead of reimplementing the loop yourself.** `tabarena.benchmark.task.user_task.UserTask.create_local_openml_task` accepts precomputed splits directly, plus native `group_on` / `group_time_on` / `split_time_horizon(_unit)` arguments — grouped and temporal splitting are already modeled there, so a domain benchmark can hand it its own splits (built with the repeated/grouped k-fold logic above) instead of hand-rolling the split-storage/lookup plumbing. Data Foundry builds on the same mechanism if the domain benchmark wants dataset generation/curation alongside splitting. For a domain wanting *full* native reuse (its own leaderboard math, entrant pools, eval config, the way TabArena and BeyondArena each have their own `Context`), a domain-specific `Context` (e.g. a `RamanBenchContext`) is possible today but rougher than the two contexts TabArena ships — treat it as a "possible now, smoother later" option rather than a turnkey path, and check with a TabArena maintainer before committing to it.
+
+## Step 4: Preprocessing — layer a mixin, don't fork
+
+If the domain needs its own tunable preprocessing (denoising, domain-specific normalization, feature extraction), implement it as a mixin on top of AutoGluon's model classes, jointly tunable through the same HPO mechanism TabArena's own models use — not a separate preprocessing pass bolted in front of the pipeline. TabArena's own `resolve_preprocessing_pipeline` (`tabarena.benchmark.preprocessing.pipeline`) is a concrete example of this pattern already in the codebase: it resolves a named pipeline (`"default"`, `"tabarena_default"`) to a model-agnostic feature generator plus a model-specific hyperparameter injection, so BeyondArena's variant reuses the same shape instead of forking it — read that module before writing a new one. Key properties worth carrying over from a working implementation of this pattern:
+
+- Each tunable step gets its own enable flag and hyperparameter search space, composed through one restriction dict so a benchmark config can turn steps on/off per run.
+- Stateful steps (anything that fits parameters on training data, e.g. a reference-spectrum correction) must fit once on training data only and reuse that fit at transform time — never refit on the data being scored, in every fold.
+- If a step changes the feature count or column names, resync whatever internal feature/column bookkeeping the underlying model class relies on after the transform runs — a preprocessing step that changes shape silently breaks any model wrapper that snapshots `X.columns` before your mixin's `_fit` runs.
+
+## Step 5: Bagging and compute-budget parity
+
+Match TabArena's own bagging default (`num_bag_folds=8`, from `AGModelBagExperiment`) rather than leaving it to whatever preset default AutoGluon happens to resolve to — an implicit, data-size-dependent bagging behavior is not a fair, reproducible protocol and makes historical vs. new results incomparable in ways that are hard to detect after the fact. If an earlier version of the domain benchmark ran without explicit bagging control, say so plainly in the new benchmark's changelog rather than presenting old and new numbers as directly comparable.
+
+## Step 6: Packaging — pick PyPI releases or a git URL, deliberately
+
+`tabarena` and `bencheval` now publish real PyPI releases, so a downstream benchmark package has two options rather than one workaround:
+
+- **Pin the PyPI release** (`tabarena>=0.1.0`, `bencheval>=0.1.0`) if the domain benchmark can tolerate trailing the release cadence. This is PyPI-clean: the downstream package can itself publish to PyPI without hitting `Can't have direct dependency: ...` errors, and installs are ordinary `pip install <package>`.
+- **Track `main` via a git URL** (`tabarena @ git+https://github.com/autogluon/tabarena.git#subdirectory=packages/tabarena`) if the domain benchmark needs a fix or feature not yet released. **PyPI rejects packages that declare a direct git dependency** in any extra, so a package pinning a git URL anywhere can't itself publish to PyPI — isolate that dependency into its own optional-dependency extra (e.g. `[benchmark]`), keep any PyPI-clean extras separate, and document that full-functionality installs stay a from-source install (`pip install -e .[full]`) rather than letting a release silently fail the PyPI publish step.
+- Either way, check `pip index versions tabarena` (add `--pre` to see prereleases) before assuming a version pin resolves the way you expect — pin an exact prerelease or track latest deliberately, per the `tabarena`/`bencheval` release notes.
+
+## Step 7: Cluster submission (optional)
+
+If the domain benchmark runs on a cluster (SLURM, Kubernetes, or another scheduler), the submission/resource-resolution tooling does not need to be domain-specific or tied to one scheduler. A generic, profile-driven submit layer (institution- or scheduler-specific values in a separate, git-ignored or private profile file; the submission logic itself public and reusable, with the scheduler backend swappable behind that same profile) lets the domain benchmark scale the same job matrix (`model x dataset x target x repeat x fold`) across whatever cluster capacity is available, and lets external contributors without cluster access still run smaller jobs locally against the same tooling.
+
+## Step 8: Report
+
+Summarize for the user:
+- Which package(s) the downstream benchmark now depends on (`tabarena`, `bencheval`, or both) and why
+- Where the domain-specific model registry lives relative to TabArena's own
+- What changed in the splitting protocol (repeated k-fold, adaptive repeats, group-awareness) and which datasets needed a group-structure audit
+- Whether the PyPI packaging split (Step 6) is needed now or deferred
+- Any historical-vs-new comparability caveat introduced by protocol changes (Step 5), so it lands in the domain benchmark's own changelog
