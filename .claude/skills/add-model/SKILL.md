@@ -124,6 +124,7 @@ The AutoGluon wrapper class. Use the template in `references/model_patterns.md` 
 - Docstring must include: description, paper title, authors, codebase URL, license
 - Keep optional third-party imports (the wrapped library itself) inside `_fit` / per-method scope so importing this module never requires the optional dep at top-level
 - Decide the model's untimed **warm-up** (Step 3g) while you have the library docs in hand
+- **Foundation model with Hugging Face weights: always pin `revision=`** on every `hf_hub_download`/`snapshot_download` call — never resolve against the repo's moving default branch. See `references/model_patterns.md` → "Foundation-model weights: always pin the HF checkpoint revision" for the template and how to resolve the commit.
 
 ### 3c. `packages/tabarena/src/tabarena/models/{ModelKey}/hpo.py`
 
