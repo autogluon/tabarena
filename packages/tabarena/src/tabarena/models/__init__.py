@@ -11,6 +11,7 @@ from tabarena.models._registry import (
 
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
+    from tabarena.models.aplr.model import APLRDeepIntModel, APLRModel, APLRTwoWayIntModel
     from tabarena.models.chimeraboost.model import ChimeraBoostModel
     from tabarena.models.exaone_tabular.model import EXAONETabularModel
     from tabarena.models.iltm.model import ILTMModel
@@ -40,6 +41,9 @@ if TYPE_CHECKING:
 # repository transitive imports we don't want to charge every consumer for.
 _LAZY_CLASSES: dict[str, str] = {
     "MethodMetadata": "tabarena.models._method_metadata",
+    "APLRDeepIntModel": "tabarena.models.aplr.model",
+    "APLRModel": "tabarena.models.aplr.model",
+    "APLRTwoWayIntModel": "tabarena.models.aplr.model",
     "ChimeraBoostModel": "tabarena.models.chimeraboost.model",
     "EXAONETabularModel": "tabarena.models.exaone_tabular.model",
     "ILTMModel": "tabarena.models.iltm.model",
