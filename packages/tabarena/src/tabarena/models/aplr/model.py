@@ -12,6 +12,11 @@ if TYPE_CHECKING:
 class APLRModel(AbstractModel):
     """Automatic Piecewise Linear Regression (APLR).
 
+    Description: APLR builds predictive and interpretable regression or classification machine 
+    learning models in Python, using the Automatic Piecewise Linear Regression (APLR) 
+    methodology developed by Mathias von Ottenbreit. APLR often rivals tree-based 
+    methods in predictive accuracy, while offering smoother, more interpretable predictions.
+    
     Paper: Automatic piecewise linear regression
     Authors: Mathias von Ottenbreit and Riccardo De Bin
     Codebase: https://github.com/ottenbreit-data-science/aplr
