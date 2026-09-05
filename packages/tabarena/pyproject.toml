@@ -4,8 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tabarena"
-version = "0.0.1"
+version = "0.1.0"  # keep equal to packages/bencheval/pyproject.toml; PyPI releases ship both at one version
 description = "A Living Benchmark for Machine Learning on Tabular Data"
+# README.md and LICENSE are not in this directory: scripts/release/build_pypi_dists.py copies the
+# repository's README.md (links made absolute) and LICENSE next to this file when building for PyPI.
 readme = "README.md"
 license = "Apache-2.0"
 authors = [{ name = "TabArena Community" }]
@@ -62,6 +64,11 @@ dependencies = [
 
 [project.optional-dependencies]
 
+# Requirements with a direct URL (`name @ git+https://...`) install from a git checkout but cannot
+# be published to PyPI. `scripts/release/build_pypi_dists.py` strips them from the PyPI build, which
+# leaves that extra empty on PyPI; the model's `pip_extra` in its `info.py` keeps the exact git
+# dependency for the install hint. Use a PyPI release whenever the upstream package has one.
+
 # Plotting / leaderboard visualization (the `tabarena.plot` modules + bencheval plots).
 # All plotting imports are lazy, so the core install never requires these.
 plot = [
@@ -89,7 +96,7 @@ data-foundry = ["data-foundry>=0.0.3"]
 # Core model extras — installed together via the `benchmark` union below.
 tabpfn = [
   "tabpfn>=8.0.8",
-  "tabpfn-extensions[many_class] @ git+https://github.com/PriorLabs/tabpfn-extensions.git",
+  "tabpfn-extensions[many_class]>=0.6.1",
 ]
 tabicl = ["tabicl>=2.0.0"]
 ebm = ["autogluon.tabular[interpret]>=1.6,<1.7"]
@@ -101,12 +108,18 @@ tabm = ["torch", "tabm>=0.0.3", "rtdl_num_embeddings>=0.0.12"]
 # Extended model extras — opt-in individually or together via the `extended` union below.
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
+# sap-rpt-oss and tabfm stay pinned to the git commits used for the benchmark runs, so these two
+# extras are empty on PyPI (see the note at the top of this table).
 sap-rpt-oss = ["sap_rpt_oss @ git+https://github.com/SAP-samples/sap-rpt-1-oss.git@a323a0aff976fda4ac43c3196a92406de7689aaa"]
 # TabFM uses its PyTorch backend; the `[pytorch]` extra pulls `torch` for GPU/CPU execution.
-tabfm = ["tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@53f3fcfb8a3355f55c9fb49f04fbb62b8ba29109"]
+# Pinned to the same commit as tabfm/info.py's ModelInfo.pip_extra, so `pip install`
+# and the model registry's own metadata agree on which estimator was tuned.
+tabfm = ["tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@633cd265f498e1d20c9625be0639f6305d8e2541"]
 tabstar = ["tabstar==1.1.15"]
 perpetualboosting = ["perpetual"] # We used version 2.1.0
-orionmsp = ["tabtune @ git+https://github.com/Lexsi-Labs/TabTune.git"] # from main to get newest code
+# The benchmark runs installed TabTune from git main (kept as `pip_extra` in models/orionmsp/info.py);
+# 0.1.18 is the PyPI release that ships the `orionmsp_v15` modules the wrapper imports.
+orionmsp = ["tabtune==0.1.18"]
 probmetrics = [
     "probmetrics",
     "pytorch-minimize",
@@ -120,8 +133,8 @@ iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.30.0"]
 ctboost = ["ctboost>=0.1.58"]
 nori = ["synthefy-nori>=0.10.0"]
-# EXAONE Tabular is not published on PyPI; pinned to a commit so the benchmarked code is fixed.
-# Keep in sync with `pip_extra` in models/exaone_tabular/info.py.
+# EXAONE Tabular is not published on PyPI; pinned to a commit so the benchmarked code is fixed
+# (empty extra on PyPI). Keep in sync with `pip_extra` in models/exaone_tabular/info.py.
 exaone_tabular = [
   "exaonetabular @ git+https://github.com/LGAI-Research/EXAONE-Tabular.git@cf55bd2d74aeb9c0b5d5d4f509d05831251a827e",
 ]
@@ -176,6 +189,11 @@ all = [
 
 [project.urls]
 Homepage = "https://github.com/autogluon/tabarena"
+Leaderboard = "https://tabarena.ai/"
+Repository = "https://github.com/autogluon/tabarena"
+Issues = "https://github.com/autogluon/tabarena/issues"
+"Paper (TabArena)" = "https://arxiv.org/abs/2506.16791"
+"Paper (BeyondArena)" = "https://arxiv.org/abs/2606.30410"
 
 # PEP 735 dependency groups: dev-only tools, not shipped in the wheel.
 # Install with: `uv sync --group dev`  (or `--group lint`, `--group test`).
@@ -193,14 +211,16 @@ include-package-data = true
 where = ["src"]
 include = ["tabarena*"]
 
+# Non-Python files shipped in the wheel, matched recursively so vendored models (configs, licenses)
+# are picked up wherever they live. `scripts/release/build_pypi_dists.py` fails the build when a
+# git-tracked non-.py file under src/ is missing from the wheel. Compiled `.so` files are not
+# shipped: the C++ metrics compile on first use from the shipped sources.
 [tool.setuptools.package-data]
 tabarena = [
-  "metrics/_cpp_metrics/compile.sh",
-  "metrics/_cpp_metrics/cpp_metrics.cpp",
-  "benchmark/task/metadata/data/curated_tabarena_dataset_metadata.csv",
-  "benchmark/task/metadata/sources/data/*.csv",
-  "contexts/beyondarena/data/*.csv",
-  "benchmark/models/ag/limix/_vendor/config/*.json",
-  "benchmark/models/ag/limix/_vendor/LICENSE.txt",
-  "benchmark/models/ag/limix/_vendor/README.md",
+  "**/*.csv",
+  "**/*.json",
+  "**/*.sh",
+  "**/*.cpp",
+  "**/*.md",
+  "**/LICENSE*",
 ]

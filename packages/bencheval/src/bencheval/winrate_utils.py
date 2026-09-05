@@ -99,6 +99,41 @@ def compute_winrate_matrix(
     return win_rates_df.iloc[order, order]
 
 
+def _avg_winrate_from_ranks(
+    results_per_task: pd.DataFrame,
+    task_col: str | list[str],
+    method_col: str,
+    error_col: str,
+    seed_col: str | None,
+) -> pd.Series | None:
+    """Average win-rate without building the pairwise matrix, or ``None`` if that is not valid.
+
+    A method's rank on a unit is one plus the number of methods beating it, so it wins
+    ``n_methods - rank`` of its ``n_methods - 1`` comparisons there -- ties included at half a win,
+    since ranks are averaged over them. Averaging over opponents therefore needs only the ranks, not
+    the n x n table that `compute_winrate` would otherwise build and immediately collapse.
+
+    Returns ``None`` unless every method has a result on every unit: with a hole, two methods can
+    meet on a different number of units and the per-opponent averages stop sharing a denominator.
+    """
+    task_cols = list(task_col) if isinstance(task_col, list) else [task_col]
+    unit_cols = task_cols if seed_col is None else [*task_cols, seed_col]
+    wide = results_per_task.pivot_table(index=method_col, columns=unit_cols, values=error_col)
+    if len(wide) < 2 or wide.isna().to_numpy().any():
+        return None
+
+    n_methods = len(wide)
+    wins_per_unit = n_methods - wide.rank(axis=0, method="average", ascending=True).to_numpy()
+
+    # Each task contributes weight 1 however many seeds it ran, matching `compute_winrate_matrix`.
+    task_of_unit = pd.MultiIndex.from_arrays([wide.columns.get_level_values(c) for c in task_cols]).factorize()[0]
+    weights = 1.0 / np.bincount(task_of_unit)[task_of_unit]
+    n_tasks = task_of_unit.max() + 1
+
+    avg = (wins_per_unit * weights).sum(axis=1) / (n_tasks * (n_methods - 1))
+    return pd.Series(avg, index=wide.index)
+
+
 def compute_winrate(
     results_per_task: pd.DataFrame,
     task_col: str | list[str] = "task",
@@ -110,8 +145,10 @@ def compute_winrate(
 ) -> pd.Series:
     """Average win-rate per method.
 
-    This calls `compute_winrate_matrix` and then averages across opponents.
-    Keeps identical behavior with respect to seeding and task weighting.
+    Averaging over opponents needs only each method's rank on each unit, so on a complete schedule
+    this reads the answer off the ranks instead of building the n x n matrix and collapsing it.
+    Falls back to `compute_winrate_matrix` when that shortcut does not apply. Seeding and task
+    weighting behave identically either way.
 
     Parameters
     ----------
@@ -134,16 +171,27 @@ def compute_winrate(
     pd.Series
         Index = methods, Values = average win-rate.
     """
-    winrate_matrix = compute_winrate_matrix(
-        results_per_task=results_per_task,
-        task_col=task_col,
-        method_col=method_col,
-        error_col=error_col,
-        seed_col=seed_col,
-        tie_decimals=tie_decimals,
-    )
+    avg_wr = None
+    if tie_decimals is None:
+        # Rounding for ties changes which comparisons are equal, so only the exact path shortcuts.
+        avg_wr = _avg_winrate_from_ranks(
+            results_per_task=results_per_task,
+            task_col=task_col,
+            method_col=method_col,
+            error_col=error_col,
+            seed_col=seed_col,
+        )
 
-    avg_wr = winrate_matrix.mean(axis=1, skipna=True)
+    if avg_wr is None:
+        winrate_matrix = compute_winrate_matrix(
+            results_per_task=results_per_task,
+            task_col=task_col,
+            method_col=method_col,
+            error_col=error_col,
+            seed_col=seed_col,
+            tie_decimals=tie_decimals,
+        )
+        avg_wr = winrate_matrix.mean(axis=1, skipna=True)
     avg_wr.name = "winrate"
     avg_wr.index.name = method_col
     return avg_wr.sort_values(ascending=False) if sort_desc else avg_wr

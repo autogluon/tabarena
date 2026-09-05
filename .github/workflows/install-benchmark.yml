@@ -1,6 +1,9 @@
-# Verify both ends of the install spectrum (issue #323):
-#  - install-minimal:   bare `tabarena` core imports without pulling heavy optional deps.
-#  - install-benchmark: `tabarena[benchmark]` resolves and installs end-to-end.
+# Verify both ends of the install spectrum (issue #323), plus the PyPI build:
+#  - install-minimal:    bare `tabarena` core imports without pulling heavy optional deps.
+#  - install-benchmark:  `tabarena[benchmark]` resolves and installs end-to-end.
+#  - install-from-wheel: `scripts/release/build_pypi_dists.py` builds publishable bencheval +
+#                        tabarena wheels (no direct-URL deps, README/LICENSE, all data files) and a
+#                        non-editable install of them imports with its data files in place.
 
 name: install-benchmark
 
@@ -84,3 +87,50 @@ jobs:
       - name: Verify import
         run: |
           python -c "import tabarena; print('tabarena import OK')"
+
+  install-from-wheel:
+    name: Build PyPI dists + install from wheel
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build + verify bencheval and tabarena distributions
+        run: python scripts/release/build_pypi_dists.py --out-dir dist
+
+      - name: Install tabarena[plot] from the built wheels (non-editable)
+        run: |
+          uv pip install --system --prerelease=allow \
+            "tabarena[plot] @ $(realpath dist/tabarena-*.whl)" dist/bencheval-*.whl
+
+      - name: Verify import and shipped data files
+        run: |
+          # Run outside the checkout so `import tabarena` cannot pick up packages/tabarena/src.
+          cd "$RUNNER_TEMP"
+          python - <<'PY'
+          import importlib.metadata as md
+          from pathlib import Path
+
+          import bencheval  # noqa: F401
+          import tabarena
+          from tabarena.models import get_model_registry
+
+          get_model_registry()
+          pkg = Path(tabarena.__file__).parent
+          assert "site-packages" in str(pkg), pkg
+          for rel in (
+              "models/limix/_vendor/config/cls_default_16M_retrieval.json",
+              "benchmark/task/metadata/data/curated_tabarena_dataset_metadata.csv",
+              "metrics/_cpp_metrics/cpp_metrics.cpp",
+          ):
+              assert (pkg / rel).is_file(), f"missing from the wheel install: {rel}"
+          print(f"tabarena {md.version('tabarena')} + bencheval {md.version('bencheval')} import OK; data files present")
+          PY

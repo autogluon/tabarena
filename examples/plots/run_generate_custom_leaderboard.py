@@ -4,7 +4,8 @@ This script:
 1) Creates synthetic long-form results with columns:
    method, task, seed, metric_error, time_train_s, time_infer_s
 2) Runs BenchmarkEvaluator.leaderboard() with average_seeds=True and False
-3) Computes and (optionally) plots a win-rate matrix
+3) Adds a leaderboard column from a metric defined in this script
+4) Computes and (optionally) plots a win-rate matrix
 
 Notes:
 - TabArena expects DENSE results: every (task, seed, method) combination must exist.
@@ -17,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from bencheval.evaluator import BenchmarkEvaluator
+from bencheval.evaluator import BenchmarkEvaluator, LeaderboardContext, LeaderboardMetric
 
 
 def make_synthetic_results(
@@ -127,6 +128,29 @@ def main() -> None:
 
     print("\n=== Leaderboard ===")
     print(leaderboard_avg.to_string())
+
+    # ----------------------------
+    # 4) Add a metric of your own
+    # ----------------------------
+    # `metrics=` takes the built-in metric keys and LeaderboardMetric instances side by
+    # side, so a metric can live in your own code and still get a leaderboard column.
+    # The producer receives the per-task results and returns method-indexed columns.
+    def worst_task_error(ctx: LeaderboardContext) -> list:
+        """Each method's error on the single task it does worst on."""
+        evaluator = ctx.evaluator
+        per_method = ctx.results_per_task.groupby(evaluator.method_col)[evaluator.error_col].max()
+        return [per_method.rename("worst_task_error")]
+
+    leaderboard_custom = arena.leaderboard(
+        data=data,
+        average_seeds=False,
+        metrics=["elo", "winrate", LeaderboardMetric("worst_task_error", worst_task_error)],
+        elo_kwargs=dict(calibration_framework="ModelB", calibration_elo=1000),
+        sort_by=["worst_task_error"],
+    )
+
+    print("\n=== Leaderboard with a metric of your own ===")
+    print(leaderboard_custom.to_string())
 
     # ----------------------------
     # 5) (Optional) Win-rate matrix

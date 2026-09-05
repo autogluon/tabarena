@@ -30,6 +30,7 @@ from tabarena.benchmark.experiment.bundle import (
 EXPECTED_FIELD_NAMES = {
     "models",
     "n_random_configs",
+    "default_seed_config",
     "preprocessing_pipelines",
     "model_agnostic_preprocessing",
     "max_predict_batch_size",
@@ -51,6 +52,7 @@ EXPECTED_FIELD_NAMES = {
 # overridden). Subclass-specific expectations below extend this baseline.
 COMMON_INHERITED_DEFAULTS = {
     "models": [],
+    "default_seed_config": "fold-config-wise",
     "model_agnostic_preprocessing": True,
     "max_predict_batch_size": None,
     "sequential_local_fold_fitting": False,

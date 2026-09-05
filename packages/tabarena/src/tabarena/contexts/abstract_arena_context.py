@@ -26,6 +26,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import functools
+import os
 import tempfile
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -58,6 +59,19 @@ if TYPE_CHECKING:
 # expname" (fall back to `cache_config.results`, else error) from an explicit `expname=None`
 # (always a throwaway temp dir). Keeps the original "expname is required; None means throwaway" API.
 _EXPNAME_UNSET: Any = object()
+
+
+def _default_max_workers() -> int:
+    """One process per available CPU less one, so the machine keeps a core for everything else.
+
+    Counts the CPUs this process may actually run on rather than the ones the machine has, which
+    differ under an affinity mask or a container quota.
+    """
+    if hasattr(os, "sched_getaffinity"):
+        available = len(os.sched_getaffinity(0))
+    else:
+        available = os.cpu_count() or 1
+    return max(1, available - 1)
 
 
 class AbstractArenaContext:
@@ -1126,12 +1140,54 @@ class AbstractArenaContext:
         return df_results
 
     # ------------------------------------------------------------------ artifacts / simulation / plotting
+    @staticmethod
+    def _resolve_shared_task_scope(
+        name: str,
+        top_level: list | None,
+        compare_kwargs: dict,
+        tuning_trajectory_kwargs: dict,
+    ) -> list | None:
+        """Reduce a task-scoping argument given in up to three places to the one value both passes use.
+
+        ``datasets`` and ``folds`` scope the compare pass and the tuning-trajectory pass alike, so
+        they are accepted as top-level :meth:`generate_all_figs` arguments *and* inside either
+        kwargs dict (where callers used to put them). Whichever spelling is used, the value is
+        removed from the per-pass dicts and returned for both, which is what makes the two grids
+        impossible to desynchronize. Disagreeing values are an error rather than a precedence rule:
+        there is no reading of two different grids that keeps the outputs comparable.
+        """
+        sources: dict[str, list | None] = {}
+        for source, kwargs in (
+            ("compare_kwargs", compare_kwargs),
+            ("tuning_trajectory_kwargs", tuning_trajectory_kwargs),
+        ):
+            if name in kwargs:
+                sources[source] = kwargs.pop(name)
+        if top_level is not None:
+            sources[f"{name}="] = top_level
+
+        specified = {k: v for k, v in sources.items() if v is not None}
+        distinct = []
+        for value in specified.values():
+            if not any(value == seen for seen in distinct):
+                distinct.append(value)
+        if len(distinct) > 1:
+            detail = ", ".join(f"{k}{v!r}" for k, v in specified.items())
+            raise ValueError(
+                f"Conflicting {name!r} for generate_all_figs: {detail}. The leaderboard and the "
+                f"tuning trajectories must be computed over the same tasks; pass {name} once as a "
+                f"generate_all_figs argument.",
+            )
+        return distinct[0] if distinct else None
+
     # FIXME: Finish this, it is WIP
     def generate_all_figs(
         self,
         output_dir,
         subsets: list[list[str] | tuple[str, list[str]]] | str = "auto",
         new_results=None,
+        datasets: list[str] | None = None,
+        folds: list[int] | None = None,
         compare_kwargs=None,
         tuning_trajectory_kwargs=None,
         plot_compare: bool = True,
@@ -1140,10 +1196,10 @@ class AbstractArenaContext:
         save_website_leaderboard: bool = False,
         website_leaderboard_kwargs: dict | None = None,
         website_leaderboard_filename: str = "leaderboard_website.csv",
-        save_composite_leaderboard: bool = False,
+        save_composite_leaderboard: bool | None = None,
         composite_leaderboard_kwargs: dict | None = None,
         trajectory_extra_results: pd.DataFrame | None = None,
-        max_workers: int = 1,
+        max_workers: int | None = None,
     ) -> None:
         """Generate the compare / tuning-trajectory / runtime figures for each subset.
 
@@ -1154,7 +1210,18 @@ class AbstractArenaContext:
         (multiple ``n_configs`` rows per method) on the trajectory plot while the leaderboard keeps
         the single-point method results — in one call instead of two.
 
-        ``save_composite_leaderboard=True`` additionally aggregates the per-subset leaderboards
+        ``datasets`` and ``folds`` scope the tasks for the compare pass *and* the
+        tuning-trajectory pass, which must always see the same grid. They may equivalently be
+        given inside ``compare_kwargs`` / ``tuning_trajectory_kwargs``; wherever they appear they
+        are hoisted and shared, and conflicting values raise. Sharing them is not cosmetic: the
+        trajectory pass fills every task a method does not cover via ``fillna_metrics`` and then
+        drops any method carrying an imputed row (``exclude_imputed=True``), so a trajectory grid
+        wider than the leaderboard's silently deletes methods from the trajectory figures and CSVs
+        while the leaderboard still reports them. ``compare``-only task scoping (``tasks``) has no
+        trajectory counterpart and stays in ``compare_kwargs``.
+
+        ``save_composite_leaderboard`` (``None`` by default: on whenever ``plot_compare`` is)
+        additionally aggregates the per-subset leaderboards
         into a single composite table (rows = (method, metric), one column per subset) written to
         ``<output_dir>/composite_leaderboard.csv`` plus color-graded PNG renderings — see
         :func:`tabarena.plot.composite_leaderboard.generate_composite_leaderboard`, which
@@ -1163,10 +1230,12 @@ class AbstractArenaContext:
         built from the compact website format independently of ``save_website_leaderboard``.
 
         ``max_workers`` parallelizes the per-subset passes across processes (capped at the subset
-        count; 1 = sequential). Each subset's compare/plots are independent and write to their own
-        directory, so they compose freely; processes (not threads) because the passes are CPU-bound
-        (Elo bootstrap, plotting) and matplotlib is not thread-safe. Requires the context (and any
-        results frames passed in) to be picklable.
+        count; 1 = sequential). ``None`` (the default) uses one process per available CPU less one,
+        leaving a core for everything else. Each subset's compare/plots are independent and write to
+        their own directory, so they compose freely; processes (not threads) because the passes are
+        CPU-bound (Elo bootstrap, plotting) and matplotlib is not thread-safe. Requires the context
+        (and any results frames passed in) to be picklable -- pass ``max_workers=1`` for a context
+        that is not.
         """
         if compare_kwargs is None:
             compare_kwargs = {}
@@ -1174,11 +1243,28 @@ class AbstractArenaContext:
             tuning_trajectory_kwargs = {}
         if website_leaderboard_kwargs is None:
             website_leaderboard_kwargs = {}
+        # Hoist the shared task scope out of either kwargs dict so both passes get the same grid.
+        datasets = self._resolve_shared_task_scope(
+            "datasets",
+            datasets,
+            compare_kwargs,
+            tuning_trajectory_kwargs,
+        )
+        folds = self._resolve_shared_task_scope(
+            "folds",
+            folds,
+            compare_kwargs,
+            tuning_trajectory_kwargs,
+        )
         if save_composite_leaderboard and not plot_compare:
             raise ValueError(
                 "save_composite_leaderboard=True requires plot_compare=True: the composite is "
                 "aggregated from the per-subset leaderboards computed by the compare pass.",
             )
+        # Default to writing it whenever the leaderboards it aggregates are being produced, rather
+        # than making a trajectories-only run (`plot_compare=False`) fail on a default it never set.
+        if save_composite_leaderboard is None:
+            save_composite_leaderboard = plot_compare
         if subsets == "auto":
             subsets = self._default_subsets
         output_dir = Path(output_dir)
@@ -1186,6 +1272,8 @@ class AbstractArenaContext:
         subset_fig_kwargs = dict(
             output_dir=output_dir,
             new_results=new_results,
+            datasets=datasets,
+            folds=folds,
             compare_kwargs=compare_kwargs,
             tuning_trajectory_kwargs=tuning_trajectory_kwargs,
             plot_compare=plot_compare,
@@ -1197,6 +1285,8 @@ class AbstractArenaContext:
             collect_composite=save_composite_leaderboard,
             trajectory_extra_results=trajectory_extra_results,
         )
+        if max_workers is None:
+            max_workers = _default_max_workers()
         max_workers = max(1, min(max_workers, len(subsets)))
         if max_workers == 1:
             subset_results = [self._generate_subset_figs(subset, **subset_fig_kwargs) for subset in subsets]
@@ -1229,6 +1319,8 @@ class AbstractArenaContext:
         *,
         output_dir: Path,
         new_results,
+        datasets: list[str] | None,
+        folds: list[int] | None,
         compare_kwargs: dict,
         tuning_trajectory_kwargs: dict,
         plot_compare: bool,
@@ -1268,6 +1360,8 @@ class AbstractArenaContext:
                 subset=subset,
                 new_results=new_results,
                 subset_label=output_suffix,
+                datasets=datasets,
+                folds=folds,
                 **compare_kwargs,
             )
             if save_website_leaderboard and lb_df is not None:
@@ -1298,6 +1392,8 @@ class AbstractArenaContext:
                 save_path=output_dir_subset / "tuning_trajectories",
                 subset=subset,
                 extra_results=trajectory_extra_results if trajectory_extra_results is not None else new_results,
+                datasets=datasets,
+                folds=folds,
                 **tuning_trajectory_kwargs,
             )
         if plot_runtime_per_method:
