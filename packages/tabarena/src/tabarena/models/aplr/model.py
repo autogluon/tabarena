@@ -25,7 +25,7 @@ class APLRModel(AbstractModel):
 
     ag_priority = 65
     seed_name = "random_state"
-    _supported_problem_types = ["binary", "regression"]
+    _supported_problem_types = ["binary", "multiclass", "regression"]
     default_resources_physical_cores_only = True
 
     def _fit(
