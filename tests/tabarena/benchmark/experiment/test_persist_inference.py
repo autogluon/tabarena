@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from autogluon.core.metrics import get_metric
 from autogluon.core.models import AbstractModel
 
-from tabarena.benchmark.exec_models.autogluon import AGModelWrapper, AGWrapper
+from tabarena.benchmark.exec_models.autogluon import AGModelWrapper, AGSingleWrapper, AGWrapper
 
 
 class _PreparableModel:
@@ -34,8 +34,8 @@ class _FakePredictor:
         self._trainer = SimpleNamespace(models=trainer_models)
         self.calls: list[tuple] = []
 
-    def persist(self, models):
-        self.calls.append(("persist", models))
+    def persist(self, models, *, max_memory):
+        self.calls.append(("persist", models, max_memory))
         return list(self._persist_returns)
 
     def unpersist(self):
@@ -64,7 +64,7 @@ def test_pre_predict_persists_and_dispatches_prepare_for_inference():
 
     wrapper.pre_predict()
 
-    assert wrapper.predictor.calls == [("persist", "best")]
+    assert wrapper.predictor.calls == [("persist", "best", 0.4)]
     assert wrapper._persisted_models == ["bag"]
     assert prepared == ["bag", "child"]  # hook on the bag and its loaded child; others skipped
 
@@ -73,7 +73,23 @@ def test_pre_predict_records_memory_guard_skip():
     wrapper = _make_wrapper()
     wrapper.predictor = _FakePredictor(persist_returns=[], trainer_models={})
     wrapper.pre_predict()
+    assert wrapper.predictor.calls == [("persist", "best", 0.4)]
     assert wrapper._persisted_models == []  # persist attempted but skipped by the memory guard
+
+
+def test_single_wrapper_skips_persist_memory_check():
+    wrapper = AGSingleWrapper(
+        model_cls=AbstractModel,
+        model_hyperparameters={},
+        problem_type="regression",
+        eval_metric=get_metric("rmse", problem_type="regression"),
+    )
+    wrapper.predictor = _FakePredictor(persist_returns=["m"], trainer_models={"m": _PlainModel()})
+
+    wrapper.pre_predict()
+
+    assert wrapper.predictor.calls == [("persist", "best", None)]
+    assert wrapper._persisted_models == ["m"]
 
 
 def test_pre_predict_disabled_does_nothing():
