@@ -6,7 +6,7 @@ from tabarena.utils.config_utils import ConfigGenerator
 gen_tabldm = ConfigGenerator(
     model_cls=TabLDMModel,
     search_space={},
-    manual_configs=[{}],
+    manual_configs=[{"enhance_candidates": True}],
 )
 
 
