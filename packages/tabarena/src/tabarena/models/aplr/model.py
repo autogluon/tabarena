@@ -54,7 +54,7 @@ class APLRModel(AbstractModel):
         self.model.fit(X, y)
 
     def _set_default_params(self):
-        pass #Intentionally keeps APLR default parameters
+        pass  # Intentionally keeps APLR default parameters
 
     def _predict_proba(self, X: pd.DataFrame, **kwargs) -> np.ndarray:
         X = self.preprocess(X)
