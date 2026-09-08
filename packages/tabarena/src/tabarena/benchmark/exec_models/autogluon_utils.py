@@ -17,10 +17,10 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from tabarena.benchmark.task.metadata import GroupLabelTypes
+from tabarena.benchmark.task.metadata import AUTO_NUM_SPLITS, GroupLabelTypes
 
 if TYPE_CHECKING:
-    from tabarena.benchmark.task.metadata import ValidationMetadata
+    from tabarena.benchmark.task.metadata import NumSplits, ValidationMetadata
 
 
 def resolve_validation_splits(
@@ -28,12 +28,14 @@ def resolve_validation_splits(
     *,
     X: pd.DataFrame,
     y: pd.Series,
-    num_folds: int | None,
-    num_repeats: int | None,
+    num_folds: NumSplits | None,
+    num_repeats: NumSplits | None,
 ) -> tuple[list[tuple[np.ndarray, np.ndarray]] | None, int | None, int | None]:
     """Determine which splits setting to use, and if needed, which custom splits.
 
     Assumes task-specific validation is wanted (callers gate on ``use_task_specific_validation``).
+    ``"auto"`` counts resolve to the benchmark protocol for the data size; numbers are kept as
+    given (``ValidationMetadata.resolve_number_of_splits``).
 
     Returns:
     -------
@@ -43,16 +45,14 @@ def resolve_validation_splits(
         for validation splitting.
         IMPORTANT: the split will return the index of the input data X!
     num_folds: int or None
-        The number of folds to use for validation.
-        This may be updated based on the number of group instances in the data.
+        The number of folds to use for validation, with ``"auto"`` resolved.
     num_repeats: int or None
-        The number of repeats to use for validation.
-        This may be updated based on the number of group instances in the data.
+        The number of repeats to use for validation, with ``"auto"`` resolved.
     """
     custom_splits = None
 
     # Stop early if the model does not want to do any validation.
-    if (num_folds is None) or (num_folds <= 1):
+    if num_folds is None or (num_folds != AUTO_NUM_SPLITS and num_folds <= 1):
         logger.info(
             "\nnum_folds is None or <= 1, skipping validation splitting logic."
             "\n\t The model is configured to do not validation at all!",
@@ -183,8 +183,8 @@ def resolve_holdout_split(
 
     num_group_instances = get_num_group_instances(metadata, X=X)
     num_folds, _ = metadata.resolve_number_of_splits(
-        num_folds=metadata.default_num_folds,
-        num_repeats=metadata.default_num_repeats,
+        num_folds=AUTO_NUM_SPLITS,
+        num_repeats=AUTO_NUM_SPLITS,
         num_group_instances=num_group_instances,
     )
     val_size = max(1, round(len(X) / num_folds))

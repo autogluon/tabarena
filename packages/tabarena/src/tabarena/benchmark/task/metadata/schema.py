@@ -325,6 +325,13 @@ class TabArenaTaskMetadata:
         ]
 
 
+#: The fold or repeat count that asks for the benchmark protocol rather than a chosen number.
+AUTO_NUM_SPLITS: Literal["auto"] = "auto"
+
+#: A fold or repeat count as a caller states it: a number, or ``"auto"`` for the protocol.
+NumSplits = int | Literal["auto"]
+
+
 @dataclass(frozen=True)
 class ValidationMetadata:
     """Task-derived metadata (and policy) for building the validation split.
@@ -357,17 +364,18 @@ class ValidationMetadata:
     split_time_horizon_unit: SplitTimeHorizonUnitTypes | None = None
     """Unit for ``split_time_horizon`` (e.g. days, months, years)."""
 
-    # Fold-count policy. Above ``max_samples_for_tiny_data`` (group) instances we expect the
-    # benchmark defaults; at or below it we switch to the denser tiny-data regime (more
-    # folds/repeats) for a more reliable validation score. See ``resolve_number_of_splits``.
+    # Fold-count policy, applied to counts given as ``"auto"``: the benchmark defaults above
+    # ``max_samples_for_tiny_data`` (group) instances, the denser tiny-data regime (more
+    # folds/repeats, for a more reliable validation score) at or below it. See
+    # ``resolve_number_of_splits``.
     default_num_folds: int = 8
-    """Expected number of folds for non-tiny datasets."""
+    """Protocol folds for non-tiny data, and what ``"auto"`` folds mean when no size policy applies."""
     default_num_repeats: int = 1
-    """Expected number of repeats for non-tiny datasets (``None`` is also allowed)."""
+    """Protocol repeats for non-tiny data, and what ``"auto"`` repeats mean when no size policy applies."""
     tiny_data_num_folds: int = 5
-    """Number of folds to use for tiny datasets."""
+    """Protocol folds for tiny data."""
     tiny_data_num_repeats: int = 5
-    """Number of repeats to use for tiny datasets."""
+    """Protocol repeats for tiny data."""
     max_samples_for_tiny_data: int = 500
     """At or below this many (group) instances, the tiny-data regime applies."""
 
@@ -427,35 +435,42 @@ class ValidationMetadata:
     def resolve_number_of_splits(
         self,
         *,
-        num_folds: int,
-        num_repeats: int | None,
-        num_group_instances: int,
+        num_folds: NumSplits,
+        num_repeats: NumSplits | None,
+        num_group_instances: int | None,
     ) -> tuple[int, int | None]:
-        """Resolve the (folds, repeats) to use given the data size.
+        """Resolve the (folds, repeats) to fit from what the caller stated.
 
-        At or below ``max_samples_for_tiny_data`` (group) instances, switch to the tiny-data
-        regime (``tiny_data_num_folds`` / ``tiny_data_num_repeats``); otherwise assert and
-        return the configured defaults (``default_num_folds`` / ``default_num_repeats``).
+        A count given as a number is the caller's decision and is returned as given; no size
+        policy applies to it. ``"auto"`` asks for the benchmark protocol: when both counts are
+        ``"auto"``, the tiny-data regime (``tiny_data_num_folds`` x ``tiny_data_num_repeats``)
+        at or below ``max_samples_for_tiny_data`` (group) instances and the defaults
+        (``default_num_folds`` x ``default_num_repeats``) above it. The tiny-data regime is
+        one package, so an ``"auto"`` count next to a chosen one resolves to its default: a
+        caller who fixes the folds at 2 gets the default single repeat, not five.
 
         Parameters
         ----------
-        num_folds: int
+        num_folds: int | "auto"
             The number of folds entered for validation.
-        num_repeats: int
+        num_repeats: int | "auto" | None
             The number of repeats entered for validation.
-        num_group_instances: int
-            The number of group instances in the data.
+        num_group_instances: int | None
+            The number of group instances in the data. ``None`` when the data size must not
+            decide (task-specific validation is off): ``"auto"`` then means the defaults.
         """
-        if num_group_instances <= self.max_samples_for_tiny_data:
+        both_auto = num_folds == AUTO_NUM_SPLITS and num_repeats == AUTO_NUM_SPLITS
+        tiny = num_group_instances is not None and num_group_instances <= self.max_samples_for_tiny_data
+        if both_auto and tiny:
             logger.info(
                 f"\nTiny data ({num_group_instances} <= {self.max_samples_for_tiny_data}): using "
                 f"num_bag_folds={self.tiny_data_num_folds}, num_bag_sets={self.tiny_data_num_repeats}.",
             )
             return self.tiny_data_num_folds, self.tiny_data_num_repeats
-
-        # Larger data: expect (and keep) the configured benchmark defaults.
-        assert num_folds == self.default_num_folds
-        assert num_repeats in (self.default_num_repeats, None)
+        if num_folds == AUTO_NUM_SPLITS:
+            num_folds = self.default_num_folds
+        if num_repeats == AUTO_NUM_SPLITS:
+            num_repeats = self.default_num_repeats
         return num_folds, num_repeats
 
 

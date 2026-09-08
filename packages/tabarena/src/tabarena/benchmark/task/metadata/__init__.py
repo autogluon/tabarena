@@ -10,7 +10,9 @@ from tabarena.benchmark.task.metadata.collection import (
 )
 from tabarena.benchmark.task.metadata.compute import compute_task_metadata
 from tabarena.benchmark.task.metadata.schema import (
+    AUTO_NUM_SPLITS,
     GroupLabelTypes,
+    NumSplits,
     SplitIndex,
     SplitMetadata,
     SplitTimeHorizonTypes,
@@ -39,10 +41,12 @@ def default_task_metadata_collection() -> TaskMetadataCollection:
 
 
 __all__ = [
+    "AUTO_NUM_SPLITS",
     "BeyondArenaTaskMetadataCollection",
     "DataFoundryTaskMetadataSource",
     "GroupLabelTypes",
     "InMemoryTaskMetadataSource",
+    "NumSplits",
     "OpenMLTaskMetadataSource",
     "SplitIndex",
     "SplitMetadata",

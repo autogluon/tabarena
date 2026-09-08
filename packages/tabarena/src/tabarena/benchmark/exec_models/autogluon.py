@@ -44,7 +44,9 @@ class AGWrapper(AbstractExecModel):
         Extra keyword arguments for the ``TabularPredictor(...)`` constructor.
     fit_kwargs:
         Extra keyword arguments for ``TabularPredictor.fit(...)``. ``num_bag_folds`` /
-        ``num_bag_sets`` here drive the (optionally task-specific) validation protocol.
+        ``num_bag_sets`` here drive the (optionally task-specific) validation protocol; either
+        may be ``"auto"``, which resolves to the benchmark protocol before the fit
+        (``ValidationMetadata.resolve_number_of_splits``), while a number is fit as given.
     persist:
         If True (default), persist the fitted model in memory around inference (untimed, via
         ``pre_predict``/``post_predict``), so the measured inference time is that of a served,
@@ -200,8 +202,10 @@ class AGWrapper(AbstractExecModel):
         """Resolve the fold/repeat counts (+ any custom splits) into ``fit_kwargs`` in place.
 
         Pops the requested ``num_bag_folds`` / ``num_bag_sets``; when task-specific validation
-        is enabled they run through ``resolve_validation_splits`` (which may adjust them and/or
-        produce explicit ``custom_splits``), then are written back.
+        is enabled they run through ``resolve_validation_splits`` (which resolves ``"auto"``
+        counts for the data size and/or produces explicit ``custom_splits``), then are written
+        back. Without task-specific validation an ``"auto"`` count is the benchmark default,
+        since the data size must not decide anything there; AutoGluon only ever sees numbers.
 
         Returns the effective ``num_folds`` — ``None`` (or ``<= 1``) signals the non-bagged
         holdout path, which ``_build_predictor_args`` then handles via a single task-aware split.
@@ -217,6 +221,10 @@ class AGWrapper(AbstractExecModel):
                 y=y.reset_index(drop=True),
                 num_folds=num_folds,
                 num_repeats=num_repeats,
+            )
+        elif num_folds is not None:
+            num_folds, num_repeats = self.validation_metadata.resolve_number_of_splits(
+                num_folds=num_folds, num_repeats=num_repeats, num_group_instances=None
             )
 
         if num_folds is not None:

@@ -20,6 +20,7 @@ from tabarena.benchmark.exec_models.autogluon import (
 from tabarena.benchmark.exec_models.registry import infer_model_cls
 from tabarena.benchmark.experiment.experiment_runner import ExperimentRunner, OOFExperimentRunner
 from tabarena.benchmark.experiment.model_constraints import ModelConstraints
+from tabarena.benchmark.task.metadata import AUTO_NUM_SPLITS
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy
 
 if TYPE_CHECKING:
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
     from tabarena.benchmark.exec_models.base import AbstractExecModel
     from tabarena.benchmark.preprocessing.text_cache import TextCacheMode
     from tabarena.benchmark.task import TaskWrapper
-    from tabarena.benchmark.task.metadata import ValidationMetadata
+    from tabarena.benchmark.task.metadata import NumSplits, ValidationMetadata
 
 
 class Experiment:
@@ -831,7 +832,9 @@ class AGModelExperiment(Experiment):
         """
         is_bag = False
         if "fit_kwargs" in method_kwargs and "num_bag_folds" in method_kwargs["fit_kwargs"]:
-            if method_kwargs["fit_kwargs"]["num_bag_folds"] > 1:
+            num_bag_folds = method_kwargs["fit_kwargs"]["num_bag_folds"]
+            # "auto" resolves to the protocol's bagged count at fit time
+            if num_bag_folds == AUTO_NUM_SPLITS or num_bag_folds > 1:
                 is_bag = True
         model_hyperparameters = copy.deepcopy(model_hyperparameters)
         if is_bag:
@@ -865,12 +868,14 @@ class AGModelBagExperiment(AGModelExperiment):
         AutoGluon model class to fit.
     model_hyperparameters: dict
         AutoGluon model hyperparameters (see ``AGModelExperiment``).
-    num_bag_folds: int, default 8
-        Number of bagging folds (>= 2); baked into ``fit_kwargs["num_bag_folds"]``. Must not
-        be set inside ``fit_kwargs``.
-    num_bag_sets: int, default 1
-        Number of bagging repeats (>= 1); baked into ``fit_kwargs["num_bag_sets"]``. Must not
-        be set inside ``fit_kwargs``.
+    num_bag_folds: int | "auto", default "auto"
+        Number of bagging folds (>= 2), or ``"auto"`` for the benchmark protocol's count,
+        resolved against the task at fit time (``ValidationMetadata.resolve_number_of_splits``:
+        with ``"auto"`` repeats too, 5x5 on tiny data and 8x1 otherwise). A number is fit as
+        given. Baked into ``fit_kwargs["num_bag_folds"]``; must not be set inside ``fit_kwargs``.
+    num_bag_sets: int | "auto", default "auto"
+        Number of bagging repeats (>= 1), or ``"auto"`` as for ``num_bag_folds``. Baked into
+        ``fit_kwargs["num_bag_sets"]``; must not be set inside ``fit_kwargs``.
     extra_model_hyperparameters: dict, optional
         Hyperparameters merged into ``model_hyperparameters`` (must not share keys with it).
     method_kwargs: dict, optional
@@ -889,17 +894,19 @@ class AGModelBagExperiment(AGModelExperiment):
         model_cls: type[AbstractModel],
         model_hyperparameters: dict,
         *,
-        num_bag_folds: int = 8,
-        num_bag_sets: int = 1,
+        num_bag_folds: NumSplits = AUTO_NUM_SPLITS,
+        num_bag_sets: NumSplits = AUTO_NUM_SPLITS,
         extra_model_hyperparameters: dict | None = None,
         method_kwargs: dict | None = None,
         **kwargs,
     ):
         method_kwargs = copy.deepcopy(method_kwargs) if method_kwargs else {}
-        assert isinstance(num_bag_folds, int)
-        assert isinstance(num_bag_sets, int)
-        assert num_bag_folds >= 2
-        assert num_bag_sets >= 1
+        if num_bag_folds != AUTO_NUM_SPLITS:
+            assert isinstance(num_bag_folds, int), num_bag_folds
+            assert num_bag_folds >= 2, num_bag_folds
+        if num_bag_sets != AUTO_NUM_SPLITS:
+            assert isinstance(num_bag_sets, int), num_bag_sets
+            assert num_bag_sets >= 1, num_bag_sets
 
         extra_model_hyperparameters = self._resolve_extra_model_hyperparameters(
             extra_model_hyperparameters, method_kwargs

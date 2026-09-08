@@ -15,7 +15,7 @@ from tabarena.benchmark.exec_models.autogluon_utils import (
     split_time_index_into_intervals,
     time_on_to_groups_data,
 )
-from tabarena.benchmark.task.metadata import GroupLabelTypes, ValidationMetadata
+from tabarena.benchmark.task.metadata import AUTO_NUM_SPLITS, GroupLabelTypes, ValidationMetadata
 
 _DATA_FOUNDRY_AVAILABLE = importlib.util.find_spec("data_foundry") is not None
 
@@ -176,15 +176,28 @@ def test_resolve_validation_splits_num_folds_one_returns_early():
     assert folds == 1
 
 
-def test_resolve_validation_splits_tiny_data_updates_folds_and_repeats():
-    """Datasets with <= 500 instances use tiny_data_num_folds/repeats."""
+def test_resolve_validation_splits_tiny_data_auto_uses_tiny_folds_and_repeats():
+    """Datasets with <= 500 instances resolve "auto" to tiny_data_num_folds/repeats."""
     protocol = ValidationMetadata()
     X = _make_X(100)  # 100 < 500 → tiny
     y = pd.Series(np.zeros(100))
-    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, folds, repeats = resolve_validation_splits(
+        protocol, X=X, y=y, num_folds=AUTO_NUM_SPLITS, num_repeats=AUTO_NUM_SPLITS
+    )
     assert custom_splits is None
     assert folds == ValidationMetadata.tiny_data_num_folds
     assert repeats == ValidationMetadata.tiny_data_num_repeats
+
+
+def test_resolve_validation_splits_tiny_data_explicit_counts_are_kept():
+    """A chosen count is fit as given, tiny data or not."""
+    protocol = ValidationMetadata()
+    X = _make_X(100)
+    y = pd.Series(np.zeros(100))
+    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=2, num_repeats=2)
+    assert custom_splits is None
+    assert folds == 2
+    assert repeats == 2
 
 
 def test_resolve_validation_splits_normal_data_unchanged():
@@ -216,28 +229,48 @@ def test_resolve_validation_splits_time_on_and_group_on_raises_not_implemented()
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_number_of_splits_tiny_data():
-    folds, repeats = ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=50)
+def test_resolve_number_of_splits_auto_tiny_data():
+    folds, repeats = ValidationMetadata().resolve_number_of_splits(
+        num_folds=AUTO_NUM_SPLITS, num_repeats=AUTO_NUM_SPLITS, num_group_instances=50
+    )
     assert folds == ValidationMetadata.tiny_data_num_folds
     assert repeats == ValidationMetadata.tiny_data_num_repeats
 
 
-def test_resolve_number_of_splits_normal_data_unchanged():
-    folds, repeats = ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=1000)
-    assert folds == 8
-    assert repeats == 1
+def test_resolve_number_of_splits_auto_normal_data_is_the_default():
+    folds, repeats = ValidationMetadata().resolve_number_of_splits(
+        num_folds=AUTO_NUM_SPLITS, num_repeats=AUTO_NUM_SPLITS, num_group_instances=1000
+    )
+    assert folds == ValidationMetadata.default_num_folds
+    assert repeats == ValidationMetadata.default_num_repeats
 
 
-def test_resolve_number_of_splits_normal_data_wrong_folds_asserts():
-    """The normal path asserts num_folds == 8."""
-    with pytest.raises(AssertionError):
-        ValidationMetadata().resolve_number_of_splits(num_folds=5, num_repeats=1, num_group_instances=1000)
+@pytest.mark.parametrize("num_group_instances", [50, 1000])
+def test_resolve_number_of_splits_explicit_counts_are_kept(num_group_instances):
+    """A chosen count is the caller's decision: no size policy, no assertion."""
+    folds, repeats = ValidationMetadata().resolve_number_of_splits(
+        num_folds=2, num_repeats=3, num_group_instances=num_group_instances
+    )
+    assert folds == 2
+    assert repeats == 3
 
 
-def test_resolve_number_of_splits_normal_data_wrong_repeats_asserts():
-    """The normal path asserts num_repeats is 1 or None."""
-    with pytest.raises(AssertionError):
-        ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=3, num_group_instances=1000)
+def test_resolve_number_of_splits_auto_repeats_next_to_explicit_folds_is_the_default():
+    """The tiny-data regime is one package: 2 chosen folds get the default repeat count, not five."""
+    folds, repeats = ValidationMetadata().resolve_number_of_splits(
+        num_folds=2, num_repeats=AUTO_NUM_SPLITS, num_group_instances=50
+    )
+    assert folds == 2
+    assert repeats == ValidationMetadata.default_num_repeats
+
+
+def test_resolve_number_of_splits_without_data_size_auto_is_the_default():
+    """`num_group_instances=None` (task-specific validation off): "auto" is the default, never tiny."""
+    folds, repeats = ValidationMetadata().resolve_number_of_splits(
+        num_folds=AUTO_NUM_SPLITS, num_repeats=AUTO_NUM_SPLITS, num_group_instances=None
+    )
+    assert folds == ValidationMetadata.default_num_folds
+    assert repeats == ValidationMetadata.default_num_repeats
 
 
 # ---------------------------------------------------------------------------
@@ -554,7 +587,9 @@ def test_mixin_class_constants():
 
 def test_resolve_number_of_splits_at_exact_boundary_500_is_tiny():
     """500 instances == max_samples_for_tiny_data → tiny-data path."""
-    folds, repeats = ValidationMetadata().resolve_number_of_splits(num_folds=8, num_repeats=1, num_group_instances=500)
+    folds, repeats = ValidationMetadata().resolve_number_of_splits(
+        num_folds=AUTO_NUM_SPLITS, num_repeats=AUTO_NUM_SPLITS, num_group_instances=500
+    )
     assert folds == ValidationMetadata.tiny_data_num_folds
     assert repeats == ValidationMetadata.tiny_data_num_repeats
 
@@ -566,13 +601,13 @@ def test_resolve_number_of_splits_at_501_is_normal():
     assert repeats == 1
 
 
-def test_resolve_number_of_splits_num_repeats_none_allowed_on_normal_path():
-    """Normal path assertion is: num_repeats == 1 OR num_repeats is None."""
+def test_resolve_number_of_splits_num_repeats_none_is_kept():
+    """`num_repeats=None` is a choice too: it passes through unchanged."""
     folds, repeats = ValidationMetadata().resolve_number_of_splits(
         num_folds=8, num_repeats=None, num_group_instances=1000
     )
     assert folds == 8
-    assert repeats is None  # unchanged — no new value was assigned
+    assert repeats is None
 
 
 # ---------------------------------------------------------------------------
@@ -606,7 +641,9 @@ def test_resolve_validation_splits_exactly_500_instances_is_tiny():
     protocol = ValidationMetadata()
     X = _make_X(500)
     y = pd.Series(np.zeros(500))
-    custom_splits, folds, repeats = resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    custom_splits, folds, repeats = resolve_validation_splits(
+        protocol, X=X, y=y, num_folds=AUTO_NUM_SPLITS, num_repeats=AUTO_NUM_SPLITS
+    )
     assert custom_splits is None
     assert folds == ValidationMetadata.tiny_data_num_folds
     assert repeats == ValidationMetadata.tiny_data_num_repeats
@@ -837,7 +874,7 @@ def test_resolve_validation_splits_group_on_tiny_data_uses_tiny_folds(monkeypatc
     captured: dict = {}
     _patch_group_splits(monkeypatch, n, captured)
 
-    resolve_validation_splits(protocol, X=X, y=y, num_folds=8, num_repeats=1)
+    resolve_validation_splits(protocol, X=X, y=y, num_folds=AUTO_NUM_SPLITS, num_repeats=AUTO_NUM_SPLITS)
     assert captured["num_folds"] == ValidationMetadata.tiny_data_num_folds
     assert captured["num_repeats"] == ValidationMetadata.tiny_data_num_repeats
 

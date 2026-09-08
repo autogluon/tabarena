@@ -35,6 +35,7 @@ from tabarena.benchmark.experiment import (
     AGModelOuterExperiment,
     ExternalSystemExperiment,
 )
+from tabarena.benchmark.task.metadata import AUTO_NUM_SPLITS, ValidationMetadata
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
     from autogluon.core.models import AbstractModel
 
     from tabarena.benchmark.exec_models.external import ExternalSystemModel
+    from tabarena.benchmark.task.metadata import NumSplits
 
 AddSeed = Literal["static", "fold-wise", "fold-config-wise", "config-wise"]
 
@@ -463,15 +465,17 @@ def _apply_seed_to_bag_configs(
     configs: list[dict],
     add_seed: AddSeed,
     *,
-    num_bag_folds: int,
-    num_bag_sets: int,
+    num_bag_folds: NumSplits,
+    num_bag_sets: NumSplits,
 ) -> list[dict]:
     """Tag each bagged config with a ``model_random_seed`` according to ``add_seed``.
 
     * ``"static"`` — every config (and fold) uses seed 0.
     * ``"fold-wise"`` — seed 0, varied across the folds of each bag.
     * ``"fold-config-wise"`` — additionally offset each config's seed by ``num_bag_sets * num_bag_folds``
-      so different configs explore disjoint seed ranges.
+      so different configs explore disjoint seed ranges. An ``"auto"`` count is not known until
+      the task is, so it counts as the benchmark default here (``ValidationMetadata``'s
+      ``default_num_folds`` / ``default_num_repeats``).
     * ``"config-wise"`` — per-config seeds ``0, 1, 2, ...``, held constant across a config's folds.
       Use when configs should not all explore the same randomness, yet a config's folds should
       differ only in their data split — which makes the bag a cleaner estimate of that config,
@@ -487,7 +491,10 @@ def _apply_seed_to_bag_configs(
         vary_seed_across_folds = add_seed == "fold-config-wise"
         # Fold-varying seeds consume `num_bag_folds` seeds per config, so they need that much
         # space between configs to stay disjoint; a config-wise seed consumes exactly one.
-        offset_between_configs = num_bag_sets * num_bag_folds if vary_seed_across_folds else 1
+        defaults = ValidationMetadata()
+        folds = defaults.default_num_folds if num_bag_folds == AUTO_NUM_SPLITS else num_bag_folds
+        sets = defaults.default_num_repeats if num_bag_sets == AUTO_NUM_SPLITS else num_bag_sets
+        offset_between_configs = sets * folds if vary_seed_across_folds else 1
         return [
             add_seed_logic(
                 config,
@@ -506,8 +513,8 @@ def generate_bag_experiments(
     model_cls: type[AbstractModel],
     configs: list[dict],
     time_limit: float | None = 3600,
-    num_bag_folds: int = 8,
-    num_bag_sets: int = 1,
+    num_bag_folds: NumSplits = AUTO_NUM_SPLITS,
+    num_bag_sets: NumSplits = AUTO_NUM_SPLITS,
     name_suffix_from_ag_args: bool = False,
     name_id_prefix: str = "r",
     name_id_suffix: str = "",
@@ -519,7 +526,8 @@ def generate_bag_experiments(
 ) -> list[AGModelBagExperiment]:
     """Build a bagged :class:`AGModelBagExperiment` per config (``num_bag_folds`` x ``num_bag_sets`` children).
 
-    Each config is first tagged with its random seed (``add_seed``, see
+    The counts default to ``"auto"``, the benchmark protocol resolved per task at fit time; a
+    number is fit as given (see :class:`AGModelBagExperiment`). Each config is first tagged with its random seed (``add_seed``, see
     :func:`_apply_seed_to_bag_configs`) and any ``fold_fitting_strategy``; experiments are then named
     ``{ag_name}{name_suffix}{name_bag_suffix}`` and built. ``**kwargs`` are forwarded to
     :class:`AGModelBagExperiment` (e.g. ``preprocessing_pipeline``,
