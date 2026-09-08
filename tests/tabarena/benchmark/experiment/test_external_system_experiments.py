@@ -4,7 +4,7 @@ Covers the wiring that lets a self-contained *system* run through the same hub a
 method: the ``ExternalSystemModel`` base contract, ``SystemConfigGenerator``, the bundle's
 ``system_experiments`` mode, run-time ``validation_metadata`` injection, YAML round-trip, and a
 small end-to-end fit. Uses a trivial in-test system (no AutoGluon) so it stays fast; the runnable
-AutoGluon-backed demo lives in ``examples/advanced/run_quickstart_tabarena_external_system.py``.
+AutoGluon-backed demo lives in ``examples/benchmarking/run_quickstart_tabarena_system.py``.
 """
 
 from __future__ import annotations

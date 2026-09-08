@@ -1,4 +1,10 @@
-"""Run the BeyondArena benchmark loop on a custom (non-registry) model defined in this file."""
+"""Quickstart: benchmark a *model* (a custom, non-registry one defined in this file) on BeyondArena.
+
+A model is one method that TabArena tunes under its shared protocol: shared preprocessing, the
+split-regime-aware validation split provided by TabArena, a search space for HPO, and bagging. If
+your method does its own validation, tuning or ensembling (an AutoML framework, an agent, a hosted
+API), it is a *system*: see ``run_quickstart_beyondarena_system.py`` next to this file.
+"""
 
 from __future__ import annotations
 

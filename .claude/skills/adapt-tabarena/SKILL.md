@@ -322,7 +322,7 @@ model that does its own validation, tuning or ensembling (a chemometrics pipelin
 an LLM agent) is a system, not a model: subclass
 `tabarena.benchmark.exec_models.ExternalSystemModel`, implement `_fit_system` / `_predict` /
 `_predict_proba`, pair it with `SystemConfigGenerator`, and run the bundle with
-`system_experiments=True` (`examples/advanced/run_quickstart_tabarena_external_system.py`). Its
+`system_experiments=True` (`examples/benchmarking/run_quickstart_tabarena_system.py`). Its
 results are recorded as baselines with no HPO simulation, which is the honest representation of a
 self-tuning pipeline.
 
@@ -583,7 +583,8 @@ hand-computable 3x3 fixture with expected values for every leaderboard column.
 Do this early, ideally after Step 0, and again when the benchmark is public. TabArena's API is
 still moving, and the maintainers add hooks when a downstream benchmark shows where the current
 surface forces a workaround. Open an issue at `https://github.com/autogluon/tabarena/issues`
-(or a discussion) titled after your benchmark, and include:
+titled after your benchmark (a blank issue is fine; the issue forms there are for submission
+questions and for leaderboard or dataset questions), and include:
 
 - what the domain is, where the repo lives, and which packages and version you depend on;
 - the list of private or undocumented things you had to import (`tabarena.models._method_metadata`

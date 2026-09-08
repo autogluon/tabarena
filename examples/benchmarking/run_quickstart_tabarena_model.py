@@ -1,4 +1,9 @@
-"""Quickstart: benchmark registry + custom models on three datasets of TabArena-Lite and compare to the leaderboard.
+"""Quickstart: benchmark a *model* (registry + custom) on three datasets of TabArena-Lite and compare to the leaderboard.
+
+A model is one method that TabArena tunes under its shared protocol: shared preprocessing, a
+validation split provided by TabArena, a search space for HPO, and bagging. If your method does its
+own validation, tuning or ensembling (an AutoML framework, an agent, a hosted API), it is a *system*:
+see ``run_quickstart_tabarena_system.py`` next to this file.
 
 Shows:
   * running a registry model by name (e.g. ``"Linear"``),
@@ -118,7 +123,7 @@ class CustomRandomForestModel(AbstractModel):
 
 if __name__ == "__main__":
     here = Path(__file__).parent
-    run_name = "quickstart_tabarena"
+    run_name = "quickstart_tabarena_model"
     results_dir = str(here / "experiments" / run_name)  # the runner's `expname` (results cache)
     eval_dir = here / "eval" / run_name  # leaderboard / figures `output_dir`
 

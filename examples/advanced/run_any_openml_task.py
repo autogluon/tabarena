@@ -31,13 +31,13 @@ if __name__ == "__main__":
     # 1: build a TaskMetadataCollection for these OpenML tasks. `task_metadata_collection_from_openml`
     #    prefers TabArena's cached metadata and falls back to OpenML for any missing id
     #    (~1 min on first use). `subset_tasks` then restricts to exactly these tasks and to
-    #    their first split (`lite` == r0f0), mirroring `run_quickstart_tabarena.py`.
+    #    their first split (`lite` == r0f0), mirroring `run_quickstart_tabarena_model.py`.
     task_collection = task_metadata_collection_from_openml(tids=tids).subset_tasks(
         task_ids=tids,
         split_indices="lite",
     )
 
-    # 2: models to run, each at its default config. See `run_quickstart_tabarena.py` for
+    # 2: models to run, each at its default config. See `run_quickstart_tabarena_model.py` for
     #    custom models + HPO. Registry names: `tabarena.models.utils.get_configs_generator_from_name`.
     bundle = TabArenaV0pt1ExperimentBundle(
         models=[
