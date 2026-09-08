@@ -54,7 +54,7 @@ quickstart fast; the system one also takes only the first split, `lite`).
 BeyondArena ranks the same two kinds of entrant as TabArena: a *model* is one method that TabArena
 tunes under its shared protocol, a *system* owns its whole pipeline inside the fit budget (see the
 [examples README](../README.md) for the distinction and the README's
-[Contributing a Model or System](../../README.md#-contributing-a-model-or-system) for how to submit one).
+[Contributing a Model or System](../../README.md#contributing-a-model-or-system) for how to submit one).
 
 - `run_quickstart_beyondarena_model.py` — Run a custom (non-registry) model through the full BeyondArena
   loop (TabArena preprocessing + the split-regime-aware validation protocol, with bagging) and

@@ -13,7 +13,7 @@ body:
         TabArena is not a benchmarking service. Evaluate the method yourself on TabArena-Lite with the official pipeline, then open a pull request with the template. A maintainer verifies the submission and re-runs it on the benchmark hardware for the final entry; we are happy to help with both.
 
         Start here:
-        - [Contributing a Model or System](https://github.com/autogluon/tabarena#-contributing-a-model-or-system) in the README
+        - [Contributing a Model or System](https://github.com/autogluon/tabarena#contributing-a-model-or-system) in the README
         - Quick starts: [TabArena model](https://github.com/autogluon/tabarena/blob/main/examples/benchmarking/run_quickstart_tabarena_model.py), [TabArena system](https://github.com/autogluon/tabarena/blob/main/examples/benchmarking/run_quickstart_tabarena_system.py), [BeyondArena model](https://github.com/autogluon/tabarena/blob/main/examples/beyondarena/run_quickstart_beyondarena_model.py), [BeyondArena system](https://github.com/autogluon/tabarena/blob/main/examples/beyondarena/run_quickstart_beyondarena_system.py)
         - Step-by-step guides: [add-model](https://github.com/autogluon/tabarena/blob/main/.claude/skills/add-model/SKILL.md), [add-system](https://github.com/autogluon/tabarena/blob/main/.claude/skills/add-system/SKILL.md)
 

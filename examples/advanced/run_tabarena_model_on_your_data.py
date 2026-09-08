@@ -1,8 +1,9 @@
 """Use a TabArena model on your own data — three usage levels, simplest first.
 
 Every TabArena model is an AutoGluon model, so you train and predict with the AutoGluon
-API (no benchmark involved). This single file shows three increasingly powerful ways to
-use one on a plain ``(X, y)`` dataset:
+API; no benchmark is involved. To benchmark a model on TabArena instead, start from
+``examples/benchmarking/run_quickstart_tabarena_model.py``. This single file shows three
+increasingly powerful ways to use one on a plain ``(X, y)`` dataset:
 
   [1] single  — fit one model with its default config (one train + predict).
   [2] bagged  — cross-validation bagging (the TabArena default; also gives a validation score).
@@ -17,13 +18,20 @@ Each function below therefore handles its own preprocessing — keeping every ex
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from autogluon.core.data import LabelCleaner
 from autogluon.core.models import BaggedEnsembleModel
 from autogluon.features.generators import AutoMLPipelineFeatureGenerator
 from autogluon.tabular import TabularPredictor
-from data_utils import get_example_data_for_task_type, score_for_task_type
+from sklearn.datasets import load_breast_cancer, load_diabetes, load_iris
+from sklearn.metrics import accuracy_score, root_mean_squared_error
+from sklearn.model_selection import train_test_split
 
 from tabarena.models.utils import get_configs_generator_from_name
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 MODEL = "RealMLP"
 """Any TabArena model name (not all support all task types). Common choices:
@@ -35,6 +43,42 @@ use you can also import the class directly, e.g. `from tabarena.models.realmlp.m
 
 TASK_TYPE = "binary"
 """One of "binary", "multiclass", "regression"."""
+
+
+def get_example_data_for_task_type(
+    *,
+    task_type: str,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    """Return a toy scikit-learn dataset for the task type, split 50/50 into train and test."""
+    if task_type == "binary":
+        X, y = load_breast_cancer(return_X_y=True, as_frame=True)
+    elif task_type == "multiclass":
+        X, y = load_iris(return_X_y=True, as_frame=True)
+    elif task_type == "regression":
+        X, y = load_diabetes(return_X_y=True, as_frame=True)
+    else:
+        raise ValueError("Invalid task type")
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=42)
+    return X_train, X_test, y_train, y_test
+
+
+def score_for_task_type(
+    y_test: pd.Series,
+    y_pred: pd.Series | pd.DataFrame,
+    *,
+    task_type: str,
+) -> float:
+    """Score (higher is better) the predictions for a given task type."""
+    if task_type in ["binary", "multiclass"]:
+        score = accuracy_score(y_test, y_pred)
+        print("Accuracy:", score)
+    elif task_type == "regression":
+        score = -root_mean_squared_error(y_test, y_pred)
+        print("Negative RMSE:", score)
+    else:
+        raise ValueError("Invalid task type")
+
+    return score
 
 
 def _preprocess(X_train, X_test, y_train, y_test, *, task_type):
