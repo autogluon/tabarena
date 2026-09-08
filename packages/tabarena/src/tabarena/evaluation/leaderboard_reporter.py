@@ -241,19 +241,15 @@ class LeaderboardReporter:
             framework_col=method_col,
         )
 
-        df_results["normalized-error-task"] = [
-            normalized_scorer_task.rank(task=(dataset, fold), error=error)
-            for (dataset, fold, error) in zip(
-                df_results["dataset"], df_results["fold"], df_results[self.error_col], strict=False
-            )
-        ]
+        df_results["normalized-error-task"] = normalized_scorer_task.rank_many(
+            tasks=pd.MultiIndex.from_arrays([df_results["dataset"], df_results["fold"]]),
+            errors=df_results[self.error_col].to_numpy(),
+        )
 
-        df_results_per_dataset["normalized-error-dataset"] = [
-            normalized_scorer_dataset.rank(task=dataset, error=error)
-            for (dataset, error) in zip(
-                df_results_per_dataset["dataset"], df_results_per_dataset[self.error_col], strict=False
-            )
-        ]
+        df_results_per_dataset["normalized-error-dataset"] = normalized_scorer_dataset.rank_many(
+            tasks=pd.Index(df_results_per_dataset["dataset"]),
+            errors=df_results_per_dataset[self.error_col].to_numpy(),
+        )
 
         df_results_per_dataset = df_results_per_dataset.set_index(["dataset", method_col], drop=True)[
             "normalized-error-dataset"
@@ -804,6 +800,7 @@ class LeaderboardReporter:
         plot_critical_diagrams: bool = False,
         plot_runtimes: bool = False,
         plot_pareto: bool = True,
+        plot_winrate_matrix: bool = True,
         plot_metric_boxplots: str | list[str] | bool = False,
         metric_boxplot_kwargs: dict | None = None,
         plot_date_introduced: bool = False,
@@ -842,6 +839,11 @@ class LeaderboardReporter:
         ``tuning-impact-elo`` bar plot, the win-rate matrix, and the Pareto
         figures + interactive explorer), skipping the rest of the paper
         figure suite (LaTeX tables, the horizontal Elo bar plot).
+
+        ``plot_winrate_matrix`` (default ``True``) draws the win-rate matrix figure and its
+        interactive page. The matrix itself is still computed and written to ``winrate_matrix.csv``
+        either way, since the website reads it -- this only skips rendering, which is the expensive
+        part on a large field.
 
         ``plot_date_introduced`` (default ``False``) opts into the
         ``{elo,improvability}_vs_date_introduced`` scatters and their GIF
@@ -1356,7 +1358,7 @@ class LeaderboardReporter:
                         winrate_title = f"{self.benchmark_name}-{subset_label} Win-rate Matrix"
                     else:
                         winrate_title = f"{self.benchmark_name} Win-rate Matrix"
-                if plot:
+                if plot and plot_winrate_matrix:
                     try:
                         tabarena.plot_winrate_matrix(
                             winrate_matrix=winrate_matrix_best,
@@ -1381,7 +1383,7 @@ class LeaderboardReporter:
                         df=winrate_matrix_best,
                         index=True,
                     )
-                if plot:
+                if plot and plot_winrate_matrix:
                     build_winrate_explorer_html(
                         winrate_matrix=winrate_matrix,
                         save_path=Path(self.output_dir) / "winrate_explorer.html",

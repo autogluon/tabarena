@@ -35,6 +35,8 @@ def compare(
     elo_ymin: float | None = None,
     benchmark_name: str = "Arena",
     plot: bool = True,
+    plot_times: bool = False,
+    plot_winrate_matrix: bool = True,
     **kwargs,
 ):
     """Evaluate ``df_results`` (already subset to the tasks of interest) into a leaderboard.
@@ -45,6 +47,13 @@ def compare(
     ``output_dir=None`` makes this compute-only: the leaderboard is returned without writing a
     file or rendering a figure. ``plot=False`` keeps the CSVs but skips every figure. Both are
     described in :meth:`LeaderboardReporter.eval`.
+
+    ``plot_times`` opts into the train/infer time figure (``time_plot``), off by default: it is a
+    deep dive rather than part of the leaderboard, and the callers that want it are few.
+
+    ``plot_winrate_matrix`` skips the win-rate figure and its interactive page when ``False``. The
+    matrix is still computed and written as CSV; on a large field the rendering is what costs, since
+    every cell carries a label.
     """
     df_results = prepare_data(
         df_results=df_results,
@@ -80,7 +89,8 @@ def compare(
         df_results=df_results,
         plot=plot,
         plot_extra_barplots=False,
-        plot_times=True,
+        plot_times=plot_times,
+        plot_winrate_matrix=plot_winrate_matrix,
         calibration_framework=calibration_framework,
         average_seeds=average_seeds,
         leaderboard_kwargs=leaderboard_kwargs,
@@ -94,21 +104,10 @@ def compare(
 
 
 def filter_to_valid_tasks(df_to_filter: pd.DataFrame, df_filter: pd.DataFrame) -> pd.DataFrame:
-    dataset_fold_map = df_filter.groupby("dataset")["fold"].apply(set)
-
-    def is_in(dataset: str, fold: int) -> bool:
-        return (dataset in dataset_fold_map.index) and (fold in dataset_fold_map.loc[dataset])
-
-    # filter `df_to_filter` to only the dataset, fold pairs that are present in `df_filter`
-    is_in_lst = [
-        is_in(dataset, fold)
-        for dataset, fold in zip(
-            df_to_filter["dataset"],
-            df_to_filter["fold"],
-            strict=False,
-        )
-    ]
-    return df_to_filter[is_in_lst]
+    """Keep the rows of ``df_to_filter`` whose (dataset, fold) pair appears in ``df_filter``."""
+    valid_tasks = pd.MultiIndex.from_frame(df_filter[["dataset", "fold"]].drop_duplicates())
+    tasks = pd.MultiIndex.from_frame(df_to_filter[["dataset", "fold"]])
+    return df_to_filter[tasks.isin(valid_tasks)]
 
 
 def prepare_data(

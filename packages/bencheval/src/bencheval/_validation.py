@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 
-import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 
@@ -225,30 +224,27 @@ class ResultsValidationMixin:
 
         data = data.set_index([*task_columns, self.method_col], drop=True)
 
-        df_filled = df_fillna[task_columns].merge(
-            pd.Series(data=unique_methods, name=self.method_col),
-            how="cross",
+        # Every (task, seed) in df_fillna paired with every method, in that order.
+        full_index = pd.MultiIndex.from_frame(
+            df_fillna[task_columns].merge(
+                pd.Series(data=unique_methods, name=self.method_col),
+                how="cross",
+            )
         )
-        df_filled = df_filled.set_index(keys=list(df_filled.columns))
+        nan_vals = full_index.difference(data.index)
 
-        # missing results
-        nan_vals = df_filled.index.difference(data.index)
-
-        # fill valid values
-        fill_cols = list(data.columns)
-        df_filled[fill_cols] = np.nan
-        df_filled[fill_cols] = df_filled[fill_cols].astype(data.dtypes)
-        df_filled.loc[data.index] = data
-
-        df_fillna = df_fillna.set_index(task_columns, drop=True)
-        a = df_fillna.loc[nan_vals.droplevel(level=self.method_col)]
-        a.index = nan_vals
-        df_filled.loc[nan_vals] = a
+        # Rows that exist come from `data`, the rest from `df_fillna`'s row for their (task, seed).
+        # Building both blocks and reindexing is far cheaper than scattering them into a preallocated
+        # frame with label-aligned `.loc` assignment.
+        fill_rows = df_fillna.set_index(task_columns, drop=True).reindex(nan_vals.droplevel(level=self.method_col))
+        fill_rows.index = nan_vals
+        df_filled = pd.concat([data, fill_rows[data.columns]]).reindex(full_index)
 
         if imputed_col is not None:
-            if imputed_col not in df_filled.columns:
-                df_filled[imputed_col] = False
-            df_filled.loc[nan_vals, imputed_col] = True
-            df_filled[imputed_col] = df_filled[imputed_col].fillna(0).astype(bool)
+            # Rows already flagged imputed upstream keep the flag; filled rows are always imputed.
+            was_imputed = (
+                df_filled[imputed_col].fillna(False).astype(bool) if imputed_col in df_filled.columns else False
+            )
+            df_filled[imputed_col] = was_imputed | df_filled.index.isin(nan_vals)
 
         return df_filled.reset_index(drop=False)

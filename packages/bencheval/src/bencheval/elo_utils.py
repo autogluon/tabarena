@@ -2,14 +2,80 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from collections import defaultdict
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize
 from sklearn.linear_model import LogisticRegression
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
+
+# scikit-learn's default `tol=1e-4` stops lbfgs well short of the Bradley-Terry maximum on
+# leaderboard-sized problems (7 iterations on the 84-method TabArena field), leaving ratings
+# shrunk toward the field mean. Converging costs ~4% runtime -- the fit is a small fraction of
+# `compute_elo`, which is dominated by building the battles.
+ELO_SOLVER_TOL = 1e-10
+
+#: scikit-learn's default, and what shipped before the tolerance was tightened. lbfgs meets it
+#: after ~7 iterations on a leaderboard-sized field, short of the Bradley-Terry maximum.
+LEGACY_ELO_SOLVER_TOL = 1e-4
+
+#: Env var equivalent of :data:`USE_LEGACY_ELO_SOLVER_TOL`, for turning the legacy fit on without
+#: touching code — a CLI run, a CI job, or a one-off comparison.
+LEGACY_ELO_SOLVER_TOL_ENV_VAR = "TABARENA_LEGACY_ELO_SOLVER_TOL"
+
+#: TEMPORARY. Set True to compute Elo the pre-tightening way, for reproducing numbers published
+#: before the change or for bisecting a leaderboard difference against it.
+#: Remove once nothing needs to reproduce the older ratings.
+USE_LEGACY_ELO_SOLVER_TOL = False
+
+
+def use_legacy_elo_solver_tol() -> bool:
+    """Whether the pre-tightening tolerance is requested, by module flag or env var.
+
+    Both are consulted on every call rather than captured at import, so either can be changed
+    part-way through a process — which is the point of a flag whose job is reproducing an older
+    number alongside the current one.
+    """
+    if USE_LEGACY_ELO_SOLVER_TOL:
+        return True
+    return os.environ.get(LEGACY_ELO_SOLVER_TOL_ENV_VAR, "").strip().lower() in ("1", "true", "yes")
+
+
+def elo_solver_tol() -> float:
+    """The lbfgs tolerance for the Elo fit, honouring :func:`use_legacy_elo_solver_tol`."""
+    return LEGACY_ELO_SOLVER_TOL if use_legacy_elo_solver_tol() else ELO_SOLVER_TOL
+
+
+#: Ridge on the log-strengths, matching the L2 penalty `compute_mle_elo`'s `LogisticRegression`
+#: applies at `C=1e6`. sklearn penalises `beta = t / ln(10)` and scales the likelihood by `C`, so
+#: `0.5 * ||beta||^2` becomes this coefficient on `||t||^2`. Negligible on a real field (4e-6 Elo),
+#: it is what pins down a *separable* one, where the unpenalised maximum runs off to infinity and
+#: any answer would otherwise depend on where the solver's tolerance happened to stop it.
+BT_RIDGE = 0.5 / (1e6 * math.log(10) ** 2)
+
+#: Env var equivalent of :data:`USE_FAST_ELO`, for turning the rank path off without touching code.
+DISABLE_FAST_ELO_ENV_VAR = "TABARENA_DISABLE_FAST_ELO"
+
+#: Solve Bradley-Terry from per-task ranks instead of a materialised battle table when the results
+#: allow it. Same ratings, but cost is linear rather than quadratic in the number of methods.
+USE_FAST_ELO = True
+
+
+def use_fast_elo() -> bool:
+    """Whether the rank path may be used, by module flag and env var.
+
+    The legacy tolerance wins: its whole purpose is reproducing ratings from a specific solver
+    run, so a request for it has to reach that solver rather than an equivalent-but-different one.
+    """
+    if use_legacy_elo_solver_tol():
+        return False
+    if not USE_FAST_ELO:
+        return False
+    return os.environ.get(DISABLE_FAST_ELO_ENV_VAR, "").strip().lower() not in ("1", "true", "yes")
 
 
 class EloHelper:
@@ -27,6 +93,159 @@ class EloHelper:
 
         self.method_1 = f"{self.method_col}_1"
         self.method_2 = f"{self.method_col}_2"
+
+    def _pivot_errors(self, results_per_task: pd.DataFrame) -> pd.DataFrame:
+        """Errors as a method x unit matrix, one column per unit that battles are paired within.
+
+        That unit is ``(task, split)`` whenever a split column is set, matching
+        :meth:`convert_results_to_battles`, so both paths see the same schedule.
+
+        Only observed units become columns. The (task, split) grid is ragged -- tasks differ in how
+        many splits they have -- so materialising the full cross-product would invent units that no
+        method ran and make every real schedule look incomplete.
+        """
+        on_cols = [self.task_col] if self.split_col is None else [self.task_col, self.split_col]
+        return results_per_task.pivot_table(index=self.method_col, columns=on_cols, values=self.error_col)
+
+    def _rank_win_matrix(self, results_per_task: pd.DataFrame) -> tuple[pd.Index, np.ndarray]:
+        """Per-task win totals implied by the per-unit ranks, shape ``(n_methods, n_tasks)``.
+
+        A method's rank on a unit is one plus the number of methods that beat it, so ``n_methods -
+        rank`` is its win count there -- ties included at half a win each, since ranks are averaged
+        over them. Units are then weighted by ``1 / n_splits(task)`` and summed within their task,
+        so every task contributes total weight 1 however many splits it ran. That is the weighting
+        :meth:`convert_results_to_battles` attaches to each battle, and getting it wrong tilts the
+        ratings toward whichever tasks happen to have the most splits.
+
+        Raises:
+            ValueError: if any method is missing a unit. Win totals are only a sufficient statistic
+                for Bradley-Terry when the schedule is complete and balanced, so this shortcut
+                would otherwise silently give a different answer.
+        """
+        wide = self._pivot_errors(results_per_task=results_per_task)
+        if wide.isna().to_numpy().any():
+            missing = int(wide.isna().to_numpy().sum())
+            raise ValueError(
+                f"The rank path requires every method to have every task; {missing} (method, task) "
+                f"pair(s) are missing. Win totals are only a sufficient statistic for Bradley-Terry "
+                f"when the schedule is complete and balanced."
+            )
+        if len(wide) < 2:
+            raise ValueError(f"The rank path needs at least two methods to compare, got {len(wide)}.")
+
+        n_methods = len(wide)
+        wins_per_unit = n_methods - wide.rank(axis=0, method="average", ascending=True).to_numpy()
+
+        units = wide.columns
+        tasks = units.to_numpy() if self.split_col is None else units.get_level_values(self.task_col).to_numpy()
+        _, task_of_unit = np.unique(tasks, return_inverse=True)
+        n_tasks = int(task_of_unit.max()) + 1
+        weights = 1.0 / np.bincount(task_of_unit)[task_of_unit]
+
+        # Sum each unit's weighted wins into its task's column.
+        unit_to_task = np.zeros((len(task_of_unit), n_tasks))
+        unit_to_task[np.arange(len(task_of_unit)), task_of_unit] = 1.0
+        return wide.index, (wins_per_unit * weights) @ unit_to_task
+
+    def can_compute_elo_from_ranks(self, results_per_task: pd.DataFrame) -> bool:
+        """Whether the rank path applies: at least two methods, no duplicate or missing units."""
+        on_cols = [self.task_col] if self.split_col is None else [self.task_col, self.split_col]
+        if results_per_task.duplicated(subset=[self.method_col, *on_cols]).any():
+            # The battle path rejects these outright; let it raise rather than averaging them away.
+            return False
+        wide = self._pivot_errors(results_per_task=results_per_task)
+        return len(wide) >= 2 and not wide.isna().to_numpy().any()
+
+    def compute_mle_elo_from_ranks(
+        self,
+        results_per_task: pd.DataFrame,
+        SCALE: int | float = 400,
+        INIT_RATING: int | float = 1000,
+        calibration_framework: str | None = None,
+        calibration_elo: float | None = None,
+        max_iter: int = 10_000,
+        tol: float = 1e-12,
+    ) -> pd.Series:
+        """Bradley-Terry Elo computed from per-task ranks, without materialising battles.
+
+        The Bradley-Terry likelihood equations are ``W_i = sum_j n_ij * p_i/(p_i + p_j)``, so when
+        every pair of methods meets on every task -- a complete, balanced schedule -- the data
+        enters only through the per-method win totals, which :meth:`_rank_win_matrix` reads off the
+        ranks.
+
+        That makes the whole battle table unnecessary. The standard path builds
+        ``T * n_methods * (n_methods - 1) / 2`` rows before compressing them back down to an
+        ``n x n`` pair matrix; this reads the same information off an ``n``-vector. Cost falls from
+        quadratic-in-methods to linear, and peak memory stops tracking the battle count.
+        """
+        methods, win_matrix = self._rank_win_matrix(results_per_task=results_per_task)
+        elo = self._bradley_terry_from_win_totals(
+            wins=win_matrix.sum(axis=1),
+            n_tasks=win_matrix.shape[1],
+            SCALE=SCALE,
+            INIT_RATING=INIT_RATING,
+            max_iter=max_iter,
+            tol=tol,
+        )
+        out = pd.Series(elo, index=methods)
+        if calibration_framework is not None:
+            target = INIT_RATING if calibration_elo is None else float(calibration_elo)
+            out += target - out[calibration_framework]
+        return out.sort_values(ascending=False)
+
+    @staticmethod
+    def _bradley_terry_from_win_totals(
+        wins: np.ndarray,
+        n_tasks: int,
+        SCALE: int | float = 400,
+        INIT_RATING: int | float = 1000,
+        max_iter: int = 10_000,
+        tol: float = 1e-12,
+        init: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Maximise the Bradley-Terry likelihood, working in log-strengths.
+
+        With every pair meeting ``n_tasks`` times, the log-likelihood is
+        ``sum_i W_i t_i - n_tasks * sum_{i<j} log(e^{t_i} + e^{t_j})`` -- concave in ``t``, and
+        expressible from the win totals alone. L-BFGS reaches its maximum in around 15 iterations
+        where the classic MM update needs several hundred, because MM's guaranteed ascent is
+        first-order and slows near the optimum.
+
+        The fit carries the same ridge as the battle path (:data:`BT_RIDGE`). It costs 4e-6 Elo on a
+        real field, and it is what makes a *degenerate* one answerable at all: where a group of
+        methods beats another on every task, or a method wins nothing, the unpenalised maximum runs
+        off to infinity and the ratings would otherwise be an artifact of wherever the solver's
+        tolerance stopped. Every rating therefore comes back finite, as the battle path's penalty has
+        always made them.
+
+        The likelihood fixes strengths only up to a common factor, so ratings are centred to average
+        ``INIT_RATING`` -- the convention the battle path lands on. ``init`` warm-starts the search,
+        which is worth roughly a third of the iterations when solving many bootstrap resamples.
+        """
+        n = len(wins)
+        off_diagonal = ~np.eye(n, dtype=bool)
+        upper = np.triu_indices(n, 1)
+
+        def penalised_negative_log_likelihood(t: np.ndarray) -> tuple[float, np.ndarray]:
+            # log(e^{t_i} + e^{t_j}), shifted by the larger exponent so neither term overflows.
+            largest = np.maximum(t[:, None], t[None, :])
+            log_sum = largest + np.log(np.exp(t[:, None] - largest) + np.exp(t[None, :] - largest))
+            log_likelihood = wins @ t - n_tasks * log_sum[upper].sum()
+            win_probability = np.exp(t[:, None] - log_sum)
+            gradient = wins - n_tasks * np.where(off_diagonal, win_probability, 0.0).sum(axis=1)
+            # The ridge also removes the likelihood's flat direction, so no re-centring is needed
+            # to make the search well posed.
+            return -log_likelihood + BT_RIDGE * (t @ t), -gradient + 2 * BT_RIDGE * t
+
+        result = minimize(
+            penalised_negative_log_likelihood,
+            np.zeros(n) if init is None else np.asarray(init, dtype=float),
+            jac=True,
+            method="L-BFGS-B",
+            options={"maxiter": max_iter, "ftol": tol * 1e-3, "gtol": tol},
+        )
+        log_strength = result.x - result.x.mean()
+        return SCALE * (log_strength / np.log(10)) + INIT_RATING
 
     def compute_mle_elo(
         self,
@@ -50,28 +269,24 @@ class EloHelper:
 
         if use_pair_aggregation and not force_iterative_elo:
             X, Y, sample_weight, model_to_idx = self._aggregate_battles_for_mle(battles, BASE=BASE)
-            if len(Y) == 0 or (np.unique(Y).size < 2):
-                # Degenerate draw (e.g., total dominance in a bootstrap): fall back.
-                logger.warning(
-                    "compute_mle_elo: only one class present after aggregation; falling back to iterative ELO."
+            if len(Y) == 0:
+                # Every pair is emitted with both labels, so an empty design means no pair of
+                # methods carries any weight -- there is nothing to rank, not a harder fit.
+                raise ValueError(
+                    f"Cannot compute Elo: none of the {len(battles)} battle(s) between "
+                    f"{len(models)} method(s) carry any weight, so no pair of methods has a "
+                    f"comparison to fit."
                 )
-                elo_scores = self.compute_iterative_elo_scores(
-                    df_original,
-                    INIT_RATING=INIT_RATING,
-                    SCALE=SCALE,
-                    models=models,
-                )
-                SeriesOut = pd.Series(elo_scores, index=models.index)
-            else:
-                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6)
-                lr.fit(X, Y, sample_weight=sample_weight)
-                coef = lr.coef_[0]
-                # map coef -> ELO
-                elo_vec = SCALE * coef + INIT_RATING
-                # place into full model order
-                out = np.ones(len(models)) * INIT_RATING
-                out[model_to_idx.values] = elo_vec[model_to_idx.values]
-                SeriesOut = pd.Series(out, index=models.index)
+
+            lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=elo_solver_tol())
+            lr.fit(X, Y, sample_weight=sample_weight)
+            coef = lr.coef_[0]
+            # map coef -> ELO
+            elo_vec = SCALE * coef + INIT_RATING
+            # place into full model order
+            out = np.ones(len(models)) * INIT_RATING
+            out[model_to_idx.values] = elo_vec[model_to_idx.values]
+            SeriesOut = pd.Series(out, index=models.index)
         else:
             # duplicate battles
             battles = pd.concat([battles, battles], ignore_index=True)
@@ -107,7 +322,7 @@ class EloHelper:
                     models=models,
                 )
             else:
-                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6)
+                lr = LogisticRegression(fit_intercept=False, max_iter=max_iter, C=1e6, tol=elo_solver_tol())
                 lr.fit(X, Y, sample_weight=sample_weight)
                 elo_scores = SCALE * lr.coef_[0] + INIT_RATING
 
@@ -405,6 +620,46 @@ class EloHelper:
             show_process=show_process,
         )
 
+    def compute_elo_ratings_from_ranks(
+        self,
+        results_per_task: pd.DataFrame,
+        seed: int = 0,
+        calibration_framework=None,
+        calibration_elo=None,
+        INIT_RATING: float = 1000,
+        BOOTSTRAP_ROUNDS: int = 100,
+        SCALE: int = 400,
+        show_process: bool = True,
+    ) -> pd.DataFrame:
+        """Task-level bootstrap of :meth:`compute_mle_elo_from_ranks`, without materialising battles.
+
+        The bootstrap resamples tasks with replacement, which on the rank path is just a
+        multiplicity vector over the columns of :meth:`_rank_win_matrix`. Each round is then a
+        matrix-vector product plus one Bradley-Terry solve, so the battle table -- and the cost of
+        reweighting it every round -- drops out entirely.
+        """
+        methods, win_matrix = self._rank_win_matrix(results_per_task=results_per_task)
+        n_tasks = win_matrix.shape[1]
+
+        rng = np.random.default_rng(seed=seed)
+        rows = []
+        for _ in tqdm(range(BOOTSTRAP_ROUNDS), desc="bootstrap", disable=not show_process):
+            counts = np.bincount(rng.choice(n_tasks, size=n_tasks, replace=True), minlength=n_tasks)
+            elo = self._bradley_terry_from_win_totals(
+                wins=win_matrix @ counts.astype(float),
+                n_tasks=n_tasks,
+                SCALE=SCALE,
+                INIT_RATING=INIT_RATING,
+            )
+            ser = pd.Series(elo, index=methods)
+            if calibration_framework is not None:
+                target = INIT_RATING if calibration_elo is None else float(calibration_elo)
+                ser += target - ser[calibration_framework]
+            rows.append(ser)
+
+        df = pd.DataFrame(rows)
+        return df[df.median().sort_values(ascending=False).index]
+
     def compute_elo_rating_dataset_contributon(
         self,
         results_ranked_fillna_df: pd.DataFrame,
@@ -599,6 +854,9 @@ class EloHelper:
           - Create two rows with the *same X*:
               y=1, weight = w_Awins + 0.5 * w_ties
               y=0, weight = w_Bwins + 0.5 * w_ties
+
+        Both rows are kept even at zero weight, so which labels appear does not depend on how the
+        pair was canonicalised. Only a pair neither method ever contested is dropped.
         """
         # model index mapping
         all_models = pd.concat([battles[self.method_1], battles[self.method_2]]).unique()
@@ -653,15 +911,17 @@ class EloHelper:
             x[model_to_idx[vi]] = -logB
 
             # y=1 row with A-side effective wins
-            if su > 0.0:
-                X_rows.append(x)
-                y_rows.append(1.0)
-                sw_rows.append(su)
+            # Both rows are emitted even when one side never won. A zero weight contributes nothing
+            # to the fit, but dropping the row would leave the design with a single label whenever
+            # every decisive pair happens to be won by the alphabetically earlier method -- which
+            # `compute_mle_elo` reads as unfittable and answers with a different estimator entirely.
+            X_rows.append(x)
+            y_rows.append(1.0)
+            sw_rows.append(su)
             # y=0 row with B-side effective wins
-            if sv > 0.0:
-                X_rows.append(x)
-                y_rows.append(0.0)
-                sw_rows.append(sv)
+            X_rows.append(x)
+            y_rows.append(0.0)
+            sw_rows.append(sv)
 
         X = np.vstack(X_rows) if X_rows else np.zeros((0, p))
         y = np.asarray(y_rows, dtype=float)
@@ -872,53 +1132,35 @@ class EloHelper:
         SU_tot = counts @ SU  # (n_pairs,)
         SV_tot = counts @ SV  # (n_pairs,)
 
-        # If one class is missing, fall back to iterative path for this draw
-        has_pos = np.any(SU_tot > 0.0)
-        has_neg = np.any(SV_tot > 0.0)
-        if not (has_pos and has_neg):
-            # Build multiplicity map for tasks in this draw
-            mult_map = dict(zip(task_ids, counts, strict=False))
-            battles_boot = battles.copy()
-            if "weight" not in battles_boot.columns:
-                battles_boot["weight"] = 1.0
-            battles_boot["weight"] = battles_boot["weight"].to_numpy(dtype=float) * battles_boot[self.task_col].map(
-                mult_map
-            ).fillna(0.0).to_numpy(dtype=float)
-            elo_scores = self.compute_iterative_elo_scores(
-                battles_boot,
-                INIT_RATING=INIT_RATING,
-                SCALE=SCALE,
-                models=pd.Series(np.arange(len(model_to_idx)), index=model_to_idx.index),
-            )
-            ser = pd.Series(elo_scores, index=model_to_idx.index)
+        # Every pair contributes both labels, so the design is fittable even when a draw leaves one
+        # side of a pair with no wins at all -- that side simply carries zero weight.
+        # Interleaved sample weights: [SU_tot[0], SV_tot[0], SU_tot[1], SV_tot[1], ...]
+        n_pairs = SU_tot.size
+        sw = np.empty(2 * n_pairs, dtype=float)
+        sw[0::2] = SU_tot
+        sw[1::2] = SV_tot
+
+        # Optionally drop zero-weight pairs to shrink the fit
+        active_pairs = (SU_tot + SV_tot) > 0.0
+        if not np.all(active_pairs):
+            idx_pairs = np.flatnonzero(active_pairs)
+            row_idx = np.empty(2 * idx_pairs.size, dtype=int)
+            row_idx[0::2] = 2 * idx_pairs
+            row_idx[1::2] = 2 * idx_pairs + 1
+            X_fit, Y_fit, sw_fit = X2[row_idx], Y2[row_idx], sw[row_idx]
         else:
-            # Interleaved sample weights: [SU_tot[0], SV_tot[0], SU_tot[1], SV_tot[1], ...]
-            n_pairs = SU_tot.size
-            sw = np.empty(2 * n_pairs, dtype=float)
-            sw[0::2] = SU_tot
-            sw[1::2] = SV_tot
+            X_fit, Y_fit, sw_fit = X2, Y2, sw
 
-            # Optionally drop zero-weight pairs to shrink the fit
-            active_pairs = (SU_tot + SV_tot) > 0.0
-            if not np.all(active_pairs):
-                idx_pairs = np.flatnonzero(active_pairs)
-                row_idx = np.empty(2 * idx_pairs.size, dtype=int)
-                row_idx[0::2] = 2 * idx_pairs
-                row_idx[1::2] = 2 * idx_pairs + 1
-                X_fit, Y_fit, sw_fit = X2[row_idx], Y2[row_idx], sw[row_idx]
-            else:
-                X_fit, Y_fit, sw_fit = X2, Y2, sw
+        # Fit LR on the fixed design with per-draw weights
+        lr = LogisticRegression(fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter, tol=elo_solver_tol())
+        lr.fit(X_fit, Y_fit, sample_weight=sw_fit)
 
-            # Fit LR on the fixed design with per-draw weights
-            lr = LogisticRegression(fit_intercept=False, C=1e6, solver=solver, max_iter=max_iter)
-            lr.fit(X_fit, Y_fit, sample_weight=sw_fit)
-
-            # Map coefficients -> ELO
-            coef = lr.coef_[0]  # aligned with model_to_idx order
-            elo_vec = SCALE * coef + INIT_RATING
-            out = np.ones(len(model_to_idx), dtype=float) * INIT_RATING
-            out[:] = elo_vec
-            ser = pd.Series(out, index=model_to_idx.index)
+        # Map coefficients -> ELO
+        coef = lr.coef_[0]  # aligned with model_to_idx order
+        elo_vec = SCALE * coef + INIT_RATING
+        out = np.ones(len(model_to_idx), dtype=float) * INIT_RATING
+        out[:] = elo_vec
+        ser = pd.Series(out, index=model_to_idx.index)
 
         # ---- Per-draw calibration (apply to the Series) ----
         if calibration_framework is not None:

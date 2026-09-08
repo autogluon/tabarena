@@ -116,33 +116,34 @@ __BASE_JS__
   // Matches the point labels drawn in `render` — see the side/overlap logic there.
   const textWidth = makeTextMeasurer(svg, { size: 13, weight: 700 });
 
-  // Marker glyph per variant at (cx, cy); trajectories use circles everywhere.
-  function drawMark(parent, cx, cy, variant, color, size, opacity, dataM, whiteStroke) {
+  // Marker glyph per variant at (cx, cy); trajectories use circles everywhere. `edge`
+  // (a color, or null for none) outlines the glyph; the X glyph has no fill, so its edge
+  // is a wider stroke beneath it.
+  function drawMark(parent, cx, cy, variant, color, edge, size, opacity, dataM) {
     const common = { opacity: opacity, "data-m": dataM };
+    const outline = edge ? { stroke: edge, "stroke-width": 1.2 } : {};
     let node;
     if (TRAJECTORY || variant === "Default" || !variant) {
-      node = el("circle", { ...common, cx, cy, r: size, fill: color }, parent);
+      node = el("circle", { ...common, ...outline, cx, cy, r: size, fill: color }, parent);
     } else if (variant === "Tuned") {
       const s = size * 1.75;
-      node = el("rect", { ...common, x: cx - s / 2, y: cy - s / 2, width: s, height: s, rx: 1.5, fill: color }, parent);
+      node = el("rect", { ...common, ...outline, x: cx - s / 2, y: cy - s / 2, width: s, height: s, rx: 1.5, fill: color }, parent);
     } else if (variant === "Tuned + Ens.") {
       const d = size * 0.95;
-      node = el("path", {
+      const cross = {
         ...common,
         d: `M${cx - d},${cy - d} L${cx + d},${cy + d} M${cx - d},${cy + d} L${cx + d},${cy - d}`,
-        stroke: color, "stroke-width": size * 0.62, fill: "none", "stroke-linecap": "round",
-      }, parent);
+        fill: "none", "stroke-linecap": "round",
+      };
+      if (edge) el("path", { ...cross, stroke: edge, "stroke-width": size * 0.62 + 2.4 }, parent);
+      node = el("path", { ...cross, stroke: color, "stroke-width": size * 0.62 }, parent);
     } else {
       // Any other variant (e.g. "Baseline", holdout types): diamond.
       const s = size * 1.45;
       node = el("rect", {
-        ...common, x: cx - s / 2, y: cy - s / 2, width: s, height: s, rx: 1,
+        ...common, ...outline, x: cx - s / 2, y: cy - s / 2, width: s, height: s, rx: 1,
         fill: color, transform: `rotate(45 ${cx} ${cy})`,
       }, parent);
-    }
-    if (whiteStroke && variant !== "Tuned + Ens.") {
-      node.setAttribute("stroke", "var(--card)");
-      node.setAttribute("stroke-width", "1");
     }
     return node;
   }
@@ -330,9 +331,13 @@ __BASE_JS__
       const on = isOn(method);
       for (const p of pts) {
         const color = on ? FAM_VAR[p.family] : "var(--pt-muted)";
+        // An active marker's edge is a darker shade of its face on the light surface and
+        // the card color on the dark one (the --fam-*-edge tokens). Muted markers stay
+        // plain grey, easy to ignore.
+        const edge = on ? FAM_EDGE[p.family] : null;
         const size = (on ? 7 : 5) * (TRAJECTORY ? 0.8 : 1);
         const op = on ? 0.95 : 0.5;
-        drawMark(on ? ptsOn : ptsOff, X(p[xKey]), Y(mval(p, metric)), p.variant, color, size, op, p.method, on);
+        drawMark(on ? ptsOn : ptsOff, X(p[xKey]), Y(mval(p, metric)), p.variant, color, edge, size, op, p.method);
         // Imputation ring: every affected point in scatter mode; only the
         // trajectory's end point in trajectory mode (a ring on all ~8 line
         // points would read as beads, and the chip's ‡ already flags the line).

@@ -416,6 +416,55 @@ one-time work to the first `_predict` (put it in `_fit` or `warmup`).
 
 ---
 
+## Foundation-model weights: always pin the HF checkpoint revision
+
+Any foundation model whose weights come from Hugging Face (`hf_hub_download` /
+`snapshot_download`) must pin `revision=` to a specific commit — never resolve against the repo's
+current default branch. Without it, a push to the HF repo silently changes the weights every
+subsequent fit uses, with nothing in this repo recording that it happened (see
+autogluon/tabarena#510 for the incident that prompted this).
+
+```python
+_DEFAULT_HF_REPO = "SomeOrg/SomeModel"
+_DEFAULT_HF_FILENAME = "checkpoint.safetensors"
+#: Commit pinned so the checkpoint fetched here never silently changes if the
+#: repo's default branch moves. Bump deliberately (with a note on what changed)
+#: when picking up a newer checkpoint.
+_DEFAULT_HF_REVISION = "<commit-sha-from-huggingface.co/api/models/{repo}>"
+
+
+@classmethod
+def prefetch_weights(cls) -> str:
+    """Pre-download the checkpoint from Hugging Face and return its local path.
+
+    Tries the local cache first so offline compute nodes skip the etag
+    HEAD-request that ``hf_hub_download`` performs by default.
+    """
+    from huggingface_hub import hf_hub_download
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    try:
+        return hf_hub_download(
+            repo_id=_DEFAULT_HF_REPO,
+            filename=_DEFAULT_HF_FILENAME,
+            revision=_DEFAULT_HF_REVISION,
+            local_files_only=True,
+        )
+    except LocalEntryNotFoundError:
+        return hf_hub_download(
+            repo_id=_DEFAULT_HF_REPO,
+            filename=_DEFAULT_HF_FILENAME,
+            revision=_DEFAULT_HF_REVISION,
+        )
+```
+
+Resolve `_DEFAULT_HF_REVISION` from `https://huggingface.co/api/models/{repo_id}` (the `sha`
+field) at the time you write the wrapper, not by hand-guessing a commit. Wire this same
+classmethod into `ModelInfo(prefetch_weights=...)` in `info.py` so the foundation-model
+pre-download scripts (see the `benchmark-model` skill) pick it up.
+
+---
+
 ## Categorical & missing-value handling — prefer the library's native path
 
 A frequent review finding: wrappers needlessly label-encode categoricals, impute with `fillna(0)`,

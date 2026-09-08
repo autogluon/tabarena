@@ -1,0 +1,46 @@
+# Publish a `.dev` build of bencheval + tabarena to PyPI for every push to
+# `main` whose tests passed. The version is `<next patch>.dev<UTC timestamp>`,
+# derived on the runner from the pyproject version; no tag, no commit, no
+# GitHub Release. Users opt in with `pip install --pre tabarena`.
+#
+# Gated on the "Python application" workflow (pytest + ruff) succeeding for
+# that commit, so a broken main is never published. Runs are serialized so
+# the timestamps stay in commit order.
+
+name: Dev release (PyPI)
+
+on:
+  workflow_run:
+    workflows: ["Python application"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: pypi-dev-release
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build + verify distributions
+        run: python scripts/release/build_pypi_dists.py --dev
+
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always dist/*

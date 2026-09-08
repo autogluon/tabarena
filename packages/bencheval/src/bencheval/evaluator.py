@@ -11,7 +11,7 @@ from ._analysis import DatasetAnalysisMixin
 from ._common import FRONTIER_ADVANTAGE, IMPROVABILITY, LOSS_RESCALED, RANK
 from ._plotting import PlottingMixin
 from ._validation import ResultsValidationMixin
-from .elo_utils import EloHelper
+from .elo_utils import EloHelper, use_fast_elo
 from .mean_utils import compute_weighted_mean_by_task
 from .winrate_utils import compute_winrate, compute_winrate_matrix
 
@@ -102,15 +102,20 @@ def _lb_winrate(ctx: LeaderboardContext) -> list:
     return [ctx.evaluator.compute_winrate(results_per_task=ctx.results_per_task).to_frame()]
 
 
+#: Resamples behind the improvability error bars. Separate from the Elo bootstrap, and not
+#: reached by `BOOTSTRAP_ROUNDS`.
+IMPROVABILITY_BOOTSTRAP_ROUNDS = 100
+
+
 def _lb_improvability(ctx: LeaderboardContext) -> list:
     ev = ctx.evaluator
     tasks = list(ctx.results_per_task[ev.task_col].unique())
     results_per_task_avg = ctx.results_per_task.groupby(ev.groupby_columns)[IMPROVABILITY].mean().reset_index()
-    improvability_bootstrap = get_bootstrap_result_lst(
-        data=tasks,
-        func_=ev._weighted_groupby_mean,
-        func_kwargs={"data": results_per_task_avg, "agg_column": IMPROVABILITY},
-        num_round=100,
+    improvability_bootstrap = ev._bootstrap_weighted_task_means(
+        tasks=tasks,
+        data=results_per_task_avg,
+        agg_column=IMPROVABILITY,
+        num_round=IMPROVABILITY_BOOTSTRAP_ROUNDS,
     )
     improvability = ctx.results_agg[IMPROVABILITY]
     ctx.results_agg = ctx.results_agg.drop(columns=[IMPROVABILITY])
@@ -658,10 +663,14 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         elo_helper = EloHelper(
             method_col=self.method_col, task_col=self.task_col, error_col=self.error_col, split_col=split_col
         )
-        battles = elo_helper.convert_results_to_battles(results_df=results_per_task)
+        # The rank path covers both the single fit and the bootstrap, so when it applies no battle
+        # table is built at all.
+        use_rank_path = use_fast_elo() and elo_helper.can_compute_elo_from_ranks(results_per_task)
+        needs_bootstrap = use_bootstrap_median or (include_quantiles and BOOTSTRAP_ROUNDS > 1)
 
-        can_compute_elo = len(battles) > 0
-        if not can_compute_elo:
+        battles = None if use_rank_path else elo_helper.convert_results_to_battles(results_df=results_per_task)
+
+        if not use_rank_path and len(battles) == 0:
             task_groupby_cols = [self.task_col]
             if split_col is not None:
                 task_groupby_cols.append(split_col)
@@ -695,9 +704,14 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         bootstrap_median = None
         bootstrap_elo_lu = None
         bars_quantiles = None
-        if use_bootstrap_median or (include_quantiles and BOOTSTRAP_ROUNDS > 1):
-            bootstrap_elo_lu = elo_helper.compute_elo_ratings(
-                battles=battles,
+        # Set when there is no bootstrap to take quantiles from, so the bars have no width to report.
+        zero_width_bars = False
+        if needs_bootstrap:
+            bootstrap_fn = (
+                elo_helper.compute_elo_ratings_from_ranks if use_rank_path else elo_helper.compute_elo_ratings
+            )
+            bootstrap_elo_lu = bootstrap_fn(
+                **({"results_per_task": results_per_task} if use_rank_path else {"battles": battles}),
                 calibration_framework=calibration_framework,
                 calibration_elo=calibration_elo,
                 INIT_RATING=INIT_RATING,
@@ -709,6 +723,14 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
 
         if use_bootstrap_median:
             elo = bootstrap_median
+        elif use_rank_path:
+            elo = elo_helper.compute_mle_elo_from_ranks(
+                results_per_task=results_per_task,
+                INIT_RATING=INIT_RATING,
+                SCALE=SCALE,
+                calibration_framework=calibration_framework,
+                calibration_elo=calibration_elo,
+            )
         else:
             elo = elo_helper.compute_mle_elo(
                 battles=battles,
@@ -732,6 +754,7 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
                     "Warning: Returning 95% CI quantiles for elo when BOOTSTRAP_ROUNDS<=1. "
                     "The CI is invalid and widths will be set to 0.",
                 )
+                zero_width_bars = True
                 bars_quantiles = pd.DataFrame(
                     dict(
                         lower=elo,
@@ -753,8 +776,14 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
             relative_to = (
                 bootstrap_median if (use_bootstrap_median_for_quantiles and bootstrap_median is not None) else elo
             )
-            bars["elo+"] = bars_quantiles["upper"] - relative_to
-            bars["elo-"] = relative_to - bars_quantiles["lower"]
+            if zero_width_bars:
+                # Stated directly rather than as `upper - elo`: that subtraction is only zero for
+                # finite ratings, and gives NaN for a method Bradley-Terry places at infinity.
+                bars["elo+"] = 0.0
+                bars["elo-"] = 0.0
+            else:
+                bars["elo+"] = bars_quantiles["upper"] - relative_to
+                bars["elo-"] = relative_to - bars_quantiles["lower"]
 
             if clip_negative_ci:
                 bars["elo+"] = bars["elo+"].clip(lower=0)
@@ -1051,19 +1080,38 @@ class BenchmarkEvaluator(ResultsValidationMixin, DatasetAnalysisMixin, PlottingM
         return results_rank
 
     # TODO: Make faster, can be 100x faster if vectorized properly.
-    def _weighted_groupby_mean(self, tasks: list[str], data: pd.DataFrame, agg_column: str) -> pd.Series:
-        num_tasks = len(tasks)
-        data = data.copy()
+    def _bootstrap_weighted_task_means(
+        self,
+        tasks: list[str],
+        data: pd.DataFrame,
+        agg_column: str,
+        num_round: int,
+        seed: int = 0,
+    ) -> pd.DataFrame:
+        """Bootstrap the per-method, task-weighted mean of ``agg_column`` by resampling tasks.
 
-        counts = {}
-        for task in tasks:
-            counts[task] = counts.get(task, 0) + 1
-        counts = {k: v / num_tasks for k, v in counts.items()}
-        weights = data[self.task_col].map(counts).fillna(0)
-        data["_weighted_column"] = data[agg_column] * weights
-        column_mean = data.groupby(self.method_col)["_weighted_column"].sum()
-        column_mean.index.name = agg_column
-        return column_mean
+        A resample is just a multiplicity vector over tasks, so every round is a column of one
+        matrix product against the (method x task) table of values -- rather than a copy, a map and
+        a groupby per round.
+
+        A (method, task) pair absent from ``data`` contributes nothing, and a task absent from
+        ``tasks`` is ignored, matching the weighting this replaces.
+        """
+        values = (
+            data.pivot_table(index=self.method_col, columns=self.task_col, values=agg_column, aggfunc="sum")
+            .reindex(columns=pd.Index(tasks))
+            .fillna(0.0)
+        )
+
+        num_tasks = len(tasks)
+        rng = np.random.default_rng(seed=seed)
+        counts = np.empty((num_tasks, num_round))
+        for round_idx in range(num_round):
+            counts[:, round_idx] = np.bincount(rng.choice(num_tasks, size=num_tasks, replace=True), minlength=num_tasks)
+
+        means = pd.DataFrame(values.to_numpy() @ counts / num_tasks, index=values.index).T
+        means.columns.name = agg_column
+        return means[means.median().sort_values(ascending=False).index]
 
     def _seed_col_if_present(self, df: pd.DataFrame) -> str | None:
         if self.seed_column is not None and self.seed_column in df.columns:

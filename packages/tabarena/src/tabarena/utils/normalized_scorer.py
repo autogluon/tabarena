@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
-
-if TYPE_CHECKING:
-    import pandas as pd
+import pandas as pd
 
 
 class NormalizedScorer:
@@ -40,9 +36,33 @@ class NormalizedScorer:
         else:
             self.baseline_dict = df_results.groupby(task_col)[metric_error_col].median(numeric_only=True).to_dict()
 
+        # The same values again, as arrays behind a lookup index. `rank_many` then resolves a whole
+        # column with one hash of the task keys, rather than hashing a tuple per row through a dict.
+        keys = list(self.topline_dict)
+        self._task_keys = pd.MultiIndex.from_tuples(keys) if keys and isinstance(keys[0], tuple) else pd.Index(keys)
+        self._topline_values = np.array([self.topline_dict[key] for key in keys], dtype=float)
+        self._baseline_values = np.array([self.baseline_dict.get(key, np.nan) for key in keys], dtype=float)
+
     # TODO rename to score, create parent class
     def rank(self, task: str, error: float) -> float:
         baseline = self.baseline_dict[task]
         topline = self.topline_dict[task]
         res = (error - topline) / np.clip(baseline - topline, a_min=1e-5, a_max=None)
         return np.clip(res, 0, 1)
+
+    def rank_many(self, tasks: pd.Index, errors: np.ndarray) -> np.ndarray:
+        """:meth:`rank` over whole columns: one score per (task, error) pair.
+
+        `tasks` indexes the per-task baseline and topline, so it must carry one entry per error --
+        a `MultiIndex` when tasks are (dataset, fold) pairs. Scoring row by row instead spends most
+        of its time in `np.clip`'s dispatch for two scalars, which dwarfs the arithmetic.
+        """
+        codes = self._task_keys.get_indexer(tasks)
+        unknown = codes == -1
+        baseline = self._baseline_values[np.where(unknown, 0, codes)]
+        topline = self._topline_values[np.where(unknown, 0, codes)]
+
+        res = (np.asarray(errors, dtype=float) - topline) / np.clip(baseline - topline, a_min=1e-5, a_max=None)
+        scores = np.clip(res, 0, 1)
+        # A task the scorer never saw has no baseline to score against.
+        return np.where(unknown, np.nan, scores)

@@ -63,6 +63,14 @@ class AGWrapper(AbstractExecModel):
         metadata's split columns (the metadata is still present, just not acted upon).
     """
 
+    persist_max_memory: float | None = 0.4
+    """``max_memory`` for the ``pre_predict`` persist, or ``None`` to skip the check.
+
+    AutoGluon decides whether the models fit by pickling each one to measure its size, which for
+    a large model can cost more than the loading the check guards against. Subclasses whose
+    memory use is bounded by construction can set this to ``None``.
+    """
+
     # Default AutoGluon can return a validation score
     can_get_error_val = True
     # Default AutoGluon can return OOF predictions for the best model.
@@ -357,7 +365,7 @@ class AGWrapper(AbstractExecModel):
         if not self.persist:
             return
         try:
-            self._persisted_models = self.predictor.persist(models="best")
+            self._persisted_models = self.predictor.persist(models="best", max_memory=self.persist_max_memory)
             for model in self._iter_persisted_model_objects():
                 prepare = getattr(model, "prepare_for_inference", None)
                 if prepare is not None:
@@ -431,11 +439,17 @@ class AGSingleWrapper(AGWrapper):
         ``predictor.fit(..., hyperparameters={model_cls: model_hyperparameters})``.
     model_hyperparameters: dict
         Hyperparameters for ``model_cls`` (including any ``ag_args_fit`` / ``ag_args_ensemble``).
+
+        Persisting skips AutoGluon's memory check here (``persist_max_memory = None``): one model,
+        or one bag of it, is bounded by construction, so the check's cost -- pickling every model
+        to size it -- buys nothing.
     calibrate: bool | str, default False
         Forwarded to ``TabularPredictor.fit(calibrate=...)``.
     init_kwargs, fit_kwargs:
         Extra predictor constructor / fit kwargs (the "extra" kwargs recorded in metadata).
     """
+
+    persist_max_memory: float | None = None
 
     def __init__(
         self,

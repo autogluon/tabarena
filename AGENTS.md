@@ -178,6 +178,27 @@ python scripts/run_upload_results.py --method-metadata tabarena.models.nori.info
 # Add model to the collection in `packages/tabarena/src/tabarena/contexts/tabarena/methods.py`
 ```
 
+### Releasing to PyPI (maintainers)
+
+The git checkout is the recommended install. PyPI carries an experimental copy of `bencheval` and `tabarena` so downstream packages can depend on them without git URLs (issue #495). The two packages share one version (`version` in both `packages/*/pyproject.toml` must be equal), and every `tabarena` release pins `bencheval==<version>`.
+
+`scripts/release/build_pypi_dists.py` builds both packages from a staged copy, so the checkout is never modified, and then verifies the wheels. Compared to the pyproject files in the repo, the PyPI build sets the version and the `bencheval` pin, strips requirements with a direct URL (`name @ git+...`, which PyPI rejects) so that `tabarena[tabfm]`, `[sap-rpt-oss]` and `[exaone_tabular]` are empty on PyPI while the model's `pip_extra` in its `info.py` keeps the git dependency for the install hint, and copies the root `README.md` (relative links made absolute) and `LICENSE` next to each pyproject. The verification fails on a leftover direct URL, an empty description, a missing license file, or a git-tracked non-`.py` file under `src/` that the package-data globs missed. The `install-from-wheel` job in `.github/workflows/install-benchmark.yml` runs the build on every PR and installs the wheels non-editable.
+
+All three publishing workflows run in the `pypi` GitHub environment and authenticate with PyPI trusted publishing (OIDC), so no token is stored anywhere:
+
+| Workflow | Trigger | Version | Purpose |
+|---|---|---|---|
+| `release.yml` | push a tag `v<version>` | must equal both pyproject versions | stable release plus a GitHub Release with the files attached |
+| `prerelease.yml` | Actions UI, or `gh workflow run prerelease.yml -f version=0.1.0a1` | the input; must carry an `a`/`b`/`rc`/`.dev` segment; repo untouched | alpha/beta/rc for testers |
+| `dev-release.yml` | every push to `main` once "Python application" passes | `<next patch>.dev<UTC timestamp>` | `pip install --pre tabarena` tracks `main` |
+
+To cut a stable release, bump `version` in both pyproject files in a PR, merge it, then `git tag v<version> && git push origin v<version>`. Pre-releases and dev builds never change the repository. Local dry run: `python scripts/release/build_pypi_dists.py --version 0.1.0a1` writes the checked distributions to `dist/` (needs `uv` on PATH).
+
+One-time setup, and who can do it:
+
+- PyPI trusted publishers need the PyPI project owner. For each of `tabarena` and `bencheval`, add one publisher per workflow file (`release.yml`, `prerelease.yml`, `dev-release.yml`) with owner `autogluon`, repository `tabarena`, environment `pypi`. `bencheval` does not exist on PyPI yet, so add it as a pending publisher, which reserves the name until the first upload. Until this is done, `uv publish --trusted-publishing always` fails with an OIDC error instead of publishing.
+- The `pypi` GitHub environment is created by GitHub on the first workflow run that references it. Protection rules on it (required reviewers, restricting deployments to tags) need repository admin rights, which maintainers with push access do not have; ask an `autogluon` org admin.
+
 ## Conventions
 
 - **Add a new model**: create one folder `packages/tabarena/src/tabarena/models/<model>/` (`model.py`, `hpo.py`, `info.py`, `__init__.py`), then edit `models/__init__.py` (lazy class entry), `models/utils.py` (name→generator map), and `packages/tabarena/pyproject.toml` (a per-model extra). The registry auto-discovers the model from its `info.py`, and `tests/tabarena/models/test_all_models.py` then fits it automatically — there is **no per-model test file**. Only add an entry to `tests/tabarena/models/smoke_configs.py` if the smoke fit needs faster toy hyperparameters or a restricted problem-type set (keyed by the model's `MethodMetadata.method`). **Use the `add-model` skill**, which encodes this and points to reference implementations (foundation / torch / sklearn).

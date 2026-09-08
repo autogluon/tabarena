@@ -1,0 +1,44 @@
+# Publish a PEP 440 pre-release (alpha/beta/rc/dev) of bencheval + tabarena to
+# PyPI without a git tag, commit, or GitHub Release. The version is applied to
+# a staged copy on the runner only; nothing is pushed back to the repository.
+#
+# Trigger from the Actions UI: Actions -> "Prerelease (PyPI)" -> Run workflow ->
+# enter the version (e.g. 0.1.0a1, 0.1.0b2, 0.1.0rc1, 0.1.0.dev3), or:
+#   gh workflow run prerelease.yml -f version=0.1.0a1
+#
+# Stable versions are rejected; push a `v<version>` tag for those (release.yml).
+
+name: Prerelease (PyPI)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Pre-release version (e.g. 0.1.0a1, 0.1.0b2, 0.1.0rc1, 0.1.0.dev3)"
+        required: true
+        type: string
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build + verify distributions (stable versions are rejected)
+        env:
+          VERSION: ${{ inputs.version }}
+        run: python scripts/release/build_pypi_dists.py --version "$VERSION" --require-prerelease
+
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always dist/*

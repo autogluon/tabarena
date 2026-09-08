@@ -26,6 +26,10 @@ _CONFIG_DIR = _VENDOR_DIR / "config"
 
 _DEFAULT_HF_REPO = "stableai-org/LimiX-16M"
 _DEFAULT_HF_FILENAME = "LimiX-16M.ckpt"
+#: Commit pinned so the checkpoint fetched here never silently changes if the
+#: repo's default branch moves. Bump deliberately (with a note on what changed)
+#: when picking up a newer checkpoint.
+_DEFAULT_HF_REVISION = "da5f3072bf3633c70d957c02518c30d461007764"
 _DEFAULT_CLS_CONFIG = "cls_default_16M_retrieval.json"
 _DEFAULT_REG_CONFIG = "reg_default_16M_retrieval.json"
 
@@ -267,10 +271,15 @@ class LimiXModel(AbstractTorchModel):
             return hf_hub_download(
                 repo_id=_DEFAULT_HF_REPO,
                 filename=_DEFAULT_HF_FILENAME,
+                revision=_DEFAULT_HF_REVISION,
                 local_files_only=True,
             )
         except LocalEntryNotFoundError:
-            return hf_hub_download(repo_id=_DEFAULT_HF_REPO, filename=_DEFAULT_HF_FILENAME)
+            return hf_hub_download(
+                repo_id=_DEFAULT_HF_REPO,
+                filename=_DEFAULT_HF_FILENAME,
+                revision=_DEFAULT_HF_REVISION,
+            )
 
 
 def _load_bundled_config(filename: str) -> list:

@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
+from tabarena.plot.plot_pareto_focus import FAMILY_COLORS, marker_edge_color
 
 
 def _scatter_points() -> pd.DataFrame:
@@ -38,6 +39,10 @@ def test_build_scatter_explorer(tmp_path):
     assert "Pareto front" in html
     # Family colors injected from the shared leaderboard scheme.
     assert "--fam-foundation: #b07cf0;" in html
+    # Marker edges: the family color darkened for the light surface, as in the static figures.
+    edge = marker_edge_color(FAMILY_COLORS["Foundation Model"])
+    assert f"--fam-foundation-edge: {edge};" in html
+    assert "const edge = on ? FAM_EDGE[p.family] : null;" in html
 
 
 def test_x_keys_selects_and_orders_axes(tmp_path):

@@ -18,7 +18,7 @@ import html
 import json
 from typing import TYPE_CHECKING
 
-from tabarena.plot.plot_pareto_focus import FAMILY_COLORS
+from tabarena.plot.plot_pareto_focus import FAMILY_COLORS, marker_edge_color
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -35,8 +35,18 @@ _FAMILY_CSS_TOKENS: dict[str, str] = {
 
 
 def _family_css_vars() -> str:
-    """CSS custom-property lines carrying the shared family colors."""
-    return "\n".join(f"    {token}: {FAMILY_COLORS[family]};" for family, token in _FAMILY_CSS_TOKENS.items())
+    """CSS custom-property lines carrying the shared family colors.
+
+    ``--fam-<key>`` is the family color. ``--fam-<key>-edge`` is the edge an emphasized marker
+    draws on the light surface: the family color darkened as in the static figures. Dark mode
+    overrides the edge tokens.
+    """
+    lines = []
+    for family, token in _FAMILY_CSS_TOKENS.items():
+        color = FAMILY_COLORS[family]
+        lines.append(f"    {token}: {color};")
+        lines.append(f"    {token}-edge: {marker_edge_color(color)};")
+    return "\n".join(lines)
 
 
 #: Theme tokens + the chrome (controls, chips, tooltip, data table) every
@@ -104,6 +114,14 @@ _DARK_TOKENS = """
     --fam-system-ink: var(--fam-system);
     --fam-baseline-ink: var(--fam-baseline);
     --fam-other-ink: var(--fam-other);
+    /* An emphasized marker's face already carries its family on the dark surface; its edge
+       only separates neighbours, so it takes the card color. */
+    --fam-foundation-edge: var(--card);
+    --fam-nn-edge: var(--card);
+    --fam-tree-edge: var(--card);
+    --fam-system-edge: var(--card);
+    --fam-baseline-edge: var(--card);
+    --fam-other-edge: var(--card);
     --var-default: #4386d5;
     --var-tuned: #c05f38;
     --var-tunedens: #289972;
@@ -127,11 +145,13 @@ def _scope(selector: str, *bodies: str, indent: str = "  ") -> str:
 #: Theme tokens + the chrome (controls, chips, tooltip, data table) every
 #: explorer shares. Chart-specific layout stays in the individual templates.
 #:
-#: Four scopes, in this order: the base (light) scope carries the family colors;
-#: the media query follows the OS preference; ``[data-theme="dark"]`` lets an
-#: embedding page force dark (the always-dark leaderboard Space does); and
-#: ``[data-theme="light"]`` forces light for the paper view, beating both the
-#: media query (lower specificity) and the dark stamp (same specificity, later).
+#: Four scopes, in this order: the base (light) scope carries the family colors
+#: and their marker-edge tokens; the media query follows the OS preference;
+#: ``[data-theme="dark"]`` lets an embedding page force dark (the always-dark
+#: leaderboard Space does); and ``[data-theme="light"]`` forces light for the
+#: paper view, beating both the media query (lower specificity) and the dark
+#: stamp (same specificity, later). It repeats the family tokens so the light
+#: edge tokens win there too.
 EXPLORER_BASE_CSS = "".join(
     [
         _scope(":root", "__FAMILY_CSS_VARS__", _LIGHT_TOKENS),
@@ -140,7 +160,7 @@ EXPLORER_BASE_CSS = "".join(
         "\n  }\n",
         _scope(':root[data-theme="dark"]', _DARK_TOKENS),
         "\n",
-        _scope(':root[data-theme="light"]', _LIGHT_TOKENS),
+        _scope(':root[data-theme="light"]', "__FAMILY_CSS_VARS__", _LIGHT_TOKENS),
         r"""
   html, body { margin: 0; background: var(--paper); }
   /* The colour emoji fonts are named *before* the generic `sans-serif`. A generic
@@ -336,6 +356,14 @@ EXPLORER_BASE_JS = r"""
     "Neural Network": "var(--fam-nn-ink)",
     "System": "var(--fam-system-ink)",
     [FAM_MERGED]: "var(--fam-baseline-ink)",
+  };
+  // The edge of an emphasized marker (see the --fam-*-edge tokens).
+  const FAM_EDGE = {
+    "Foundation Model": "var(--fam-foundation-edge)",
+    "Tree-based": "var(--fam-tree-edge)",
+    "Neural Network": "var(--fam-nn-edge)",
+    "System": "var(--fam-system-edge)",
+    [FAM_MERGED]: "var(--fam-baseline-edge)",
   };
 
   // Create an SVG element with attributes, optionally appended to `parent`.
