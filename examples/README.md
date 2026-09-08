@@ -29,7 +29,7 @@ validation, tuning, ensembling) inside the budget TabArena hands it: AutoML fram
 AutoGluon, TabFM+, LLM agents, hosted APIs. If you would have to invent a search space for your
 method, it is a model; if that makes no sense because it searches for itself, it is a system. To
 contribute either, see the README's
-[Contributing a Model or System](../README.md#-contributing-a-model-or-system).
+[Contributing a Model or System](../README.md#contributing-a-model-or-system).
 
 ### 🌍 BeyondArena (beyond-IID benchmark)
 
@@ -59,24 +59,17 @@ to the leaderboard.
   - `run_quickstart_tabarena_system.py` - Benchmark a full ML *system* (e.g. AutoGluon) on TabArena via an `ExternalSystemModel` (`system_experiments=True`) and compare to the leaderboard.
   - `run_quickstart_tabarena_custom_datasets.py` - Benchmark TabArena models on your own (custom / private) datasets.
 
-### 🚀 Using SOTA Tabular Models Benchmarked by TabArena
-
-All models in TabArena are open-source and can be used directly on your own data.
-They are implemented in production-ready code and can be easily integrated into your 
-ML pipelines.
-
-- **Folder:** `running_tabarena_models/`
-- **Use Cases:**
-  - `run_tabarena_model.py` - Use a TabArena model on your own data, three ways: a single fit, cross-validation bagging, and tuned + ensembled.
-
 ### 🧪 Advanced and Specialized Usage
 
-Lower-level and specialized workflows: running on arbitrary OpenML tasks, plain AutoGluon
-on OpenML, no-bagging foundation-model setups, and driving the low-level async / fan-out job
-API by hand (for a model and for a system).
+Lower-level and specialized workflows: using a TabArena model directly on your own data
+(all TabArena models are open-source AutoGluon models you can drop into your own ML
+pipeline), running on arbitrary OpenML tasks, plain AutoGluon on OpenML, no-bagging
+foundation-model setups, and driving the low-level async / fan-out job API by hand (for a
+model and for a system).
 
 - **Folder:** `advanced/`
 - **Use Cases:**
+  - `run_tabarena_model_on_your_data.py` - Use a TabArena model outside the benchmark on your own data via the plain AutoGluon API, three ways: a single fit, cross-validation bagging, and tuned + ensembled.
   - `run_any_openml_task.py` - Benchmark TabArena models (full TabArena workflow) on any OpenML task, including tasks not in TabArena.
   - `run_quickstart_tabarena_model_without_bagging.py` - Benchmark a model as an *outer* (no-bagging) experiment on TabArena (shown with TabICLv2: a default + an `n_estimators=1` config).
   - `run_tabarena_tabpfn3_custom_checkpoint.py` - Run TabPFN-3 on TabArena from non-default checkpoints, as an outer (no-bagging) experiment.

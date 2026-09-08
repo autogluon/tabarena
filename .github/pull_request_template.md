@@ -19,7 +19,7 @@
 
 <!-- Delete this section if the PR is not a model or system submission. -->
 
-TabArena is not a benchmarking service. We accept methods their authors have already evaluated with the official pipeline and confirm the results by re-running them. A maintainer verifies the submission first, then re-runs the method on the benchmark hardware for the final entry; we are happy to help with the integration and the re-run. Once the method is benchmarked and merged, the leaderboard is updated as soon as possible. See [Contributing a Model or System](https://github.com/autogluon/tabarena#-contributing-a-model-or-system).
+TabArena is not a benchmarking service. We accept methods their authors have already evaluated with the official pipeline and confirm the results by re-running them. A maintainer verifies the submission first, then re-runs the method on the benchmark hardware for the final entry; we are happy to help with the integration and the re-run. Once the method is benchmarked and merged, the leaderboard is updated as soon as possible. See [Contributing a Model or System](https://github.com/autogluon/tabarena#contributing-a-model-or-system).
 
 Kind: <!-- model or system; if it replaces an entrant already on the leaderboard, name it -->
 

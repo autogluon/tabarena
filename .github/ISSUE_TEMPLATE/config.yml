@@ -7,5 +7,5 @@ contact_links:
     url: https://github.com/TabArena/data-foundry
     about: Dataset curation, new dataset proposals, and data errors live in Data Foundry (docs at tabarena.github.io/data-foundry).
   - name: How to contribute a model or system
-    url: https://github.com/autogluon/tabarena#-contributing-a-model-or-system
+    url: https://github.com/autogluon/tabarena#contributing-a-model-or-system
     about: Read this README section first. Then use the submission form here for open questions.
