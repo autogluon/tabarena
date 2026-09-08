@@ -34,14 +34,51 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from tabarena.benchmark.exec_models.autogluon import AGSingleBagWrapper, AGSingleWrapper, AGWrapper
+from tabarena.benchmark.exec_models.autogluon_utils import get_num_group_instances
 
 if TYPE_CHECKING:
     import pandas as pd
     from autogluon.common.utils.validation_structure import ValidationStructure
 
+    from tabarena.benchmark.task.metadata import ValidationMetadata
+
 #: ``data_foundry``'s split seed (``SPLIT_RANDOM_STATE``), which TabArena's resolved splits use.
 #: AutoGluon's learner defaults to 0, so matching TabArena means passing this instead.
 SPLIT_RANDOM_STATE = 4267
+
+
+def validation_structure_from_metadata(
+    metadata: ValidationMetadata,
+    *,
+    temporal_forward_only: bool = False,
+    size_validation_on_groups: bool | None = None,
+) -> ValidationStructure | None:
+    """The :class:`ValidationStructure` a task's validation metadata declares, or None.
+
+    The single projection every AutoGluon-resolved path uses -- :class:`AGWrapperV2` here, and
+    any system wrapper that builds its own ``TabularPredictor`` -- so all of them declare the
+    same structure for the same task. See :meth:`AGWrapperV2.validation_structure` for why
+    ``stratify_on`` alone yields None and why ``group_time_on`` is not forwarded.
+
+    ``size_validation_on_groups`` decides what AutoGluon's size-dependent choices -- fold counts,
+    holdout, and every ``validation_size_curves`` entry -- are measured against. ``None`` applies
+    TabArena's rule for config runs: group instances exactly when the group labels are per-group,
+    rows otherwise. A system whose configuration is written in training rows passes ``False``,
+    or a 4,400-row task with 90 groups would be sized as a 90-row one.
+    """
+    from autogluon.common.utils.validation_structure import ValidationStructure
+
+    if metadata.group_on is None and metadata.time_on is None:
+        return None
+    if size_validation_on_groups is None:
+        size_validation_on_groups = metadata.group_labels == "per_group"
+    return ValidationStructure(
+        group_on=metadata.group_on,
+        time_on=metadata.time_on,
+        stratify_on=metadata.stratify_on,
+        temporal_forward_only=temporal_forward_only,
+        size_validation_on_groups=size_validation_on_groups,
+    )
 
 
 class AGWrapperV2(AGWrapper):
@@ -126,19 +163,8 @@ class AGWrapperV2(AGWrapper):
         temporal (``resolve_validation_splits`` raises ``NotImplementedError`` when ``group_on``
         and ``time_on`` are both set), so nothing here needs AutoGluon's ``group_time_on``.
         """
-        from autogluon.common.utils.validation_structure import ValidationStructure
-
-        metadata = self.validation_metadata
-        if metadata.group_on is None and metadata.time_on is None:
-            return None
-        return ValidationStructure(
-            group_on=metadata.group_on,
-            time_on=metadata.time_on,
-            stratify_on=metadata.stratify_on,
-            temporal_forward_only=self.temporal_forward_only,
-            # TabArena counts group instances (rather than rows) exactly when its group labels
-            # are per-group; mirror that so group-based sizing reads the same count.
-            size_validation_on_groups=metadata.group_labels == "per_group",
+        return validation_structure_from_metadata(
+            self.validation_metadata, temporal_forward_only=self.temporal_forward_only
         )
 
     def _apply_validation_splits(self, fit_kwargs: dict, *, X: pd.DataFrame, y: pd.Series) -> int | None:
@@ -146,17 +172,34 @@ class AGWrapperV2(AGWrapper):
 
         Overrides the V1 behavior of popping ``num_bag_folds`` / ``num_bag_sets``, running them
         through TabArena's resolver, and writing back adjusted counts plus ``custom_splits``.
-        Here AutoGluon reads the counts as given and resolves the splits itself, so any clamping
+        The counts pass through TabArena's size policy (``resolve_number_of_splits``) as on
+        the V1 path; AutoGluon then resolves the splits itself, so any further clamping
         (fewer groups than folds, temporal blocks, repeats collapsed to 1) happens inside
         ``ValidationStructure.custom_splits``.
         """
         num_folds = fit_kwargs.get("num_bag_folds")
         if not self.use_task_specific_validation:
             return num_folds
-
+        # TabArena's count policy, applied as the V1 path applies it: at or below the tiny-data
+        # threshold of (group) instances the campaign protocol bags 5 folds x 5 sets rather than
+        # the caller's 8 x 1. The structure declared below governs *which* rows share a fold;
+        # without this the two paths build the same folds but different numbers of them, and a
+        # campaign result cannot be reproduced on any small task.
+        if num_folds is not None and num_folds > 1:
+            num_folds, num_repeats = self.validation_metadata.resolve_number_of_splits(
+                num_folds=num_folds,
+                num_repeats=fit_kwargs.get("num_bag_sets"),
+                num_group_instances=get_num_group_instances(self.validation_metadata, X=X),
+            )
+            fit_kwargs["num_bag_folds"] = num_folds
+            if num_repeats is not None:
+                fit_kwargs["num_bag_sets"] = num_repeats
         validation_structure = self.validation_structure()
         if validation_structure is None:
-            logger.info("Task declares no validation structure; leaving AutoGluon's defaults in place.")
+            logger.info(
+                "Task declares no validation structure; leaving AutoGluon's default splitter in "
+                f"place (num_bag_folds={num_folds}, num_bag_sets={fit_kwargs.get('num_bag_sets')})."
+            )
             return num_folds
         fit_kwargs["validation_structure"] = validation_structure
         logger.info(
