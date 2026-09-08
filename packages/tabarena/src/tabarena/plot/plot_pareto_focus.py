@@ -3,9 +3,9 @@
 Design: color encodes the *model family* (few hues) instead of one hue per
 method; only Pareto-front members plus an explicit ``focus_methods`` list are
 emphasized (family color, direct label, full opacity) while every other method
-recedes into a grey field, its family kept on the marker edge. Thin connectors
-tie a method's variants (default / tuned / tuned + ensembled) together, and the
-legend collapses to a single strip above the axes.
+recedes into a grey field. Thin connectors tie a method's variants (default /
+tuned / tuned + ensembled) together, and the legend collapses to a single strip
+above the axes.
 """
 
 from __future__ import annotations
@@ -74,16 +74,13 @@ def compute_front_methods(
     return front, {n for n in names if n is not None}
 
 
-def marker_edge_color(family_color: str, *, emphasized: bool) -> str:
-    """Edge color of a marker: its family color, darkened when the marker is emphasized.
+def marker_edge_color(family_color: str) -> str:
+    """Edge color of an emphasized marker: its family color, darkened.
 
-    Muted markers are grey-filled, so the family-colored edge is what still tells their
-    family apart; emphasized markers are filled with the family color, so their edge is a
-    darker shade of it. ``family_color`` is ``#rrggbb`` (the :data:`FAMILY_COLORS` form) and
-    so is the result, which the interactive explorers emit into their CSS.
+    The face already carries the family color, so the edge is a darker shade of it rather
+    than black. ``family_color`` is ``#rrggbb`` (the :data:`FAMILY_COLORS` form) and so is
+    the result, which the interactive explorers emit into their CSS.
     """
-    if not emphasized:
-        return family_color
     channels = (int(family_color[i : i + 2], 16) for i in (1, 3, 5))
     return "#" + "".join(f"{round(c * (1 - EDGE_DARKEN)):02x}" for c in channels)
 
@@ -196,8 +193,8 @@ def plot_pareto_focus(
             zorder=2 if emph else 1,
         )
 
-    # Points. The face carries the fade; the edge stays opaque so a muted marker's family
-    # still reads off its edge.
+    # Points. An emphasized marker's edge is a darker shade of its family color; a muted
+    # marker keeps a white hairline so the grey field stays easy to ignore.
     for _, p in data.iterrows():
         method = p[method_col]
         emph = method in emphasized
@@ -207,8 +204,8 @@ def plot_pareto_focus(
             marker=variant_markers.get(p[variant_col], "o"),
             s=130 if emph else 70,
             facecolor=to_rgba(_color(method), 0.95 if emph else 0.55),
-            edgecolor=marker_edge_color(_family_color(method), emphasized=emph),
-            linewidth=1.0 if emph else 0.9,
+            edgecolor=marker_edge_color(_family_color(method)) if emph else "white",
+            linewidth=1.0 if emph else 0.4,
             zorder=4 if emph else 3,
         )
 

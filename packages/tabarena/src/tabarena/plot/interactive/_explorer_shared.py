@@ -45,7 +45,7 @@ def _family_css_vars() -> str:
     for family, token in _FAMILY_CSS_TOKENS.items():
         color = FAMILY_COLORS[family]
         lines.append(f"    {token}: {color};")
-        lines.append(f"    {token}-edge: {marker_edge_color(color, emphasized=True)};")
+        lines.append(f"    {token}-edge: {marker_edge_color(color)};")
     return "\n".join(lines)
 
 

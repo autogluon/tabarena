@@ -40,9 +40,9 @@ def test_build_scatter_explorer(tmp_path):
     # Family colors injected from the shared leaderboard scheme.
     assert "--fam-foundation: #b07cf0;" in html
     # Marker edges: the family color darkened for the light surface, as in the static figures.
-    edge = marker_edge_color(FAMILY_COLORS["Foundation Model"], emphasized=True)
+    edge = marker_edge_color(FAMILY_COLORS["Foundation Model"])
     assert f"--fam-foundation-edge: {edge};" in html
-    assert "const edge = on ? FAM_EDGE[p.family] : FAM_VAR[p.family];" in html
+    assert "const edge = on ? FAM_EDGE[p.family] : null;" in html
 
 
 def test_x_keys_selects_and_orders_axes(tmp_path):
