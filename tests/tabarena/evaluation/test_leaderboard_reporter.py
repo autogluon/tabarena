@@ -9,6 +9,9 @@ touched — only the figures are filtered.
 
 from __future__ import annotations
 
+import pandas as pd
+
+from tabarena.evaluation import leaderboard_reporter as module
 from tabarena.evaluation.leaderboard_reporter import LeaderboardReporter
 
 # ``f_map_type_name`` maps a config method's *short* config_type to its long
@@ -177,3 +180,32 @@ class TestComputeOnlyReporter:
         import inspect
 
         assert inspect.signature(LeaderboardReporter.eval).parameters["plot"].default is True
+
+
+class TestParetoFocusKwargs:
+    def test_kwargs_reach_every_pareto_figure(self, monkeypatch, tmp_path):
+        """``pareto_focus_kwargs`` is forwarded unchanged to each of the four figure calls."""
+        calls: list[dict] = []
+        monkeypatch.setattr(module, "plot_pareto_focus", lambda **kwargs: calls.append(kwargs))
+        monkeypatch.setattr(module, "_init_global_rcparams", lambda: None)
+        monkeypatch.setattr(LeaderboardReporter, "build_pareto_explorer", lambda self, leaderboard: None)
+        reporter = LeaderboardReporter(output_dir=tmp_path, task_metadata=[])
+        leaderboard = pd.DataFrame(
+            {
+                "method": ["GBM (default)", "GBM (tuned + ensemble)", "TabPFN-3"],
+                "config_type": ["GBM", "GBM", None],
+                "elo": [1000.0, 1100.0, 1300.0],
+                "improvability": [0.2, 0.1, 0.05],
+                "median_time_train_s_per_1K": [1.0, 100.0, 5.0],
+                "median_time_infer_s_per_1K": [0.1, 1.0, 0.5],
+            }
+        )
+
+        reporter.plot_pareto(
+            leaderboard, framework_types=["GBM"], pareto_focus_kwargs={"muted_size": 12, "muted_alpha": 0.2}
+        )
+
+        assert len(calls) == 4
+        assert all(kwargs["muted_size"] == 12 and kwargs["muted_alpha"] == 0.2 for kwargs in calls)
+        # The plain figure options still arrive alongside.
+        assert all(kwargs["variant_markers"] is reporter.style_markers for kwargs in calls)

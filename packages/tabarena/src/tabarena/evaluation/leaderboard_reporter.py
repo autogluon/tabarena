@@ -821,6 +821,7 @@ class LeaderboardReporter:
         plot_only: list[str] | None = None,
         method_color_overrides: dict[str, str] | None = None,
         pareto_emphasize_all: bool = False,
+        pareto_focus_kwargs: dict | None = None,
         website_only: bool = False,
     ) -> pd.DataFrame:
         """Compute the leaderboard for ``df_results`` and render the TabArena figures.
@@ -870,6 +871,10 @@ class LeaderboardReporter:
         ``"TabPFN-3"``); see :meth:`_plot_only_to_hidden_methods`. Implemented as
         the complement of the existing ``hidden_methods`` denylist (carried in
         ``plot_tuning_kwargs``), so the two compose — anything hidden stays hidden.
+
+        ``pareto_focus_kwargs`` (default ``None``) is forwarded to :func:`plot_pareto_focus` for the
+        four Pareto figures, e.g. ``{"muted_size": 45, "muted_alpha": 0.4}`` to shrink and fade the
+        methods off the front, or ``{"label_halo": False}`` for an SVG with text labels.
 
         ``method_color_overrides`` (default ``None``) pins a fixed color per method in both the Elo
         bar plot (recolors that method's bar) and the Pareto plots (colors its points) — a
@@ -1416,6 +1421,7 @@ class LeaderboardReporter:
                 plot_tuning_kwargs=plot_tuning_kwargs,
                 method_color_overrides=method_color_overrides,
                 pareto_emphasize_all=pareto_emphasize_all,
+                pareto_focus_kwargs=pareto_focus_kwargs,
             )
 
         return leaderboard
@@ -2003,6 +2009,7 @@ class LeaderboardReporter:
         plot_tuning_kwargs: dict | None = None,
         method_color_overrides: dict[str, str] | None = None,
         pareto_emphasize_all: bool = False,
+        pareto_focus_kwargs: dict | None = None,
     ):
         _f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
@@ -2026,6 +2033,9 @@ class LeaderboardReporter:
             # Show the Pareto-dominated methods with full family colors and labels
             # instead of muting them (see `plot_pareto_focus`'s `emphasize_all`).
             plot_pareto_kwargs["emphasize_all"] = True
+        if pareto_focus_kwargs:
+            # Anything `plot_pareto_focus` accepts, e.g. the muted markers' size and opacity.
+            plot_pareto_kwargs.update(pareto_focus_kwargs)
         if plot_tuning_kwargs is not None:
             if "hidden_methods" in plot_tuning_kwargs:
                 leaderboard_pareto = leaderboard_pareto[
@@ -2101,6 +2111,7 @@ class LeaderboardReporter:
         title: str | None = None,
         focus_methods: list[str] | None = None,
         emphasize_all: bool = False,
+        **focus_kwargs,
     ):
         """Shared body of the four ``pareto_front_*`` website figures: map the
         leaderboard's raw columns onto display axes and render the focus-style
@@ -2126,6 +2137,7 @@ class LeaderboardReporter:
             title=title,
             save_path=str(Path(self.output_dir) / f"{file_name}.{self.figure_file_type}"),
             show=False,
+            **focus_kwargs,
         )
 
     def plot_pareto_elo_vs_time_train(
@@ -2134,6 +2146,7 @@ class LeaderboardReporter:
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
         emphasize_all: bool = False,
+        **focus_kwargs,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -2146,6 +2159,7 @@ class LeaderboardReporter:
             title=f"{self.benchmark_name}: Elo vs Train Time" if title == "auto" else title,
             focus_methods=focus_methods,
             emphasize_all=emphasize_all,
+            **focus_kwargs,
         )
 
     def plot_pareto_elo_vs_time_infer(
@@ -2154,6 +2168,7 @@ class LeaderboardReporter:
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
         emphasize_all: bool = False,
+        **focus_kwargs,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -2166,6 +2181,7 @@ class LeaderboardReporter:
             title=f"{self.benchmark_name}: Elo vs Inference Time" if title == "auto" else title,
             focus_methods=focus_methods,
             emphasize_all=emphasize_all,
+            **focus_kwargs,
         )
 
     def plot_pareto_improvability_vs_time_infer(
@@ -2174,6 +2190,7 @@ class LeaderboardReporter:
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
         emphasize_all: bool = False,
+        **focus_kwargs,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -2187,6 +2204,7 @@ class LeaderboardReporter:
             title=f"{self.benchmark_name}: Improvability vs Inference Time" if title == "auto" else title,
             focus_methods=focus_methods,
             emphasize_all=emphasize_all,
+            **focus_kwargs,
         )
 
     def plot_pareto_improvability_vs_time_train(
@@ -2195,6 +2213,7 @@ class LeaderboardReporter:
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
         emphasize_all: bool = False,
+        **focus_kwargs,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -2208,6 +2227,7 @@ class LeaderboardReporter:
             title=f"{self.benchmark_name}: Improvability vs Train Time" if title == "auto" else title,
             focus_methods=focus_methods,
             emphasize_all=emphasize_all,
+            **focus_kwargs,
         )
 
     def build_pareto_explorer(self, leaderboard: pd.DataFrame):

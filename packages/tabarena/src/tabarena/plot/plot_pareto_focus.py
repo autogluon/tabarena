@@ -100,6 +100,8 @@ def plot_pareto_focus(
     emphasize_all: bool = False,
     label_halo: bool = True,
     y_margin: float = 0.1,
+    muted_size: float = 70,
+    muted_alpha: float = 0.55,
     x_label: str | None = None,
     y_label: str | None = None,
     title: str | None = None,
@@ -133,6 +135,10 @@ def plot_pareto_focus(
     y_margin
         Autoscale margin of the y axis, as a fraction of the data range on each side:
         room for the labels above the top points and below the bottom ones.
+    muted_size, muted_alpha
+        Marker area and opacity of the muted (Pareto-dominated, unfocused) methods.
+        Emphasized markers are drawn at 130 and 0.95; smaller and fainter values push
+        the field further into the background.
     max_X, max_Y
         Direction of "better" per axis (both False = lower-left is optimal).
     """
@@ -202,8 +208,8 @@ def plot_pareto_focus(
             p[x_col],
             p[y_col],
             marker=variant_markers.get(p[variant_col], "o"),
-            s=130 if emph else 70,
-            facecolor=to_rgba(_color(method), 0.95 if emph else 0.55),
+            s=130 if emph else muted_size,
+            facecolor=to_rgba(_color(method), 0.95 if emph else muted_alpha),
             edgecolor=marker_edge_color(_family_color(method)) if emph else "white",
             linewidth=1.0 if emph else 0.4,
             zorder=4 if emph else 3,
