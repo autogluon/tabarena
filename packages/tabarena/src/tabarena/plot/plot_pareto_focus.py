@@ -74,19 +74,18 @@ def compute_front_methods(
     return front, {n for n in names if n is not None}
 
 
-def marker_edge_color(family_color: str, *, emphasized: bool) -> tuple[float, float, float]:
+def marker_edge_color(family_color: str, *, emphasized: bool) -> str:
     """Edge color of a marker: its family color, darkened when the marker is emphasized.
 
     Muted markers are grey-filled, so the family-colored edge is what still tells their
     family apart; emphasized markers are filled with the family color, so their edge is a
-    darker shade of it.
+    darker shade of it. ``family_color`` is ``#rrggbb`` (the :data:`FAMILY_COLORS` form) and
+    so is the result, which the interactive explorers emit into their CSS.
     """
-    from matplotlib.colors import to_rgb
-
-    r, g, b = to_rgb(family_color)
     if not emphasized:
-        return (r, g, b)
-    return (r * (1 - EDGE_DARKEN), g * (1 - EDGE_DARKEN), b * (1 - EDGE_DARKEN))
+        return family_color
+    channels = (int(family_color[i : i + 2], 16) for i in (1, 3, 5))
+    return "#" + "".join(f"{round(c * (1 - EDGE_DARKEN)):02x}" for c in channels)
 
 
 def plot_pareto_focus(

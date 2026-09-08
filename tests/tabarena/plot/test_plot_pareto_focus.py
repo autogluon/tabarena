@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import matplotlib
 import pandas as pd
-import pytest
 from matplotlib.colors import to_rgb
 
 matplotlib.use("Agg", force=True)
@@ -59,10 +58,9 @@ def test_plot_pareto_focus_writes_figure(tmp_path):
 
 def test_marker_edge_color_darkens_emphasized_markers_only():
     family = "#5cb85c"
-    muted_edge = marker_edge_color(family, emphasized=False)
-    emphasized_edge = marker_edge_color(family, emphasized=True)
-    assert muted_edge == pytest.approx(to_rgb(family))
-    assert all(e < m for e, m in zip(emphasized_edge, muted_edge, strict=True))
+    assert marker_edge_color(family, emphasized=False) == family
+    emphasized_edge = to_rgb(marker_edge_color(family, emphasized=True))
+    assert all(e < f for e, f in zip(emphasized_edge, to_rgb(family), strict=True))
 
 
 def test_label_halo_off_keeps_svg_labels_as_text(tmp_path):
