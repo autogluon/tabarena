@@ -41,8 +41,10 @@ class APLRModel(AbstractModel):
         num_gpus: int = 0,
         **kwargs,
     ):
-        del X_val, y_val, time_limit, num_gpus, kwargs
+        del time_limit, num_gpus, kwargs
 
+        import numpy as np
+        import pandas as pd
         from aplr import APLRClassifier, APLRRegressor
 
         params = self._get_model_params()
@@ -50,6 +52,24 @@ class APLRModel(AbstractModel):
         model_cls = APLRRegressor if self.problem_type == "regression" else APLRClassifier
 
         self.model = model_cls(**params)
+
+        if X_val is not None and y_val is not None:
+            X_full = pd.concat([X, X_val], ignore_index=True)
+            y_full = pd.concat([y, y_val], ignore_index=True)
+            X_full = self.preprocess(X_full, y=y_full)
+            cv_observations = np.column_stack(
+                [
+                    np.concatenate(
+                        [
+                            np.ones(len(X), dtype=int),
+                            -np.ones(len(X_val), dtype=int),
+                        ]
+                    )
+                ]
+            )
+            self.model.fit(X_full, y_full, cv_observations=cv_observations)
+            return
+
         X = self.preprocess(X, y=y)
         self.model.fit(X, y)
 
