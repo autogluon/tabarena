@@ -212,3 +212,25 @@ class TestParetoFocusKwargs:
         assert set(data.loc[data["Method"] == "TabPFN-3", "Type"]) == {"End-to-end"}
         # The plain figure options still arrive alongside.
         assert all(kwargs["variant_markers"] is reporter.style_markers for kwargs in calls)
+
+    def test_explorer_kwargs_reach_both_explorer_pages(self, monkeypatch, tmp_path):
+        calls: list[dict] = []
+        monkeypatch.setattr(module, "plot_pareto_focus", lambda **kwargs: None)
+        monkeypatch.setattr(module, "build_pareto_explorer_html", lambda **kwargs: calls.append(kwargs))
+        monkeypatch.setattr(module, "_init_global_rcparams", lambda: None)
+        reporter = LeaderboardReporter(output_dir=tmp_path, task_metadata=[])
+        leaderboard = pd.DataFrame(
+            {
+                "method": ["GBM (default)", "TabPFN-3"],
+                "config_type": ["GBM", None],
+                "elo": [1000.0, 1300.0],
+                "improvability": [0.2, 0.05],
+                "median_time_train_s_per_1K": [1.0, 5.0],
+                "median_time_infer_s_per_1K": [0.1, 0.5],
+            }
+        )
+
+        reporter.plot_pareto(leaderboard, framework_types=["GBM"], pareto_explorer_kwargs={"dim_off_front": True})
+
+        assert [kwargs["x_keys"] for kwargs in calls] == [["x_infer"], ["x_train"]]
+        assert all(kwargs["dim_off_front"] is True for kwargs in calls)

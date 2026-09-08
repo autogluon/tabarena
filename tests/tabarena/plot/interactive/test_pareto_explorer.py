@@ -142,3 +142,12 @@ def test_end_to_end_marker_joins_the_legend_when_a_system_is_plotted(tmp_path):
     html = out.read_text()
     assert 'if (POINTS.some(p => p.variant === "End-to-end"))' in html
     assert "End-to-end</span>" in html
+
+
+def test_dim_off_front_is_off_by_default_and_reaches_the_page(tmp_path):
+    points = _scatter_points()
+    default = build_pareto_explorer_html(points, save_path=tmp_path / "default.html").read_text()
+    dimmed = build_pareto_explorer_html(points, save_path=tmp_path / "dim.html", dim_off_front=True).read_text()
+    assert '"dimOffFront": false' in default
+    assert '"dimOffFront": true' in dimmed
+    assert "const dim = CONFIG.dimOffFront && on && !front.points.has(p);" in dimmed

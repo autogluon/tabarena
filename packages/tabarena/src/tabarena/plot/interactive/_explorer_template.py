@@ -212,6 +212,7 @@ __BASE_JS__
       a[xk] - b[xk] || (metric.lowerBetter ? mval(a, metric) - mval(b, metric) : mval(b, metric) - mval(a, metric)));
     const verts = [];
     const methods = new Set();
+    const points = new Set();
     let best = null;
     for (const p of pts) {
       const v = mval(p, metric);
@@ -220,9 +221,10 @@ __BASE_JS__
         verts.push([p[xk], v]);
         best = v;
         methods.add(p.method);
+        points.add(p);
       }
     }
-    return { verts, methods };
+    return { verts, methods, points };
   }
 
   // The chart opens on the front, and keeps following it while the metric changes:
@@ -335,8 +337,11 @@ __BASE_JS__
         // the card color on the dark one (the --fam-*-edge tokens). Muted markers stay
         // plain grey, easy to ignore.
         const edge = on ? FAM_EDGE[p.family] : null;
-        const size = (on ? 7 : 5) * (TRAJECTORY ? 0.8 : 1);
-        const op = on ? 0.95 : 0.5;
+        // With `dimOffFront`, an active point that is not a vertex of the front is drawn
+        // smaller and fainter, so the front members carry the eye.
+        const dim = CONFIG.dimOffFront && on && !front.points.has(p);
+        const size = (on ? (dim ? 5.5 : 7) : 5) * (TRAJECTORY ? 0.8 : 1);
+        const op = on ? (dim ? 0.7 : 0.95) : 0.5;
         drawMark(on ? ptsOn : ptsOff, X(p[xKey]), Y(mval(p, metric)), p.variant, color, edge, size, op, p.method);
         // Imputation ring: every affected point in scatter mode; only the
         // trajectory's end point in trajectory mode (a ring on all ~8 line

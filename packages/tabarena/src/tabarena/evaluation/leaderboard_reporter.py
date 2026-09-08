@@ -822,6 +822,7 @@ class LeaderboardReporter:
         method_color_overrides: dict[str, str] | None = None,
         pareto_emphasize_all: bool = False,
         pareto_focus_kwargs: dict | None = None,
+        pareto_explorer_kwargs: dict | None = None,
         website_only: bool = False,
     ) -> pd.DataFrame:
         """Compute the leaderboard for ``df_results`` and render the TabArena figures.
@@ -875,6 +876,10 @@ class LeaderboardReporter:
         ``pareto_focus_kwargs`` (default ``None``) is forwarded to :func:`plot_pareto_focus` for the
         four Pareto figures, e.g. ``{"muted_size": 45, "muted_alpha": 0.4}`` to shrink and fade the
         methods off the front, or ``{"label_halo": False}`` for an SVG with text labels.
+
+        ``pareto_explorer_kwargs`` (default ``None``) is forwarded to :func:`build_pareto_explorer_html`
+        for the two explorer pages, e.g. ``{"dim_off_front": True}`` to shrink and fade the selected
+        points that are not on the front.
 
         ``method_color_overrides`` (default ``None``) pins a fixed color per method in both the Elo
         bar plot (recolors that method's bar) and the Pareto plots (colors its points) — a
@@ -1422,6 +1427,7 @@ class LeaderboardReporter:
                 method_color_overrides=method_color_overrides,
                 pareto_emphasize_all=pareto_emphasize_all,
                 pareto_focus_kwargs=pareto_focus_kwargs,
+                pareto_explorer_kwargs=pareto_explorer_kwargs,
             )
 
         return leaderboard
@@ -2010,6 +2016,7 @@ class LeaderboardReporter:
         method_color_overrides: dict[str, str] | None = None,
         pareto_emphasize_all: bool = False,
         pareto_focus_kwargs: dict | None = None,
+        pareto_explorer_kwargs: dict | None = None,
     ):
         _f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
@@ -2097,7 +2104,7 @@ class LeaderboardReporter:
         self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
         self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
         self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
-        self.build_pareto_explorer(leaderboard=leaderboard_pareto)
+        self.build_pareto_explorer(leaderboard=leaderboard_pareto, **(pareto_explorer_kwargs or {}))
 
     def _plot_pareto_focus_figure(
         self,
@@ -2232,11 +2239,13 @@ class LeaderboardReporter:
             **focus_kwargs,
         )
 
-    def build_pareto_explorer(self, leaderboard: pd.DataFrame):
+    def build_pareto_explorer(self, leaderboard: pd.DataFrame, **explorer_kwargs):
         """Write the self-contained interactive Pareto explorers — one per time axis:
         ``pareto_front_explorer.html`` (inference time) and
         ``pareto_front_explorer_time_train.html`` (train time) — and their underlying
         data (``pareto_front_points.csv``) next to the static figures.
+
+        ``explorer_kwargs`` go to :func:`build_pareto_explorer_html`, e.g. ``dim_off_front=True``.
         """
         points = pd.DataFrame(
             {
@@ -2270,6 +2279,7 @@ class LeaderboardReporter:
             # Mirrored against the trajectories explorer (chips right there).
             chips_side="left",
             save_path=Path(self.output_dir) / "pareto_front_explorer.html",
+            **explorer_kwargs,
         )
         build_pareto_explorer_html(
             points=points,
@@ -2277,6 +2287,7 @@ class LeaderboardReporter:
             chips_side="left",
             save_path=Path(self.output_dir) / "pareto_front_explorer_time_train.html",
             page_title="TabArena Pareto explorer — train time",
+            **explorer_kwargs,
         )
 
     def get_method_rename_map(self) -> dict[str, str]:
