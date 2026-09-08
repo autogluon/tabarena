@@ -1,0 +1,1353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TabArena Pareto explorer — train time</title>
+<style>
+  :root {
+        --fam-foundation: #b07cf0;
+    --fam-nn: #5aa9e6;
+    --fam-tree: #5cb85c;
+    --fam-system: #f0a35a;
+    --fam-baseline: #9e9e9e;
+    --fam-other: #9e9e9e;
+    --paper: #ffffff;
+    --card: #ffffff;
+    --ink: #14161a;
+    --muted: #6d6c65;
+    --line: #e4e3db;
+    --accent: #2a78d6;
+    --chip-bg: #f2f1ec;
+    --pt-muted: #b9b8b1;
+    /* The same family hues as *text*. The mark colors are tuned for fills and
+    drop below readable contrast as small labels on the light surface, so
+    light mode darkens them; dark mode reuses the mark colors as-is. */
+    --fam-foundation-ink: #7d3fc2;
+    --fam-nn-ink: #1c6fa8;
+    --fam-tree-ink: #2f7d32;
+    /* The one family that does not darken for the light surface: a mid orange taken to the
+    lightness the others use reads as brown, and any tone dark enough to gain contrast stops
+    matching the swatch beside it. The static paper figures print system names in the family
+    colour itself, so this does too, and the two agree. */
+    --fam-system-ink: var(--fam-system);
+    --fam-baseline-ink: #5f5f5f;
+    --fam-other-ink: #5f5f5f;
+    /* Tuning-variant series (default / tuned / tuned + ensembled). Light mode
+    is the paper view's surface, so it uses the *static figures' own* seaborn
+    pastels — figures exported from here drop straight into a paper beside
+    them. The cost is colorblind separation: green vs. orange is 4.0 deutan
+    ΔE, well inside the band that needs secondary encoding, which here is the
+    fixed concentric bar widths plus the legend and the data table. Dark mode
+    (the website) keeps the stepped, better-separated version below. */
+    --var-default: #a1c9f4;
+    --var-tuned: #ffb482;
+    --var-tunedens: #8de5a1;
+    /* Systems are not a tuning variant, so they sit outside the blue -> orange -> green
+    progression rather than inside it. Everything else in that chart already claims a hue:
+    orange reads as Tuned, green as Tuned + Ens., blue as Default, and purple as the
+    Foundation Model family, whose colour the method names below the axis are set in — which
+    rules out magenta too, close enough to that purple to be read as it. Wine is far from all
+    of them and dark enough to hold its own weight; a system bar is never nested inside
+    another, so it does not have to stay light to keep one legible. */
+    --var-system: #f2aac6;
+    --optimal: #228b22;
+    --tooltip-bg: #14161a;
+    --tooltip-ink: #fbfbf9;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #131316;
+      --card: #1b1b1f;
+      --ink: #f0efea;
+      --muted: #9b9a92;
+      --line: #2e2e33;
+      --accent: #3987e5;
+      --chip-bg: #232327;
+      --pt-muted: #55555c;
+      --fam-foundation-ink: var(--fam-foundation);
+      --fam-nn-ink: var(--fam-nn);
+      --fam-tree-ink: var(--fam-tree);
+      --fam-system-ink: var(--fam-system);
+      --fam-baseline-ink: var(--fam-baseline);
+      --fam-other-ink: var(--fam-other);
+      --var-default: #4386d5;
+      --var-tuned: #c05f38;
+      --var-tunedens: #289972;
+      --var-system: #b04a72;
+      --optimal: #2ea043;
+      --tooltip-bg: #f0efea;
+      --tooltip-ink: #14161a;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #131316;
+    --card: #1b1b1f;
+    --ink: #f0efea;
+    --muted: #9b9a92;
+    --line: #2e2e33;
+    --accent: #3987e5;
+    --chip-bg: #232327;
+    --pt-muted: #55555c;
+    --fam-foundation-ink: var(--fam-foundation);
+    --fam-nn-ink: var(--fam-nn);
+    --fam-tree-ink: var(--fam-tree);
+    --fam-system-ink: var(--fam-system);
+    --fam-baseline-ink: var(--fam-baseline);
+    --fam-other-ink: var(--fam-other);
+    --var-default: #4386d5;
+    --var-tuned: #c05f38;
+    --var-tunedens: #289972;
+    --var-system: #b04a72;
+    --optimal: #2ea043;
+    --tooltip-bg: #f0efea;
+    --tooltip-ink: #14161a;
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --paper: #ffffff;
+    --card: #ffffff;
+    --ink: #14161a;
+    --muted: #6d6c65;
+    --line: #e4e3db;
+    --accent: #2a78d6;
+    --chip-bg: #f2f1ec;
+    --pt-muted: #b9b8b1;
+    /* The same family hues as *text*. The mark colors are tuned for fills and
+    drop below readable contrast as small labels on the light surface, so
+    light mode darkens them; dark mode reuses the mark colors as-is. */
+    --fam-foundation-ink: #7d3fc2;
+    --fam-nn-ink: #1c6fa8;
+    --fam-tree-ink: #2f7d32;
+    /* The one family that does not darken for the light surface: a mid orange taken to the
+    lightness the others use reads as brown, and any tone dark enough to gain contrast stops
+    matching the swatch beside it. The static paper figures print system names in the family
+    colour itself, so this does too, and the two agree. */
+    --fam-system-ink: var(--fam-system);
+    --fam-baseline-ink: #5f5f5f;
+    --fam-other-ink: #5f5f5f;
+    /* Tuning-variant series (default / tuned / tuned + ensembled). Light mode
+    is the paper view's surface, so it uses the *static figures' own* seaborn
+    pastels — figures exported from here drop straight into a paper beside
+    them. The cost is colorblind separation: green vs. orange is 4.0 deutan
+    ΔE, well inside the band that needs secondary encoding, which here is the
+    fixed concentric bar widths plus the legend and the data table. Dark mode
+    (the website) keeps the stepped, better-separated version below. */
+    --var-default: #a1c9f4;
+    --var-tuned: #ffb482;
+    --var-tunedens: #8de5a1;
+    /* Systems are not a tuning variant, so they sit outside the blue -> orange -> green
+    progression rather than inside it. Everything else in that chart already claims a hue:
+    orange reads as Tuned, green as Tuned + Ens., blue as Default, and purple as the
+    Foundation Model family, whose colour the method names below the axis are set in — which
+    rules out magenta too, close enough to that purple to be read as it. Wine is far from all
+    of them and dark enough to hold its own weight; a system bar is never nested inside
+    another, so it does not have to stay light to keep one legible. */
+    --var-system: #f2aac6;
+    --optimal: #228b22;
+    --tooltip-bg: #14161a;
+    --tooltip-ink: #fbfbf9;
+    color-scheme: light;
+  }
+  html, body { margin: 0; background: var(--paper); }
+  /* The colour emoji fonts are named *before* the generic `sans-serif`. A generic
+     family matches every character through the browser's own fallback chain, so
+     anything listed after it is unreachable — and that fallback resolves emoji to
+     a monochrome font on Linux, which flattens the family symbols on the chips.
+     Latin glyphs are unaffected: the emoji fonts carry none. */
+  body {
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI",
+      "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+    line-height: 1.5;
+    padding: 10px 12px 14px;
+  }
+  /* The [hidden] attribute must beat author display rules (e.g. the
+     inline-flex on .metricpick), else hidden controls render empty. */
+  [hidden] { display: none !important; }
+
+  .explorer-title { font-size: 15px; font-weight: 650; margin: 0 0 8px; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 10px; }
+  .controls .hint { font-size: 12.5px; color: var(--muted); }
+  .btnrow { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn {
+    font: 600 12.5px/1 system-ui, sans-serif; color: var(--ink);
+    background: var(--chip-bg); border: 1px solid var(--line); border-radius: 7px;
+    padding: 6px 11px; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--muted); }
+  .btn:focus-visible, .chip:focus-visible, .famchip:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  .metricpick { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+  .metricpick select {
+    font: 600 12.5px/1.2 system-ui, sans-serif; color: var(--ink);
+    background: var(--chip-bg); border: 1px solid var(--line); border-radius: 7px;
+    padding: 5px 7px; cursor: pointer;
+  }
+
+  .chips { display: flex; flex-direction: column; gap: 9px; }
+  /* One block per family: the family toggle on top, its chips wrapping below. */
+  .chiprow { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+  .famchip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font: 650 10.5px/1.3 system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); background: var(--chip-bg); border: 1px dashed var(--line);
+    border-radius: 999px; padding: 5px 10px; cursor: pointer;
+  }
+  .famchip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fam); flex: none; }
+  .famchip .count { font-weight: 500; letter-spacing: 0; opacity: 0.75; }
+  /* The family symbol sits at text size, not the chip's small-caps size. */
+  .famchip .sym { font-size: 1.05em; letter-spacing: 0; }
+  .famchip:hover { border-color: var(--fam); color: var(--ink); }
+  .famchip[aria-pressed="true"] {
+    border: 1px solid var(--fam);
+    background: color-mix(in srgb, var(--fam) 13%, transparent);
+    color: var(--ink);
+  }
+  /* A toggle button that carries its own colour: off is faded with a neutral
+     border, on takes the colour as border and tint. Opt-in via `.toggle` so the
+     older explorers, which fade their variant buttons with inline styles, are
+     unaffected. */
+  .btn.toggle[aria-pressed] { opacity: 0.5; }
+  .btn.toggle[aria-pressed="true"] {
+    opacity: 1;
+    border-color: var(--fam);
+    background: color-mix(in srgb, var(--fam) 18%, var(--chip-bg));
+  }
+  .btn.toggle .swatch {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--fam); margin-right: 6px; vertical-align: middle;
+  }
+  .btn.toggle[aria-pressed="false"] .swatch { background: var(--pt-muted); }
+  .grouplabel { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+
+  .chipset { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font: 500 12.5px/1 system-ui, sans-serif; color: var(--ink);
+    background: none; border: 1px solid var(--line); border-radius: 999px;
+    padding: 5px 10px 5px 8px; cursor: pointer;
+  }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pt-muted); flex: none; }
+  .chip .imp-mark { color: var(--muted); font-weight: 700; margin-left: -2px; }
+  .chip[aria-pressed="true"] { border-color: var(--fam); background: color-mix(in srgb, var(--fam) 13%, transparent); font-weight: 650; }
+  .chip[aria-pressed="true"] .dot { background: var(--fam); }
+  .chip:hover { border-color: var(--muted); }
+
+  .legendstrip {
+    display: flex; flex-wrap: wrap; gap: 5px 16px; align-items: center;
+    font-size: 12.5px; color: var(--muted); padding: 2px 2px 8px;
+  }
+  .legendstrip .item { display: inline-flex; align-items: center; gap: 6px; }
+
+  .tooltip {
+    position: absolute; pointer-events: none; display: none;
+    background: var(--tooltip-bg); color: var(--tooltip-ink);
+    border-radius: 8px; padding: 8px 11px; font-size: 12px; line-height: 1.45;
+    max-width: 260px; z-index: 5; font-variant-numeric: tabular-nums;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  }
+  .tooltip .t-name { font-weight: 700; font-size: 12.5px; }
+  .tooltip .t-var { opacity: 0.75; }
+  .tooltip .t-imp { opacity: 0.85; font-style: italic; }
+
+  details.datatable { margin-top: 8px; font-size: 12.5px; }
+  details.datatable summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+  details.datatable .tblwrap { overflow-x: auto; margin-top: 8px; }
+  details.datatable table { border-collapse: collapse; font-variant-numeric: tabular-nums; min-width: 560px; }
+  details.datatable th, details.datatable td {
+    text-align: left; padding: 3px 12px 3px 0; border-bottom: 1px solid var(--line);
+  }
+  details.datatable th { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+
+  svg text {
+    font-family: system-ui, -apple-system, "Segoe UI",
+      "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .chip, .btn, .famchip { transition: border-color 120ms ease, background-color 120ms ease; }
+  }
+
+  /* --- Paper view -----------------------------------------------------------
+     A figure-ready state for slides and papers: white surface, and only the
+     things needed to read the plot — the caption, the legend and the chart.
+     The controls, the chip list and the data table are interactive scaffolding,
+     not part of the figure. Entered via the "Paper view" button (which stamps
+     data-theme="light" on the root, see the scopes above). */
+  /* One toggle, in the same place in both states and never hidden — an exit
+     tucked into a corner of the figure was easy to miss. */
+  .viewbar { display: flex; align-items: center; gap: 10px; margin: 0 0 9px; }
+  body.paper .controls,
+  body.paper .chips,
+  body.paper .sidebox,
+  body.paper details.datatable { display: none !important; }
+  body.paper { padding: 14px 18px 18px; }
+  /* Export controls, revealed with the paper view. */
+  .exportbar { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
+  .exportbar .hint { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+
+
+  /* Two-column layout: controls + chips in a side panel, chart beside it.
+     ``chips-right`` mirrors the columns. Wraps to stacked when narrow. */
+  .explorer-grid { display: flex; gap: 18px; align-items: flex-start; }
+  .explorer-grid.chips-right { flex-direction: row-reverse; }
+  .sidebox { flex: 0 0 330px; min-width: 250px; display: flex; flex-direction: column; gap: 10px; }
+  .mainbox { flex: 1 1 auto; min-width: 0; }
+  @media (max-width: 860px) {
+    .explorer-grid { flex-wrap: wrap; }
+    .sidebox { flex: 1 1 100%; }
+  }
+
+  .legendstrip .legendbreak { flex-basis: 100%; height: 0; }
+  .chartbox { position: relative; }
+  /* The chart is sized in device pixels by render() rather than scaled from a
+     viewBox: scaling stretched the type along with the plot, and a viewBox tall
+     enough to read made the whole panel own the screen. */
+  .chartbox svg { display: block; }
+  /* Chips scroll within the column so the panel height follows the chart. */
+  .sidebox .chips { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--pt-muted) transparent; }
+  .sidebox .chips::-webkit-scrollbar { width: 9px; }
+  .sidebox .chips::-webkit-scrollbar-thumb {
+    background: var(--pt-muted); border-radius: 8px; border: 3px solid transparent; background-clip: content-box;
+  }
+</style>
+</head>
+<body>
+  <div class="viewbar">
+    <button class="btn" id="btn-paper" title="White background, chart and legend only — for slides and papers">Paper view</button>
+  </div>
+  <p class="explorer-title" id="title"></p>
+  <div class="explorer-grid" id="grid">
+    <div class="sidebox">
+      <div class="controls">
+        <label class="metricpick" id="metricpick" hidden>Y-axis
+          <select id="metric-select"></select>
+        </label>
+        <div class="btnrow">
+          <button class="btn" id="btn-front">Pareto front</button>
+          <button class="btn" id="btn-all">All</button>
+          <button class="btn" id="btn-none">Clear</button>
+        </div>
+        <span class="hint">Click methods or family buttons to highlight &middot; hover points for details</span>
+      </div>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="mainbox">
+      <div class="exportbar" id="exportbar" hidden>
+        <span class="hint">Export figure</span>
+        <button class="btn" id="btn-svg" title="Download as SVG — vector, keeps text selectable">SVG</button>
+        <button class="btn" id="btn-pdf" title="Download as a one-page PDF">PDF</button>
+        <button class="btn" id="btn-png" title="Download as PNG at 3x scale">PNG</button>
+      </div>
+      <!-- Legend above the chart so readers decode the marks before the data. -->
+      <div class="legendstrip" id="legendstrip"></div>
+      <div class="chartbox" id="chartbox">
+        <svg id="chart" role="img" aria-label="Pareto front explorer"></svg>
+        <div class="tooltip"></div>
+      </div>
+    </div>
+  </div>
+  <details class="datatable">
+    <summary>Data table</summary>
+    <div class="tblwrap" id="tblwrap"></div>
+  </details>
+
+<script>
+(function () {
+  "use strict";
+  const CONFIG = {"mode": "scatter", "title": null, "metrics": [{"key": "imp", "label": "Improvability (%)", "axisLabel": "Improvability (%) \u2014 lower is better", "lowerBetter": true, "fromZero": true, "decimals": 1, "suffix": "%"}, {"key": "elo", "label": "Elo", "axisLabel": "Elo \u2014 higher is better", "lowerBetter": false, "fromZero": false, "decimals": 0, "suffix": ""}], "xAxes": [{"key": "x_train", "label": "Train time", "axisLabel": "Train time per 1K samples (s), median \u2014 log scale", "short": "Train (s/1K, median)"}], "chipsSide": "left"};
+  const POINTS = [{"method":"AutoGluon 1.4 (best, 4h)","family":"System","x_train":1735.7213389823,"imp":13.5151721829,"elo":1480.1,"imputed":false,"imputed_pct":0.0,"variant":"Baseline"},{"method":"AutoGluon 1.5 (extreme, 4h)","family":"System","x_train":289.073021818,"imp":8.8056577707,"elo":1653.3,"imputed":false,"imputed_pct":0.0,"variant":"Baseline"},{"method":"AutoGluon 1.6 (extreme, 4h)","family":"System","x_train":11.5805107917,"imp":7.7722473266,"elo":1743.2,"imputed":false,"imputed_pct":0.0,"variant":"Baseline"},{"method":"AutoGluon 1.6 (noncommercial, 4h)","family":"System","x_train":14.4751207264,"imp":7.1477507412,"elo":1794.7,"imputed":false,"imputed_pct":0.0,"variant":"Baseline"},{"method":"BetaTabPFN","family":"Foundation Model","x_train":205.88373935,"imp":19.1591153179,"elo":1270.2,"imputed":true,"imputed_pct":25.4901960784,"variant":"Default"},{"method":"CatBoost","family":"Tree-based","x_train":5.876676442,"imp":16.2034263177,"elo":1354.0,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"CatBoost","family":"Tree-based","x_train":1346.2106911803,"imp":15.5842459771,"elo":1382.5,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"CatBoost","family":"Tree-based","x_train":1346.2106911803,"imp":15.3595062604,"elo":1394.3,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"ChimeraBoost","family":"Tree-based","x_train":2.6537802568,"imp":17.937109049,"elo":1296.1,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"ChimeraBoost","family":"Tree-based","x_train":518.4320707489,"imp":17.1003429318,"elo":1331.4,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"ChimeraBoost","family":"Tree-based","x_train":518.4320707489,"imp":16.6477223847,"elo":1358.3,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"EBM","family":"Tree-based","x_train":6.6731468509,"imp":20.8772136907,"elo":1191.3,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"EBM","family":"Tree-based","x_train":1711.2458519871,"imp":19.9463392966,"elo":1219.3,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"EBM","family":"Tree-based","x_train":1711.2458519871,"imp":19.3162226529,"elo":1251.9,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"EXAONE-Tabular","family":"Foundation Model","x_train":5.7873849422,"imp":8.0597936249,"elo":1750.7,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"ExtraTrees","family":"Tree-based","x_train":1.8719729433,"imp":26.7031299796,"elo":1006.8,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"ExtraTrees","family":"Tree-based","x_train":263.0379305179,"imp":21.1616881415,"elo":1180.1,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"ExtraTrees","family":"Tree-based","x_train":263.0379305179,"imp":20.3928333527,"elo":1204.9,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"FastaiMLP","family":"Neural Network","x_train":2.8561491959,"imp":26.2500500702,"elo":1005.7,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"FastaiMLP","family":"Neural Network","x_train":593.2377884029,"imp":21.7140497615,"elo":1138.2,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"FastaiMLP","family":"Neural Network","x_train":593.2377884029,"imp":20.3221065697,"elo":1193.9,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"KNN","family":"Baseline","x_train":0.1928615936,"imp":46.3024108275,"elo":635.6,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"KNN","family":"Baseline","x_train":129.0837692715,"imp":33.229908719,"elo":887.5,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"KNN","family":"Baseline","x_train":129.0837692715,"imp":28.3315494266,"elo":993.6,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"LightGBM","family":"Tree-based","x_train":1.960032688,"imp":19.9770427059,"elo":1179.1,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"LightGBM","family":"Tree-based","x_train":417.0474735649,"imp":16.3692705982,"elo":1362.4,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"LightGBM","family":"Tree-based","x_train":417.0474735649,"imp":15.7210004875,"elo":1404.4,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"LimiX","family":"Foundation Model","x_train":26.4597512682,"imp":16.2352892006,"elo":1346.3,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"Linear","family":"Baseline","x_train":1.1902826786,"imp":37.2834159797,"elo":864.5,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"Linear","family":"Baseline","x_train":237.6265881459,"imp":34.700215411,"elo":938.5,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"Linear","family":"Baseline","x_train":237.6265881459,"imp":34.1663118295,"elo":962.4,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"Mitra","family":"Foundation Model","x_train":87.6450813939,"imp":17.8569020577,"elo":1313.8,"imputed":true,"imputed_pct":35.2941176471,"variant":"Default"},{"method":"ModernNCA","family":"Neural Network","x_train":14.8696863446,"imp":19.8267681474,"elo":1239.1,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"ModernNCA","family":"Neural Network","x_train":4621.6656335635,"imp":16.7089697615,"elo":1336.7,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"ModernNCA","family":"Neural Network","x_train":4621.6656335635,"imp":16.3019820114,"elo":1366.0,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"Nori","family":"Foundation Model","x_train":0.5265501441,"imp":23.9163684271,"elo":1147.9,"imputed":true,"imputed_pct":74.5098039216,"variant":"Default"},{"method":"Nori-30M","family":"Foundation Model","x_train":0.5265501441,"imp":23.6430412787,"elo":1158.9,"imputed":true,"imputed_pct":74.5098039216,"variant":"Default"},{"method":"OrionMSP","family":"Foundation Model","x_train":13.1170218359,"imp":24.2343259694,"elo":1086.8,"imputed":true,"imputed_pct":25.4901960784,"variant":"Default"},{"method":"PerpetualBooster","family":"Tree-based","x_train":27.322832323,"imp":32.2187217498,"elo":931.1,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"PerpetualBooster","family":"Tree-based","x_train":185.3067056521,"imp":28.3189123455,"elo":1050.0,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"PerpetualBooster","family":"Tree-based","x_train":185.3067056521,"imp":26.9777854026,"elo":1085.5,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"RandomForest","family":"Tree-based","x_train":0.4343250827,"imp":26.7998196956,"elo":1000.0,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"RandomForest","family":"Tree-based","x_train":373.2371055096,"imp":22.1259360797,"elo":1136.6,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"RandomForest","family":"Tree-based","x_train":373.2371055096,"imp":21.4291772767,"elo":1172.8,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"RealMLP","family":"Neural Network","x_train":10.055649238,"imp":19.2179822126,"elo":1218.1,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"RealMLP","family":"Neural Network","x_train":2950.7244476948,"imp":14.9257267597,"elo":1402.0,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"RealMLP","family":"Neural Network","x_train":2950.7244476948,"imp":13.6359042485,"elo":1478.2,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"RealTabPFN-2.5","family":"Foundation Model","x_train":5.8097985299,"imp":12.463641137,"elo":1503.1,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"RealTabPFN-2.5","family":"Foundation Model","x_train":2040.2228420973,"imp":11.9099447054,"elo":1531.9,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"RealTabPFN-2.5","family":"Foundation Model","x_train":2040.2228420973,"imp":11.232904807,"elo":1570.0,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"SAP-RPT-OSS","family":"Foundation Model","x_train":14.1132668455,"imp":18.9892724152,"elo":1269.6,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"TabDPT","family":"Foundation Model","x_train":47.6466878891,"imp":17.8755895104,"elo":1311.3,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"TabDPT","family":"Foundation Model","x_train":4910.3773062373,"imp":15.6368531229,"elo":1385.0,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"TabDPT","family":"Foundation Model","x_train":4910.3773062373,"imp":14.5211791688,"elo":1436.9,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"TabDPT-Turbo","family":"Foundation Model","x_train":2.0676840515,"imp":14.7124458508,"elo":1436.4,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"TabFM","family":"Foundation Model","x_train":38.8059088678,"imp":5.0041124964,"elo":1770.9,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"TabFM+","family":"System","x_train":20.043276445,"imp":4.6709642129,"elo":1814.7,"imputed":false,"imputed_pct":0.0,"variant":"Baseline"},{"method":"TabFlex","family":"Foundation Model","x_train":0.7886124945,"imp":28.1418274855,"elo":1011.2,"imputed":true,"imputed_pct":25.4901960784,"variant":"Default"},{"method":"TabICL","family":"Foundation Model","x_train":6.6270115137,"imp":17.7670590164,"elo":1307.0,"imputed":true,"imputed_pct":29.4117647059,"variant":"Default"},{"method":"TabICLv2","family":"Foundation Model","x_train":2.0524528172,"imp":10.9766448469,"elo":1569.1,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"TabM","family":"Neural Network","x_train":7.4864639685,"imp":17.669957233,"elo":1281.9,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"TabM","family":"Neural Network","x_train":2450.1270774379,"imp":15.6530980735,"elo":1370.8,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"TabM","family":"Neural Network","x_train":2450.1270774379,"imp":14.7966267856,"elo":1422.9,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"TabPFN-2.6","family":"Foundation Model","x_train":5.4825798778,"imp":11.5147337671,"elo":1585.7,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"TabPFN-3","family":"Foundation Model","x_train":3.65846503,"imp":10.1500587032,"elo":1638.7,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"TabPFNv2","family":"Foundation Model","x_train":3.3572004182,"imp":19.5644073245,"elo":1244.7,"imputed":true,"imputed_pct":35.2941176471,"variant":"Default"},{"method":"TabPFNv2","family":"Foundation Model","x_train":3031.4979650506,"imp":18.8162035984,"elo":1270.9,"imputed":true,"imputed_pct":35.2941176471,"variant":"Tuned"},{"method":"TabPFNv2","family":"Foundation Model","x_train":3031.4979650506,"imp":17.3558829979,"elo":1325.2,"imputed":true,"imputed_pct":35.2941176471,"variant":"Tuned + Ens."},{"method":"TabSTAR","family":"Foundation Model","x_train":384.7456301814,"imp":30.9448739161,"elo":993.9,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"TabSTAR","family":"Foundation Model","x_train":28729.7373655693,"imp":26.1257619422,"elo":1092.3,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"TabSTAR","family":"Foundation Model","x_train":28729.7373655693,"imp":26.1402189063,"elo":1091.4,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"TabSwift","family":"Foundation Model","x_train":1.1753394519,"imp":16.777281069,"elo":1333.7,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"TorchMLP","family":"Neural Network","x_train":9.9925632138,"imp":23.4212264844,"elo":1074.3,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"TorchMLP","family":"Neural Network","x_train":2875.5203407747,"imp":19.5156462249,"elo":1201.0,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"TorchMLP","family":"Neural Network","x_train":2875.5203407747,"imp":17.8319046925,"elo":1269.0,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"XGBoost","family":"Tree-based","x_train":1.9409389396,"imp":19.4405294533,"elo":1205.5,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"XGBoost","family":"Tree-based","x_train":693.4907982506,"imp":16.7518621943,"elo":1330.3,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"XGBoost","family":"Tree-based","x_train":693.4907982506,"imp":16.4415264115,"elo":1352.5,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"iLTM","family":"Foundation Model","x_train":296.6392917616,"imp":23.6024961105,"elo":1090.2,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"iLTM","family":"Foundation Model","x_train":12685.0815501834,"imp":17.8105211511,"elo":1280.0,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"iLTM","family":"Foundation Model","x_train":12685.0815501834,"imp":15.9923394023,"elo":1380.4,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."},{"method":"xRFM","family":"Other","x_train":3.2328671519,"imp":27.0045774833,"elo":1038.1,"imputed":false,"imputed_pct":0.0,"variant":"Default"},{"method":"xRFM","family":"Other","x_train":846.8860702337,"imp":18.1224323034,"elo":1286.8,"imputed":false,"imputed_pct":0.0,"variant":"Tuned"},{"method":"xRFM","family":"Other","x_train":846.8860702337,"imp":16.9791805103,"elo":1331.7,"imputed":false,"imputed_pct":0.0,"variant":"Tuned + Ens."}];
+
+
+  const NS = "http://www.w3.org/2000/svg";
+  // Baseline and Other are one bucket, as in the site's own type legend: they
+  // already share a color, and each holds only a handful of methods.
+  const FAM_MERGED = "Baseline / Other";
+  const famOf = (family) => (family === "Baseline" || family === "Other" ? FAM_MERGED : family);
+  // Normalized up front so every later lookup — colors, chips, sorting — sees
+  // the merged family. Both templates declare POINTS above this block.
+  for (const p of POINTS) p.family = famOf(p.family);
+
+  const FAM_ORDER = ["Foundation Model", "Tree-based", "Neural Network", "System", FAM_MERGED];
+  const FAM_VAR = {
+    "Foundation Model": "var(--fam-foundation)",
+    "Tree-based": "var(--fam-tree)",
+    "Neural Network": "var(--fam-nn)",
+    "System": "var(--fam-system)",
+    [FAM_MERGED]: "var(--fam-baseline)",
+  };
+  // The symbol the website shows for each family, so a family chip here reads the
+  // same as the Type column on the site. Baseline and Other are one bucket, so
+  // that chip carries both symbols.
+  const FAM_SYMBOL = {
+    "Foundation Model": "🧠⚡",
+    "Tree-based": "🌳",
+    "Neural Network": "🧠🔁",
+    "System": "📊",
+    [FAM_MERGED]: "📏 ❓",
+  };
+  // Tuning-variant colours, matching the --var-* tokens the charts plot with.
+  const VARIANT_VAR = {
+    "Default": "var(--var-default)",
+    "Tuned": "var(--var-tuned)",
+    "Tuned + Ens.": "var(--var-tunedens)",
+  };
+
+  // A family chip's label: its symbol, its name and how many methods it holds.
+  function famChipLabel(family, count) {
+    const symbol = FAM_SYMBOL[family];
+    return '<span class="dot"></span>' + (symbol ? '<span class="sym">' + symbol + "</span> " : "") +
+      family + ' <span class="count">&times;' + count + "</span>";
+  }
+
+  // The same hues stepped for use as text (see the --fam-*-ink tokens).
+  const FAM_INK = {
+    "Foundation Model": "var(--fam-foundation-ink)",
+    "Tree-based": "var(--fam-tree-ink)",
+    "Neural Network": "var(--fam-nn-ink)",
+    "System": "var(--fam-system-ink)",
+    [FAM_MERGED]: "var(--fam-baseline-ink)",
+  };
+
+  // Create an SVG element with attributes, optionally appended to `parent`.
+  function el(name, attrs, parent) {
+    const node = document.createElementNS(NS, name);
+    for (const k in attrs) node.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+
+  // Rendered width of a string, measured in the live document: font metrics are
+  // not knowable up front, and the label layouts need real widths to decide
+  // where a name breaks and on which side of a point it fits. Memoized per
+  // (weight, size), since the layouts measure the same words repeatedly.
+  function makeTextMeasurer(svg, { size = 13, weight = 400 } = {}) {
+    const cache = new Map();
+    return function textWidth(text) {
+      let w = cache.get(text);
+      if (w === undefined) {
+        const probe = el("text", {
+          "font-size": size, "font-weight": weight, visibility: "hidden",
+        }, svg);
+        probe.textContent = text;
+        w = probe.getComputedTextLength();
+        probe.remove();
+        // A frame that has loaded but not been laid out yet measures every string as 0. Caching
+        // that would bake a broken layout in for good: the label-fitting code would keep reading
+        // 0 on every later redraw and go on stacking names on top of each other. Treat it as
+        // "not measurable yet" and try again next time.
+        if (w > 0 || !text) cache.set(text, w);
+      }
+      return w;
+    };
+  }
+
+  // Redraw when `el` first has a real width, and whenever that width changes.
+  //
+  // A chart sizes itself from its container, so one drawn before layout collapses to its
+  // minimum. `window.onresize` recovers the cases where the viewport changes, but not the one
+  // that actually bites: a frame loaded off-screen is laid out later without its viewport ever
+  // changing, so no resize fires and the collapsed chart is what the reader eventually scrolls
+  // to. A ResizeObserver sees that transition; `onresize` never does.
+  function redrawOnResize(el, draw) {
+    let last = 0, timer = null;
+    const check = () => {
+      const width = Math.round(el.getBoundingClientRect().width);
+      if (!width || width === last) return;
+      last = width;
+      clearTimeout(timer);
+      timer = setTimeout(draw, 60);
+    };
+    if (window.ResizeObserver) new ResizeObserver(check).observe(el);
+    window.addEventListener("resize", check);
+    return check;
+  }
+
+  // Plain, ungrouped numbers with a "." decimal separator. `toFixed` is
+  // locale-independent by definition, which is the point: `toLocaleString`
+  // would follow the *viewer's* browser locale and print 1234,5 for a German
+  // visitor, disagreeing with the figures and CSVs beside it.
+  function fmtNum(v, decimals) {
+    if (v == null || !isFinite(v)) return "—";
+    return v.toFixed(decimals);
+  }
+
+  function fmtMetric(metric, v) {
+    if (v == null || !isFinite(v)) return "—";
+    return fmtNum(v, metric.decimals) + (metric.suffix || "");
+  }
+
+  function fmtTime(v) {
+    if (v >= 100) return fmtNum(v, 0) + " s";
+    if (v >= 1) return fmtNum(v, 1) + " s";
+    if (v >= 0.1) return fmtNum(v, 2) + " s";
+    return fmtNum(v, 3) + " s";
+  }
+
+  // Smallest "nice" (1/2/2.5/5 x a power of ten) step that is at least `raw`.
+  function niceStep(raw) {
+    if (!(raw > 0)) return 1;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    for (const m of [1, 2, 2.5, 5, 10]) {
+      if (mag * m >= raw) return mag * m;
+    }
+    return mag * 10;
+  }
+
+  // ~`target` evenly spaced "nice" tick values covering [min, max]. Stepped by
+  // index rather than by accumulation so fractional steps do not drift.
+  function ticks(min, max, target) {
+    const step = niceStep((max - min) / target);
+    const first = Math.ceil(min / step);
+    const out = [];
+    for (let i = 0; first * step + i * step <= max + 1e-9; i++) out.push((first + i) * step);
+    return out.length ? out : [min];
+  }
+
+  // A hover tooltip anchored inside `box` (which must be position:relative).
+  function makeTooltip(box) {
+    const node = box.querySelector(".tooltip");
+    return {
+      show(html, ev) { node.innerHTML = html; node.style.display = "block"; this.move(ev); },
+      move(ev) {
+        const r = box.getBoundingClientRect();
+        let tx = ev.clientX - r.left + 14;
+        const ty = ev.clientY - r.top + 12;
+        if (tx > r.width - 270) tx = ev.clientX - r.left - 274;
+        node.style.left = tx + "px";
+        node.style.top = ty + "px";
+      },
+      hide() { node.style.display = "none"; },
+    };
+  }
+
+  // Paper view — white surface, legend + chart only — is the *default*: what a
+  // reader wants first is the figure, and it is the state worth exporting. The
+  // controls, chip list and data table are one click away behind "Edit view".
+  // `afterToggle` re-renders charts whose size is measured from the layout.
+  // `options.openInPaper` (default true) decides the state the page opens in. A
+  // chart opens as the figure; the leaderboard table opens with its controls,
+  // since there the interaction is the point rather than scaffolding around it.
+  function setUpPaperView(afterToggle, options) {
+    const opts = options || {};
+    const root = document.documentElement;
+    // The embedding page's choice, read before this function touches the stamp. Captured here
+    // and not on entering paper view: a page that opens *out* of paper view (the tables, where
+    // the controls are the point) would otherwise clear the stamp on its very first call and
+    // then follow the viewer's OS preference — rendering light inside the always-dark site.
+    const hostTheme = root.getAttribute("data-theme");
+    const btn = document.getElementById("btn-paper");
+    const embedded = window.parent !== window;
+
+    function setPaper(on) {
+      document.body.classList.toggle("paper", on);
+      if (on) {
+        root.setAttribute("data-theme", "light");
+      } else if (hostTheme) {
+        root.setAttribute("data-theme", hostTheme);
+      } else {
+        root.removeAttribute("data-theme");
+      }
+      btn.textContent = on ? "Edit view" : "Paper view";
+      document.getElementById("exportbar").hidden = !on || embedded;
+      if (afterToggle) requestAnimationFrame(afterToggle);
+      postHeight();
+    }
+    btn.addEventListener("click", () => setPaper(!document.body.classList.contains("paper")));
+    // Embedded, the host page owns these controls — they sit beside the panel's
+    // static-figure toggle and are driven from the outside. Standalone (the
+    // shareable single file) this page needs its own.
+    if (embedded) document.querySelector(".viewbar").hidden = true;
+    window.addEventListener("message", ev => {
+      const d = ev.data;
+      if (d && d.type === "tabarena-explorer-paper" && typeof d.on === "boolean") setPaper(d.on);
+    });
+    // Only standalone: embedded, the host owns the button and would not see the
+    // key press, so its label would fall out of step with the frame.
+    if (!embedded) {
+      document.addEventListener("keydown", ev => {
+        if (ev.key === "Escape" && !document.body.classList.contains("paper")) setPaper(true);
+      });
+    }
+    setPaper(opts.openInPaper !== false);   // for a chart, the figure is what opens
+  }
+
+  // --- Figure export ---------------------------------------------------------
+  // The chart is live SVG, so a file can be built from it directly. Three things
+  // a copy has to fix up: the colors are CSS custom properties (var(--x) means
+  // nothing outside this document), it has no background or font of its own, and
+  // the legend is HTML rather than part of the SVG.
+
+  // Rebuild the HTML legend as SVG, reusing its live layout: each item's glyph is
+  // cloned and its label re-emitted at the measured position. foreignObject would
+  // be far simpler, but Chrome refuses to rasterize it onto a canvas, which would
+  // break the PNG path.
+  // Rewrite every var(--x) in a clone's paint attributes; they resolve to nothing
+  // once the node leaves this document.
+  function resolveVars(root, resolve) {
+    for (const node of [root, ...root.querySelectorAll("*")]) {
+      for (const attr of ["fill", "stroke"]) {
+        const value = node.getAttribute(attr);
+        if (value && value.includes("var(")) node.setAttribute(attr, resolve(value));
+      }
+    }
+  }
+
+  function legendToSvg(container, resolve) {
+    const base = container.getBoundingClientRect();
+    const group = document.createElementNS(NS, "g");
+    let height = 0;
+    for (const item of container.querySelectorAll(".item")) {
+      const box = item.getBoundingClientRect();
+      if (!box.width) continue;
+      height = Math.max(height, box.bottom - base.top);
+      let textLeft = box.left - base.left;
+      const glyph = item.querySelector("svg");
+      if (glyph) {
+        const gbox = glyph.getBoundingClientRect();
+        const wrap = el("g", {
+          transform: `translate(${gbox.left - base.left} ${gbox.top - base.top})`,
+        }, group);
+        const glyphClone = glyph.cloneNode(true);
+        resolveVars(glyphClone, resolve);
+        wrap.appendChild(glyphClone);
+        textLeft = gbox.right - base.left + 5;
+      }
+      const label = item.textContent.trim();
+      if (!label) continue;
+      const colored = item.querySelector("[style*='color']");
+      const text = el("text", {
+        x: textLeft, y: box.top - base.top + box.height / 2 + 4, "font-size": 12.5,
+        fill: resolve(getComputedStyle(colored || item).color),
+      }, group);
+      text.textContent = label;
+    }
+    return { group, height: Math.ceil(height) };
+  }
+
+  // `parts` is a list of {svg, dx}, so a chart split across panes (the sticky
+  // y-axis beside the scrolling plot) still exports as one figure.
+  function buildExportSvg(parts, legendEl, pad = 10) {
+    const rootStyle = getComputedStyle(document.documentElement);
+    const resolve = value => String(value).replace(
+      /var\((--[\w-]+)\)/g, (_, name) => rootStyle.getPropertyValue(name).trim() || "none");
+    const paper = rootStyle.getPropertyValue("--paper").trim() || "#ffffff";
+
+    let chartW = 0, chartH = 0;
+    for (const part of parts) {
+      chartW = Math.max(chartW, part.dx + Number(part.svg.getAttribute("width")));
+      chartH = Math.max(chartH, Number(part.svg.getAttribute("height")));
+    }
+
+    const out = document.createElementNS(NS, "svg");
+    out.setAttribute("xmlns", NS);
+    out.setAttribute("font-family", 'system-ui, -apple-system, "Segoe UI", sans-serif');
+    let top = pad;
+    const later = [];   // built after the width is known
+    const legend = legendEl ? legendToSvg(legendEl, resolve) : null;
+    if (legend && legend.height) {
+      legend.group.setAttribute("transform", `translate(${pad} ${top})`);
+      later.push(() => out.appendChild(legend.group));
+      top += legend.height + 8;
+    }
+
+    const width = Math.max(chartW, legendEl ? legendEl.getBoundingClientRect().width : 0) + pad * 2;
+    const height = top + chartH + pad;
+    out.setAttribute("width", Math.ceil(width));
+    out.setAttribute("height", Math.ceil(height));
+    el("rect", { x: 0, y: 0, width: Math.ceil(width), height: Math.ceil(height), fill: paper }, out);
+    for (const build of later) build();
+
+    for (const part of parts) {
+      const group = el("g", { transform: `translate(${part.dx + pad} ${top})` }, out);
+      const clone = part.svg.cloneNode(true);
+      resolveVars(clone, resolve);
+      while (clone.firstChild) group.appendChild(clone.firstChild);
+    }
+    return out;
+  }
+
+  // Page title -> a safe file stem, e.g. "tabarena-leaderboard-explorer-all-tasks".
+  function slugify(text) {
+    return (text || "chart").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+  }
+
+  function downloadUrl(url, filename) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // Rasterize the export SVG into a canvas at `scale`, then hand it to `done`.
+  function rasterize(svg, scale, done, fail) {
+    const width = Number(svg.getAttribute("width")), height = Number(svg.getAttribute("height"));
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      ctx.drawImage(img, 0, 0);
+      done(canvas, width, height);
+    };
+    img.onerror = fail;
+    img.src = "data:image/svg+xml;charset=utf-8,"
+      + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+  }
+
+  // A one-page PDF wrapping the rendered figure, written by hand: a library would
+  // cost this page its zero-dependency, single-file property. The image is stored
+  // losslessly (raw RGB + /FlateDecode via CompressionStream) and the page is sized
+  // in points to the figure's CSS size, so it prints at the size it appears here
+  // and the pixels land at 96*scale dpi.
+  async function buildPdf(canvas, cssWidth, cssHeight) {
+    const pixels = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+    const rgb = new Uint8Array((pixels.length / 4) * 3);
+    for (let i = 0, j = 0; i < pixels.length; i += 4, j += 3) {
+      rgb[j] = pixels[i];
+      rgb[j + 1] = pixels[i + 1];
+      rgb[j + 2] = pixels[i + 2];
+    }
+    const deflated = new Uint8Array(await new Response(
+      new Blob([rgb]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer());
+
+    const encoder = new TextEncoder();
+    const chunks = [];
+    const offsets = [];
+    let cursor = 0;
+    const put = data => {
+      const bytes = typeof data === "string" ? encoder.encode(data) : data;
+      chunks.push(bytes);
+      cursor += bytes.length;
+    };
+    const object = (id, body, stream) => {
+      offsets[id] = cursor;
+      put(`${id} 0 obj\n${body}\n`);
+      if (stream) {
+        put("stream\n");
+        put(stream);
+        put("\nendstream\n");
+      }
+      put("endobj\n");
+    };
+
+    const ptW = (cssWidth * 0.75).toFixed(2), ptH = (cssHeight * 0.75).toFixed(2);
+    const content = `q ${ptW} 0 0 ${ptH} 0 0 cm /Im0 Do Q`;
+    put("%PDF-1.4\n");
+    put(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));   // binary marker
+    object(1, "<< /Type /Catalog /Pages 2 0 R >>");
+    object(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+    object(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${ptW} ${ptH}] `
+      + "/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>");
+    object(4, "<< /Type /XObject /Subtype /Image "
+      + `/Width ${canvas.width} /Height ${canvas.height} /ColorSpace /DeviceRGB `
+      + `/BitsPerComponent 8 /Filter /FlateDecode /Length ${deflated.length} >>`, deflated);
+    object(5, `<< /Length ${content.length} >>`, content);
+
+    const xref = cursor;
+    let table = "xref\n0 6\n0000000000 65535 f \n";
+    for (let id = 1; id <= 5; id++) table += String(offsets[id]).padStart(10, "0") + " 00000 n \n";
+    put(table);
+    put(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    return new Blob(chunks, { type: "application/pdf" });
+  }
+
+  // Wire up the export buttons; `getParts` is called per click so the file always
+  // matches what is on screen. Returns a `run(format)` the host page can drive.
+  function setUpExport(getParts, basename) {
+    const buttons = {
+      svg: document.getElementById("btn-svg"),
+      png: document.getElementById("btn-png"),
+      pdf: document.getElementById("btn-pdf"),
+    };
+    const figure = () => buildExportSvg(getParts(), document.getElementById("legendstrip"));
+
+    // A sandboxed frame has no modals, so a failure is reported on the button.
+    function complain(format) {
+      const button = buttons[format];
+      if (!button) return;
+      const label = button.textContent;
+      button.textContent = "failed";
+      setTimeout(() => { button.textContent = label; }, 2500);
+    }
+
+    function run(format) {
+      const svg = figure();
+      const name = basename();
+      if (format === "svg") {
+        downloadUrl("data:image/svg+xml;charset=utf-8,"
+          + encodeURIComponent(new XMLSerializer().serializeToString(svg)), name + ".svg");
+        return;
+      }
+      // 3x for a screen-resolution PNG; 2x for the PDF, whose page is sized in
+      // points so the pixels already land near 200 dpi at print size.
+      rasterize(svg, format === "pdf" ? 2 : 3, (canvas, cssWidth, cssHeight) => {
+        if (format === "png") {
+          canvas.toBlob(blob => downloadUrl(URL.createObjectURL(blob), name + ".png"), "image/png");
+        } else {
+          buildPdf(canvas, cssWidth, cssHeight)
+            .then(blob => downloadUrl(URL.createObjectURL(blob), name + ".pdf"))
+            .catch(() => complain("pdf"));
+        }
+      }, () => complain(format));
+    }
+
+    for (const format of Object.keys(buttons)) {
+      if (buttons[format]) buttons[format].addEventListener("click", () => run(format));
+    }
+    // Embedded, the buttons live in the host's panel header (see main.taExport).
+    window.addEventListener("message", ev => {
+      const d = ev.data;
+      if (d && d.type === "tabarena-explorer-export" && buttons[d.format] !== undefined) run(d.format);
+    });
+  }
+
+  // When embedded, report the content height so the host page can size the
+  // iframe to fit (avoids an inner scrollbar). Works from a sandboxed frame.
+  // Measure the body (viewport-independent) — documentElement.scrollHeight is
+  // clamped to at least the iframe's current viewport, which turns the
+  // resize round-trip into a grow-forever feedback loop. The change guard
+  // stops re-posting once the height settles.
+  let lastPostedHeight = 0;
+  function postHeight() {
+    if (window.parent === window) return;
+    const height = Math.ceil(document.body.offsetHeight);
+    if (Math.abs(height - lastPostedHeight) < 3) return;
+    lastPostedHeight = height;
+    window.parent.postMessage({ type: "tabarena-explorer-height", height: height }, "*");
+  }
+
+
+  const TRAJECTORY = CONFIG.mode === "trajectory";
+
+  const titleEl = document.getElementById("title");
+  if (CONFIG.title) titleEl.textContent = CONFIG.title; else titleEl.hidden = true;
+
+  // Column order: chips/controls left of the chart, or mirrored.
+  document.getElementById("grid").classList.add(CONFIG.chipsSide === "right" ? "chips-right" : "chips-left");
+
+  const svg = document.getElementById("chart");
+  const box = document.getElementById("chartbox");
+  const chipsBox = document.getElementById("chips");
+  const controlsBox = document.querySelector(".controls");
+  const tip = makeTooltip(box);
+  // Matches the point labels drawn in `render` — see the side/overlap logic there.
+  const textWidth = makeTextMeasurer(svg, { size: 13, weight: 700 });
+
+  // Marker glyph per variant at (cx, cy); trajectories use circles everywhere.
+  function drawMark(parent, cx, cy, variant, color, size, opacity, dataM, whiteStroke) {
+    const common = { opacity: opacity, "data-m": dataM };
+    let node;
+    if (TRAJECTORY || variant === "Default" || !variant) {
+      node = el("circle", { ...common, cx, cy, r: size, fill: color }, parent);
+    } else if (variant === "Tuned") {
+      const s = size * 1.75;
+      node = el("rect", { ...common, x: cx - s / 2, y: cy - s / 2, width: s, height: s, rx: 1.5, fill: color }, parent);
+    } else if (variant === "Tuned + Ens.") {
+      const d = size * 0.95;
+      node = el("path", {
+        ...common,
+        d: `M${cx - d},${cy - d} L${cx + d},${cy + d} M${cx - d},${cy + d} L${cx + d},${cy - d}`,
+        stroke: color, "stroke-width": size * 0.62, fill: "none", "stroke-linecap": "round",
+      }, parent);
+    } else {
+      // Any other variant (e.g. "Baseline", holdout types): diamond.
+      const s = size * 1.45;
+      node = el("rect", {
+        ...common, x: cx - s / 2, y: cy - s / 2, width: s, height: s, rx: 1,
+        fill: color, transform: `rotate(45 ${cx} ${cy})`,
+      }, parent);
+    }
+    if (whiteStroke && variant !== "Tuned + Ens.") {
+      node.setAttribute("stroke", "var(--card)");
+      node.setAttribute("stroke-width", "1");
+    }
+    return node;
+  }
+
+  function drawImputedRing(parent, cx, cy, size, color, opacity, dataM) {
+    el("circle", {
+      cx, cy, r: size + 4.5, fill: "none", stroke: color, "stroke-width": 1.4,
+      "stroke-dasharray": "3 2.5", opacity: opacity, "data-m": dataM,
+    }, parent);
+  }
+
+  // Fat green arrow pointing into the optimal corner (mirrors the static
+  // figures' "Optimal" arrow so both read the same way).
+  function drawOptimalArrow(parent, lowerBetter, M, W, H) {
+    const cornerY = lowerBetter ? H - M.b - 12 : M.t + 12;
+    const tailY = lowerBetter ? H - M.b - 64 : M.t + 64;
+    const cx = M.l + 12, tx = M.l + 64;
+    const dx = cx - tx, dy = cornerY - tailY;
+    const len = Math.hypot(dx, dy);
+    const ux = dx / len, uy = dy / len;
+    const headLen = 16;
+    const bx = cx - ux * headLen, by = cornerY - uy * headLen; // head base center
+    // line stops at the head base
+    el("line", {
+      x1: tx, y1: tailY, x2: bx, y2: by,
+      stroke: "var(--optimal)", "stroke-width": 13, "stroke-linecap": "round", opacity: 0.92,
+    }, parent);
+    const px = -uy, py = ux; // perpendicular
+    el("polygon", {
+      points: `${cx},${cornerY} ${bx + px * 11},${by + py * 11} ${bx - px * 11},${by - py * 11}`,
+      fill: "var(--optimal)", opacity: 0.92,
+    }, parent);
+    let angle = Math.atan2(dy, dx) * 180 / Math.PI;
+    if (angle > 90 || angle < -90) angle += 180;
+    const mx = (tx + bx) / 2, my = (tailY + by) / 2;
+    const t = el("text", {
+      x: mx, y: my, "text-anchor": "middle", "dominant-baseline": "middle",
+      "font-size": 10.5, "font-weight": 700, fill: "#ffffff",
+      transform: `rotate(${angle} ${mx} ${my})`,
+    }, parent);
+    t.textContent = "Optimal";
+  }
+
+  // ---------- data ----------
+  const byMethod = new Map();
+  for (const p of POINTS) {
+    if (!byMethod.has(p.method)) byMethod.set(p.method, []);
+    byMethod.get(p.method).push(p); // insertion order = builder's point order
+  }
+
+  const METRICS = CONFIG.metrics;
+  let metricKey = METRICS[0].key;
+  const metricByKey = {};
+  for (const m of METRICS) metricByKey[m.key] = m;
+
+  // Single time axis per explorer (the scatter ships inference time, the
+  // trajectories train time).
+  const X_AXIS = CONFIG.xAxes[0];
+  const xKey = X_AXIS.key;
+
+  function mval(p, metric) { return p[metric.key]; }
+
+  function computeFront(metric) {
+    const xk = xKey;
+    const pts = [...POINTS].sort((a, b) =>
+      a[xk] - b[xk] || (metric.lowerBetter ? mval(a, metric) - mval(b, metric) : mval(b, metric) - mval(a, metric)));
+    const verts = [];
+    const methods = new Set();
+    let best = null;
+    for (const p of pts) {
+      const v = mval(p, metric);
+      if (best === null || (metric.lowerBetter ? v < best : v > best)) {
+        if (best !== null) verts.push([p[xk], best]);
+        verts.push([p[xk], v]);
+        best = v;
+        methods.add(p.method);
+      }
+    }
+    return { verts, methods };
+  }
+
+  // The chart opens on the front, and keeps following it while the metric changes:
+  // each metric has its own front (a method can lead on relative gain and be
+  // mid-field on Elo), so a set carried over from the previous metric would leave
+  // methods drawn on the front but greyed out. `followFront` drops as soon as the
+  // reader picks methods themselves, so their selection is never overwritten.
+  const state = { active: new Set(computeFront(metricByKey[metricKey]).methods), followFront: true };
+
+  // ---------- chart ----------
+  // A flat, fixed-height plot: two of these panels then fit on one screen.
+  const CHART_H = 400;
+  const M = { l: 62, r: 18, t: 14, b: 52 };
+
+  function render() {
+    // Nothing usable to measure yet: the frame is in a collapsed or hidden container, where
+    // the box reports 0 and every string measures 0 too. Drawing now would pin the chart to
+    // its minimum width and stack the labels on top of each other, and that is what the
+    // reader would find when it finally appears. Wait instead — `redrawOnResize` calls back
+    // the moment the box has a real width.
+    if (!box.clientWidth) return;
+    const metric = metricByKey[metricKey];
+    svg.textContent = "";
+    const W = Math.max(360, Math.round(box.clientWidth));
+    const H = CHART_H;
+    svg.setAttribute("width", W);
+    svg.setAttribute("height", H);
+    // Keep the chip list from outgrowing the chart beside it.
+    chipsBox.style.maxHeight = Math.max(170, H - controlsBox.offsetHeight + 20) + "px";
+
+    // x scale (log)
+    const xsAll = POINTS.map(p => p[xKey]);
+    const xmin = Math.min(...xsAll) * 0.65, xmax = Math.max(...xsAll) * 1.6;
+    const lx0 = Math.log10(xmin), lx1 = Math.log10(xmax);
+    const X = v => M.l + (Math.log10(v) - lx0) / (lx1 - lx0) * (W - M.l - M.r);
+
+    const vals = POINTS.map(p => mval(p, metric));
+    let y0, y1;
+    if (metric.fromZero) {
+      y0 = 0; y1 = Math.max(...vals) * 1.07;
+    } else {
+      const pad = (Math.max(...vals) - Math.min(...vals)) * 0.07;
+      y0 = Math.min(...vals) - pad; y1 = Math.max(...vals) + pad;
+    }
+    const Y = v => M.t + (1 - (v - y0) / (y1 - y0)) * (H - M.t - M.b);
+
+    // grid + axes
+    const grid = el("g", {}, svg);
+    for (let e = Math.ceil(lx0); Math.pow(10, e) < xmax; e++) {
+      const gx = X(Math.pow(10, e));
+      el("line", { x1: gx, y1: M.t, x2: gx, y2: H - M.b, stroke: "var(--line)", "stroke-width": 1 }, grid);
+      const lbl = fmtNum(Math.pow(10, e), e >= 0 ? 0 : -e);
+      el("text", { x: gx, y: H - M.b + 20, "text-anchor": "middle", "font-size": 12.5, fill: "var(--muted)" }, grid)
+        .textContent = lbl;
+    }
+    for (const yv of ticks(y0, y1, 6)) {
+      const gy = Y(yv);
+      el("line", { x1: M.l, y1: gy, x2: W - M.r, y2: gy, stroke: "var(--line)", "stroke-width": 1 }, grid);
+      el("text", { x: M.l - 8, y: gy + 4, "text-anchor": "end", "font-size": 12.5, fill: "var(--muted)" }, grid)
+        .textContent = fmtNum(yv, Number.isInteger(yv) ? 0 : metric.decimals);
+    }
+    el("rect", { x: M.l, y: M.t, width: W - M.l - M.r, height: H - M.t - M.b, fill: "none", stroke: "var(--line)" }, grid);
+    el("text", {
+      x: (M.l + W - M.r) / 2, y: H - 10, "text-anchor": "middle", "font-size": 14,
+      "font-weight": 650, fill: "var(--ink)",
+    }, grid).textContent = X_AXIS.axisLabel;
+    el("text", {
+      x: 0, y: 0, "text-anchor": "middle", "font-size": 14, "font-weight": 650, fill: "var(--ink)",
+      transform: `translate(16 ${(M.t + H - M.b) / 2}) rotate(-90)`,
+    }, grid).textContent = metric.axisLabel;
+
+    drawOptimalArrow(grid, metric.lowerBetter, M, W, H);
+
+    // pareto front (always shown)
+    const front = computeFront(metric);
+    const fv = front.verts;
+    if (fv.length) {
+      let d = `M${X(fv[0][0])},${metric.lowerBetter ? M.t : H - M.b}`;
+      for (const [fx, fy] of fv) d += ` L${X(fx)},${Y(fy)}`;
+      d += ` L${W - M.r},${Y(fv[fv.length - 1][1])}`;
+      el("path", { d, fill: "none", stroke: "var(--ink)", "stroke-width": 1.6, "stroke-dasharray": "7 5", opacity: 0.85 }, svg);
+    }
+
+    const isOn = m => state.active.has(m);
+
+    // connectors: variant links (scatter) / the trajectory itself
+    const conn = el("g", {}, svg);
+    for (const [method, pts] of byMethod) {
+      if (pts.length < 2) continue;
+      const on = isOn(method);
+      if (!TRAJECTORY && !on) continue; // scatter: connectors only for active methods
+      const dd = pts.map((p, i) => `${i ? "L" : "M"}${X(p[xKey])},${Y(mval(p, metric))}`).join(" ");
+      el("path", {
+        d: dd, fill: "none",
+        stroke: on ? FAM_VAR[pts[0].family] : "var(--pt-muted)",
+        "stroke-width": on ? (TRAJECTORY ? 2 : 1.4) : 1,
+        opacity: on ? 0.6 : 0.35,
+        "data-m": method,
+      }, conn);
+    }
+
+    // points: inactive first, active on top
+    const ptsOff = el("g", {}, svg);
+    const ptsOn = el("g", {}, svg);
+    for (const [method, pts] of byMethod) {
+      const on = isOn(method);
+      for (const p of pts) {
+        const color = on ? FAM_VAR[p.family] : "var(--pt-muted)";
+        const size = (on ? 7 : 5) * (TRAJECTORY ? 0.8 : 1);
+        const op = on ? 0.95 : 0.5;
+        drawMark(on ? ptsOn : ptsOff, X(p[xKey]), Y(mval(p, metric)), p.variant, color, size, op, p.method, on);
+        // Imputation ring: every affected point in scatter mode; only the
+        // trajectory's end point in trajectory mode (a ring on all ~8 line
+        // points would read as beads, and the chip's ‡ already flags the line).
+        if (p.imputed && (!TRAJECTORY || p === pts[pts.length - 1])) {
+          drawImputedRing(on ? ptsOn : ptsOff, X(p[xKey]), Y(mval(p, metric)), size, color, op, p.method);
+        }
+      }
+    }
+
+    // Labels for active methods at their best point. Each one is measured, so it
+    // can be put on whichever side of its point has room for the whole name and
+    // held inside the plot — a system carries its configuration in its name
+    // ("AutoGluon 1.6 (noncommercial, 4h)") and would otherwise run off the edge.
+    const labels = [];
+    for (const [method, pts] of byMethod) {
+      if (!isOn(method)) continue;
+      const best = pts.reduce((a, b) =>
+        (metric.lowerBetter ? mval(a, metric) < mval(b, metric) : mval(a, metric) > mval(b, metric)) ? a : b);
+      const px = X(best[xKey]);
+      const w = textWidth(method);
+      const toRight = px + 10 + w <= W - M.r;
+      labels.push({
+        method, family: best.family, w,
+        anchor: toRight ? "start" : "end",
+        // Anchored at its start the label runs right from `x`, at its end it runs
+        // left to `x`; either way keep the far side off the plot frame.
+        x: toRight ? px + 10 : Math.max(M.l + w + 2, px - 10),
+        y: Y(mval(best, metric)) - 10,
+      });
+    }
+    // Greedy de-overlap: push a label down a line whenever it would sit on top of
+    // one already placed. Measured spans, so a long name displaces its neighbours
+    // for as far as it actually reaches.
+    const spanOf = l => (l.anchor === "start" ? [l.x, l.x + l.w] : [l.x - l.w, l.x]);
+    labels.sort((a, b) => a.y - b.y);
+    for (let i = 1; i < labels.length; i++) {
+      for (let j = 0; j < i; j++) {
+        const [aL, aR] = spanOf(labels[i]), [bL, bR] = spanOf(labels[j]);
+        if (aL < bR + 6 && bL < aR + 6 && Math.abs(labels[i].y - labels[j].y) < 15) {
+          labels[i].y = labels[j].y + 15;
+        }
+      }
+    }
+    const lg = el("g", {}, svg);
+    for (const l of labels) {
+      const t = el("text", {
+        x: l.x, y: Math.max(l.y, M.t + 12), "font-size": 13, "font-weight": 700,
+        fill: FAM_VAR[l.family], "paint-order": "stroke", stroke: "var(--card)", "stroke-width": 3.5,
+        "text-anchor": l.anchor,
+      }, lg);
+      t.textContent = l.method;
+    }
+
+    // invisible hit targets on top (bigger than marks)
+    const hits = el("g", {}, svg);
+    for (const p of POINTS) {
+      const h = el("circle", { cx: X(p[xKey]), cy: Y(mval(p, metric)), r: 12, fill: "transparent", cursor: "pointer" }, hits);
+      h.addEventListener("mouseenter", ev => showTip(p, ev));
+      h.addEventListener("mousemove", ev => tip.move(ev));
+      h.addEventListener("mouseleave", () => hideTip(p.method));
+      h.addEventListener("click", () => toggle(p.method));
+    }
+  }
+
+  // Temporary hover emphasis without a re-render (a re-render would replace
+  // the hit node under the cursor mid-hover).
+  function emphasize(method, on) {
+    svg.querySelectorAll(`[data-m="${CSS.escape(method)}"]`).forEach(n => {
+      if (on) {
+        if (!n.dataset.save) n.dataset.save = n.getAttribute("opacity") || "1";
+        n.setAttribute("opacity", "0.95");
+      } else if (n.dataset.save) {
+        n.setAttribute("opacity", n.dataset.save);
+        delete n.dataset.save;
+      }
+    });
+  }
+
+  function showTip(p, ev) {
+    emphasize(p.method, true);
+    const sub = TRAJECTORY ? (p.n_configs != null ? `${p.n_configs} configs` : "") : (p.variant || "");
+    let html = `<div class="t-name">${p.method}` + (sub ? ` <span class="t-var">(${sub})</span>` : "") + "</div>" +
+      `<div>${p.family}</div>`;
+    for (const m of METRICS) {
+      html += `<div>${m.label}: <b>${fmtMetric(m, mval(p, m))}</b></div>`;
+    }
+    html += `<div>${X_AXIS.short}: <b>${fmtTime(p[xKey])}</b></div>`;
+    if (p.imputed) html += `<div class="t-imp">Imputed on ${fmtNum(p.imputed_pct, 0)}% of datasets</div>`;
+    tip.show(html, ev);
+  }
+  function hideTip(method) {
+    emphasize(method, false);
+    tip.hide();
+  }
+
+  // ---------- chips ----------
+  const chipByMethod = new Map();
+  const famChips = new Map();
+  function familyMethods(fam) {
+    return [...byMethod.keys()].filter(m => byMethod.get(m)[0].family === fam);
+  }
+  // Chips are listed by leaderboard rank — best Elo first when Elo is
+  // configured, otherwise best value of the primary metric.
+  const RANK_METRIC = metricByKey["elo"] || metricByKey[METRICS[0].key];
+  function bestVal(method) {
+    const vals = byMethod.get(method).map(p => mval(p, RANK_METRIC));
+    return RANK_METRIC.lowerBetter ? Math.min(...vals) : Math.max(...vals);
+  }
+  function rankSorted(methods) {
+    return [...methods].sort((a, b) =>
+      RANK_METRIC.lowerBetter ? bestVal(a) - bestVal(b) : bestVal(b) - bestVal(a));
+  }
+  function buildChips() {
+    for (const fam of FAM_ORDER) {
+      const methods = rankSorted(familyMethods(fam));
+      if (!methods.length) continue;
+      const row = document.createElement("div");
+      row.className = "chiprow";
+      const famBtn = document.createElement("button");
+      famBtn.className = "famchip";
+      famBtn.style.setProperty("--fam", FAM_VAR[fam]);
+      famBtn.innerHTML = famChipLabel(fam, methods.length);
+      famBtn.title = `Toggle all ${methods.length} ${fam} methods`;
+      famBtn.addEventListener("click", () => toggleFamily(fam));
+      row.appendChild(famBtn);
+      famChips.set(fam, famBtn);
+      const set = document.createElement("div");
+      set.className = "chipset";
+      for (const m of methods) {
+        const b = document.createElement("button");
+        b.className = "chip";
+        b.style.setProperty("--fam", FAM_VAR[fam]);
+        const imputed = byMethod.get(m).some(p => p.imputed);
+        const label = document.createElement("span");
+        label.textContent = m;
+        b.appendChild(Object.assign(document.createElement("span"), { className: "dot" }));
+        b.appendChild(label);
+        if (imputed) {
+          const mark = document.createElement("span");
+          mark.className = "imp-mark";
+          mark.textContent = "‡";
+          b.appendChild(mark);
+        }
+        b.title = m + (imputed ? " — partially imputed" : "");
+        b.addEventListener("click", () => toggle(m));
+        set.appendChild(b);
+        chipByMethod.set(m, b);
+      }
+      row.appendChild(set);
+      chipsBox.appendChild(row);
+    }
+  }
+  function syncChips() {
+    for (const [m, b] of chipByMethod) b.setAttribute("aria-pressed", String(state.active.has(m)));
+    for (const [fam, b] of famChips) {
+      b.setAttribute("aria-pressed", String(familyMethods(fam).every(m => state.active.has(m))));
+    }
+  }
+  function toggle(m) {
+    if (state.active.has(m)) state.active.delete(m); else state.active.add(m);
+    state.followFront = false;
+    syncChips();
+    render();
+  }
+  function toggleFamily(fam) {
+    const methods = familyMethods(fam);
+    const allOn = methods.every(m => state.active.has(m));
+    for (const m of methods) {
+      if (allOn) state.active.delete(m); else state.active.add(m);
+    }
+    state.followFront = false;
+    syncChips();
+    render();
+  }
+  function setActive(methods, followFront = false) {
+    state.active = new Set(methods);
+    state.followFront = followFront;
+    syncChips();
+    render();
+  }
+  function showFront() {
+    setActive(computeFront(metricByKey[metricKey]).methods, true);
+  }
+  // Switching the y-axis moves the front, so the highlighted set moves with it.
+  function setMetric(key) {
+    metricKey = key;
+    if (state.followFront) showFront(); else render();
+  }
+  document.getElementById("btn-front").addEventListener("click", showFront);
+  document.getElementById("btn-all").addEventListener("click", () => setActive([...byMethod.keys()]));
+  document.getElementById("btn-none").addEventListener("click", () => setActive([]));
+
+  // metric selector (hidden when only one metric is configured)
+  const metricPick = document.getElementById("metricpick");
+  const metricSelect = document.getElementById("metric-select");
+  if (METRICS.length > 1) {
+    metricPick.hidden = false;
+    for (const m of METRICS) {
+      const opt = document.createElement("option");
+      opt.value = m.key;
+      opt.textContent = m.label;
+      metricSelect.appendChild(opt);
+    }
+    metricSelect.addEventListener("change", ev => setMetric(ev.target.value));
+  }
+
+  // Embedded, the host can pick the metric for us: the leaderboard's "I care about" control
+  // decides whether the page leads with Elo or Improvability, and every panel follows without
+  // regenerating an artifact per metric. Ignored when the metric is not one this chart offers.
+  window.addEventListener("message", ev => {
+    const d = ev.data;
+    if (!d || d.type !== "tabarena-explorer-metric") return;
+    if (!METRICS.some(m => m.key === d.metric) || d.metric === metricKey) return;
+    if (metricSelect) metricSelect.value = d.metric;
+    setMetric(d.metric);
+  });
+
+  // ---------- legend strip ----------
+  function buildLegend() {
+    const box2 = document.getElementById("legendstrip");
+    let html = "";
+    if (!TRAJECTORY) {
+      html +=
+        '<span class="item"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="var(--muted)"/></svg> Default</span>' +
+        '<span class="item"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="2" y="2" width="10" height="10" rx="1.5" fill="var(--muted)"/></svg> Tuned</span>' +
+        '<span class="item"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M3,3 L11,11 M3,11 L11,3" stroke="var(--muted)" stroke-width="2.6" stroke-linecap="round"/></svg> Tuned + Ensembled</span>';
+    } else {
+      html += '<span class="item"><svg width="26" height="8" viewBox="0 0 26 8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--muted)" stroke-width="2"/><circle cx="6" cy="4" r="2.6" fill="var(--muted)"/><circle cx="16" cy="4" r="2.6" fill="var(--muted)"/></svg> Tuning trajectory (more configs &rarr; more time)</span>';
+    }
+    html += '<span class="item"><svg width="26" height="8" viewBox="0 0 26 8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--ink)" stroke-width="1.6" stroke-dasharray="6 4"/></svg> Pareto front (always shown)</span>';
+    if (POINTS.some(p => p.imputed)) {
+      html += '<span class="item"><svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="4" fill="var(--muted)"/><circle cx="9" cy="9" r="7.5" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="3 2.5"/></svg> &Dagger; partially imputed</span>';
+    }
+    // Model family, named: highlighted points are colored by family, and in paper
+    // view the chip list that would otherwise decode them is hidden.
+    const families = FAM_ORDER.filter(f => POINTS.some(p => p.family === f));
+    if (families.length > 1) {
+      html += '<span class="legendbreak"></span><span class="item">Family:</span>';
+      for (const fam of families) {
+        html += `<span class="item"><svg width="12" height="12" viewBox="0 0 12 12">` +
+          `<circle cx="6" cy="6" r="5" fill="${FAM_VAR[fam]}"/></svg> ` +
+          `<span style="color:${FAM_INK[fam]}">${fam}</span></span>`;
+      }
+    }
+    box2.innerHTML = html;
+  }
+
+  // ---------- paper view ----------
+  setUpPaperView(render);
+  setUpExport(() => [{ svg: svg, dx: 0 }], () => slugify(document.title));
+
+  // ---------- data table ----------
+  function buildTable() {
+    const m0 = metricByKey[METRICS[0].key];
+    const rows = [...POINTS].sort((a, b) =>
+      m0.lowerBetter ? mval(a, m0) - mval(b, m0) : mval(b, m0) - mval(a, m0));
+    let html = "<table><thead><tr><th>Method</th>";
+    html += TRAJECTORY ? "<th>Configs</th>" : "<th>Variant</th>";
+    html += "<th>Family</th>";
+    for (const m of METRICS) html += `<th>${m.label}</th>`;
+    html += `<th>${X_AXIS.short}</th><th>Imputed</th></tr></thead><tbody>`;
+    for (const p of rows) {
+      html += `<tr><td>${p.method}</td><td>${TRAJECTORY ? (p.n_configs != null ? p.n_configs : "—") : p.variant}</td><td>${p.family}</td>`;
+      for (const m of METRICS) html += `<td>${fmtMetric(m, mval(p, m))}</td>`;
+      html += `<td>${fmtNum(p[xKey], 3)}</td>`;
+      html += `<td>${p.imputed ? fmtNum(p.imputed_pct, 0) + "%" : "—"}</td></tr>`;
+    }
+    html += "</tbody></table>";
+    document.getElementById("tblwrap").innerHTML = html;
+  }
+
+  const _renderInner = render;
+  render = function () {
+    _renderInner();
+    postHeight();
+  };
+  document.querySelector("details.datatable").addEventListener("toggle", postHeight);
+  // Watches the chart's own box, not just the viewport: a frame laid out after it loaded (the
+  // reader scrolled past before it painted) changes this element's width without ever changing
+  // the viewport, and that is the case that leaves a chart stuck at its minimum width.
+  redrawOnResize(box, render);
+  window.addEventListener("load", postHeight);
+
+  buildChips();
+  buildLegend();
+  buildTable();
+  syncChips();
+  render();
+})();
+</script>
+</body>
+</html>

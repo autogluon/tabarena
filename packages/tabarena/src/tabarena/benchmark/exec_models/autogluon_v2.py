@@ -18,13 +18,13 @@ Two things the caller must get right for the two paths to agree:
   These wrappers therefore set the learner's ``random_state`` to :data:`SPLIT_RANDOM_STATE`, but
   only on a task that actually declares a structure -- the same seed also drives AutoGluon's
   default splitter, which unstructured tasks are left to use as-is.
-- **Fold sizing.** TabArena's fold counts come from its own policy
-  (``ValidationMetadata.resolve_number_of_splits``: a tiny-data regime below a group-instance
-  threshold, fixed defaults above it), which these wrappers deliberately do NOT apply -- sizing
-  is AutoGluon's to own, via ``validation_size_curves``. Pass explicit ``num_bag_folds`` /
-  ``num_bag_sets`` to take sizing out of the comparison, or configure the curves to match the
-  policy. ``size_validation_on_groups`` is set from the task so a curve that opts into group
-  sizing reads the same count TabArena would.
+- **Fold sizing.** The fold counts go through the same policy as on the V1 path
+  (``ValidationMetadata.resolve_number_of_splits``: ``"auto"`` is the benchmark protocol, a
+  tiny-data regime below a group-instance threshold and the defaults above it; a number is
+  kept as given), so AutoGluon only ever receives integers. Which rows share a fold is then
+  AutoGluon's, through the declared structure, as is any further clamping. ``size_validation_on_groups``
+  is set from the task so a ``validation_size_curves`` entry that opts into group sizing reads
+  the same count TabArena would.
 """
 
 from __future__ import annotations
@@ -168,32 +168,30 @@ class AGWrapperV2(AGWrapper):
         )
 
     def _apply_validation_splits(self, fit_kwargs: dict, *, X: pd.DataFrame, y: pd.Series) -> int | None:
-        """Declare the structure in ``fit_kwargs`` and leave the fold counts alone.
+        """Resolve the fold counts and declare the structure in ``fit_kwargs``.
 
-        Overrides the V1 behavior of popping ``num_bag_folds`` / ``num_bag_sets``, running them
-        through TabArena's resolver, and writing back adjusted counts plus ``custom_splits``.
-        The counts pass through TabArena's size policy (``resolve_number_of_splits``) as on
-        the V1 path; AutoGluon then resolves the splits itself, so any further clamping
-        (fewer groups than folds, temporal blocks, repeats collapsed to 1) happens inside
-        ``ValidationStructure.custom_splits``.
+        Overrides the V1 behavior of writing back ``custom_splits``: the counts go through the
+        same policy (``resolve_number_of_splits`` -- ``"auto"`` is the benchmark protocol, a
+        number is kept), so AutoGluon only ever receives integers, and AutoGluon then resolves
+        the splits itself, so any further clamping (fewer groups than folds, temporal blocks,
+        repeats collapsed to 1) happens inside ``ValidationStructure.custom_splits``. Without
+        task-specific validation the data size must not decide, so ``"auto"`` is the default.
         """
         num_folds = fit_kwargs.get("num_bag_folds")
-        if not self.use_task_specific_validation:
-            return num_folds
-        # TabArena's count policy, applied as the V1 path applies it: at or below the tiny-data
-        # threshold of (group) instances the campaign protocol bags 5 folds x 5 sets rather than
-        # the caller's 8 x 1. The structure declared below governs *which* rows share a fold;
-        # without this the two paths build the same folds but different numbers of them, and a
-        # campaign result cannot be reproduced on any small task.
-        if num_folds is not None and num_folds > 1:
+        if num_folds is not None:
+            num_group_instances = (
+                get_num_group_instances(self.validation_metadata, X=X) if self.use_task_specific_validation else None
+            )
             num_folds, num_repeats = self.validation_metadata.resolve_number_of_splits(
                 num_folds=num_folds,
                 num_repeats=fit_kwargs.get("num_bag_sets"),
-                num_group_instances=get_num_group_instances(self.validation_metadata, X=X),
+                num_group_instances=num_group_instances,
             )
             fit_kwargs["num_bag_folds"] = num_folds
             if num_repeats is not None:
                 fit_kwargs["num_bag_sets"] = num_repeats
+        if not self.use_task_specific_validation:
+            return num_folds
         validation_structure = self.validation_structure()
         if validation_structure is None:
             logger.info(
