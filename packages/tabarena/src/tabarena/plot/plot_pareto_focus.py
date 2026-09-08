@@ -3,9 +3,9 @@
 Design: color encodes the *model family* (few hues) instead of one hue per
 method; only Pareto-front members plus an explicit ``focus_methods`` list are
 emphasized (family color, direct label, full opacity) while every other method
-recedes into a grey field. Thin connectors tie a method's variants (default /
-tuned / tuned + ensembled) together, and the legend collapses to a single strip
-above the axes.
+recedes into a grey field, its family kept on the marker edge. Thin connectors
+tie a method's variants (default / tuned / tuned + ensembled) together, and the
+legend collapses to a single strip above the axes.
 """
 
 from __future__ import annotations
@@ -36,6 +36,9 @@ FAMILY_COLORS: dict[str, str] = {
 
 #: Grey used for non-emphasized ("field") methods.
 MUTED_COLOR = "#b9b8b1"
+
+#: How far an emphasized marker's edge is blended from its family color toward black.
+EDGE_DARKEN = 0.4
 
 #: Variant ("Type") -> matplotlib marker; mirrors ``LeaderboardReporter.style_markers``.
 DEFAULT_VARIANT_MARKERS: dict[str, str] = {
@@ -71,6 +74,21 @@ def compute_front_methods(
     return front, {n for n in names if n is not None}
 
 
+def marker_edge_color(family_color: str, *, emphasized: bool) -> tuple[float, float, float]:
+    """Edge color of a marker: its family color, darkened when the marker is emphasized.
+
+    Muted markers are grey-filled, so the family-colored edge is what still tells their
+    family apart; emphasized markers are filled with the family color, so their edge is a
+    darker shade of it.
+    """
+    from matplotlib.colors import to_rgb
+
+    r, g, b = to_rgb(family_color)
+    if not emphasized:
+        return (r, g, b)
+    return (r * (1 - EDGE_DARKEN), g * (1 - EDGE_DARKEN), b * (1 - EDGE_DARKEN))
+
+
 def plot_pareto_focus(
     data: pd.DataFrame,
     *,
@@ -84,6 +102,8 @@ def plot_pareto_focus(
     xlog: bool = True,
     focus_methods: list[str] | None = None,
     emphasize_all: bool = False,
+    label_halo: bool = True,
+    y_margin: float = 0.1,
     x_label: str | None = None,
     y_label: str | None = None,
     title: str | None = None,
@@ -92,7 +112,7 @@ def plot_pareto_focus(
     add_optimal_arrow: bool = True,
     variant_markers: dict[str, str] | None = None,
     ylim: tuple[float | None, float | None] | None = None,
-    figsize: tuple[float, float] = (10.5, 6.2),
+    figsize: tuple[float, float] = (10.5, 7.4),
 ):
     """Render the focus-style Pareto scatter.
 
@@ -110,11 +130,19 @@ def plot_pareto_focus(
         Emphasize (family colors + a plain label) *every* method instead of muting
         the Pareto-dominated ones. ``focus_methods`` still controls which labels
         are boxed.
+    label_halo
+        Draw the white stroke behind each label. Matplotlib writes text that carries
+        path effects as glyph outlines, so pass False to keep the labels as text in
+        an SVG.
+    y_margin
+        Autoscale margin of the y axis, as a fraction of the data range on each side:
+        room for the labels above the top points and below the bottom ones.
     max_X, max_Y
         Direction of "better" per axis (both False = lower-left is optimal).
     """
     import matplotlib.patheffects as PathEffects
     import matplotlib.pyplot as plt
+    from matplotlib.colors import to_rgba
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
@@ -147,10 +175,11 @@ def plot_pareto_focus(
 
     method_family = data.groupby(method_col)[family_col].first().to_dict()
 
+    def _family_color(method: str) -> str:
+        return FAMILY_COLORS.get(method_family.get(method), FAMILY_COLORS["Other"])
+
     def _color(method: str) -> str:
-        if method in emphasized:
-            return FAMILY_COLORS.get(method_family.get(method), FAMILY_COLORS["Other"])
-        return MUTED_COLOR
+        return _family_color(method) if method in emphasized else MUTED_COLOR
 
     # Connectors linking a method's variants (default -> tuned -> tuned + ensembled).
     for method, g in data.groupby(method_col):
@@ -168,7 +197,8 @@ def plot_pareto_focus(
             zorder=2 if emph else 1,
         )
 
-    # Points.
+    # Points. The face carries the fade; the edge stays opaque so a muted marker's family
+    # still reads off its edge.
     for _, p in data.iterrows():
         method = p[method_col]
         emph = method in emphasized
@@ -177,13 +207,13 @@ def plot_pareto_focus(
             p[y_col],
             marker=variant_markers.get(p[variant_col], "o"),
             s=130 if emph else 70,
-            c=_color(method),
-            alpha=0.95 if emph else 0.55,
-            edgecolor="#0b0b0b" if emph else "white",
-            linewidth=0.8 if emph else 0.4,
+            facecolor=to_rgba(_color(method), 0.95 if emph else 0.55),
+            edgecolor=marker_edge_color(_family_color(method), emphasized=emph),
+            linewidth=1.0 if emph else 0.9,
             zorder=4 if emph else 3,
         )
 
+    ax.margins(y=y_margin)
     if ylim is not None:
         ax.set_ylim(ylim)
 
@@ -218,7 +248,7 @@ def plot_pareto_focus(
             p[y_col],
             method,
             fontsize=10.5 if is_focus else 9.5,
-            color=FAMILY_COLORS.get(method_family.get(method), FAMILY_COLORS["Other"]),
+            color=_family_color(method),
             fontweight="bold",
             ha="left",
             va="bottom",
@@ -227,7 +257,8 @@ def plot_pareto_focus(
             else None,
             zorder=6,
         )
-        txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground="white")])
+        if label_halo:
+            txt.set_path_effects([PathEffects.withStroke(linewidth=3, foreground="white")])
         texts.append(txt)
     if has_adjust_text and texts:
         adjust_text(
