@@ -50,6 +50,8 @@ def test_plot_pareto_focus_writes_figure(tmp_path):
         x_label="Time (s)",
         y_label="Improvability (%)",
         title="Toy",
+        muted_size=40,
+        muted_alpha=0.3,
         save_path=save_path,
     )
     assert save_path.is_file()
