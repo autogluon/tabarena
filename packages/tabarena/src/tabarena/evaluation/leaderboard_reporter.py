@@ -177,7 +177,7 @@ class LeaderboardReporter:
             "Default",
             "Tuned",
             "Tuned + Ens.",
-            "Baseline",
+            "End-to-end",
             "Best",
             "Default, Holdout",
             "Tuned, Holdout",
@@ -188,7 +188,7 @@ class LeaderboardReporter:
             "Default": "o",
             "Tuned": "s",
             "Tuned + Ens.": "X",
-            "Baseline": "D",
+            "End-to-end": "D",
             "Best": "*",
             "Default, Holdout": "^",
             "Tuned, Holdout": "<",
@@ -2071,7 +2071,9 @@ class LeaderboardReporter:
 
         leaderboard_pareto[self.method_col] = leaderboard_pareto["Method"] + leaderboard_pareto["suffix"]
         fig_rename_dict = {
-            "baseline": "Baseline",
+            # A method without a tuning variant ran end to end inside its own budget, the
+            # leaderboard table's word for a system.
+            "baseline": "End-to-end",
             "default": "Default",
             "tuned": "Tuned",
             "tuned_ensembled": "Tuned + Ens.",
@@ -2089,7 +2091,7 @@ class LeaderboardReporter:
         )
 
         if not with_baselines:
-            leaderboard_pareto = leaderboard_pareto[leaderboard_pareto["Type"] != "Baseline"]
+            leaderboard_pareto = leaderboard_pareto[leaderboard_pareto["Type"] != "End-to-end"]
 
         self.plot_pareto_elo_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
         self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)

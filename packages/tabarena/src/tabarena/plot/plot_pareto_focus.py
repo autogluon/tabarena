@@ -45,7 +45,7 @@ DEFAULT_VARIANT_MARKERS: dict[str, str] = {
     "Default": "o",
     "Tuned": "s",
     "Tuned + Ens.": "X",
-    "Baseline": "D",
+    "End-to-end": "D",
     "Best": "*",
     "Default, Holdout": "^",
     "Tuned, Holdout": "<",

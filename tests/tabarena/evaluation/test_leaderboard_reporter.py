@@ -207,5 +207,8 @@ class TestParetoFocusKwargs:
 
         assert len(calls) == 4
         assert all(kwargs["muted_size"] == 12 and kwargs["muted_alpha"] == 0.2 for kwargs in calls)
+        # A method without a tuning variant is typed as the leaderboard table names systems.
+        data = calls[0]["data"]
+        assert set(data.loc[data["Method"] == "TabPFN-3", "Type"]) == {"End-to-end"}
         # The plain figure options still arrive alongside.
         assert all(kwargs["variant_markers"] is reporter.style_markers for kwargs in calls)

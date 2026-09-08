@@ -132,3 +132,13 @@ def test_the_highlighted_front_follows_the_metric(tmp_path):
 def test_unknown_mode_raises(tmp_path):
     with pytest.raises(ValueError, match="mode"):
         build_pareto_explorer_html(points=_scatter_points(), save_path=tmp_path / "e.html", mode="bars")
+
+
+def test_end_to_end_marker_joins_the_legend_when_a_system_is_plotted(tmp_path):
+    points = _scatter_points()
+    points.loc[points.index[-1], "variant"] = "End-to-end"
+    out = tmp_path / "explorer.html"
+    build_pareto_explorer_html(points, save_path=out)
+    html = out.read_text()
+    assert 'if (POINTS.some(p => p.variant === "End-to-end"))' in html
+    assert "End-to-end</span>" in html

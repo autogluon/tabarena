@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 #: Variant display order used to sort each method's points so the connector
 #: line runs default -> tuned -> tuned + ensembled.
-_VARIANT_ORDER = ["Default", "Tuned", "Tuned + Ens.", "Baseline", "Best"]
+_VARIANT_ORDER = ["Default", "Tuned", "Tuned + Ens.", "End-to-end", "Best"]
 
 #: Metric definitions the explorer's y-axis selector can offer, keyed by the
 #: column name expected in ``points``.
