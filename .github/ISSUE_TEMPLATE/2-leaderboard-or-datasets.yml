@@ -1,0 +1,40 @@
+name: Questions about leaderboard or datasets
+description: Only for questions that touch the code in this repository or span the leaderboard and the code. Pure leaderboard or dataset questions are redirected inside the form.
+title: "[Leaderboard/Datasets] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Most leaderboard and dataset questions have a better home:
+        - Leaderboard results, rankings, a method's numbers, or the leaderboard page itself: the [Community tab of the leaderboard Space](https://huggingface.co/spaces/TabArena/leaderboard/discussions).
+        - Datasets, their curation, data errors, and new dataset suggestions: [Data Foundry](https://github.com/TabArena/data-foundry) ([docs](https://tabarena.github.io/data-foundry/)). The BeyondArena data lives at [TabArena/BeyondArena](https://huggingface.co/datasets/TabArena/BeyondArena).
+
+        Use this form only when the question is about code in this repository (the evaluation and leaderboard-generation code, dataset loading through `TabArenaContext` / `BeyondArenaContext`, subsets such as `lite` and `core`) or spans the leaderboard and this code base. Requests to re-run or bump the version of a method that is already on the leaderboard also go here.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "Evaluation or leaderboard code in this repository"
+        - "Dataset loading or subsets in this repository"
+        - "Protocol or metric semantics"
+        - "Reproducing published numbers"
+        - "Re-run or version bump of an existing method"
+        - "Other cross-cutting question"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: The script or function involved, the tabarena version or commit, what you expected and what you saw.
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This question is about code in this repository or spans the leaderboard and this code base. It is not a pure leaderboard or dataset question.
+          required: true

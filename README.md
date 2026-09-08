@@ -51,18 +51,23 @@ pip install uv
 git clone https://github.com/autogluon/tabarena.git && cd tabarena
 uv venv --seed --python 3.12 && source .venv/bin/activate
 uv pip install --prerelease=allow -e "./packages/tabarena[benchmark]"
-python examples/benchmarking/run_quickstart_tabarena.py
+python examples/benchmarking/run_quickstart_tabarena_model.py   # benchmark a model that TabArena tunes
+python examples/benchmarking/run_quickstart_tabarena_system.py  # benchmark a system that tunes itself
 ```
 
+TabArena ranks **models** (one method, tuned by TabArena under a shared protocol) and **systems**
+(a pipeline that does its own tuning and ensembling, like AutoGluon); see
+[Contributing a Model or System](#-contributing-a-model-or-system) for the difference and how to submit yours.
 For other install paths (eval-only, editable AutoGluon, dependency), see [Installation](#-installation) below.
-To try **BeyondArena** instead, run `python examples/beyondarena/run_quickstart_beyondarena.py` with the same install.
+To try **BeyondArena** instead, run `python examples/beyondarena/run_quickstart_beyondarena_model.py`
+(or `run_quickstart_beyondarena_system.py`) with the same install.
 
 ## 🕹️ Use Cases
 
 We share more details on various use cases of TabArena in our [examples](examples):
 
 * 🌍 **Benchmarking Beyond IID (BeyondArena)**: please refer to [examples/beyondarena](examples/beyondarena).
-* 📊 **Benchmarking Predictive Machine Learning Models**: please refer to [examples/benchmarking](examples/benchmarking).
+* 📊 **Benchmarking Predictive Machine Learning Models and Systems**: please refer to [examples/benchmarking](examples/benchmarking); to get yours onto the leaderboard, see [Contributing a Model or System](#-contributing-a-model-or-system).
 * 🚀 **Using SOTA Tabular Models Benchmarked by TabArena**: please refer to [examples/running_tabarena_models](examples/running_tabarena_models).
 * 🧪 **Advanced and Specialized Usage**: please refer to [examples/advanced](examples/advanced).
 * 🗃️ **Analysing Metadata and Meta-Learning**: please refer to [examples/meta](examples/meta).
@@ -71,11 +76,74 @@ We share more details on various use cases of TabArena in our [examples](example
 
 ### Datasets
 
-Please refer to our [dataset curation repository](https://github.com/TabArena/tabarena_dataset_curation) to learn more about or contributed data!
+Please refer to [Data Foundry](https://github.com/TabArena/data-foundry) ([documentation](https://tabarena.github.io/data-foundry/)) to learn more about the datasets or to contribute data.
+
+### 🤝 Contributing a Model or System
+
+TabArena accepts two kinds of entrant: a **model** (one method that TabArena tunes under its shared
+protocol) and a **system** (a pipeline that owns its own preprocessing, validation, tuning and
+ensembling inside the budget TabArena hands it). TabArena is not a benchmarking service: evaluate your
+method on TabArena-Lite first, open a pull request with the template, and a maintainer verifies and
+re-runs it for the final entry. The details:
+
+<details>
+<summary><b>🧭 Model or system?</b> — the difference, and where each lives in the code</summary>
+
+A **model** is one method that TabArena tunes under its shared protocol: shared preprocessing, a
+validation split provided by TabArena, a search space of up to 200 configurations, bagging, and the
+default / tuned / tuned + ensembled variants on the leaderboard. A **system** owns its whole pipeline
+(preprocessing, validation, tuning, ensembling) inside the budget TabArena hands it: AutoML frameworks
+such as AutoGluon, TabFM+, LLM agents, hosted APIs. If you would have to invent a search space for
+your method, it is a model. If that makes no sense because the method searches for itself, it is a
+system.
+
+| | Model | System |
+|---|---|---|
+| Code | `packages/tabarena/src/tabarena/models/<key>/` | `packages/tabarena/src/tabarena/systems/<key>/` |
+| Quick start | [`run_quickstart_tabarena_model.py`](examples/benchmarking/run_quickstart_tabarena_model.py), [`run_quickstart_beyondarena_model.py`](examples/beyondarena/run_quickstart_beyondarena_model.py) | [`run_quickstart_tabarena_system.py`](examples/benchmarking/run_quickstart_tabarena_system.py), [`run_quickstart_beyondarena_system.py`](examples/beyondarena/run_quickstart_beyondarena_system.py) |
+| Step-by-step guide | [`add-model` skill](.claude/skills/add-model/SKILL.md) | [`add-system` skill](.claude/skills/add-system/SKILL.md) |
+| Test | `pytest -m models -k <Key>` | `pytest tests/tabarena/systems/` |
+</details>
+
+<details>
+<summary><b>📬 Submission process</b> — evaluate, open a PR, verification, leaderboard update</summary>
+
+We accept methods their authors have already evaluated with the official pipeline and confirm the
+results by re-running them.
+
+1. Say how your method differs from the entrants already on the leaderboard. A new version of an
+   existing method goes into the existing folder and supersedes the old entry rather than becoming a
+   new one.
+2. Integrate it following the guide above and run the quick start.
+3. Evaluate it yourself on TabArena-Lite (`subset="lite"`, the first split of every dataset) with HPO
+   where applicable (the default plus about 25 random configurations), or on the BeyondArena `core`
+   subset.
+4. Open a pull request; the template asks for the expected files, the results, the hardware and the
+   entry-point script. You can also share the run's output directory (the `expname` folder with the
+   `results.pkl` files) so we can verify and integrate the results directly.
+5. A maintainer verifies the submission and re-runs the method on the benchmark hardware for the
+   final entry. We are happy to help with the integration and the re-run. The authors sign off on the
+   result, which marks the entry as verified.
+6. Once the method is benchmarked and merged, the leaderboard is updated as soon as possible.
+
+Questions go through the [issue forms](.github/ISSUE_TEMPLATE): one for model and system
+submissions, one for leaderboard or dataset questions that touch this code base. Pure leaderboard
+questions belong in the [leaderboard's Community tab](https://huggingface.co/spaces/TabArena/leaderboard/discussions),
+dataset questions in [Data Foundry](https://github.com/TabArena/data-foundry). Anything else: mail@tabarena.ai.
+</details>
 
 ### More Documentation
 
-TabArena code is currently being polished. Detailed Documentation for TabArena will be available soon.
+There is no separate documentation site yet; the detailed reference lives in the repo and is written
+for humans and coding agents alike. [`AGENTS.md`](AGENTS.md) covers the architecture, the core data
+flow, models vs systems, entrant pools, caching, and the maintainer flows (processing and uploading
+results, releasing to PyPI). The skills in [`.claude/skills/`](.claude/skills) are step-by-step guides:
+[`add-model`](.claude/skills/add-model/SKILL.md) and [`add-system`](.claude/skills/add-system/SKILL.md)
+for integrating a new entrant, [`benchmark-model`](.claude/skills/benchmark-model/SKILL.md) for running
+it on the benchmark cluster, [`upload-method`](.claude/skills/upload-method/SKILL.md) and
+[`update-leaderboard`](.claude/skills/update-leaderboard/SKILL.md) for publishing results, and
+[`adapt-tabarena`](.claude/skills/adapt-tabarena/SKILL.md) for building your own domain benchmark on
+top of TabArena. The [examples](examples) are the runnable tour.
 
 # 🪄 Installation
 

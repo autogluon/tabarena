@@ -1,6 +1,6 @@
 """Run the BeyondArena loop with *outer* (no-validation) experiments — no bagging.
 
-Counterpart to ``run_quickstart_beyondarena.py``, but the bundle runs each model as an
+Counterpart to ``run_quickstart_beyondarena_model.py``, but the bundle runs each model as an
 ``AGModelWrapper`` that trains on all the data with no train/val split, bagging, or ensemble
 (``BeyondArenaExperimentBundle(..., outer_experiments=True)``).
 """
