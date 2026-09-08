@@ -62,6 +62,7 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "iLTM": ModelSmokeTest({"finetuning_max_steps": 1, "n_ensemble": 1, "tree_n_estimators": 1}),
     "OrionMSP": ModelSmokeTest({"n_estimators": 1}),
     "EXAONE-Tabular": ModelSmokeTest({"ensemble_count": 1}),
+    "Mitra-v2": ModelSmokeTest({"fine_tune_steps": 2}),
 }
 
 
