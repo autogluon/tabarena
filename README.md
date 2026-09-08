@@ -78,19 +78,24 @@ We share more details on various use cases of TabArena in our [examples](example
 
 Please refer to [Data Foundry](https://github.com/TabArena/data-foundry) ([documentation](https://tabarena.github.io/data-foundry/)) to learn more about the datasets or to contribute data.
 
-### More Documentation
+### 🤝 Contributing a Model or System
 
-TabArena code is currently being polished. Detailed Documentation for TabArena will be available soon.
+TabArena accepts two kinds of entrant: a **model** (one method that TabArena tunes under its shared
+protocol) and a **system** (a pipeline that owns its own preprocessing, validation, tuning and
+ensembling inside the budget TabArena hands it). TabArena is not a benchmarking service: evaluate your
+method on TabArena-Lite first, open a pull request with the template, and a maintainer verifies and
+re-runs it for the final entry. The details:
 
-## 🤝 Contributing a Model or System
+<details>
+<summary><b>🧭 Model or system?</b> — the difference, and where each lives in the code</summary>
 
-TabArena accepts two kinds of entrant. A **model** is one method that TabArena tunes under its shared
-protocol: shared preprocessing, a validation split provided by TabArena, a search space of up to 200
-configurations, bagging, and the default / tuned / tuned + ensembled variants on the leaderboard. A
-**system** owns its whole pipeline (preprocessing, validation, tuning, ensembling) inside the budget
-TabArena hands it: AutoML frameworks such as AutoGluon, TabFM+, LLM agents, hosted APIs. If you would
-have to invent a search space for your method, it is a model. If that makes no sense because the
-method searches for itself, it is a system.
+A **model** is one method that TabArena tunes under its shared protocol: shared preprocessing, a
+validation split provided by TabArena, a search space of up to 200 configurations, bagging, and the
+default / tuned / tuned + ensembled variants on the leaderboard. A **system** owns its whole pipeline
+(preprocessing, validation, tuning, ensembling) inside the budget TabArena hands it: AutoML frameworks
+such as AutoGluon, TabFM+, LLM agents, hosted APIs. If you would have to invent a search space for
+your method, it is a model. If that makes no sense because the method searches for itself, it is a
+system.
 
 | | Model | System |
 |---|---|---|
@@ -98,9 +103,13 @@ method searches for itself, it is a system.
 | Quick start | [`run_quickstart_tabarena_model.py`](examples/benchmarking/run_quickstart_tabarena_model.py), [`run_quickstart_beyondarena_model.py`](examples/beyondarena/run_quickstart_beyondarena_model.py) | [`run_quickstart_tabarena_system.py`](examples/benchmarking/run_quickstart_tabarena_system.py), [`run_quickstart_beyondarena_system.py`](examples/beyondarena/run_quickstart_beyondarena_system.py) |
 | Step-by-step guide | [`add-model` skill](.claude/skills/add-model/SKILL.md) | [`add-system` skill](.claude/skills/add-system/SKILL.md) |
 | Test | `pytest -m models -k <Key>` | `pytest tests/tabarena/systems/` |
+</details>
 
-TabArena is not a benchmarking service: we accept methods their authors have already evaluated with
-the official pipeline and confirm the results by re-running them. The process:
+<details>
+<summary><b>📬 Submission process</b> — evaluate, open a PR, verification, leaderboard update</summary>
+
+We accept methods their authors have already evaluated with the official pipeline and confirm the
+results by re-running them.
 
 1. Say how your method differs from the entrants already on the leaderboard. A new version of an
    existing method goes into the existing folder and supersedes the old entry rather than becoming a
@@ -121,6 +130,20 @@ Questions go through the [issue forms](.github/ISSUE_TEMPLATE): one for model an
 submissions, one for leaderboard or dataset questions that touch this code base. Pure leaderboard
 questions belong in the [leaderboard's Community tab](https://huggingface.co/spaces/TabArena/leaderboard/discussions),
 dataset questions in [Data Foundry](https://github.com/TabArena/data-foundry). Anything else: mail@tabarena.ai.
+</details>
+
+### More Documentation
+
+There is no separate documentation site yet; the detailed reference lives in the repo and is written
+for humans and coding agents alike. [`AGENTS.md`](AGENTS.md) covers the architecture, the core data
+flow, models vs systems, entrant pools, caching, and the maintainer flows (processing and uploading
+results, releasing to PyPI). The skills in [`.claude/skills/`](.claude/skills) are step-by-step guides:
+[`add-model`](.claude/skills/add-model/SKILL.md) and [`add-system`](.claude/skills/add-system/SKILL.md)
+for integrating a new entrant, [`benchmark-model`](.claude/skills/benchmark-model/SKILL.md) for running
+it on the benchmark cluster, [`upload-method`](.claude/skills/upload-method/SKILL.md) and
+[`update-leaderboard`](.claude/skills/update-leaderboard/SKILL.md) for publishing results, and
+[`adapt-tabarena`](.claude/skills/adapt-tabarena/SKILL.md) for building your own domain benchmark on
+top of TabArena. The [examples](examples) are the runnable tour.
 
 # 🪄 Installation
 
