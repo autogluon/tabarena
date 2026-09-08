@@ -2517,7 +2517,7 @@ class LeaderboardReporter:
         save_prefix: str,
         baselines: list[str] | None = None,
         baseline_colors: list[str] | None = None,
-        baselines_as_bars: bool = False,
+        baselines_as_bars: bool = True,
         show: bool = False,
         use_gmean=False,
         use_score: bool = True,
@@ -2597,9 +2597,10 @@ class LeaderboardReporter:
                 "A color must be specified for each baseline via the `baseline_colors` argument."
             )
 
-        # `baselines_as_bars` renders every baseline as its own bar (sorted with the
-        # config-family bars) instead of a dashed reference line, via a single
-        # promote-from-baselines override shared by all of them.
+        # `baselines_as_bars` (the default) renders every baseline as its own bar, sorted
+        # with the config-family bars, via a single promote-from-baselines override shared
+        # by all of them. Pass `baselines_as_bars=False` to draw them as dashed reference
+        # lines instead.
         if baselines_as_bars and baselines:
             pastel = sns.color_palette("pastel").as_hex()
             deep = sns.color_palette("deep").as_hex()
