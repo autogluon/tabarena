@@ -23,14 +23,14 @@ the default:
   bagged / holdout / outer execution modes, an HPO search space, registry auto-discovery, and
   leaderboard integration.
 - **External system**: a self-contained ML system that does its own preprocessing, validation,
-  HPO, and/or ensembling — AutoML frameworks, multi-model stacks, LLM/agent pipelines. Systems do
-  **not** get a per-model folder or registry entry. Instead: subclass `ExternalSystemModel`
-  (`packages/tabarena/src/tabarena/benchmark/exec_models/external.py`) — implement `_fit_system`
-  / `_predict` / `_predict_proba`, optionally `cleanup` and the untimed hooks (`warmup_fn`,
-  `pre_predict`/`post_predict`) — and run it via `ExternalSystemExperiment`, or
-  `SystemConfigGenerator` (`utils/config_utils.py`) with a bundle in `system_experiments=True`
-  mode. Runnable references: `examples/advanced/run_quickstart_tabarena_external_system.py` and
-  `run_async_tabarena_api_system.py` (async/API-driven).
+  HPO, and/or ensembling — AutoML frameworks, multi-model stacks, LLM/agent pipelines. Systems get
+  their own folder and registry, `packages/tabarena/src/tabarena/systems/<key>/` (`system.py` =
+  the `ExternalSystemModel` subclass, `hpo.py` = the `SystemConfigGenerator`, `info.py` = the
+  `SystemInfo`), and run through a bundle in `system_experiments=True` mode. That path is the
+  **`add-system`** skill, not this one. Runnable references:
+  `examples/benchmarking/run_quickstart_tabarena_system.py`,
+  `examples/beyondarena/run_quickstart_beyondarena_system.py` and
+  `examples/advanced/run_async_tabarena_api_system.py` (async/API-driven).
 
 **Ask instead of assuming**: if what the user wants to add looks like a system — it ensembles or
 stacks multiple models, runs its own HPO or validation splits, or is described as a "framework",
@@ -124,6 +124,7 @@ The AutoGluon wrapper class. Use the template in `references/model_patterns.md` 
 - Docstring must include: description, paper title, authors, codebase URL, license
 - Keep optional third-party imports (the wrapped library itself) inside `_fit` / per-method scope so importing this module never requires the optional dep at top-level
 - Decide the model's untimed **warm-up** (Step 3g) while you have the library docs in hand
+- **Foundation model with Hugging Face weights: always pin `revision=`** on every `hf_hub_download`/`snapshot_download` call — never resolve against the repo's moving default branch. See `references/model_patterns.md` → "Foundation-model weights: always pin the HF checkpoint revision" for the template and how to resolve the commit.
 
 ### 3c. `packages/tabarena/src/tabarena/models/{ModelKey}/hpo.py`
 
@@ -320,3 +321,12 @@ Summarize what was created/edited:
 - The warm-up decision (Step 3g): what is warmed and why (or why nothing is needed), any open
   question for the user (library warm-up entry point / version), and the worker-process limitation
 - Note any TODOs left for the user (e.g., implementing `_predict_proba` if the library API is unclear, tuning `ag_priority`, adding a real search space later, registering benchmark artifacts after a real run)
+
+When asked to open the PR, use `.github/pull_request_template.md`: a two-to-four sentence summary,
+everything longer inside the collapsed `<details><summary>Details</summary>` block, the commands run
+under Tests. Fill in the "Model or system submission" section for a model (delete the system lines)
+and keep the closing contribution line. Do not paste this Report into the PR body; the Report is for
+the chat, the PR body is for the reviewers. State the TabArena-Lite (or BeyondArena `core`) results
+with the hardware and the entry-point script if they exist; if they do not, say so, since a
+maintainer will ask (TabArena verifies submitted results by re-running them, it does not benchmark
+on request). Questions go through the issue forms in `.github/ISSUE_TEMPLATE/`.

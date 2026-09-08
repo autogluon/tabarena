@@ -1,0 +1,51 @@
+name: Question for Model or System Submissions
+description: Ask before or while integrating a model or a system into TabArena.
+title: "[Submission] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A submission adds one entrant to the TabArena leaderboard. There are two kinds.
+
+        A **model** is one method that TabArena tunes under its shared protocol: shared preprocessing, a validation split provided by TabArena, a search space of up to 200 configurations, bagging, and default / tuned / tuned + ensembled variants. A **system** owns its whole pipeline (preprocessing, validation, tuning, ensembling) inside one budget: AutoML frameworks such as AutoGluon, TabFM+, LLM agents, hosted APIs. If you would have to invent a search space for it, it is a model. If that makes no sense because it searches for itself, it is a system.
+
+        TabArena is not a benchmarking service. Evaluate the method yourself on TabArena-Lite with the official pipeline, then open a pull request with the template. A maintainer verifies the submission and re-runs it on the benchmark hardware for the final entry; we are happy to help with both.
+
+        Start here:
+        - [Contributing a Model or System](https://github.com/autogluon/tabarena#-contributing-a-model-or-system) in the README
+        - Quick starts: [TabArena model](https://github.com/autogluon/tabarena/blob/main/examples/benchmarking/run_quickstart_tabarena_model.py), [TabArena system](https://github.com/autogluon/tabarena/blob/main/examples/benchmarking/run_quickstart_tabarena_system.py), [BeyondArena model](https://github.com/autogluon/tabarena/blob/main/examples/beyondarena/run_quickstart_beyondarena_model.py), [BeyondArena system](https://github.com/autogluon/tabarena/blob/main/examples/beyondarena/run_quickstart_beyondarena_system.py)
+        - Step-by-step guides: [add-model](https://github.com/autogluon/tabarena/blob/main/.claude/skills/add-model/SKILL.md), [add-system](https://github.com/autogluon/tabarena/blob/main/.claude/skills/add-system/SKILL.md)
+
+        For eligibility questions, say how the method differs from the entrants already on the leaderboard. A new version of an existing model is a subclass in the existing folder that supersedes the old entry, not a new model. Results posted in an issue cannot be integrated; open a pull request for that.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of entrant
+      options:
+        - "Model (TabArena tunes it)"
+        - "System (it tunes and ensembles itself)"
+        - "Not sure"
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What do you need to decide or fix? For eligibility questions, include how the method differs from existing entrants.
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: Code or paper link
+      placeholder: https://
+  - type: dropdown
+    id: results
+    attributes:
+      label: Do you already have TabArena-Lite or BeyondArena core results?
+      options:
+        - "No"
+        - "Yes, default config only"
+        - "Yes, default plus HPO configs"
+        - "Yes, on BeyondArena core"

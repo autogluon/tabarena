@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import matplotlib
 import pandas as pd
+from matplotlib.colors import to_rgb
 
 matplotlib.use("Agg", force=True)
 
-from tabarena.plot.plot_pareto_focus import compute_front_methods, plot_pareto_focus
+from tabarena.plot.plot_pareto_focus import compute_front_methods, marker_edge_color, plot_pareto_focus
 
 
 def _toy_points() -> pd.DataFrame:
@@ -49,7 +50,31 @@ def test_plot_pareto_focus_writes_figure(tmp_path):
         x_label="Time (s)",
         y_label="Improvability (%)",
         title="Toy",
+        muted_size=40,
+        muted_alpha=0.3,
         save_path=save_path,
     )
     assert save_path.is_file()
     assert save_path.stat().st_size > 0
+
+
+def test_marker_edge_color_darkens_the_family_color():
+    family = "#5cb85c"
+    edge = to_rgb(marker_edge_color(family))
+    assert all(e < f for e, f in zip(edge, to_rgb(family), strict=True))
+
+
+def test_label_halo_off_keeps_svg_labels_as_text(tmp_path):
+    """A haloed label is written as glyph outlines; without the halo it stays a text node."""
+    with matplotlib.rc_context({"svg.fonttype": "none"}):
+        for halo in (True, False):
+            plot_pareto_focus(
+                data=_toy_points(),
+                x_col="x",
+                y_col="y",
+                focus_methods=["C"],
+                label_halo=halo,
+                save_path=tmp_path / f"halo_{halo}.svg",
+            )
+    assert ">C<" not in (tmp_path / "halo_True.svg").read_text()
+    assert ">C<" in (tmp_path / "halo_False.svg").read_text()

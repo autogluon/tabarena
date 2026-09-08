@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 _DEFAULT_HF_REPO = "LAMDA-Tabular/TabSwift"
 _DEFAULT_HF_FILENAME = "swift.ckpt"
 """A single ``swift.ckpt`` checkpoint serves both the classifier and the regressor."""
+#: Commit pinned so the checkpoint fetched here never silently changes if the
+#: repo's default branch moves. Bump deliberately (with a note on what changed)
+#: when picking up a newer checkpoint.
+_DEFAULT_HF_REVISION = "b829456edb7c41ad93a2851a8df245db362e1c83"
 
 
 class TabSwiftModel(AbstractTorchModel):
@@ -197,7 +201,12 @@ class TabSwiftModel(AbstractTorchModel):
             return hf_hub_download(
                 repo_id=_DEFAULT_HF_REPO,
                 filename=_DEFAULT_HF_FILENAME,
+                revision=_DEFAULT_HF_REVISION,
                 local_files_only=True,
             )
         except LocalEntryNotFoundError:
-            return hf_hub_download(repo_id=_DEFAULT_HF_REPO, filename=_DEFAULT_HF_FILENAME)
+            return hf_hub_download(
+                repo_id=_DEFAULT_HF_REPO,
+                filename=_DEFAULT_HF_FILENAME,
+                revision=_DEFAULT_HF_REVISION,
+            )

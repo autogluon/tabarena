@@ -43,6 +43,9 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          # Only the distributions: `uv build` also writes a `.gitignore` into dist/.
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
           generate_release_notes: true
           tag_name: ${{ github.ref_name }}

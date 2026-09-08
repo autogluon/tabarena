@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from tabarena.plot.interactive.pareto_explorer import build_pareto_explorer_html
+from tabarena.plot.plot_pareto_focus import FAMILY_COLORS, marker_edge_color
 
 
 def _scatter_points() -> pd.DataFrame:
@@ -38,6 +39,10 @@ def test_build_scatter_explorer(tmp_path):
     assert "Pareto front" in html
     # Family colors injected from the shared leaderboard scheme.
     assert "--fam-foundation: #b07cf0;" in html
+    # Marker edges: the family color darkened for the light surface, as in the static figures.
+    edge = marker_edge_color(FAMILY_COLORS["Foundation Model"])
+    assert f"--fam-foundation-edge: {edge};" in html
+    assert "const edge = on ? FAM_EDGE[p.family] : null;" in html
 
 
 def test_x_keys_selects_and_orders_axes(tmp_path):
@@ -127,3 +132,22 @@ def test_the_highlighted_front_follows_the_metric(tmp_path):
 def test_unknown_mode_raises(tmp_path):
     with pytest.raises(ValueError, match="mode"):
         build_pareto_explorer_html(points=_scatter_points(), save_path=tmp_path / "e.html", mode="bars")
+
+
+def test_end_to_end_marker_joins_the_legend_when_a_system_is_plotted(tmp_path):
+    points = _scatter_points()
+    points.loc[points.index[-1], "variant"] = "End-to-end"
+    out = tmp_path / "explorer.html"
+    build_pareto_explorer_html(points, save_path=out)
+    html = out.read_text()
+    assert 'if (POINTS.some(p => p.variant === "End-to-end"))' in html
+    assert "End-to-end</span>" in html
+
+
+def test_dim_off_front_is_off_by_default_and_reaches_the_page(tmp_path):
+    points = _scatter_points()
+    default = build_pareto_explorer_html(points, save_path=tmp_path / "default.html").read_text()
+    dimmed = build_pareto_explorer_html(points, save_path=tmp_path / "dim.html", dim_off_front=True).read_text()
+    assert '"dimOffFront": false' in default
+    assert '"dimOffFront": true' in dimmed
+    assert "const dim = CONFIG.dimOffFront && on && !front.points.has(p);" in dimmed

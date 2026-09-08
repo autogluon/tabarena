@@ -23,7 +23,7 @@ The five caches (see ``tabarena.caching.CacheConfig`` for the authoritative refe
 
 Run it:
 
-    python examples/benchmarking/run_configure_caches.py
+    python examples/advanced/run_configure_caches.py
 """
 
 from __future__ import annotations

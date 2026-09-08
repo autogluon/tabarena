@@ -46,6 +46,10 @@ class TabDPTModelBase(AbstractTorchModel):
 
     #: Hugging Face repo hosting every TabDPT checkpoint.
     _hf_repo_id: ClassVar[str] = "Layer6/TabDPT"
+    #: Commit pinned so checkpoints fetched here never silently change if the
+    #: repo's default branch moves. Bump deliberately (with a note on what
+    #: changed) when picking up newer checkpoints.
+    _hf_revision: ClassVar[str] = "4462ffbd1d8dea25d4862d30beed4b70cd596ae5"
     #: This version's checkpoint filename in :attr:`_hf_repo_id`. The installed ``tabdpt`` package
     #: hardcodes a single version (``tabdpt<VER>.safetensors``), so we pin the correct weights per
     #: version explicitly via ``model_weight_path`` rather than relying on the package default —
@@ -137,10 +141,15 @@ class TabDPTModelBase(AbstractTorchModel):
             return hf_hub_download(
                 repo_id=cls._hf_repo_id,
                 filename=cls._checkpoint_filename,
+                revision=cls._hf_revision,
                 local_files_only=True,
             )
         except LocalEntryNotFoundError:
-            return hf_hub_download(repo_id=cls._hf_repo_id, filename=cls._checkpoint_filename)
+            return hf_hub_download(
+                repo_id=cls._hf_repo_id,
+                filename=cls._checkpoint_filename,
+                revision=cls._hf_revision,
+            )
 
     @classmethod
     def prefetch_weights(cls) -> str:

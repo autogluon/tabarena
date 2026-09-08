@@ -1,14 +1,23 @@
-"""Benchmark a Predictive Machine Learning System (like AutoGluon) on TabArena.
+"""Quickstart: benchmark a *system* (like AutoGluon) on small datasets of TabArena-Lite and compare to the leaderboard.
 
-Define your system as an ``ExternalSystemModel`` subclass (a minimal ``AutoGluonSystemModel`` is
-shown below), pass it to a ``SystemConfigGenerator``, and run the usual quickstart flow with the
-bundle flipped to ``system_experiments=True``.
+A system owns its whole pipeline: preprocessing, validation, tuning and ensembling, all inside the
+budget TabArena hands it. TabArena passes the data and the constraints and records what comes back.
+If your method is one model that TabArena should tune under its shared protocol instead, see
+``run_quickstart_tabarena_model.py`` next to this file.
+
+Shows:
+  * writing your own system as an ``ExternalSystemModel`` subclass (``AutoGluonSystemModel`` below),
+  * pairing it with a ``SystemConfigGenerator`` (a few presets, no search space),
+  * running the usual quickstart flow with the bundle flipped to ``system_experiments=True``,
+  * evaluating the run against the TabArena leaderboard.
 
 The class below is written out in full so this file reads top to bottom. A system that ships
 with TabArena instead lives in its own ``tabarena/systems/<key>/`` package (``system.py`` +
-``hpo.py`` + ``info.py``), where the registry picks it up: see
-``tabarena.systems.autogluon`` for the maintained version of this very wrapper, and
-``tabarena.systems.tabfm_plus`` for one that drives a foundation model.
+``hpo.py`` + ``info.py``), where the registry picks it up: see ``tabarena.systems.autogluon``
+for the maintained version of this very wrapper (importable as
+``tabarena.systems.AutoGluonSystemModel``), and ``tabarena.systems.tabfm_plus`` for one that
+drives a foundation model. To submit a system, follow the ``add-system`` skill in
+``.claude/skills/`` and the "Contributing a Model or System" section of the README.
 """
 
 from __future__ import annotations
@@ -99,7 +108,7 @@ class AutoGluonSystemModel(ExternalSystemModel):
 if __name__ == "__main__":
     # Output dirs, resolved next to this script so they don't depend on the working directory.
     here = Path(__file__).parent
-    run_name = "external_system"
+    run_name = "quickstart_tabarena_system"
     results_dir = str(here / "experiments" / run_name)  # the runner's `expname` (results cache)
     eval_dir = here / "eval" / run_name  # leaderboard / figures `output_dir`
 
@@ -119,8 +128,8 @@ if __name__ == "__main__":
         system_experiments=True,
     ).build_experiments(time_limit=30)
 
-    # 2: the context is the hub. build_and_run_jobs scopes to a single tiny dataset's first split
-    #    via a typed `TaskSubset` (one dataset + `subset="lite"` == r0f0), pairs each config with that
+    # 2: the context is the hub. build_and_run_jobs scopes to the small datasets' first split
+    #    (`subset=["small", "lite"]`; `lite` == r0f0 of each dataset), pairs each config with each
     #    split, runs them locally, and registers the configs as in-memory methods. debug_mode=True ->
     #    in-process native backend.
     context = TabArenaContext()

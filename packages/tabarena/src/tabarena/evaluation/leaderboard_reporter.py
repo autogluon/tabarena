@@ -177,7 +177,7 @@ class LeaderboardReporter:
             "Default",
             "Tuned",
             "Tuned + Ens.",
-            "Baseline",
+            "End-to-end",
             "Best",
             "Default, Holdout",
             "Tuned, Holdout",
@@ -188,7 +188,7 @@ class LeaderboardReporter:
             "Default": "o",
             "Tuned": "s",
             "Tuned + Ens.": "X",
-            "Baseline": "D",
+            "End-to-end": "D",
             "Best": "*",
             "Default, Holdout": "^",
             "Tuned, Holdout": "<",
@@ -821,6 +821,8 @@ class LeaderboardReporter:
         plot_only: list[str] | None = None,
         method_color_overrides: dict[str, str] | None = None,
         pareto_emphasize_all: bool = False,
+        pareto_focus_kwargs: dict | None = None,
+        pareto_explorer_kwargs: dict | None = None,
         website_only: bool = False,
     ) -> pd.DataFrame:
         """Compute the leaderboard for ``df_results`` and render the TabArena figures.
@@ -870,6 +872,14 @@ class LeaderboardReporter:
         ``"TabPFN-3"``); see :meth:`_plot_only_to_hidden_methods`. Implemented as
         the complement of the existing ``hidden_methods`` denylist (carried in
         ``plot_tuning_kwargs``), so the two compose — anything hidden stays hidden.
+
+        ``pareto_focus_kwargs`` (default ``None``) is forwarded to :func:`plot_pareto_focus` for the
+        four Pareto figures, e.g. ``{"muted_size": 45, "muted_alpha": 0.4}`` to shrink and fade the
+        methods off the front, or ``{"label_halo": False}`` for an SVG with text labels.
+
+        ``pareto_explorer_kwargs`` (default ``None``) is forwarded to :func:`build_pareto_explorer_html`
+        for the two explorer pages, e.g. ``{"dim_off_front": True}`` to shrink and fade the selected
+        points that are not on the front.
 
         ``method_color_overrides`` (default ``None``) pins a fixed color per method in both the Elo
         bar plot (recolors that method's bar) and the Pareto plots (colors its points) — a
@@ -1416,6 +1426,8 @@ class LeaderboardReporter:
                 plot_tuning_kwargs=plot_tuning_kwargs,
                 method_color_overrides=method_color_overrides,
                 pareto_emphasize_all=pareto_emphasize_all,
+                pareto_focus_kwargs=pareto_focus_kwargs,
+                pareto_explorer_kwargs=pareto_explorer_kwargs,
             )
 
         return leaderboard
@@ -2003,6 +2015,8 @@ class LeaderboardReporter:
         plot_tuning_kwargs: dict | None = None,
         method_color_overrides: dict[str, str] | None = None,
         pareto_emphasize_all: bool = False,
+        pareto_focus_kwargs: dict | None = None,
+        pareto_explorer_kwargs: dict | None = None,
     ):
         _f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
@@ -2026,6 +2040,9 @@ class LeaderboardReporter:
             # Show the Pareto-dominated methods with full family colors and labels
             # instead of muting them (see `plot_pareto_focus`'s `emphasize_all`).
             plot_pareto_kwargs["emphasize_all"] = True
+        if pareto_focus_kwargs:
+            # Anything `plot_pareto_focus` accepts, e.g. the muted markers' size and opacity.
+            plot_pareto_kwargs.update(pareto_focus_kwargs)
         if plot_tuning_kwargs is not None:
             if "hidden_methods" in plot_tuning_kwargs:
                 leaderboard_pareto = leaderboard_pareto[
@@ -2061,7 +2078,9 @@ class LeaderboardReporter:
 
         leaderboard_pareto[self.method_col] = leaderboard_pareto["Method"] + leaderboard_pareto["suffix"]
         fig_rename_dict = {
-            "baseline": "Baseline",
+            # A method without a tuning variant ran end to end inside its own budget, the
+            # leaderboard table's word for a system.
+            "baseline": "End-to-end",
             "default": "Default",
             "tuned": "Tuned",
             "tuned_ensembled": "Tuned + Ens.",
@@ -2079,13 +2098,13 @@ class LeaderboardReporter:
         )
 
         if not with_baselines:
-            leaderboard_pareto = leaderboard_pareto[leaderboard_pareto["Type"] != "Baseline"]
+            leaderboard_pareto = leaderboard_pareto[leaderboard_pareto["Type"] != "End-to-end"]
 
         self.plot_pareto_elo_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
         self.plot_pareto_elo_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
         self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
         self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
-        self.build_pareto_explorer(leaderboard=leaderboard_pareto)
+        self.build_pareto_explorer(leaderboard=leaderboard_pareto, **(pareto_explorer_kwargs or {}))
 
     def _plot_pareto_focus_figure(
         self,
@@ -2101,6 +2120,7 @@ class LeaderboardReporter:
         title: str | None = None,
         focus_methods: list[str] | None = None,
         emphasize_all: bool = False,
+        **focus_kwargs,
     ):
         """Shared body of the four ``pareto_front_*`` website figures: map the
         leaderboard's raw columns onto display axes and render the focus-style
@@ -2126,6 +2146,7 @@ class LeaderboardReporter:
             title=title,
             save_path=str(Path(self.output_dir) / f"{file_name}.{self.figure_file_type}"),
             show=False,
+            **focus_kwargs,
         )
 
     def plot_pareto_elo_vs_time_train(
@@ -2134,6 +2155,7 @@ class LeaderboardReporter:
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
         emphasize_all: bool = False,
+        **focus_kwargs,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -2146,6 +2168,7 @@ class LeaderboardReporter:
             title=f"{self.benchmark_name}: Elo vs Train Time" if title == "auto" else title,
             focus_methods=focus_methods,
             emphasize_all=emphasize_all,
+            **focus_kwargs,
         )
 
     def plot_pareto_elo_vs_time_infer(
@@ -2154,6 +2177,7 @@ class LeaderboardReporter:
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
         emphasize_all: bool = False,
+        **focus_kwargs,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -2166,6 +2190,7 @@ class LeaderboardReporter:
             title=f"{self.benchmark_name}: Elo vs Inference Time" if title == "auto" else title,
             focus_methods=focus_methods,
             emphasize_all=emphasize_all,
+            **focus_kwargs,
         )
 
     def plot_pareto_improvability_vs_time_infer(
@@ -2174,6 +2199,7 @@ class LeaderboardReporter:
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
         emphasize_all: bool = False,
+        **focus_kwargs,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -2187,6 +2213,7 @@ class LeaderboardReporter:
             title=f"{self.benchmark_name}: Improvability vs Inference Time" if title == "auto" else title,
             focus_methods=focus_methods,
             emphasize_all=emphasize_all,
+            **focus_kwargs,
         )
 
     def plot_pareto_improvability_vs_time_train(
@@ -2195,6 +2222,7 @@ class LeaderboardReporter:
         title: str | None = "auto",
         focus_methods: list[str] | None = None,
         emphasize_all: bool = False,
+        **focus_kwargs,
     ):
         self._plot_pareto_focus_figure(
             leaderboard,
@@ -2208,13 +2236,16 @@ class LeaderboardReporter:
             title=f"{self.benchmark_name}: Improvability vs Train Time" if title == "auto" else title,
             focus_methods=focus_methods,
             emphasize_all=emphasize_all,
+            **focus_kwargs,
         )
 
-    def build_pareto_explorer(self, leaderboard: pd.DataFrame):
+    def build_pareto_explorer(self, leaderboard: pd.DataFrame, **explorer_kwargs):
         """Write the self-contained interactive Pareto explorers — one per time axis:
         ``pareto_front_explorer.html`` (inference time) and
         ``pareto_front_explorer_time_train.html`` (train time) — and their underlying
         data (``pareto_front_points.csv``) next to the static figures.
+
+        ``explorer_kwargs`` go to :func:`build_pareto_explorer_html`, e.g. ``dim_off_front=True``.
         """
         points = pd.DataFrame(
             {
@@ -2248,6 +2279,7 @@ class LeaderboardReporter:
             # Mirrored against the trajectories explorer (chips right there).
             chips_side="left",
             save_path=Path(self.output_dir) / "pareto_front_explorer.html",
+            **explorer_kwargs,
         )
         build_pareto_explorer_html(
             points=points,
@@ -2255,6 +2287,7 @@ class LeaderboardReporter:
             chips_side="left",
             save_path=Path(self.output_dir) / "pareto_front_explorer_time_train.html",
             page_title="TabArena Pareto explorer — train time",
+            **explorer_kwargs,
         )
 
     def get_method_rename_map(self) -> dict[str, str]:
