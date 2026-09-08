@@ -234,3 +234,55 @@ class TestParetoFocusKwargs:
 
         assert [kwargs["x_keys"] for kwargs in calls] == [["x_infer"], ["x_train"]]
         assert all(kwargs["dim_off_front"] is True for kwargs in calls)
+
+
+class TestBaselinesAsBars:
+    """Systems (``baselines``) in ``plot_tuning_impact`` are bars by default, not dashed lines."""
+
+    @staticmethod
+    def _render(monkeypatch, tmp_path, **kwargs) -> tuple[list[str], int]:
+        """Return the legend labels at save time and how many reference lines were drawn."""
+        import matplotlib.pyplot as plt
+        from matplotlib.axes import Axes
+
+        legend_labels: list[str] = []
+        lines: list[float] = []
+        monkeypatch.setattr(module, "_init_global_rcparams", lambda: None)
+        monkeypatch.setattr(Axes, "axhline", lambda self, y=0, *a, **k: lines.append(y))
+        monkeypatch.setattr(Axes, "axvline", lambda self, x=0, *a, **k: lines.append(x))
+
+        def _capture(*_args, **_kwargs):
+            fig = plt.gcf()
+            legends = list(fig.legends) + [ax.get_legend() for ax in fig.axes if ax.get_legend() is not None]
+            legend_labels.extend(t.get_text() for legend in legends for t in legend.get_texts())
+
+        monkeypatch.setattr(plt, "savefig", _capture)
+        reporter = LeaderboardReporter(output_dir=tmp_path, task_metadata=[])
+        df_elo = pd.DataFrame(
+            {
+                "method": ["GBM (default)", "GBM (tuned + ensemble)", "TabPFN-3"],
+                "elo": [1000.0, 1100.0, 1300.0],
+                "elo+": [10.0, 10.0, 10.0],
+                "elo-": [10.0, 10.0, 10.0],
+            }
+        )
+        reporter.plot_tuning_impact(
+            df=df_elo,
+            df_elo=df_elo,
+            framework_types=["GBM"],
+            baselines=["TabPFN-3"],
+            baseline_colors=["#000000"],
+            save_prefix=str(tmp_path),
+            **kwargs,
+        )
+        return legend_labels, len(lines)
+
+    def test_default_draws_systems_as_bars(self, monkeypatch, tmp_path):
+        labels, n_lines = self._render(monkeypatch, tmp_path)
+        assert "System / Portfolio" in labels
+        assert n_lines == 0
+
+    def test_opt_out_restores_reference_lines(self, monkeypatch, tmp_path):
+        labels, n_lines = self._render(monkeypatch, tmp_path, baselines_as_bars=False)
+        assert "System / Portfolio" not in labels
+        assert n_lines == 1
