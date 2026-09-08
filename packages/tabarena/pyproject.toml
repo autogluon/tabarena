@@ -99,6 +99,7 @@ tabpfn = [
   "tabpfn-extensions[many_class]>=0.6.1",
 ]
 tabicl = ["tabicl>=2.0.0"]
+tabiclm = ["tabicl-m @ git+https://github.com/Sompote/TabICL-M.git@65b617714f348acdd391485be65ccf6fb8b2fece"]  # import name tabicl; do not install with the tabicl extra
 ebm = ["autogluon.tabular[interpret]>=1.6,<1.7"]
 search_spaces = ["configspace>=1.2,<2.0"]
 realmlp = ["pytabkit>=1.5.0,<2.0"]
@@ -165,6 +166,7 @@ extended = [
   "tabarena[modernnca]",
   "tabarena[xrfm]",
   "tabarena[sap-rpt-oss]",
+  "tabarena[tabiclm]",
   "tabarena[tabfm]",
   "tabarena[tabstar]",
   "tabarena[perpetualboosting]",
