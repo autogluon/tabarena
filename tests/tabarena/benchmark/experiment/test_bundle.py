@@ -15,6 +15,7 @@ import dataclasses
 import pytest
 
 from tabarena.benchmark.experiment import (
+    AGModelBagExperiment,
     BeyondArenaExperimentBundle,
     TabArenaExperimentBundle,
     TabArenaV0pt1ExperimentBundle,
@@ -44,6 +45,7 @@ EXPECTED_FIELD_NAMES = {
     "adapt_num_folds_to_n_classes",
     "shuffle_features",
     "dynamic_tabarena_validation_protocol",
+    "bag_experiment_cls",
     "text_cache_mode",
     "custom_model_constraints",
 }
@@ -63,6 +65,7 @@ COMMON_INHERITED_DEFAULTS = {
     "verbosity": 2,
     "model_verbosity": 4,
     "custom_model_constraints": {},
+    "bag_experiment_cls": AGModelBagExperiment,
 }
 
 # Hardcoded full post-init state for each subclass instantiated with no args.
