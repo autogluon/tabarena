@@ -300,10 +300,12 @@ class StringFixAsTypeFeatureGenerator(AsTypeFeatureGenerator):
         ``get_bool_true_val``, so it is the only path that can hit the pd.NA problem, and therefore the
         only path where anything needs to be changed.
         """
+        # The dtype decides first, from `X.dtypes`, so the values of the (usually many) non-string columns
+        # are never touched; only `string` columns pay for the null and unique checks.
         return [
             col
-            for col in X.columns
-            if isinstance(X[col].dtype, pd.StringDtype) and X[col].isna().any() and len(X[col].unique()) == 2
+            for col, dtype in zip(X.columns, X.dtypes, strict=True)
+            if isinstance(dtype, pd.StringDtype) and X[col].isna().any() and len(X[col].unique()) == 2
         ]
 
     @staticmethod

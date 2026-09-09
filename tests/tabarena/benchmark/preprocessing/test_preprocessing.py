@@ -568,6 +568,25 @@ class TestStringFixAsTypeFeatureGeneratorStringNulls:
         assert StringFixAsTypeFeatureGenerator._string_columns_about_to_be_bool_encoded(X) == []
         assert StringFixAsTypeFeatureGenerator._fill_nulls_for_bool_encoding(X, []) is X
 
+    def test_bool_candidate_detection_picks_only_string_columns_with_one_value_and_nulls(self):
+        """A candidate is a `string` column whose two uniques are one value and null.
+
+        AsType bool-encodes on ``len(unique()) == 2`` with null counted, so two real values plus nulls
+        are three uniques and not a candidate. Object, categorical and numeric columns never qualify.
+        """
+        X = pd.DataFrame(
+            {
+                "num": [1.0, 2.0, 3.0, 4.0],
+                "flag": pd.array(["y", "y", None, "y"], dtype="string"),  # the one candidate
+                "two_values_and_null": pd.array(["y", "n", None, "y"], dtype="string"),
+                "flag_no_null": pd.array(["y", "n", "y", "n"], dtype="string"),
+                "obj": ["y", "y", None, "y"],  # object dtype, not `string`
+                "cat": pd.Categorical(["y", "y", None, "y"]),
+                "all_null": pd.array([None, None, None, None], dtype="string"),
+            }
+        )
+        assert StringFixAsTypeFeatureGenerator._string_columns_about_to_be_bool_encoded(X) == ["flag"]
+
 
 # ===========================================================================
 # StringFixAsTypeFeatureGenerator – categorical dtype special cases
