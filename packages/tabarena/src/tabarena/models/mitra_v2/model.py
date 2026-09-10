@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 logger = logging.getLogger(__name__)
+_BAG_RNG_STATE: tuple[str, tuple] | None = None
 
 
 class MitraV2Model(MitraModel):
@@ -226,13 +227,9 @@ class MitraV2Model(MitraModel):
 
         bagged_child = recipe.is_bagged_child_name(self.name)
         seed = hyp.get(self.seed_name)
-        if bagged_child and self.name.endswith("S1F1") and seed is not None:
-            seed = int(seed)
-            random.seed(seed)
-            np.random.seed(seed % (2**32))
-            torch.manual_seed(seed)
+        rng_stream = str(Path(self.path).parent) if bagged_child else None
         torch_threads = torch.get_num_threads()
-        with _seeded_global_rngs(None if bagged_child else seed):
+        with _seeded_global_rngs(seed, stream=rng_stream, reset=self.name.endswith("S1F1")):
             try:
                 if isinstance(num_cpus, int | float) and num_cpus != torch_threads:
                     torch.set_num_threads(int(num_cpus))
@@ -368,32 +365,51 @@ def _head_width(checkpoint_dir: str) -> int:
 
 
 @contextlib.contextmanager
-def _seeded_global_rngs(seed: int | None) -> Iterator[None]:
-    """Seed the Python, NumPy and torch global RNGs for a fit and restore their states after.
+def _seeded_global_rngs(seed: int | None, *, stream: str | None = None, reset: bool = False) -> Iterator[None]:
+    """Run under a seeded RNG stream while preserving the caller's global RNG states.
 
     Mitra draws its random feature mirror from NumPy's global RNG and its fine-tuning consumes
-    torch's global stream, which stock AutoGluon leaves unseeded; the reference evaluation seeds
-    them once per process. Seeding per fit makes a child reproducible from its AutoGluon seed,
-    and restoring keeps the host process's RNG state untouched.
+    torch's global stream. Bag children save and resume one private stream; standalone fits seed
+    once. The surrounding process sees none of those draws.
     """
-    if seed is None:
+    global _BAG_RNG_STATE
+
+    if seed is None and stream is None:
         yield
         return
     import torch
 
-    py_state = random.getstate()
-    np_state = np.random.get_state()
-    torch_state = torch.get_rng_state()
-    cuda_states = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
-    seed = int(seed)
-    random.seed(seed)
-    np.random.seed(seed % (2**32))
-    torch.manual_seed(seed)
-    try:
-        yield
-    finally:
+    outer_py_state = random.getstate()
+    outer_np_state = np.random.get_state()
+    outer_torch_state = torch.get_rng_state()
+    outer_cuda_states = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+    if stream is not None and not reset and _BAG_RNG_STATE is not None and _BAG_RNG_STATE[0] == stream:
+        py_state, np_state, torch_state, cuda_states = _BAG_RNG_STATE[1]
         random.setstate(py_state)
         np.random.set_state(np_state)
         torch.set_rng_state(torch_state)
         if cuda_states is not None:
             torch.cuda.set_rng_state_all(cuda_states)
+    elif seed is not None:
+        seed = int(seed)
+        random.seed(seed)
+        np.random.seed(seed % (2**32))
+        torch.manual_seed(seed)
+    try:
+        yield
+    finally:
+        if stream is not None:
+            _BAG_RNG_STATE = (
+                stream,
+                (
+                    random.getstate(),
+                    np.random.get_state(),
+                    torch.get_rng_state(),
+                    torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                ),
+            )
+        random.setstate(outer_py_state)
+        np.random.set_state(outer_np_state)
+        torch.set_rng_state(outer_torch_state)
+        if outer_cuda_states is not None:
+            torch.cuda.set_rng_state_all(outer_cuda_states)
