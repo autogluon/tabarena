@@ -78,3 +78,32 @@ def test_subset_shortcut_name_matches_negated_expressions():
     assert BeyondArenaContext.subset_shortcut_name(["!large", "core", "lite", "high-cardinality"]) == "hc_nolarge_lite"
     assert BeyondArenaContext.subset_shortcut_name(["core", "high-cardinality"]) == "high_cardinality"
     assert BeyondArenaContext.subset_shortcut_name(["core", "!large"]) is None
+
+
+def test_size_buckets_partition_datasets_by_largest_training_split():
+    """The size buckets are defined on each dataset's largest training split.
+
+    Temporal datasets have training splits of different sizes. Bucketing on the largest one gives the
+    counts the BeyondArena paper reports (52 tiny, 38 small, 30 medium, 22 large); bucketing on the
+    mean split size would move ``garments_worker_productivity`` to tiny and ``sf_permit_time`` to
+    medium (autogluon/tabarena#523).
+    """
+    from tabarena.benchmark.task.metadata import BeyondArenaTaskMetadataCollection
+
+    collection = BeyondArenaTaskMetadataCollection()
+    predicates = BeyondArenaContext.SUBSET_PREDICATES
+    buckets = {
+        name: set(collection.subset_tasks(subset=[name], predicates=predicates).per_dataset_frame()["dataset"])
+        for name in ("tiny", "small", "medium", "large")
+    }
+    assert {name: len(datasets) for name, datasets in buckets.items()} == {
+        "tiny": 52,
+        "small": 38,
+        "medium": 30,
+        "large": 22,
+    }
+    all_datasets = set(collection.per_dataset_frame()["dataset"])
+    assert set().union(*buckets.values()) == all_datasets
+    assert sum(len(datasets) for datasets in buckets.values()) == len(all_datasets)
+    assert "garments_worker_productivity-7b6a94e87c93" in buckets["small"]
+    assert "sf_permit_time-a3faf4c318ef" in buckets["large"]
