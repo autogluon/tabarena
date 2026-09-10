@@ -59,7 +59,8 @@ class MitraV2Model(MitraModel):
       PCA for regression.
 
     Not covered: the package's hierarchical decomposition for more than ten classes (no TabArena
-    dataset exceeds ten, so ``max_classes`` stays at the checkpoint's head width).
+    dataset exceeds ten, so ``max_classes`` stays at the checkpoint's head width), and its
+    truncation of a bag whose time limit is hit; AutoGluon fails the bag instead.
 
     Requires a CUDA GPU. ``flash-attn`` is optional and speeds up attention; the reported numbers
     were calibrated without it. Install with ``pip install tabarena[mitra_v2]``.
@@ -396,42 +397,3 @@ def _seeded_global_rngs(seed: int | None) -> Iterator[None]:
         torch.set_rng_state(torch_state)
         if cuda_states is not None:
             torch.cuda.set_rng_state_all(cuda_states)
-
-
-def _install_bag_salvage() -> None:
-    """Keep completed Mitra-v2 children when the bag time limit is reached."""
-    from autogluon.core.models.ensemble.bagged_ensemble_model import BaggedEnsembleModel
-    from autogluon.core.models.ensemble.fold_fitting_strategy import SequentialLocalFoldFittingStrategy
-    from autogluon.core.utils.exceptions import TimeLimitExceeded
-
-    original_after = SequentialLocalFoldFittingStrategy.after_all_folds_scheduled
-    original_add_child = BaggedEnsembleModel.add_child
-
-    def after_all_folds_scheduled(self):
-        if not isinstance(self.model_base, MitraV2Model):
-            return original_after(self)
-        for job in self.jobs:
-            try:
-                self._fit_fold_model(job)
-            except TimeLimitExceeded:
-                if not self.models:
-                    raise
-                self.bagged_ensemble_model._mitra_salvage_fitted = {
-                    model if isinstance(model, str) else model.name for model in self.models
-                }
-                logger.warning(f"Mitra-v2: time limit reached after {len(self.models)} fitted folds; keeping them.")
-                break
-        return None
-
-    def add_child(self, model, *args, **kwargs):
-        fitted = getattr(self, "_mitra_salvage_fitted", None)
-        if fitted is not None and isinstance(model, str):
-            if model not in fitted and not any(name.endswith(model) for name in fitted):
-                return None
-        return original_add_child(self, model, *args, **kwargs)
-
-    SequentialLocalFoldFittingStrategy.after_all_folds_scheduled = after_all_folds_scheduled
-    BaggedEnsembleModel.add_child = add_child
-
-
-_install_bag_salvage()
