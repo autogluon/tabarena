@@ -1967,7 +1967,7 @@ def _reference_group_aggregation(
                 s = s.astype("category").cat.codes.astype(float)
                 s[s < 0] = np.nan
             variance[feat] = float(s.var())
-    ranked = sorted(variance.keys(), key=lambda f: (-variance[f], f))
+    ranked = sorted(variance.keys(), key=lambda f: (-gen._rank_variance(variance[f]), f))
     selected = ranked[: gen.n_top_features]
     mapped = pd.DataFrame({f: agg_frames[f] for f in selected}, index=X.index)
     return selected, pd.concat([X.drop(columns=gen.group_col), mapped], axis=1)
@@ -2027,3 +2027,49 @@ def test_group_aggregation_one_pass_matches_per_column(seed: int) -> None:
     transformed = gen._transform(X_new.copy())
     assert list(transformed.columns) == list(expected_out.columns)
     assert transformed.index.equals(X_new.index)
+
+
+class TestGroupAggregationVarianceFromGroupTable:
+    """The feature ranking is computed from the group table, not from a rows x aggregations frame."""
+
+    @staticmethod
+    def _mapped_variance(X: pd.DataFrame, gen: GroupAggregationFeatureGenerator) -> dict[str, float]:
+        """The variance the ranking used to be computed from: every aggregation mapped to every row."""
+        group_key = gen._build_group_key(X)
+        feature_cols = [c for c in X.columns if c not in gen.group_col]
+        sources = {
+            c: list(gen._NUM_AGGS if pd.api.types.is_numeric_dtype(X[c]) else gen._CAT_AGGS) for c in feature_cols
+        }
+        mapped = gen._aggregate(X, sources).reindex(group_key.to_numpy())
+        out = {}
+        for feat in mapped.columns:
+            s = mapped[feat]
+            if not pd.api.types.is_numeric_dtype(s):
+                s = s.astype("category").cat.codes.astype(float)
+                s[s < 0] = np.nan
+            out[feat] = float(s.var())
+        return out
+
+    def test_broadcast_variance_matches_the_mapped_series(self):
+        values = np.array([1.0, np.nan, 3.0, 10.0])
+        sizes = np.array([3.0, 5.0, 1.0, 2.0])
+        rows = np.repeat(values, sizes.astype(int))
+        expected = pd.Series(rows).var()
+        got = GroupAggregationFeatureGenerator._broadcast_variance(values, sizes)
+        assert got == pytest.approx(expected, rel=1e-12)
+        assert np.isnan(
+            GroupAggregationFeatureGenerator._broadcast_variance(np.array([2.0, np.nan]), np.array([1.0, 4.0]))
+        )
+
+    def test_ranking_matches_the_mapped_variance(self):
+        rng = np.random.default_rng(7)
+        X, y = _make_grouped_df(n_groups=40, rows_per_group=6, rng=rng)
+        X.loc[rng.choice(X.index, 30, replace=False), "num_b"] = np.nan  # some groups aggregate to NaN
+        X["gid"] = X["gid"].astype(str)
+        X = X.sample(frac=1.0, random_state=0).reset_index(drop=True)  # unequal, unsorted groups
+        X.loc[X.index[:50], "gid"] = "0"
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=100)
+        expected = self._mapped_variance(X.copy(), gen)
+        gen._fit_transform(X.copy(), y)
+        ranked = sorted(expected, key=lambda f: (-gen._rank_variance(expected[f]), f))
+        assert gen._selected_features == ranked[: gen.n_top_features]
