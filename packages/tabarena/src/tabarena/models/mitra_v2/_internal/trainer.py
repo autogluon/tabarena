@@ -18,7 +18,6 @@ from autogluon.tabular.models.mitra._internal.data.dataset_finetune import Datas
 from tabarena.models.mitra_v2._internal.recipe import (
     RecipeSettings,
     balanced_binary_support_indices,
-    mean_decode_bins,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,7 +33,7 @@ def is_cuda_oom(exc: BaseException) -> bool:
 class PredictSupportDataset(DatasetFinetune):
     """Prediction-time dataset with a deterministic full support and a balanced binary subsample.
 
-    When every support row fits in context the rows are used in their stored order: stock
+    When every support row fits in context one seeded permutation is reused: stock
     ``DatasetFinetune`` draws a fresh random permutation per query chunk, which changes nothing
     mathematically (Tab2D has no row positions) but makes predictions differ at bf16 precision
     between calls and between a single row and a batch. When the support exceeds the cap, the
@@ -48,7 +47,13 @@ class PredictSupportDataset(DatasetFinetune):
 
     def __getitem__(self, idx):
         if self.support_size >= self.n_samples_support:
-            support_indices = np.arange(self.n_samples_support)
+            support_indices = getattr(self, "_full_support_indices", None)
+            if support_indices is None:
+                support_indices = self._full_support_indices = self.rng.choice(
+                    self.n_samples_support,
+                    size=self.n_samples_support,
+                    replace=False,
+                )
         else:
             support_indices = None
             if self.balanced_binary:
@@ -71,7 +76,7 @@ class MitraV2Trainer(TrainerFinetune):
        during fine-tuning) and ``predict``.
     2. ``predict`` conditions on up to ``recipe.predict_support_cap`` rows (the fine-tuning cap
        stays untouched), predicts in one wide query chunk when the whole support fits (then in
-       its stored order, so repeated predictions agree), balances the support draw on binary
+       one seeded order, so repeated predictions agree), balances the support draw on binary
        tasks, and on CUDA out-of-memory halves the query chunk first (quality-neutral) and then
        the support cap down to its floor.
     3. ``set_device`` moves the weights with a blocking copy and synchronizes. The stock
@@ -191,13 +196,12 @@ class MitraV2Trainer(TrainerFinetune):
         )
         loader = self.make_loader(dataset, training=False)
         self.model.eval()
-        bin_edges = self.bins.detach().cpu().numpy() if self.regression_over_bins else None
-
         y_pred_list = []
         with torch.no_grad():
             for batch in loader:
-                y_hat = self._forward(batch)[0].float().cpu().numpy()
-                if bin_edges is not None:
-                    y_hat = mean_decode_bins(y_hat, bin_edges)
+                y_hat = self._forward(batch)[0].float().cpu()
+                if self.regression_over_bins:
+                    y_hat = self._mean_decode(y_hat)
+                y_hat = y_hat.numpy()
                 y_pred_list.append(self.preprocessor.inverse_transform_y(y_hat))
         return np.concatenate(y_pred_list, axis=0)

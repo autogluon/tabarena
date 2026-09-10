@@ -14,7 +14,6 @@ import torch
 from autogluon.common.utils.random import get_numpy_seed
 from autogluon.tabular.models.mitra._internal.config.enums import LossName, Task
 from autogluon.tabular.models.mitra.sklearn_interface import MitraClassifier, MitraRegressor
-from scipy.special import softmax
 
 from tabarena.models.mitra_v2._internal.recipe import RecipeSettings
 from tabarena.models.mitra_v2._internal.trainer import MitraV2Trainer
@@ -70,10 +69,7 @@ class MitraV2Mixin:
         cfg.hyperparams["weight_decay"] = recipe.weight_decay
         cfg.hyperparams["max_samples_support"] = recipe.finetune_support_cap
         if recipe.fine_tune_budget is not None:
-            budget = recipe.fine_tune_budget
-            if time_limit is not None:
-                budget = min(budget, time_limit)
-            cfg.hyperparams["budget"] = budget
+            cfg.hyperparams["budget"] = recipe.fine_tune_budget
         if cfg.task == Task.REGRESSION:
             if recipe.n_bins is None:
                 raise ValueError("Mitra-v2 regression needs `n_bins`, the head width read from the checkpoint config.")
@@ -131,9 +127,11 @@ class MitraV2Classifier(MitraV2Mixin, MitraClassifier):
         X = _values(X)
         X_support, y_support = self._support()
         n_classes = len(np.unique(y_support))
-        probabilities = [
-            softmax(trainer.predict(X_support, y_support, X)[..., :n_classes], axis=1) for trainer in self.trainers
-        ]
+        probabilities = []
+        for trainer in self.trainers:
+            logits = trainer.predict(X_support, y_support, X)[..., :n_classes]
+            exp_logits = np.exp(logits)
+            probabilities.append(exp_logits / exp_logits.sum(axis=1, keepdims=True))
         return sum(probabilities) / len(probabilities)
 
 
@@ -148,4 +146,4 @@ class MitraV2Regressor(MitraV2Mixin, MitraRegressor):
 
 
 def _values(data) -> np.ndarray:
-    return data.values if isinstance(data, (pd.DataFrame, pd.Series)) else np.asarray(data)
+    return data.values if isinstance(data, pd.DataFrame | pd.Series) else np.asarray(data)

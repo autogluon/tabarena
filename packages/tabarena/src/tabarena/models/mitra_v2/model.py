@@ -54,13 +54,12 @@ class MitraV2Model(MitraModel):
     * Heldout in support: after its out-of-fold predictions, a bag child predicts with its fit
       fold plus its held-out fold as support, so the bag needs no refit. The held-out labels are
       used only as fine-tuning validation and as support rows, never for test information.
-    * Wide tables (more than 256 features) are reduced on the training rows alone: top-256
-      ANOVA-F columns for predominantly continuous classification tables, a 256-component PCA
-      for regression.
+    * Wide tables (more than 256 features) are reduced from the full outer training rows:
+      top-256 ANOVA-F columns for predominantly continuous classification tables, a 256-component
+      PCA for regression.
 
     Not covered: the package's hierarchical decomposition for more than ten classes (no TabArena
-    dataset exceeds ten, so ``max_classes`` stays at the checkpoint's head width), and its
-    truncation of a bag whose time limit is hit; AutoGluon fails the bag instead.
+    dataset exceeds ten, so ``max_classes`` stays at the checkpoint's head width).
 
     Requires a CUDA GPU. ``flash-attn`` is optional and speeds up attention; the reported numbers
     were calibrated without it. Install with ``pip install tabarena[mitra_v2]``.
@@ -224,17 +223,38 @@ class MitraV2Model(MitraModel):
             n_bins=_head_width(checkpoint_dir) if self.problem_type == "regression" else None,
         )
 
+        bagged_child = recipe.is_bagged_child_name(self.name)
+        seed = hyp.get(self.seed_name)
+        if bagged_child and self.name.endswith("S1F1") and seed is not None:
+            seed = int(seed)
+            random.seed(seed)
+            np.random.seed(seed % (2**32))
+            torch.manual_seed(seed)
         torch_threads = torch.get_num_threads()
-        with _seeded_global_rngs(hyp.get(self.seed_name)):
+        with _seeded_global_rngs(None if bagged_child else seed):
             try:
-                if isinstance(num_cpus, (int, float)) and num_cpus != torch_threads:
+                if isinstance(num_cpus, int | float) and num_cpus != torch_threads:
                     torch.set_num_threads(int(num_cpus))
                 self.model = model_cls(**hyp)
                 self.model.configure_recipe(settings)
 
-                X = self.preprocess(X, y=y, is_train=True)
-                if X_val is not None:
-                    X_val = self.preprocess(X_val)
+                use_outer_preprocessing = (
+                    X_val is not None
+                    and y_val is not None
+                    and bagged_child
+                    and wrapper_params["max_features_budget"]
+                    and X.shape[1] > wrapper_params["max_features_budget"]
+                    and all(pd.api.types.is_numeric_dtype(dtype) for dtype in X.dtypes)
+                )
+                if use_outer_preprocessing:
+                    X_outer = pd.concat([X, X_val]).sort_index()
+                    y_outer = pd.concat([y, y_val]).loc[X_outer.index]
+                    X_outer = self.preprocess(X_outer, y=y_outer, is_train=True)
+                    X, X_val = X_outer.loc[X.index], X_outer.loc[X_val.index]
+                else:
+                    X = self.preprocess(X, y=y, is_train=True)
+                    if X_val is not None:
+                        X_val = self.preprocess(X_val)
                 self.model = self.model.fit(X=X, y=y, X_val=X_val, y_val=y_val, time_limit=time_limit)
                 for trainer in self.model.trainers:
                     trainer.post_fit_optimize()
@@ -376,3 +396,42 @@ def _seeded_global_rngs(seed: int | None) -> Iterator[None]:
         torch.set_rng_state(torch_state)
         if cuda_states is not None:
             torch.cuda.set_rng_state_all(cuda_states)
+
+
+def _install_bag_salvage() -> None:
+    """Keep completed Mitra-v2 children when the bag time limit is reached."""
+    from autogluon.core.models.ensemble.bagged_ensemble_model import BaggedEnsembleModel
+    from autogluon.core.models.ensemble.fold_fitting_strategy import SequentialLocalFoldFittingStrategy
+    from autogluon.core.utils.exceptions import TimeLimitExceeded
+
+    original_after = SequentialLocalFoldFittingStrategy.after_all_folds_scheduled
+    original_add_child = BaggedEnsembleModel.add_child
+
+    def after_all_folds_scheduled(self):
+        if not isinstance(self.model_base, MitraV2Model):
+            return original_after(self)
+        for job in self.jobs:
+            try:
+                self._fit_fold_model(job)
+            except TimeLimitExceeded:
+                if not self.models:
+                    raise
+                self.bagged_ensemble_model._mitra_salvage_fitted = {
+                    model if isinstance(model, str) else model.name for model in self.models
+                }
+                logger.warning(f"Mitra-v2: time limit reached after {len(self.models)} fitted folds; keeping them.")
+                break
+        return None
+
+    def add_child(self, model, *args, **kwargs):
+        fitted = getattr(self, "_mitra_salvage_fitted", None)
+        if fitted is not None and isinstance(model, str):
+            if model not in fitted and not any(name.endswith(model) for name in fitted):
+                return None
+        return original_add_child(self, model, *args, **kwargs)
+
+    SequentialLocalFoldFittingStrategy.after_all_folds_scheduled = after_all_folds_scheduled
+    BaggedEnsembleModel.add_child = add_child
+
+
+_install_bag_salvage()
