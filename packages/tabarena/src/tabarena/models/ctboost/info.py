@@ -9,7 +9,7 @@ ctboost_method_metadata = MethodMetadata.config(
     method="CTBoost",
     display_name="CTBoost",
     compute="cpu",
-    date="2026-08-21",
+    date="2026-09-09",
     date_introduced="2026-04-10",
     ag_key="CTB",
     model_key="CTB",
@@ -19,8 +19,10 @@ ctboost_method_metadata = MethodMetadata.config(
     has_raw=True,
     has_processed=True,
     has_results=True,
-    suite="tabarena-2026-08-21",
-    verified=False,
+    suite="tabarena-2026-09-09",
+    verified=True,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     reference_url="https://github.com/captnmarkus/ctboost",
 )
 
