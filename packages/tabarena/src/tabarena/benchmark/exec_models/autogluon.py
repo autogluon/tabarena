@@ -423,6 +423,22 @@ class AGWrapper(AbstractExecModel):
                 torch.cuda.empty_cache()
 
 
+def _hyperparameters_user_from_info(info: dict) -> dict:
+    """The user-specified hyperparameters of a model, read from its ``get_info()`` output.
+
+    Same result as ``TabularPredictor.model_hyperparameters(model, output_format="user")``,
+    which computes a fresh ``get_info()`` internally; this reads an already collected one. For a
+    bagged model the child's hyperparameters are returned, with the bag's own under
+    ``ag_args_ensemble`` when any were given.
+    """
+    if "bagged_info" in info:
+        hyperparameters = info["bagged_info"]["child_hyperparameters_user"].copy()
+        if info["hyperparameters_user"]:
+            hyperparameters["ag_args_ensemble"] = info["hyperparameters_user"]
+        return hyperparameters
+    return info["hyperparameters_user"]
+
+
 class AGSingleWrapper(AGWrapper):
     """Fit a single AutoGluon model (no weighted ensemble) inside a ``TabularPredictor``.
 
@@ -517,9 +533,17 @@ class AGSingleWrapper(AGWrapper):
         """Capture any model fit failures so the runner can record them on a crash."""
         self.failure_artifact = self.get_metadata_failure()
 
-    def get_hyperparameters(self) -> dict:
-        """Return the best model's hyperparameters in user-facing form."""
-        return self.predictor.model_hyperparameters(model=self.predictor.model_best, output_format="user")
+    def get_hyperparameters(self, info: dict | None = None) -> dict:
+        """Return the best model's hyperparameters in user-facing form.
+
+        ``info`` is the best model's ``get_info()`` output. ``get_metadata`` passes the one it
+        already collected, because ``get_info`` on a bagged model reloads its children from disk
+        and pickles every model to measure its size, which for a foundation model means
+        serialising the weights.
+        """
+        if info is None:
+            info = self._load_model(assert_single_model=False).get_info(include_feature_metadata=False)
+        return _hyperparameters_user_from_info(info)
 
     @property
     def model_cls(self) -> type[AbstractModel]:
@@ -549,10 +573,13 @@ class AGSingleWrapper(AGWrapper):
             model_name = self.predictor.model_best
         return self.predictor._trainer.load_model(model_name)
 
-    def get_metadata_init(self) -> dict:
-        """Metadata known at construction time (model class, hyperparameters, extra kwargs)."""
+    def get_metadata_init(self, info: dict | None = None) -> dict:
+        """Metadata known at construction time (model class, hyperparameters, extra kwargs).
+
+        ``info`` is the best model's ``get_info()`` output, see ``get_hyperparameters``.
+        """
         metadata = {}
-        metadata["hyperparameters"] = self.get_hyperparameters()
+        metadata["hyperparameters"] = self.get_hyperparameters(info=info)
         metadata["model_cls"] = self.model_cls.__name__
         metadata["model_type"] = self.model_cls.ag_key
         metadata["name_prefix"] = self.model_cls.ag_name
@@ -561,15 +588,22 @@ class AGSingleWrapper(AGWrapper):
         metadata["fit_kwargs_extra"] = self.fit_kwargs_extra
         return metadata
 
-    def get_metadata_fit(self) -> dict:
-        """Metadata available only after fitting (info, disk/compute usage, fit metadata)."""
+    def get_metadata_fit(self, model: AbstractModel | None = None, info: dict | None = None) -> dict:
+        """Metadata available only after fitting (info, disk/compute usage, fit metadata).
+
+        ``model`` is the loaded best model and ``info`` its ``get_info()`` output; either is
+        collected here when not given.
+        """
         metadata = {}
         # Persist outcome: which models were in memory during the timed inference
         # (None = persist disabled or inference not run; [] = skipped by the memory guard).
         metadata["persist"] = self.persist
         metadata["persisted_models"] = self._persisted_models
-        model = self._load_model(assert_single_model=False)
-        metadata["info"] = model.get_info(include_feature_metadata=False)
+        if model is None:
+            model = self._load_model(assert_single_model=False)
+        if info is None:
+            info = model.get_info(include_feature_metadata=False)
+        metadata["info"] = info
         metadata["disk_usage"] = model.disk_usage()
         metadata["num_cpus"] = model.fit_num_cpus
         metadata["num_gpus"] = model.fit_num_gpus
@@ -587,11 +621,14 @@ class AGSingleWrapper(AGWrapper):
         }
 
     def get_metadata(self) -> dict:
-        """Combined construction-time and post-fit metadata for this model."""
-        metadata = self.get_metadata_init()
-        metadata_fit = self.get_metadata_fit()
+        """Combined construction-time and post-fit metadata for this model.
 
-        metadata.update(metadata_fit)
+        The best model is loaded and its ``get_info()`` collected once, then shared by both parts.
+        """
+        model = self._load_model(assert_single_model=False)
+        info = model.get_info(include_feature_metadata=False)
+        metadata = self.get_metadata_init(info=info)
+        metadata.update(self.get_metadata_fit(model=model, info=info))
         return metadata
 
 

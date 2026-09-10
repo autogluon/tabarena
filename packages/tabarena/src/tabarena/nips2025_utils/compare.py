@@ -232,7 +232,9 @@ def _task_grid_from_legacy_df(task_metadata: pd.DataFrame) -> pd.DataFrame:
     legacy ``task_metadata`` DataFrame, by expanding the rectangular ``n_folds`` x ``n_repeats``
     grid per dataset. Mirrors :meth:`TaskMetadataCollection.task_grid` for the legacy input path
     (requires ``dataset``/``n_folds``/``n_repeats``; aliases ``n_samples_train_per_fold`` to
-    ``max_train_rows``).
+    ``max_train_rows``). The alias is exact only when every split of a dataset has the same train
+    size (IID k-fold); a legacy frame carries no per-split sizes, so it cannot recover the maximum
+    that :meth:`TaskMetadataCollection.task_grid` reports for temporal or grouped splits.
     """
     md = task_metadata.drop_duplicates("dataset").copy()
     if "max_train_rows" not in md.columns and "n_samples_train_per_fold" in md.columns:

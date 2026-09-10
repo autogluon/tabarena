@@ -54,7 +54,7 @@ quickstart fast; the system one also takes only the first split, `lite`).
 BeyondArena ranks the same two kinds of entrant as TabArena: a *model* is one method that TabArena
 tunes under its shared protocol, a *system* owns its whole pipeline inside the fit budget (see the
 [examples README](../README.md) for the distinction and the README's
-[Contributing a Model or System](../../README.md#-contributing-a-model-or-system) for how to submit one).
+[Contributing a Model or System](../../README.md#contributing-a-model-or-system) for how to submit one).
 
 - `run_quickstart_beyondarena_model.py` — Run a custom (non-registry) model through the full BeyondArena
   loop (TabArena preprocessing + the split-regime-aware validation protocol, with bagging) and
@@ -92,7 +92,7 @@ of predicates (see `BeyondArenaContext.SUBSET_PREDICATES`):
 | Group | Predicates | Meaning |
 |---|---|---|
 | **Problem type** | `binary`, `multiclass`, `classification`, `regression` | The task's target type. |
-| **Size bucket** | `tiny`, `small`, `medium`, `large` | By `max_train_rows`: tiny ≤ 1k, small ≤ 10k, medium ≤ 100k, large ≤ 1M. |
+| **Size bucket** | `tiny`, `small`, `medium`, `large` | By `max_train_rows`, the largest training-split size of a dataset (bounds inclusive): tiny 101 to 1k, small 1,001 to 10k, medium 10,001 to 100k, large above 100k. |
 | **Split regime** | `iid` (alias `random`), `temporal`, `grouped` | How the splits are drawn — the *beyond-IID* axis. |
 | **Features** | `low-dim`, `high-dim`, `text`, `high-cardinality` | `low/high-dim` split at 100 cols after preprocessing; `text`/`high-cardinality` keep datasets that have such columns. |
 | **Split** | `core`, `lite`, `all` | `core` = each dataset's first `folds_to_use` splits (**the recommended default — use this**); `lite` = the first split only (fast smoke test); `all` = every split (rarely needed — `core` is enough). |

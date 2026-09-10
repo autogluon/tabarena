@@ -509,9 +509,8 @@ class TaskMetadataCollection:
 
         Uses native column names (``problem_type``, ``num_features``, ``num_classes``, ...)
         plus a ``dataset`` key column, ``max_train_rows`` — the per-dataset *maximum*
-        training-fold size over splits, which the BeyondArena size predicates key on (note
-        :meth:`task_grid`'s ``max_train_rows`` is the per-dataset *mean*, matching the
-        legacy schema) — and ``n_splits``, the total split count per dataset.
+        training-fold size over splits, which the size predicates key on (the same value
+        :meth:`task_grid` carries) — and ``n_splits``, the total split count per dataset.
 
         ``n_splits`` is summed across every task for a dataset because it is the
         :class:`~tabarena.benchmark.task.metadata.schema.TabArenaTaskMetadata.n_splits`
@@ -550,9 +549,11 @@ class TaskMetadataCollection:
         * ``split`` — ``n_folds * repeat + fold`` (``n_folds`` = max fold + 1 per dataset); this is
           what ``"lite"`` keys on (``split == 0``) and what a results frame's ``fold`` column maps
           to when subsetting.
-        * predicate columns, using the predicate-facing names: ``max_train_rows`` (mean per-fold
-          train size over the dataset's splits — matches :meth:`to_legacy_df`'s
-          ``n_samples_train_per_fold``), ``n_features`` (``num_features``), ``n_classes``
+        * predicate columns, using the predicate-facing names: ``max_train_rows`` (the per-dataset
+          *maximum* training-fold size over the dataset's splits, same as
+          :meth:`per_dataset_frame`; for temporal and grouped splits the training size varies per
+          split, and the size buckets are defined on the largest one), ``n_features``
+          (``num_features``), ``n_classes``
           (``num_classes``), ``problem_type``, and the warehouse fields ``task_type``,
           ``num_cols_after_preprocessing``, ``num_text_cols``, ``num_high_cardinality_cats``,
           ``has_categorical``, ``has_datetime``, ``group_labels`` (``None`` for tasks that
@@ -574,7 +575,7 @@ class TaskMetadataCollection:
         }
         cols = ["dataset", "fold", "repeat", "split", "max_train_rows", *grid_col_to_field]
         n_folds_by_dataset: dict[str, int] = {}
-        train_sizes: dict[str, list[float]] = {}
+        train_sizes: dict[str, list[int]] = {}
         meta: dict[str, dict] = {}
         for t in self._tasks:
             ds = t.tabarena_task_name
@@ -582,14 +583,14 @@ class TaskMetadataCollection:
             for split in t.splits_metadata.values():
                 n_folds_by_dataset[ds] = max(n_folds_by_dataset.get(ds, 0), split.fold + 1)
                 train_sizes.setdefault(ds, []).append(split.num_instances_train)
-        mean_train = {ds: (sum(sizes) / len(sizes)) for ds, sizes in train_sizes.items()}
+        max_train = {ds: max(sizes) for ds, sizes in train_sizes.items()}
         rows = [
             {
                 "dataset": ds,
                 "fold": fold,
                 "repeat": repeat,
                 "split": n_folds_by_dataset[ds] * repeat + fold,
-                "max_train_rows": mean_train[ds],
+                "max_train_rows": max_train[ds],
                 **meta[ds],
             }
             for ds, fold, repeat in self.dataset_fold_repeats()

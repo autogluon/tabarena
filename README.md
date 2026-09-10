@@ -57,7 +57,7 @@ python examples/benchmarking/run_quickstart_tabarena_system.py  # benchmark a sy
 
 TabArena ranks **models** (one method, tuned by TabArena under a shared protocol) and **systems**
 (a pipeline that does its own tuning and ensembling, like AutoGluon); see
-[Contributing a Model or System](#-contributing-a-model-or-system) for the difference and how to submit yours.
+[Contributing a Model or System](#contributing-a-model-or-system) for the difference and how to submit yours.
 For other install paths (eval-only, editable AutoGluon, dependency), see [Installation](#-installation) below.
 To try **BeyondArena** instead, run `python examples/beyondarena/run_quickstart_beyondarena_model.py`
 (or `run_quickstart_beyondarena_system.py`) with the same install.
@@ -67,9 +67,8 @@ To try **BeyondArena** instead, run `python examples/beyondarena/run_quickstart_
 We share more details on various use cases of TabArena in our [examples](examples):
 
 * 🌍 **Benchmarking Beyond IID (BeyondArena)**: please refer to [examples/beyondarena](examples/beyondarena).
-* 📊 **Benchmarking Predictive Machine Learning Models and Systems**: please refer to [examples/benchmarking](examples/benchmarking); to get yours onto the leaderboard, see [Contributing a Model or System](#-contributing-a-model-or-system).
-* 🚀 **Using SOTA Tabular Models Benchmarked by TabArena**: please refer to [examples/running_tabarena_models](examples/running_tabarena_models).
-* 🧪 **Advanced and Specialized Usage**: please refer to [examples/advanced](examples/advanced).
+* 📊 **Benchmarking Predictive Machine Learning Models and Systems**: please refer to [examples/benchmarking](examples/benchmarking); to get yours onto the leaderboard, see [Contributing a Model or System](#contributing-a-model-or-system).
+* 🧪 **Advanced and Specialized Usage** (incl. using a TabArena model directly on your own data): please refer to [examples/advanced](examples/advanced).
 * 🗃️ **Analysing Metadata and Meta-Learning**: please refer to [examples/meta](examples/meta).
 * 📈 **Generating Plots and Leaderboards**: please refer to [examples/plots](examples/plots).
 * 🔁 **Reproducibility**: we share instructions for reproducibility in [examples](examples).
@@ -78,7 +77,7 @@ We share more details on various use cases of TabArena in our [examples](example
 
 Please refer to [Data Foundry](https://github.com/TabArena/data-foundry) ([documentation](https://tabarena.github.io/data-foundry/)) to learn more about the datasets or to contribute data.
 
-### 🤝 Contributing a Model or System
+### Contributing a Model or System
 
 TabArena accepts two kinds of entrant: a **model** (one method that TabArena tunes under its shared
 protocol) and a **system** (a pipeline that owns its own preprocessing, validation, tuning and

@@ -230,7 +230,7 @@ for key, info in get_model_registry().items():
 ```
 
 `tabarena.models.utils.get_configs_generator_from_name("TabM")` returns a model's generator, whose
-`model_cls` and `manual_configs[0]` are what `examples/running_tabarena_models/run_tabarena_model.py`
+`model_cls` and `manual_configs[0]` are what `examples/advanced/run_tabarena_model_on_your_data.py`
 uses to fit a TabArena model outside the benchmark. `tabarena.models.prefetch.prefetch_weights([...])`
 downloads foundation-model checkpoints before a cluster run.
 
