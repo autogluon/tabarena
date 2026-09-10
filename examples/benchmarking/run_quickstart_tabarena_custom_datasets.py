@@ -111,7 +111,7 @@ if __name__ == "__main__":
     for task, meta in [(clf_task, clf_meta), (reg_task, reg_meta)]:
         task.with_task_metadata(meta).load().validate_metadata()
 
-    # 4: models to run, each at its default config. See `run_quickstart_tabarena.py` for
+    # 4: models to run, each at its default config. See `run_quickstart_tabarena_model.py` for
     #    custom models + HPO. Registry names: `tabarena.models.utils.get_configs_generator_from_name`.
     experiments = TabArenaV0pt1ExperimentBundle(
         models=[

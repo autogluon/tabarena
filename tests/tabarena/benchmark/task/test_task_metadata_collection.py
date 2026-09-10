@@ -151,6 +151,20 @@ class TestNativeViews:
         assert frame.loc["a", "max_train_rows"] == 200
         assert frame.loc["b", "max_train_rows"] == 80
 
+    def test_task_grid_max_train_rows_is_max_over_splits(self):
+        # The grid is what the size buckets are evaluated on, so it must carry the same per-dataset
+        # maximum as per_dataset_frame. A mean would drop a temporal dataset whose training split
+        # shrinks across repeats into a smaller bucket than its largest split belongs to.
+        splits = [_split_meta(fold=f, num_instances_train=size) for f, size in enumerate([50, 200, 110])]
+        tasks = _unrolled(_task_meta(dataset_name="a", splits=splits))
+        tasks += _unrolled(_task_meta(dataset_name="b"))  # single split of 80
+        collection = TaskMetadataCollection(tasks)
+        grid = collection.task_grid()
+        assert (grid.loc[grid["dataset"] == "a", "max_train_rows"] == 200).all()
+        assert (grid.loc[grid["dataset"] == "b", "max_train_rows"] == 80).all()
+        per_dataset = collection.per_dataset_frame().set_index("dataset")["max_train_rows"]
+        assert (grid["max_train_rows"].to_numpy() == per_dataset.loc[grid["dataset"]].to_numpy()).all()
+
 
 def _legacy_row(
     *,

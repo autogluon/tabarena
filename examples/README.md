@@ -21,6 +21,16 @@ sizes and feature dimensionalities). They share the same experiment / runner / e
 examples below are for TabArena, and the [`beyondarena/`](beyondarena) folder mirrors them for
 BeyondArena.
 
+Both benchmarks rank two kinds of entrant, and every quick start comes in a `_model` and a
+`_system` flavor. A **model** is one method that TabArena tunes under its shared protocol (shared
+preprocessing, a validation split provided by TabArena, a search space for HPO, bagging), reported
+as default / tuned / tuned + ensembled. A **system** owns its whole pipeline (preprocessing,
+validation, tuning, ensembling) inside the budget TabArena hands it: AutoML frameworks such as
+AutoGluon, TabFM+, LLM agents, hosted APIs. If you would have to invent a search space for your
+method, it is a model; if that makes no sense because it searches for itself, it is a system. To
+contribute either, see the README's
+[Contributing a Model or System](../README.md#contributing-a-model-or-system).
+
 ### 🌍 BeyondArena (beyond-IID benchmark)
 
 A second benchmark in the same codebase, from the paper
@@ -31,47 +41,42 @@ details and the subset reference.
 
 - **Folder:** [`beyondarena/`](beyondarena)
 - **Use Cases:**
-  - `run_quickstart_beyondarena.py` - Benchmark your own custom model on BeyondArena and compare to the cached baselines.
+  - `run_quickstart_beyondarena_model.py` - Benchmark your own custom *model* on BeyondArena and compare to the cached baselines.
+  - `run_quickstart_beyondarena_system.py` - Benchmark a *system* (the shipped AutoGluon wrapper) on BeyondArena via `system_experiments=True`.
   - `run_generate_beyondarena_leaderboard.py` - Generate the official BeyondArena leaderboard.
   - `beyondarena/advanced/` - No-bagging runs, custom (Data Foundry) datasets.
 
-### 📊 Benchmarking Predictive Machine Learning Models
+### 📊 Benchmarking Predictive Machine Learning Models and Systems
 
 You can use TabArena for various benchmarking tasks, such as benchmarking TabArena's
-models on new data (including private offline data) or benchmarking your models on 
-TabArena's data. 
+models on new data (including private offline data) or benchmarking your own model or
+system on TabArena's data. The two quick starts are the starting point for a submission
+to the leaderboard.
 
 - **Folder:** `benchmarking/`
 - **Use Cases:**
-  - `run_quickstart_tabarena.py` - Benchmark a registry model and your own custom model on TabArena-Lite (incl. HPO) and compare to the leaderboard.
+  - `run_quickstart_tabarena_model.py` - Benchmark a registry model and your own custom *model* on TabArena-Lite (incl. HPO) and compare to the leaderboard.
+  - `run_quickstart_tabarena_system.py` - Benchmark a full ML *system* (e.g. AutoGluon) on TabArena via an `ExternalSystemModel` (`system_experiments=True`) and compare to the leaderboard.
   - `run_quickstart_tabarena_custom_datasets.py` - Benchmark TabArena models on your own (custom / private) datasets.
-
-### 🚀 Using SOTA Tabular Models Benchmarked by TabArena
-
-All models in TabArena are open-source and can be used directly on your own data.
-They are implemented in production-ready code and can be easily integrated into your 
-ML pipelines.
-
-- **Folder:** `running_tabarena_models/`
-- **Use Cases:**
-  - `run_tabarena_model.py` - Use a TabArena model on your own data, three ways: a single fit, cross-validation bagging, and tuned + ensembled.
 
 ### 🧪 Advanced and Specialized Usage
 
-Lower-level and specialized workflows: running on arbitrary OpenML tasks, plain AutoGluon
-on OpenML, no-bagging foundation-model setups, benchmarking full ML systems, and driving the
-low-level async / fan-out job API by hand.
+Lower-level and specialized workflows: using a TabArena model directly on your own data
+(all TabArena models are open-source AutoGluon models you can drop into your own ML
+pipeline), running on arbitrary OpenML tasks, plain AutoGluon on OpenML, no-bagging
+foundation-model setups, and driving the low-level async / fan-out job API by hand (for a
+model and for a system).
 
 - **Folder:** `advanced/`
 - **Use Cases:**
+  - `run_tabarena_model_on_your_data.py` - Use a TabArena model outside the benchmark on your own data via the plain AutoGluon API, three ways: a single fit, cross-validation bagging, and tuned + ensembled.
   - `run_any_openml_task.py` - Benchmark TabArena models (full TabArena workflow) on any OpenML task, including tasks not in TabArena.
   - `run_quickstart_tabarena_model_without_bagging.py` - Benchmark a model as an *outer* (no-bagging) experiment on TabArena (shown with TabICLv2: a default + an `n_estimators=1` config).
   - `run_tabarena_tabpfn3_custom_checkpoint.py` - Run TabPFN-3 on TabArena from non-default checkpoints, as an outer (no-bagging) experiment.
-  - `run_quickstart_tabarena_external_system.py` - Benchmark a full ML *system* (e.g. AutoGluon) on TabArena via an `ExternalSystemModel` (`system_experiments=True`).
   - `run_autogluon_on_openml_task.py` - Run AutoGluon on any OpenML task.
   - `run_autogluon_on_openml_task_with_hpo_configs.py` - Run AutoGluon on an OpenML task using TabArena's model search spaces.
   - `run_get_tabarena_datasets_from_openml.py` - Get the data used by TabArena from OpenML, without the TabArena framework.
-  - `run_async_tabarena_api.py` - Drive TabArena's low-level async / fan-out job API by hand (build → fan out → gather → register → score) with a swappable future-based backend.
+  - `run_async_tabarena_api.py` - Drive TabArena's low-level async / fan-out job API by hand for a *model* (build → fan out → gather → register → score) with a swappable future-based backend.
   - `run_async_tabarena_api_system.py` - The same async / fan-out API, but benchmarking a full ML *system* (a `TabularPredictor` fit per task).
   - `run_configure_caches.py` - Declare *where* TabArena caches datasets, model weights, and results — once, via `CacheConfig` — and let the context propagate it to every worker.
 
@@ -111,7 +116,7 @@ NeurIPS 2025 paper (pinned to the camera-ready method set), using the raw result
   - `run_generate_paper_figures_neurips2025.py` - Reproduce all tables and figures from the NeurIPS 2025 paper.
 
 To locally reproduce individual configurations and compare with the TabArena results of 
-those configurations, refer to `benchmarking/run_quickstart_tabarena.py`.
+those configurations, refer to `benchmarking/run_quickstart_tabarena_model.py`.
 
 To locally generate the latest (living) results leaderboard, run 
 `plots/run_generate_main_leaderboard.py`.

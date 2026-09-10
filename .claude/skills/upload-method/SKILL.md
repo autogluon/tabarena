@@ -258,3 +258,9 @@ Tell the maintainer:
 - **Open decisions / TODOs**: whether to flip `verified` to `True` (only after sign-off), committing
   the working-tree edits, and — if the method should appear on the website — that `update-leaderboard`
   is the next lifecycle step.
+
+When asked to open the PR, use `.github/pull_request_template.md` and delete its "Model or system
+submission" section (that one is for external submissions). The summary names the method and what
+was uploaded; the collapsed Details block carries the method key, suite and date, the r2
+destinations, the `verified` state, and whether `update-leaderboard` is the next step. Do not paste
+this Report into the PR body.

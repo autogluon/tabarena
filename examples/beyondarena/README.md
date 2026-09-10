@@ -37,21 +37,32 @@ Requires the `benchmark` install (which includes the `data-foundry` extra used t
 
 ```bash
 uv pip install --prerelease=allow -e "./packages/tabarena[benchmark]"
-python examples/beyondarena/run_quickstart_beyondarena.py
+python examples/beyondarena/run_quickstart_beyondarena_model.py   # your own model, tuned by TabArena
+python examples/beyondarena/run_quickstart_beyondarena_system.py  # a system that tunes itself (AutoGluon)
 ```
 
-This benchmarks a custom model on a small, fast slice of BeyondArena and prints a leaderboard
-comparing it against the cached BeyondArena baselines. Like every example here, it evaluates on the
-recommended **`core`** subset (further narrowed to `tiny`, `!high-dim` just to keep the quickstart
-fast).
+The model quickstart benchmarks a custom model on a small, fast slice of BeyondArena and prints a
+leaderboard comparing it against the cached BeyondArena baselines; the system quickstart does the
+same for the AutoGluon wrapper that ships with TabArena. Like every example here, both evaluate on
+the recommended **`core`** subset (further narrowed to `tiny`, `!high-dim` just to keep the
+quickstart fast; the system one also takes only the first split, `lite`).
 
 ## 🕹️ Use Cases
 
-### 🚀 Benchmark your model on BeyondArena
+### 🚀 Benchmark your model or system on BeyondArena
 
-- `run_quickstart_beyondarena.py` — Run a custom (non-registry) model through the full BeyondArena
+BeyondArena ranks the same two kinds of entrant as TabArena: a *model* is one method that TabArena
+tunes under its shared protocol, a *system* owns its whole pipeline inside the fit budget (see the
+[examples README](../README.md) for the distinction and the README's
+[Contributing a Model or System](../../README.md#contributing-a-model-or-system) for how to submit one).
+
+- `run_quickstart_beyondarena_model.py` — Run a custom (non-registry) model through the full BeyondArena
   loop (TabArena preprocessing + the split-regime-aware validation protocol, with bagging) and
   compare it against the cached BeyondArena baselines.
+- `run_quickstart_beyondarena_system.py` — Run a system (the AutoGluon wrapper that ships with
+  TabArena) through the same loop with `system_experiments=True`; the system does its own validation,
+  tuning and ensembling. The public BeyondArena leaderboard lists models only for now, so the system
+  is compared against the cached model baselines.
 - `run_generate_beyondarena_leaderboard.py` — Generate the official BeyondArena leaderboard from the
   cached results, in the website format.
 
@@ -81,7 +92,7 @@ of predicates (see `BeyondArenaContext.SUBSET_PREDICATES`):
 | Group | Predicates | Meaning |
 |---|---|---|
 | **Problem type** | `binary`, `multiclass`, `classification`, `regression` | The task's target type. |
-| **Size bucket** | `tiny`, `small`, `medium`, `large` | By `max_train_rows`: tiny ≤ 1k, small ≤ 10k, medium ≤ 100k, large ≤ 1M. |
+| **Size bucket** | `tiny`, `small`, `medium`, `large` | By `max_train_rows`, the largest training-split size of a dataset (bounds inclusive): tiny 101 to 1k, small 1,001 to 10k, medium 10,001 to 100k, large above 100k. |
 | **Split regime** | `iid` (alias `random`), `temporal`, `grouped` | How the splits are drawn — the *beyond-IID* axis. |
 | **Features** | `low-dim`, `high-dim`, `text`, `high-cardinality` | `low/high-dim` split at 100 cols after preprocessing; `text`/`high-cardinality` keep datasets that have such columns. |
 | **Split** | `core`, `lite`, `all` | `core` = each dataset's first `folds_to_use` splits (**the recommended default — use this**); `lite` = the first split only (fast smoke test); `all` = every split (rarely needed — `core` is enough). |

@@ -568,6 +568,25 @@ class TestStringFixAsTypeFeatureGeneratorStringNulls:
         assert StringFixAsTypeFeatureGenerator._string_columns_about_to_be_bool_encoded(X) == []
         assert StringFixAsTypeFeatureGenerator._fill_nulls_for_bool_encoding(X, []) is X
 
+    def test_bool_candidate_detection_picks_only_string_columns_with_one_value_and_nulls(self):
+        """A candidate is a `string` column whose two uniques are one value and null.
+
+        AsType bool-encodes on ``len(unique()) == 2`` with null counted, so two real values plus nulls
+        are three uniques and not a candidate. Object, categorical and numeric columns never qualify.
+        """
+        X = pd.DataFrame(
+            {
+                "num": [1.0, 2.0, 3.0, 4.0],
+                "flag": pd.array(["y", "y", None, "y"], dtype="string"),  # the one candidate
+                "two_values_and_null": pd.array(["y", "n", None, "y"], dtype="string"),
+                "flag_no_null": pd.array(["y", "n", "y", "n"], dtype="string"),
+                "obj": ["y", "y", None, "y"],  # object dtype, not `string`
+                "cat": pd.Categorical(["y", "y", None, "y"]),
+                "all_null": pd.array([None, None, None, None], dtype="string"),
+            }
+        )
+        assert StringFixAsTypeFeatureGenerator._string_columns_about_to_be_bool_encoded(X) == ["flag"]
+
 
 # ===========================================================================
 # StringFixAsTypeFeatureGenerator – categorical dtype special cases
@@ -1919,3 +1938,92 @@ class TestGroupAggregationFeatureGenerator:
         # All categorical aggs for cat_c
         assert "cat_c" in gen._cat_agg_map
         assert set(gen._cat_agg_map["cat_c"]) == {"count", "last", "nunique"}
+
+
+def _reference_group_aggregation(
+    gen: GroupAggregationFeatureGenerator, X: pd.DataFrame
+) -> tuple[list[str], pd.DataFrame]:
+    """The column-by-column computation the generator used before aggregating in one pass.
+
+    Returns the selected features and the fitted output frame.
+    """
+    group_key = gen._build_group_key(X)
+    feature_cols = [c for c in X.columns if c not in gen.group_col]
+    num_cols = [c for c in feature_cols if pd.api.types.is_numeric_dtype(X[c])]
+    cat_cols = [c for c in feature_cols if not pd.api.types.is_numeric_dtype(X[c])]
+    time_cols = [gen.group_time_on] if gen.group_time_on and gen.group_time_on in X.columns else []
+    variance: dict[str, float] = {}
+    agg_frames: dict[str, pd.Series] = {}
+    col_iter = [(c, list(gen._NUM_AGGS)) for c in num_cols] + [(c, list(gen._CAT_AGGS)) for c in cat_cols]
+    for col, aggs in col_iter:
+        slice_cols = list(dict.fromkeys(gen.group_col + time_cols + [col]))
+        X_col = gen._sort_by_time(X[slice_cols])
+        agg_df = X_col.groupby(gen._build_group_key(X_col), observed=True)[[col]].agg(aggs)
+        agg_df.columns = [f"{col}_{a}" for a in aggs]
+        for feat in agg_df.columns:
+            s = group_key.map(agg_df[feat])
+            agg_frames[feat] = s
+            if not pd.api.types.is_numeric_dtype(s):
+                s = s.astype("category").cat.codes.astype(float)
+                s[s < 0] = np.nan
+            variance[feat] = float(s.var())
+    ranked = sorted(variance.keys(), key=lambda f: (-variance[f], f))
+    selected = ranked[: gen.n_top_features]
+    mapped = pd.DataFrame({f: agg_frames[f] for f in selected}, index=X.index)
+    return selected, pd.concat([X.drop(columns=gen.group_col), mapped], axis=1)
+
+
+def _random_grouped_frame(rng: np.random.Generator) -> tuple[pd.DataFrame, list[str] | str, str | None]:
+    n_groups = int(rng.integers(2, 7))
+    rows = np.repeat(np.arange(n_groups), rng.integers(1, 6, size=n_groups))
+    rng.shuffle(rows)
+    n = len(rows)
+    X = pd.DataFrame({"g1": rows, "g2": rows % 2})
+    for i in range(int(rng.integers(1, 5))):
+        kind = rng.integers(5)
+        if kind == 0:
+            col = rng.normal(size=n)
+            col[rng.random(n) < 0.2] = np.nan
+        elif kind == 1:
+            col = rng.integers(0, 4, size=n)
+        elif kind == 2:
+            col = rng.integers(0, 2, size=n).astype(bool)
+        elif kind == 3:
+            col = pd.Categorical(rng.choice(["a", "b", "c"], size=n))
+        else:
+            col = rng.choice(np.array(["x", "y", None], dtype=object), size=n)
+        X[f"f{i}_{kind}"] = col
+    if rng.random() < 0.5:
+        X["t"] = rng.integers(0, 3, size=n)  # ties on purpose
+        time_on = "t"
+    else:
+        time_on = None
+    group_col = ["g1", "g2"] if rng.random() < 0.3 else "g1"
+    return X, group_col, time_on
+
+
+@pytest.mark.parametrize("seed", range(60))
+def test_group_aggregation_one_pass_matches_per_column(seed: int) -> None:
+    """Aggregating every column in one groupby selects and produces what the per-column pass did."""
+    rng = np.random.default_rng(seed)
+    X, group_col, time_on = _random_grouped_frame(rng)
+    n_top = int(rng.choice([1, 3, 7, 100]))
+    gen = GroupAggregationFeatureGenerator(group_col=group_col, group_time_on=time_on, n_top_features=n_top)
+    expected_selected, expected_out = _reference_group_aggregation(gen, X.copy())
+    got_out, _ = gen._fit_transform(X.copy(), pd.Series(np.zeros(len(X))))
+    assert gen._selected_features == expected_selected
+    assert list(got_out.columns) == list(expected_out.columns)
+    for col in expected_out.columns:
+        a, b = got_out[col], expected_out[col]
+        if pd.api.types.is_numeric_dtype(b):
+            np.testing.assert_allclose(a.to_numpy(dtype=float), b.to_numpy(dtype=float), rtol=0, atol=0, equal_nan=True)
+        else:
+            assert (
+                a.astype(object).where(a.notna(), None).tolist() == b.astype(object).where(b.notna(), None).tolist()
+            ), col
+    # transform on a frame with an unseen group summarises it from its own rows, as before
+    X_new = X.copy()
+    X_new["g1"] = X_new["g1"] + 100
+    transformed = gen._transform(X_new.copy())
+    assert list(transformed.columns) == list(expected_out.columns)
+    assert transformed.index.equals(X_new.index)
