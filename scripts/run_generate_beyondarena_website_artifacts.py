@@ -3,7 +3,8 @@
 Counterpart to ``run_generate_website_artifacts.py`` (TabArena), but for the data-foundry
 BeyondArena benchmark. It (1) regenerates every per-subset figure/table from the cached BeyondArena
 baselines, (2) adds the cross-subset overview figure, and (3) converts the result into the website's
-folder/file layout and zips it. The artifacts are then copied into the leaderboard Space's ``data/``
+folder/file layout (per-subset CSV, figures and the embedded ``leaderboard_table.html``) and zips it.
+The artifacts are then copied into the leaderboard Space's ``data/``
 directory (under the ``beyondarena`` root the BeyondArena tab reads from) and committed — see the
 publishing procedure in ``run_generate_website_artifacts.py``.
 
@@ -32,7 +33,10 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pandas as pd
+
 from tabarena.contexts import BeyondArenaContext
+from tabarena.plot.interactive.leaderboard_table import build_leaderboard_table_html
 from tabarena.plot.subset_results import plot_subset_results
 from tabarena.website.process_pngs import process_png_bulk
 
@@ -174,7 +178,8 @@ class BeyondArenaWebsiteArtifactGenerator:
         output_path = self.clean_artifacts_dir
         figure_file_type = "png"
 
-        # -- Per-subset folders: copy the CSV + n_datasets marker, copy the rendered figures.
+        # -- Per-subset folders: copy the CSV + n_datasets marker, build the embedded table, copy the
+        #    rendered figures.
         for subset_dir in sorted((input_path / "subsets").iterdir()):
             if not subset_dir.is_dir():
                 continue
@@ -182,6 +187,13 @@ class BeyondArenaWebsiteArtifactGenerator:
             out_dir.mkdir(parents=True, exist_ok=True)
 
             shutil.copy(subset_dir / "website_leaderboard.csv", out_dir / "website_leaderboard.csv")
+            # The full leaderboard table the app embeds, built from the same frame as the CSV so the
+            # two cannot sort or style the numbers differently (as the TabArena converter does).
+            build_leaderboard_table_html(
+                pd.read_csv(out_dir / "website_leaderboard.csv"),
+                save_path=out_dir / "leaderboard_table.html",
+                page_title=f"BeyondArena leaderboard table — {subset_dir.name}",
+            )
             for marker in subset_dir.glob("n_datasets_*"):
                 (out_dir / marker.name).touch()
 
