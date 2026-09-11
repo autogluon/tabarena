@@ -85,11 +85,7 @@ class MitraV2Mixin:
         rng = np.random.RandomState(get_numpy_seed(cfg.seed))
 
         success = False
-        while (
-            not success
-            and cfg.hyperparams["max_samples_support"] > 0
-            and cfg.hyperparams["max_samples_query"] > 0
-        ):
+        while not success and cfg.hyperparams["max_samples_support"] > 0 and cfg.hyperparams["max_samples_query"] > 0:
             model = None
             trainer = None
             try:
