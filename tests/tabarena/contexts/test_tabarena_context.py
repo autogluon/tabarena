@@ -386,3 +386,50 @@ class TestComparePlotOnlyForwarding:
         captured = self._capture(monkeypatch)
         self._base_ctx().compare(output_dir=tmp_path)
         assert "plot_only" not in captured
+
+
+class TestCompareParetoFocusNewMethods:
+    """compare(pareto_focus_new_methods=) turns the registered new methods into ``pareto_focus_methods``."""
+
+    @staticmethod
+    def _base_ctx() -> AbstractArenaContext:
+        return AbstractArenaContext(methods=[], task_metadata=_ctx().task_metadata_collection)
+
+    @staticmethod
+    def _capture(monkeypatch) -> dict:
+        import tabarena.nips2025_utils.compare as compare_mod
+
+        captured: dict = {}
+
+        def fake_compare(**kwargs):
+            captured.update(kwargs)
+            return pd.DataFrame()
+
+        monkeypatch.setattr(compare_mod, "compare", fake_compare)
+        return captured
+
+    def test_new_methods_are_forwarded_sorted(self, monkeypatch, tmp_path):
+        captured = self._capture(monkeypatch)
+        ctx = self._base_ctx()
+        ctx._new_method_names = {"TA-Other", "TA-New"}
+        ctx.compare(output_dir=tmp_path, pareto_focus_new_methods=True)
+        assert captured["pareto_focus_methods"] == ["TA-New", "TA-Other"]
+
+    def test_unions_with_an_explicit_focus_list(self, monkeypatch, tmp_path):
+        captured = self._capture(monkeypatch)
+        ctx = self._base_ctx()
+        ctx._new_method_names = {"TA-New"}
+        ctx.compare(output_dir=tmp_path, pareto_focus_new_methods=True, pareto_focus_methods=["LightGBM"])
+        assert captured["pareto_focus_methods"] == ["LightGBM", "TA-New"]
+
+    def test_off_by_default(self, monkeypatch, tmp_path):
+        captured = self._capture(monkeypatch)
+        ctx = self._base_ctx()
+        ctx._new_method_names = {"TA-New"}
+        ctx.compare(output_dir=tmp_path)
+        assert "pareto_focus_methods" not in captured
+
+    def test_no_registered_new_method_is_a_no_op(self, monkeypatch, tmp_path):
+        captured = self._capture(monkeypatch)
+        self._base_ctx().compare(output_dir=tmp_path, pareto_focus_new_methods=True)
+        assert "pareto_focus_methods" not in captured

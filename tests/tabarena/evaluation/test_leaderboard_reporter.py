@@ -286,3 +286,73 @@ class TestBaselinesAsBars:
         labels, n_lines = self._render(monkeypatch, tmp_path, baselines_as_bars=False)
         assert "System / Portfolio" not in labels
         assert n_lines == 1
+
+
+class TestParetoFocusMethods:
+    """``pareto_focus_methods`` resolves method identities to display names and reaches every Pareto figure."""
+
+    @staticmethod
+    def _reporter(monkeypatch, tmp_path) -> tuple[LeaderboardReporter, list[dict]]:
+        calls: list[dict] = []
+        monkeypatch.setattr(module, "plot_pareto_focus", lambda **kwargs: calls.append(kwargs))
+        monkeypatch.setattr(module, "_init_global_rcparams", lambda: None)
+        monkeypatch.setattr(LeaderboardReporter, "build_pareto_explorer", lambda self, leaderboard: None)
+        return LeaderboardReporter(output_dir=tmp_path, task_metadata=[]), calls
+
+    @staticmethod
+    def _leaderboard() -> pd.DataFrame:
+        # A freshly benchmarked config method (`TA-NEW`, registered under ta_name "TA-New") next to
+        # an established one and a baseline; the leaderboard keeps ta_name/config_type as columns.
+        return pd.DataFrame(
+            {
+                "method": ["GBM (default)", "GBM (tuned + ensemble)", "TA-NEW (default)", "TabPFN-3"],
+                "config_type": ["GBM", "GBM", "TA-NEW", None],
+                "ta_name": ["GBM", "GBM", "TA-New", "TabPFN-3"],
+                "elo": [1000.0, 1100.0, 1050.0, 1300.0],
+                "improvability": [0.2, 0.1, 0.15, 0.05],
+                "median_time_train_s_per_1K": [1.0, 100.0, 50.0, 5.0],
+                "median_time_infer_s_per_1K": [0.1, 1.0, 0.5, 0.5],
+            }
+        )
+
+    def test_ta_name_resolves_to_the_display_name_in_every_figure(self, monkeypatch, tmp_path):
+        reporter, calls = self._reporter(monkeypatch, tmp_path)
+        reporter.plot_pareto(self._leaderboard(), framework_types=["GBM", "TA-NEW"], pareto_focus_methods=["TA-New"])
+        assert len(calls) == 4
+        assert all(call["focus_methods"] == ["TA-NEW"] for call in calls)
+
+    def test_config_type_and_display_name_resolve_too(self, monkeypatch, tmp_path):
+        reporter, calls = self._reporter(monkeypatch, tmp_path)
+        reporter.plot_pareto(
+            self._leaderboard(), framework_types=["GBM", "TA-NEW"], pareto_focus_methods=["TA-NEW", "TabPFN-3"]
+        )
+        assert all(call["focus_methods"] == ["TA-NEW", "TabPFN-3"] for call in calls)
+
+    def test_unions_with_an_explicit_focus_list(self, monkeypatch, tmp_path):
+        reporter, calls = self._reporter(monkeypatch, tmp_path)
+        reporter.plot_pareto(
+            self._leaderboard(),
+            framework_types=["GBM", "TA-NEW"],
+            pareto_focus_methods=["TA-New"],
+            pareto_focus_kwargs={"focus_methods": ["GBM"], "muted_size": 12},
+        )
+        assert all(call["focus_methods"] == ["GBM", "TA-NEW"] for call in calls)
+        assert all(call["muted_size"] == 12 for call in calls)
+
+    def test_unknown_name_is_reported_and_ignored(self, monkeypatch, tmp_path, capsys):
+        reporter, calls = self._reporter(monkeypatch, tmp_path)
+        reporter.plot_pareto(self._leaderboard(), framework_types=["GBM", "TA-NEW"], pareto_focus_methods=["Nope"])
+        assert all(call["focus_methods"] == [] for call in calls)
+        out = capsys.readouterr().out
+        assert "Nope" in out
+        assert "match no plotted method" in out
+
+    def test_absent_by_default(self, monkeypatch, tmp_path):
+        reporter, calls = self._reporter(monkeypatch, tmp_path)
+        reporter.plot_pareto(self._leaderboard(), framework_types=["GBM", "TA-NEW"])
+        assert all(call["focus_methods"] is None for call in calls)
+
+    def test_eval_signature_default_is_none(self):
+        import inspect
+
+        assert inspect.signature(LeaderboardReporter.eval).parameters["pareto_focus_methods"].default is None
