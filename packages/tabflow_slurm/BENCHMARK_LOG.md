@@ -103,6 +103,58 @@ plan.setup_jobs()
 
 ---
 
+## 2026-09-09 — ctboost_09092026
+
+- **Model(s):** CTBoost (all configs)
+- **Git SHA:** `682365c1`
+- **Purpose:** First full TabArena-v0.1 run of CTBoost (conditional-inference-tree gradient
+  booster, https://github.com/captnmarkus/ctboost) for its integration in
+  https://github.com/autogluon/tabarena/pull/479, pinned to `ctboost==0.1.61`. Processed and
+  uploaded as suite `tabarena-2026-09-09` (`ctboost_method_metadata`), registered in the arena
+  collection as a verified model.
+- **Notes:** Same shape as the CPU tree boosters (ChimeraBoost, Perpetual): full task set (all
+  splits), default config + the full 200-config HPO space, CPU partition `cpun416mtspotinteractive`
+  (16 vCPUs, 64 GB RAM), `memory_limit`/`num_cpus` left `None` so node values are picked up, bundle
+  size 2. Extra dep in the run venv: `ctboost==0.1.61`. CPU model, so no `fake_memory_for_estimates`;
+  `CTBoostModel._estimate_memory_usage_static` is compared against node RAM to budget the parallel
+  bagging folds. No untimed warm-up hook (`CTBoostModel` has no `warmup` classmethod), so any
+  first-call cost of the library lands inside the first timed fit of each worker. The wrapper caps
+  the native histogram threads through `CTBOOST_HIST_THREADS`, which the `.so` reads per fit, so the
+  cap holds in Ray fold workers. Supersedes the lite / 25-config run `ctboost_08092026` on 0.1.60
+  (2026-09-08, job 1100344), which was never uploaded. About 26 h of cluster time (2026-09-09 13:42
+  to 2026-09-10 16:01); 164,016 result files (816 splits x 201 configs).
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="ctboost_09092026",
+    model_jobs=[
+        ModelJob(models=("CTBoost", "all"), name="cpu"),
+    ],
+    task_subset=TaskSubset(),  # all splits of every task
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    # Same CPU partition as the ChimeraBoost runs (16 vCPUs, 64 GB RAM) for comparable timings.
+    scheduler_setup=GCPSlurmSetup(bundle_size=2, cpu_partition="cpun416mtspotinteractive"),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-08-10 — chimeraboost_10082026
 
 - **Model(s):** ChimeraBoost (all configs)

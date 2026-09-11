@@ -95,27 +95,33 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         }
 
         # Every aggregation of every column in one pass, then the top n_top_features by
-        # variance (unsupervised). Categorical aggregations are encoded as integer category
-        # codes before computing variance.
+        # variance (unsupervised). The variance is that of each per-group value broadcast to
+        # the rows of its group, computed from the group table and the group sizes rather
+        # than from a rows x aggregations frame: mapping every aggregation back to every row
+        # costs rows x columns x aggregations values, which on a million-row task with a few
+        # hundred columns is tens of gigabytes for a number the group table already holds.
+        # Categorical aggregations are encoded as integer category codes before computing
+        # variance.
         aggregated = self._aggregate(X, sources)
-        mapped = aggregated.reindex(group_key.to_numpy())
-        mapped.index = X.index
-        numeric_features = [f for f in mapped.columns if pd.api.types.is_numeric_dtype(mapped[f])]
-        variance: dict[str, float] = {f: float(v) for f, v in mapped[numeric_features].var().items()}
-        for feat in mapped.columns:
-            if feat in variance:
-                continue
-            s = mapped[feat].astype("category").cat.codes.astype(float)
-            s[s < 0] = np.nan
-            variance[feat] = float(s.var())
+        group_sizes = group_key.value_counts().reindex(aggregated.index).to_numpy(dtype=float)
+        variance: dict[str, float] = {}
+        for feat in aggregated.columns:
+            values = aggregated[feat]
+            if not pd.api.types.is_numeric_dtype(values):
+                values = values.astype("category").cat.codes.astype(float)
+                values[values < 0] = np.nan
+            variance[feat] = self._broadcast_variance(values.to_numpy(dtype=float), group_sizes)
         feature_source = {
             f"{col}_{agg}": (col, agg, agg in self._NUM_AGGS and pd.api.types.is_numeric_dtype(X[col]))
             for col, aggs in sources.items()
             for agg in aggs
         }
 
-        # Select top n_top_features by variance (descending), tie-break by name.
-        ranked = sorted(variance.keys(), key=lambda f: (-variance[f], f))
+        # Select top n_top_features by variance (descending), tie-break by name. The variance
+        # is rounded to 12 significant digits first: two aggregations of the same values (a
+        # column's `count` and another's, say) must rank as a tie by name, not by the last bit
+        # of two floating-point sums.
+        ranked = sorted(variance.keys(), key=lambda f: (-self._rank_variance(variance[f]), f))
         self._selected_features = ranked[: self.n_top_features]
 
         # Build test-time agg maps.
@@ -171,6 +177,26 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
             if col in X.columns
         }
         return self._aggregate(X, sources)
+
+    @staticmethod
+    def _rank_variance(variance: float) -> float:
+        """The variance as the ranking compares it: rounded to 12 significant digits."""
+        return float(f"{variance:.12g}")
+
+    @staticmethod
+    def _broadcast_variance(values: np.ndarray, sizes: np.ndarray) -> float:
+        """Sample variance of ``values[g]`` repeated ``sizes[g]`` times, NaN groups skipped.
+
+        Equals ``pd.Series(values[group_of_row]).var()`` (``ddof=1``) without building that
+        series.
+        """
+        keep = ~np.isnan(values)
+        values, sizes = values[keep], sizes[keep]
+        n = sizes.sum()
+        if n <= 1:
+            return float("nan")
+        mean = (sizes * values).sum() / n
+        return float((sizes * (values - mean) ** 2).sum() / (n - 1))
 
     def _aggregate(self, X: pd.DataFrame, sources: dict[str, list[str]]) -> pd.DataFrame:
         """Per-group values of every ``sources`` aggregation, one row per group.
