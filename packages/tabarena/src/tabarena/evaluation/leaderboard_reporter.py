@@ -822,6 +822,7 @@ class LeaderboardReporter:
         method_color_overrides: dict[str, str] | None = None,
         pareto_emphasize_all: bool = False,
         pareto_focus_kwargs: dict | None = None,
+        pareto_focus_methods: list[str] | None = None,
         pareto_explorer_kwargs: dict | None = None,
         website_only: bool = False,
     ) -> pd.DataFrame:
@@ -880,6 +881,15 @@ class LeaderboardReporter:
         ``pareto_explorer_kwargs`` (default ``None``) is forwarded to :func:`build_pareto_explorer_html`
         for the two explorer pages, e.g. ``{"dim_off_front": True}`` to shrink and fade the selected
         points that are not on the front.
+
+        ``pareto_focus_methods`` (default ``None``) names methods to emphasize in the four Pareto
+        figures on top of the Pareto-front members: they keep their family color and get a boxed
+        label even when another method dominates them. This is how a freshly benchmarked method
+        stays visible in every Pareto figure rather than only when it lands on the front. Each name
+        is matched against the leaderboard's ``ta_name`` (the registered method name), its
+        ``config_type`` (the AutoGluon key) or the rendered display name, so the caller can pass
+        whichever identity it holds; names that match nothing are reported and ignored. See
+        :meth:`plot_pareto`. Plotting-only, like ``plot_only``: no number changes.
 
         ``method_color_overrides`` (default ``None``) pins a fixed color per method in both the Elo
         bar plot (recolors that method's bar) and the Pareto plots (colors its points) — a
@@ -1427,6 +1437,7 @@ class LeaderboardReporter:
                 method_color_overrides=method_color_overrides,
                 pareto_emphasize_all=pareto_emphasize_all,
                 pareto_focus_kwargs=pareto_focus_kwargs,
+                pareto_focus_methods=pareto_focus_methods,
                 pareto_explorer_kwargs=pareto_explorer_kwargs,
             )
 
@@ -2017,7 +2028,16 @@ class LeaderboardReporter:
         pareto_emphasize_all: bool = False,
         pareto_focus_kwargs: dict | None = None,
         pareto_explorer_kwargs: dict | None = None,
+        pareto_focus_methods: list[str] | None = None,
     ):
+        """Render the four ``pareto_front_*`` figures and the two interactive explorer pages.
+
+        ``pareto_focus_methods`` are emphasized in the four static figures in addition to the
+        Pareto-front members (see :func:`plot_pareto_focus`'s ``focus_methods``). They are resolved
+        to the rendered display names by :meth:`_resolve_pareto_focus_methods` and unioned with any
+        ``focus_methods`` already present in ``pareto_focus_kwargs``. The explorer pages do not
+        take a focus list; they keep their own front-based styling.
+        """
         _f_map, f_map_type, f_map_inverse, f_map_type_name = self.get_framework_type_method_names(
             framework_types=framework_types,
         )
@@ -2056,6 +2076,13 @@ class LeaderboardReporter:
                 )
             if "title" in plot_tuning_kwargs:
                 plot_pareto_kwargs["title"] = plot_tuning_kwargs["title"]
+
+        if pareto_focus_methods:
+            # "Method" now holds the rendered display names the focus plot labels with; resolve the
+            # requested identities against this frame and merge with any explicit focus list.
+            resolved = self._resolve_pareto_focus_methods(leaderboard_pareto, pareto_focus_methods)
+            explicit = set(plot_pareto_kwargs.get("focus_methods") or [])
+            plot_pareto_kwargs["focus_methods"] = sorted(explicit | resolved)
 
         # Model-family classification drives point colors in the focus-style
         # scatter (`plot_pareto_focus`); per-method colors/orders (the old
@@ -2105,6 +2132,36 @@ class LeaderboardReporter:
         self.plot_pareto_improvability_vs_time_infer(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
         self.plot_pareto_improvability_vs_time_train(leaderboard=leaderboard_pareto, **plot_pareto_kwargs)
         self.build_pareto_explorer(leaderboard=leaderboard_pareto, **(pareto_explorer_kwargs or {}))
+
+    @staticmethod
+    def _resolve_pareto_focus_methods(leaderboard_pareto: pd.DataFrame, names: list[str]) -> set[str]:
+        """Translate method identities into the display names the Pareto focus plot labels with.
+
+        ``leaderboard_pareto`` is the frame :meth:`plot_pareto` has built so far: its ``Method``
+        column carries the rendered display names, and the leaderboard's own ``ta_name`` and
+        ``config_type`` columns are still present. A name in ``names`` selects every row whose
+        ``ta_name`` or ``config_type`` equals it, or whose ``Method`` already is it, and the set of
+        those rows' display names is returned. Names that select nothing are printed (a typo or
+        a hidden method) and dropped, mirroring the ``plot_only`` guard.
+        """
+        resolved: set[str] = set()
+        unknown: list[str] = []
+        for name in names:
+            mask = leaderboard_pareto["Method"] == name
+            for col in ("ta_name", "config_type"):
+                if col in leaderboard_pareto.columns:
+                    mask |= leaderboard_pareto[col] == name
+            if mask.any():
+                resolved.update(leaderboard_pareto.loc[mask, "Method"].dropna().unique())
+            else:
+                unknown.append(name)
+        if unknown:
+            print(
+                f"WARNING: pareto_focus_methods {unknown} match no plotted method and are ignored. "
+                f"Names are matched against ta_name, config_type and the display name; "
+                f"plotted display names are: {sorted(leaderboard_pareto['Method'].dropna().unique())}",
+            )
+        return resolved
 
     def _plot_pareto_focus_figure(
         self,
