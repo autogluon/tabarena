@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 import random
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -64,7 +65,10 @@ class MitraV2Model(MitraModel):
     truncation of a bag whose time limit is hit; AutoGluon fails the bag instead.
 
     Requires a CUDA GPU. ``flash-attn`` is optional and speeds up attention; the reported numbers
-    were calibrated without it. Install with ``pip install tabarena[mitra_v2]``.
+    were calibrated without it. Install with ``pip install tabarena[mitra_v2]``. The wrapper turns
+    on expandable segments in torch's CUDA caching allocator for its process (see
+    :func:`configure_cuda_allocator`) so the large, shape-changing activations of the 2D layout do
+    not strand a third of the card in fragmented reserves.
     """
 
     ag_key = "TA-MITRA-V2"
@@ -185,6 +189,7 @@ class MitraV2Model(MitraModel):
     ):
         import torch
 
+        configure_cuda_allocator()
         model_cls = self.get_model_cls()
         hyp = self._get_model_params()
         wrapper_params = {name: hyp.pop(name) for name in self._WRAPPER_PARAMS}
@@ -320,8 +325,46 @@ class MitraV2Model(MitraModel):
         """
         from tabarena.models.warmup import warmup_imports, warmup_torch
 
+        configure_cuda_allocator()
         warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
         warmup_imports("autogluon.tabular.models.mitra.sklearn_interface")
+
+
+#: Allocator settings :func:`configure_cuda_allocator` applies when the environment sets none.
+CUDA_ALLOC_CONF = "expandable_segments:True"
+
+
+def configure_cuda_allocator() -> None:
+    """Enable expandable segments in torch's CUDA caching allocator for this process.
+
+    Mitra's 2D layout allocates a few very large ``rows x features x hidden`` tensors per layer,
+    and their shapes change with every step of the out-of-memory ratchet and again between
+    fine-tuning and prediction. With fixed-size segments the caching allocator ends up holding a
+    large share of the card in fragments it cannot hand out as one block: on hiva_agnostic
+    (2563 rows, 1414 columns) prediction failed on a 13.9 GiB request while 59.5 GiB were live and
+    32.8 GiB were reserved but unallocated on a 95 GiB card. Expandable segments let the allocator
+    grow a segment in place, so that reserve stays usable.
+
+    The allocator reads ``PYTORCH_CUDA_ALLOC_CONF`` when it first runs, so :meth:`MitraV2Model.warmup`
+    calls this before it creates the CUDA context. ``_fit`` calls it again as a fallback: when CUDA
+    is already initialized the setting is applied through torch's runtime setter instead. An
+    explicit ``PYTORCH_CUDA_ALLOC_CONF`` in the environment is respected and left untouched.
+    Idempotent.
+    """
+    if os.environ.get("PYTORCH_CUDA_ALLOC_CONF") is not None:
+        return
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = CUDA_ALLOC_CONF
+    import torch
+
+    if not torch.cuda.is_initialized():
+        return  # read from the environment when the allocator starts
+    set_settings = getattr(torch._C, "_accelerator_setAllocatorSettings", None)
+    if set_settings is None:  # torch < 2.9
+        set_settings = torch.cuda.memory._set_allocator_settings
+    try:
+        set_settings(CUDA_ALLOC_CONF)
+    except RuntimeError as exc:
+        logger.log(20, f"\tCould not apply {CUDA_ALLOC_CONF!r} to the running CUDA allocator: {exc}")
 
 
 def resolve_checkpoint_dir(problem_type: str) -> str:
