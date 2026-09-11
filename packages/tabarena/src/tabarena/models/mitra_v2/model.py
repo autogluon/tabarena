@@ -53,6 +53,12 @@ class MitraV2Model(MitraModel):
       (regression) rows.
     * Prediction: in-context support of up to 16,384 (binary) or 32,768 (multiclass, regression)
       rows, class-balanced on binary tasks, halved under GPU memory pressure.
+    * Fine-tuning loop cost: the validation pass after every step runs in one wide query chunk
+      instead of 1,024-row chunks with a fresh support draw each; a throw-away forward and
+      backward pass at the context size precedes the first validation pass so a context that does
+      not fit the GPU fails in seconds; and the loop's attention runs on PyTorch's fused kernel.
+      None of these changes what a step computes; they decide how many of the 50 steps fit the
+      250 s budget on a given GPU.
     * Heldout in support: after its out-of-fold predictions, a bag child predicts with its fit
       fold plus its held-out fold as support, so the bag needs no refit. The held-out labels are
       used only as fine-tuning validation and as support rows, never for test information.
@@ -64,9 +70,14 @@ class MitraV2Model(MitraModel):
     dataset exceeds ten, so ``max_classes`` stays at the checkpoint's head width), and its
     truncation of a bag whose time limit is hit; AutoGluon fails the bag instead.
 
-    Requires a CUDA GPU. ``flash-attn`` is optional and speeds up attention; the reported numbers
-    were calibrated without it. Install with ``pip install tabarena[mitra_v2]``. The wrapper turns
-    on expandable segments in torch's CUDA caching allocator for its process (see
+    Requires a CUDA GPU. ``flash-attn`` is optional but recommended: prediction runs Tab2D's
+    attention on ``flash_attn_varlen_func`` when the package imports (the reported numbers did),
+    which at prediction shapes is faster and needs far less memory than the fallback. The
+    fine-tuning loop itself runs on PyTorch's fused ``scaled_dot_product_attention`` on every
+    installation (``finetune_attention_backend="stock"`` restores the construction-time kernel),
+    which matches flash-attn 2 to bf16 rounding and is as fast per step on an H100 and 1.3 to 1.7
+    times faster on an RTX PRO 6000 Blackwell. Install with ``pip install tabarena[mitra_v2]``.
+    The wrapper turns on expandable segments in torch's CUDA caching allocator for its process (see
     :func:`configure_cuda_allocator`) so the large, shape-changing activations of the 2D layout do
     not strand a third of the card in fragmented reserves.
     """
@@ -125,6 +136,9 @@ class MitraV2Model(MitraModel):
             # "auto": the held-out fold of a bag child joins its support; an external validation
             # set (holdout fit) does not. True / False force either behavior.
             "heldout_in_support": "auto",
+            "finetune_eval_query_chunk": recipe.FINETUNE_EVAL_QUERY_CHUNK,
+            "finetune_memory_preflight": True,
+            "finetune_attention_backend": recipe.FINETUNE_ATTENTION_BACKEND,
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
@@ -142,6 +156,9 @@ class MitraV2Model(MitraModel):
         "balanced_binary_support",
         "max_features_budget",
         "heldout_in_support",
+        "finetune_eval_query_chunk",
+        "finetune_memory_preflight",
+        "finetune_attention_backend",
     )
 
     def _preprocess(
@@ -227,6 +244,9 @@ class MitraV2Model(MitraModel):
             balanced_binary_support=wrapper_params["balanced_binary_support"],
             fine_tune_budget=wrapper_params["fine_tune_budget"],
             heldout_in_support=bool(heldout_in_support),
+            finetune_eval_query_chunk=wrapper_params["finetune_eval_query_chunk"],
+            finetune_memory_preflight=bool(wrapper_params["finetune_memory_preflight"]),
+            finetune_attention_backend=wrapper_params["finetune_attention_backend"],
             n_bins=_head_width(checkpoint_dir) if self.problem_type == "regression" else None,
         )
 

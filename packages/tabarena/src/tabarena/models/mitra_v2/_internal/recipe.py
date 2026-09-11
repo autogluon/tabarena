@@ -38,6 +38,20 @@ WEIGHT_DECAY = 0.3
 #: Wall-clock budget of the fine-tuning loop of one bag child under the TabArena one-hour
 #: protocol (seconds). The 50-step loop stops early when it is exceeded.
 FINE_TUNE_BUDGET_S = 250.0
+#: Query rows per validation pass of the fine-tuning loop. Stock AutoGluon validates in chunks of
+#: ``max_samples_query`` (1,024) rows and redraws the in-context support for every chunk, so the
+#: validation pass that follows every step costs as much as several steps on large tables. One
+#: wide chunk is a single forward pass; under out-of-memory it is halved back to the stock chunk.
+#: Query rows attend only to the support, so the chunking does not change what is predicted.
+FINETUNE_EVAL_QUERY_CHUNK = 16_384
+#: Attention kernel of the fine-tuning loop. ``"sdpa"`` runs the loop's attention through PyTorch's
+#: fused ``scaled_dot_product_attention`` (the path stock AutoGluon takes when ``flash-attn`` is
+#: not installed); ``"stock"`` keeps the construction-time choice, ``flash_attn_varlen_func``
+#: whenever the package imports. Both compute exact attention and agree to bf16 rounding. Per
+#: fine-tuning step ``sdpa`` is as fast as flash-attn 2 on an H100 and 1.3 to 1.7 times faster on
+#: an RTX PRO 6000 Blackwell. Prediction always keeps the stock choice: at prediction shapes
+#: (up to 16,384 support and 16,384 query rows) the flash path is faster and needs far less memory.
+FINETUNE_ATTENTION_BACKEND = "sdpa"
 
 # --- In-context support -------------------------------------------------------------------------
 #: Rows the fine-tuning loop may draw as in-context support (stock AutoGluon: 8,192).
@@ -249,6 +263,14 @@ class RecipeSettings:
     heldout_in_support: bool = True
     """Whether the validation rows given to ``fit`` join the prediction-time support once fitting
     and validation are over (the recipe's heldout-in-support rule for bag children)."""
+    finetune_eval_query_chunk: int = FINETUNE_EVAL_QUERY_CHUNK
+    """Query rows per validation pass during fine-tuning (:data:`FINETUNE_EVAL_QUERY_CHUNK`)."""
+    finetune_memory_preflight: bool = True
+    """Whether one throw-away forward and backward pass at the fine-tuning context size runs before
+    the first validation pass, so a context that does not fit the GPU fails in seconds rather than
+    after a full validation pass at that size."""
+    finetune_attention_backend: str = FINETUNE_ATTENTION_BACKEND
+    """``"sdpa"`` or ``"stock"`` (:data:`FINETUNE_ATTENTION_BACKEND`)."""
     n_bins: int | None = None
     """Width of the regression head (bins); ``None`` for classification."""
 
