@@ -16,7 +16,7 @@ from autogluon.tabular.models.mitra._internal.config.enums import LossName, Task
 from autogluon.tabular.models.mitra.sklearn_interface import MitraClassifier, MitraRegressor
 
 from tabarena.models.mitra_v2._internal.recipe import RecipeSettings
-from tabarena.models.mitra_v2._internal.trainer import MitraV2Trainer
+from tabarena.models.mitra_v2._internal.trainer import MitraV2Trainer, is_cuda_oom
 
 
 class MitraV2Mixin:
@@ -85,7 +85,13 @@ class MitraV2Mixin:
         rng = np.random.RandomState(get_numpy_seed(cfg.seed))
 
         success = False
-        while not (success and cfg.hyperparams["max_samples_support"] > 0 and cfg.hyperparams["max_samples_query"] > 0):
+        while (
+            not success
+            and cfg.hyperparams["max_samples_support"] > 0
+            and cfg.hyperparams["max_samples_query"] > 0
+        ):
+            model = None
+            trainer = None
             try:
                 self.trainers.clear()
                 self.train_time = 0
@@ -104,8 +110,14 @@ class MitraV2Mixin:
                     trainer.train(X_train, y_train, X_valid, y_valid)
                     self.trainers.append(trainer)
                     self.train_time += time.time() - start_time
-                    success = True
-            except torch.cuda.OutOfMemoryError:
+                success = True
+            except RuntimeError as exc:
+                if not is_cuda_oom(exc):
+                    raise
+                self.trainers.clear()
+                trainer = None
+                model = None
+                torch.cuda.empty_cache()
                 # Same fallback as stock AutoGluon: shrink the fine-tuning context and retry.
                 old_support = cfg.hyperparams["max_samples_support"]
                 cfg.hyperparams["max_samples_support"] = old_support // 2
