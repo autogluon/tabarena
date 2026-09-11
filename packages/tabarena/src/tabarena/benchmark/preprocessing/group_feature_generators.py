@@ -17,7 +17,6 @@ from autogluon.common.features.types import (
     S_TEXT_SPECIAL,
 )
 from autogluon.features import AbstractFeatureGenerator
-from tqdm import tqdm
 
 GROUP_INDEX_FEATURES = "group_index_features"
 
@@ -91,35 +90,38 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
 
         group_key = self._build_group_key(X)
         feature_cols = [c for c in X.columns if c not in self.group_col]
-        num_cols = [c for c in feature_cols if pd.api.types.is_numeric_dtype(X[c])]
-        cat_cols = [c for c in feature_cols if not pd.api.types.is_numeric_dtype(X[c])]
-        time_cols = [self.group_time_on] if self.group_time_on and self.group_time_on in X.columns else []
+        sources = {
+            c: list(self._NUM_AGGS if pd.api.types.is_numeric_dtype(X[c]) else self._CAT_AGGS) for c in feature_cols
+        }
 
-        # Compute all per-group aggregations and select the top n_top_features
-        # by variance (unsupervised).  Categorical aggregations are encoded as
-        # integer category codes before computing variance.
+        # Every aggregation of every column in one pass, then the top n_top_features by
+        # variance (unsupervised). The variance is that of each per-group value broadcast to
+        # the rows of its group, computed from the group table and the group sizes rather
+        # than from a rows x aggregations frame: mapping every aggregation back to every row
+        # costs rows x columns x aggregations values, which on a million-row task with a few
+        # hundred columns is tens of gigabytes for a number the group table already holds.
+        # Categorical aggregations are encoded as integer category codes before computing
+        # variance.
+        aggregated = self._aggregate(X, sources)
+        group_sizes = group_key.value_counts().reindex(aggregated.index).to_numpy(dtype=float)
         variance: dict[str, float] = {}
-        feature_source: dict[str, tuple[str, str, bool]] = {}
+        for feat in aggregated.columns:
+            values = aggregated[feat]
+            if not pd.api.types.is_numeric_dtype(values):
+                values = values.astype("category").cat.codes.astype(float)
+                values[values < 0] = np.nan
+            variance[feat] = self._broadcast_variance(values.to_numpy(dtype=float), group_sizes)
+        feature_source = {
+            f"{col}_{agg}": (col, agg, agg in self._NUM_AGGS and pd.api.types.is_numeric_dtype(X[col]))
+            for col, aggs in sources.items()
+            for agg in aggs
+        }
 
-        col_iter = [(c, True, list(self._NUM_AGGS)) for c in num_cols] + [
-            (c, False, list(self._CAT_AGGS)) for c in cat_cols
-        ]
-        for col, is_num, aggs in tqdm(col_iter, desc="Computing groupby aggregations", unit="col"):
-            slice_cols = list(dict.fromkeys(self.group_col + time_cols + [col]))
-            X_col = self._sort_by_time(X[slice_cols])
-            agg_df = X_col.groupby(self._build_group_key(X_col), observed=True)[[col]].agg(aggs)
-            agg_df.columns = [f"{col}_{a}" for a in aggs]
-            for feat in agg_df.columns:
-                s = group_key.map(agg_df[feat])
-                if not pd.api.types.is_numeric_dtype(s):
-                    s = s.astype("category").cat.codes.astype(float)
-                    s[s < 0] = np.nan
-                variance[feat] = float(s.var())
-            for agg in aggs:
-                feature_source[f"{col}_{agg}"] = (col, agg, is_num)
-
-        # Select top n_top_features by variance (descending), tie-break by name.
-        ranked = sorted(variance.keys(), key=lambda f: (-variance[f], f))
+        # Select top n_top_features by variance (descending), tie-break by name. The variance
+        # is rounded to 12 significant digits first: two aggregations of the same values (a
+        # column's `count` and another's, say) must rank as a tie by name, not by the last bit
+        # of two floating-point sums.
+        ranked = sorted(variance.keys(), key=lambda f: (-self._rank_variance(variance[f]), f))
         self._selected_features = ranked[: self.n_top_features]
 
         # Build test-time agg maps.
@@ -147,10 +149,8 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
         group_key = self._build_group_key(X)
         X = X.drop(columns=self.group_col)
 
-        mapped = pd.DataFrame(
-            {col: group_key.map(X_agg[col]) for col in self._selected_features},
-            index=X.index,
-        )
+        mapped = X_agg[self._selected_features].reindex(group_key.to_numpy())
+        mapped.index = X.index
         return pd.concat([X, mapped], axis=1)
 
     def _sort_by_time(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -170,29 +170,54 @@ class GroupAggregationFeatureGenerator(AbstractFeatureGenerator):
 
     def _compute_selected_agg_features(self, X: pd.DataFrame) -> pd.DataFrame:
         """Compute only the aggregations needed for the selected features."""
-        X = self._sort_by_time(X)
-        group_key = self._build_group_key(X)
-        parts: list[pd.DataFrame] = []
+        sources = {
+            col: aggs
+            for agg_map in (self._num_agg_map, self._cat_agg_map)
+            for col, aggs in agg_map.items()
+            if col in X.columns
+        }
+        return self._aggregate(X, sources)
 
-        if self._num_agg_map:
-            for col, aggs in self._num_agg_map.items():
-                if col not in X.columns:
-                    continue
-                agg_df = X.groupby(group_key, observed=True)[[col]].agg(aggs)
-                agg_df.columns = [f"{col}_{a}" for a in aggs]
-                parts.append(agg_df)
+    @staticmethod
+    def _rank_variance(variance: float) -> float:
+        """The variance as the ranking compares it: rounded to 12 significant digits."""
+        return float(f"{variance:.12g}")
 
-        if self._cat_agg_map:
-            for col, aggs in self._cat_agg_map.items():
-                if col not in X.columns:
-                    continue
-                agg_df = X.groupby(group_key, observed=True)[[col]].agg(aggs)
-                agg_df.columns = [f"{col}_{a}" for a in aggs]
-                parts.append(agg_df)
+    @staticmethod
+    def _broadcast_variance(values: np.ndarray, sizes: np.ndarray) -> float:
+        """Sample variance of ``values[g]`` repeated ``sizes[g]`` times, NaN groups skipped.
 
-        if not parts:
+        Equals ``pd.Series(values[group_of_row]).var()`` (``ddof=1``) without building that
+        series.
+        """
+        keep = ~np.isnan(values)
+        values, sizes = values[keep], sizes[keep]
+        n = sizes.sum()
+        if n <= 1:
+            return float("nan")
+        mean = (sizes * values).sum() / n
+        return float((sizes * (values - mean) ** 2).sum() / (n - 1))
+
+    def _aggregate(self, X: pd.DataFrame, sources: dict[str, list[str]]) -> pd.DataFrame:
+        """Per-group values of every ``sources`` aggregation, one row per group.
+
+        One ``groupby`` per distinct aggregation list rather than one per column: the
+        rows are ordered by ``group_time_on`` once (so ``last`` is the latest
+        observation), and the resulting ``(column, aggregation)`` columns are named
+        ``<column>_<aggregation>``. Empty ``sources`` gives an empty frame.
+        """
+        if not sources:
             return pd.DataFrame()
-
+        X_sorted = self._sort_by_time(X)
+        group_key = self._build_group_key(X_sorted)
+        by_aggs: dict[tuple[str, ...], list[str]] = defaultdict(list)
+        for col, aggs in sources.items():
+            by_aggs[tuple(aggs)].append(col)
+        parts: list[pd.DataFrame] = []
+        for aggs, cols in by_aggs.items():
+            agg_df = X_sorted[cols].groupby(group_key, observed=True).agg(list(aggs))
+            agg_df.columns = [f"{col}_{agg}" for col, agg in agg_df.columns]
+            parts.append(agg_df)
         return pd.concat(parts, axis=1)
 
     def _build_group_key(self, X: pd.DataFrame) -> pd.Series:

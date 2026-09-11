@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 #: Variant display order used to sort each method's points so the connector
 #: line runs default -> tuned -> tuned + ensembled.
-_VARIANT_ORDER = ["Default", "Tuned", "Tuned + Ens.", "Baseline", "Best"]
+_VARIANT_ORDER = ["Default", "Tuned", "Tuned + Ens.", "End-to-end", "Best"]
 
 #: Metric definitions the explorer's y-axis selector can offer, keyed by the
 #: column name expected in ``points``.
@@ -72,6 +72,7 @@ def build_pareto_explorer_html(
     metric_keys: list[str] | None = None,
     x_keys: list[str] | None = None,
     chips_side: str = "left",
+    dim_off_front: bool = False,
     page_title: str = "TabArena Pareto explorer",
 ) -> Path:
     """Render the interactive explorer HTML for a set of method points.
@@ -100,6 +101,9 @@ def build_pareto_explorer_html(
     chips_side
         ``"left"`` places the controls + method chips left of the chart,
         ``"right"`` mirrors the columns.
+    dim_off_front
+        Draw the active points that are not vertices of the current Pareto front
+        smaller and fainter, so the front members stand out among a large selection.
     """
     if chips_side not in ("left", "right"):
         raise ValueError(f"Unknown chips_side: {chips_side!r}")
@@ -156,6 +160,7 @@ def build_pareto_explorer_html(
         "metrics": [_METRIC_SPECS[k] for k in metric_keys],
         "xAxes": [_X_AXIS_SPECS[k] for k in x_keys],
         "chipsSide": chips_side,
+        "dimOffFront": dim_off_front,
     }
 
     html = render_explorer_html(EXPLORER_TEMPLATE, page_title=page_title, config=config, points=data)

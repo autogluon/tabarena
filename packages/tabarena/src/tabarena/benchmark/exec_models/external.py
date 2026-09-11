@@ -2,7 +2,7 @@
 
 Subclass :class:`ExternalSystemModel` to wrap any system that does its own preprocessing, training,
 and prediction — for example an AutoML tool or an LLM-driven agent. See
-``examples/advanced/run_quickstart_tabarena_external_system.py`` for a runnable example.
+``examples/benchmarking/run_quickstart_tabarena_system.py`` for a runnable example.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ class ExternalSystemModel(AbstractExecModel):
     preparation around the timed predict (e.g. bringing your fitted system into serving state /
     releasing it): they may touch the fitted system but never the test data. See
     ``AbstractExecModel`` for the contracts and
-    ``examples/advanced/run_quickstart_tabarena_external_system.py`` for a runnable example.
+    ``examples/benchmarking/run_quickstart_tabarena_system.py`` for a runnable example.
     """
 
     # An external system gets the raw data and does its own preprocessing, label handling, and

@@ -138,7 +138,7 @@ __BASE_JS__
       if (edge) el("path", { ...cross, stroke: edge, "stroke-width": size * 0.62 + 2.4 }, parent);
       node = el("path", { ...cross, stroke: color, "stroke-width": size * 0.62 }, parent);
     } else {
-      // Any other variant (e.g. "Baseline", holdout types): diamond.
+      // Any other variant (e.g. "End-to-end", holdout types): diamond.
       const s = size * 1.45;
       node = el("rect", {
         ...common, ...outline, x: cx - s / 2, y: cy - s / 2, width: s, height: s, rx: 1,
@@ -212,6 +212,7 @@ __BASE_JS__
       a[xk] - b[xk] || (metric.lowerBetter ? mval(a, metric) - mval(b, metric) : mval(b, metric) - mval(a, metric)));
     const verts = [];
     const methods = new Set();
+    const points = new Set();
     let best = null;
     for (const p of pts) {
       const v = mval(p, metric);
@@ -220,9 +221,10 @@ __BASE_JS__
         verts.push([p[xk], v]);
         best = v;
         methods.add(p.method);
+        points.add(p);
       }
     }
-    return { verts, methods };
+    return { verts, methods, points };
   }
 
   // The chart opens on the front, and keeps following it while the metric changes:
@@ -335,8 +337,11 @@ __BASE_JS__
         // the card color on the dark one (the --fam-*-edge tokens). Muted markers stay
         // plain grey, easy to ignore.
         const edge = on ? FAM_EDGE[p.family] : null;
-        const size = (on ? 7 : 5) * (TRAJECTORY ? 0.8 : 1);
-        const op = on ? 0.95 : 0.5;
+        // With `dimOffFront`, an active point that is not a vertex of the front is drawn
+        // smaller and fainter, so the front members carry the eye.
+        const dim = CONFIG.dimOffFront && on && !front.points.has(p);
+        const size = (on ? (dim ? 5.5 : 7) : 5) * (TRAJECTORY ? 0.8 : 1);
+        const op = on ? (dim ? 0.7 : 0.95) : 0.5;
         drawMark(on ? ptsOn : ptsOff, X(p[xKey]), Y(mval(p, metric)), p.variant, color, edge, size, op, p.method);
         // Imputation ring: every affected point in scatter mode; only the
         // trajectory's end point in trajectory mode (a ring on all ~8 line
@@ -564,6 +569,10 @@ __BASE_JS__
         '<span class="item"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="var(--muted)"/></svg> Default</span>' +
         '<span class="item"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="2" y="2" width="10" height="10" rx="1.5" fill="var(--muted)"/></svg> Tuned</span>' +
         '<span class="item"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M3,3 L11,11 M3,11 L11,3" stroke="var(--muted)" stroke-width="2.6" stroke-linecap="round"/></svg> Tuned + Ensembled</span>';
+      // Systems draw as diamonds; the legend names them as the leaderboard table does.
+      if (POINTS.some(p => p.variant === "End-to-end")) {
+        html += '<span class="item" title="A system picked, tuned and combined its own models inside one budget; the tuning regimes do not apply to it"><svg width="14" height="14" viewBox="0 0 14 14"><rect x="3" y="3" width="8" height="8" rx="1" fill="var(--muted)" transform="rotate(45 7 7)"/></svg> End-to-end</span>';
+      }
     } else {
       html += '<span class="item"><svg width="26" height="8" viewBox="0 0 26 8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--muted)" stroke-width="2"/><circle cx="6" cy="4" r="2.6" fill="var(--muted)"/><circle cx="16" cy="4" r="2.6" fill="var(--muted)"/></svg> Tuning trajectory (more configs &rarr; more time)</span>';
     }

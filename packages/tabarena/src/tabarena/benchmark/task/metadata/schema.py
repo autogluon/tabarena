@@ -520,9 +520,12 @@ def to_legacy_task_metadata(task_metadata: list[TabArenaTaskMetadata]) -> pd.Dat
     * ``n_folds`` / ``n_repeats`` — *aggregate* per-dataset split counts, used to expand
       the (dataset, fold, repeat) grid.
     * ``problem_type``, ``n_features``, ``n_classes``, ``n_samples_train_per_fold`` — the
-      columns the subset predicates reference. ``n_samples_train_per_fold`` is aliased to
-      ``max_train_rows`` when the legacy frame is expanded into the subset task grid
-      (``compare._task_grid_from_legacy_df``) for the size buckets.
+      columns the subset predicates reference. ``n_samples_train_per_fold`` is the *mean*
+      per-fold train size; ``compare._task_grid_from_legacy_df`` aliases it to ``max_train_rows``
+      when a legacy frame is expanded into the subset task grid, which is exact only when every
+      split has the same train size (IID k-fold, i.e. what legacy frames describe). Collections
+      evaluate the size buckets on :meth:`TaskMetadataCollection.task_grid`, whose
+      ``max_train_rows`` is the true per-dataset maximum.
 
     Two things make this a non-trivial mapping (see :func:`TabArenaTaskMetadata.to_dataframe`):
 
@@ -550,7 +553,8 @@ def to_legacy_task_metadata(task_metadata: list[TabArenaTaskMetadata]) -> pd.Dat
     # n_samples_*_per_fold is the mean per-fold size, kept as a float: it matches the curated
     # per-fold average and is the exact inverse of from_legacy_df (which stamps one per-fold
     # value onto every split), so the conversion round-trips without max()/int() loss.
-    # (NB: the subset predicates alias n_samples_train_per_fold to ``max_train_rows``.)
+    # (NB: compare._task_grid_from_legacy_df aliases n_samples_train_per_fold to ``max_train_rows``
+    # for legacy-frame inputs, where equal fold sizes make the mean and the max coincide.)
     aggregates = per_split.groupby("dataset", sort=False).agg(
         n_folds=("fold", "nunique"),
         n_repeats=("repeat", "nunique"),

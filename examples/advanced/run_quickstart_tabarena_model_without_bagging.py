@@ -1,6 +1,6 @@
 """Benchmark a model on TabArena as an *outer* (no-bagging) experiment — shown with TabICLv2.
 
-Same single-hub formula as ``benchmarking/run_quickstart_tabarena.py`` (bundle ->
+Same single-hub formula as ``benchmarking/run_quickstart_tabarena_model.py`` (bundle ->
 context.build_and_run_jobs -> compare), but ``outer_experiments=True`` makes the bundle fit each
 model directly on all the training data (an ``AGModelWrapper``: no train/val split, bagging, or
 ensemble).
@@ -27,7 +27,7 @@ if __name__ == "__main__":
     #    `n_estimators=1` variant. A `ConfigGenerator` with explicit `manual_configs` (and 0
     #    random configs) runs exactly those — yielding `TA-TabICLv2_c1` (default) and
     #    `TA-TabICLv2_c2` (n_estimators=1). For a registry model at its default, pass the name
-    #    instead, e.g. `("TabICLv2", 0)`; see `run_quickstart_tabarena.py` for HPO / custom models.
+    #    instead, e.g. `("TabICLv2", 0)`; see `run_quickstart_tabarena_model.py` for HPO / custom models.
     tabiclv2 = ConfigGenerator(
         search_space={},
         model_cls=TabICLv2Model,

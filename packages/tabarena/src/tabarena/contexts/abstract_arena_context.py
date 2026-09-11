@@ -866,6 +866,7 @@ class AbstractArenaContext:
         figure_file_type: str = "pdf",
         plot_only: list[str] | None = None,
         method_color_overrides: dict[str, str] | None = None,
+        pareto_focus_new_methods: bool = False,
         # extra analyses
         compute_fold_similarity: bool = False,
         fold_similarity_kwargs: dict | None = None,
@@ -945,6 +946,12 @@ class AbstractArenaContext:
                 stays hidden.
             method_color_overrides: fixed color per method family in the Pareto plots, as a
                 ``{display_name: color}`` map (e.g. ``{"TabPFN-3": "midnightblue"}``).
+            pareto_focus_new_methods: emphasize the registered "new" methods (those added via
+                ``extra_methods=`` / :meth:`register`) in every Pareto figure, in addition to the
+                Pareto-front members: family color plus a boxed label instead of the muted grey
+                the dominated methods get. Plotting-only, like ``plot_only``. Forwarded as
+                ``pareto_focus_methods`` to :meth:`LeaderboardReporter.eval`; a no-op when no new
+                method is registered.
             compute_fold_similarity: rank the datasets by how consistently their folds/seeds
                 agree and estimate the folds needed for a stable result, written to
                 ``fold_similarity.csv``. Needs an ``output_dir``.
@@ -1000,6 +1007,11 @@ class AbstractArenaContext:
         # Per-method Pareto colors (also plotting-only); forwarded to eval the same way.
         if method_color_overrides is not None:
             kwargs["method_color_overrides"] = method_color_overrides
+        # Box-label the registered new methods in the Pareto figures (plotting-only). Unioned with
+        # any explicit focus list so a caller can add further methods on top.
+        if pareto_focus_new_methods and self._new_method_names:
+            explicit = set(kwargs.get("pareto_focus_methods") or [])
+            kwargs["pareto_focus_methods"] = sorted(explicit | self._new_method_names)
         df_filter, passthrough_names = self._resolve_only_valid_tasks(only_valid_tasks, new_results)
         if passthrough_names is not None:
             kwargs["only_valid_tasks"] = passthrough_names
