@@ -18,6 +18,18 @@ from autogluon.tabular.models.mitra.sklearn_interface import MitraClassifier, Mi
 from tabarena.models.mitra_v2._internal.recipe import RecipeSettings
 from tabarena.models.mitra_v2._internal.trainer import MitraV2Trainer, is_cuda_oom
 
+#: Fine-tuning context sizes that fit the GPU, learned from the out-of-memory ratchet in
+#: :meth:`MitraV2Mixin._train_ensemble` and keyed on the table shape. The eight children of a bag run
+#: one after another in one process on tables of the same shape, so once the first child has found
+#: the context that fits, the others start there instead of repeating the attempts that failed.
+#: Process-local, like the ratchet itself; the ratchet stays in place as the fallback.
+_FITTED_CONTEXT_MEMO: dict[tuple, tuple[int, int]] = {}
+
+
+def _context_memo_key(task, n_rows: int, n_features: int, support_cap: int, query_cap: int) -> tuple:
+    """Memo key: task, feature count, row count to the nearest 256 (bag folds differ by a row), requested caps."""
+    return (str(task), int(n_features), round(n_rows / 256), int(support_cap), int(query_cap))
+
 
 class MitraV2Mixin:
     """Recipe plumbing shared by :class:`MitraV2Classifier` and :class:`MitraV2Regressor`.
@@ -84,6 +96,17 @@ class MitraV2Mixin:
         cfg, model_cls = self._create_config(task, dim_output, time_limit)
         rng = np.random.RandomState(get_numpy_seed(cfg.seed))
 
+        hp = cfg.hyperparams
+        memo_key = _context_memo_key(
+            task, len(X_train), X_train.shape[1], hp["max_samples_support"], hp["max_samples_query"]
+        )
+        memo = _FITTED_CONTEXT_MEMO.get(memo_key)
+        if memo is not None and memo < (hp["max_samples_support"], hp["max_samples_query"]):
+            print(
+                f"Starting fine-tuning at max_samples_support={memo[0]}, max_samples_query={memo[1]}: the context that fit this table shape earlier in this process."
+            )
+            hp["max_samples_support"], hp["max_samples_query"] = memo
+
         success = False
         while not success and cfg.hyperparams["max_samples_support"] > 0 and cfg.hyperparams["max_samples_query"] > 0:
             model = None
@@ -107,6 +130,7 @@ class MitraV2Mixin:
                     self.trainers.append(trainer)
                     self.train_time += time.time() - start_time
                 success = True
+                _FITTED_CONTEXT_MEMO[memo_key] = (hp["max_samples_support"], hp["max_samples_query"])
             except RuntimeError as exc:
                 if not is_cuda_oom(exc):
                     raise
