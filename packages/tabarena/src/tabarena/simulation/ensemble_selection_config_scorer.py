@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import os
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 import numpy as np
 from autogluon.core.metrics import Scorer, get_metric
@@ -214,6 +214,46 @@ class TaskEvaluator:
             results["ensemble_info"] = ensemble_info
 
         return results, ensemble
+
+
+class NoPreprocessingTaskEvaluator(TaskEvaluator):
+    """Minimal per-task evaluator that only uses the metric's `preprocess_bulk` when computing the metric, not before training and predicting.
+
+    Needed for ensemble methods which use multiple class predictions and fast metrics.
+
+    Due to the lack of preprocessing at first and a final processing, there is a difference of around 1e-6 in the log_loss with TaskEvaluator.
+    """
+
+    @override
+    def fit(self, *, pred_train: np.ndarray, y_train: np.ndarray) -> AbstractEnsembler:
+        ensemble = self.init_ens()
+        ensemble.fit(predictions=pred_train, labels=y_train)
+        return ensemble
+
+    @override
+    def predict(
+        self, *, ensemble: AbstractEnsembler, pred: np.ndarray, y: np.ndarray, eval_metric: Scorer | None = None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if eval_metric is None:
+            eval_metric = self._eval_metric
+
+        pred = pred.astype(np.float64)
+
+        if eval_metric.needs_pred:
+            # Label-space predictions are for the original problem, not the (possibly
+            # metric-preprocessed) problem type the ensembler was fitted on.
+            y_pred = ensemble.predict(pred, problem_type=self.problem_type)
+        else:
+            y_pred = ensemble.predict_proba(pred)
+        return y_pred, y
+
+    @override
+    def error(self, *, y: np.ndarray, y_pred: np.ndarray, eval_metric: Scorer | None = None) -> float:
+        if eval_metric is None:
+            eval_metric = self._eval_metric
+        y, y_pred = self._maybe_preprocess_bulk(eval_metric, y, np.expand_dims(y_pred, axis=0))
+        y_pred = y_pred.astype(np.float64)
+        return eval_metric.error(y, y_pred)
 
 
 class EnsembleScorer:
