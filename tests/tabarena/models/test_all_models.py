@@ -56,6 +56,8 @@ def test_model_smoke(method: str) -> None:
         }
         if cfg.problem_types is not None:
             kwargs["problem_types"] = list(cfg.problem_types)
+        if cfg.use_larger_toy_datasets:
+            kwargs["use_larger_toy_datasets"] = True
         if not cfg.verify_single_prediction_equivalent_to_multi:
             kwargs["verify_single_prediction_equivalent_to_multi"] = False
         FitHelper.verify_model(**kwargs)
