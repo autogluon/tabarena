@@ -33,6 +33,73 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-11 — xiaomitabldm_11092026
+
+- **Model(s):** Xiaomi-TabLDM (default config only, no HPO configs)
+- **Git SHA:** `fbfc63f0`
+- **Purpose:** First full TabArena-v0.1 run of Xiaomi-TabLDM (tabular foundation model with a
+  dual-stream column embedder and MoE backbone, https://huggingface.co/occams/Xiaomi-TabLDM) for its
+  integration on branch `feature/add-TabLDM`, pinned to commit `6773a30d` of
+  https://github.com/xiaomi-research/xiaomi-tabldm (not on PyPI, installed through the `tabldm` extra).
+- **Notes:** Full task set (all splits), default config only: `gen_tabldm` has an empty search space,
+  so the frozen in-context-learning recipe is the method (`n_estimators=8` forward passes per fold).
+  GPU partition `gpurtxpro6000flex` (RTX PRO 6000, 96 GB), `fake_memory_for_estimates=96`,
+  `memory_limit`/`num_cpus` left `None` so node values are picked up, bundle size 10 (82 array tasks,
+  11 h wall each, 100 concurrent). A first bundle-size-1 array (1142547, 816 tasks) was cancelled
+  minutes after launch at the maintainer's request before any result was written; the run is array
+  1142639. Run venv `tabarena_mitra_v2_10092026` (this clone's venv). Both checkpoints
+  (`clf_default.ckpt`, `reg_default.ckpt`) were prefetched on the head node by `setup`. The wrapper pins
+  `fold_fitting_strategy="sequential_local"` and `refit_folds=True`, has no static memory estimate, and
+  ignores `X_val`/`time_limit` (no training loop), so the 1 h per-config budget was never approached:
+  the slowest split took 97 s for fit plus prediction and the longest task 30 min. All 816 splits
+  completed without a failure. Wall span 16:52 to 19:41; the last hour was spent waiting for flex
+  nodes to boot (partition-wide `NOT_RESPONDING+POWERING_UP` limbo affecting every user's new tasks):
+  six tasks sat in CONFIGURING on nodes that never came up and were requeued by hand with
+  `scontrol requeue`, one of them twice. The CPU smoke fit on the head node passed in 100 s.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="xiaomitabldm_11092026",
+    model_jobs=[
+        ModelJob(
+            models=("Xiaomi-TabLDM", 0),
+            name="gpu",
+            resources={
+                "num_gpus": 1,
+                # The gpu_partition's VRAM in GB (gpurtxpro6000flex -> RTX PRO 6000 -> 96).
+                # AutoGluon budgets parallel bagging folds against this figure instead of the
+                # node RAM, so the check reflects the card the tensors actually live on.
+                "fake_memory_for_estimates": 96,
+            },
+        ),
+    ],
+    task_subset=TaskSubset(),  # the full task set (all splits)
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_mitra_v2_10092026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),  # override: log model fits
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),  # override: auto-detect on node
+    # bundle_size=10: ten fits per SLURM array task (maintainer's choice on 2026-09-11, replacing the
+    # bundle_size=1 array 1142547 cancelled minutes after launch); fewer, longer tasks amortize node
+    # provisioning on the flex partition.
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000flex", bundle_size=10),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-09-09 — ctboost_09092026
 
 - **Model(s):** CTBoost (all configs)
