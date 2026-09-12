@@ -142,6 +142,11 @@ exaone_tabular = [
 # runtime deps (torch, numpy, scikit-learn, scipy, psutil, tqdm, huggingface_hub, packaging)
 # are already in the base tree, so this extra is intentionally empty.
 tabswift = []
+# Mitra-v2 runs on AutoGluon's Mitra implementation; this is AutoGluon's own `mitra` extra
+# (loguru, einops, transformers, huggingface_hub, ...). Keep in sync with models/mitra_v2/info.py.
+# flash-attn is optional (faster attention, same results) and needs a prebuilt wheel:
+# `pip install flash-attn --no-build-isolation`.
+mitra_v2 = ["autogluon.tabular[mitra]>=1.6,<1.7"]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -178,6 +183,7 @@ extended = [
   "tabarena[nori]",
   "tabarena[tabswift]",
   "tabarena[exaone_tabular]",
+  "tabarena[mitra_v2]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).
