@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import numpy as np
 import pandas as pd
 from autogluon.common.features.types import (
     R_BOOL,
@@ -181,18 +182,7 @@ class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):
             X_category = dict()
             if self.category_map is not None:
                 for column, column_map in self.category_map.items():
-                    col_values = X[column]
-                    known = set(column_map)
-                    # Detect non-NaN values absent from the train-time category set.
-                    is_unseen = col_values.notna() & ~col_values.astype(object).isin(known)
-                    if is_unseen.any():
-                        # Keep the original unseen values by extending the category list with them.
-                        col_values = col_values.astype(object)
-                        unseen_vals = col_values[is_unseen].unique().tolist()
-                        cats: pd.Index = pd.Index(list(column_map) + unseen_vals, dtype=object)
-                    else:
-                        cats = column_map
-                    X_category[column] = pd.Categorical(col_values, categories=cats)
+                    X_category[column] = self._encode_column(X[column], column_map)
                 X_category = pd.DataFrame(X_category, index=X.index)
                 if self._fillna_map is not None:
                     for column, col_fill in self._fillna_map.items():
@@ -200,6 +190,32 @@ class NoCatAsStringCategoryFeatureGenerator(CategoryFeatureGenerator):
         else:
             X_category = pd.DataFrame(index=X.index)
         return X_category
+
+    @staticmethod
+    def _encode_column(col_values: pd.Series, column_map: pd.Index) -> pd.Categorical:
+        """The column as a categorical over the train-time categories, unseen values appended.
+
+        Non-NaN values absent from `column_map` are kept as extra categories, in order of first
+        appearance. A column that already is categorical is read through its codes, so no value
+        is hashed or converted.
+        """
+        known = set(column_map)
+        if isinstance(col_values.dtype, pd.CategoricalDtype):
+            codes = col_values.cat.codes.to_numpy()
+            present = np.asarray(col_values.cat.categories)[pd.unique(codes[codes >= 0])]
+            unseen_vals = [value for value in present.tolist() if value not in known]
+            if not unseen_vals:
+                return col_values.cat.set_categories(column_map).array
+            cats = pd.Index(list(column_map) + unseen_vals, dtype=object)
+            return pd.Categorical(col_values.astype(object), categories=cats)
+        is_unseen = col_values.notna() & ~col_values.astype(object).isin(known)
+        if is_unseen.any():
+            col_values = col_values.astype(object)
+            unseen_vals = col_values[is_unseen].unique().tolist()
+            cats = pd.Index(list(column_map) + unseen_vals, dtype=object)
+        else:
+            cats = column_map
+        return pd.Categorical(col_values, categories=cats)
 
     @staticmethod
     def get_default_infer_features_in_args() -> dict:
