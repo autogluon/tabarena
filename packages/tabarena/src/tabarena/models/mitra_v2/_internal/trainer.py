@@ -12,6 +12,7 @@ import warnings
 import numpy as np
 import torch
 from autogluon.tabular.models.mitra._internal.config.enums import LossName, ModelName, Task
+from autogluon.tabular.models.mitra._internal.core.callbacks import Checkpoint
 from autogluon.tabular.models.mitra._internal.core.prediction_metrics import PredictionMetricsTracker
 from autogluon.tabular.models.mitra._internal.core.trainer_finetune import TrainerFinetune
 from autogluon.tabular.models.mitra._internal.data.dataset_finetune import DatasetFinetune
@@ -54,6 +55,27 @@ def set_attention_backend(model, backend: str):
             m.use_flash_attn = flag
 
     return restore
+
+
+class DeviceCheckpoint(Checkpoint):
+    """Best-weights checkpoint kept on the model's device.
+
+    The stock ``Checkpoint`` copies every tensor of the state dict to the CPU on each step that
+    improves the validation loss, a synchronous host copy of about 300 MB for Mitra's 77M
+    parameters. This one clones the state once on the device and copies into it in place. Same
+    weights are restored at the end; the copies just never leave the GPU.
+    """
+
+    def reset(self, net: torch.nn.Module) -> None:
+        self.curr_best_loss = np.inf
+        self.best_model = {key: value.detach().clone() for key, value in net.state_dict().items()}
+
+    def __call__(self, net: torch.nn.Module, loss: float) -> None:
+        if loss < self.curr_best_loss:
+            self.curr_best_loss = loss
+            with torch.no_grad():
+                for key, value in net.state_dict().items():
+                    self.best_model[key].copy_(value)
 
 
 class PredictSupportDataset(DatasetFinetune):
@@ -102,13 +124,18 @@ class MitraV2Trainer(TrainerFinetune):
        during fine-tuning) and ``predict``.
     2. ``predict`` conditions on up to ``recipe.predict_support_cap`` rows (the fine-tuning cap
        stays untouched), predicts in one wide query chunk when the whole support fits (then in
-       one seeded order, so repeated predictions agree), balances the support draw on binary
-       tasks, and on CUDA out-of-memory halves the query chunk first (quality-neutral) and then
-       the support cap down to its floor.
+       one seeded order, so repeated predictions agree) and in chunks of the same width, each
+       against a fresh capped support draw, when it does not; balances the support draw on binary
+       tasks; and on CUDA out-of-memory halves the query chunk first (quality-neutral: down to
+       ``recipe.predict_query_chunk_floor`` when the support fits, to the stock chunk when it is
+       capped) and then the support cap down to its floor.
     3. The validation pass after every fine-tuning step predicts the validation set in one wide
        query chunk (``recipe.finetune_eval_query_chunk``) instead of the stock 1,024-row chunks
        with a fresh support draw each, which made that pass cost as much as several steps on large
-       tables; under out-of-memory the chunk is halved back to the stock size.
+       tables; under out-of-memory the chunk is halved back to the stock size. The transformed
+       training and validation arrays it scores are computed once per fit rather than once per
+       step (the preprocessor's transforms are fixed at fit time), and the best-weights checkpoint
+       stays on the GPU (:class:`DeviceCheckpoint`).
     4. Before the first validation pass, one throw-away forward and backward pass at the fine-tuning
        context size (:meth:`_memory_preflight`) makes a context that does not fit the GPU fail in
        seconds instead of after a full validation pass at that size.
@@ -127,6 +154,8 @@ class MitraV2Trainer(TrainerFinetune):
     ):
         super().__init__(cfg, model, n_classes=n_classes, device=device, rng=rng, verbose=verbose)
         self.recipe = recipe
+        self.checkpoint = DeviceCheckpoint()
+        self._eval_arrays: tuple | None = None
 
     @property
     def regression_over_bins(self) -> bool:
@@ -167,12 +196,14 @@ class MitraV2Trainer(TrainerFinetune):
 
     def train(self, x_train, y_train, x_val, y_val):
         restore = set_attention_backend(self.model, self.recipe.finetune_attention_backend)
+        self._eval_arrays = None
         try:
             if self.recipe.finetune_memory_preflight and str(self.device).startswith("cuda"):
                 self._memory_preflight(x_train)
             return super().train(x_train, y_train, x_val, y_val)
         finally:
             restore()
+            self._eval_arrays = None
 
     def _memory_preflight(self, x_train) -> None:
         """One throw-away forward and backward pass at the fine-tuning context size.
@@ -236,9 +267,14 @@ class MitraV2Trainer(TrainerFinetune):
             torch.cuda.empty_cache()
 
     def evaluate(self, x_support, y_support, x_query, y_query):
-        x_support = self.preprocessor.transform_X(x_support)
-        y_support = self.preprocessor.transform_y(y_support)
-        x_query = self.preprocessor.transform_X(x_query)
+        cached = self._eval_arrays
+        if cached is None or cached[0] is not x_support or cached[1] is not x_query:
+            arrays = self._transform_eval_arrays(x_support, y_support, x_query, y_query)
+            cached = self._eval_arrays = (x_support, x_query, arrays)
+        return self._evaluate_arrays(*cached[2])
+
+    def _evaluate_arrays(self, x_support, y_support, x_query, y_query):
+        """Score preprocessed arrays in one wide query chunk, halving the chunk under out-of-memory."""
         stock_chunk = int(self.cfg.hyperparams["max_samples_query"])
         query_chunk = max(stock_chunk, min(int(self.recipe.finetune_eval_query_chunk), len(x_query)))
         while True:
@@ -252,6 +288,20 @@ class MitraV2Trainer(TrainerFinetune):
                 logger.warning(
                     f"Mitra-v2 fine-tuning validation: CUDA out of memory, halving the query chunk to {query_chunk}."
                 )
+
+    def _transform_eval_arrays(self, x_support, y_support, x_query, y_query) -> tuple:
+        """Preprocessed arrays for a validation pass.
+
+        The stock loop calls ``evaluate`` with the same training and validation arrays after every
+        step; the preprocessor's transforms are fixed when it is fit, so :meth:`evaluate` caches the
+        result on array identity for the duration of ``train`` instead of recomputing it per step.
+        """
+        return (
+            self.preprocessor.transform_X(x_support),
+            self.preprocessor.transform_y(y_support),
+            self.preprocessor.transform_X(x_query),
+            np.asarray(y_query),
+        )
 
     def _evaluate_once(self, x_support, y_support, x_query, y_query, *, query_chunk: int):
         self.model.eval()
@@ -267,7 +317,7 @@ class MitraV2Trainer(TrainerFinetune):
         )
         loader = self.make_loader(dataset, training=False)
         tracker = PredictionMetricsTracker(task=self.cfg.task, preprocessor=self.preprocessor)
-        with torch.no_grad():
+        with torch.inference_mode():
             for batch in loader:
                 y_hat = self._forward(batch)
                 y_q = batch["y_query"].to(self.device, non_blocking=True)
@@ -282,12 +332,12 @@ class MitraV2Trainer(TrainerFinetune):
         support_cap = recipe.predict_support_cap
         stock_query_chunk = self.cfg.hyperparams["max_samples_query"]
 
-        def query_chunk_for(cap: int) -> int:
-            # One wide chunk when every support row fits in context; otherwise the stock chunking,
-            # whose per-chunk support redraw acts as an implicit ensemble over capped subsamples.
-            return recipe.predict_query_chunk if n_support <= cap else stock_query_chunk
+        def query_chunk_floor_for(cap: int) -> int:
+            # With the support capped, every chunk gets a fresh capped draw (stock: one per 1,024 rows),
+            # so the ratchet stops at the stock chunk there instead of going down to the floor.
+            return recipe.predict_query_chunk_floor if n_support <= cap else stock_query_chunk
 
-        query_chunk = query_chunk_for(support_cap)
+        query_chunk = max(stock_query_chunk, recipe.predict_query_chunk)
         while True:
             try:
                 return self._predict_once(
@@ -297,14 +347,15 @@ class MitraV2Trainer(TrainerFinetune):
                 if not is_cuda_oom(exc):
                     raise
                 torch.cuda.empty_cache()
-                if n_support <= support_cap and query_chunk > recipe.predict_query_chunk_floor:
-                    query_chunk = max(recipe.predict_query_chunk_floor, query_chunk // 2)
+                chunk_floor = query_chunk_floor_for(support_cap)
+                if query_chunk > chunk_floor:
+                    query_chunk = max(chunk_floor, query_chunk // 2)
                     logger.warning(f"Mitra-v2 predict: CUDA out of memory, halving the query chunk to {query_chunk}.")
                     continue
                 if support_cap <= recipe.predict_support_floor:
                     raise
                 support_cap = max(recipe.predict_support_floor, support_cap // 2)
-                query_chunk = query_chunk_for(support_cap)
+                query_chunk = max(stock_query_chunk, recipe.predict_query_chunk)
                 logger.warning(f"Mitra-v2 predict: CUDA out of memory, halving the support cap to {support_cap}.")
 
     def _predict_once(self, x_support, y_support, x_query, *, support_cap: int, query_chunk: int) -> np.ndarray:
@@ -322,7 +373,7 @@ class MitraV2Trainer(TrainerFinetune):
         loader = self.make_loader(dataset, training=False)
         self.model.eval()
         y_pred_list = []
-        with torch.no_grad():
+        with torch.inference_mode():
             for batch in loader:
                 y_hat = self._forward(batch)[0].float().cpu()
                 if self.regression_over_bins:

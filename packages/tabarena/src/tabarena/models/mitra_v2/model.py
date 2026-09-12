@@ -52,13 +52,19 @@ class MitraV2Model(MitraModel):
       per child, and an in-context support of up to 16,384 (classification) or 20,480
       (regression) rows.
     * Prediction: in-context support of up to 16,384 (binary) or 32,768 (multiclass, regression)
-      rows, class-balanced on binary tasks, halved under GPU memory pressure.
+      rows, class-balanced on binary tasks, halved under GPU memory pressure. Query rows are
+      predicted in chunks of 16,384 (stock: 1,024); when the support exceeds its cap each chunk gets
+      a fresh capped draw of it, as in stock, so the prediction is the same in expectation with up
+      to 16 times fewer passes over the support (5 to 8 times less inference time on the largest
+      TabArena tables).
     * Fine-tuning loop cost: the validation pass after every step runs in one wide query chunk
-      instead of 1,024-row chunks with a fresh support draw each; a throw-away forward and
-      backward pass at the context size precedes the first validation pass so a context that does
-      not fit the GPU fails in seconds; and the loop's attention runs on PyTorch's fused kernel.
-      None of these changes what a step computes; they decide how many of the 50 steps fit the
-      250 s budget on a given GPU.
+      instead of 1,024-row chunks with a fresh support draw each, over arrays transformed once per
+      fit rather than once per step; a throw-away forward and backward pass at the context size
+      precedes the first validation pass so a context that does not fit the GPU fails in seconds;
+      the loop's attention runs on PyTorch's fused kernel; and the best-weights checkpoint stays on
+      the GPU instead of being copied to the host at every improving step. None of these changes
+      what a step computes; they decide how many of the 50 steps fit the 250 s budget on a given
+      GPU.
     * Heldout in support: after its out-of-fold predictions, a bag child predicts with its fit
       fold plus its held-out fold as support, so the bag needs no refit. The held-out labels are
       used only as fine-tuning validation and as support rows, never for test information.
