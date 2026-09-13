@@ -37,6 +37,7 @@ class ModelSmokeTest:
 # (faster) hyperparameters or a restricted problem-type set. Otherwise the
 # default (empty params, all problem types) is used automatically.
 SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
+    "Causilo": ModelSmokeTest({"n_estimators": 1, "device": "cpu"}),
     "PerpetualBooster": ModelSmokeTest({"iteration_limit": 10, "budget": 0.1}),
     "ChimeraBoost": ModelSmokeTest({"n_estimators": 100}),
     "CTBoost": ModelSmokeTest({"iterations": 10, "early_stopping_rounds": 3}),

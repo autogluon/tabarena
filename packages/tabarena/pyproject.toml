@@ -106,6 +106,7 @@ tabdpt = ["tabdpt>=1.2.0"]
 tabm = ["torch", "tabm>=0.0.3", "rtdl_num_embeddings>=0.0.12"]
 
 # Extended model extras — opt-in individually or together via the `extended` union below.
+causilo = ["causilo==1.0.0"]
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
 # sap-rpt-oss and tabfm stay pinned to the git commits used for the benchmark runs, so these two
@@ -163,6 +164,7 @@ benchmark = [
 # Extended set: extra models layered on top of `benchmark` when needed.
 # Note: `probmetrics` is intentionally excluded — install it explicitly via `tabarena[probmetrics]` or `tabarena[all]`.
 extended = [
+  "tabarena[causilo]",
   "tabarena[modernnca]",
   "tabarena[xrfm]",
   "tabarena[sap-rpt-oss]",
