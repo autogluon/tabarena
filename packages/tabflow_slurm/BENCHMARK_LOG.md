@@ -54,6 +54,8 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   kddcup09_appetency, QSAR-TID-11) are the library's own chunk-shrinking retry loop; all of them recovered.
   Result: #3/88 overall (Elo 1794 +90/-58) behind the systems TabFM+ and AutoGluon 1.6 (noncommercial),
   #1/86 multiclass, #3/85 regression, #5/86 binary; matches the PR's self-reported Elo of 1792.9.
+  Processed and uploaded as suite `tabarena-2026-09-13` (`causilo_method_metadata`), registered in the
+  arena collection as a verified model.
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
