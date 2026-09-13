@@ -440,6 +440,45 @@ class TestNoCatAsStringCategoryFeatureGeneratorUnseenHandling:
         assert not pd.isna(X_out["cat"].iloc[2]), "Unseen 'NEW' must not be NaN"
         assert X_out["cat"].astype(object).iloc[2] == "NEW"
 
+    # ------------------------------------------------------------------
+    # The codes-based path for categorical input equals the value-based one
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize("with_unseen", [False, True])
+    def test_categorical_input_matches_object_input(self, with_unseen: bool):
+        """A categorical test column is read through its codes; the result must equal the
+        value-based path, including the order in which unseen categories are appended.
+        """
+        rng = np.random.default_rng(0)
+        train_values = np.array(["a", "b", "c", "d"], dtype=object)[rng.integers(0, 4, 200)]
+        X_train = pd.DataFrame({"cat": pd.Categorical(train_values), "num": rng.random(200)})
+        gen = self._fit_gen(X_train)
+        test_values = np.array(["c", "a", None, "b", "a"], dtype=object)
+        if with_unseen:
+            test_values = np.array(["NEW2", "c", "NEW1", None, "NEW2", "a"], dtype=object)
+        as_categorical = pd.DataFrame({"cat": pd.Categorical(test_values), "num": rng.random(len(test_values))})
+        as_object = as_categorical.assign(cat=pd.Series(test_values, dtype=object))
+
+        out_categorical = gen.transform(as_categorical.copy())
+        out_object = gen.transform(as_object.copy())
+
+        pd.testing.assert_frame_equal(out_categorical, out_object)
+        assert list(out_categorical["cat"].cat.categories) == list(out_object["cat"].cat.categories)
+        expected_categories = ["a", "b", "c", "d"] + (["NEW2", "NEW1"] if with_unseen else [])
+        assert list(out_categorical["cat"].cat.categories) == expected_categories
+        values_out = out_categorical["cat"].astype(object).tolist()
+        assert [v if not pd.isna(v) else None for v in values_out] == list(test_values)
+
+    def test_categorical_input_unused_dtype_category_is_not_unseen(self):
+        """A category declared in the test column's dtype but absent from its values is not
+        appended: only values decide, as in the value-based path.
+        """
+        X_train = pd.DataFrame({"cat": pd.Categorical(["a", "b", "a", "b"])})
+        gen = self._fit_gen(X_train)
+        X_test = pd.DataFrame({"cat": pd.Categorical(["a", "b"], categories=["a", "b", "ghost"])})
+        X_out = gen.transform(X_test.copy())
+        assert list(X_out["cat"].cat.categories) == ["a", "b"]
+
     def test_mixed_known_unseen_and_nan(self):
         X_train = pd.DataFrame({"cat": pd.Categorical(["a", "b", "a", "b"])})
         gen = self._fit_gen(X_train)
@@ -1967,7 +2006,7 @@ def _reference_group_aggregation(
                 s = s.astype("category").cat.codes.astype(float)
                 s[s < 0] = np.nan
             variance[feat] = float(s.var())
-    ranked = sorted(variance.keys(), key=lambda f: (-variance[f], f))
+    ranked = sorted(variance.keys(), key=lambda f: (-gen._rank_variance(variance[f]), f))
     selected = ranked[: gen.n_top_features]
     mapped = pd.DataFrame({f: agg_frames[f] for f in selected}, index=X.index)
     return selected, pd.concat([X.drop(columns=gen.group_col), mapped], axis=1)
@@ -2027,3 +2066,49 @@ def test_group_aggregation_one_pass_matches_per_column(seed: int) -> None:
     transformed = gen._transform(X_new.copy())
     assert list(transformed.columns) == list(expected_out.columns)
     assert transformed.index.equals(X_new.index)
+
+
+class TestGroupAggregationVarianceFromGroupTable:
+    """The feature ranking is computed from the group table, not from a rows x aggregations frame."""
+
+    @staticmethod
+    def _mapped_variance(X: pd.DataFrame, gen: GroupAggregationFeatureGenerator) -> dict[str, float]:
+        """The variance the ranking used to be computed from: every aggregation mapped to every row."""
+        group_key = gen._build_group_key(X)
+        feature_cols = [c for c in X.columns if c not in gen.group_col]
+        sources = {
+            c: list(gen._NUM_AGGS if pd.api.types.is_numeric_dtype(X[c]) else gen._CAT_AGGS) for c in feature_cols
+        }
+        mapped = gen._aggregate(X, sources).reindex(group_key.to_numpy())
+        out = {}
+        for feat in mapped.columns:
+            s = mapped[feat]
+            if not pd.api.types.is_numeric_dtype(s):
+                s = s.astype("category").cat.codes.astype(float)
+                s[s < 0] = np.nan
+            out[feat] = float(s.var())
+        return out
+
+    def test_broadcast_variance_matches_the_mapped_series(self):
+        values = np.array([1.0, np.nan, 3.0, 10.0])
+        sizes = np.array([3.0, 5.0, 1.0, 2.0])
+        rows = np.repeat(values, sizes.astype(int))
+        expected = pd.Series(rows).var()
+        got = GroupAggregationFeatureGenerator._broadcast_variance(values, sizes)
+        assert got == pytest.approx(expected, rel=1e-12)
+        assert np.isnan(
+            GroupAggregationFeatureGenerator._broadcast_variance(np.array([2.0, np.nan]), np.array([1.0, 4.0]))
+        )
+
+    def test_ranking_matches_the_mapped_variance(self):
+        rng = np.random.default_rng(7)
+        X, y = _make_grouped_df(n_groups=40, rows_per_group=6, rng=rng)
+        X.loc[rng.choice(X.index, 30, replace=False), "num_b"] = np.nan  # some groups aggregate to NaN
+        X["gid"] = X["gid"].astype(str)
+        X = X.sample(frac=1.0, random_state=0).reset_index(drop=True)  # unequal, unsorted groups
+        X.loc[X.index[:50], "gid"] = "0"
+        gen = GroupAggregationFeatureGenerator(group_col="gid", n_top_features=100)
+        expected = self._mapped_variance(X.copy(), gen)
+        gen._fit_transform(X.copy(), y)
+        ranked = sorted(expected, key=lambda f: (-gen._rank_variance(expected[f]), f))
+        assert gen._selected_features == ranked[: gen.n_top_features]

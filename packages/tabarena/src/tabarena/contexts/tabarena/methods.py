@@ -47,6 +47,7 @@ from tabarena.models.chimeraboost.info import (
     chimeraboost_new_method_metadata,
     chimeraboost_v030_method_metadata,
 )
+from tabarena.models.ctboost.info import ctboost_method_metadata
 from tabarena.models.ebm.info import (
     ebm_method_metadata as ebm_metadata,
     ebm_new_method_metadata,
@@ -161,6 +162,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         aplr_method_metadata,
         catboost_new_method_metadata,
         chimeraboost_v030_method_metadata,
+        ctboost_method_metadata,
         ebm_new_method_metadata,
         extra_trees_new_method_metadata,
         knn_metadata,

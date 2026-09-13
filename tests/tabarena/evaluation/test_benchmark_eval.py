@@ -59,6 +59,11 @@ class TestConfig:
     def test_only_valid_tasks_passthrough(self, tmp_path):
         assert _config(tmp_path, only_valid_tasks=True).only_valid_tasks is True
 
+    def test_pareto_focus_new_methods_defaults_true(self, tmp_path):
+        # The eval exists to place the run's methods, so they are emphasized in the Pareto figures.
+        assert _config(tmp_path).pareto_focus_new_methods is True
+        assert _config(tmp_path, pareto_focus_new_methods=False).pareto_focus_new_methods is False
+
     def test_init_caches_sets_tabarena_cache_root(self, tmp_path):
         try:
             _config(tmp_path, tabarena_cache_path="/c").init_caches()
@@ -94,6 +99,7 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     )
 
     compare_calls: list[tuple] = []
+    compare_kwargs: list[dict] = []
     context_init_calls: list = []
     context_only_valid_tasks: list = []
     methods_sentinel = [object()]
@@ -111,8 +117,9 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
             context_init_calls.append(extra_methods)
             context_only_valid_tasks.append(only_valid_tasks)
 
-        def compare(self, output_dir, *, subset=None, **_kw):
+        def compare(self, output_dir, *, subset=None, **kw):
             compare_calls.append((Path(output_dir), subset))
+            compare_kwargs.append(kw)
             return pd.DataFrame({"method": ["m"], "metric": [1.0]})
 
     # Phase 2 reloads every method from the cache via EndToEndResults.from_cache; capture the args.
@@ -165,6 +172,8 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     figs = Path(cfg.figure_output_dir)
     assert [c[0] for c in compare_calls] == [figs / "subsets" / "full", figs / "subsets" / "regression"]
     assert [c[1] for c in compare_calls] == [None, ["regression"]]
+    # The run's methods are box-labeled in the Pareto figures by default (the config's flag).
+    assert all(kw["pareto_focus_new_methods"] is True for kw in compare_kwargs)
 
     # Leaderboards returned + saved as CSV.
     assert set(out) == {"full", "regression"}

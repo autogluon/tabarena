@@ -92,6 +92,12 @@ class TabArenaEvalConfig:
     """Figure format(s) written for each subset. A single extension (``"pdf"``) or several
     (e.g. ``("pdf", "png")`` to also emit PNGs alongside the PDFs — PNGs render inline, PDFs are
     for papers). Each extra format re-runs ``compare`` to re-emit the same figures in that format."""
+    pareto_focus_new_methods: bool = True
+    """If True (default), the run's ``methods`` are emphasized in every Pareto figure (family
+    color plus a boxed label) in addition to the Pareto-front members, so a benchmarked method
+    stays visible even when another method dominates it. Forwarded to
+    :meth:`~tabarena.contexts.AbstractArenaContext.compare`'s ``pareto_focus_new_methods``;
+    plotting-only, no leaderboard number changes."""
 
     @property
     def path_raw(self) -> Path:
@@ -127,6 +133,7 @@ def _compare_subset(
     *,
     figure_output_dir: Path,
     figure_file_types: tuple[str, ...] = ("pdf",),
+    pareto_focus_new_methods: bool = True,
 ):
     """Leaderboard for one subset: the run's registered methods vs the TabArena-v0.1 baselines.
 
@@ -136,7 +143,8 @@ def _compare_subset(
 
     ``figure_file_types`` selects the figure format(s) to write into the subset dir; each extra
     format re-runs ``compare`` purely to re-emit the same figures in that extension. The leaderboard
-    is identical across formats, so the first one computed is returned.
+    is identical across formats, so the first one computed is returned. ``pareto_focus_new_methods``
+    box-labels the run's methods in the Pareto figures (see :class:`TabArenaEvalConfig`).
     """
     from tabarena.evaluation._eval_common import subset_label
 
@@ -147,6 +155,7 @@ def _compare_subset(
             output_dir=out_dir,
             subset=subset or None,
             figure_file_type=figure_file_type,
+            pareto_focus_new_methods=pareto_focus_new_methods,
         )
         if leaderboard is None:
             leaderboard = result
@@ -204,6 +213,7 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
             subset,
             figure_output_dir=figure_output_dir,
             figure_file_types=config.figure_file_types(),
+            pareto_focus_new_methods=config.pareto_focus_new_methods,
         )
 
         print(f"\n##### Leaderboard [{label}]")

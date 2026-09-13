@@ -137,6 +137,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "PB",
             "PERPETUALBOOSTER",
             "CHIMERA",
+            "CTB",
         ],
         Constants.foundational: [
             "TABDPT",
@@ -202,6 +203,7 @@ def get_rename_map() -> dict[str, str]:
         "RF": "RandomForest",
         "PB": "PerpetualBooster",
         "CHIMERA": "ChimeraBoost",
+        "CTB": "CTBoost",
         "MNCA": "ModernNCA",
         "NN_TORCH": "TorchMLP",
         "FASTAI": "FastaiMLP",
