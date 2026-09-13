@@ -10,15 +10,18 @@ _aplr_common = {
     "is_bag": True,
     "date_introduced": "2022",
     "reference_url": "https://github.com/ottenbreit-data-science/aplr",
-    "verified": False,
+    "verified": True,
 }
 
 aplr_method_metadata = MethodMetadata.config(
     method="aplr",
-    suite="tabarena-2026-09-04",
+    suite="tabarena-2026-09-13",
     ag_key="TA-APLR",
-    config_default="aplr_c1_BAG_L1",
+    config_default="aplr_c1_default_BAG_L1",
     display_name="APLR",
+    date="2026-09-13",
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     **_aplr_common,
 )
 

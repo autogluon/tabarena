@@ -40,6 +40,7 @@ from tabarena.models._method_metadata_collection import MethodMetadataCollection
 # Per-model `info.py` is the canonical source for each method's `MethodMetadata`; the collection
 # below references these directly. (Some keep their historical alias, used by the per-suite full
 # lists / downstream collections.)
+from tabarena.models.aplr.info import aplr_method_metadata
 from tabarena.models.catboost.info import catboost_new_method_metadata
 from tabarena.models.chimeraboost.info import (
     chimeraboost_method_metadata,
@@ -157,6 +158,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         ag_160_noncomm_4h_metadata,
         tabfm_plus_method_metadata,
         # Default tabular models (CPU)
+        aplr_method_metadata,
         catboost_new_method_metadata,
         chimeraboost_v030_method_metadata,
         ebm_new_method_metadata,

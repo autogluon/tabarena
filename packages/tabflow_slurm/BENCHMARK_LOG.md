@@ -33,6 +33,199 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-13 — aplr_10092026 (time-limit rerun)
+
+- **Model(s):** APLR (all configs; the 1255 items still missing)
+- **Git SHA:** `346c1508` (PR #515 head) plus uncommitted local edits in `models/aplr/`: `info.py`
+  `verified=True`, `model.py` with `_estimate_memory_usage_static` and, new here, forwarding of the
+  AutoGluon fit budget to aplr's `time_limit` (see notes).
+- **Purpose:** Finish the run with the 3600 s per-config budget actually enforced, after the two
+  earlier arrays let APLR boost past it.
+- **Notes:** Investigation of the SDSS17 timeouts: the budget is only a hint below SLURM. TabArena
+  injects `ag.max_time_limit=3600`, AutoGluon's bagged model hands each fold a share (about 360 s
+  when SDSS17 fits one fold at a time), but its Ray fold strategy never checks the clock after a
+  fold and `AbstractModel.fit` never compares fit time against the limit; the wrapper then dropped
+  `time_limit` on the floor and aplr 10.26.0 has no budget knob at all (runtime is set by `m=3000`
+  and early stopping). 41 % of the 1161 stored SDSS17 results exceeded 1 h (median 0.90 h, p90
+  7.2 h, max 15.3 h); the driver is `min_observations_in_split`: values up to 0.3 take 7 to 9 h,
+  values above 0.4 about 0.8 h. Fix in two parts. (1) aplr fork
+  `LennartPurucker/aplr`, branch `time-limit` (commit `3eba5db`, upstream PR
+  https://github.com/ottenbreit-data-science/aplr/pull/18): a `time_limit` constructor parameter
+  (seconds, NaN = off) that is split evenly across the inner cv folds and the one-vs-rest logit
+  models, with boosting aborting after the step that exhausts a fold's share; installed into the run
+  venv `tabarena_10082026` from the local clone (`uv pip install --python <venv> <clone>`, version
+  string still 10.26.0). (2) The wrapper passes 95 % of the time left after preprocessing as
+  `time_limit` and warns when the installed aplr lacks the parameter. Before relaunching, every
+  stored result with `time_train_s > 3600` (552: 480 SDSS17, 72 kddcup09_appetency, found by
+  reading all 163313 `results.pkl`) was moved, not deleted, to
+  `output/aplr_10092026_over_time_limit/data/` with `manifest.csv` next to it. The earlier cleanup
+  array `1149802` had ended with 2148 completed / 226 SIGTERM / 477 cancelled. `setup` then
+  enumerated 1255 items (SDSS17 1128, kddcup09_appetency 84, superconductivity 20, a 5-dataset
+  tail) into 126 ten-item tasks and the array was launched 2026-09-13 as job `1153217`
+  (`--array=0-125%200`, `--time=16:00:00`), back on `bundle_size=10` with `time_limit_overhead=6`
+  since a bundle can no longer exceed 10 h of fitting. Partition `cpun416mtspotinteractive`. Its
+  first SDSS17 configs finished in 2161 s and 2194 s (one fold at a time), no fit over 3600 s in
+  any log. After 926 items the maintainer asked to use the full 300-slot allowance, so job
+  `1153217` was cancelled (one task had been preempted) and the 329 leftover items relaunched the
+  same day as job `1153519` with `bundle_size=1, time_limit_overhead=2, array_job_limit=300`
+  (`--array=0-328%300`, `--time=3:00:00`); the code block below shows that final call. It ended
+  319 completed / 10 preempted; the ten leftovers ran as job `1154056` (all completed), after
+  which `setup` approved 0 items and `data/` held 164016 `results.pkl` (201 configs x 816 splits).
+  No fit in any log of the three time-limited arrays exceeded 3600 s. Processed and uploaded as
+  suite `tabarena-2026-09-13` via `tabarena.models.aplr.info:aplr_method_metadata`
+  (`config_default="aplr_c1_default_BAG_L1"`, r2 bucket `tabarena`, prefix `cache`).
+
+```python
+def setup() -> None:
+    """Generate the job JSON and emit the ``sbatch`` command(s) for the run."""
+    plan = TabArenaV0pt1BenchmarkPlan(
+        benchmark_name=BENCHMARK_NAME,
+        model_jobs=[
+            ModelJob(models=(MODEL, NUM_CONFIGS), name="cpu"),
+        ],
+        task_subset=TaskSubset(),  # all splits of every task
+        path_setup=_path_setup(),
+        experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+        resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+        # Same CPU partition as the ChimeraBoost / CTBoost runs (16 vCPUs, 64 GB RAM) for comparable
+        # timings; 200 array tasks at once instead of the default 100.
+        scheduler_setup=GCPSlurmSetup(
+            # Restart of the time-limit rerun (job 1153217, ten-item bundles, %200) with the whole
+            # 300-slot allowance: about 330 items were left, so one item per task fills every slot
+            # and a spot preemption loses a single item. APLR now honors the 3600 s budget through
+            # aplr's `time_limit` (fork branch time-limit, upstream PR #18), so 1 h + 2 h overhead
+            # covers an SDSS17 config with its 8 sequential folds.
+            bundle_size=1,
+            time_limit_overhead=2,
+            cpu_partition="cpun416mtspotinteractive",
+            array_job_limit=300,
+        ),
+    )
+    plan.setup_jobs()
+```
+
+---
+
+## 2026-09-10 — aplr_10092026 (full run)
+
+- **Model(s):** APLR (all configs)
+- **Git SHA:** `346c1508` (PR #515 head) plus two uncommitted local edits in `models/aplr/`: `info.py`
+  `verified=True`, and `model.py` gains `_estimate_memory_usage_static` (see notes).
+- **Purpose:** Full TabArena run of APLR after the Lite pass below (same key; `setup` skipped the 1246
+  cached Lite items and enumerated the remaining 162770).
+- **Notes:** The Lite pass OOM-killed every config of Amazon_employee_access, kddcup09_appetency and
+  SDSS17: APLR one-hot encodes categoricals into a dense float64 matrix inside its C++ core (about
+  7 copies of `n_rows x one_hot_width` for binary/regression, `4.5 + 3.6 * n_classes` copies for
+  multiclass; measured 7.9 GB, 26.4 GB and 28.6 GB per fold on those three), and without a memory
+  estimate AutoGluon fitted 8 folds in parallel on the 62 GB nodes. The new estimate makes AutoGluon
+  fit Amazon with 4 folds in parallel and kddcup09 / SDSS17 one fold at a time; all other tasks stay
+  at 8. First launch 2026-09-10 23:06 as two arrays (SDSS17 one item per task, job `1129137`;
+  the rest in bundles of 10, job `1129138`); both stopped overnight with about 69k items done.
+  Relaunched 2026-09-11 11:48 as ONE array, job `1138562` (93505 remaining items in 9351 ten-item
+  tasks, `--array=0-9350%200`, `--time=16:00:00`): the maintainer wants a single array per run, and
+  `time_limit_overhead=6` gives a ten-item SDSS17 bundle (8 sequential folds per config, a single
+  fold took 16 min on 2 threads, APLR ignores the per-config time limit) room to finish. Partition
+  `cpun416mtspotinteractive` (16 vCPUs, 64 GB RAM), run venv `tabarena_10082026` with
+  `aplr==10.26.0`. Job `1138562` drained on 2026-09-12 with 8912 completed / 309 failed (spot
+  SIGTERMs, plus 9 Marketing_Campaign tasks that hit a stale NFS handle on the OpenML cache file) /
+  130 timed out (all SDSS17: its configs take ~4 h at the median with sequential folds and the slow
+  tail exceeds 16 h). No OOM in any of the 9351 logs. Cleanup pass for the 2851 missing items
+  (1104 SDSS17, 341 kddcup09_appetency, the rest a preemption tail over 20 datasets) launched
+  2026-09-12 as job `1149802`: same plan with `bundle_size=1, time_limit_overhead=23`
+  (`--array=0-2850%200`, `--time=24:00:00`), so a preemption loses one item and SDSS17 configs get
+  a day each.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="aplr_10092026",
+    model_jobs=[
+        ModelJob(models=("APLR", "all"), name="cpu"),
+    ],
+    task_subset=TaskSubset(),  # all splits of every task
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=GCPSlurmSetup(
+        bundle_size=10,
+        time_limit_overhead=6,
+        cpu_partition="cpun416mtspotinteractive",
+        array_job_limit=200,
+    ),
+)
+plan.setup_jobs()
+```
+
+---
+
+## 2026-09-10 — aplr_10092026
+
+- **Model(s):** APLR (default + 25 configs)
+- **Git SHA:** `346c1508` (PR #515 head, fork branch `mathias-von-ottenbreit/tabarena:main` merged with `main`)
+- **Purpose:** First TabArena-Lite pass of APLR (Automatic Piecewise Linear Regression,
+  https://github.com/ottenbreit-data-science/aplr), integrated in
+  https://github.com/autogluon/tabarena/pull/515, to gauge accuracy and runtime before a full run.
+- **Notes:** Lite subset (first split of every task), default config + the first 25 configs of the
+  frozen HPO portfolio. Same CPU partition as the ChimeraBoost / Perpetual / CTBoost runs,
+  `cpun416mtspotinteractive` (16 vCPUs, 64 GB RAM), `memory_limit`/`num_cpus` left `None` so node
+  values are picked up, bundle size 2. A later full run can reuse this key and skip the cached items.
+  `array_job_limit=200` (default 100) so up to 200 array tasks run at once. Extra dep in the run
+  venv: `aplr==10.26.0` (`tabarena_10082026`). No `fake_memory_for_estimates` (CPU model).
+  `APLRModel` implements no `_estimate_memory_usage_static` and no `warmup`, and its `_fit` discards
+  `time_limit`, so a slow config runs until it finishes or SLURM's `--time` kills the array task
+  (both bundled items are then lost; a `setup` rerun re-enumerates them under the same key). The
+  registry's `MethodMetadata` (`suite="tabarena-2026-09-04"`) predates the run; fix the date when
+  uploading. Launched 2026-09-10 19:33 as SLURM array `1127887` (1326 items in 663 tasks,
+  `--array=0-662%200`, `--time=3:00:00`).
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="aplr_10092026",
+    model_jobs=[
+        ModelJob(models=("APLR", 25), name="cpu"),
+    ],
+    task_subset=TaskSubset(subset="lite"),  # first split of every task
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_10082026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    # Same CPU partition as the ChimeraBoost / CTBoost runs (16 vCPUs, 64 GB RAM) for comparable
+    # timings; 200 array tasks at once instead of the default 100.
+    scheduler_setup=GCPSlurmSetup(
+        bundle_size=2,
+        cpu_partition="cpun416mtspotinteractive",
+        array_job_limit=200,
+    ),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-08-10 — chimeraboost_10082026
 
 - **Model(s):** ChimeraBoost (all configs)
