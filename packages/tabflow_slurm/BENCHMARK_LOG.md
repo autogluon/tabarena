@@ -33,37 +33,16 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
-## 2026-09-10 — mitrav2_10092026
+## 2026-09-12 — mitrav2_12092026
 
 - **Model(s):** Mitra-v2 (0 — single default config, no HPO: the frozen fine-tuning recipe is the method)
-- **Git SHA:** `52fb5e2f` for 807 of the 816 splits; the 9 `hiva_agnostic` splits ran on `f795c3cc` plus
-  the `configure_cuda_allocator` change of the same PR (#520), see notes.
-- **Purpose:** First TabArena-v0.1 benchmark of Mitra-v2 (arXiv:2609.04540), Amazon's second-generation
-  Mitra tabular foundation model, fine-tuned per bag child under the reference recipe. Supports binary,
-  multiclass and regression, so all problem types are included.
-- **Notes:** GPU partition `gpurtxpro6000flex` (RTX PRO 6000, 96 GB VRAM, 24 vCPUs per node), 1 GPU,
-  `bundle_size=1`, full task set (`TaskSubset()`, all splits: 816 array tasks). `fake_memory_for_estimates=96`
-  so the wrapper's static memory estimate is read against VRAM; the wrapper itself pins
-  `fold_fitting_strategy="sequential_local"`, so the 8 bag children run one after another on the card.
-  The v0.1 default fit budget of 1 h per config was kept: the recipe's 250 s per-child fine-tuning budget
-  was designed for it. A first submission on `gpurtxpro6000spotinteractive` was cancelled minutes after
-  launch in favour of the flex partition. Main array 16:23 to 02:50 (about 10.5 h wall); throughput was
-  bounded by flex node provisioning at about 32 concurrent tasks, with node boots regularly stalling for
-  20 to 50 min. APSFailure (50,666 rows, 170 features) is the slowest task: about 3270 s fit (every
-  child's fine-tune hits the 250 s budget, two out-of-memory support halvings per child from 16384 to
-  4096 rows) plus about 1500 s of test inference, finishing 14 min under the 2 h SLURM wall time.
-  `hiva_agnostic` (1413 mostly binary columns, kept in full by the recipe's continuous-fraction gate)
-  failed at prediction on all 9 splits, on two attempts: a 13.9 GiB feed-forward activation could not
-  be allocated with 59.5 GiB live and 32.8 GiB reserved but fragmented. Fixed without touching the
-  recipe by enabling `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` from the wrapper's warm-up
-  (`configure_cuda_allocator` in `mitra_v2/model.py`); the 9 splits were resubmitted through the same
-  `setup()` (the cache check re-approved exactly those) and completed in 49 to 51 min each (log loss
-  0.174 to 0.176, about 2470 s fit). 127 GPU-hours of measured training time in total. Eval on
-  `[[], ["binary"], ["multiclass"], ["regression"]]`: Elo 1766 (position 3) on the full leaderboard
-  against 1314 for Mitra (v1). Extra dep in the run venv: `autogluon.tabular[mitra]>=1.6,<1.7`;
-  `flash-attn` not installed (the reference numbers were calibrated without it). Venv
-  `tabarena_mitra_v2_10092026` imports the `add-mitra-v2` checkout of this clone.
-
+- **Git SHA:** `c71945a3`
+- **Purpose:** Second TabArena-v0.1 benchmark of Mitra-v2 on the revised wrapper (cheaper fine-tuning loop,
+  16,384-row prediction chunks, and the fine-tuning context of the first bag child reused by the other
+  children; commits `2d0b267a`, `4a2dc589`, `c71945a3` on PR #520). Same task set and resources as
+  `mitrav2_10092026`, written to a fresh output folder so the two runs can be compared split by split.
+- **Notes:** GPU partition `gpurtxpro6000flex` (RTX PRO 6000, 96 GB VRAM), 1 GPU, exclusive node,
+  `fake_memory_for_estimates=96`, 1 h fit budget per config.
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task.metadata import TaskSubset
@@ -76,7 +55,7 @@ from tabflow_slurm import (
 )
 
 plan = TabArenaV0pt1BenchmarkPlan(
-    benchmark_name="mitrav2_10092026",
+    benchmark_name="mitrav2_12092026",
     model_jobs=[
         ModelJob(
             models=("Mitra-v2", 0),
@@ -95,8 +74,7 @@ plan = TabArenaV0pt1BenchmarkPlan(
     ),
     experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
     resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
-    # bundle_size=1: one fit per SLURM array task (each is ~8 fine-tunes).
-    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000flex", bundle_size=1),
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000flex", bundle_size=5),
 )
 plan.setup_jobs()
 ```
