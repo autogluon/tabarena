@@ -60,6 +60,7 @@ from tabarena.models.lightgbm.info import lightgbm_method_metadata
 from tabarena.models.limix.info import limix_method_metadata as limix_metadata
 from tabarena.models.lr.info import lr_method_metadata as lr_metadata
 from tabarena.models.mitra.info import mitra_method_metadata as mitra_metadata
+from tabarena.models.mitra_v2.info import mitra_v2_method_metadata
 from tabarena.models.modernnca.info import modernnca_gpu_method_metadata
 from tabarena.models.nn_torch.info import nn_torch_method_metadata
 from tabarena.models.nori.info import nori30m_method_metadata, nori_method_metadata, nori_new_method_metadata
@@ -197,6 +198,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabfm_new_method_metadata,
         tabswift_new_method_metadata,
         exaone_tabular_method_metadata,
+        mitra_v2_method_metadata,
     ],
 )
 

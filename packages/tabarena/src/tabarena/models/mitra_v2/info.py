@@ -5,21 +5,22 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.mitra_v2.hpo import gen_mitra_v2
 from tabarena.models.mitra_v2.model import MitraV2Model, prefetch_weights
 
-# Not benchmarked yet: `date` / `suite` are the integration date, no hosted artifacts (local cache).
 mitra_v2_method_metadata = MethodMetadata.config(
     method="Mitra-v2",
-    suite="tabarena-2026-09-08",
+    suite="tabarena-2026-09-12",
     ag_key="TA-MITRA-V2",
     model_key="MITRA_V2",
-    config_default="Mitra-v2_c1_BAG_L1",
+    config_default="Mitra-v2_c1_default_BAG_L1",
     can_hpo=False,
     compute="gpu",
     is_bag=True,
-    date="2026-09-08",
+    date="2026-09-12",
     date_introduced="2026-09-03",  # technical report date
     reference_url="https://arxiv.org/abs/2609.04540",
     display_name="Mitra-v2",
     verified=False,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
 )
 
 

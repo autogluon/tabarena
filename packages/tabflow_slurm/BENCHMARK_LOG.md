@@ -67,7 +67,9 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
   decimals, and the first run showed the same warning on five of the nine hiva_agnostic splits;
   near-zero probabilities fail a relative tolerance on GPU-level noise. The leaderboard uses the
   child-averaged predictions. Extra dep in the run venv: `autogluon.tabular[mitra]>=1.6,<1.7`;
-  `flash-attn` not installed.
+  `flash-attn` not installed. Processed and uploaded 2026-09-13 as suite `tabarena-2026-09-12`
+  (`mitra_v2_method_metadata`, r2://tabarena/cache/artifacts/tabarena-2026-09-12/methods/Mitra-v2) and
+  registered in the arena collection next to Mitra v1; `verified` stays `False` until sign-off.
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
