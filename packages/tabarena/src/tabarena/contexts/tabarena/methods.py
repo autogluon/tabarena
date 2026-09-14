@@ -41,6 +41,7 @@ from tabarena.models._method_metadata_collection import MethodMetadataCollection
 # below references these directly. (Some keep their historical alias, used by the per-suite full
 # lists / downstream collections.)
 from tabarena.models.catboost.info import catboost_new_method_metadata
+from tabarena.models.causilo.info import causilo_method_metadata
 from tabarena.models.chimeraboost.info import (
     chimeraboost_method_metadata,
     chimeraboost_new_method_metadata,
@@ -197,6 +198,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         tabfm_new_method_metadata,
         tabswift_new_method_metadata,
         exaone_tabular_method_metadata,
+        causilo_method_metadata,
     ],
 )
 
