@@ -51,6 +51,10 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
     "TabPFN-Wide": ModelSmokeTest({"device": "cpu"}),
     "TabICL_GPU": ModelSmokeTest({"n_estimators": 1}),
     "TabICLv2": ModelSmokeTest({"n_estimators": 1}),
+    # TabICL-M standardises each cell within the rows that share its missingness pattern, pooling
+    # labelled and unlabelled rows by design (a test-only source is centred on itself), so a
+    # prediction depends on which other rows are predicted with it.
+    "TabICL-M": ModelSmokeTest({"n_estimators": 1}, verify_single_prediction_equivalent_to_multi=False),
     # Single-row vs batched predictions agree exactly on CPU but drift ~2.4e-4 on GPU (the
     # tolerance is 1e-5), so the mismatch is float non-determinism in the CUDA kernels rather
     # than batch-dependent preprocessing. Verified by running `FitHelper.verify_model` with
