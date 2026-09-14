@@ -7,8 +7,10 @@ monkeypatched, so these only exercise the orchestration + the pure helpers.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from tabarena.evaluation import EvalMethod, TabArenaEvalConfig, run_eval
 from tabarena.loaders import get_tabarena_cache_root, set_tabarena_cache_root
@@ -29,6 +31,26 @@ class TestEvalMethod:
     def test_ag_name_override_wins(self):
         assert EvalMethod("RandomForest", ag_name_override="RF").ag_name == "RF"
 
+    def test_display_name_from_registry(self):
+        """The leaderboard / figure label is the registry's display name, not the raw config type."""
+        assert EvalMethod("RandomForest").display_name == "RandomForest"
+
+    def test_display_name_appends_result_suffix(self):
+        """A re-run keeps its suffix in the label, so it stays distinguishable from the hosted method."""
+        assert EvalMethod("RandomForest", result_suffix=" [Rerun]").display_name == "RandomForest [Rerun]"
+
+    def test_display_name_override_wins(self):
+        method = EvalMethod("RandomForest", result_suffix=" [Rerun]", display_name_override="RF (ours)")
+        assert method.display_name == "RF (ours)"
+
+    def test_custom_method_without_override_has_no_display_name(self):
+        """A method the registry does not know keeps the default label (its config type)."""
+        assert EvalMethod("NotARegisteredModel", ag_name_override="AG_X").display_name is None
+
+    def test_unknown_registry_name_raises(self):
+        with pytest.raises(ValueError, match="not recognized"):
+            _ = EvalMethod("NotARegisteredModel").display_name
+
 
 class TestMethodArtifact:
     def test_method_name_bakes_in_result_suffix(self):
@@ -40,6 +62,51 @@ class TestMethodArtifact:
         kwargs = {"ag_name": "RF", "path_raw": Path("/raw"), "suite": "bench"}
         assert MethodArtifact(**kwargs).method_name == "RF"
         assert MethodArtifact(**kwargs, result_suffix=" [Rerun]").method_name == "RF [Rerun]"
+
+    def test_display_name_defaults_to_none(self):
+        from tabarena.evaluation._eval_common import MethodArtifact
+
+        assert MethodArtifact(ag_name="RF", path_raw=Path("/raw"), suite="bench").display_name is None
+
+
+def test_post_process_applies_display_name_to_cached_methods(monkeypatch):
+    """The artifact's display name reaches methods loaded from the cache too (`only_load_cache`, or a
+    cache built before the name was recorded), while methods without one keep their label.
+    """
+    import tabarena.end_to_end.end_to_end as ee
+    from tabarena.evaluation._eval_common import MethodArtifact, post_process_to_results
+
+    monkeypatch.setattr(ee.EndToEnd, "from_path_raw", staticmethod(lambda **_kw: None))
+    loaded = SimpleNamespace(
+        method_results_lst=[
+            SimpleNamespace(method_metadata=SimpleNamespace(method="AG_A", suite="bench", display_name="AG_A")),
+            SimpleNamespace(method_metadata=SimpleNamespace(method="AG_B", suite="bench", display_name="AG_B")),
+        ]
+    )
+    monkeypatch.setattr(ee.EndToEndResults, "from_cache", classmethod(lambda _cls, methods, **_kw: loaded))
+
+    artifacts = [
+        MethodArtifact(
+            ag_name="AG_A", path_raw=Path("/raw"), suite="bench", display_name="Model A", only_load_cache=True
+        ),
+        MethodArtifact(ag_name="AG_B", path_raw=Path("/raw"), suite="bench"),
+    ]
+    out = post_process_to_results(artifacts)
+    assert [m.method_metadata.display_name for m in out.method_results_lst] == ["Model A", "AG_B"]
+
+
+def test_warn_on_duplicate_display_names(capsys):
+    from tabarena.evaluation.benchmark_eval import _warn_on_duplicate_display_names
+
+    hosted = SimpleNamespace(method="TabPFN-3", suite="tabarena-2026-07-13", display_name="TabPFN-3")
+    rerun = SimpleNamespace(method="TA-TabPFN-3", suite="bench", display_name="TabPFN-3")
+    suffixed = SimpleNamespace(method="TA-TabPFN-3 [Rerun]", suite="bench", display_name="TabPFN-3 [Rerun]")
+    context = SimpleNamespace(method_metadata_collection=SimpleNamespace(method_metadata_lst=[hosted, rerun, suffixed]))
+
+    _warn_on_duplicate_display_names(context, [rerun, suffixed])
+    out = capsys.readouterr().out
+    assert "WARNING: display name 'TabPFN-3' of 'TA-TabPFN-3'" in out
+    assert "'TabPFN-3 [Rerun]'" not in out
 
 
 class TestConfig:
@@ -107,6 +174,8 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     class _FakeResults:
         """Stands in for the EndToEndResults reloaded from cache (phase 2)."""
 
+        method_results_lst: list = []
+
         def to_method_metadata_lst(self, **_kw):
             return methods_sentinel
 
@@ -159,6 +228,8 @@ def test_run_eval_orchestration(tmp_path, monkeypatch):
     assert post_calls[0]["suite"] == "bench"
     assert post_calls[0]["name_suffix"] == " [Rerun]"
     assert Path(post_calls[0]["path_raw"]) == cfg.path_raw
+    # A custom method (ag_name_override, unknown to the registry) has no display name to record.
+    assert post_calls[0]["display_name"] is None
 
     # Phase 2: every method is re-loaded from cache as (method_name, suite), exactly once.
     assert from_cache_calls == [[("AG_A [Rerun]", "bench"), ("AG_B", "bench")]]

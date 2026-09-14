@@ -151,6 +151,12 @@ written in both formats, and `pareto_focus_new_methods=True` so the new model is
 four Pareto figures even when it is not on the front (the front alone is emphasized otherwise).
 After `run_eval` the script prints where the run's methods landed in each subset, in Elo order.
 
+`EvalMethod(MODEL)` labels the run's method with the registry's `display_name` in the leaderboard and
+every figure (the label the hosted leaderboard uses, e.g. `Xiaomi-TabLDM`) instead of the raw `TA-...`
+config type; `display_name_override` replaces it. A re-run of a model that is already hosted needs a
+`result_suffix` (e.g. `" [Rerun]"`), which is appended to the label; without it both carry the same
+label and `run_eval` prints a warning.
+
 ## Step 4: Smoke-fit the model locally
 
 Run the smoke fit before spending cluster time. It is the body of

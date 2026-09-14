@@ -585,7 +585,7 @@ from tabarena.models.{ModelKey}.model import {ClassName}Model
     date="YYYY-MM-DD",                     # date of the benchmarking run (or planning date if unbenchmarked)
     ag_key="{ag_key}",                     # MUST equal {ClassName}Model.ag_key EXACTLY, incl. any "TA-" prefix (e.g. "TA-DENSELIGHT")
     model_key="{MODEL_KEY_UPPER}",         # short upper-case key (e.g. "DENSELIGHT"), commonly ag_key without the "TA-" prefix. This value is the model's config_type — add it to get_model_family() (SKILL Step 4d) or the leaderboard shows ❓ Other
-    config_default="{ModelName}_c1_BAG_L1",
+    config_default="{ModelName}_c1_default_BAG_L1",  # HPO models only, see "Config naming" below; omit it for a single-config model
     can_hpo=True,
     is_bag=True,
     has_raw=True,
@@ -612,6 +612,21 @@ from tabarena.models.{ModelKey}.model import {ClassName}Model
 ```
 
 `pip_extra` is the tuple of pip specs the auto-discovery uses when computing what extras to install for this model — list every dependency the wrapper imports lazily.
+
+**Config naming (`config_default`):** the name is decided by the run, not by the model, so it can only
+be confirmed once raw results exist. The experiment bundle appends the preprocessing pipeline name to every
+config id (`_build_experiments_for_pipeline` in `benchmark/experiment/bundle.py`): the TabArena-v0.1 bundle
+runs the AutoGluon `default` pipeline, so its first curated config is `{ModelName}_c1_default_BAG_L1`, for
+HPO and default-only models alike (CTBoost and ChimeraBoost have it with `can_hpo=True`, Causilo and
+Mitra-v2 with `can_hpo=False`). The BeyondArena bundle's `tabarena_default` pipeline adds no suffix, giving
+`{ModelName}_c1_BAG_L1`, which is also the shape of every TabArena suite processed before June 2026. The
+prefix is the `method` name, not the raw `ag_name` (`TA-...`), because processing renames configs to the
+method. Before uploading, `python scripts/run_process_method.py <run>/data --method-metadata ...` prints the
+post-rename value in its comparison table; a `config_default` row marked `NO` fails processing, so fix it
+to the inferred value (the `upload-method` skill does this). A single-config model (`can_hpo=False`, the
+usual case for a foundation model) needs no `config_default` at all: its lone config is the default, the
+comparison table marks the field `not declared`, and processing records the resolved name in the cached
+`metadata.yaml`. Declare it only for HPO models.
 
 **Storage conventions:**
 - Use `MethodMetadata.config(...)` (the config-method constructor — it sets `method_type="config"` and exposes the config-only fields `ag_key` / `model_key` / `config_default` / `name_suffix` / `can_hpo` / `is_bag`). Baseline/portfolio methods use `MethodMetadata.baseline(...)` / `MethodMetadata.portfolio(...)`.
