@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 
 import psutil
 
@@ -29,7 +28,9 @@ class CpuMemoryTracker:
         self.include_children = include_children
 
         self._proc = psutil.Process(os.getpid())
-        self._stop_flag = False
+        # Set by `__exit__`; the sampler waits on it between samples, so stopping does not
+        # have to wait out a sleep of `interval`.
+        self._stop = threading.Event()
         self._sampler_thread: threading.Thread | None = None
 
         # Public stats
@@ -61,13 +62,16 @@ class CpuMemoryTracker:
 
         return total_rss
 
+    def _sample(self) -> None:
+        rss = self._get_current_rss()
+        if self.min_rss is None or rss < self.min_rss:
+            self.min_rss = rss
+        self.peak_rss = max(self.peak_rss, rss)
+
     def _sampler(self):
-        while not self._stop_flag:
-            rss = self._get_current_rss()
-            if self.min_rss is None or rss < self.min_rss:
-                self.min_rss = rss
-            self.peak_rss = max(self.peak_rss, rss)
-            time.sleep(self.interval)
+        while not self._stop.is_set():
+            self._sample()
+            self._stop.wait(self.interval)
 
     def __enter__(self):
         # Initialize stats with current value
@@ -76,17 +80,19 @@ class CpuMemoryTracker:
         self.peak_rss = rss
 
         # Start sampling thread
-        self._stop_flag = False
+        self._stop.clear()
         self._sampler_thread = threading.Thread(target=self._sampler, daemon=True)
         self._sampler_thread.start()
 
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Stop sampling
-        self._stop_flag = True
+        # Stop sampling; the thread returns as soon as it wakes from its wait.
+        self._stop.set()
         if self._sampler_thread is not None:
             self._sampler_thread.join()
+        # The last periodic sample can be up to `interval` old: read the end state too.
+        self._sample()
 
         return False  # don't suppress exceptions
 
@@ -129,8 +135,8 @@ class GpuMemoryTracker:
 
         self.device = device if self.enabled else None
 
-        # For sampling thread
-        self._stop_flag = False
+        # For sampling thread (see `CpuMemoryTracker._stop`)
+        self._stop = threading.Event()
         self._sampler_thread: threading.Thread | None = None
 
         # Public stats (bytes)
@@ -150,7 +156,7 @@ class GpuMemoryTracker:
 
     def _sampler(self):
         """Background sampler thread."""
-        while not self._stop_flag:
+        while not self._stop.is_set():
             allocated, reserved = self._sample_gpu_memory()
 
             # Update min
@@ -165,7 +171,7 @@ class GpuMemoryTracker:
             if self.peak_reserved is None or reserved > self.peak_reserved:
                 self.peak_reserved = reserved
 
-            time.sleep(self.interval)
+            self._stop.wait(self.interval)
 
     # ----------------------------
     # Context Manager
@@ -189,7 +195,7 @@ class GpuMemoryTracker:
         self.peak_reserved = reserved
 
         # Launch sampler thread
-        self._stop_flag = False
+        self._stop.clear()
         self._sampler_thread = threading.Thread(target=self._sampler, daemon=True)
         self._sampler_thread.start()
 
@@ -201,7 +207,7 @@ class GpuMemoryTracker:
             return False  # No suppression
 
         # Stop sampler
-        self._stop_flag = True
+        self._stop.set()
         if self._sampler_thread is not None:
             self._sampler_thread.join()
 

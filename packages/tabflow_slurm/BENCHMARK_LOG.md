@@ -33,6 +33,65 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-13 — causilo_13092026
+
+- **Model(s):** Causilo (default config only, `NUM_CONFIGS=0`)
+- **Git SHA:** `d5f45677` (PR #536 head, branch `pr-536-add-causilo`)
+- **Purpose:** Maintainer re-run of the Causilo 1.0.0 submission (Nums AI pretrained ICL foundation
+  model, https://github.com/nums-ai/causilo, PR https://github.com/autogluon/tabarena/pull/536) on the
+  full TabArena-v0.1 task set to verify the self-reported leaderboard numbers.
+- **Notes:** GPU model on `gpurtxpro6000flex` (RTX PRO 6000, 96 GB) with
+  `fake_memory_for_estimates=96`; the wrapper fits folds `sequential_local` with `refit_folds=True`, so
+  folds never share the card. Fixed recipe `n_estimators=8`, `random_state=42`, no search space. Extra dep
+  in the run venv (`~/.venvs/tabarena_mitra_v2_10092026`): `causilo==1.0.0`; torch 2.13.0+cu130 was
+  already present. Weights pinned to HF commit `94f2bd91` and prefetched on the head node. Launched first
+  as job 1153347 with `bundle_size=1` (816 tasks, `--time=2:00:00`); per-task Ray/venv setup (~20 s)
+  dwarfed the second-long fits, so the maintainer cancelled its pending tasks after ~40 had started and
+  the remaining 791 items were relaunched as job 1153391 with `bundle_size=10` (80 tasks,
+  `--time=11:00:00`), cache-aware. Wall time 2026-09-13 11:15 to 11:54 UTC; 816 result files, no failed
+  task, no imputation. Longest single fit about 130 s (GiveMeSomeCredit, customer_satisfaction_in_airline
+  about 100 s). PyTorch allocator OOM warnings on the wide datasets (Bioresponse, hiva_agnostic,
+  kddcup09_appetency, QSAR-TID-11) are the library's own chunk-shrinking retry loop; all of them recovered.
+  Result: #3/88 overall (Elo 1794 +90/-58) behind the systems TabFM+ and AutoGluon 1.6 (noncommercial),
+  #1/86 multiclass, #3/85 regression, #5/86 binary; matches the PR's self-reported Elo of 1792.9.
+  Processed and uploaded as suite `tabarena-2026-09-13` (`causilo_method_metadata`), registered in the
+  arena collection as a verified model.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="causilo_13092026",
+    model_jobs=[
+        ModelJob(
+            models=("Causilo", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),  # the full task set, all splits
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_mitra_v2_10092026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    # First launch (job 1153347) used bundle_size=1; relaunched as job 1153391 with bundle_size=10.
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000flex", bundle_size=10),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-09-12 — mitrav2_12092026
 
 - **Model(s):** Mitra-v2 (0 — single default config, no HPO: the frozen fine-tuning recipe is the method)
