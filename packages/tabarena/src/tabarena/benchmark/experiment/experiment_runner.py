@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import datetime
-import traceback
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -20,11 +19,11 @@ from pandas.api.types import is_integer_dtype
 
 from tabarena.benchmark.task.metrics import default_eval_metric
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDF, CacheFunctionDummy
-from tabarena.utils.time_utils import Timer
 
 if TYPE_CHECKING:
     from tabarena.benchmark.exec_models.base import AbstractExecModel
     from tabarena.benchmark.task import TaskWrapper
+    from tabarena.models.warmup import WarmupReport
 
 
 # TODO: make a dataclass so type hinter is happy with subclasses?
@@ -53,6 +52,7 @@ class ExperimentRunner:
         cacher: AbstractCacheFunction | None = None,
         debug_mode: bool = True,
         eval_metric_name: str | None = None,
+        require_warmup: bool = True,
         warmup: bool = True,
     ):
         """Configure the runner and load the split for ``(fold, repeat, sample)``.
@@ -86,6 +86,12 @@ class ExperimentRunner:
         eval_metric_name: str, default None
             If provided, will override the default evaluation metric for the task.
             If None, will use the default metric based on the task's problem type.
+        require_warmup: bool, default True
+            If True, a warm-up that raised or left steps failed (``WarmupReport.status`` ``"failed"``
+            or ``"partial"``) aborts the run before the timed fit with a ``RuntimeError`` naming the
+            failed steps, so a cold timed section is never recorded silently (see
+            ``check_warmup_report``); ``"none"`` (nothing to warm) and ``"disabled"`` pass. Set
+            False to record the report and fit anyway.
         warmup: bool, default True
             If True, run the method's untimed environment warm-up before fitting
             (see ``run_warmup``).
@@ -110,8 +116,10 @@ class ExperimentRunner:
         self.task_split_idx = self.task.get_split_idx(fold=self.fold, repeat=self.repeat, sample=self.sample)
         self.cacher = cacher
         self.debug_mode = debug_mode
+        self.require_warmup = require_warmup
         self.warmup = warmup
         self.time_warmup_s: float | None = None
+        self.warmup_report: WarmupReport | None = None
 
         # When lazy-loading, keep the split frames as None and (re)load them on demand; we only
         # materialize ``y`` here to fit the label cleaner.
@@ -184,33 +192,46 @@ class ExperimentRunner:
         return self.task_split_idx
 
     # --- Fit / run lifecycle ----------------------------------------------------------
-    def run_warmup(self) -> float | None:
+    def run_warmup(self) -> WarmupReport:
         """Run the method's untimed environment warm-up (see ``AbstractExecModel.warmup_fn``).
 
         Runs after the method is constructed and before any fit timing starts, so warm-up
-        cost (imports, JIT/kernel compilation, CUDA context init) never counts toward
-        ``time_train_s`` / ``time_infer_s`` or a fit time limit — matching the one-time
-        per-environment costs a real deployment would not pay per fit. Warm-up is
-        best-effort: a failure is logged and the fit proceeds cold. It warms this process
-        and disk-backed caches only — worker processes spawned inside the fit (parallel
-        fold fitting) are not warmed; see ``tabarena.models.warmup`` for the full scope.
+        cost (imports, JIT/kernel compilation, CUDA context init, Ray startup, shared weights)
+        never counts toward ``time_train_s`` / ``time_infer_s`` or a fit time limit, matching
+        the one-time per-environment costs a real deployment would not pay per fit. A failure is
+        logged and recorded in the report; ``check_warmup_report`` decides whether the fit may
+        proceed cold. It warms this process and
+        disk-backed caches; parallel fold workers start cold unless the opt-in worker pool
+        covered them (see ``tabarena.models.warmup`` for the full scope).
 
-        Returns the warm-up duration in seconds, or None when there was nothing to warm
-        (or warm-up is disabled).
+        Returns:
+            The ``WarmupReport``. Its ``duration_s`` is ``None`` exactly where the warm-up did not
+            run (``status`` ``"disabled"``, ``"none"`` or ``"failed"``), so ``time_warmup_s``
+            keeps its meaning.
         """
+        from tabarena.models.warmup import WarmupReport, run_warmup_fn
+
         if not self.warmup:
-            return None
+            return WarmupReport(status="disabled", label=self.method)
         warmup_fn = self.model.warmup_fn
         if warmup_fn is None:
-            return None
-        try:
-            with Timer() as timer:
-                warmup_fn()
-        except Exception:
-            print(f"Warm-up of method {self.method!r} failed (fitting cold instead):")
-            traceback.print_exc()
-            return None
-        return timer.duration
+            return WarmupReport(status="none", label=self.method)
+        return run_warmup_fn(warmup_fn, label=self.method)
+
+    def check_warmup_report(self, report: WarmupReport) -> None:
+        """Raise when ``require_warmup`` is set and the warm-up did not fully succeed.
+
+        ``"failed"`` (the warm-up raised) and ``"partial"`` (some steps failed) are the two states
+        in which the timed fit would run cold; ``"ok"``, ``"none"`` and ``"disabled"`` pass.
+        """
+        if not getattr(self, "require_warmup", True) or report.status not in ("failed", "partial"):
+            return
+        detail = f"failed steps: {report.failed_steps}" if report.failed_steps else f"error: {report.error}"
+        raise RuntimeError(
+            f"Warm-up of method {self.method!r} did not succeed (status {report.status!r}; {detail}); the timed "
+            "fit would run cold. Fix the warm-up (python -P -m tabarena.tools.audit_warmup --model ...) or pass "
+            "require_warmup=False to fit anyway."
+        )
 
     def run_model_fit(self) -> dict:
         """Fit the model and predict on the test split (via the method's ``fit_custom``).
@@ -246,7 +267,9 @@ class ExperimentRunner:
         time_start_str = utc_time.strftime("%Y-%m-%d %H:%M:%S")
         time_start = utc_time.timestamp()
         self.model = self.init_method()
-        self.time_warmup_s = self.run_warmup()
+        self.warmup_report = self.run_warmup()
+        self.time_warmup_s = self.warmup_report.duration_s
+        self.check_warmup_report(self.warmup_report)
         try:
             out = self.run_model_fit()
         except Exception as exc:
@@ -321,7 +344,9 @@ class ExperimentRunner:
         """Build the timing/identity metadata block (start/end timestamps + duration).
 
         ``total_duration`` includes the warm-up; ``time_warmup_s`` records it separately
-        (None = nothing was warmed) so the untimed share stays auditable.
+        (None = nothing was warmed) so the untimed share stays auditable, and ``warmup_report``
+        lists what the warm-up imported, primed and dummy-fitted (``None`` when the runner never
+        got to the warm-up).
         """
         time_end = datetime.datetime.now(datetime.UTC).timestamp()
         return {
@@ -332,6 +357,7 @@ class ExperimentRunner:
             "total_duration": time_end - time_start,
             "time_start_str": time_start_str,
             "time_warmup_s": self.time_warmup_s,
+            "warmup_report": self.warmup_report.to_dict() if self.warmup_report is not None else None,
         }
 
     def convert_to_output(self, out: dict) -> dict:

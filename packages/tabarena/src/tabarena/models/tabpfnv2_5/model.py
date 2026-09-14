@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.features.generators import LabelEncoderFeatureGenerator
@@ -29,6 +29,13 @@ class TabPFNModel(AbstractTorchModel):
     """
 
     ag_key = "NOTSET"
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "tabpfn",
+        "tabpfn.model_loading",
+        "tabpfn.finetuning.finetuned_classifier",
+        "tabpfn.finetuning.finetuned_regressor",
+        "tabpfn_extensions.many_class",
+    )
     ag_name = "NOTSET"
     ag_priority = 105
     seed_name = "random_state"

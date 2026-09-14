@@ -4,7 +4,7 @@ import functools
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 from autogluon.common.utils.resource_utils import ResourceManager
@@ -46,6 +46,11 @@ class LimiXModel(AbstractTorchModel):
     """
 
     ag_key = "TA-LIMIX"
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "tabarena.models.limix._vendor.inference.predictor",
+        "tabarena.models.limix._vendor.inference.inference_method",
+        "huggingface_hub",
+    )
     ag_name = "TA-LimiX"
     ag_priority = 100
     seed_name = "random_state"

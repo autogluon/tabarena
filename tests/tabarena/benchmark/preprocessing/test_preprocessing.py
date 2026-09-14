@@ -2112,3 +2112,32 @@ class TestGroupAggregationVarianceFromGroupTable:
         gen._fit_transform(X.copy(), y)
         ranked = sorted(expected, key=lambda f: (-gen._rank_variance(expected[f]), f))
         assert gen._selected_features == ranked[: gen.n_top_features]
+
+
+# ===========================================================================
+# Warm-up declarations
+# ===========================================================================
+
+
+def test_model_agnostic_declares_skrub_warmup():
+    from tabarena.models.warmup import collect_warmup_modules
+
+    assert collect_warmup_modules(TabArenaModelAgnosticPreprocessing) == ("skrub",)
+    assert TabArenaModelAgnosticPreprocessing.warmup_modules == ("skrub",)
+
+
+def test_model_agnostic_warmup_imports_encoder_only_when_encoding(monkeypatch):
+    import tabarena.models.warmup as wu
+
+    imported: list[str] = []
+    monkeypatch.setattr(wu, "warmup_imports_best_effort", lambda *names, report=None: imported.extend(names))
+
+    monkeypatch.setattr(SemanticTextFeatureGenerator, "encodes_at_fit", False)
+    TabArenaModelAgnosticPreprocessing.warmup(feature_generator_kwargs={})
+    assert imported == []
+
+    monkeypatch.setattr(SemanticTextFeatureGenerator, "encodes_at_fit", True)
+    TabArenaModelAgnosticPreprocessing.warmup(feature_generator_kwargs={"enable_sematic_text_features": False})
+    assert imported == []
+    TabArenaModelAgnosticPreprocessing.warmup(feature_generator_kwargs=None)
+    assert imported == ["torch", "sentence_transformers"]

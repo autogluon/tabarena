@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 
@@ -12,6 +14,13 @@ class CausiloModel(AbstractTorchModel):
     """
 
     ag_key = "TA-CAUSILO"
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "causilo",
+        "causilo.engine",
+        "causilo.execution.memory",
+        "causilo.execution.precision",
+        "causilo.serialization",
+    )
     ag_name = "Causilo"
     ag_priority = 65
     seed_name = "random_state"

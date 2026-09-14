@@ -4,6 +4,7 @@ import copy
 import logging
 import time
 from contextlib import contextmanager
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -176,6 +177,7 @@ class XRFMImplementation:
 # pip install xrfm
 class XRFMModel(AbstractModel):
     ag_key = "XRFM"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("torch", "xrfm")
     ag_name = "xRFM"
     seed_name = "random_state"
     _supported_problem_types = ["binary", "multiclass", "regression"]
@@ -384,14 +386,6 @@ class XRFMModel(AbstractModel):
         }
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
-
-    @classmethod
-    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
-        """Warm torch (+ CUDA context) and the xRFM library import (untimed, data-independent)."""
-        from tabarena.models.warmup import warmup_imports, warmup_torch
-
-        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
-        warmup_imports("xrfm")
 
     def _get_default_stopping_metric(self):
         return self.eval_metric

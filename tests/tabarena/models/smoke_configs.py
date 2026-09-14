@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+
+from tabarena.models import get_model_registry
 
 
 @dataclass(frozen=True)
@@ -76,5 +78,14 @@ SMOKE_OVERRIDES: dict[str, ModelSmokeTest] = {
 
 
 def smoke_for(method: str) -> ModelSmokeTest:
-    """Return the smoke-test config for a registry ``method``, or the default."""
-    return SMOKE_OVERRIDES.get(method, ModelSmokeTest())
+    """The smoke-test config for a registry ``method``: the override, else the model's ``cheap_hyperparameters``.
+
+    A wrapper declares its cheapness knobs once, on the class (``cheap_hyperparameters``, also used
+    by the warm-up dummy fit); an override here adds to or replaces them.
+    """
+    override = SMOKE_OVERRIDES.get(method)
+    info = get_model_registry().get(method)
+    cheap = dict(getattr(info.model_cls, "cheap_hyperparameters", None) or {}) if info is not None else {}
+    if override is None:
+        return ModelSmokeTest(hyperparameters=cheap)
+    return replace(override, hyperparameters={**cheap, **override.hyperparameters})

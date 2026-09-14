@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
@@ -13,6 +13,7 @@ class TabPFN3Model(AbstractTorchModel):
     """TabPFN-3 TabArena Integration."""
 
     ag_key = "TA-TABPFN-3"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("tabpfn", "tabpfn.model_loading")
     ag_name = "TA-TabPFN-3"
     ag_priority = 105
     seed_name = "random_state"

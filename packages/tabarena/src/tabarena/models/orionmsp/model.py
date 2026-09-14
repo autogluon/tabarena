@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
@@ -37,6 +37,11 @@ class OrionMSPModel(AbstractTorchModel):
     """
 
     ag_key = "TA-ORION-MSP"
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "tabtune.models.orionmsp_v15.sklearn.classifier",
+        "tabtune.models.orionmsp_v15.model.embedding",
+        "huggingface_hub",
+    )
     ag_name = "TA-OrionMSP"
     ag_priority = 65
     seed_name = "random_state"

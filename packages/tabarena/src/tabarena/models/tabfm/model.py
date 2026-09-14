@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -104,6 +104,7 @@ class TabFMModel(AbstractTorchModel):
     """
 
     ag_key = "TA-TABFM"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("tabfm", "huggingface_hub")
     ag_name = "TA-TabFM"
     ag_priority = 65
     seed_name = "random_state"
