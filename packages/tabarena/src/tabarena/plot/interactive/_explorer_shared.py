@@ -767,6 +767,26 @@ EXPLORER_BASE_JS = r"""
   // iframe to fit (avoids an inner scrollbar). Works from a sandboxed frame.
   // Measure the body (viewport-independent) — documentElement.scrollHeight is
   // clamped to at least the iframe's current viewport, which turns the
+  // Embedded, the host can take methods out of the page altogether: the leaderboard's
+  // "Include non-commercial methods" toggle. This is stronger than a chip toggle, which only
+  // greys a method out and leaves it one click away: an excluded method is dropped from the
+  // chips, the "all" buttons and every computation (fronts, axes, rankings) as if it had not
+  // been published in this cell. The host re-sends the list with every height report, so
+  // `apply` must be cheap to call with an unchanged set. Names are the method's display name
+  // without its tuning variant, which is what every explorer keys its methods on.
+  function onExcludeMessage(apply) {
+    let current = "";
+    window.addEventListener("message", ev => {
+      const d = ev.data;
+      if (!d || d.type !== "tabarena-explorer-exclude" || !Array.isArray(d.methods)) return;
+      const names = d.methods.filter(m => typeof m === "string").sort();
+      const key = names.join("\u0000");
+      if (key === current) return;
+      current = key;
+      apply(new Set(names));
+    });
+  }
+
   // resize round-trip into a grow-forever feedback loop. The change guard
   // stops re-posting once the height settles.
   let lastPostedHeight = 0;

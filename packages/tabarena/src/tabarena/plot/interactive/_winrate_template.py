@@ -117,6 +117,8 @@ __BASE_JS__
   const state = {
     models: new Set(DEFAULT_MODELS.length > 1 ? DEFAULT_MODELS : MODELS),
     variants: new Set(VARIANTS),
+    // Models the host took out of the page (see `onExcludeMessage`): never drawn, never listed.
+    excluded: new Set(),
     // One entry per model by default, as the static figure shows it: 80 rows of
     // model-variant pairs is a wall, and the comparison people want first is
     // between models.
@@ -189,7 +191,7 @@ __BASE_JS__
   function shown() {
     let list = METHODS.filter(label => {
       const p = info.get(label);
-      if (!p || !state.models.has(p.model)) return false;
+      if (!p || !state.models.has(p.model) || state.excluded.has(p.model)) return false;
       return !p.variant || state.variants.has(p.variant);
     });
     if (state.best) {
@@ -387,7 +389,7 @@ __BASE_JS__
 
   // ---------- model chips, by family ----------
   function familyModels(fam) {
-    return [...new Set(POINTS.filter(p => p.family === fam).map(p => p.model))];
+    return [...new Set(POINTS.filter(p => p.family === fam && !state.excluded.has(p.model)).map(p => p.model))];
   }
   function meanOfModel(model) {
     const values = POINTS.filter(p => p.model === model && isFinite(p.mean)).map(p => p.mean);
@@ -430,11 +432,22 @@ __BASE_JS__
     }
   }
   function syncChips() {
-    for (const [model, b] of chipByModel) b.setAttribute("aria-pressed", String(state.models.has(model)));
+    for (const [model, b] of chipByModel) {
+      b.setAttribute("aria-pressed", String(state.models.has(model)));
+      b.hidden = state.excluded.has(model);
+    }
     for (const [fam, b] of famChips) {
-      b.setAttribute("aria-pressed", String(familyModels(fam).every(m => state.models.has(m))));
+      const members = familyModels(fam);
+      b.hidden = !members.length;
+      b.setAttribute("aria-pressed", String(members.every(m => state.models.has(m))));
+      b.innerHTML = famChipLabel(fam, members.length);
     }
   }
+  onExcludeMessage(excluded => {
+    state.excluded = excluded;
+    syncChips();
+    render();
+  });
   function toggleModel(model) {
     if (state.models.has(model)) state.models.delete(model); else state.models.add(model);
     syncChips();
