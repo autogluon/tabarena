@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 class OpenMLTaskMetadataSource(TaskMetadataSource):
     """Source whose tasks are OpenML tasks; ``materialize`` pre-caches them."""
 
-    def __init__(self, *, openml_cache_dir: str | Path | None = None) -> None:
+    def __init__(self, *, openml_cache_dir: str | Path | None = None, warm_data_cache: bool = True) -> None:
         """Initialize the source.
 
         Args:
@@ -39,15 +39,24 @@ class OpenMLTaskMetadataSource(TaskMetadataSource):
                 (mirroring the old pre-download step). When ``None``, the ambient
                 OpenML cache is used — in the SLURM pipeline this is configured by
                 ``PathSetup.ensure_runtime_dirs`` (else ``~/.cache/openml``).
+            warm_data_cache: Also load each dataset once so openml writes its pickle cache
+                (``dataset_<id>.pkl.py3``) here. openml writes that pickle with a plain
+                ``pickle.dump`` to its final path, so the first compute node to parse the parquet
+                would race every other node reading the shared cache (a truncated pickle surfaces
+                as openml's "Detected a corrupt cache file"); warming it here makes every worker a
+                reader. One dataset is resident at a time; a dataset whose pickle exists is skipped.
         """
         self.openml_cache_dir = openml_cache_dir
+        self.warm_data_cache = warm_data_cache
 
     def materialize(self, task_metadata: list[TabArenaTaskMetadata]) -> None:
         """Download each OpenML task's dataset + splits into the OpenML cache, in place.
 
         Tasks whose ``task_id_str`` is not an integer OpenML id are skipped. Task ids
         are de-duplicated (splits of the same task share one id), so each dataset is
-        fetched once.
+        fetched once. Downloads go through ``get_task_with_retry`` (exponential backoff on
+        ``OpenMLServerException``), which also fetches the feature metadata the runtime path
+        needs; see ``warm_data_cache`` for the pickle warm-up.
         """
         task_ids: list[int] = []
         for ttm in task_metadata:
@@ -62,6 +71,8 @@ class OpenMLTaskMetadataSource(TaskMetadataSource):
         import openml
         from tqdm import tqdm
 
+        from tabarena.benchmark.task.openml.task_utils import get_task_with_retry, use_cached_pickle
+
         if self.openml_cache_dir is not None:
             openml.config.set_root_cache_directory(root_cache_directory=str(self.openml_cache_dir))
 
@@ -69,9 +80,10 @@ class OpenMLTaskMetadataSource(TaskMetadataSource):
         print(f"Caching {len(unique_task_ids)} OpenML task(s) into OpenML cache: {cache_dir}")
 
         for task_id in tqdm(unique_task_ids, desc="Caching OpenML tasks"):
-            openml.tasks.get_task(
-                task_id,
-                download_data=True,
-                download_qualities=False,  # nothing in tabarena reads dataset qualities
-                download_splits=True,
-            )
+            task = get_task_with_retry(task_id, download_splits=True)
+            if self.warm_data_cache:
+                dataset = task.get_dataset(download_data=True)
+                use_cached_pickle(dataset)
+                if dataset.cache_format == "pickle" and dataset.data_pickle_file is None:
+                    dataset.get_data(task.target_name)  # openml writes dataset_<id>.pkl.py3 here
+                del dataset

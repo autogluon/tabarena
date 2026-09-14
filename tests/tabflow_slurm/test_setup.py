@@ -591,3 +591,62 @@ class TestWriteJobBatches:
         cmd = _prefix(num_gpus=1, extra_gres="localtmp:100")
         assert "gpu:1" in cmd
         assert "localtmp:100" in cmd
+
+
+# ---------------------------------------------------------------------------
+# Node-staging and offline-weights defaults (the job-JSON contract with submit_template.sh)
+# ---------------------------------------------------------------------------
+
+
+class TestStagingDefaults:
+    def test_defaults_carry_offline_and_staging_and_round_trip_with_log_dir(self, tmp_path):
+        from tabflow_slurm.setup.scheduler import NodeStagingSetup
+
+        plan = {
+            "hf_hub_cache_src": "/nfs/hf/hub",
+            "hf_home_src": "/nfs/hf",
+            "hf_repo_dirs": ["/nfs/hf/hub/models--a--b"],
+            "tabpfn_cache_dir_src": None,
+            "tabpfn_files": [],
+            "other_paths": [],
+            "unresolved": [],
+            "complete": True,
+        }
+        bs = _benchmark_setup(offline_weights=True, weight_staging=plan)
+        defaults = bs._build_default_args()
+        assert defaults["offline_weights"] is True
+        staging = defaults["staging"]
+        assert staging["stage_weights"] is True
+        assert staging["hf_repo_dirs"] == ["/nfs/hf/hub/models--a--b"]
+        assert staging["pretouch_libs"] is True
+        assert "ray" in staging["pretouch_packages"]
+
+        # Off by default without a plan, and switched off by the scheduler knob.
+        assert _benchmark_setup()._build_default_args()["staging"]["stage_weights"] is False
+        off = _benchmark_setup(
+            weight_staging=plan,
+            scheduler_setup=_slurm(node_staging=NodeStagingSetup(stage_weights=False)),
+        )
+        assert off._build_default_args()["staging"]["stage_weights"] is False
+
+        # The shipped JSON keeps every default and adds the SLURM log dir the template reads.
+        json_path = str(tmp_path / "run.json")
+        _slurm()._write_job_batches_and_build_commands(
+            all_jobs=[{"bundle_size": 1, "items": [{"experiment": "e", "dataset": "d", "fold": 0, "repeat": 0}]}],
+            defaults=defaults,
+            base_json_path=json_path,
+            resources_setup=_resources(time_limit=3600),
+            slurm_log_output="/ws/slurm_out/my_bench",
+            slurm_script_path="/s.sh",
+        )
+        with open(json_path) as f:
+            shipped = json.load(f)["defaults"]
+        assert shipped["slurm_log_dir"] == "/ws/slurm_out/my_bench"
+        assert shipped["offline_weights"] is True
+        assert shipped["staging"]["stage_weights"] is True
+
+
+def test_defaults_carry_require_warmup():
+    """The job defaults ship the warm-up requirement, on unless the setup turns it off."""
+    assert _benchmark_setup()._build_default_args()["require_warmup"] is True
+    assert _benchmark_setup(require_warmup=False)._build_default_args()["require_warmup"] is False

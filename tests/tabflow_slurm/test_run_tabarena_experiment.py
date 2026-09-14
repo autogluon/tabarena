@@ -242,3 +242,68 @@ class TestRunExperimentAppliesCacheConfig:
             assert get_tabarena_cache_root() == tmp_path / "tab"  # batch's cache_config was applied
         finally:
             set_tabarena_cache_root(None)
+
+
+# ---------------------------------------------------------------------------
+# resolve_setup_ray  (Ray only when the experiment's fit can reach it)
+# ---------------------------------------------------------------------------
+
+
+def _in_memory_batch(experiment):
+    import pandas as pd
+
+    from tabarena.benchmark.experiment import Job, JobBatch
+    from tabarena.benchmark.task.metadata import TaskMetadataCollection
+
+    collection = TaskMetadataCollection.from_legacy_df(
+        pd.DataFrame(
+            {
+                "tid": [1],
+                "dataset": ["ds_a"],
+                "problem_type": ["binary"],
+                "n_folds": [1],
+                "n_repeats": [1],
+                "n_features": [5],
+                "n_classes": [2],
+                "NumberOfInstances": [100],
+                "n_samples_train_per_fold": [80.0],
+                "n_samples_test_per_fold": [20.0],
+            },
+        ),
+    )
+    job = Job.create(experiment, "ds_a", fold=0)
+    return JobBatch(jobs=[job], task_metadata=collection), job
+
+
+class TestResolveSetupRay:
+    def test_sequential_local_bag_does_not_start_ray(self):
+        from autogluon.tabular.models import LGBModel
+
+        from tabarena.benchmark.experiment import AGModelBagExperiment
+        from tabflow_slurm.run_tabarena_experiment import job_problem_type, resolve_setup_ray
+
+        experiment = AGModelBagExperiment(
+            name="exp_seq",
+            model_cls=LGBModel,
+            model_hyperparameters={"ag_args_ensemble": {"fold_fitting_strategy": "sequential_local"}},
+            num_bag_folds=2,
+            time_limit=60,
+        )
+        batch, job = _in_memory_batch(experiment)
+        assert job_problem_type(batch, job) == "binary"
+        assert resolve_setup_ray(True, batch, job) is False
+        assert resolve_setup_ray(False, batch, job) is False
+
+    def test_error_in_uses_ray_starts_ray(self):
+        import types
+
+        from tabflow_slurm.run_tabarena_experiment import resolve_setup_ray
+
+        def broken(**kwargs):
+            raise RuntimeError("boom")
+
+        job = types.SimpleNamespace(
+            experiment=types.SimpleNamespace(uses_ray=broken),
+            task=types.SimpleNamespace(dataset="ds_a"),
+        )
+        assert resolve_setup_ray(True, types.SimpleNamespace(task_metadata=None), job) is True
