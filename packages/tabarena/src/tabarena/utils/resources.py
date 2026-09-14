@@ -4,10 +4,15 @@ from __future__ import annotations
 
 
 def detect_num_cpus() -> int:
-    """Detect the number of available CPUs on the current node."""
-    from autogluon.common.utils.cpu_utils import get_available_cpu_count
+    """Detect the number of CPUs this process may run on.
 
-    return get_available_cpu_count(only_physical_cores=False)
+    Reads the affinity mask (see :func:`tabarena.utils.thread_utils.usable_cpu_count`), so a
+    cpuset or SLURM cgroup CPU confinement is honored and an auto-detected ``num_cpus`` always
+    passes :func:`tabarena.utils.thread_utils.check_cpu_budget`.
+    """
+    from tabarena.utils.thread_utils import usable_cpu_count
+
+    return usable_cpu_count()
 
 
 def detect_memory_limit_gb() -> int:

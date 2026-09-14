@@ -14,19 +14,19 @@ from tabarena.caching import CacheConfig
 def _isolate_cache_state():
     """Snapshot + restore the global cache state each test mutates.
 
-    ``apply()`` writes process-global state (``HF_HOME`` / ``DATA_FOUNDRY_CACHE`` env vars, the
-    OpenML root cache, the TabArena cache-root holder), so we snapshot all of it up front and
-    restore it afterwards to keep tests independent.
+    ``apply()`` writes process-global state (``HF_HOME`` / ``TABPFN_MODEL_CACHE_DIR`` /
+    ``DATA_FOUNDRY_CACHE`` env vars, the OpenML root cache, the TabArena cache-root holder), so we
+    snapshot all of it up front and restore it afterwards to keep tests independent.
     """
     import openml
 
     from tabarena.loaders import set_tabarena_cache_root
 
-    env_keys = ("HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "DATA_FOUNDRY_CACHE")
+    env_keys = ("HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "TABPFN_MODEL_CACHE_DIR", "DATA_FOUNDRY_CACHE")
     saved_env = {k: os.environ.get(k) for k in env_keys}
     saved_openml_root = openml.config._root_cache_directory
-    constants_present = "huggingface_hub.constants" in sys.modules
-    saved_constants = sys.modules.get("huggingface_hub.constants")
+    patched_modules = ("huggingface_hub.constants", "tabpfn.settings")
+    saved_modules = {name: sys.modules.get(name) for name in patched_modules}
     try:
         yield
     finally:
@@ -37,10 +37,11 @@ def _isolate_cache_state():
                 os.environ[key] = value
         openml.config.set_root_cache_directory(str(saved_openml_root))
         set_tabarena_cache_root(None)
-        if constants_present:
-            sys.modules["huggingface_hub.constants"] = saved_constants
-        else:
-            sys.modules.pop("huggingface_hub.constants", None)
+        for name, module in saved_modules.items():
+            if module is not None:
+                sys.modules[name] = module
+            else:
+                sys.modules.pop(name, None)
 
 
 def test_apply_sets_openml_root(tmp_path):
@@ -77,6 +78,21 @@ def test_apply_patches_already_imported_hf_constants(tmp_path):
     assert expected_home == fake.HF_HOME
     assert expected_hub == fake.HF_HUB_CACHE
     assert expected_hub == fake.HUGGINGFACE_HUB_CACHE
+
+
+def test_apply_sets_tabpfn_env_and_patches_already_imported_settings_with_a_path(tmp_path):
+    # Before tabpfn is imported the env var is enough; once tabpfn.settings is loaded its settings
+    # object is frozen, so apply() must repoint model_cache_dir in place, as a Path (the loader
+    # joins checkpoint names onto it).
+    sys.modules.pop("tabpfn.settings", None)
+    CacheConfig(tabpfn=tmp_path / "tabpfn").apply()
+    assert os.environ["TABPFN_MODEL_CACHE_DIR"] == str(tmp_path / "tabpfn")
+
+    fake = types.SimpleNamespace(settings=types.SimpleNamespace(tabpfn=types.SimpleNamespace(model_cache_dir=None)))
+    sys.modules["tabpfn.settings"] = fake
+    CacheConfig(tabpfn=str(tmp_path / "other")).apply()
+    assert fake.settings.tabpfn.model_cache_dir == tmp_path / "other"
+    assert isinstance(fake.settings.tabpfn.model_cache_dir, Path)
 
 
 def test_apply_sets_data_foundry_env(tmp_path):
@@ -116,6 +132,7 @@ def test_from_root_lays_out_subdirs(tmp_path):
     cfg = CacheConfig.from_root(tmp_path)
     assert cfg.openml == tmp_path / "openml"
     assert cfg.huggingface == tmp_path / "huggingface"
+    assert cfg.tabpfn == tmp_path / "tabpfn"
     assert cfg.data_foundry == tmp_path / "data_foundry"
     assert cfg.tabarena == tmp_path / "tabarena"
     assert cfg.results == tmp_path / "results"
@@ -160,6 +177,7 @@ def test_to_dict_from_dict_round_trips_str_config():
     cfg = CacheConfig(
         openml="/o",
         huggingface="/hf",
+        tabpfn="/tp",
         data_foundry="/df",
         tabarena="/t",
         results="/r",
@@ -172,6 +190,7 @@ def test_to_dict_from_dict_round_trips_str_config():
 def test_to_dict_renders_paths_as_str_and_is_value_stable(tmp_path):
     d = CacheConfig.from_root(tmp_path).to_dict()
     assert d["openml"] == str(tmp_path / "openml")
+    assert d["tabpfn"] == str(tmp_path / "tabpfn")
     assert isinstance(d["openml"], str)
     # re-serializing the reconstructed config yields the same dict (value-stable round-trip)
     assert CacheConfig.from_dict(d).to_dict() == d

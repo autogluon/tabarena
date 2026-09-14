@@ -187,6 +187,14 @@ class TabArenaExperimentBundle:
     """Verbosity level passed to the model via model_hyperparameters['verbose'].
     Controls model-level logging (e.g. CatBoost iteration logs, LightGBM verbosity)
     independently of AutoGluon's overall verbosity. If None, no model-level verbosity is set."""
+    model_verbosity_overrides: dict[str, int] = field(default_factory=lambda: {"CatBoost": 2})
+    """Per-model ``ag.verbosity`` values that replace ``model_verbosity`` for the named methods.
+
+    Keyed by the registry method name (the first element of a ``models`` tuple). Applied only when
+    ``model_verbosity`` is not None; a ``(model_name, n_configs, {"ag.verbosity": ...})`` entry still
+    wins. The default keeps CatBoost at 2: at 4 CatBoost logs every boosting iteration, which
+    inside a bagged fit streams thousands of lines through Ray's log monitor to the job's stdout
+    while the fit timer runs. Pass ``{}`` to give every model ``model_verbosity``."""
     adapt_num_folds_to_n_classes: bool = True
     """Whether to adapt the number of folds to the number of classes for classification tasks.
     Ensures that each fold has at least one sample of each class.
@@ -510,9 +518,20 @@ class TabArenaExperimentBundle:
             preprocessing_pipeline=preprocessing_pipeline,
             time_limit=time_limit,
             time_limit_with_preprocessing=time_limit_with_preprocessing,
-            model_hyperparameters=model_hyperparameters,
+            model_hyperparameters=self._with_model_verbosity_override(model_name, model_hyperparameters),
             default_seed_config=self.default_seed_config,
         )
+
+    def _with_model_verbosity_override(self, model_name: str, model_hyperparameters: dict | None) -> dict | None:
+        """Layer ``model_verbosity_overrides[model_name]`` under the per-model hyperparameters.
+
+        Returns ``model_hyperparameters`` unchanged when the model has no override or the bundle
+        sets no model-level verbosity; otherwise a new dict with ``ag.verbosity`` set to the
+        override, which the per-model entry can still replace.
+        """
+        if self.model_verbosity is None or model_name not in self.model_verbosity_overrides:
+            return model_hyperparameters
+        return {"ag.verbosity": self.model_verbosity_overrides[model_name], **(model_hyperparameters or {})}
 
     def _generate_autogluon_config(
         self,
