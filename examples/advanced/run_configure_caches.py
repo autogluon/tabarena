@@ -1,18 +1,20 @@
 """How to configure *where* TabArena caches everything — one object, set once.
 
-TabArena reads and writes five independent caches. By default they live under your home
+TabArena reads and writes six independent caches. By default they live under your home
 directory, which is usually the wrong disk for benchmarking (model weights and datasets are
 large, and on a cluster every worker needs to see the same files). Instead of exporting a
 handful of environment variables on every machine, declare the locations once with a
 ``CacheConfig`` and hand it to the context — it points the driver at them immediately and
 re-applies them on every worker that runs a job.
 
-The five caches (see ``tabarena.caching.CacheConfig`` for the authoritative reference):
+The six caches (see ``tabarena.caching.CacheConfig`` for the authoritative reference):
 
   * ``openml``       — THE important one. The materialized datasets + their cross-validation
                        splits, plus all TabArena-derived task artifacts, live here. Point this
                        at a large, ideally shared, disk.
-  * ``huggingface``  — foundation-model weights (TabPFN / Mitra / LimiX / ...). Sets ``HF_HOME``.
+  * ``huggingface``  — foundation-model weights (Mitra / LimiX / ...). Sets ``HF_HOME``.
+  * ``tabpfn``       — TabPFN checkpoints (the tabpfn package keeps its own cache, not ``HF_HOME``).
+                       Sets ``TABPFN_MODEL_CACHE_DIR``.
   * ``data_foundry`` — the one-time raw dataset download for data_foundry / BeyondArena (which is
                        then converted into the OpenML cache). Sets ``DATA_FOUNDRY_CACHE``. NOTE:
                        this is NOT ``HF_HOME`` — data_foundry passes an explicit cache dir to
@@ -33,7 +35,7 @@ from tabarena.contexts import TabArenaContext
 
 if __name__ == "__main__":
     # Option A — put every cache under one parent directory (the common case: one big disk).
-    #   /data/tabarena-caches/openml, /huggingface, /data_foundry, /tabarena, /results
+    #   /data/tabarena-caches/openml, /huggingface, /tabpfn, /data_foundry, /tabarena, /results
     cache_config = CacheConfig.from_root("/data/tabarena-caches")
 
     # Option B — set each location explicitly (e.g. datasets on shared storage, weights local).

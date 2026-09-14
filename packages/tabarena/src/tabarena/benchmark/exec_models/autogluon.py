@@ -148,6 +148,11 @@ class AGWrapper(AbstractExecModel):
         num_gpus = self.fit_kwargs.get("num_gpus")
         return None if num_gpus is None else num_gpus > 0
 
+    @property
+    def num_cpus_budget(self) -> int | None:
+        """The ``num_cpus`` in ``fit_kwargs`` (``None`` when the fit is left to auto-detect it)."""
+        return self.fit_kwargs.get("num_cpus")
+
     def _warmup(self) -> WarmupReport:
         from tabarena.benchmark.exec_models.autogluon_utils import configured_model_classes
         from tabarena.models.warmup import warmup_ag_stack, warmup_feature_generator_cls, warmup_model_classes
@@ -1198,6 +1203,11 @@ class AGModelWrapper(AbstractExecModel):
     def _warmup_cuda(self) -> bool | None:
         num_gpus = self.fit_kwargs.get("num_gpus")
         return None if num_gpus is None else num_gpus > 0
+
+    @property
+    def num_cpus_budget(self) -> int | None:
+        """The ``num_cpus`` in ``fit_kwargs`` (``None`` when the fit is left to auto-detect it)."""
+        return self.fit_kwargs.get("num_cpus")
 
     def _warmup(self) -> WarmupReport:
         from tabarena.models.warmup import warmup_feature_generator_cls, warmup_model_cls

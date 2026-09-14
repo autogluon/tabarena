@@ -341,6 +341,16 @@ class AbstractExecModel:
         num_gpus = getattr(self, "num_gpus", None)
         return None if num_gpus is None else num_gpus > 0
 
+    @property
+    def num_cpus_budget(self) -> int | None:
+        """The CPU budget (``num_cpus``) this method fits under, or ``None`` when it declares none.
+
+        The experiment runner compares it with the CPUs the process may actually use before the
+        fit (see :func:`tabarena.utils.thread_utils.check_cpu_budget`); ``None`` is resolved to the
+        auto-detected count there. Wrappers that carry a ``num_cpus`` return it.
+        """
+        return None
+
     def _declared_warmup(self, report: WarmupReport | None = None) -> WarmupReport:
         """Apply the declarative warm-up (``warmup_torch_device`` then ``warmup_modules``) into a report.
 

@@ -4,6 +4,7 @@ import importlib
 import logging
 import pkgutil
 
+from tabarena.models._registry import _raise_if_all_skipped, assert_autogluon_resolves
 from tabarena.systems._system_info import SystemInfo
 
 logger = logging.getLogger(__name__)
@@ -23,13 +24,16 @@ def discover_systems() -> dict[str, SystemInfo]:
     Mirrors :func:`tabarena.models.discover_models`, including its skip-and-warn on
     import failure: a package whose `info.py` cannot be imported (usually a missing
     optional dependency) logs a warning and is left out, so one broken system does not
-    take the rest of the registry down with it.
+    take the rest of the registry down with it. Like the models walk it raises ``RuntimeError``
+    when ``autogluon.tabular`` is shadowed by a namespace package or every package was skipped.
     """
     global _REGISTRY
     if _REGISTRY is not None:
         return _REGISTRY
 
+    assert_autogluon_resolves()
     registry: dict[str, SystemInfo] = {}
+    skipped: list[str] = []
     import tabarena.systems as pkg
 
     for _finder, name, is_pkg in pkgutil.iter_modules(pkg.__path__):
@@ -46,6 +50,7 @@ def discover_systems() -> dict[str, SystemInfo]:
                 type(exc).__name__,
                 exc,
             )
+            skipped.append(name)
             continue
         for attr_name in dir(info_module):
             if attr_name.startswith("_"):
@@ -61,6 +66,7 @@ def discover_systems() -> dict[str, SystemInfo]:
                 )
             registry[key] = obj
 
+    _raise_if_all_skipped("tabarena.systems", skipped, registry)
     _REGISTRY = registry
     return registry
 
