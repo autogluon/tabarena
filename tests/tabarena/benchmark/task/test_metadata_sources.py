@@ -115,18 +115,57 @@ def test_v0pt1_source_falls_back_to_rebuild_when_csv_missing(monkeypatch, tmp_pa
     assert [t.dataset_name for t in tasks] == ["fb_ds"]
 
 
-def test_v0pt1_source_materialize_caches_unique_openml_tasks(monkeypatch):
-    import openml
+class _FakeDataset:
+    """An openml dataset whose parquet has not been turned into a pickle yet."""
 
-    fetched: list[int] = []
-    monkeypatch.setattr(openml.tasks, "get_task", lambda task_id, **_: fetched.append(task_id))
+    cache_format = "pickle"
+    data_pickle_file = None
+    parquet_file = None
+    data_file = None
+
+    def __init__(self, calls: list):
+        self._calls = calls
+
+    def get_data(self, target):
+        self._calls.append(("get_data", target))
+
+
+class _FakeTask:
+    target_name = "y"
+
+    def __init__(self, calls: list):
+        self._calls = calls
+
+    def get_dataset(self, download_data=True):
+        return _FakeDataset(self._calls)
+
+
+def _patch_task_download(monkeypatch, calls: list) -> None:
+    """Route materialize's download through a fake ``get_task_with_retry`` (the retrying seam it uses)."""
+    from tabarena.benchmark.task.openml import task_utils
+
+    def fake_get_task_with_retry(task_id, max_delay_exp=8, *, download_splits=False):
+        calls.append(("get_task", task_id, download_splits))
+        return _FakeTask(calls)
+
+    monkeypatch.setattr(task_utils, "get_task_with_retry", fake_get_task_with_retry)
+
+
+def test_v0pt1_source_materialize_caches_unique_openml_tasks_and_warms_the_pickle(monkeypatch):
+    calls: list = []
+    _patch_task_download(monkeypatch, calls)
 
     t1, t2, t3 = _task(dataset_name="a", uri=None), _task(dataset_name="b", uri=None), _task(dataset_name="c", uri=None)
     t1.task_id_str, t2.task_id_str, t3.task_id_str = "363", "363", "364"  # t1/t2 share a task id
 
     TabArenaV0pt1TaskMetadataSource().materialize([t1, t2, t3])
 
-    assert fetched == [363, 364]  # de-duplicated, integer ids
+    # De-duplicated integer ids, splits downloaded with the task, one pickle warm per dataset.
+    assert calls == [("get_task", 363, True), ("get_data", "y"), ("get_task", 364, True), ("get_data", "y")]
+
+    calls.clear()
+    TabArenaV0pt1TaskMetadataSource(warm_data_cache=False).materialize([t3])
+    assert calls == [("get_task", 364, True)]
 
 
 def test_openml_source_honors_custom_cache_dir(monkeypatch, tmp_path):
@@ -140,7 +179,7 @@ def test_openml_source_honors_custom_cache_dir(monkeypatch, tmp_path):
 
     monkeypatch.setattr(openml.config, "set_root_cache_directory", _record_root_cache_dir)
     monkeypatch.setattr(openml.config, "get_cache_directory", lambda: str(tmp_path))
-    monkeypatch.setattr(openml.tasks, "get_task", lambda task_id, **_: None)
+    _patch_task_download(monkeypatch, [])
 
     t = _task(dataset_name="a", uri=None)
     t.task_id_str = "5"
