@@ -82,6 +82,18 @@ class TabArenaBenchmarkSetup:
     """Number of CPUs to use for checking the cache and generating the jobs.
     This should be set to the number of CPUs available to the python script.
     If "auto", we use all available CPUs."""
+    offline_weights: bool = False
+    """Written to the per-job defaults; the runner then exports the offline-weights environment
+    (``HF_HUB_OFFLINE=1``, ``AG_FETCH_PRETRAINED_WEIGHTS=false``) before importing any model library.
+    Set by ``TabArenaBenchmarkPlan`` from its prefetch report."""
+    weight_staging: dict | None = None
+    """Node-staging plan from ``tabarena.models.staging.collect_weight_paths`` (the local weight
+    files of this run's models), shipped as ``defaults.staging``. Set by ``TabArenaBenchmarkPlan``;
+    ``None`` ships an empty plan (no weight staging)."""
+    require_warmup: bool = True
+    """Written to the per-job defaults; the runner then aborts an item before its timed fit when the
+    method's warm-up raised or left steps failed, instead of recording a cold measurement. Set False
+    (``TabArenaBenchmarkPlan(require_warmup=False)``) to record the warm-up report and fit anyway."""
 
     @property
     def _safe_benchmark_name(self) -> str:
@@ -269,8 +281,32 @@ class TabArenaBenchmarkSetup:
             "num_gpus": self.resources_setup.num_gpus,
             "memory_limit": self.resources_setup.effective_memory_limit,
             "ignore_cache": self.ignore_cache,
+            "offline_weights": self.offline_weights,
+            "require_warmup": self.require_warmup,
             **self.scheduler_setup.get_extra_default_args(),
+            **self.scheduler_setup.get_staging_defaults(self.weight_staging, model_classes=self._model_classes()),
         }
+
+    def _model_classes(self) -> list[type]:
+        """The model classes of the bundle's registry-name and config-generator entries (pre-built experiments skipped)."""
+        from tabarena.models.utils import get_model_info_from_name
+
+        classes: list[type] = []
+        for entry in self.experiment_bundle.models:
+            if not isinstance(entry, tuple):
+                continue
+            head = entry[0]
+            model_cls = None
+            if isinstance(head, str):
+                try:
+                    model_cls = get_model_info_from_name(head).model_cls
+                except ValueError:
+                    continue
+            else:
+                model_cls = getattr(head, "model_cls", None)
+            if isinstance(model_cls, type) and model_cls not in classes:
+                classes.append(model_cls)
+        return classes
 
     def setup_jobs(self, *, print_run_commands: bool = True) -> list[str] | None:
         """Generate the scheduler job file(s) and return the run commands.

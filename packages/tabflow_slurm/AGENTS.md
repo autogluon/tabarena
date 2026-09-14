@@ -63,6 +63,9 @@ tabflow_slurm/                      ← this folder (docs, examples, history, py
 Then: `sbatch … submit_template.sh <job.json>` → array task picks `jobs[SLURM_ARRAY_TASK_ID]` → runs
 `run_tabarena_experiment.py` per item → `setup_slurm_job()` + `JobBatch.load()` +
 `ExperimentBatchRunner.run_jobs()` (the exact same execution path as a local benchmark run).
+A method whose warm-up raised or left steps failed is aborted before its timed fit (`require_warmup`,
+true in the job defaults and the runner CLI); `TabArenaBenchmarkPlan(require_warmup=False)` or
+`--require_warmup false` records the report and fits cold instead.
 
 ## Conventions
 

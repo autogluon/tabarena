@@ -34,6 +34,8 @@ from tabflow_slurm.setup.scheduler import GCPSlurmSetup
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment import TabArenaExperimentBundle
     from tabarena.contexts import AbstractArenaContext
+    from tabarena.models.prefetch import PrefetchReport
+    from tabarena.utils.config_utils import SystemConfigGenerator
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
     from tabflow_slurm.setup.scheduler import SchedulerSetup
@@ -212,9 +214,25 @@ class TabArenaBenchmarkPlan:
     e.g. `TaskSubset(subset="lite", dataset_names=[...])`. `None`/empty runs the context's full
     collection. Each `ModelJob.tasks` is merged on top per group (the job wins per field)."""
     prefetch_model_weights: bool = True
-    """If True, `setup_jobs` warms the weights of any selected foundation models on this (head)
-    node before emitting jobs, so parallel/offline compute nodes find them cached. Set False to
-    skip (e.g. weights already present, or no network on the head node)."""
+    """If True, `setup_jobs` warms the weights of any selected foundation models and systems on
+    this (head) node before emitting jobs, so parallel/offline compute nodes find them cached. Set
+    False to skip (e.g. weights already present, or no network on the head node)."""
+    offline_weights: bool | Literal["auto"] = "auto"
+    """Whether the emitted jobs run with ``HF_HUB_OFFLINE=1``, ``HF_HUB_DISABLE_PROGRESS_BARS=1`` and
+    ``AG_FETCH_PRETRAINED_WEIGHTS=false``, so no checkpoint revalidation or download can land in the
+    timed fit; a cache miss is then a failed item. ``"auto"`` turns it on only when the prefetch ran
+    and its report is complete (every selected model resolved and prefetched or declares nothing),
+    no system is selected (a system fetches its own checkpoints and TabArena does not prefetch for
+    it) and no run uses ``text_cache_mode="auto"`` (its text encoder would download at fit time).
+    Requires the HF cache (``CacheConfig.huggingface`` / ``HF_HOME``) to be shared between head and
+    compute nodes."""
+    strict_prefetch: bool = False
+    """If True, the prefetch raises on the first unknown name, missing dependency or failed
+    download instead of reporting it and continuing."""
+    require_warmup: bool = True
+    """Whether an item aborts before its timed fit when the method's warm-up raised or left steps
+    failed (see ``ExperimentRunner.require_warmup``). On by default so a cold timed fit is never
+    recorded silently; False records the warm-up report and fits anyway."""
 
     def build_setups(self, num_ray_cpus: int | Literal["auto"] = "auto") -> list[TabArenaBenchmarkSetup]:
         """Expand the model jobs into one `TabArenaBenchmarkSetup` per group.
@@ -312,8 +330,18 @@ class TabArenaBenchmarkPlan:
         setups = self.build_setups(num_ray_cpus=num_ray_cpus)
         n = len(setups)
 
-        if self.prefetch_model_weights:
-            self._prefetch_model_weights()
+        # Prefetch and enumerate weights under the run's caches, not the ambient ones (idempotent;
+        # each setup applies the same config again before it materializes its tasks).
+        if self.context.cache_config is not None:
+            self.context.cache_config.apply()
+        report = self._prefetch_model_weights() if self.prefetch_model_weights else None
+        offline, reason = self._resolve_offline_weights(report, setups)
+        print(f"offline_weights={offline} ({reason})")
+        weight_plan = self._collect_weight_staging(report, setups)
+        setups = [
+            replace(setup, offline_weights=offline, weight_staging=weight_plan, require_warmup=self.require_warmup)
+            for setup in setups
+        ]
 
         print(f"\n{_SUMMARY_BAR}\nBenchmark plan '{self.benchmark_name}': preparing {n} run(s)\n{_SUMMARY_BAR}")
 
@@ -347,8 +375,24 @@ class TabArenaBenchmarkPlan:
                     names.append(name)
         return names
 
-    def _prefetch_model_weights(self) -> None:
-        """Warm the weights of any selected foundation models on this node before dispatch."""
+    def selected_system_generators(self) -> list[SystemConfigGenerator]:
+        """Unique ``SystemConfigGenerator`` entries across all jobs (first-appearance order, by identity)."""
+        from tabarena.utils.config_utils import SystemConfigGenerator
+
+        generators: list[SystemConfigGenerator] = []
+        for job in self.model_jobs:
+            for entry in job._model_entries():
+                head = entry[0] if isinstance(entry, tuple) else None
+                if isinstance(head, SystemConfigGenerator) and not any(head is g for g in generators):
+                    generators.append(head)
+        return generators
+
+    def _prefetch_model_weights(self) -> PrefetchReport:
+        """Warm the weights of the selected foundation models on this node; return the report.
+
+        Systems are not prefetched: a system resolves its own checkpoints inside its fit, and
+        TabArena does not add that logic on its behalf (see ``AutoGluonSystemModel``).
+        """
         from tabarena.models.prefetch import prefetch_weights
 
         model_names = self.selected_model_names()
@@ -357,7 +401,65 @@ class TabArenaBenchmarkPlan:
             f"\nPrefetching foundation-model weights for: {', '.join(model_names) or '(none)'}"
             f"\n{_SUMMARY_BAR}",
         )
-        prefetch_weights(model_names)
+        report = prefetch_weights(model_names, raise_on_error=self.strict_prefetch)
+        print(report.summary())
+        return report
+
+    def _resolve_offline_weights(
+        self,
+        report: PrefetchReport | None,
+        setups: list[TabArenaBenchmarkSetup],
+    ) -> tuple[bool, str]:
+        """Decide the jobs' ``offline_weights`` flag; returns ``(flag, reason)``.
+
+        An explicit bool wins (a warning is printed when True meets an incomplete prefetch).
+        ``"auto"`` is on only when the report exists and is complete, no system is selected and no
+        run's bundle uses ``text_cache_mode="auto"``.
+        """
+        complete = report is not None and report.complete
+        if self.offline_weights is not True and self.offline_weights != "auto":
+            return False, "disabled on the plan"
+        if self.offline_weights is True:
+            if not complete:
+                print("WARNING: offline_weights=True forced with an incomplete prefetch; cache misses will fail items.")
+            return True, "forced on the plan"
+        if report is None:
+            return False, "prefetch disabled"
+        blocker = self._offline_blocker(report, setups)
+        return (blocker is None), (blocker or "prefetch complete")
+
+    def _offline_blocker(self, report: PrefetchReport, setups: list[TabArenaBenchmarkSetup]) -> str | None:
+        """Why ``"auto"`` must stay off, or ``None`` when every selected run can go offline."""
+        if not report.complete:
+            return "prefetch report incomplete"
+        systems = [getattr(g, "name", type(g).__name__) for g in self.selected_system_generators()]
+        if systems:
+            return f"systems selected ({', '.join(systems)}) fetch their own checkpoints at fit time"
+        text_auto = [s._safe_benchmark_name for s in setups if s.experiment_bundle.text_cache_mode == "auto"]
+        if text_auto:
+            return f"text_cache_mode='auto' in {text_auto} (encoder downloads at fit time)"
+        return None
+
+    def _collect_weight_staging(
+        self, report: PrefetchReport | None, setups: list[TabArenaBenchmarkSetup]
+    ) -> dict | None:
+        """The node-staging plan of the selected models, when any scheduler stages weights."""
+        wants_staging = any(
+            getattr(getattr(s.scheduler_setup, "node_staging", None), "stage_weights", False) for s in setups
+        )
+        if not wants_staging:
+            return None
+        from tabarena.models.staging import collect_weight_paths
+
+        plan = collect_weight_paths(self.selected_model_names(), report)
+        if plan["unresolved"]:
+            print(
+                f"WARNING: weights of {plan['unresolved']} could not be enumerated; they are read from the shared cache."
+            )
+        print(
+            f"staging: {len(plan['hf_repo_dirs'])} HF repo dir(s), {len(plan['tabpfn_files'])} TabPFN checkpoint(s)",
+        )
+        return plan
 
     def _print_summary_and_collect(self, runs: list[tuple[str, str, list[str]]]) -> list[str]:
         """Print the consolidated per-run summary + final command list; return all commands."""

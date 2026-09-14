@@ -322,3 +322,35 @@ class TestTabArenaV0pt1BenchmarkPlan:
     def test_explicit_field_overrides_default(self):
         plan = self._preset_plan(resources_setup=_resources(num_gpus=1))
         assert plan.resources_setup.num_gpus == 1
+
+
+# ---------------------------------------------------------------------------
+# offline_weights resolution from the prefetch report
+# ---------------------------------------------------------------------------
+
+
+class TestOfflineWeights:
+    @staticmethod
+    def _report(*statuses):
+        from tabarena.models.prefetch import PrefetchReport, PrefetchResult
+
+        return PrefetchReport(tuple(PrefetchResult(f"m{i}", f"m{i}", s) for i, s in enumerate(statuses)))
+
+    def test_auto_follows_the_report_and_text_cache_mode(self):
+        plan = _plan([ModelJob(models=("A", 0))])
+        setups = plan.build_setups()
+        assert plan._resolve_offline_weights(self._report("ok", "nothing"), setups)[0] is True
+        assert plan._resolve_offline_weights(self._report("ok", "failed"), setups)[0] is False
+        assert plan._resolve_offline_weights(self._report("ok", "undeclared"), setups)[0] is False
+        assert plan._resolve_offline_weights(None, setups)[0] is False
+        text_auto = _plan([ModelJob(models=("A", 0), experiment={"text_cache_mode": "auto"})])
+        assert text_auto._resolve_offline_weights(self._report("ok"), text_auto.build_setups())[0] is False
+
+    def test_explicit_bool_wins(self, capsys):
+        setups = _plan([ModelJob(models=("A", 0))]).build_setups()
+        assert _plan([ModelJob(models=("A", 0))], offline_weights=False)._resolve_offline_weights(
+            self._report("ok"), setups
+        ) == (False, "disabled on the plan")
+        forced = _plan([ModelJob(models=("A", 0))], offline_weights=True)
+        assert forced._resolve_offline_weights(self._report("failed"), setups)[0] is True
+        assert "WARNING" in capsys.readouterr().out
