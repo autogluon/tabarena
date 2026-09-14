@@ -192,6 +192,7 @@ def process_results_in_memory(
     model_key: str | None = None,
     method: str | None = None,
     suite: str | None = None,
+    display_name: str | None = None,
     artifact_dir: str | Path | None = None,
     cache_raw: bool = False,
     cache_processed: bool = False,
@@ -251,12 +252,19 @@ def process_results_in_memory(
                 method=method,
                 suite=suite,
                 artifact_dir=artifact_dir,
+                display_name=display_name,
             )
         if cache_raw:
             log(f'\tCaching raw results to "{cur_metadata.path_raw}" ({len(group)} task results)')
             cur_metadata.cache_raw(results_lst=group)
 
         repo = cur_metadata.generate_repo(results_lst=group, task_metadata=task_metadata, cache=False)
+        # A single-config method may leave `config_default` unset; the lone config is its default,
+        # so record it here and the cached metadata.yaml carries the concrete name.
+        if cur_metadata.method_type == "config" and cur_metadata.config_default is None and not cur_metadata.can_hpo:
+            configs = repo.configs()
+            if len(configs) == 1:
+                cur_metadata.config_default = configs[0]
         hpo_results, model_results = MethodSimulator(cur_metadata).generate_results(
             repo=repo,
             cache=False,
@@ -293,6 +301,7 @@ def _process_task_group(
     model_key: str | None = None,
     method: str | None = None,
     suite: str | None = None,
+    display_name: str | None = None,
     artifact_dir: str | Path | None = None,
     cache_raw: bool = False,
     cache_processed: bool = False,
@@ -313,6 +322,7 @@ def _process_task_group(
         model_key=model_key,
         method=method,
         suite=suite,
+        display_name=display_name,
         artifact_dir=artifact_dir,
         cache_raw=cache_raw,
         cache_processed=cache_processed,
@@ -426,6 +436,7 @@ def process_raw_results(
     model_key: str | None = None,
     method: str | None = None,
     suite: str | None = None,
+    display_name: str | None = None,
     artifact_dir: str | Path | None = None,
     cache: bool = True,
     cache_raw: bool = False,
@@ -451,6 +462,7 @@ def process_raw_results(
         model_key=model_key,
         method=method,
         suite=suite,
+        display_name=display_name,
         artifact_dir=artifact_dir,
         cache_raw=cache_raw,
         cache_processed=cache_processed,
@@ -480,6 +492,7 @@ def process_path_raw(
     model_key: str | None = None,
     method: str | None = None,
     suite: str | None = None,
+    display_name: str | None = None,
     artifact_dir: str | Path | None = None,
     name_prefix_raw: str | None = None,
     file_paths: list[str | Path] | None = None,
@@ -537,6 +550,7 @@ def process_path_raw(
         model_key=model_key,
         method=method,
         suite=suite,
+        display_name=display_name,
         artifact_dir=artifact_dir,
         cache_raw=cache_raw,
         cache_processed=cache_processed,

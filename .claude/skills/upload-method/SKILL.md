@@ -92,7 +92,17 @@ diff**. Use it to confirm `info.py` matches the raw data before processing. Two 
 
 - **`config_default` is compared post-rename**: configs are renamed to the method's prefix during
   processing, so a `config_default` authored with the raw prefix won't match. The snippet/diff shows
-  the post-rename value — use that.
+  the post-rename value — use that. The most common real mismatch is the infix, not the prefix: the
+  TabArena-v0.1 bundle names the first config `<Method>_c1_default_BAG_L1` (the `_default` is the
+  preprocessing pipeline name, appended for HPO and default-only models alike), while `info.py` files
+  authored before a run, and the BeyondArena bundle, use `<Method>_c1_BAG_L1`. An `info.py` written by
+  `add-model` before the run therefore usually needs this one fix. A single-config method
+  (`can_hpo=False`) can drop the field instead: an undeclared `config_default` is not checked (the diff
+  marks it `not declared`) and `--process` records the lone config in the cached `metadata.yaml`.
+- **Only `error` rows gate processing**: the `method` row differs whenever the raw `ag_name` carries
+  the `TA-` prefix (warn-only) and `model_key` is never checked (shown for context). A `NO` on either is
+  expected and needs no edit; a `NO` on `config_default`, `ag_key`, `compute`, `can_hpo`, `is_bag` or
+  `method_type` does.
 - **`method != suite`**: `process` fails if they're equal (suite defaults to method when unset).
 
 **Multi-method run dirs**: if the run's `data/` holds several methods' config dirs side by side,
@@ -118,7 +128,8 @@ maintainer normally hand-edits them — Claude does it now. Read the file first,
 
 Leave the raw-inferable fields (`ag_key`, `config_default`, `can_hpo`, `is_bag`, `compute`,
 `method_type`) **as they are** — they came from `add-model`. Only change one if Step 2's diff shows a
-genuine mismatch (and then to the inferred value).
+genuine mismatch (and then to the inferred value; for a single-config method, deleting a mismatched
+`config_default` is equally valid).
 
 Example — making `chimeraboost` upload-ready (the upload fields added; compare `nori`'s `info.py`,
 which is already in this shape):
@@ -128,7 +139,7 @@ chimeraboost_method_metadata = MethodMetadata.config(
     method="ChimeraBoost",
     suite="tabarena-2026-06-30",                              # added: distinct dated suite
     ag_key="CHIMERA",
-    config_default="ChimeraBoost_c1_BAG_L1",
+    config_default="ChimeraBoost_c1_default_BAG_L1",             # HPO method: post-rename, `_default` = the run's pipeline
     compute="cpu",
     is_bag=False,
     date="2026-06-15",

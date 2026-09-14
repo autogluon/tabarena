@@ -140,7 +140,9 @@ def evaluate() -> None:
     config = TabArenaEvalConfig(
         benchmark_name=BENCHMARK_NAME,
         output_dir=_path_setup().get_output_path(BENCHMARK_NAME),
-        methods=[EvalMethod(MODEL)],  # add result_suffix / only_load_cache if needed
+        # Labelled with the registry's display_name in the leaderboard and figures; add result_suffix
+        # (re-run of a hosted model), only_load_cache or display_name_override if needed.
+        methods=[EvalMethod(MODEL)],
         figure_output_dir=Path(__file__).parent / "eval_output" / BENCHMARK_NAME,
         # `[]` = the full task set (overall leaderboard), then one view per problem type.
         # Regression-only model: [["regression"]]. Classification-only: drop ["regression"].

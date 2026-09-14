@@ -100,6 +100,32 @@ def repo_and_metadata(tmp_path_factory):
     return repo, method_metadata
 
 
+def _undeclared_default_metadata() -> MethodMetadata:
+    return MethodMetadata.config(method="Dummy", suite="dummy-suite", ag_key="DUMMY", can_hpo=True)
+
+
+class TestResolveConfigDefault:
+    def test_declared_value_wins(self, repo_and_metadata):
+        repo, method_metadata = repo_and_metadata
+        assert MethodSimulator(method_metadata).resolve_config_default(repo=repo) == "Dummy_c1"
+
+    def test_undeclared_resolves_from_repo(self, repo_and_metadata):
+        repo, _ = repo_and_metadata
+        undeclared = _undeclared_default_metadata()
+        assert undeclared.config_default is None
+        assert MethodSimulator(undeclared).resolve_config_default(repo=repo) == "Dummy_c1"
+
+    def test_trajectories_match_declared(self, repo_and_metadata):
+        """Leaving `config_default` unset changes nothing: the resolved default seeds the same
+        fixed config and config fallback as the declared one.
+        """
+        repo, declared = repo_and_metadata
+        kwargs = dict(repo=repo, n_configs=[1, 2], seeds=1, n_iterations=3, backend="native", cache=False)
+        expected = MethodSimulator(declared).generate_hpo_trajectories(**kwargs)
+        actual = MethodSimulator(_undeclared_default_metadata()).generate_hpo_trajectories(**kwargs)
+        pd.testing.assert_frame_equal(actual, expected)
+
+
 class TestTrajectoriesMatchPerPassReference:
     def test_equivalence(self, repo_and_metadata):
         repo, method_metadata = repo_and_metadata
