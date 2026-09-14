@@ -1016,25 +1016,33 @@ class AbstractArenaContext:
 
         ``official`` (the arena's protocol key), ``custom`` (another recorded protocol, including the
         holdout / outer / full-predictor flavours and ``mixed``), ``system`` (systems own their
-        validation), ``recorded`` (a protocol is recorded but this context declares none to compare
-        with) or ``unrecorded`` (results that predate the record).
+        validation), ``recorded`` (a protocol is recorded but this context has none to compare it
+        with) or ``unrecorded`` (results that predate the record). The reference is the arena's
+        declared protocol; a bare context has one only while it enforces the protocol it was given.
         """
         value = method.validation_protocol
         if value is None:
             return "unrecorded"
         if value == "system" or (method.method_class == "system" and method.method_type != "portfolio"):
             return "system"
-        reference = type(self).OFFICIAL_VALIDATION_PROTOCOL or self.validation_protocol
+        reference = self._reference_validation_protocol()
         if reference is None:
             return "recorded"
         return "official" if value == reference.key() else "custom"
+
+    def _reference_validation_protocol(self) -> ValidationProtocol | None:
+        """The protocol registered methods are judged against: the declared one, else an enforced given one."""
+        declared = type(self).OFFICIAL_VALIDATION_PROTOCOL
+        if declared is not None:
+            return declared
+        return self.validation_protocol if self.enforces_validation_protocol else None
 
     def _warn_on_custom_validation_protocol(self, methods: list[MethodMetadata]) -> None:
         """Warn once when registered methods ran outside this arena's official validation protocol."""
         custom = [m.method for m in methods if self.validation_protocol_status(m) == "custom"]
         if not custom:
             return
-        reference = type(self).OFFICIAL_VALIDATION_PROTOCOL or self.validation_protocol
+        reference = self._reference_validation_protocol()
         warnings.warn(
             f"{self.benchmark_name}: {len(custom)} registered method(s) ran outside the official validation protocol "
             f"[{reference.key()}] and count as custom: {custom}. Compare them with that in mind.",

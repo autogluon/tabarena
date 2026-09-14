@@ -293,6 +293,14 @@ class TestRegisteredMethodStatus:
         assert ctx.validation_protocol_status(self._method("system", method_type="baseline")) == "system"
         bare = AbstractArenaContext(methods=[], task_metadata=_collection())
         assert bare.validation_protocol_status(self._method("8x1")) == "recorded"
+        # A bare context judges against the protocol it enforces, and against nothing once opted out.
+        enforcing = AbstractArenaContext(methods=[], task_metadata=_collection(), validation_protocol=CUSTOM)
+        assert enforcing.validation_protocol_status(self._method("3x1")) == "official"
+        assert enforcing.validation_protocol_status(self._method("8x1")) == "custom"
+        opted_out = AbstractArenaContext(
+            methods=[], task_metadata=_collection(), validation_protocol=CUSTOM, official_validation_protocol=False
+        )
+        assert opted_out.validation_protocol_status(self._method("8x1")) == "recorded"
 
     def test_registering_a_custom_protocol_method_warns(self):
         ctx = _ctx()
