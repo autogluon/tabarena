@@ -17,11 +17,16 @@ logger = logging.getLogger(__name__)
 
 
 def get_task(task_id: int) -> OpenMLSupervisedTask:
+    """The OpenML task with its dataset (parquet + feature metadata) cached; splits load on first use.
+
+    Dataset qualities are not fetched: nothing in tabarena reads them, and each fetch is one
+    more cache-directory round trip per task.
+    """
     task = openml.tasks.get_task(
         task_id,
         download_splits=False,
         download_data=True,
-        download_qualities=True,
+        download_qualities=False,
         download_features_meta_data=True,
     )
     if isinstance(task, OpenMLSupervisedTask):
