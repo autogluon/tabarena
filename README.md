@@ -120,10 +120,12 @@ results by re-running them.
 4. Open a pull request; the template asks for the expected files, the results, the hardware and the
    entry-point script. You can also share the run's output directory (the `expname` folder with the
    `results.pkl` files) so we can verify and integrate the results directly.
-5. A maintainer verifies the submission and re-runs the method on the benchmark hardware for the
-   final entry. We are happy to help with the integration and the re-run. The authors sign off on the
-   result, which marks the entry as verified.
-6. Once the method is benchmarked and merged, the leaderboard is updated as soon as possible.
+5. A maintainer reviews the pull request, then runs the method on the full task set on the
+   benchmark hardware for the final entry. We are happy to help with the integration and the run.
+6. Maintainers verify that run against your Lite results, and the person you name in the template
+   signs off on it, which marks the entry as verified.
+7. The results are processed, hosted and registered, and the pull request is merged.
+8. The leaderboard is regenerated from the hosted results after the merge, usually within days.
 
 Questions go through the [issue forms](.github/ISSUE_TEMPLATE): one for model and system
 submissions, one for leaderboard or dataset questions that touch this code base. Pure leaderboard

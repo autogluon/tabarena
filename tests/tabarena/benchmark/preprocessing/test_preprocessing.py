@@ -440,6 +440,45 @@ class TestNoCatAsStringCategoryFeatureGeneratorUnseenHandling:
         assert not pd.isna(X_out["cat"].iloc[2]), "Unseen 'NEW' must not be NaN"
         assert X_out["cat"].astype(object).iloc[2] == "NEW"
 
+    # ------------------------------------------------------------------
+    # The codes-based path for categorical input equals the value-based one
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize("with_unseen", [False, True])
+    def test_categorical_input_matches_object_input(self, with_unseen: bool):
+        """A categorical test column is read through its codes; the result must equal the
+        value-based path, including the order in which unseen categories are appended.
+        """
+        rng = np.random.default_rng(0)
+        train_values = np.array(["a", "b", "c", "d"], dtype=object)[rng.integers(0, 4, 200)]
+        X_train = pd.DataFrame({"cat": pd.Categorical(train_values), "num": rng.random(200)})
+        gen = self._fit_gen(X_train)
+        test_values = np.array(["c", "a", None, "b", "a"], dtype=object)
+        if with_unseen:
+            test_values = np.array(["NEW2", "c", "NEW1", None, "NEW2", "a"], dtype=object)
+        as_categorical = pd.DataFrame({"cat": pd.Categorical(test_values), "num": rng.random(len(test_values))})
+        as_object = as_categorical.assign(cat=pd.Series(test_values, dtype=object))
+
+        out_categorical = gen.transform(as_categorical.copy())
+        out_object = gen.transform(as_object.copy())
+
+        pd.testing.assert_frame_equal(out_categorical, out_object)
+        assert list(out_categorical["cat"].cat.categories) == list(out_object["cat"].cat.categories)
+        expected_categories = ["a", "b", "c", "d"] + (["NEW2", "NEW1"] if with_unseen else [])
+        assert list(out_categorical["cat"].cat.categories) == expected_categories
+        values_out = out_categorical["cat"].astype(object).tolist()
+        assert [v if not pd.isna(v) else None for v in values_out] == list(test_values)
+
+    def test_categorical_input_unused_dtype_category_is_not_unseen(self):
+        """A category declared in the test column's dtype but absent from its values is not
+        appended: only values decide, as in the value-based path.
+        """
+        X_train = pd.DataFrame({"cat": pd.Categorical(["a", "b", "a", "b"])})
+        gen = self._fit_gen(X_train)
+        X_test = pd.DataFrame({"cat": pd.Categorical(["a", "b"], categories=["a", "b", "ghost"])})
+        X_out = gen.transform(X_test.copy())
+        assert list(X_out["cat"].cat.categories) == ["a", "b"]
+
     def test_mixed_known_unseen_and_nan(self):
         X_train = pd.DataFrame({"cat": pd.Categorical(["a", "b", "a", "b"])})
         gen = self._fit_gen(X_train)
