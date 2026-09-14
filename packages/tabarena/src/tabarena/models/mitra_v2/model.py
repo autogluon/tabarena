@@ -1,0 +1,484 @@
+from __future__ import annotations
+
+import contextlib
+import json
+import logging
+import os
+import random
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import numpy as np
+import pandas as pd
+from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
+from autogluon.tabular.models.mitra.mitra_model import MitraModel
+
+from tabarena.models.mitra_v2._internal import recipe
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+logger = logging.getLogger(__name__)
+_BAG_RNG_STATE: tuple[str, tuple] | None = None
+
+
+class MitraV2Model(MitraModel):
+    """Mitra-v2: the second-generation Mitra tabular foundation model, fine-tuned per bag child.
+
+    Mitra-v2 keeps Mitra's 12-layer 2D-attention backbone (77M parameters) and is pretrained on
+    a far larger and more diverse synthetic prior. It is deployed as a fine-tuned, bagged model:
+    every bag child fine-tunes the checkpoint on its fit fold for 50 steps, validates on its
+    held-out fold, and predicts in context. This wrapper runs one such child; TabArena's
+    standard 8-fold bagging is the protocol behind the reported numbers, so nothing is bagged
+    or refit inside the wrapper.
+
+    Paper: Mitra-v2 Technical Report (arXiv:2609.04540)
+    Authors: Yefan Tao, Xiyuan Zhang, Xinyi Liu, Boran Han, Danielle Maddix, Haoyang Fang, Zhen Han,
+        Jiading Gai, Xuanqing Liu, Michael Bohlke-Schneider, Yuyang (Bernie) Wang, Gerald Friedland,
+        Kevan Mah, Chris Lee, Chris Kong (Amazon)
+    Codebase: https://huggingface.co/autogluon/mitra-finetune (fine-tuning recipe and results),
+        https://huggingface.co/autogluon/mitra-classifier-2 and
+        https://huggingface.co/autogluon/mitra-regressor-2 (weights)
+    License: Apache-2.0
+
+    The wrapper reproduces the frozen deployment recipe of the ``mitra-finetune`` package on top
+    of AutoGluon's Mitra implementation, as subclasses rather than the package's process-global
+    patches (see ``_internal/recipe.py`` for the values and their source):
+
+    * Pinned Mitra-v2 checkpoints; the regressor's 1,000-bin cross-entropy head is decoded to
+      the mean of the predicted distribution.
+    * Fine-tuning schedule: 50 steps, AdamW with learning rate 1e-5 (3e-6 on binary tasks with at
+      most 16,384 training rows), 10 warm-up steps, weight decay 0.3, a 250 s wall-clock budget
+      per child, and an in-context support of up to 16,384 (classification) or 20,480
+      (regression) rows.
+    * Prediction: in-context support of up to 16,384 (binary) or 32,768 (multiclass, regression)
+      rows, class-balanced on binary tasks, halved under GPU memory pressure. Query rows are
+      predicted in chunks of 16,384 (stock: 1,024); when the support exceeds its cap each chunk gets
+      a fresh capped draw of it, as in stock, so the prediction is the same in expectation with up
+      to 16 times fewer passes over the support (5 to 8 times less inference time on the largest
+      TabArena tables).
+    * Fine-tuning loop cost: the validation pass after every step runs in one wide query chunk
+      instead of 1,024-row chunks with a fresh support draw each, over arrays transformed once per
+      fit rather than once per step; a throw-away forward and backward pass at the context size
+      precedes the first validation pass so a context that does not fit the GPU fails in seconds;
+      the loop's attention runs on PyTorch's fused kernel; and the best-weights checkpoint stays on
+      the GPU instead of being copied to the host at every improving step. None of these changes
+      what a step computes; they decide how many of the 50 steps fit the 250 s budget on a given
+      GPU.
+    * Heldout in support: after its out-of-fold predictions, a bag child predicts with its fit
+      fold plus its held-out fold as support, so the bag needs no refit. The held-out labels are
+      used only as fine-tuning validation and as support rows, never for test information.
+    * Wide tables (more than 256 features) are reduced from the full outer training rows:
+      top-256 ANOVA-F columns for predominantly continuous classification tables, a 256-component
+      PCA for regression.
+
+    Not covered: the package's hierarchical decomposition for more than ten classes (no TabArena
+    dataset exceeds ten, so ``max_classes`` stays at the checkpoint's head width), and its
+    truncation of a bag whose time limit is hit; AutoGluon fails the bag instead.
+
+    Requires a CUDA GPU. ``flash-attn`` is optional but recommended: prediction runs Tab2D's
+    attention on ``flash_attn_varlen_func`` when the package imports (the reported numbers did),
+    which at prediction shapes is faster and needs far less memory than the fallback. The
+    fine-tuning loop itself runs on PyTorch's fused ``scaled_dot_product_attention`` on every
+    installation (``finetune_attention_backend="stock"`` restores the construction-time kernel),
+    which matches flash-attn 2 to bf16 rounding and is as fast per step on an H100 and 1.3 to 1.7
+    times faster on an RTX PRO 6000 Blackwell. Install with ``pip install tabarena[mitra_v2]``.
+    The wrapper turns on expandable segments in torch's CUDA caching allocator for its process (see
+    :func:`configure_cuda_allocator`) so the large, shape-changing activations of the 2D layout do
+    not strand a third of the card in fragmented reserves.
+    """
+
+    ag_key = "TA-MITRA-V2"
+    ag_name = "TA-Mitra-v2"
+    ag_priority = 65
+    minimum_num_gpus = 1
+
+    #: Lifts the stock Mitra caps (10,000 rows, 500 features): the recipe subsamples the support
+    #: and reduces wide tables itself. The class cap is the checkpoint's head width.
+    _default_auxiliary_params_extra = {
+        "max_rows": 1_000_000,
+        "max_features": 50_000,
+        "max_classes": 10,
+    }
+    #: No refit: the bag children are the model (heldout-in-support gives each child the whole
+    #: training table as context), and a refit would drop the fine-tuning validation split.
+    _default_ag_args_ensemble_extra = {
+        "fold_fitting_strategy": "sequential_local",
+        "refit_folds": False,
+    }
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._wide_table_reducer: recipe.WideTableReducer | None = None
+
+    def get_model_cls(self):
+        from tabarena.models.mitra_v2._internal.estimators import MitraV2Classifier, MitraV2Regressor
+
+        if self.problem_type in ["binary", "multiclass"]:
+            return MitraV2Classifier
+        if self.problem_type == "regression":
+            return MitraV2Regressor
+        raise AssertionError(f"Unsupported problem_type: {self.problem_type}")
+
+    def _set_default_params(self):
+        default_params = {
+            "n_estimators": 1,
+            "fine_tune": True,
+            "fine_tune_steps": recipe.FINE_TUNE_STEPS,
+            "lr": recipe.LEARNING_RATE,
+            "warmup_steps": recipe.WARMUP_STEPS,
+            # --- recipe values consumed by this wrapper, not by AutoGluon's Mitra constructor ---
+            "small_binary_lr": recipe.SMALL_BINARY_LEARNING_RATE,
+            "small_binary_max_rows": recipe.SMALL_BINARY_MAX_ROWS,
+            "weight_decay": recipe.WEIGHT_DECAY,
+            "fine_tune_budget": recipe.FINE_TUNE_BUDGET_S,
+            "finetune_support_cap": None,  # None: the recipe's task-dependent value
+            "predict_support_cap": None,  # None: the recipe's task-dependent value
+            "predict_support_floor": recipe.PREDICT_SUPPORT_FLOOR,
+            "predict_query_chunk": recipe.PREDICT_QUERY_CHUNK,
+            "predict_query_chunk_floor": recipe.PREDICT_QUERY_CHUNK_FLOOR,
+            "balanced_binary_support": True,
+            "max_features_budget": recipe.MAX_FEATURES_BUDGET,
+            # "auto": the held-out fold of a bag child joins its support; an external validation
+            # set (holdout fit) does not. True / False force either behavior.
+            "heldout_in_support": "auto",
+            "finetune_eval_query_chunk": recipe.FINETUNE_EVAL_QUERY_CHUNK,
+            "finetune_memory_preflight": True,
+            "finetune_attention_backend": recipe.FINETUNE_ATTENTION_BACKEND,
+        }
+        for param, val in default_params.items():
+            self._set_default_param_value(param, val)
+
+    _WRAPPER_PARAMS = (
+        "small_binary_lr",
+        "small_binary_max_rows",
+        "weight_decay",
+        "fine_tune_budget",
+        "finetune_support_cap",
+        "predict_support_cap",
+        "predict_support_floor",
+        "predict_query_chunk",
+        "predict_query_chunk_floor",
+        "balanced_binary_support",
+        "max_features_budget",
+        "heldout_in_support",
+        "finetune_eval_query_chunk",
+        "finetune_memory_preflight",
+        "finetune_attention_backend",
+    )
+
+    def _preprocess(
+        self, X: pd.DataFrame, is_train: bool = False, y: pd.Series | None = None, **kwargs
+    ) -> pd.DataFrame:
+        """Stock Mitra preprocessing (label-encoded categoricals), then the wide-table reduction.
+
+        The reduction is fit on the training rows only and applied unchanged afterwards. It is
+        skipped on tables with categorical columns, as in the reference pipeline, which only
+        reduces tables it can read as a float matrix.
+        """
+        X = super()._preprocess(X, is_train=is_train, **kwargs)
+        if is_train:
+            self._wide_table_reducer = None
+            budget = self.params.get("max_features_budget")
+            has_categoricals = bool(self._label_encoder is not None and self._label_encoder.features_in)
+            if budget and y is not None and not has_categoricals:
+                self._wide_table_reducer = recipe.WideTableReducer.fit(
+                    X.to_numpy(dtype=float),
+                    np.asarray(y),
+                    problem_type=self.problem_type,
+                    budget=budget,
+                )
+                if self._wide_table_reducer is not None:
+                    logger.log(
+                        20,
+                        f"\tMitra-v2: reducing {X.shape[1]} features to "
+                        f"{self._wide_table_reducer.n_features_out} ({self._wide_table_reducer.kind}).",
+                    )
+        if self._wide_table_reducer is not None:
+            X = pd.DataFrame(self._wide_table_reducer.transform(X.to_numpy(dtype=float)), index=X.index)
+        return X
+
+    def _fit(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
+        time_limit: float | None = None,
+        num_cpus: int = 1,
+        num_gpus: float = 0,
+        verbosity: int = 2,
+        **kwargs,
+    ):
+        import torch
+
+        configure_cuda_allocator()
+        model_cls = self.get_model_cls()
+        hyp = self._get_model_params()
+        wrapper_params = {name: hyp.pop(name) for name in self._WRAPPER_PARAMS}
+
+        # The recipe conditions the learning rate on the whole outer training table, which for a
+        # bag child is its fit fold plus its held-out fold.
+        n_outer_rows = len(X) + (len(X_val) if X_val is not None else 0)
+        if self.problem_type == "binary" and n_outer_rows <= wrapper_params["small_binary_max_rows"]:
+            hyp["lr"] = wrapper_params["small_binary_lr"]
+
+        checkpoint_dir = hyp.pop("hf_model", None) or resolve_checkpoint_dir(self.problem_type)
+        hyp["hf_model"] = checkpoint_dir
+        for deprecated_key in ["hf_cls_model", "hf_reg_model", "hf_general_model"]:
+            hyp.pop(deprecated_key, None)
+
+        self._log_cpu_fallback_warning(num_gpus=num_gpus)
+        if hyp.get("device", None) is None:
+            hyp["device"] = "cpu" if num_gpus == 0 else self._get_default_device()
+        if hyp["device"] == "cpu":
+            logger.log(30, "\tWarning: fine-tuning Mitra-v2 on CPU is very slow; the recipe assumes a CUDA GPU.")
+        if "verbose" not in hyp:
+            hyp["verbose"] = verbosity >= 3
+
+        heldout_in_support = wrapper_params["heldout_in_support"]
+        if heldout_in_support == "auto":
+            heldout_in_support = recipe.is_bagged_child_name(self.name)
+        settings = recipe.RecipeSettings.for_problem_type(
+            self.problem_type,
+            weight_decay=wrapper_params["weight_decay"],
+            finetune_support_cap=wrapper_params["finetune_support_cap"],
+            predict_support_cap=wrapper_params["predict_support_cap"],
+            predict_support_floor=wrapper_params["predict_support_floor"],
+            predict_query_chunk=wrapper_params["predict_query_chunk"],
+            predict_query_chunk_floor=wrapper_params["predict_query_chunk_floor"],
+            balanced_binary_support=wrapper_params["balanced_binary_support"],
+            fine_tune_budget=wrapper_params["fine_tune_budget"],
+            heldout_in_support=bool(heldout_in_support),
+            finetune_eval_query_chunk=wrapper_params["finetune_eval_query_chunk"],
+            finetune_memory_preflight=bool(wrapper_params["finetune_memory_preflight"]),
+            finetune_attention_backend=wrapper_params["finetune_attention_backend"],
+            n_bins=_head_width(checkpoint_dir) if self.problem_type == "regression" else None,
+        )
+
+        bagged_child = recipe.is_bagged_child_name(self.name)
+        seed = hyp.get(self.seed_name)
+        rng_stream = str(Path(self.path).parent) if bagged_child else None
+        torch_threads = torch.get_num_threads()
+        with _seeded_global_rngs(seed, stream=rng_stream, reset=self.name.endswith("S1F1")):
+            try:
+                if isinstance(num_cpus, int | float) and num_cpus != torch_threads:
+                    torch.set_num_threads(int(num_cpus))
+                self.model = model_cls(**hyp)
+                self.model.configure_recipe(settings)
+
+                use_outer_preprocessing = (
+                    X_val is not None
+                    and y_val is not None
+                    and bagged_child
+                    and wrapper_params["max_features_budget"]
+                    and X.shape[1] > wrapper_params["max_features_budget"]
+                    and all(pd.api.types.is_numeric_dtype(dtype) for dtype in X.dtypes)
+                )
+                if use_outer_preprocessing:
+                    X_outer = pd.concat([X, X_val]).sort_index()
+                    y_outer = pd.concat([y, y_val]).loc[X_outer.index]
+                    X_outer = self.preprocess(X_outer, y=y_outer, is_train=True)
+                    X, X_val = X_outer.loc[X.index], X_outer.loc[X_val.index]
+                else:
+                    X = self.preprocess(X, y=y, is_train=True)
+                    if X_val is not None:
+                        X_val = self.preprocess(X_val)
+                self.model = self.model.fit(X=X, y=y, X_val=X_val, y_val=y_val, time_limit=time_limit)
+                for trainer in self.model.trainers:
+                    trainer.post_fit_optimize()
+            finally:
+                torch.set_num_threads(torch_threads)
+
+    def reduce_memory_size(
+        self, remove_fit: bool = True, remove_info: bool = False, requires_save: bool = True, **kwargs
+    ):
+        """Stock clean-up, plus the switch to heldout-in-support.
+
+        AutoGluon calls this with ``remove_fit=True`` once a model's validation predictions are
+        done and before it is saved: for a bag child right after its out-of-fold predictions
+        (``FoldFittingStrategy._predict_oof``), for a standalone model after its validation score
+        (``AbstractTrainer.save_model``). That is the moment the held-out rows may join the
+        child's support without influencing any validation, and because the switch lands in the
+        saved child, every later prediction sees it, including TabArena's per-child test
+        predictions from children reloaded from disk.
+        """
+        super().reduce_memory_size(
+            remove_fit=remove_fit, remove_info=remove_info, requires_save=requires_save, **kwargs
+        )
+        if remove_fit and self.model is not None:
+            self.model.activate_heldout_in_support()
+
+    @classmethod
+    def _estimate_memory_usage_static(
+        cls,
+        *,
+        X: pd.DataFrame,
+        hyperparameters: dict | None = None,
+        problem_type: str | None = None,
+        **kwargs,
+    ) -> int:
+        """Rough peak-memory estimate for the capped in-context regime.
+
+        Stock Mitra's estimates grow quadratically with the row count and were fit for tables
+        of at most 10,000 rows; here the support is capped at prediction time and wide tables are
+        reduced, so the dominant term is the activations over the capped support: about eight
+        live ``rows x features x 512`` bf16 tensors. Plus the data, and a flat 3 GB for the
+        weights, AdamW state, and the CUDA context. TabArena runs pass the GPU's memory as the
+        available memory, so this is read against VRAM in practice.
+        """
+        hyperparameters = hyperparameters or {}
+        cap = hyperparameters.get("predict_support_cap") or (
+            recipe.default_predict_support_cap(problem_type) if problem_type else recipe.PREDICT_SUPPORT_CAP_MULTICLASS
+        )
+        budget = hyperparameters.get("max_features_budget", recipe.MAX_FEATURES_BUDGET) or X.shape[1]
+        n_rows = min(X.shape[0], cap)
+        n_features = min(X.shape[1], budget)
+        activation_mem = 8 * n_rows * n_features * 512 * 2
+        data_mem = 4 * get_approximate_df_mem_usage(X).sum()
+        return int(activation_mem + data_mem + 3e9)
+
+    def _more_tags(self) -> dict:
+        # No refit: a refit would drop the fine-tuning validation split the recipe relies on.
+        return {"can_refit_full": False}
+
+    @classmethod
+    def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
+        """Warm torch (plus the CUDA context) and the heavy Mitra imports, untimed and data-free.
+
+        AutoGluon's Mitra interface pulls in ``transformers`` (through its scheduler helpers),
+        ``loguru`` and ``einops``, which take seconds on a cold process.
+        """
+        from tabarena.models.warmup import warmup_imports, warmup_torch
+
+        configure_cuda_allocator()
+        warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
+        warmup_imports("autogluon.tabular.models.mitra.sklearn_interface")
+
+
+#: Allocator settings :func:`configure_cuda_allocator` applies when the environment sets none.
+CUDA_ALLOC_CONF = "expandable_segments:True"
+
+
+def configure_cuda_allocator() -> None:
+    """Enable expandable segments in torch's CUDA caching allocator for this process.
+
+    Mitra's 2D layout allocates a few very large ``rows x features x hidden`` tensors per layer,
+    and their shapes change with every step of the out-of-memory ratchet and again between
+    fine-tuning and prediction. With fixed-size segments the caching allocator ends up holding a
+    large share of the card in fragments it cannot hand out as one block: on hiva_agnostic
+    (2563 rows, 1414 columns) prediction failed on a 13.9 GiB request while 59.5 GiB were live and
+    32.8 GiB were reserved but unallocated on a 95 GiB card. Expandable segments let the allocator
+    grow a segment in place, so that reserve stays usable.
+
+    The allocator reads ``PYTORCH_CUDA_ALLOC_CONF`` when it first runs, so :meth:`MitraV2Model.warmup`
+    calls this before it creates the CUDA context. ``_fit`` calls it again as a fallback: when CUDA
+    is already initialized the setting is applied through torch's runtime setter instead. An
+    explicit ``PYTORCH_CUDA_ALLOC_CONF`` in the environment is respected and left untouched.
+    Idempotent.
+    """
+    if os.environ.get("PYTORCH_CUDA_ALLOC_CONF") is not None:
+        return
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = CUDA_ALLOC_CONF
+    import torch
+
+    if not torch.cuda.is_initialized():
+        return  # read from the environment when the allocator starts
+    set_settings = getattr(torch._C, "_accelerator_setAllocatorSettings", None)
+    if set_settings is None:  # torch < 2.9
+        set_settings = torch.cuda.memory._set_allocator_settings
+    try:
+        set_settings(CUDA_ALLOC_CONF)
+    except RuntimeError as exc:
+        logger.log(20, f"\tCould not apply {CUDA_ALLOC_CONF!r} to the running CUDA allocator: {exc}")
+
+
+def resolve_checkpoint_dir(problem_type: str) -> str:
+    """Local directory of the pinned Mitra-v2 checkpoint for a task (downloaded if missing)."""
+    if problem_type == "regression":
+        return _download_checkpoint(recipe.HF_REGRESSOR_REPO, recipe.HF_REGRESSOR_REVISION)
+    return _download_checkpoint(recipe.HF_CLASSIFIER_REPO, recipe.HF_CLASSIFIER_REVISION)
+
+
+def prefetch_weights() -> None:
+    """Pre-download both Mitra-v2 checkpoints (classifier and regressor) at their pinned revisions."""
+    _download_checkpoint(recipe.HF_CLASSIFIER_REPO, recipe.HF_CLASSIFIER_REVISION)
+    _download_checkpoint(recipe.HF_REGRESSOR_REPO, recipe.HF_REGRESSOR_REVISION)
+
+
+def _download_checkpoint(repo_id: str, revision: str) -> str:
+    """Fetch a checkpoint's files at ``revision`` into the Hugging Face cache; return their directory.
+
+    Tries the local cache first so offline compute nodes skip the etag request that
+    ``hf_hub_download`` otherwise makes.
+    """
+    from huggingface_hub import hf_hub_download
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    paths = []
+    for filename in recipe.CHECKPOINT_FILES:
+        try:
+            path = hf_hub_download(repo_id=repo_id, filename=filename, revision=revision, local_files_only=True)
+        except LocalEntryNotFoundError:
+            path = hf_hub_download(repo_id=repo_id, filename=filename, revision=revision)
+        paths.append(Path(path).parent)
+    if len(set(paths)) != 1:
+        raise RuntimeError(f"Checkpoint files of {repo_id}@{revision} resolved to different directories: {paths}")
+    return str(paths[0])
+
+
+def _head_width(checkpoint_dir: str) -> int:
+    """The output width (``dim_output``) recorded in a checkpoint directory's ``config.json``."""
+    with open(Path(checkpoint_dir) / "config.json") as f:
+        return int(json.load(f)["dim_output"])
+
+
+@contextlib.contextmanager
+def _seeded_global_rngs(seed: int | None, *, stream: str | None = None, reset: bool = False) -> Iterator[None]:
+    """Run under a seeded RNG stream while preserving the caller's global RNG states.
+
+    Mitra draws its random feature mirror from NumPy's global RNG and its fine-tuning consumes
+    torch's global stream. Bag children save and resume one private stream; standalone fits seed
+    once. The surrounding process sees none of those draws.
+    """
+    global _BAG_RNG_STATE
+
+    if seed is None and stream is None:
+        yield
+        return
+    import torch
+
+    outer_py_state = random.getstate()
+    outer_np_state = np.random.get_state()
+    outer_torch_state = torch.get_rng_state()
+    outer_cuda_states = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+    if stream is not None and not reset and _BAG_RNG_STATE is not None and _BAG_RNG_STATE[0] == stream:
+        py_state, np_state, torch_state, cuda_states = _BAG_RNG_STATE[1]
+        random.setstate(py_state)
+        np.random.set_state(np_state)
+        torch.set_rng_state(torch_state)
+        if cuda_states is not None:
+            torch.cuda.set_rng_state_all(cuda_states)
+    elif seed is not None:
+        seed = int(seed)
+        random.seed(seed)
+        np.random.seed(seed % (2**32))
+        torch.manual_seed(seed)
+    try:
+        yield
+    finally:
+        if stream is not None:
+            _BAG_RNG_STATE = (
+                stream,
+                (
+                    random.getstate(),
+                    np.random.get_state(),
+                    torch.get_rng_state(),
+                    torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+                ),
+            )
+        random.setstate(outer_py_state)
+        np.random.set_state(outer_np_state)
+        torch.set_rng_state(outer_torch_state)
+        if outer_cuda_states is not None:
+            torch.cuda.set_rng_state_all(outer_cuda_states)

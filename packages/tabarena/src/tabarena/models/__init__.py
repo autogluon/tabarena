@@ -11,11 +11,14 @@ from tabarena.models._registry import (
 
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
+    from tabarena.models.causilo.model import CausiloModel
     from tabarena.models.chimeraboost.model import ChimeraBoostModel
+    from tabarena.models.ctboost.model import CTBoostModel
     from tabarena.models.exaone_tabular.model import EXAONETabularModel
     from tabarena.models.iltm.model import ILTMModel
     from tabarena.models.knn.model import KNNNewModel
     from tabarena.models.limix.model import LimiXModel
+    from tabarena.models.mitra_v2.model import MitraV2Model
     from tabarena.models.modernnca.model import ModernNCAModel
     from tabarena.models.nori.model import Nori30MModel, NoriModel
     from tabarena.models.orionmsp.model import OrionMSPModel
@@ -25,6 +28,7 @@ if TYPE_CHECKING:
     from tabarena.models.tabdpt.model import TabDPTModel, TabDPTTurboModel
     from tabarena.models.tabfm.model import TabFMModel
     from tabarena.models.tabicl.model import TabICLModel, TabICLv2Model
+    from tabarena.models.tabldm.model import TabLDMModel
     from tabarena.models.tabm.model import TabMModel
     from tabarena.models.tabpfn_3.model import TabPFN3Model
     from tabarena.models.tabpfnv2_5.model import RealTabPFNv25Model, TabPFNv26Model
@@ -40,11 +44,14 @@ if TYPE_CHECKING:
 # repository transitive imports we don't want to charge every consumer for.
 _LAZY_CLASSES: dict[str, str] = {
     "MethodMetadata": "tabarena.models._method_metadata",
+    "CausiloModel": "tabarena.models.causilo.model",
     "ChimeraBoostModel": "tabarena.models.chimeraboost.model",
+    "CTBoostModel": "tabarena.models.ctboost.model",
     "EXAONETabularModel": "tabarena.models.exaone_tabular.model",
     "ILTMModel": "tabarena.models.iltm.model",
     "KNNNewModel": "tabarena.models.knn.model",
     "LimiXModel": "tabarena.models.limix.model",
+    "MitraV2Model": "tabarena.models.mitra_v2.model",
     "ModernNCAModel": "tabarena.models.modernnca.model",
     "NoriModel": "tabarena.models.nori.model",
     "Nori30MModel": "tabarena.models.nori.model",
@@ -58,6 +65,7 @@ _LAZY_CLASSES: dict[str, str] = {
     "TabFMModel": "tabarena.models.tabfm.model",
     "TabICLModel": "tabarena.models.tabicl.model",
     "TabICLv2Model": "tabarena.models.tabicl.model",
+    "TabLDMModel": "tabarena.models.tabldm.model",
     "TabMModel": "tabarena.models.tabm.model",
     "TabPFN3Model": "tabarena.models.tabpfn_3.model",
     "TabPFNWideModel": "tabarena.models.tabpfnwide.model",

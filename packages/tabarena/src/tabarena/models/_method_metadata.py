@@ -165,6 +165,12 @@ class MethodMetadata:
     method_type: MethodTypeLiteral = "config"
     ag_key: str | None = None
     model_key: str | None = None
+    #: Name of the method's default config in the processed repo (post-rename, e.g.
+    #: ``"TabM_c1_default_BAG_L1"``). Optional: when ``None`` the default is resolved from the
+    #: processed repo at use time (:meth:`MethodSimulator.resolve_config_default`): the lone config of
+    #: a single-config method, else the ``_c1_`` config by convention. Processing checks a declared
+    #: value against the raw data; for a single-config method left unset it records the resolved name
+    #: in the cached ``metadata.yaml``. HPO methods should declare it explicitly.
     config_default: str | None = None
     #: Whether this method has more than one config result — i.e. whether it can be HPO-tuned in
     #: simulation, and so supports the derived tuned / tuned+ensemble methods. This is NOT an
@@ -468,7 +474,14 @@ class MethodMetadata:
         config_default: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
         artifact_dir: str | Path | None = None,
+        display_name: str | None = None,
     ) -> Self:
+        """Infer a ``MethodMetadata`` from raw results.
+
+        ``display_name`` is the leaderboard / figure label (e.g. the registry's ``"Xiaomi-TabLDM"``
+        for raw configs keyed ``TA-XIAOMI-TABLDM``); when ``None`` it defaults to the config type,
+        or to ``method`` for baselines.
+        """
         result_lst_dict = []
 
         for r in results_lst:
@@ -488,6 +501,7 @@ class MethodMetadata:
                 config_default=config_default,
                 compute=compute,
                 artifact_dir=artifact_dir,
+                display_name=display_name,
             )
         elif method_type == "baseline":
             method_metadata = cls._from_raw_baseline(
@@ -496,6 +510,7 @@ class MethodMetadata:
                 suite=suite,
                 compute=compute,
                 artifact_dir=artifact_dir,
+                display_name=display_name,
             )
         else:
             raise ValueError(f"Unknown method_type: {method_type}")
@@ -510,6 +525,7 @@ class MethodMetadata:
         suite: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
         artifact_dir: str | Path | None = None,
+        display_name: str | None = None,
     ) -> Self:
         unique_method_types = result_df["method_type"].unique()
         assert len(unique_method_types) == 1
@@ -537,6 +553,7 @@ class MethodMetadata:
             suite=suite,
             compute=compute,
             artifact_dir=artifact_dir,
+            display_name=display_name,
         )
 
     @classmethod
@@ -588,6 +605,7 @@ class MethodMetadata:
         config_default: str | None = None,
         compute: Literal["cpu", "gpu"] | None = None,
         artifact_dir: str | Path | None = None,
+        display_name: str | None = None,
     ) -> Self:
         unique_method_types = result_df["method_type"].unique()
         assert len(unique_method_types) == 1
@@ -654,6 +672,7 @@ class MethodMetadata:
             can_hpo=can_hpo,
             is_bag=is_bag,
             artifact_dir=artifact_dir,
+            display_name=display_name,
         )
 
     @classmethod

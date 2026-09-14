@@ -44,6 +44,12 @@ class MethodArtifact:
     """Optional suffix appended to the method name in the leaderboard (baked in at post-process)."""
     only_load_cache: bool = False
     """If True, skip raw->cache post-processing and load the existing cache instead."""
+    display_name: str | None = None
+    """The label the leaderboard and figures show for the method (e.g. the registry's
+    ``"Xiaomi-TabLDM"`` where the raw config type is ``TA-XIAOMI-TABLDM``), usually via
+    :func:`resolve_display_name`. Recorded in the method's cached metadata at post-processing and
+    applied to the metadata loaded from the cache (so ``only_load_cache`` and caches built without a
+    display name get it too). ``None`` keeps the default label, the config type."""
 
     @property
     def method_name(self) -> str:
@@ -114,6 +120,34 @@ def resolve_ag_name(name: str, ag_name_override: str | None = None) -> str:
     return get_configs_generator_from_name(name).model_cls.ag_name
 
 
+def resolve_display_name(
+    name: str,
+    display_name_override: str | None = None,
+    *,
+    result_suffix: str | None = None,
+    ag_name_override: str | None = None,
+) -> str | None:
+    """Resolve the display name a run's method is labelled with in the leaderboard and figures.
+
+    ``display_name_override`` wins verbatim. Otherwise the model registry's ``display_name`` for
+    ``name`` is used with ``result_suffix`` appended (a re-run labelled ``"TabPFN-3 [Rerun]"`` stays
+    distinguishable from the hosted ``"TabPFN-3"``). A method the registry does not know (a custom
+    method identified through ``ag_name_override``) resolves to ``None``, which keeps the default
+    label, the config type.
+    """
+    if display_name_override is not None:
+        return display_name_override
+    from tabarena.models.utils import get_model_info_from_name
+
+    try:
+        display_name = get_model_info_from_name(name).method_metadata.display_name
+    except ValueError:
+        if ag_name_override is None:
+            raise
+        return None
+    return display_name + (result_suffix or "")
+
+
 def post_process_to_results(
     method_artifacts: list[MethodArtifact],
     *,
@@ -146,12 +180,23 @@ def post_process_to_results(
             name_suffix=ma.result_suffix,
             method=ma.method_name,
             suite=ma.suite,
+            display_name=ma.display_name,
             task_metadata=task_metadata,
             num_cpus=num_cpus,
         )
 
     # Phase 2: re-load every method from the cache (one (method_name, suite) per artifact).
-    return EndToEndResults.from_cache(methods=[(ma.method_name, ma.suite) for ma in method_artifacts])
+    results = EndToEndResults.from_cache(methods=[(ma.method_name, ma.suite) for ma in method_artifacts])
+    # The artifact's display name also applies to methods loaded from an existing cache (an
+    # `only_load_cache` method, or a cache built before the name was recorded), so every method
+    # of the run is labelled the way the leaderboard labels it.
+    display_names = {(ma.method_name, ma.suite): ma.display_name for ma in method_artifacts if ma.display_name}
+    for method_results in results.method_results_lst:
+        mm = method_results.method_metadata
+        display_name = display_names.get((mm.method, mm.suite))
+        if display_name is not None:
+            mm.display_name = display_name
+    return results
 
 
 def subset_label(subset: list[str]) -> str:

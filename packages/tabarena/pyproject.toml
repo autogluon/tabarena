@@ -106,6 +106,7 @@ tabdpt = ["tabdpt>=1.2.0"]
 tabm = ["torch", "tabm>=0.0.3", "rtdl_num_embeddings>=0.0.12"]
 
 # Extended model extras — opt-in individually or together via the `extended` union below.
+causilo = ["causilo==1.0.0"]
 modernnca = ["category_encoders"]
 xrfm = ["xrfm[cu12]"]
 # sap-rpt-oss and tabfm stay pinned to the git commits used for the benchmark runs, so these two
@@ -131,6 +132,7 @@ limix = [
 tabpfnwide = ["tabpfnwide>=0.3.0"]
 iltm = ["iltm>=0.1.1"]
 chimeraboost = ["chimeraboost>=0.30.0"]
+ctboost = ["ctboost==0.1.61"]
 nori = ["synthefy-nori>=0.10.0"]
 # EXAONE Tabular is not published on PyPI; pinned to a commit so the benchmarked code is fixed
 # (empty extra on PyPI). Keep in sync with `pip_extra` in models/exaone_tabular/info.py.
@@ -141,6 +143,14 @@ exaone_tabular = [
 # runtime deps (torch, numpy, scikit-learn, scipy, psutil, tqdm, huggingface_hub, packaging)
 # are already in the base tree, so this extra is intentionally empty.
 tabswift = []
+# TabLDM is not published on PyPI; pinned to a commit so the benchmarked code is fixed.
+# Keep in sync with `pip_extra` in models/tabldm/info.py.
+tabldm = ["Xiaomi-TabLDM @ git+https://github.com/xiaomi-research/xiaomi-tabldm.git@6773a30d43e43fad3e8b474e20ca8c7ec40dcd76"]
+# Mitra-v2 runs on AutoGluon's Mitra implementation; this is AutoGluon's own `mitra` extra
+# (loguru, einops, transformers, huggingface_hub, ...). Keep in sync with models/mitra_v2/info.py.
+# flash-attn is optional (faster attention, same results) and needs a prebuilt wheel:
+# `pip install flash-attn --no-build-isolation`.
+mitra_v2 = ["autogluon.tabular[mitra]>=1.6,<1.7"]
 
 # Core benchmark set: the always-on models for benchmarking, plus the plotting and
 # preprocessing capabilities split out of the core install. Self-references avoid
@@ -162,6 +172,7 @@ benchmark = [
 # Extended set: extra models layered on top of `benchmark` when needed.
 # Note: `probmetrics` is intentionally excluded — install it explicitly via `tabarena[probmetrics]` or `tabarena[all]`.
 extended = [
+  "tabarena[causilo]",
   "tabarena[modernnca]",
   "tabarena[xrfm]",
   "tabarena[sap-rpt-oss]",
@@ -173,9 +184,12 @@ extended = [
   "tabarena[tabpfnwide]",
   "tabarena[iltm]",
   "tabarena[chimeraboost]",
+  "tabarena[ctboost]",
   "tabarena[nori]",
   "tabarena[tabswift]",
   "tabarena[exaone_tabular]",
+  "tabarena[tabldm]",
+  "tabarena[mitra_v2]",
 ]
 
 # Convenience: everything (core + extended + probmetrics).

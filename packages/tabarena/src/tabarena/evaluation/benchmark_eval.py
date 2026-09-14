@@ -47,6 +47,10 @@ class EvalMethod:
     method registers under on the context — required for a re-run, since registering the
     bare name of an existing baseline collides. For ``only_load_cache`` the cache must
     already have been built with the same suffix."""
+    display_name_override: str | None = None
+    """Use this label in the leaderboard and figures instead of the registry's ``display_name``
+    (plus ``result_suffix``). Without it a method the registry does not know (``ag_name_override``)
+    is labelled by its config type, e.g. ``TA-XIAOMI-TABLDM``."""
 
     @property
     def ag_name(self) -> str:
@@ -54,6 +58,21 @@ class EvalMethod:
         from tabarena.evaluation._eval_common import resolve_ag_name
 
         return resolve_ag_name(self.name, self.ag_name_override)
+
+    @property
+    def display_name(self) -> str | None:
+        """Label shown in the leaderboard and figures: the override, else the registry's
+        ``display_name`` with ``result_suffix`` appended; ``None`` (config-type label) for a custom
+        method without an override.
+        """
+        from tabarena.evaluation._eval_common import resolve_display_name
+
+        return resolve_display_name(
+            self.name,
+            self.display_name_override,
+            result_suffix=self.result_suffix,
+            ag_name_override=self.ag_name_override,
+        )
 
 
 @dataclass
@@ -92,6 +111,12 @@ class TabArenaEvalConfig:
     """Figure format(s) written for each subset. A single extension (``"pdf"``) or several
     (e.g. ``("pdf", "png")`` to also emit PNGs alongside the PDFs — PNGs render inline, PDFs are
     for papers). Each extra format re-runs ``compare`` to re-emit the same figures in that format."""
+    pareto_focus_new_methods: bool = True
+    """If True (default), the run's ``methods`` are emphasized in every Pareto figure (family
+    color plus a boxed label) in addition to the Pareto-front members, so a benchmarked method
+    stays visible even when another method dominates it. Forwarded to
+    :meth:`~tabarena.contexts.AbstractArenaContext.compare`'s ``pareto_focus_new_methods``;
+    plotting-only, no leaderboard number changes."""
 
     @property
     def path_raw(self) -> Path:
@@ -127,6 +152,7 @@ def _compare_subset(
     *,
     figure_output_dir: Path,
     figure_file_types: tuple[str, ...] = ("pdf",),
+    pareto_focus_new_methods: bool = True,
 ):
     """Leaderboard for one subset: the run's registered methods vs the TabArena-v0.1 baselines.
 
@@ -136,7 +162,8 @@ def _compare_subset(
 
     ``figure_file_types`` selects the figure format(s) to write into the subset dir; each extra
     format re-runs ``compare`` purely to re-emit the same figures in that extension. The leaderboard
-    is identical across formats, so the first one computed is returned.
+    is identical across formats, so the first one computed is returned. ``pareto_focus_new_methods``
+    box-labels the run's methods in the Pareto figures (see :class:`TabArenaEvalConfig`).
     """
     from tabarena.evaluation._eval_common import subset_label
 
@@ -147,10 +174,32 @@ def _compare_subset(
             output_dir=out_dir,
             subset=subset or None,
             figure_file_type=figure_file_type,
+            pareto_focus_new_methods=pareto_focus_new_methods,
         )
         if leaderboard is None:
             leaderboard = result
     return leaderboard
+
+
+def _warn_on_duplicate_display_names(context, extra_methods: list) -> None:
+    """Warn when a run's method shares its display name with another registered method.
+
+    Figures label config methods by display name, so a re-run of a hosted method that carries the
+    same label (no ``result_suffix``) renders indistinguishably from the original.
+    """
+    collection = getattr(context, "method_metadata_collection", None)
+    if collection is None:
+        return
+    registered = collection.method_metadata_lst
+    for method in extra_methods:
+        same_label = [m for m in registered if m.display_name == method.display_name and m.method != method.method]
+        if same_label:
+            others = sorted({f"{m.method} (suite {m.suite})" for m in same_label})
+            print(
+                f"WARNING: display name {method.display_name!r} of {method.method!r} is also used by "
+                f"{others}; figures will label both the same. Set `result_suffix` (e.g. ' [Rerun]') or "
+                f"`display_name_override` on the EvalMethod to tell them apart."
+            )
 
 
 def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
@@ -180,6 +229,7 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
             suite=config.benchmark_name,
             result_suffix=method.result_suffix,
             only_load_cache=method.only_load_cache,
+            display_name=method.display_name,
         )
         for method in config.methods
     ]
@@ -190,10 +240,12 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
     # handled by the context's fillna_method, as the old compare_on_tabarena did via get_results).
     from tabarena.contexts import TabArenaContext
 
+    extra_methods = results.to_method_metadata_lst()
     context = TabArenaContext(
-        extra_methods=results.to_method_metadata_lst(),
+        extra_methods=extra_methods,
         only_valid_tasks=config.only_valid_tasks,
     )
+    _warn_on_duplicate_display_names(context, extra_methods)
 
     figure_output_dir = Path(config.figure_output_dir)
     leaderboards: dict[str, pd.DataFrame] = {}
@@ -204,6 +256,7 @@ def run_eval(config: TabArenaEvalConfig) -> dict[str, pd.DataFrame]:
             subset,
             figure_output_dir=figure_output_dir,
             figure_file_types=config.figure_file_types(),
+            pareto_focus_new_methods=config.pareto_focus_new_methods,
         )
 
         print(f"\n##### Leaderboard [{label}]")

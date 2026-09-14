@@ -210,7 +210,9 @@ def _comparison_rows(method: RawMethod, inferred: dict) -> list[tuple[str, objec
       * ``"warn"``  — ``method`` is a naming choice (inferred from name_prefix/framework) the author
         may legitimately override, so a mismatch only warns.
       * ``"info"``  — ``model_key`` is derived (defaults to ``ag_key``) and ``name`` has no raw
-        signal; shown in the comparison table for context but never gates verification.
+        signal; shown in the comparison table for context but never gates verification. An
+        undeclared ``config_default`` (``None``) is ``"info"`` too: it is resolved from the
+        processed repo at use time instead of being checked.
     """
     m = method.method_metadata
     rows: list[tuple[str, object, object, str]] = [
@@ -223,7 +225,12 @@ def _comparison_rows(method: RawMethod, inferred: dict) -> list[tuple[str, objec
         rows += [
             ("ag_key", ag_key, m.ag_key, "error"),
             ("model_key", ag_key, m.model_key, "info"),  # derived from ag_key; never gates
-            ("config_default", _expected_config_default(method, inferred), m.config_default, "error"),
+            (
+                "config_default",
+                _expected_config_default(method, inferred),
+                m.config_default,
+                "error" if m.config_default is not None else "info",
+            ),
             ("can_hpo", inferred["inferred_can_hpo"], m.can_hpo, "error"),
             ("is_bag", inferred["is_bag_any"], m.is_bag, "error"),
         ]
@@ -251,27 +258,39 @@ def _compare_with_provided_metadata(method: RawMethod, inferred: dict) -> None:
     print(f"[raw-info]     {header}")
     print(f"[raw-info]     {'-' * len(header)}")
 
+    # Only "error" rows gate processing; a differing "warn" row (`method`, usually the raw `TA-`
+    # prefix) or "info" row (`model_key`, derived) is labelled as such so it is not mistaken for
+    # something to fix, and is not counted as a mismatch.
     n_mismatch = 0
-    for field, inferred_val, provided_val, _severity in rows:
+    for field, inferred_val, provided_val, severity in rows:
         if inferred_val is None:
             match = "?"  # not enough info to infer; skip mismatch counting
         elif inferred_val == provided_val:
             match = "yes"
-        else:
+        elif severity == "error":
             match = "NO"
             n_mismatch += 1
+        elif severity == "warn":
+            match = "differs (warn only, not checked by --process)"
+        elif field == "config_default" and provided_val is None:
+            match = "not declared (resolved from the processed repo; --process records the inferred value)"
+        else:
+            match = "differs (not checked)"
         print(
             f"[raw-info]     {field.ljust(field_w)} | {str(inferred_val).ljust(inf_w)} | "
             f"{str(provided_val).ljust(prov_w)} | {match}"
         )
 
     if n_mismatch == 0:
-        print("[raw-info]   All inferable fields match the provided MethodMetadata.")
+        print("[raw-info]   All checked fields match the provided MethodMetadata (--process will accept it).")
     else:
         print(
-            f"[raw-info]   WARNING: {n_mismatch} field(s) differ between inferred and provided "
-            f"MethodMetadata (see 'NO' rows above). Note some differences are intentional "
-            f"(e.g. a deliberately-overridden can_hpo / config_default / model_key)."
+            f"[raw-info]   WARNING: {n_mismatch} checked field(s) differ between inferred and provided "
+            f"MethodMetadata (see 'NO' rows above); --process fails on them unless "
+            f"--ignore-metadata-mismatch. A `config_default` mismatch is usually the `_default` infix: the "
+            f"TabArena-v0.1 bundle names the first config `<Method>_c1_default_BAG_L1` (the preprocessing "
+            f"pipeline name is appended), so set config_default to the inferred value, or leave it unset "
+            f"for a single-config method (it is then resolved from the processed repo)."
         )
 
 
@@ -320,10 +339,17 @@ def _print_method_metadata_snippet(method: RawMethod, inferred: dict) -> None:
         # model_key defaults to ag_key; only emit when explicitly overridden to something else.
         if method.resolved_model_key is not None and method.resolved_model_key != inferred_ag_key:
             active_fields.append(("model_key", method.resolved_model_key, ""))
+        # Post-rename name (configs are renamed to the method's prefix during processing), so it
+        # stays consistent with `method=` above and matches what the processed repo will contain.
+        # A single-config method may leave it unset (the lone config is its default), so the
+        # snippet says so; an HPO method should declare it.
+        config_default_note = (
+            "  # optional for a single-config method: resolved from the processed repo when unset"
+            if not inferred["inferred_can_hpo"]
+            else ""
+        )
         active_fields += [
-            # Post-rename name (configs are renamed to the method's prefix during processing), so it
-            # stays consistent with `method=` above and matches what the processed repo will contain.
-            ("config_default", _expected_config_default(method, inferred), ""),
+            ("config_default", _expected_config_default(method, inferred), config_default_note),
             ("can_hpo", inferred["inferred_can_hpo"], ""),
             ("is_bag", inferred["is_bag_any"], ""),
         ]
@@ -459,9 +485,11 @@ def verify_method_metadata(
     check_alignment
         Verify every raw-inferable ``MethodMetadata`` field matches what the raw data implies
         (method_type, compute, and — for configs — ag_key / config_default / can_hpo / is_bag) and
-        fail on a mismatch. ``config_default`` is checked against its *post-rename* value (configs are
-        renamed to the method's prefix during processing), so a ``method`` / ``config_default`` prefix
-        mismatch is caught up front instead of failing inside ``from_raw``. The ``method`` field is a
+        fail on a mismatch. A declared ``config_default`` is checked against its *post-rename* value
+        (configs are renamed to the method's prefix during processing), so a ``method`` /
+        ``config_default`` prefix mismatch is caught up front instead of failing inside ``from_raw``;
+        an undeclared one (``None``) is not checked and is resolved from the processed repo (recorded
+        in the cached metadata for a single-config method). The ``method`` field is a
         naming choice the author may legitimately override, so a ``method`` mismatch only warns (it
         never fails verification). Derived/signal-free fields (model_key, name) are never checked.
     check_method_ne_suite

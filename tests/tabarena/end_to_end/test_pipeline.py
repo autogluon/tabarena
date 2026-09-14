@@ -183,6 +183,74 @@ class TestFromPathRawFullTiers:
         pd.testing.assert_frame_equal(_normalized(in_memory), _normalized(reloaded))
 
 
+class TestDisplayName:
+    """`display_name` names the method in the leaderboard and figures; it is recorded with the
+    inferred metadata (and its cached yaml) and defaults to the config type.
+    """
+
+    def test_recorded_in_inferred_metadata_and_cache(self, tmp_path):
+        path_raw = tmp_path / "raw_in"
+        artifact_dir = tmp_path / "artifacts"
+        _write_raw(_config_results(), path_raw)
+        results = EndToEnd.from_path_raw(
+            path_raw=path_raw,
+            task_metadata=_task_metadata(),
+            display_name="Dummy Display",
+            artifact_dir=artifact_dir,
+            cache=True,
+            backend="native",
+            verbose=False,
+        )
+        (method_metadata,) = results.method_metadata_lst
+        assert method_metadata.display_name == "Dummy Display"
+        assert MethodMetadata.from_yaml(path=artifact_dir).display_name == "Dummy Display"
+
+    def test_defaults_to_config_type(self):
+        results = EndToEnd.from_raw(
+            results_lst=_config_results(),
+            task_metadata=_task_metadata(),
+            cache=False,
+            backend="native",
+            verbose=False,
+        )
+        (method_metadata,) = results.method_metadata_lst
+        assert method_metadata.display_name == method_metadata.config_type
+
+
+class TestSingleConfigDefaultResolved:
+    """A single-config method may leave `config_default` unset: the lone config is its default and
+    processing records it in the metadata (and the cached yaml) so HPO trajectories still run.
+    """
+
+    def test_pinned_metadata_without_config_default(self, tmp_path):
+        path_raw = tmp_path / "raw_in"
+        artifact_dir = tmp_path / "artifacts"
+        _write_raw([r for r in _config_results() if r["framework"] == "Dummy_c1"], path_raw)
+        method_metadata = MethodMetadata.config(
+            method="Dummy",
+            suite="dummy-suite",
+            ag_key="DUMMY",
+            can_hpo=False,
+            artifact_dir=artifact_dir,
+        )
+        assert method_metadata.config_default is None
+
+        results = EndToEnd.from_path_raw(
+            path_raw=path_raw,
+            method_metadata=method_metadata,
+            task_metadata=_task_metadata(),
+            cache=True,
+            cache_processed=True,
+            cache_hpo_trajectories=True,
+            backend="native",
+            verbose=False,
+        )
+        (processed,) = results.method_metadata_lst
+        assert processed.config_default == "Dummy_c1"
+        assert MethodMetadata.from_yaml(path=artifact_dir).config_default == "Dummy_c1"
+        assert (artifact_dir / "results" / "hpo_trajectories.parquet").is_file()
+
+
 class TestFromRawMatchesFromPathRaw:
     def test_equivalent_results(self, tmp_path):
         path_raw = tmp_path / "raw_in"

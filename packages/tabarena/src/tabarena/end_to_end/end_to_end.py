@@ -62,6 +62,7 @@ class EndToEnd:
         model_key: str | None = None,
         method: str | None = None,
         suite: str | None = None,
+        display_name: str | None = None,
         artifact_dir: str | Path | None = None,
         backend: Backend = "ray",
         verbose: bool = True,
@@ -111,6 +112,11 @@ class EndToEnd:
             The name of the upper directory in the cache:
                 ~/.cache/tabarena/artifacts/{suite}/methods/{method}/
             If unspecified, defaults to ``{method}``.
+        display_name : str or None = None
+            The label the leaderboard and figures show for the method (e.g. the registry's
+            ``"Xiaomi-TabLDM"`` for raw configs keyed ``TA-XIAOMI-TABLDM``). Recorded in the
+            inferred metadata (and its cached ``metadata.yaml``); if unspecified, the config type
+            (or the baseline name) is used. Single-method only; ignored if ``method_metadata`` is given.
         artifact_dir : str | Path or None = None
             If specified (and ``method_metadata`` is inferred), the method's artifacts are
             cached directly under this directory (``metadata.yaml`` + ``processed/`` +
@@ -133,6 +139,7 @@ class EndToEnd:
                 model_key=model_key,
                 method=method,
                 suite=suite,
+                display_name=display_name,
                 artifact_dir=artifact_dir,
                 cache=cache,
                 cache_raw=cache_raw,
@@ -159,6 +166,7 @@ class EndToEnd:
         model_key: str | None = None,
         method: str | None = None,
         suite: str | None = None,
+        display_name: str | None = None,
         artifact_dir: str | Path | None = None,
         name_prefix_raw: str | None = None,
         file_paths: list[str | Path] | None = None,
@@ -202,6 +210,7 @@ class EndToEnd:
                 model_key=model_key,
                 method=method,
                 suite=suite,
+                display_name=display_name,
                 artifact_dir=artifact_dir,
                 name_prefix_raw=name_prefix_raw,
                 file_paths=file_paths,
@@ -352,7 +361,7 @@ class EndToEndResults:
 
     @classmethod
     def from_cache(
-        cls, methods: list[str | MethodMetadata | tuple[str, str]], *, default_suite: None | str = None
+        cls, methods: list[str | MethodMetadata | tuple[str, str]], *, default_suite: str | None = None
     ) -> Self:
         method_results_lst = []
         for method in methods:
