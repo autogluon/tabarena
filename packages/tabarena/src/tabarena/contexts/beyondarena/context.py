@@ -108,6 +108,11 @@ class BeyondArenaContext(AbstractArenaContext):
             ),
             ("has_categorical", "has_datetime", "num_text_cols"),
         ),
+        # target distribution: classification by the majority / minority class ratio, regression
+        # by the target's skewness (thresholds in `tabarena.benchmark.task.metadata.balance`).
+        # Datasets whose statistics are unknown (`None`) fall in neither half.
+        "imbalanced": SubsetPredicate(lambda df: df["target_imbalanced"].eq(True), ("target_imbalanced",)),
+        "balanced": SubsetPredicate(lambda df: df["target_imbalanced"].eq(False), ("target_imbalanced",)),
         # split-level filter: keeps split 0 == (fold 0, repeat 0); a results frame's "fold"
         # column is the split, so this maps to fold == 0 there (matching the original
         # results-frame "lite" lambda and the base context's convention).
@@ -132,6 +137,8 @@ class BeyondArenaContext(AbstractArenaContext):
         "random": ["core", "random"],
         "text": ["core", "text"],
         "numerical": ["core", "numerical"],
+        "balanced": ["core", "balanced"],
+        "imbalanced": ["core", "imbalanced"],
         # high-cardinality slice with the large size bucket removed (all splits / lite split 0)
         "hc_nolarge": ["core", "high-cardinality", "!large"],
         "hc_nolarge_lite": ["core", "lite", "high-cardinality", "!large"],

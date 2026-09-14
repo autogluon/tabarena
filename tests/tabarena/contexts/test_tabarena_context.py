@@ -325,6 +325,8 @@ class TestStandardSubsetVariants:
             "low_features": ["low_features"],
             "high_features": ["high_features"],
             "numerical": ["numerical"],
+            "balanced": ["balanced"],
+            "imbalanced": ["imbalanced"],
         }
 
     @pytest.mark.parametrize(

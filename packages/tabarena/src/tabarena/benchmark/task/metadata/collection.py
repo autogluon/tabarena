@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 
 import pandas as pd
 
+from tabarena.benchmark.task.metadata.balance import is_target_imbalanced
 from tabarena.benchmark.task.metadata.schema import (
     SplitMetadata,
     TabArenaTaskMetadata,
@@ -54,6 +55,15 @@ def _preset_subset_predicates_provider(
     if suite_name == "TabArena-v0.1":
         return _tabarena_subset_predicates
     return None
+
+
+def _target_imbalanced(task: TabArenaTaskMetadata) -> bool | None:
+    """The balanced / imbalanced verdict for one task, from its target statistics."""
+    return is_target_imbalanced(
+        problem_type=task.problem_type,
+        imbalance_ratio=task.target_imbalance_ratio,
+        skewness=task.target_skewness,
+    )
 
 
 class TaskMetadataCollection:
@@ -518,12 +528,14 @@ class TaskMetadataCollection:
         declared dataclass fields survive serialization.
         """
         rows: dict[str, dict] = {}
+        first_tasks: dict[str, TabArenaTaskMetadata] = {}
         max_train_rows: dict[str, int] = {}
         n_splits: dict[str, int] = {}
         for t in self._tasks:
             ds = t.tabarena_task_name
             # Static fields are dataset-level, so the first task seen per dataset wins.
             rows.setdefault(ds, t.to_dict(exclude_splits_metadata=True))
+            first_tasks.setdefault(ds, t)
             # TODO: key into task metadata in the future?
             n_splits[ds] = n_splits.get(ds, 0) + len(t.splits_metadata)
             for split in t.splits_metadata.values():
@@ -533,6 +545,9 @@ class TaskMetadataCollection:
             frame["dataset"] = list(rows.keys())
             frame["max_train_rows"] = [max_train_rows[ds] for ds in rows]
             frame["n_splits"] = [n_splits[ds] for ds in rows]
+            # The same verdict `task_grid` carries, so a per-dataset consumer (the website's
+            # per-dataset browser) and the subset predicates cannot disagree about a dataset.
+            frame["target_imbalanced"] = pd.Series([_target_imbalanced(t) for t in first_tasks.values()], dtype=object)
         return frame
 
     def task_grid(self) -> pd.DataFrame:
@@ -557,7 +572,11 @@ class TaskMetadataCollection:
           (``num_classes``), ``problem_type``, and the warehouse fields ``task_type``,
           ``num_cols_after_preprocessing``, ``num_text_cols``, ``num_high_cardinality_cats``,
           ``has_categorical``, ``has_datetime``, ``group_labels`` (``None`` for tasks that
-          don't carry them, e.g. TabArena v0.1).
+          don't carry them, e.g. TabArena v0.1), the target statistics
+          ``target_imbalance_ratio`` / ``target_skewness``, and ``target_imbalanced``, the verdict
+          :func:`~tabarena.benchmark.task.metadata.balance.is_target_imbalanced` draws from them
+          (``None`` when the statistics are missing), which the ``"balanced"`` / ``"imbalanced"``
+          predicates key on.
         """
         # Predicate-facing grid column -> TabArenaTaskMetadata attribute. Warehouse fields are
         # None for tasks that don't carry them (e.g. TabArena v0.1); BeyondArena populates them.
@@ -572,14 +591,18 @@ class TaskMetadataCollection:
             "has_categorical": "has_categorical",
             "has_datetime": "has_datetime",
             "group_labels": "group_labels",
+            "target_imbalance_ratio": "target_imbalance_ratio",
+            "target_skewness": "target_skewness",
         }
-        cols = ["dataset", "fold", "repeat", "split", "max_train_rows", *grid_col_to_field]
+        cols = ["dataset", "fold", "repeat", "split", "max_train_rows", *grid_col_to_field, "target_imbalanced"]
         n_folds_by_dataset: dict[str, int] = {}
         train_sizes: dict[str, list[int]] = {}
         meta: dict[str, dict] = {}
         for t in self._tasks:
             ds = t.tabarena_task_name
-            meta.setdefault(ds, {col: getattr(t, field) for col, field in grid_col_to_field.items()})
+            if ds not in meta:
+                meta[ds] = {col: getattr(t, field) for col, field in grid_col_to_field.items()}
+                meta[ds]["target_imbalanced"] = _target_imbalanced(t)
             for split in t.splits_metadata.values():
                 n_folds_by_dataset[ds] = max(n_folds_by_dataset.get(ds, 0), split.fold + 1)
                 train_sizes.setdefault(ds, []).append(split.num_instances_train)

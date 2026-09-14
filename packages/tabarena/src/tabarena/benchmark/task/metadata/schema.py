@@ -162,6 +162,17 @@ class TabArenaTaskMetadata:
     source: str | None = None
     """Origin of the dataset (e.g. ``"Kaggle"``, ``"OpenML"``, ``"UCI"``)."""
 
+    # -- Target distribution (added later; default to None for backward compat) --
+    # Computed from the full target column at creation (see
+    # ``tabarena.benchmark.task.metadata.balance``); the ``"balanced"`` / ``"imbalanced"``
+    # subset predicates key on them.
+    target_minority_fraction: float | None = None
+    """Share of the smallest class in the target. Classification only, ``None`` for regression."""
+    target_imbalance_ratio: float | None = None
+    """Samples in the largest class divided by samples in the smallest one. Classification only."""
+    target_skewness: float | None = None
+    """Fisher skewness of the target values. Regression only, ``None`` for classification."""
+
     def to_validation_metadata(self) -> ValidationMetadata:
         """Project this task metadata onto a ``ValidationMetadata`` (the split-config subset).
 
