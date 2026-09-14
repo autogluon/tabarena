@@ -327,6 +327,7 @@ class TestStandardSubsetVariants:
             "numerical": ["numerical"],
             "balanced": ["balanced"],
             "imbalanced": ["imbalanced"],
+            "extreme": ["extreme"],
         }
 
     @pytest.mark.parametrize(

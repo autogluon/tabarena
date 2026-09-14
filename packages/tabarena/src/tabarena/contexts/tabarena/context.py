@@ -150,6 +150,8 @@ class TabArenaContext(AbstractArenaContext):
         # Datasets whose statistics are unknown (`None`) fall in neither half.
         "imbalanced": SubsetPredicate(lambda df: df["target_imbalanced"].eq(True), ("target_imbalanced",)),
         "balanced": SubsetPredicate(lambda df: df["target_imbalanced"].eq(False), ("target_imbalanced",)),
+        # the extreme end of `imbalanced` (a class ratio of 50:1 or more; classification only)
+        "extreme": SubsetPredicate(lambda df: df["target_extreme"].eq(True), ("target_extreme",)),
         # split-level filter: keeps split 0 == (fold 0, repeat 0). Evaluated on the task grid's
         # "split" column (see TaskMetadataCollection.task_grid); a results frame's "fold" is the
         # split, so this maps to fold == 0 there.
@@ -169,6 +171,7 @@ class TabArenaContext(AbstractArenaContext):
         "numerical": ["numerical"],
         "balanced": ["balanced"],
         "imbalanced": ["imbalanced"],
+        "extreme": ["extreme"],
     }
 
     def __init__(

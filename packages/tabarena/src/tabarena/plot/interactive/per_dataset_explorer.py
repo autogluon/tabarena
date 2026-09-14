@@ -163,6 +163,12 @@ def dataset_records(
         meta["balance"] = dataset_metadata["target_imbalanced"].map(
             lambda v: None if v is None or pd.isna(v) else ("imbalanced" if bool(v) else "balanced"),
         )
+    # The extreme end of the imbalanced half; a flag rather than a third value of `balance`,
+    # because every extreme dataset is also an imbalanced one.
+    if "target_extreme" in dataset_metadata.columns:
+        meta["extreme"] = dataset_metadata["target_extreme"].map(
+            lambda v: True if (v is not None and not pd.isna(v) and bool(v)) else None,
+        )
     merged = from_results.merge(meta, on="dataset", how="left")
     if "name" in merged.columns:
         merged["name"] = merged["name"].fillna(merged["dataset"])

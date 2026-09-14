@@ -20,11 +20,12 @@ from tabarena.evaluation.entrants import ENTRANT_POOLS
 ENTRANT_POOL_KEYS = [pool.key for pool in ENTRANT_POOLS]
 USE_IMPUTATION_VALUES = [False, True]
 PROBLEM_TYPE_VALUES = ["all", "classification", "regression", "binary", "multiclass"]
-# Dataset subsets share one axis: the two size buckets and the two target-distribution halves
-# (see `tabarena.benchmark.task.metadata.balance`). One axis rather than two, because every value
-# is a separate evaluation and a size x distribution cross would triple the grid for cells
-# nobody has asked for; the website shows the halves as their own chip bar.
-DATASET_SUBSET_VALUES = [None, "small", "medium", "balanced", "imbalanced"]
+# Dataset subsets share one axis: the two size buckets and the target-distribution subsets
+# (see `tabarena.benchmark.task.metadata.balance`; `extreme` is the far end of `imbalanced`). One
+# axis rather than two, because every value is a separate evaluation and a size x distribution
+# cross would multiply the grid for cells nobody has asked for; the website shows the
+# distribution values as their own chip bar.
+DATASET_SUBSET_VALUES = [None, "small", "medium", "balanced", "imbalanced", "extreme"]
 LITE_VALUES = [False, True]
 
 

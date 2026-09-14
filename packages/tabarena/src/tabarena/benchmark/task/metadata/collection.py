@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 
 import pandas as pd
 
-from tabarena.benchmark.task.metadata.balance import is_target_imbalanced
+from tabarena.benchmark.task.metadata.balance import is_target_extremely_imbalanced, is_target_imbalanced
 from tabarena.benchmark.task.metadata.schema import (
     SplitMetadata,
     TabArenaTaskMetadata,
@@ -63,6 +63,14 @@ def _target_imbalanced(task: TabArenaTaskMetadata) -> bool | None:
         problem_type=task.problem_type,
         imbalance_ratio=task.target_imbalance_ratio,
         skewness=task.target_skewness,
+    )
+
+
+def _target_extreme(task: TabArenaTaskMetadata) -> bool | None:
+    """Whether one task is at the extreme end of the imbalanced half (classification only)."""
+    return is_target_extremely_imbalanced(
+        problem_type=task.problem_type,
+        imbalance_ratio=task.target_imbalance_ratio,
     )
 
 
@@ -548,6 +556,7 @@ class TaskMetadataCollection:
             # The same verdict `task_grid` carries, so a per-dataset consumer (the website's
             # per-dataset browser) and the subset predicates cannot disagree about a dataset.
             frame["target_imbalanced"] = pd.Series([_target_imbalanced(t) for t in first_tasks.values()], dtype=object)
+            frame["target_extreme"] = pd.Series([_target_extreme(t) for t in first_tasks.values()], dtype=object)
         return frame
 
     def task_grid(self) -> pd.DataFrame:
@@ -576,7 +585,8 @@ class TaskMetadataCollection:
           ``target_imbalance_ratio`` / ``target_skewness``, and ``target_imbalanced``, the verdict
           :func:`~tabarena.benchmark.task.metadata.balance.is_target_imbalanced` draws from them
           (``None`` when the statistics are missing), which the ``"balanced"`` / ``"imbalanced"``
-          predicates key on.
+          predicates key on, and ``target_extreme``, the ``"extreme"`` predicate's verdict
+          (:func:`~tabarena.benchmark.task.metadata.balance.is_target_extremely_imbalanced`).
         """
         # Predicate-facing grid column -> TabArenaTaskMetadata attribute. Warehouse fields are
         # None for tasks that don't carry them (e.g. TabArena v0.1); BeyondArena populates them.
@@ -594,7 +604,16 @@ class TaskMetadataCollection:
             "target_imbalance_ratio": "target_imbalance_ratio",
             "target_skewness": "target_skewness",
         }
-        cols = ["dataset", "fold", "repeat", "split", "max_train_rows", *grid_col_to_field, "target_imbalanced"]
+        cols = [
+            "dataset",
+            "fold",
+            "repeat",
+            "split",
+            "max_train_rows",
+            *grid_col_to_field,
+            "target_imbalanced",
+            "target_extreme",
+        ]
         n_folds_by_dataset: dict[str, int] = {}
         train_sizes: dict[str, list[int]] = {}
         meta: dict[str, dict] = {}
@@ -603,6 +622,7 @@ class TaskMetadataCollection:
             if ds not in meta:
                 meta[ds] = {col: getattr(t, field) for col, field in grid_col_to_field.items()}
                 meta[ds]["target_imbalanced"] = _target_imbalanced(t)
+                meta[ds]["target_extreme"] = _target_extreme(t)
             for split in t.splits_metadata.values():
                 n_folds_by_dataset[ds] = max(n_folds_by_dataset.get(ds, 0), split.fold + 1)
                 train_sizes.setdefault(ds, []).append(split.num_instances_train)

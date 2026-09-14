@@ -113,6 +113,8 @@ class BeyondArenaContext(AbstractArenaContext):
         # Datasets whose statistics are unknown (`None`) fall in neither half.
         "imbalanced": SubsetPredicate(lambda df: df["target_imbalanced"].eq(True), ("target_imbalanced",)),
         "balanced": SubsetPredicate(lambda df: df["target_imbalanced"].eq(False), ("target_imbalanced",)),
+        # the extreme end of `imbalanced` (a class ratio of 50:1 or more; classification only)
+        "extreme": SubsetPredicate(lambda df: df["target_extreme"].eq(True), ("target_extreme",)),
         # split-level filter: keeps split 0 == (fold 0, repeat 0); a results frame's "fold"
         # column is the split, so this maps to fold == 0 there (matching the original
         # results-frame "lite" lambda and the base context's convention).
@@ -139,6 +141,7 @@ class BeyondArenaContext(AbstractArenaContext):
         "numerical": ["core", "numerical"],
         "balanced": ["core", "balanced"],
         "imbalanced": ["core", "imbalanced"],
+        "extreme": ["core", "extreme"],
         # high-cardinality slice with the large size bucket removed (all splits / lite split 0)
         "hc_nolarge": ["core", "high-cardinality", "!large"],
         "hc_nolarge_lite": ["core", "lite", "high-cardinality", "!large"],

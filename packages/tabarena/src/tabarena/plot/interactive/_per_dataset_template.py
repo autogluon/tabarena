@@ -652,7 +652,8 @@ __BASE_JS__
       if (!matchesQuery(ds)) continue;
       if (state.task !== "all" && ds.task !== state.task) continue;
       if (state.size !== "all" && SIZE_OF[d] !== state.size) continue;
-      if (state.balance !== "all" && ds.balance !== state.balance) continue;
+      // "extreme" is the far end of "imbalanced", so it filters on its own flag.
+      if (state.balance === "extreme" ? !ds.extreme : (state.balance !== "all" && ds.balance !== state.balance)) continue;
       out.push(d);
     }
     const dir = state.dir;
@@ -869,7 +870,7 @@ __BASE_JS__
       ["Features", fmtInt(ds.features)],
       ds.classes != null && ds.classes > 0 ? ["Classes", fmtInt(ds.classes)] : null,
       ds.imbalance_ratio != null ? ["Largest : smallest class", `${fmtNum(ds.imbalance_ratio, 1)} : 1` +
-        (ds.balance ? ` (${ds.balance})` : "")] : null,
+        (ds.extreme ? " (extreme imbalance)" : ds.balance ? ` (${ds.balance})` : "")] : null,
       ds.target_skew != null ? ["Target skewness", fmtNum(ds.target_skew, 2) + (ds.balance ? ` (${ds.balance})` : "")] : null,
       ["Splits", fmtInt(ds.splits)],
       ["Methods that ran", fmtInt(STATS[d].n)],
@@ -1333,8 +1334,9 @@ __BASE_JS__
   // How the target is distributed: classification by the majority-to-minority class ratio,
   // regression by the target's skewness, as the arena's own "balanced" / "imbalanced" subsets
   // draw the line. Hidden when the metadata predates the statistics.
-  const BALANCE_LABELS = { balanced: "Balanced", imbalanced: "Imbalanced" };
-  const balancePresent = Object.keys(BALANCE_LABELS).filter(k => DATASETS.some(ds => ds.balance === k));
+  const BALANCE_LABELS = { balanced: "Balanced", imbalanced: "Imbalanced", extreme: "Extreme" };
+  const balancePresent = Object.keys(BALANCE_LABELS).filter(k =>
+    k === "extreme" ? DATASETS.some(ds => ds.extreme) : DATASETS.some(ds => ds.balance === k));
   buildFilter("balancefilter", "Target", [
     { key: "all", label: "All" },
     ...balancePresent.map(k => ({ key: k, label: BALANCE_LABELS[k] })),

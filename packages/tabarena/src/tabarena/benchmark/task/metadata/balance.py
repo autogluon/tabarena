@@ -23,6 +23,11 @@ if TYPE_CHECKING:
 #: less, so only the clearly skewed datasets (fraud, failures, rare diseases) count as imbalanced
 #: and the moderately skewed 20/80 ones stay in the balanced half.
 IMBALANCE_RATIO_THRESHOLD = 10.0
+#: The extreme end of the imbalanced half: a class ratio of 50:1 or more, about a 2% minority in a
+#: binary task. Read on the ratio rather than the minority share so that a 20-class dataset whose
+#: classes are all small does not count as extreme. At a 1% share only two TabArena datasets
+#: qualify, too few for a leaderboard of their own.
+EXTREME_IMBALANCE_RATIO_THRESHOLD = 50.0
 #: A regression target is imbalanced when the absolute Fisher skewness of its values reaches this,
 #: the usual bar for a "highly skewed" distribution.
 TARGET_SKEWNESS_THRESHOLD = 1.0
@@ -75,3 +80,14 @@ def is_target_imbalanced(
     if imbalance_ratio is None or pd.isna(imbalance_ratio):
         return None
     return bool(float(imbalance_ratio) >= IMBALANCE_RATIO_THRESHOLD)
+
+
+def is_target_extremely_imbalanced(*, problem_type: str, imbalance_ratio: float | None) -> bool | None:
+    """Whether a classification task sits at the extreme end of the imbalanced half.
+
+    A subset of :func:`is_target_imbalanced`, not a third bucket: every extreme task is also
+    imbalanced. ``None`` for regression (no classes to compare) and for an unknown ratio.
+    """
+    if problem_type == "regression" or imbalance_ratio is None or pd.isna(imbalance_ratio):
+        return None
+    return bool(float(imbalance_ratio) >= EXTREME_IMBALANCE_RATIO_THRESHOLD)
