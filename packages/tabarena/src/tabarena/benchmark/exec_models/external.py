@@ -44,10 +44,17 @@ class ExternalSystemModel(AbstractExecModel):
     anything else (runtime startup, kernel compilation); it must stay data-independent, should
     start from ``self._declared_warmup()`` and return the ``WarmupReport``. The synthetic dummy fit
     is off for systems (``warmup_dummy_fit = False``): fitting a whole pipeline is too heavy for a
-    warm-up. For inference-side preparation around the timed predict, override ``pre_predict`` /
-    ``post_predict`` (e.g. bringing your fitted system into serving state / releasing it): they may
-    touch the fitted system but never the test data. See ``AbstractExecModel`` for the contracts
-    and ``examples/benchmarking/run_quickstart_tabarena_system.py`` for a runnable example.
+    warm-up. For inference-side preparation around the timed predict, override ``pre_predict`` (bring
+    your fitted system into serving state; it may touch the fitted system but never the test data)
+    and release the served state in ``cleanup``, after the post-evaluate consumers (metadata) ran. A
+    system that predicts through an AutoGluon predictor should use
+    ``tabarena.benchmark.exec_models.persist_inference.persist_for_inference`` in ``pre_predict`` and
+    ``release_after_inference`` in ``cleanup`` (see ``systems/autogluon/system.py``), so its
+    ``persisted_models`` are recorded like a wrapper's. A system predicts from its served, in-memory
+    state; disk loads inside the timer are the system's own choice. ``uses_ray`` keeps the base
+    default (True): override it only when no code path of your system can start Ray. See
+    ``AbstractExecModel`` for the contracts and
+    ``examples/benchmarking/run_quickstart_tabarena_system.py`` for a runnable example.
     """
 
     # An external system gets the raw data and does its own preprocessing, label handling, and

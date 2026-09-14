@@ -19,6 +19,13 @@ if TYPE_CHECKING:
     from tabarena.models.warmup import WarmupReport
 
 
+#: Stored under ``timing_audit["scope"]`` so a reader of one result knows what the audit can see.
+TIMING_AUDIT_SCOPE = (
+    "Main-process view only: parallel fold workers import in their own processes, and libraries vendored "
+    "under tabarena.models appear as tabarena submodules rather than as new packages."
+)
+
+
 class AbstractExecModel:
     """Base class for a benchmarked *method* (an "execution model").
 
@@ -35,7 +42,10 @@ class AbstractExecModel:
        (see the property).
     3. ``fit_custom`` — the end-to-end harness: optionally shuffle features, fit (while
        tracking time + memory), then predict on the test data and undo any shuffling.
-    4. ``cleanup`` — release any resources (files, GPU memory, ...).
+    4. post-evaluate consumers (metadata, OOF and bag artifacts) run after ``fit_custom`` and
+       before ``cleanup``, so a model brought into serving state in ``pre_predict`` is still
+       resident for them.
+    5. ``cleanup`` — release any resources (files, served models, GPU memory, ...).
 
     The public ``fit`` / ``predict`` / ``predict_proba`` methods handle label and feature
     (pre)processing, then delegate to the ``_fit`` / ``_predict`` / ``_predict_proba``
@@ -60,6 +70,25 @@ class AbstractExecModel:
     can_get_per_child_val_idx = False
     """Whether per-bagged-child validation indices are available (see ``bag_artifact``)."""
 
+    @classmethod
+    def uses_ray(cls, method_kwargs: dict, *, problem_type: str | None = None) -> bool:
+        """Whether a fit configured with these constructor kwargs may start or use a Ray runtime.
+
+        Consulted by ``Experiment.uses_ray`` so a SLURM worker can skip starting a Ray runtime (GCS,
+        raylet, agents, prestarted workers: several seconds of wall-clock per item and 0.5 to 1.5 GB
+        of RSS counted into the fit's memory numbers) for jobs that never touch Ray. The default is
+        True (start Ray). A subclass returns False only when it can show that no code path calls
+        ``ray.init`` or ``ray.remote`` during fit, predict or artifact collection: a wrong False makes
+        AutoGluon start Ray inside the timed fit with its own defaults (no SLURM-safe temp dir).
+
+        Args:
+            method_kwargs: The constructor kwargs of this exec model, as serialized on the experiment
+                (before the run-time resource detection).
+            problem_type: The task's problem type when known; a model's default ensemble arguments
+                may depend on it.
+        """
+        return True
+
     # --- Declarative warm-up (untimed; see the ``warmup_fn`` property) ------------------
     warmup_modules: ClassVar[tuple[str, ...]] = ()
     """Modules this exec model wants imported untimed before the fit (merged over the MRO).
@@ -76,9 +105,16 @@ class AbstractExecModel:
     that fit a whole pipeline turn it off (see ``ExternalSystemModel``)."""
 
     _can_use_data_in_place: bool
-    """Whether the training data may be used in place rather than defensively copied.
-    Set to True by ``fit_custom`` when data is lazy-loaded (and thus owned by this
-    object), letting wrappers skip a copy of the training frame.
+    """Whether ``fit`` may mutate the training frames it receives (for example append the label
+    column) instead of copying them first.
+
+    ``fit_custom`` sets it to True for the duration of every fit it drives and restores the previous
+    value afterwards: the frames reaching ``fit`` are either lazy-loaded (owned by this object),
+    the new frame a column shuffle produced, the feature generator's output when
+    ``preprocess_data`` is on, or a copy taken once before the memory trackers and the fit timer
+    start, so no wrapper pays a defensive copy inside the timed fit. It stays False for direct
+    ``fit`` callers (tests, notebooks), where ``AGWrapper._attach_label`` and
+    ``ExternalSystemModel._fit`` still copy to protect the caller's frame.
     """
     _split_seed: Literal["NOTSET"] | None | int
     """The per-split seed passed to ``fit_custom`` (``"NOTSET"`` until a fit runs).
@@ -331,17 +367,45 @@ class AbstractExecModel:
         """
 
     def pre_predict(self):
-        """Hook run immediately before inference, *outside* the inference timer. Default: no-op.
+        """Hook run once immediately before inference, outside the inference timer. Default: no-op.
 
-        The untimed inference-side counterpart of ``warmup_fn``: use it for preparation a
-        deployment would have done before serving — loading/persisting the fitted model in
-        memory (see ``AGWrapper.persist``) or placing weights on the inference device. It may
-        touch the fitted model but never the test data, and must not precompute anything
-        prediction-specific.
+        The untimed inference-side counterpart of ``warmup_fn``: use it to bring the fitted model
+        into serving state, the way a deployment would before serving (persist it in memory, see
+        ``AGWrapper.persist``; place its weights on the inference device). It may touch the fitted
+        model but never the test data, and must not precompute anything prediction-specific.
+
+        A wrapped model object may declare ``prepare_for_inference(self) -> None``. The exec models
+        call it untimed on every persisted object (a bag and each of its loaded children) and record
+        which calls succeeded in the method metadata (``prepared_for_inference``). This is the one
+        place the hook's contract is written; other docstrings refer here.
+
+        The hook must be idempotent and model-only. It may:
+
+        * reload or reattach its own pretrained weights, from the process-wide weights registry
+          (``tabarena.models._weights``) or the local checkpoint cache;
+        * move tensors it already owns to the inference device;
+        * build configuration-driven pipelines that read no data (for example a library predictor
+          object constructed from the estimator's constructor arguments and its checkpoint);
+        * synchronize the device and switch modules to eval mode.
+
+        It must not:
+
+        * read training, validation or test data;
+        * compute or cache anything derived from the stored training context;
+        * run a forward pass, also not on dummy inputs;
+        * change parameter dtypes.
+
+        Data-dependent first-call work (kernel dispatch on the real test batch, in-context staging)
+        stays inside the predict timer. A failing hook is isolated per object and logged; the timed
+        predict then runs on that object unprepared.
         """
 
     def post_predict(self):
-        """Hook run immediately after inference, outside the timer (e.g. to unpersist a model). Default: no-op."""
+        """Hook run immediately after inference, outside the timer. Default: no-op.
+
+        Releasing served models does not belong here when post-evaluate consumers (method metadata,
+        OOF and bag artifacts) reuse them; that release happens in ``cleanup``.
+        """
 
     # --- End-to-end execution harness -------------------------------------------------
     def fit_custom(
@@ -353,49 +417,84 @@ class AbstractExecModel:
         split_seed: int | None = None,
         lazy_load_function: Callable | None = None,
     ) -> dict:
-        """Fit the method and predict on ``X_test``, recording timing and memory usage.
+        """Fit the method and predict on ``X_test``, recording timing, memory usage and an environment audit.
 
-        This is the single entry point used by the experiment runner. It fits the model
-        (via ``fit`` -> ``_fit``) while tracking wall-clock time and CPU/GPU memory, then
-        produces predictions (probabilities for classification, point predictions for
-        regression) on ``X_test``, undoing any test-row shuffle so outputs align with the
-        caller's original ``X_test``.
+        The single entry point used by the experiment runner. It fits the model (via ``fit``, then
+        ``_fit``) while tracking wall-clock time and CPU/GPU memory, then produces predictions
+        (probabilities for classification, point predictions for regression) on ``X_test``, undoing
+        any test-row shuffle so outputs align with the caller's original ``X_test``.
 
-        Parameters
-        ----------
-        X, y, X_test:
-            Training features/labels and test features. Must all be ``None`` iff
-            ``lazy_load_function`` is provided.
-        split_seed:
-            If not None, the per-split seed used to shuffle features (required when
-            ``shuffle_features`` is True).
-        lazy_load_function:
-            If provided, a callable returning ``(X, y, X_test)`` used to load the data only
-            when needed (to save memory). The data is loaded once for fitting and reloaded
-            afterwards so the training arrays can be used in place.
+        Frame ownership: ``fit`` receives frames this object owns, so no wrapper pays a defensive copy
+        inside the timed fit (``_can_use_data_in_place`` is True for the duration of the fit and the
+        previous value is restored afterwards). A lazy-loaded frame is owned already, a column shuffle
+        produces a new frame, and the feature generator's output is new when ``preprocess_data`` is
+        on; in every other case ``X`` and ``y`` are copied once here, before the memory trackers and
+        the fit timer start. ``post_fit`` still receives the caller's (unmodified) frames.
+
+        Timer boundaries: the memory trackers and the fit timer bracket ``fit`` only; ``pre_predict``
+        is untimed; the predict timer brackets ``predict_proba`` (classification) or ``predict``
+        (regression) only; ``predict_from_proba`` and ``post_predict`` are untimed. An
+        ``EnvironmentSnapshot`` (``tabarena.utils.timing_audit``) is taken immediately before and after
+        each timer, so the audit shows exactly what the timed section imported or initialized.
+
+        Args:
+            X: Training features. Must be ``None`` iff ``lazy_load_function`` is provided.
+            y: Training labels, aligned with ``X``; same ``None`` rule.
+            X_test: Test features; same ``None`` rule.
+            split_seed: If not None, the per-split seed used to shuffle features (required when
+                ``shuffle_features`` is True).
+            lazy_load_function: If provided, a callable returning ``(X, y, X_test)`` used to load the
+                data only when needed (to save memory). The data is loaded once for fitting and
+                reloaded afterwards so the training frames can be used in place.
 
         Returns:
-        -------
-        dict
-            Keys: ``predictions``, ``probabilities`` (None for regression), ``time_train_s``,
-            ``time_infer_s``, ``memory_usage``.
+            A dict with ``predictions``, ``probabilities`` (None for regression), ``time_train_s``,
+            ``time_infer_s``, ``memory_usage`` (see ``_collect_memory_usage`` for its keys) and
+            ``timing_audit``: ``{"fit": {...}, "predict": {...}, "scope": str}``, where each timed
+            section's dict is ``EnvironmentSnapshot.diff`` output (``new_modules``, ``new_packages``,
+            ``new_submodule_packages``, ``cuda_initialized_before`` / ``_after``,
+            ``ray_initialized_before`` / ``_after``) or ``None`` when the audit failed, and ``scope`` is
+            ``TIMING_AUDIT_SCOPE``.
         """
         from tabarena.utils.memory_utils import CpuMemoryTracker, GpuMemoryTracker
+        from tabarena.utils.timing_audit import audit_since, take_snapshot
 
         self._split_seed = split_seed
 
-        if lazy_load_function is not None:
+        owned = lazy_load_function is not None
+        if owned:
             assert X is None and y is None and X_test is None, "If lazy_load_function is provided, X and y must be None"  # noqa: PT018
             X, y, _ = lazy_load_function()
-            self._can_use_data_in_place = True
 
-        X, shuffled_features = self._shuffle_features(X, split_seed=split_seed)
+        X_fit, shuffled_features = self._shuffle_features(X, split_seed=split_seed)
+        y_fit = y
+        if not owned and shuffled_features is None and not self.preprocess_data:
+            # The caller keeps its frames untouched: copy once here, outside the trackers and the fit
+            # timer. A lazy-loaded frame is already ours, a column shuffle produced a new frame, and with
+            # ``preprocess_data`` the frame reaching ``_fit`` is the feature generator's own output.
+            X_fit = X.copy()
+            y_fit = y.copy()
 
-        with CpuMemoryTracker() as cpu_tracker, GpuMemoryTracker(device=0) as gpu_tracker, Timer() as timer_fit:
-            self.fit(X, y)
+        can_use_data_in_place_before = self._can_use_data_in_place
+        self._can_use_data_in_place = True
+        try:
+            # Both trackers are constructed before either is entered, so the GPU tracker's torch import
+            # is part of the CPU baseline rather than of the fit's memory curve.
+            cpu_tracker = CpuMemoryTracker()
+            gpu_tracker = GpuMemoryTracker(device=0)
+            with cpu_tracker, gpu_tracker:
+                # Snapshot after the trackers are entered (the GPU tracker creates the CUDA context) and
+                # right before the timer starts, so neither is attributed to the fit.
+                before_fit = take_snapshot()
+                with Timer() as timer_fit:
+                    self.fit(X_fit, y_fit)
+                audit_fit = audit_since(before_fit)
+        finally:
+            self._can_use_data_in_place = can_use_data_in_place_before
+        del X_fit, y_fit
 
         # Reload all, allows X,y to be used in-place
-        if lazy_load_function is not None:
+        if owned:
             del X, y, X_test  # Free memory from previous load
             X, y, X_test = lazy_load_function()
 
@@ -407,13 +506,16 @@ class AbstractExecModel:
         self.post_fit(X=X, y=y, X_test=X_test)
 
         self.pre_predict()
+        before_predict = take_snapshot()
         if self.problem_type in ["binary", "multiclass"]:
             with Timer() as timer_predict:
                 y_pred_proba = self.predict_proba(X_test)
+            audit_predict = audit_since(before_predict)
             y_pred = self.predict_from_proba(y_pred_proba)
         else:
             with Timer() as timer_predict:
                 y_pred = self.predict(X_test)
+            audit_predict = audit_since(before_predict)
             y_pred_proba = None
         self.post_predict()
 
@@ -423,6 +525,7 @@ class AbstractExecModel:
             "time_train_s": timer_fit.duration,
             "time_infer_s": timer_predict.duration,
             "memory_usage": self._collect_memory_usage(cpu_tracker, gpu_tracker),
+            "timing_audit": {"fit": audit_fit, "predict": audit_predict, "scope": TIMING_AUDIT_SCOPE},
         }
 
     def _shuffle_features(self, X: pd.DataFrame, *, split_seed: int | None) -> tuple[pd.DataFrame, list | None]:
@@ -478,7 +581,41 @@ class AbstractExecModel:
 
     @staticmethod
     def _collect_memory_usage(cpu_tracker, gpu_tracker) -> dict:
-        """Snapshot the CPU/GPU memory trackers into the result dict's ``memory_usage`` block."""
+        """Snapshot the CPU/GPU memory trackers into the result dict's ``memory_usage`` block.
+
+        Keys, all sampled over the timed fit only (bytes):
+
+        ``peak_mem_cpu`` / ``min_mem_cpu``
+            Highest and lowest RSS of this process plus its descendants (Ray daemons and fold
+            workers included).
+        ``peak_mem_gpu`` / ``min_mem_gpu`` and the ``_reserved`` pair
+            torch's allocated and reserved CUDA memory, absolute values; ``gpu_tracking_enabled`` says
+            whether a CUDA device was tracked at all.
+        ``baseline_mem_cpu`` / ``baseline_mem_cpu_self``
+            RSS of the subtree and of the main process alone right when the tracker started, so a
+            daemon baseline (for example Ray) can be subtracted in analysis: the difference of the two
+            is the descendants' share. ``cpu_tracking_backend`` names the sampler (``"procfs"`` or
+            ``"psutil"``); both report identical values per sample.
+
+        Baseline shifts to keep in mind when comparing numbers across TabArena versions (the existing
+        keys keep their meaning, their values move):
+
+        * the GPU tracker reports absolute allocation, so weights pre-loaded by the warm-up into the
+          shared registry (``tabarena.models._weights``) are part of ``min_mem_gpu`` and set the floor
+          of ``peak_mem_gpu``; this is intended (a served model keeps its weights resident) and recorded
+          in ``experiment_metadata["warmup_report"]`` and ``method_metadata["shared_weights"]``;
+        * ``min_mem_cpu`` and the baselines include the warm-up's imports, the torch import the GPU
+          tracker performs on nodes where torch is installed (0.3 to 0.5 GB, also for CPU models) and,
+          on a local run of a bagging preset, Ray's daemons; sequential_local SLURM jobs no longer start
+          Ray, so they lose the 0.5 to 1.5 GB Ray daemon baseline;
+        * ``peak_mem_cpu`` may rise by the size of ``X`` for fits shorter than one sampling interval,
+          because ``fit_custom`` copies the caller's frame before the tracker starts;
+        * ``info["memory_size"]`` and ``disk_usage`` in the method metadata move with the weightless
+          pickles of the foundation-model wrappers (pickle plus tensor bytes for ``memory_size``);
+        * the shared registry is released between in-process sweep items only when the model class
+          changes (see ``experiment_runner_api``), so consecutive items of one model start with the
+          weights resident.
+        """
         return dict(
             peak_mem_cpu=cpu_tracker.peak_rss,
             min_mem_cpu=cpu_tracker.min_rss,
@@ -487,6 +624,9 @@ class AbstractExecModel:
             min_mem_gpu=gpu_tracker.min_allocated,
             min_mem_gpu_reserved=gpu_tracker.min_reserved,
             gpu_tracking_enabled=gpu_tracker.enabled,
+            baseline_mem_cpu=getattr(cpu_tracker, "start_rss", None),
+            baseline_mem_cpu_self=getattr(cpu_tracker, "start_rss_self", None),
+            cpu_tracking_backend=getattr(cpu_tracker, "backend", None),
         )
 
     # --- Fit / predict (public + protected hooks) -------------------------------------
@@ -546,9 +686,22 @@ class AbstractExecModel:
         """Return out-of-fold simulation artifacts. Implement when ``can_get_oof`` is True."""
         raise NotImplementedError
 
-    def bag_artifact(self, X_test: pd.DataFrame) -> dict:
+    def bag_artifact(self, X_test: pd.DataFrame, *, y_pred=None, y_pred_proba=None) -> dict:
         """Return per-bagged-child OOF/test artifacts.
 
-        Implement when ``can_get_per_child_oof`` / ``can_get_per_child_val_idx`` are True.
+        Implement when ``can_get_per_child_oof`` / ``can_get_per_child_val_idx`` are True. Runs after
+        ``fit_custom`` and before ``cleanup``, so a model brought into serving state in ``pre_predict``
+        is still resident.
+
+        Args:
+            X_test: The test features in the caller's original row order.
+            y_pred: The timed test predictions (the runner's ``predictions``) in the caller's original
+                row order, when the runner has them.
+            y_pred_proba: The timed test probabilities (the runner's ``probabilities``), same order;
+                ``None`` for regression.
+
+        Implementations may derive the per-child test artifact from the timed outputs when the bag's
+        output equals its child's (a single-child bag with no post-hoc transform) and must compute it
+        otherwise.
         """
         raise NotImplementedError
