@@ -79,6 +79,11 @@ class ExternalSystemModel(AbstractExecModel):
         self.memory_limit = fit_kwargs.get("memory_limit")
         self.time_limit = fit_kwargs.get("time_limit")
 
+    @property
+    def num_cpus_budget(self) -> int | None:
+        """The system's ``num_cpus`` (``None`` when unconstrained)."""
+        return self.num_cpus
+
     def _fit(self, X: pd.DataFrame, y: pd.Series, **kwargs):
         """Pass the full fit context to ``_fit_system`` (dropping the unused ``X_val`` / ``y_val``).
 

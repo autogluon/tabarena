@@ -4,14 +4,13 @@ import importlib.util
 
 import pytest
 
-from tabarena.models import get_model_registry
-
-from .smoke_configs import smoke_for
+from .smoke_configs import registry_or_fail, smoke_for
 
 # Built once at collection time. ``discover_models()`` imports each lightweight
 # ``info.py`` but not the heavy model libraries, so a model whose optional
 # dependency is missing still appears here and is skipped at fit time below.
-_REGISTRY = get_model_registry()
+# An empty registry is a collection error, not an empty parametrization.
+_REGISTRY = registry_or_fail()
 
 
 def _cuda_available() -> bool:
