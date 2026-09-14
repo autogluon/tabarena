@@ -22,6 +22,8 @@ from tabarena.benchmark.experiment.experiment_runner import (
 from tabarena.benchmark.experiment.experiment_runner_api import (
     job_cache_exists,
     job_cache_exists_batch,
+    job_cache_status,
+    job_cache_status_batch,
     task_cache_key_from_task_id_str,
 )
 from tabarena.benchmark.experiment.experiment_utils import (
@@ -38,6 +40,7 @@ from tabarena.benchmark.experiment.model_constraints import ModelConstraints
 from tabarena.benchmark.validation_protocol import (
     BEYONDARENA_VALIDATION_PROTOCOL,
     TABARENA_V0PT1_VALIDATION_PROTOCOL,
+    ValidationExpectation,
     ValidationProtocol,
     ValidationProtocolError,
 )
@@ -61,6 +64,7 @@ __all__ = [
     "TabArenaExperimentBundle",
     "TabArenaV0pt1ExperimentBundle",
     "Task",
+    "ValidationExpectation",
     "ValidationProtocol",
     "ValidationProtocolError",
     "YamlExperimentSerializer",
@@ -68,5 +72,7 @@ __all__ = [
     "filter_jobs_by_constraints",
     "job_cache_exists",
     "job_cache_exists_batch",
+    "job_cache_status",
+    "job_cache_status_batch",
     "task_cache_key_from_task_id_str",
 ]

@@ -15,6 +15,7 @@ tasks); `name` only labels the `parallel_benchmark_name`.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
@@ -107,7 +108,8 @@ class ModelJob:
 
     `models` is normalized in `__post_init__` to a list of `SingleModel`
     (tuples/strings resolved via `SingleModel.from_input`), with pre-built
-    `Experiment` objects passed through unchanged. The `resources`/`scheduler`/
+    `Experiment` objects deep-copied (the context stamps its validation protocol onto
+    the experiments it runs, so two jobs must never share one object). The `resources`/`scheduler`/
     `experiment` override dicts are applied onto the plan's corresponding base setup
     via `dataclasses.replace` (see `_apply_overrides`); empty dicts leave the base
     untouched. `tasks` is normalized to a typed `TaskSubset` and merged onto the
@@ -143,7 +145,7 @@ class ModelJob:
 
     def __post_init__(self) -> None:
         models = self.models if isinstance(self.models, list) else [self.models]
-        self.models = [m if isinstance(m, Experiment) else SingleModel.from_input(m) for m in models]
+        self.models = [copy.deepcopy(m) if isinstance(m, Experiment) else SingleModel.from_input(m) for m in models]
         self.tasks = TaskSubset.from_input(self.tasks)
 
     def _model_entries(self) -> list:

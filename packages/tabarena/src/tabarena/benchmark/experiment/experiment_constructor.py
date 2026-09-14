@@ -21,6 +21,7 @@ from tabarena.benchmark.exec_models.registry import infer_model_cls
 from tabarena.benchmark.experiment.experiment_runner import ExperimentRunner, OOFExperimentRunner
 from tabarena.benchmark.experiment.model_constraints import ModelConstraints
 from tabarena.benchmark.validation_protocol import (
+    CACHE_AUX_NAME,
     ValidationProtocol,
     ValidationProtocolError,
     validation_protocol_key,
@@ -250,6 +251,11 @@ class Experiment:
             3. Fit via ``experiment_cls.init_and_run`` through ``cacher`` — which still
                short-circuits to the cached ``results`` on a hit instead of refitting.
             4. Guard against a non-finite final metric error (``_enforce_finite_metric``).
+            5. Write the validation-protocol side record next to a freshly fitted result.
+
+        In both flows an existing cache is first checked against this experiment's validation
+        protocol (``_check_cached_validation_protocol``): a result fit under another protocol is
+        refused rather than reused, unless ``ignore_cache`` refits it.
 
         Fit-flow failures are handled here: when ``raise_on_failure`` is False, a fit
         exception (or a non-finite-metric failure) is swallowed and ``None`` is returned;
@@ -290,6 +296,10 @@ class Experiment:
         if cacher is None:
             cacher = CacheFunctionDummy()
 
+        cache_existed = cacher.exists
+        if cache_existed and not ignore_cache:
+            self._check_cached_validation_protocol(cacher)
+
         # Load flow: with no task to fit, load the cached result directly
         if task is None:
             return cacher.cache(fun=None, fun_kwargs=None, ignore_cache=ignore_cache)
@@ -318,6 +328,8 @@ class Experiment:
                     ignore_cache=ignore_cache,
                 )
                 self._enforce_finite_metric(out=out, cacher=cacher)
+                if ignore_cache or not cache_existed:
+                    cacher.save_aux(CACHE_AUX_NAME, self.validation_aux_record())
         except Exception:
             if raise_on_failure:
                 raise
@@ -326,6 +338,30 @@ class Experiment:
             return None
 
         return out
+
+    def validation_aux_record(self) -> dict:
+        """The side record stored next to a cached result: the protocol ``key`` and ``flavour`` it was fit under."""
+        record = self.validation_record()
+        return {"key": record["key"], "flavour": record["flavour"]}
+
+    def _check_cached_validation_protocol(self, cacher: AbstractCacheFunction) -> None:
+        """Refuse an existing cached result that was fit under another validation protocol.
+
+        Reads the side record written by a previous run (see ``validation_aux_record``); a cache without
+        one (written before side records existed) is trusted. The results cache is keyed by experiment
+        name only, so without this check a rerun under another protocol would silently reuse the old
+        result as its own.
+        """
+        cached = cacher.load_aux(CACHE_AUX_NAME)
+        if cached is None:
+            return
+        expected = self.validation_aux_record()["key"]
+        if cached.get("key") != expected:
+            raise ValidationProtocolError(
+                f"The cached result of experiment {self.name!r} ({cacher.cache_file}) was fit under validation "
+                f"protocol {cached.get('key')!r} (flavour {cached.get('flavour')!r}); this run asks for {expected!r}. "
+                "Use a new expname / benchmark_name to keep both, or ignore_cache=True to refit and overwrite it.",
+            )
 
     def _init_and_run_recorded(self, **kwargs) -> dict:
         """Run ``experiment_cls.init_and_run`` and complete the result's ``validation_protocol`` record.

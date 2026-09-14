@@ -27,8 +27,10 @@ from tabarena.benchmark.experiment.experiment_constructor import _migrate_legacy
 from tabarena.benchmark.task.metadata import ValidationMetadata
 from tabarena.benchmark.validation_protocol import (
     BEYONDARENA_VALIDATION_PROTOCOL,
+    CACHE_AUX_NAME,
     TABARENA_V0PT1_VALIDATION_PROTOCOL,
 )
+from tabarena.utils.cache import CacheFunctionPickle
 from tabarena.utils.config_utils import (
     _apply_seed_to_bag_configs,
     generate_bag_experiments,
@@ -326,3 +328,47 @@ class TestLegacyYaml:
     def test_a_yaml_without_the_knobs_is_untouched(self):
         kwargs = {"name": "x", "method_kwargs": {"fit_kwargs": {"num_cpus": 1}}}
         assert _migrate_legacy_validation_kwargs(AGModelBagExperiment, dict(kwargs)) == kwargs
+
+
+class TestCachedResultGuard:
+    """A cached result is reused only when it was fit under the protocol the experiment now runs."""
+
+    @staticmethod
+    def _cacher(tmp_path, aux: dict | None) -> CacheFunctionPickle:
+        cacher = CacheFunctionPickle(cache_name="results", cache_path=str(tmp_path / "data" / "lgb" / "1" / "0_0"))
+        cacher.save_cache({"metric_error": 0.1})
+        if aux is not None:
+            cacher.save_aux(CACHE_AUX_NAME, aux)
+        return cacher
+
+    @staticmethod
+    def _load(exp, cacher):
+        return exp.run(task=None, fold=0, task_name="ds", cache_task_key="ds", cacher=cacher)
+
+    def test_a_matching_side_record_is_reused(self, tmp_path):
+        exp = _bag(validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL)
+        cacher = self._cacher(tmp_path, {"key": "8x1", "flavour": "bagged"})
+        assert self._load(exp, cacher) == {"metric_error": 0.1}
+
+    def test_a_legacy_result_without_side_record_is_trusted(self, tmp_path):
+        exp = _bag(validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL)
+        assert self._load(exp, self._cacher(tmp_path, None)) == {"metric_error": 0.1}
+
+    def test_a_result_fit_under_another_protocol_is_refused(self, tmp_path):
+        exp = _bag(validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL)
+        cacher = self._cacher(tmp_path, {"key": "3x1", "flavour": "bagged"})
+        with pytest.raises(ValidationProtocolError, match="'3x1'.*'8x1'.*ignore_cache=True"):
+            self._load(exp, cacher)
+
+    def test_a_holdout_result_never_passes_as_the_bagged_protocol(self, tmp_path):
+        exp = _bag(validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL)
+        cacher = self._cacher(tmp_path, {"key": "holdout:8x1", "flavour": "holdout"})
+        with pytest.raises(ValidationProtocolError):
+            self._load(exp, cacher)
+
+    def test_aux_record_is_the_key_and_flavour(self):
+        assert _bag(validation_protocol=ValidationProtocol.custom(3)).validation_aux_record() == {
+            "key": "3x1",
+            "flavour": "bagged",
+        }
+        assert _outer().validation_aux_record() == {"key": "outer", "flavour": "outer"}

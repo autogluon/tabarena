@@ -43,6 +43,11 @@ DEFAULT_SEED_BLOCK_SIZE = 8
 (the protocol arrives later from the arena context). Equals the TabArena protocol's 8 children, which is
 what every official run used."""
 
+CACHE_AUX_NAME = "validation_protocol"
+"""Name of the JSON side record written next to every ``results`` cache file (``validation_protocol.json``):
+the ``key`` and ``flavour`` the result was fit under, so a later run under another protocol against the
+same cache is refused instead of silently reusing (or overwriting) the result."""
+
 _STRUCTURE_FIELDS = ("group_on", "time_on", "stratify_on", "group_labels")
 
 

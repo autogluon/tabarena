@@ -29,6 +29,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tabarena.benchmark.validation_protocol import ValidationExpectation
+
 if TYPE_CHECKING:
     from tabarena.benchmark.experiment.experiment_constructor import Experiment
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
@@ -204,6 +206,7 @@ _EXPERIMENTS_FILE = "experiments.yaml"
 _TASK_METADATA_FILE = "task_metadata.csv"
 _JOBS_FILE = "jobs.json"
 _CACHE_CONFIG_FILE = "cache_config.json"
+_VALIDATION_PROTOCOL_FILE = "validation_protocol.json"
 
 
 @dataclass
@@ -226,6 +229,10 @@ class JobBatch:
     * ``cache_config.json`` — the optional :class:`~tabarena.caching.CacheConfig` (only written
       when set), so the compute node configures the same OpenML / HuggingFace / TabArena cache
       locations the run was set up with, with no out-of-band wiring.
+    * ``validation_protocol.json`` — the optional
+      :class:`~tabarena.benchmark.validation_protocol.ValidationExpectation` of the arena context that
+      built the batch (its protocol, whether it is enforced, the arena), so the compute node re-checks
+      every experiment against it before fitting.
 
     Loading a saved directory needs nothing else — ``JobBatch.load(path)`` reconstructs
     the ``list[Job]`` plus the collection (and the ``cache_config`` if present), ready for
@@ -240,6 +247,10 @@ class JobBatch:
     cache_config: CacheConfig | None = None
     """Optional cache locations (OpenML / HuggingFace / TabArena) the run was configured with.
     Persisted to ``cache_config.json`` and applied by the runner on the compute node."""
+    validation_expectation: ValidationExpectation | None = None
+    """What the arena context that built this batch expects of its experiments'
+    validation protocol. Persisted to ``validation_protocol.json``; the compute node refuses an
+    experiment that deviates from an enforced expectation."""
 
     def __post_init__(self) -> None:
         """Validate name-uniqueness and that every job's split exists in the collection.
@@ -297,9 +308,18 @@ class JobBatch:
         ]
         with (path / _JOBS_FILE).open("w") as f:
             json.dump({"jobs": job_records}, f)
+        # Optional side files: written when set, removed otherwise so a re-saved batch never keeps a
+        # stale record from a previous invocation.
         if self.cache_config is not None:
             with (path / _CACHE_CONFIG_FILE).open("w") as f:
                 json.dump(self.cache_config.to_dict(), f)
+        else:
+            (path / _CACHE_CONFIG_FILE).unlink(missing_ok=True)
+        if self.validation_expectation is not None:
+            with (path / _VALIDATION_PROTOCOL_FILE).open("w") as f:
+                json.dump(self.validation_expectation.to_dict(), f, indent=2)
+        else:
+            (path / _VALIDATION_PROTOCOL_FILE).unlink(missing_ok=True)
         return path
 
     @classmethod
@@ -321,6 +341,12 @@ class JobBatch:
             with cache_config_path.open() as f:
                 cache_config = CacheConfig.from_dict(json.load(f))
 
+        validation_expectation = None
+        validation_protocol_path = path / _VALIDATION_PROTOCOL_FILE
+        if validation_protocol_path.exists():
+            with validation_protocol_path.open() as f:
+                validation_expectation = ValidationExpectation.from_dict(json.load(f))
+
         with (path / _JOBS_FILE).open() as f:
             job_records = json.load(f)["jobs"]
 
@@ -335,4 +361,9 @@ class JobBatch:
             jobs.append(
                 Job.create(experiment, record["dataset"], fold=record["fold"], repeat=record["repeat"]),
             )
-        return cls(jobs=jobs, task_metadata=task_metadata, cache_config=cache_config)
+        return cls(
+            jobs=jobs,
+            task_metadata=task_metadata,
+            cache_config=cache_config,
+            validation_expectation=validation_expectation,
+        )
