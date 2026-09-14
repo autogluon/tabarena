@@ -84,6 +84,7 @@ from tabarena.models.tabicl.info import (
     tabiclv2_method_metadata as tabiclv2_metadata,
     tabiclv2_new_method_metadata,
 )
+from tabarena.models.tabldm.info import tabldm_method_metadata
 from tabarena.models.tabm.info import tabm_new_method_metadata
 from tabarena.models.tabpfn_3.info import (
     tabpfn_3_method_metadata as tabpfnv3_method_metadata,
@@ -201,6 +202,7 @@ tabarena_method_metadata_collection = MethodMetadataCollection(
         exaone_tabular_method_metadata,
         causilo_method_metadata,
         mitra_v2_method_metadata,
+        tabldm_method_metadata,
     ],
 )
 

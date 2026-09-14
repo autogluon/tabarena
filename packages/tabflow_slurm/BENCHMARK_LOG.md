@@ -191,6 +191,10 @@ plan.setup_jobs()
   nodes to boot (partition-wide `NOT_RESPONDING+POWERING_UP` limbo affecting every user's new tasks):
   six tasks sat in CONFIGURING on nodes that never came up and were requeued by hand with
   `scontrol requeue`, one of them twice. The CPU smoke fit on the head node passed in 100 s.
+  Eval: #8/88 overall (Elo 1588 +69/-61), #9/86 binary, #10/86 multiclass, #8/85 regression.
+  Processed and uploaded 2026-09-14 as suite `tabarena-2026-09-11` (`tabldm_method_metadata`,
+  r2://tabarena/cache/artifacts/tabarena-2026-09-11/methods/Xiaomi-TabLDM) and registered in the
+  arena collection as a verified model.
 
 ```python
 from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle

@@ -5,22 +5,24 @@ from tabarena.models._model_info import ModelInfo
 from tabarena.models.tabldm.hpo import gen_tabldm
 from tabarena.models.tabldm.model import TabLDMModel
 
-# Not yet benchmarked: no `suite`/`cache_kwargs` (local, unhosted), `has_raw`/`has_processed`/
-# `has_results` all False since no artifacts exist yet, `date` is the planning date below.
 tabldm_method_metadata = MethodMetadata.config(
     method="Xiaomi-TabLDM",
     display_name="Xiaomi-TabLDM",
     compute="gpu",
-    date="2026-08-31",
+    date="2026-09-11",
+    # ag_key matches the run's raw data; model_key stays "XIAOMI-TABLDM" for stable registry naming.
     ag_key="TA-XIAOMI-TABLDM",
     model_key="XIAOMI-TABLDM",
-    config_default="Xiaomi-TabLDM_c1_BAG_L1",
+    config_default="Xiaomi-TabLDM_c1_default_BAG_L1",
     can_hpo=False,
     is_bag=False,
-    has_raw=False,
-    has_processed=False,
-    has_results=False,
-    verified=False,
+    has_raw=True,
+    has_processed=True,
+    has_results=True,
+    suite="tabarena-2026-09-11",
+    verified=True,
+    cache_type="r2",
+    cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     reference_url="https://huggingface.co/occams/Xiaomi-TabLDM",
 )
 
