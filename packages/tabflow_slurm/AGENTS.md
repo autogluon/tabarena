@@ -121,14 +121,21 @@ outside it, keyed per node, user and venv, so later jobs on a warm node reuse th
   covered every selected model (`PrefetchReport.complete`), no system is selected (a system fetches
   its own checkpoints at fit time) and no run encodes text at fit time. A cache miss is then a failed item, never a download inside the timed fit. The HF cache
   must be shared between the head node and the compute nodes.
-- **Node staging defaults** (`NodeStagingSetup` on `SlurmSetup`): `stage_weights=True` copies the
-  run's HF `models--*` repo dirs and TabPFN checkpoints (enumerated by
-  `tabarena.models.staging.collect_weight_paths` from the prefetchers' return values) into the job
-  scratch with an rsync, keeping `reserve_bytes` (10 GB) free and falling back to the shared
-  filesystem on any error; non-staged repo dirs are overlaid as symlinks so unenumerated assets still
-  resolve. `pretouch_libs=True` reads the job's model libraries into the page cache once per node
-  boot (`node_prep.py`, `pretouch_max_bytes` 2 GB). Everything lands in `defaults.staging` of the
-  job JSON; a job JSON without the block runs without staging.
+- **Node staging defaults** (`NodeStagingSetup` on `SlurmSetup`): `stage_weights` is off by default
+  (the warm-up pre-loads the weights untimed, so staging only saves wall-clock on a cold node).
+  `NodeStagingSetup(stage_weights=True)` copies the run's HF `models--*` repo dirs and TabPFN
+  checkpoints (enumerated by `tabarena.models.staging.collect_weight_paths` from the prefetchers'
+  return values) into the job scratch with an rsync, keeping `reserve_bytes` (10 GB) free and falling
+  back to the shared filesystem on any error; non-staged repo dirs are overlaid as symlinks so
+  unenumerated assets still resolve. `pretouch_libs=True` reads the job's model libraries into the
+  page cache once per node boot (`node_prep.py`, `pretouch_max_bytes` 2 GB). Everything lands in
+  `defaults.staging` of the job JSON; a job JSON without the block runs without staging.
+- **CPU budget on the GCP partitions.** The runner's `cpu_budget_check` (default `warn`) compares the
+  fit's `num_cpus` with the CPUs the job may run on. Jobs are exclusive, so the affinity mask is the
+  whole node (24 cores on `gpurtxpro6000flex`, 16 logical CPUs on `cpuhighmem16mtspot`); a campaign
+  passes the check by leaving `num_cpus=None` in the `ResourcesSetup`, which the runner resolves to
+  that count on the node (the benchmark-model run template does this). A fixed `num_cpus` below the
+  node's count is reported as a mismatch in the log and in `cpu_thread_info` of the results.
 - **Continue on failure.** A failing item does not abort its bundle: the template logs `##### item
   FAILED (exit N)`, keeps going (stopping only after three consecutive failures) and exits non-zero
   at the end, so `sacct` still shows `FAILED` while the successful items' `results.pkl` are on disk.

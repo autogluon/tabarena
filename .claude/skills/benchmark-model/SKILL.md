@@ -313,8 +313,15 @@ Next in the lifecycle is the `upload-method` skill, pointed at `<WORKSPACE>/outp
 - Weights on the cluster: `setup` prefetches the selected models' checkpoints on the head node and,
   when every selected model prefetched (`offline_weights="auto"`), the jobs run with `HF_HUB_OFFLINE=1`
   and `AG_FETCH_PRETRAINED_WEIGHTS=false`, so a cache miss fails the item instead of downloading inside
-  the timed fit. The HF cache must be shared between head and compute nodes; by default each job also
-  stages the run's weights onto node-local scratch (`NodeStagingSetup`).
+  the timed fit. The HF cache must be shared between head and compute nodes. Copying the weights onto
+  node-local scratch is opt-in (`GCPSlurmSetup(node_staging=NodeStagingSetup(stage_weights=True))`);
+  the warm-up pre-loads them untimed either way.
+- Two warm-up steps are opt-in until measured on the cluster: the Ray import-only worker pool for CPU
+  bags (`TABARENA_RAY_WORKER_WARMUP=1`) and the CUDA kernel probe (`TABARENA_WARMUP_KERNELS=1`). Before
+  a campaign, launch one `TaskSubset(subset="lite")` bundle of a CPU booster and one of a GPU model with
+  the variable exported in the submitting shell (`--export=ALL` carries it), then read
+  `warmup_report.ray` and the fit timings with `audit_warmup --results`; make them defaults only when
+  the workers were reused or the probe saved time.
 - Spot partitions preempt; requeued tasks show up as `requeued` in the progress line and are not
   failures. Throughput on `gpurtxpro6000flex` is bounded by node provisioning (about 30 concurrent
   tasks was typical), so a full GPU run of a foundation model takes around half a day.

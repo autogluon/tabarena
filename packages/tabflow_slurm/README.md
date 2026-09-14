@@ -251,9 +251,9 @@ collection to the jobs' tasks and `materialize()` them (download only those) →
 `SLURM_ARRAY_TASK_ID` selects `jobs[i]`; the submit script runs the runner once per `items` entry,
 using `defaults` for everything shared. `offline_weights` (decided by the plan from the head-node
 prefetch) makes the jobs resolve checkpoints from the shared cache only, so a miss fails the item
-instead of downloading inside the timed fit; `staging` (from `NodeStagingSetup`, on by default) lists
-the weight files copied onto node-local scratch and the pre-touch budget. Older job JSONs without
-these keys still run.
+instead of downloading inside the timed fit; `staging` (from `NodeStagingSetup`; the weight copy is
+opt-in, the library pre-touch is on) lists the weight files copied onto node-local scratch and the
+pre-touch budget. Older job JSONs without these keys still run.
 
 ---
 

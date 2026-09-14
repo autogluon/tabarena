@@ -41,6 +41,7 @@ EXPECTED_FIELD_NAMES = {
     "model_artifacts_base_path",
     "verbosity",
     "model_verbosity",
+    "model_verbosity_overrides",
     "adapt_num_folds_to_n_classes",
     "shuffle_features",
     "dynamic_tabarena_validation_protocol",
@@ -62,6 +63,7 @@ COMMON_INHERITED_DEFAULTS = {
     "model_artifacts_base_path": "/tmp",  # noqa: S108
     "verbosity": 2,
     "model_verbosity": 4,
+    "model_verbosity_overrides": {"CatBoost": 2},
     "custom_model_constraints": {},
 }
 
@@ -208,6 +210,24 @@ def test_per_model_hyperparameters_injected_for_each_flavour(bundle_kwargs):
     assert hyperparameters["num_boost_round"] == 100
     # The bundle-level extras (here model_verbosity -> ag.verbosity) are still merged in alongside.
     assert hyperparameters["ag.verbosity"] == BeyondArenaExperimentBundle.model_verbosity
+
+
+def _build_single(model_name, *, hyperparameters=None, **bundle_kwargs):
+    entry = (model_name, 0) if hyperparameters is None else (model_name, 0, hyperparameters)
+    bundle = BeyondArenaExperimentBundle(models=[entry], **bundle_kwargs)
+    experiments = bundle.build_experiments(time_limit=60, num_cpus=1, num_gpus=0, memory_limit=4)
+    assert len(experiments) == 1
+    return experiments[0]
+
+
+def test_model_verbosity_overrides_apply_per_model_and_yield_to_the_tuple():
+    """CatBoost defaults to ag.verbosity 2, other models keep model_verbosity, the 3-tuple wins."""
+    assert _model_hyperparameters(_build_single("CatBoost"))["ag.verbosity"] == 2
+    assert _model_hyperparameters(_build_single("LightGBM"))["ag.verbosity"] == 4
+    assert _model_hyperparameters(_build_single("CatBoost", hyperparameters={"ag.verbosity": 3}))["ag.verbosity"] == 3
+    assert _model_hyperparameters(_build_single("CatBoost", model_verbosity_overrides={}))["ag.verbosity"] == 4
+    # No model-level verbosity at all: the override does not resurrect the key.
+    assert "ag.verbosity" not in _model_hyperparameters(_build_single("CatBoost", model_verbosity=None))
 
 
 def test_per_model_hyperparameters_supports_multiple_keys():

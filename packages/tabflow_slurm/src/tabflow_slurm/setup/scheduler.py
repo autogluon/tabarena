@@ -59,14 +59,17 @@ def pretouch_targets(model_classes: Iterable[type]) -> tuple[list[str], list[str
 class NodeStagingSetup:
     """Node-local staging knobs shipped to ``submit_template.sh`` as ``defaults.staging``.
 
-    ``stage_weights`` copies the run's foundation-model weights (HF ``models--*`` repo dirs and
-    TabPFN checkpoints) onto the node before the first fit; ``pretouch_libs`` reads the job's model
-    libraries into the page cache once per node boot. Both are skipped by the template when the
-    node lacks the space (``reserve_bytes`` kept free) or the tools, so the shared filesystem stays
-    the fallback.
+    ``stage_weights`` (opt-in) copies the run's foundation-model weights (HF ``models--*`` repo dirs
+    and TabPFN checkpoints) onto the node before the first fit. It is off by default because the
+    warm-up already pre-loads the weights untimed, so the copy only saves job wall-clock on a cold
+    node (3 to 36 s) at the price of a per-node rsync (13 GB for TabFM); turn it on for campaigns
+    where that trade is worth it. ``pretouch_libs`` reads the job's model libraries into the page
+    cache once per node boot and stays on. Both are skipped by the template when the node lacks
+    the space (``reserve_bytes`` kept free) or the tools, so the shared filesystem stays the
+    fallback.
     """
 
-    stage_weights: bool = True
+    stage_weights: bool = False
     pretouch_libs: bool = True
     pretouch_max_bytes: int = 2 * 1024**3
     reserve_bytes: int = 10 * 1024**3

@@ -612,7 +612,11 @@ class TestStagingDefaults:
             "unresolved": [],
             "complete": True,
         }
-        bs = _benchmark_setup(offline_weights=True, weight_staging=plan)
+        bs = _benchmark_setup(
+            offline_weights=True,
+            weight_staging=plan,
+            scheduler_setup=_slurm(node_staging=NodeStagingSetup(stage_weights=True)),
+        )
         defaults = bs._build_default_args()
         assert defaults["offline_weights"] is True
         staging = defaults["staging"]
@@ -621,12 +625,10 @@ class TestStagingDefaults:
         assert staging["pretouch_libs"] is True
         assert "ray" in staging["pretouch_packages"]
 
-        # Off by default without a plan, and switched off by the scheduler knob.
+        # Weight staging is opt-in: off without a plan and off with a plan unless the scheduler asks.
+        assert NodeStagingSetup().stage_weights is False
         assert _benchmark_setup()._build_default_args()["staging"]["stage_weights"] is False
-        off = _benchmark_setup(
-            weight_staging=plan,
-            scheduler_setup=_slurm(node_staging=NodeStagingSetup(stage_weights=False)),
-        )
+        off = _benchmark_setup(weight_staging=plan)
         assert off._build_default_args()["staging"]["stage_weights"] is False
 
         # The shipped JSON keeps every default and adds the SLURM log dir the template reads.
