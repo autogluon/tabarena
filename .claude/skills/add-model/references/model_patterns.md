@@ -368,32 +368,24 @@ finally:
 
 ---
 
-## Warm-up classmethod (untimed environment warm-up)
+## Warm-up (untimed environment warm-up)
 
-TabArena runs an untimed warm-up before the timed fit (`tabarena.models.warmup.warmup_model_cls`
-dispatches it), so one-time per-environment costs (heavy imports, JIT/kernel compilation, CUDA
-context) don't inflate the measured fit/inference times. `AbstractTorchModel` subclasses are
-covered automatically (generic torch + CUDA warm-up) — declare a classmethod only when the model
-is torch-backed on plain `AbstractModel`, has a heavy extra import, or its library pre-compiles
-kernels. Warm-up must be data-independent (never touch task data), and it only warms the main job
-process + disk-backed caches — parallel-fold (Ray) workers are fresh processes, so prefer library
-warm-ups whose compile cache persists to disk.
+TabArena warms the environment before the timed fit (`tabarena.models.warmup.warmup_model_cls`):
+an optional `warmup` classmethod, torch and the CUDA context for `AbstractTorchModel` subclasses,
+the class's `warmup_modules`, the shared checkpoint weights of a foundation model, then a dummy fit
+on synthetic data. Declare the lazy imports; write a classmethod only for what the layers cannot
+express. Everything must be data-independent, and only the main job process and disk-backed caches
+are warm (parallel-fold Ray workers are fresh processes).
 
 ```python
-# Torch-backed model on AbstractModel (generic fallback doesn't reach these).
+# Torch-backed model on AbstractModel: "torch" also creates the CUDA context.
 # References: modernnca, xrfm, tabstar.
-@classmethod
-def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
-    """Warm torch (+ CUDA context) and the library import (untimed, data-independent)."""
-    from tabarena.models.warmup import warmup_imports, warmup_torch
-
-    warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
-    warmup_imports("somelib.model")  # only if the import is heavy (e.g. pulls transformers)
+warmup_modules: ClassVar[tuple[str, ...]] = ("torch", "somelib", "somelib.model")
 ```
 
 ```python
 # Library with its own kernel pre-compilation (numba / JAX / custom kernels).
-# Reference: chimeraboost (warmup() exists from chimeraboost>=0.14.1 — pin the pip extra
+# Reference: chimeraboost (warmup() exists from chimeraboost>=0.14.1; pin the pip extra
 # accordingly). Ask the user for the entry point + minimum version if the docs don't say.
 @classmethod
 def warmup(cls, **kwargs) -> None:
@@ -403,18 +395,25 @@ def warmup(cls, **kwargs) -> None:
     somelib.warmup()
 ```
 
-The dispatch always passes `problem_type` / `num_cpus` / `num_gpus` / `hyperparameters` as
-keyword arguments — declare the ones you read, keep `**kwargs` for the rest.
+The dispatch passes `problem_type` / `num_cpus` / `num_gpus` / `hyperparameters` as keyword
+arguments; declare the ones you read, keep `**kwargs` for the rest. Dummy-fit opt-outs:
+`warmup_dummy_fit = False`, `warmup_dummy_fit_kwargs`, `warmup_dummy_fit_hyperparameters`.
 
-Inference side: the exec model persists the fitted model in memory around the inference timer by
-default (`AGWrapper.persist`, memory-guarded), and calls an optional **instance** method
-`prepare_for_inference(self) -> None` on every persisted model object (incl. bagged children) —
-untimed, for model-only prep like moving weights offloaded at the end of `_fit` back to the
-inference device; never touch test data there. Outer/direct fits (`AGModelWrapper`) dispatch the
-same hook on their in-memory model, so declaring it covers every fit path. Avoid deferring other
-one-time work to the first `_predict` (put it in `_fit` or `warmup`).
+Foundation models inherit `SharedWeightsModelMixin` (`tabarena/models/_shared_weights_model.py`, the
+module docstring is the how-to) and declare a `SharedWeightsSpec`; one network per checkpoint, device
+and dtype per process, primed by the warm-up and shared by the fold children and the refit child. The
+wrapper writes the spec and `_build_shared_weights(key)`; `derive_shared_estimator`
+(`_shared_estimators.py`) covers estimators with a `_load_model`-style seam and `mode="state_dict"`
+covers fine-tuning models. References: `tabicl`, `tabpfn_3`, `mitra_v2`. The registry-driven
+`tests/tabarena/models/test_shared_weights_models.py` is the only test to extend.
 
----
+Inference side: the exec model persists the fitted model around the predict timer and calls an
+optional instance method `prepare_for_inference(self) -> None` on every persisted object, bagged
+children included. The contract lives in `AbstractExecModel.pre_predict` (`exec_models/base.py`).
+
+Verify with `python -P -m tabarena.tools.audit_warmup --model <Method>` from the repo root: the
+timed fit and predict should import no new package (`new_packages=[]`).
+
 
 ## Foundation-model weights: always pin the HF checkpoint revision
 
