@@ -27,7 +27,7 @@ before writing it into the downstream repo, and read the docstring of anything y
 |---|---|---|
 | Datasets and outer splits | `UserTask`, `TaskMetadataCollection`, `TaskMetadataSource`, `SubsetPredicate` | dataset loaders, the split construction, a committed metadata CSV |
 | Models and search spaces | the model registry, `ConfigGenerator`, every model's `hpo.py` | domain models registered via `register_model_info` |
-| Fitting protocol | the experiment bundles, `AGModelBagExperiment`, the AutoGluon wrappers, the task-aware validation protocol | a bundle subclass carrying your defaults |
+| Fitting protocol | the experiment bundles, `AGModelBagExperiment`, the AutoGluon wrappers, the `ValidationProtocol` the context asserts | a bundle subclass carrying your defaults, a context declaring your protocol |
 | Preprocessing | `TabArenaModelAgnosticPreprocessing`, `build_feature_generator`, model-specific hyperparameter injection | a domain feature generator or a model mixin |
 | Running | `AbstractArenaContext.build_and_run_jobs`, `ExperimentBatchRunner`, `JobBatch`, `tabflow_slurm` | a cluster profile |
 | Leaderboard math | `bencheval.evaluator.BenchmarkEvaluator`, reached through `compare` | nothing, or one `LeaderboardMetric` |
@@ -190,34 +190,56 @@ while curating the suite.
 
 ## Step 4: Inner validation and bagging parity
 
-Every bagged experiment fits `num_bag_folds=8` times `num_bag_sets=1` models per outer split
-(`AGModelBagExperiment` defaults, also the `default_num_folds` of
-`tabarena.benchmark.task.metadata.schema.ValidationMetadata`). Datasets with at most 500 (group)
-instances switch to 5 folds times 5 repeats. Match this rather than leaving bagging to whatever
-AutoGluon preset resolves to: an implicit, size-dependent bagging behavior is not a reproducible
-protocol and makes historical and new numbers incomparable in ways that are hard to detect later.
-If an earlier version of the domain benchmark ran without explicit bagging control, say so in its
-changelog rather than presenting old and new numbers as comparable.
+The inner validation protocol is one object, `ValidationProtocol`
+(`tabarena.benchmark.validation_protocol`), owned by the arena context. `TabArenaContext` declares
+`TABARENA_V0PT1_VALIDATION_PROTOCOL` (8 bagging folds x 1 set, plain stratified splits) and
+`BeyondArenaContext` declares `BEYONDARENA_VALIDATION_PROTOCOL` (8x1, 5 folds x 5 sets at or below
+500 training group instances, task-specific inner splits, class-adaptive folds). `build_jobs` stamps
+the protocol onto every bagged experiment and refuses one that carries another protocol unless the
+context was built with `official_validation_protocol=False`. Declare your arena's protocol the same
+way, on your context subclass (Step 10):
 
-The task's `group_on` / `time_on` only reach the inner folds when the experiment carries
-`dynamic_tabarena_validation_protocol=True`. `TabArenaExperimentBundle` and
-`BeyondArenaExperimentBundle` set it; `TabArenaV0pt1ExperimentBundle` turns it off for
-backward compatibility. A grouped domain benchmark built on the v0.1 bundle therefore leaks
-groups across bagging folds while its outer splits look correct. Use `TabArenaExperimentBundle`
-(or your subclass from Step 5) for grouped or temporal data.
+```python
+from tabarena.benchmark.validation_protocol import ValidationProtocol
 
-With the protocol on, `resolve_validation_splits` in
+class MyArenaContext(AbstractArenaContext):
+    benchmark_name = "MyArena"
+    OFFICIAL_VALIDATION_PROTOCOL = ValidationProtocol(
+        tiny_num_bag_folds=5, tiny_num_bag_sets=5, tiny_max_group_instances=500,
+        task_specific_validation=True, adapt_num_folds_to_n_classes=True, name="MyArena",
+    )
+    OFFICIAL_BUNDLE_HINT = "MyArenaExperimentBundle"
+```
+
+Without a subclass, a bare `AbstractArenaContext(validation_protocol=...)` enforces exactly the
+protocol it is given. Pick a protocol and keep it: an implicit, size-dependent bagging behavior is not
+a reproducible protocol and makes historical and new numbers incomparable in ways that are hard to
+detect later. Every result records the protocol it ran under (`results["validation_protocol"]`), the
+processed `MethodMetadata.validation_protocol` carries its key, and `context.validation_protocol_status`
+tells official from custom results, so a change of protocol is visible rather than silent. If an
+earlier version of the domain benchmark ran without explicit bagging control, say so in its changelog
+rather than presenting old and new numbers as comparable.
+
+The task's `group_on` / `time_on` reach the inner folds only under a protocol with
+`task_specific_validation=True` (BeyondArena's; TabArena-v0.1's has it off). A grouped domain
+benchmark run under the TabArena protocol therefore leaks groups across bagging folds while its
+outer splits look correct. Declare a task-specific protocol for grouped or temporal data.
+
+With task-specific validation, `resolve_validation_splits` in
 `tabarena/benchmark/exec_models/autogluon_utils.py` builds group-disjoint or forward-in-time inner
 folds and passes them to AutoGluon as custom splits. The grouped branch imports Data Foundry, so
-install `tabarena[data-foundry]` (part of `[benchmark]`). Fold counts adapt at run time: fewer
-groups than folds clamps the fold count and sets one repeat, a minority class smaller than the
-fold count does the same, and a `time_on` task always uses one repeat.
+install `tabarena[data-foundry]` (part of `[benchmark]`). Fold counts adapt at run time and the
+adaptation is recorded in the result (`clamps`): fewer groups than folds clamps the fold count and
+sets one repeat, a minority class smaller than the fold count does the same, and a `time_on` task
+always uses one repeat.
 
 Two further execution modes exist for models that carry their own validation: `holdout_experiments=True`
 keeps a single task-aware holdout split without bagging, and `outer_experiments=True` fits once on
 all training data with no validation split (the mode most foundation models are benchmarked in;
-see `examples/beyondarena/advanced/run_quickstart_beyondarena_without_bagging.py`). A method run
-this way still gets the shared outer protocol and scoring, but no HPO simulation.
+see `examples/beyondarena/advanced/run_quickstart_beyondarena_without_bagging.py`). Neither is an
+official flavour: they run outside the protocol by construction, need no flag, and their results are
+recorded as such (`holdout:<key>` / `outer`). A method run this way still gets the shared outer
+protocol and scoring, but no HPO simulation.
 
 ## Step 5: Pick the models and define your bundle
 
@@ -642,8 +664,8 @@ Summarize for the user:
 
 - `object` dtype columns raise in `create_task`; convert to `string` or `category` first.
 - Split indices must be Python `int`s; numpy integers fail validation.
-- `TabArenaV0pt1ExperimentBundle` disables the task-aware validation protocol; grouped data on it
-  leaks groups across bagging folds.
+- `TabArenaContext`'s protocol has no task-specific validation; grouped data run under it leaks
+  groups across bagging folds. Declare a task-specific `ValidationProtocol` on your context.
 - Grouped inner splits import Data Foundry; without `tabarena[data-foundry]` a `group_on` task
   fails at fit time.
 - `subset="core"` and the other data-dependent predicates are specific to the official suites;

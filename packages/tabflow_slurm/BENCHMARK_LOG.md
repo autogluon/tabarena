@@ -23,6 +23,7 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 - **Model(s):** <Model> (<n_configs>)
 - **Git SHA:** `<short-sha>`
+- **Validation protocol:** <the context's key, e.g. `8x1`; name any `official_validation_protocol=False` run>
 - **Purpose:** <one line>
 - **Notes:** <partition, constraints, runtime, anything non-obvious>
 

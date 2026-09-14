@@ -72,7 +72,8 @@ methods_no_hpo = [
     "TabDPT_GPU",
 ]
 
-# Methods fit with bagging (8-fold); if absent, the model could instead have been refit on full data.
+# Methods fit with bagging (TabArena-v0.1's 8-fold protocol); if absent, the model could instead have
+# been refit on full data.
 methods_is_bag = [
     "Dummy",
     "ExplainableBM",

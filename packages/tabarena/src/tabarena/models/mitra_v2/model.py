@@ -29,8 +29,8 @@ class MitraV2Model(MitraModel):
     a far larger and more diverse synthetic prior. It is deployed as a fine-tuned, bagged model:
     every bag child fine-tunes the checkpoint on its fit fold for 50 steps, validates on its
     held-out fold, and predicts in context. This wrapper runs one such child; TabArena's
-    standard 8-fold bagging is the protocol behind the reported numbers, so nothing is bagged
-    or refit inside the wrapper.
+    official validation protocol (8-fold bagging, ``TABARENA_V0PT1_VALIDATION_PROTOCOL``) is the
+    protocol behind the reported numbers, so nothing is bagged or refit inside the wrapper.
 
     Paper: Mitra-v2 Technical Report (arXiv:2609.04540)
     Authors: Yefan Tao, Xiyuan Zhang, Xinyi Liu, Boran Han, Danielle Maddix, Haoyang Fang, Zhen Han,
