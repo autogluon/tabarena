@@ -1351,6 +1351,7 @@ __BASE_JS__
 
   // The host page can preselect the filters so the browser opens on the same slice of the
   // benchmark the reader already chose in the leaderboard's task and dataset tabs.
+  let lastHostFilter = null;
   window.addEventListener("message", ev => {
     const data = ev.data;
     if (data && data.type === "tabarena-perdataset-viewport" && typeof data.height === "number") {
@@ -1359,9 +1360,13 @@ __BASE_JS__
       return;
     }
     if (!data || data.type !== "tabarena-perdataset-filter") return;
-    // The host re-sends this every time the frame reports a height, so ignore the ones that
-    // ask for what is already on screen rather than re-rendering the list for nothing.
-    if (data.task === state.task && data.size === state.size && (data.balance || state.balance) === state.balance) return;
+    // The host re-sends its selection every time the frame reports a height, and a filter
+    // picked in here changes the height. So a repeat of the host's last message is ignored
+    // outright, rather than compared with the state on screen: otherwise the reader's own
+    // chip would be undone by the echo of a selection they had already widened.
+    const key = [data.task, data.size, data.balance].map(v => String(v || "all")).join("|");
+    if (key === lastHostFilter) return;
+    lastHostFilter = key;
     if (typeof data.task === "string") state.task = data.task;
     if (typeof data.size === "string") state.size = data.size;
     if (typeof data.balance === "string") state.balance = data.balance;
