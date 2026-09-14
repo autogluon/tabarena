@@ -43,11 +43,14 @@ def test_unstamped_experiments_need_an_explicit_protocol():
     exporter = AutoGluonExporter(_experiments(None))
     with pytest.raises(ValueError, match="validation_protocol="):
         exporter.export_preset()
-    assert exporter.export_preset(validation_protocol=ValidationProtocol.custom(3, 2))["num_bag_folds"] == 3
+    preset = exporter.export_preset(validation_protocol=ValidationProtocol.custom(num_bag_folds=3, num_bag_sets=2))
+    assert preset["num_bag_folds"] == 3
 
 
 def test_disagreeing_protocols_are_refused():
-    experiments = _experiments(TABARENA_V0PT1_VALIDATION_PROTOCOL) + _experiments(ValidationProtocol.custom(3))
+    experiments = _experiments(TABARENA_V0PT1_VALIDATION_PROTOCOL) + _experiments(
+        ValidationProtocol.custom(num_bag_folds=3)
+    )
     with pytest.raises(ValueError, match="share one validation protocol"):
         AutoGluonExporter(experiments).export_fit_kwargs()
 

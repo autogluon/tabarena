@@ -28,9 +28,7 @@ non-IID, large, and high-dimensional datasets.
 
 > If you already know TabArena, you know BeyondArena: it uses the **same** experiment/runner/eval
 > API. The only swap is the context — `BeyondArenaContext` instead of `TabArenaContext`, and
-> `BeyondArenaExperimentBundle` instead of `TabArenaV0pt1ExperimentBundle`. Each context asserts its
-> own inner validation protocol (BeyondArena: 8x1 with 5x5 on tiny data and task-specific splits) and
-> refuses experiments built for the other arena's protocol. The datasets are
+> `BeyondArenaExperimentBundle` instead of `TabArenaV0pt1ExperimentBundle`. The datasets are
 > downloaded and curated on demand via [Data Foundry](#about-data-foundry).
 
 ### ⚡ Quickstart

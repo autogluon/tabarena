@@ -33,7 +33,7 @@ from tabarena.benchmark.validation_protocol import (
 from tabarena.contexts import AbstractArenaContext, BeyondArenaContext, TabArenaContext
 from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
 
-CUSTOM = ValidationProtocol.custom(3)
+CUSTOM = ValidationProtocol.custom(num_bag_folds=3)
 
 
 def _collection() -> TaskMetadataCollection:

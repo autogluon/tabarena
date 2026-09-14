@@ -241,7 +241,13 @@ class AGWrapper(AbstractExecModel):
 
         if self.bagged_fit is True:
             if num_folds is not None or num_repeats is not None:
-                raise ValueError("A bagged wrapper takes its counts from `validation_protocol`, not from `fit_kwargs`.")
+                given = (("num_bag_folds", num_folds), ("num_bag_sets", num_repeats))
+                replacement = ", ".join(f"{key}={value!r}" for key, value in given if value is not None)
+                raise ValueError(
+                    "A bagged wrapper takes its counts from `validation_protocol`: pass "
+                    f"validation_protocol=ValidationProtocol({replacement}) instead of `num_bag_folds` / "
+                    "`num_bag_sets` in `fit_kwargs`."
+                )
             if self.validation_protocol is None:
                 raise ValidationProtocolError(
                     "A bagged fit needs a validation protocol: run the experiment through an arena context "

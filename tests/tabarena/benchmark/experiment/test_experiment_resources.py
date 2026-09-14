@@ -47,7 +47,7 @@ def _bag_experiment(model_hyperparameters: dict | None = None) -> AGModelBagExpe
         name="lgbm",
         model_cls=LGBModel,
         model_hyperparameters=model_hyperparameters or {},
-        validation_protocol=ValidationProtocol.custom(2),
+        validation_protocol=ValidationProtocol.custom(num_bag_folds=2),
     )
 
 

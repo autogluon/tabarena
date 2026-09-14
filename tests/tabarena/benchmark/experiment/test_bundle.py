@@ -148,7 +148,7 @@ def test_build_experiments_attaches_model_constraints():
                 name="explicitly_constrained",
                 model_cls=LGBModel,
                 model_hyperparameters={},
-                validation_protocol=ValidationProtocol.custom(2),
+                validation_protocol=ValidationProtocol.custom(num_bag_folds=2),
                 time_limit=60,
                 model_constraints=explicit,
             ),
@@ -283,7 +283,7 @@ def test_bundle_leaves_the_protocol_to_the_context_by_default():
 
 
 def test_bundle_protocol_reaches_bagged_holdout_and_autogluon_experiments():
-    protocol = ValidationProtocol.custom(3, 2)
+    protocol = ValidationProtocol.custom(num_bag_folds=3, num_bag_sets=2)
     bagged = _build(BeyondArenaExperimentBundle(models=[("LightGBM", 0)], validation_protocol=protocol))
     holdout = _build(
         BeyondArenaExperimentBundle(models=[("LightGBM", 0)], holdout_experiments=True, validation_protocol=protocol)
@@ -297,7 +297,9 @@ def test_bundle_protocol_reaches_bagged_holdout_and_autogluon_experiments():
 def test_bundle_protocol_is_not_baked_into_outer_experiments():
     outer = _build(
         BeyondArenaExperimentBundle(
-            models=[("LightGBM", 0)], outer_experiments=True, validation_protocol=ValidationProtocol.custom(3)
+            models=[("LightGBM", 0)],
+            outer_experiments=True,
+            validation_protocol=ValidationProtocol.custom(num_bag_folds=3),
         )
     )
     assert outer.validation_protocol is None
@@ -315,7 +317,7 @@ def test_bundle_protocol_sizes_the_seed_blocks():
     custom_seeds = [
         e.method_kwargs["model_hyperparameters"]["ag_args_ensemble"]["model_random_seed"]
         for e in BeyondArenaExperimentBundle(
-            validation_protocol=ValidationProtocol.custom(3, 2), **bundle_kwargs
+            validation_protocol=ValidationProtocol.custom(num_bag_folds=3, num_bag_sets=2), **bundle_kwargs
         ).build_experiments(time_limit=60, num_cpus=1, num_gpus=0, memory_limit=4)
     ]
     assert default_seeds == [0, 8, 16]
@@ -324,7 +326,7 @@ def test_bundle_protocol_sizes_the_seed_blocks():
 
 def test_bundle_normalizes_a_protocol_dict():
     assert BeyondArenaExperimentBundle(validation_protocol={"num_bag_folds": 3}).validation_protocol == (
-        ValidationProtocol.custom(3)
+        ValidationProtocol.custom(num_bag_folds=3)
     )
 
 

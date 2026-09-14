@@ -163,7 +163,7 @@ def test_a_foreign_bagged_protocol_is_refused_before_any_result(toy, tmp_path):
         name="Dummy_custom_BAG_L1",
         model_cls=DummyModel,
         model_hyperparameters={},
-        validation_protocol=ValidationProtocol.custom(3),
+        validation_protocol=ValidationProtocol.custom(num_bag_folds=3),
     )
     expname = tmp_path / "refused"
     with pytest.raises(ValidationProtocolError, match="official_validation_protocol=False"):
@@ -172,7 +172,9 @@ def test_a_foreign_bagged_protocol_is_refused_before_any_result(toy, tmp_path):
 
 
 def test_opting_out_runs_the_custom_protocol_and_marks_it(toy, tmp_path):
-    context = _context(toy, validation_protocol=ValidationProtocol.custom(3), official_validation_protocol=False)
+    context = _context(
+        toy, validation_protocol=ValidationProtocol.custom(num_bag_folds=3), official_validation_protocol=False
+    )
     experiments = TabArenaV0pt1ExperimentBundle(models=[(_generator(), 0)]).build_experiments()
 
     results = _run(context, experiments, toy=toy, expname=tmp_path / "custom")
@@ -219,7 +221,9 @@ def test_a_rerun_under_another_protocol_is_refused_by_the_cache(toy, tmp_path):
         expname=expname,
     )
 
-    custom = _context(toy, validation_protocol=ValidationProtocol.custom(3), official_validation_protocol=False)
+    custom = _context(
+        toy, validation_protocol=ValidationProtocol.custom(num_bag_folds=3), official_validation_protocol=False
+    )
     with pytest.raises(ValidationProtocolError, match="was fit under validation protocol '8x1'"):
         _run(
             custom,

@@ -155,7 +155,7 @@ def test_build_leaves_the_validation_protocol_to_the_context_and_round_trips(tmp
 
 
 def test_build_bakes_a_bundle_validation_protocol_and_round_trips(tmp_path):
-    protocol = ValidationProtocol.custom(3, 2)
+    protocol = ValidationProtocol.custom(num_bag_folds=3, num_bag_sets=2)
     configs_path = _generate_yaml(tmp_path, models=[("RealMLP", 0)], validation_protocol=protocol)
     exp = YamlExperimentSerializer.from_yaml(path=configs_path, config_index=None)[0]
     assert exp.validation_protocol == protocol

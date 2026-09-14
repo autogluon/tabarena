@@ -32,17 +32,17 @@ if __name__ == "__main__":
     results_dir = str(here / "experiments" / run_name)  # the runner's `expname` (results cache)
     eval_dir = here / "eval" / run_name  # leaderboard / figures `output_dir`
 
-    # Level 1, the context: 3 folds x 1 set for every bagged experiment without a protocol of its own.
+    # Level 1, the context: applies to every bagged experiment without a protocol of its own.
     # Without `official_validation_protocol=False` the context refuses any protocol but its official one.
     context = TabArenaContext(
-        validation_protocol=ValidationProtocol.custom(3),
+        validation_protocol=ValidationProtocol.custom(num_bag_folds=3),
         official_validation_protocol=False,
     )
 
-    # Level 2, the bundle: this group of models runs 2 folds x 2 sets instead.
+    # Level 2, the bundle: this group of models runs its own protocol instead.
     bundle_experiments = TabArenaV0pt1ExperimentBundle(
         models=[("LightGBM", 0)],
-        validation_protocol=ValidationProtocol.custom(2, 2),
+        validation_protocol=ValidationProtocol.custom(num_bag_folds=2, num_bag_sets=2),
     ).build_experiments()
 
     # Level 3, a single experiment: a hand-built config under the official TabArena protocol, for a

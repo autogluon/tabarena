@@ -373,7 +373,7 @@ def _passthrough_experiment(name: str):
         name=name,
         model_cls=LGBModel,
         model_hyperparameters={},
-        validation_protocol=ValidationProtocol.custom(2),
+        validation_protocol=ValidationProtocol.custom(num_bag_folds=2),
         time_limit=60,
     )
 
@@ -419,7 +419,7 @@ class TestGetJobsToRun:
     def test_batch_carries_the_context_validation_expectation(self, tmp_path):
         from tabarena.benchmark.experiment import JobBatch, ValidationProtocol
 
-        protocol = ValidationProtocol.custom(2)
+        protocol = ValidationProtocol.custom(num_bag_folds=2)
         context = AbstractArenaContext(
             methods=[], task_metadata=_two_dataset_collection(), validation_protocol=protocol
         )

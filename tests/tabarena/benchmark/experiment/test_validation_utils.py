@@ -180,7 +180,9 @@ def test_resolve_validation_splits_without_tiny_regime_keeps_the_counts_on_tiny_
     metadata = ValidationMetadata()
     X = _make_X(100)
     y = pd.Series(np.zeros(100))
-    custom_splits, folds, repeats = resolve_validation_splits(metadata, ValidationProtocol.custom(2, 2), X=X, y=y)
+    custom_splits, folds, repeats = resolve_validation_splits(
+        metadata, ValidationProtocol.custom(num_bag_folds=2, num_bag_sets=2), X=X, y=y
+    )
     assert custom_splits is None
     assert (folds, repeats) == (2, 2)
 
@@ -788,7 +790,7 @@ def test_resolve_validation_splits_time_on_forces_num_repeats_to_one(monkeypatch
 
     clamps: list[str] = []
     _custom_splits, folds, repeats = resolve_validation_splits(
-        metadata, ValidationProtocol.custom(8, 3), X=X, y=y, clamps=clamps
+        metadata, ValidationProtocol.custom(num_bag_folds=8, num_bag_sets=3), X=X, y=y, clamps=clamps
     )
     assert (folds, repeats) == (8, 1)
     assert clamps == ["time_on_single_repeat"]
@@ -826,7 +828,7 @@ def test_resolve_validation_splits_folds_capped_by_n_groups_is_recorded(monkeypa
 
     clamps: list[str] = []
     _custom_splits, folds, repeats = resolve_validation_splits(
-        metadata, ValidationProtocol.custom(8, 2), X=X, y=y, clamps=clamps
+        metadata, ValidationProtocol.custom(num_bag_folds=8, num_bag_sets=2), X=X, y=y, clamps=clamps
     )
     assert (folds, repeats) == (5, 1)
     assert clamps == ["folds_capped_by_n_groups"]
@@ -974,7 +976,7 @@ def test_resolve_holdout_split_is_sized_by_the_protocol():
     y = pd.Series(np.zeros(n))
 
     _train, val_default = resolve_holdout_split(metadata, TABARENA_V0PT1_VALIDATION_PROTOCOL, X=X, y=y)
-    _train, val_four = resolve_holdout_split(metadata, ValidationProtocol.custom(4), X=X, y=y)
+    _train, val_four = resolve_holdout_split(metadata, ValidationProtocol.custom(num_bag_folds=4), X=X, y=y)
     assert abs(len(val_default) - n // 8) <= 3
     assert abs(len(val_four) - n // 4) <= 3
 
@@ -1345,7 +1347,7 @@ def test_bag_wrapper_without_protocol_raises_with_the_fix():
         wrapper._apply_validation_splits({}, X=_make_X(10), y=pd.Series(np.zeros(10)))
 
 
-def test_bag_wrapper_rejects_counts_in_fit_kwargs():
+def test_bag_wrapper_rejects_counts_in_fit_kwargs_and_names_the_replacement():
     wrapper = _make_bag_wrapper(None, validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL)
-    with pytest.raises(ValueError, match="validation_protocol"):
+    with pytest.raises(ValueError, match=r"validation_protocol=ValidationProtocol\(num_bag_folds=2\)"):
         wrapper._apply_validation_splits({"num_bag_folds": 2}, X=_make_X(10), y=pd.Series(np.zeros(10)))

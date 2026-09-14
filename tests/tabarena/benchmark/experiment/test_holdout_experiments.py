@@ -102,7 +102,7 @@ class TestBundleHoldoutMode:
 
     def test_bundle_protocol_reaches_holdout_experiments(self):
         generator = ConfigGenerator(search_space={}, model_cls=_DummyModel, manual_configs=[{}])
-        protocol = ValidationProtocol.custom(3)
+        protocol = ValidationProtocol.custom(num_bag_folds=3)
         bundle = BeyondArenaExperimentBundle(
             models=[(generator, 0)], holdout_experiments=True, validation_protocol=protocol
         )

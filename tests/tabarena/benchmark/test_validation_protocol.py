@@ -73,13 +73,18 @@ def test_a_custom_protocol_cannot_spoof_official_status_through_its_name():
 
 
 def test_custom_helper_names_after_the_counts_and_accepts_fields():
-    p = ValidationProtocol.custom(3, 2)
+    p = ValidationProtocol.custom(num_bag_folds=3, num_bag_sets=2)
     assert (p.num_bag_folds, p.num_bag_sets) == (3, 2)
     assert p.name == "custom-3x2"
     assert p.key() == "3x2"
-    named = ValidationProtocol.custom(3, name="mine", task_specific_validation=True)
+    named = ValidationProtocol.custom(num_bag_folds=3, name="mine", task_specific_validation=True)
     assert named.name == "mine"
     assert named.key() == "3x1+task-specific"
+
+
+def test_custom_helper_takes_keyword_arguments_only():
+    with pytest.raises(TypeError):
+        ValidationProtocol.custom(3, 2)  # type: ignore[misc]
 
 
 def test_protocol_is_frozen():
@@ -244,7 +249,7 @@ def test_key_of_a_missing_record_is_none():
 
 def test_key_of_bagged_results_is_the_protocol_key():
     assert validation_protocol_key(_record("bagged", TABARENA_V0PT1_VALIDATION_PROTOCOL)) == "8x1"
-    assert validation_protocol_key(_record("bagged", ValidationProtocol.custom(3))) == "3x1"
+    assert validation_protocol_key(_record("bagged", ValidationProtocol.custom(num_bag_folds=3))) == "3x1"
     assert validation_protocol_key(_record("bagged", None)) == "custom"
 
 
@@ -305,7 +310,9 @@ def test_a_validation_metadata_override_is_a_violation():
 
 @pytest.mark.parametrize("flavour", ["holdout", "outer", "system", "predictor", None])
 def test_non_bagged_flavours_never_violate(flavour):
-    exp = _experiment(flavour, protocol=ValidationProtocol.custom(2), method_kwargs={"validation_metadata": {}})
+    exp = _experiment(
+        flavour, protocol=ValidationProtocol.custom(num_bag_folds=2), method_kwargs={"validation_metadata": {}}
+    )
     assert experiment_violations(exp, protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL, arena="TabArena") == []
 
 
@@ -317,7 +324,7 @@ def test_objects_without_a_flavour_attribute_are_ignored():
 def test_check_experiments_raises_one_error_listing_every_offender():
     expectation = ValidationExpectation(protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL, enforced=True, arena="TabArena")
     good = _experiment("bagged", name="good")
-    bad_a = _experiment("bagged", protocol=ValidationProtocol.custom(2), name="bad_a")
+    bad_a = _experiment("bagged", protocol=ValidationProtocol.custom(num_bag_folds=2), name="bad_a")
     bad_b = _experiment("bagged", method_kwargs={"validation_metadata": {"time_on": "t"}}, name="bad_b")
     with pytest.raises(ValidationProtocolError) as excinfo:
         check_experiments([good, bad_a, bad_b], expectation=expectation)
@@ -329,7 +336,7 @@ def test_check_experiments_raises_one_error_listing_every_offender():
 
 
 def test_check_experiments_is_a_no_op_without_enforcement_or_protocol():
-    bad = _experiment("bagged", protocol=ValidationProtocol.custom(2))
+    bad = _experiment("bagged", protocol=ValidationProtocol.custom(num_bag_folds=2))
     check_experiments([bad], expectation=ValidationExpectation(protocol=None, enforced=True, arena="Arena"))
     check_experiments(
         [bad], expectation=ValidationExpectation(protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL, enforced=False, arena="A")

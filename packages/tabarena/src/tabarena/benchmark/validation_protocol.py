@@ -192,8 +192,8 @@ class ValidationProtocol:
         return replace(self, arena=arena, enforced=enforced)
 
     @classmethod
-    def custom(cls, num_bag_folds: int, num_bag_sets: int = 1, **fields: Any) -> ValidationProtocol:
-        """A user protocol with the given counts, named after them unless ``name`` is passed."""
+    def custom(cls, *, num_bag_folds: int, num_bag_sets: int = 1, **fields: Any) -> ValidationProtocol:
+        """A user protocol named ``custom-<folds>x<sets>`` unless ``name`` is passed; keyword arguments only."""
         fields.setdefault("name", f"custom-{num_bag_folds}x{num_bag_sets}")
         return cls(num_bag_folds=num_bag_folds, num_bag_sets=num_bag_sets, **fields)
 

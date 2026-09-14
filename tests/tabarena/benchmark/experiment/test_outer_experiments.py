@@ -151,7 +151,7 @@ class TestOuterGroupMetadata:
 
         from tabarena.benchmark.experiment import AGModelBagExperiment, ValidationProtocol
 
-        protocol = ValidationProtocol.custom(2)
+        protocol = ValidationProtocol.custom(num_bag_folds=2)
         exp = AGModelBagExperiment(
             name="lgb", model_cls=LGBModel, model_hyperparameters={}, validation_protocol=protocol
         )

@@ -95,7 +95,7 @@ class TestProtocolOnTheExperiment:
 
     def test_constructor_normalizes_a_dict_and_syncs_locals(self):
         exp = _bag(validation_protocol={"num_bag_folds": 3, "num_bag_sets": 2})
-        assert exp.validation_protocol == ValidationProtocol.custom(3, 2)
+        assert exp.validation_protocol == ValidationProtocol.custom(num_bag_folds=3, num_bag_sets=2)
         assert exp._locals["validation_protocol"] is exp.validation_protocol
         assert exp.to_yaml_dict()["validation_protocol"] == exp.validation_protocol.to_dict()
 
@@ -109,9 +109,11 @@ class TestProtocolOnTheExperiment:
         assert exp.validation_protocol is None
         assert "validation_protocol" not in exp.to_yaml_dict()
 
-    def test_num_bag_folds_is_no_longer_a_constructor_argument(self):
-        with pytest.raises(TypeError):
-            _bag(num_bag_folds=2)
+    def test_count_constructor_kwargs_name_the_protocol_replacement(self):
+        with pytest.raises(
+            TypeError, match=r"validation_protocol=ValidationProtocol\(num_bag_folds=2, num_bag_sets=1\)"
+        ):
+            _bag(num_bag_folds=2, num_bag_sets=1)
 
     @pytest.mark.parametrize("make", [_bag, _holdout], ids=["bagged", "holdout"])
     @pytest.mark.parametrize("key", ["num_bag_folds", "num_bag_sets", "adapt_num_bag_folds_to_n_classes"])
@@ -238,9 +240,12 @@ class TestRecord:
 class TestGenerators:
     def test_generate_bag_experiments_forwards_the_protocol(self):
         (exp,) = generate_bag_experiments(
-            model_cls=LGBModel, configs=[{}], time_limit=60, validation_protocol=ValidationProtocol.custom(3)
+            model_cls=LGBModel,
+            configs=[{}],
+            time_limit=60,
+            validation_protocol=ValidationProtocol.custom(num_bag_folds=3),
         )
-        assert exp.validation_protocol == ValidationProtocol.custom(3)
+        assert exp.validation_protocol == ValidationProtocol.custom(num_bag_folds=3)
 
     def test_generate_bag_experiments_defaults_to_no_protocol(self):
         (exp,) = generate_bag_experiments(model_cls=LGBModel, configs=[{}], time_limit=60)
@@ -266,13 +271,13 @@ class TestSeedBlocks:
 
     def test_block_follows_a_custom_protocol(self):
         configs = _apply_seed_to_bag_configs(
-            [{}, {}], "fold-config-wise", validation_protocol=ValidationProtocol.custom(3, 2)
+            [{}, {}], "fold-config-wise", validation_protocol=ValidationProtocol.custom(num_bag_folds=3, num_bag_sets=2)
         )
         assert configs[1]["ag_args_ensemble"]["model_random_seed"] == 6
 
     def test_config_wise_offset_is_one_whatever_the_protocol(self):
         configs = _apply_seed_to_bag_configs(
-            [{}, {}], "config-wise", validation_protocol=ValidationProtocol.custom(3, 2)
+            [{}, {}], "config-wise", validation_protocol=ValidationProtocol.custom(num_bag_folds=3, num_bag_sets=2)
         )
         assert configs[1]["ag_args_ensemble"]["model_random_seed"] == 1
 
@@ -286,7 +291,7 @@ class TestLegacyYaml:
             {"name": "x", "num_bag_folds": 2, "num_bag_sets": 3, "dynamic_tabarena_validation_protocol": False},
         )
         assert set(kwargs) == {"name", "validation_protocol"}
-        assert kwargs["validation_protocol"] == ValidationProtocol.custom(2, 3)
+        assert kwargs["validation_protocol"] == ValidationProtocol.custom(num_bag_folds=2, num_bag_sets=3)
         assert kwargs["validation_protocol"].name == "legacy"
 
     def test_auto_counts_under_the_dynamic_flag_are_the_pre_protocol_policy(self):
@@ -319,7 +324,7 @@ class TestLegacyYaml:
         assert _migrate_legacy_validation_kwargs(cls, kwargs) == {"name": "x"}
 
     def test_a_yaml_that_already_names_the_protocol_wins(self):
-        protocol = ValidationProtocol.custom(4)
+        protocol = ValidationProtocol.custom(num_bag_folds=4)
         kwargs = _migrate_legacy_validation_kwargs(
             AGModelBagExperiment, {"num_bag_folds": 2, "validation_protocol": protocol}
         )
@@ -367,7 +372,7 @@ class TestCachedResultGuard:
             self._load(exp, cacher)
 
     def test_aux_record_is_the_key_and_flavour(self):
-        assert _bag(validation_protocol=ValidationProtocol.custom(3)).validation_aux_record() == {
+        assert _bag(validation_protocol=ValidationProtocol.custom(num_bag_folds=3)).validation_aux_record() == {
             "key": "3x1",
             "flavour": "bagged",
         }

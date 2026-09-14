@@ -894,6 +894,7 @@ class AGModelExperiment(Experiment):
         method_kwargs: dict | None = None,
         **kwargs,
     ):
+        self._reject_legacy_bagging_kwargs(kwargs)
         method_kwargs = copy.deepcopy(method_kwargs) if method_kwargs else {}
         assert isinstance(model_hyperparameters, dict)
         self._validate_time_limit(time_limit)
@@ -940,6 +941,16 @@ class AGModelExperiment(Experiment):
             assert isinstance(time_limit, (float, int)), "time_limit must be a number"
             assert time_limit > 0, "time_limit must be positive"
 
+    def _reject_legacy_bagging_kwargs(self, kwargs: dict) -> None:
+        """Raise a ``TypeError`` naming the replacement when the bagging counts arrive as constructor kwargs."""
+        legacy = {key: kwargs[key] for key in ("num_bag_folds", "num_bag_sets") if key in kwargs}
+        if legacy:
+            given = ", ".join(f"{key}={value!r}" for key, value in legacy.items())
+            raise TypeError(
+                f"{self.__class__.__name__} takes the bagging counts from its validation protocol: pass "
+                f"validation_protocol=ValidationProtocol({given}) instead of {given}"
+            )
+
     def _reject_in_fit_kwargs(self, method_kwargs: dict, *keys: str) -> None:
         """Assert none of ``keys`` are set in ``method_kwargs['fit_kwargs']``.
 
@@ -947,11 +958,13 @@ class AGModelExperiment(Experiment):
         than nested in ``fit_kwargs``.
         """
         fit_kwargs = method_kwargs.get("fit_kwargs") or {}
+        protocol_fields = {"adapt_num_bag_folds_to_n_classes": "adapt_num_folds_to_n_classes"}
         for key in keys:
             assert key not in fit_kwargs, (
                 f"Set `{key}` directly in {self.__class__.__name__} rather than in `fit_kwargs`"
                 if key in ("time_limit", "raise_on_model_failure")
-                else f"`{key}` is owned by the validation protocol; pass `validation_protocol=` to "
+                else f"`{key}` is owned by the validation protocol; pass "
+                f"`validation_protocol=ValidationProtocol({protocol_fields.get(key, key)}=...)` to "
                 f"{self.__class__.__name__} rather than `{key}` in `fit_kwargs`"
             )
 

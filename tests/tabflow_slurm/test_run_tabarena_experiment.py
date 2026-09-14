@@ -115,7 +115,9 @@ def _save_minimal_batch(path, *, validation_expectation=None, experiment_protoco
         name="exp_a",
         model_cls=LGBModel,
         model_hyperparameters={},
-        validation_protocol=experiment_protocol if experiment_protocol is not None else ValidationProtocol.custom(2),
+        validation_protocol=experiment_protocol
+        if experiment_protocol is not None
+        else ValidationProtocol.custom(num_bag_folds=2),
         time_limit=60,
     )
     collection = TaskMetadataCollection.from_legacy_df(

@@ -80,7 +80,7 @@ def _make_minimal_experiment(name: str = "lgbm_test"):
         name=name,
         model_cls=LGBModel,
         model_hyperparameters={},
-        validation_protocol=ValidationProtocol.custom(2),
+        validation_protocol=ValidationProtocol.custom(num_bag_folds=2),
         time_limit=60,
     )
 
@@ -95,7 +95,7 @@ def _make_experiment_variant(name: str, *, hp: dict):
         name=name,
         model_cls=LGBModel,
         model_hyperparameters=hp,
-        validation_protocol=ValidationProtocol.custom(2),
+        validation_protocol=ValidationProtocol.custom(num_bag_folds=2),
         time_limit=60,
     )
 

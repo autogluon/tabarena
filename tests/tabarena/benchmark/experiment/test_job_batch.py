@@ -39,7 +39,7 @@ def _make_experiment(name: str = "lgbm_test", *, hp: dict | None = None, constra
         name=name,
         model_cls=LGBModel,
         model_hyperparameters=hp or {},
-        validation_protocol=ValidationProtocol.custom(2),
+        validation_protocol=ValidationProtocol.custom(num_bag_folds=2),
         time_limit=60,
         model_constraints=constraints,
     )
@@ -297,7 +297,9 @@ class TestJobBatch:
 
     def test_no_expectation_loads_as_none_and_removes_a_stale_file(self, tmp_path):
         base = self._batch()
-        expectation = ValidationExpectation(protocol=ValidationProtocol.custom(3), enforced=False, arena="Arena")
+        expectation = ValidationExpectation(
+            protocol=ValidationProtocol.custom(num_bag_folds=3), enforced=False, arena="Arena"
+        )
         path = JobBatch(jobs=base.jobs, task_metadata=base.task_metadata, validation_expectation=expectation).save(
             tmp_path / "batch"
         )
