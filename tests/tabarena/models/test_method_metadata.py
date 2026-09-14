@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 import yaml
 
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata, infer_validation_protocol
 
 
 def test_location_args_are_first_fields():
@@ -126,19 +126,20 @@ def test_methods_from_different_cache_roots_stay_independent(tmp_path):
     assert mm_alice.path != mm_bob.path
 
 
-def _config_result_df(*, model_type, ag_key, frameworks, name_prefix="Model"):
+def _config_result_df(*, model_type, ag_key, frameworks, name_prefix="Model", validation_protocol_keys=None):
     """Minimal per-result frame mirroring the columns ``from_raw`` infers a config method from."""
-    return pd.DataFrame(
-        {
-            "method_type": "config",
-            "model_type": model_type,
-            "ag_key": ag_key,
-            "num_gpus": 0,
-            "is_bag": True,
-            "name_prefix": name_prefix,
-            "framework": frameworks,
-        }
-    )
+    data = {
+        "method_type": "config",
+        "model_type": model_type,
+        "ag_key": ag_key,
+        "num_gpus": 0,
+        "is_bag": True,
+        "name_prefix": name_prefix,
+        "framework": frameworks,
+    }
+    if validation_protocol_keys is not None:
+        data["validation_protocol_key"] = validation_protocol_keys
+    return pd.DataFrame(data)
 
 
 @pytest.mark.parametrize(
@@ -251,3 +252,58 @@ def test_legacy_yaml_without_the_new_fields_still_loads(tmp_path):
     loaded = MethodMetadata.from_yaml(path=path)
     assert loaded.method_class == "model"
     assert loaded.tags == ()
+
+
+# -- validation_protocol ----------------------------------------------------------------------
+
+
+def test_validation_protocol_defaults_to_unknown_and_normalizes_a_protocol_object():
+    from tabarena.benchmark.validation_protocol import BEYONDARENA_VALIDATION_PROTOCOL, ValidationProtocol
+
+    assert MethodMetadata(method="M", suite="s").validation_protocol is None
+    assert MethodMetadata(method="M", suite="s", validation_protocol=ValidationProtocol()).validation_protocol == "8x1"
+    beyond = MethodMetadata(method="M", suite="s", validation_protocol=BEYONDARENA_VALIDATION_PROTOCOL)
+    assert beyond.validation_protocol == BEYONDARENA_VALIDATION_PROTOCOL.key()
+    assert beyond.to_info_dict()["validation_protocol"] == BEYONDARENA_VALIDATION_PROTOCOL.key()
+
+
+def test_system_declares_its_own_validation_by_default():
+    assert MethodMetadata.system(method="S", suite="s").validation_protocol == "system"
+    assert MethodMetadata.system(method="S", suite="s", validation_protocol="x").validation_protocol == "x"
+
+
+@pytest.mark.parametrize(
+    ("keys", "expected"),
+    [
+        (["8x1", "8x1"], "8x1"),
+        (["8x1", None], "8x1"),
+        ([None, None], None),
+        ([], None),
+        (["8x1", "3x1"], "mixed"),
+    ],
+)
+def test_infer_validation_protocol(keys, expected):
+    assert infer_validation_protocol(keys) == expected
+
+
+def test_from_raw_config_infers_the_validation_protocol():
+    frameworks = ["Model_c1_BAG_L1", "Model_c2_BAG_L1"]
+    recorded = _config_result_df(model_type="GBM", ag_key="GBM", frameworks=frameworks, validation_protocol_keys="8x1")
+    assert MethodMetadata._from_raw_config(result_df=recorded).validation_protocol == "8x1"
+    mixed = _config_result_df(
+        model_type="GBM", ag_key="GBM", frameworks=frameworks, validation_protocol_keys=["8x1", "holdout:8x1"]
+    )
+    assert MethodMetadata._from_raw_config(result_df=mixed).validation_protocol == "mixed"
+    # Results written before the record existed infer nothing.
+    assert (
+        MethodMetadata._from_raw_config(
+            result_df=_config_result_df(model_type="GBM", ag_key="GBM", frameworks=frameworks)
+        ).validation_protocol
+        is None
+    )
+
+
+def test_legacy_yaml_without_validation_protocol_loads_as_unknown(tmp_path):
+    path = tmp_path / "metadata.yaml"
+    path.write_text("method: Old\nsuite: s\nmethod_type: config\n")
+    assert MethodMetadata.from_yaml(path=path).validation_protocol is None

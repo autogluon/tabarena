@@ -18,10 +18,11 @@ from tabarena.systems.autogluon.system import AutoGluonSystemModel
 _AUTOGLUON_PAPER = "https://arxiv.org/abs/2003.06505"
 
 # Shared across every entry: AutoGluon is a system, is open-source, runs locally, and has no
-# LLM in the loop, so it carries no tags.
+# LLM in the loop, so it carries no tags. A system owns its validation (no TabArena bagging protocol).
 _system_kwargs = dict(
     method_class="system",
     reference_url=_AUTOGLUON_PAPER,
+    validation_protocol="system",
 )
 
 # -- tabarena-2025-06-12 -------------------------------------------------------------------

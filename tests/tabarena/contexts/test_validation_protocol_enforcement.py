@@ -7,6 +7,7 @@ of the task collection. No models are fit.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import replace
 
 import pandas as pd
@@ -30,6 +31,7 @@ from tabarena.benchmark.validation_protocol import (
     TABARENA_V0PT1_VALIDATION_PROTOCOL,
 )
 from tabarena.contexts import AbstractArenaContext, BeyondArenaContext, TabArenaContext
+from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
 
 CUSTOM = ValidationProtocol.custom(3)
 
@@ -267,3 +269,40 @@ class TestTaskCollectionStructure:
         # `small_ds` / `big_ds` are unknown to the TabArena suite: nothing to compare, their structure is
         # recorded per result instead.
         assert len(_ctx().build_jobs([_bag()], subset="lite")) == 2
+
+
+class TestRegisteredMethodStatus:
+    """Registered results are labelled by how their recorded protocol relates to the arena's official one."""
+
+    @staticmethod
+    def _method(validation_protocol: str | None, *, name: str = "M", **kwargs) -> InMemoryMethodMetadata:
+        df = pd.DataFrame(
+            {"method": [f"{name} (default)"], "dataset": ["small_ds"], "fold": [0], "metric_error": [0.1]}
+        )
+        return InMemoryMethodMetadata.from_results_df(
+            df, method=name, suite="s", config_type=name, validation_protocol=validation_protocol, **kwargs
+        )
+
+    def test_status_values(self):
+        ctx = _ctx()
+        assert ctx.validation_protocol_status(self._method("8x1")) == "official"
+        assert ctx.validation_protocol_status(self._method("3x1")) == "custom"
+        assert ctx.validation_protocol_status(self._method("holdout:8x1")) == "custom"
+        assert ctx.validation_protocol_status(self._method("mixed")) == "custom"
+        assert ctx.validation_protocol_status(self._method(None)) == "unrecorded"
+        assert ctx.validation_protocol_status(self._method("system", method_type="baseline")) == "system"
+        bare = AbstractArenaContext(methods=[], task_metadata=_collection())
+        assert bare.validation_protocol_status(self._method("8x1")) == "recorded"
+
+    def test_registering_a_custom_protocol_method_warns(self):
+        ctx = _ctx()
+        with pytest.warns(
+            UserWarning, match=r"1 registered method\(s\) ran outside the official validation protocol \[8x1\]"
+        ):
+            ctx.register([self._method("3x1")], scope_to_valid_tasks=False)
+
+    def test_official_and_unrecorded_methods_register_silently(self):
+        ctx = _ctx()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            ctx.register([self._method("8x1", name="A"), self._method(None, name="B")], scope_to_valid_tasks=False)

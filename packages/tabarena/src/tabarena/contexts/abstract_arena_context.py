@@ -31,6 +31,7 @@ import copy
 import functools
 import os
 import tempfile
+import warnings
 from collections import Counter
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -50,7 +51,7 @@ from tabarena.benchmark.validation_protocol import (
 )
 from tabarena.evaluation.leaderboard_reporter import LeaderboardReporter
 from tabarena.models._in_memory_method_metadata import InMemoryMethodMetadata
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata, infer_validation_protocol
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 from tabarena.models._method_simulator import MethodSimulator
 from tabarena.nips2025_utils.per_dataset_tables import get_per_dataset_tables
@@ -1003,9 +1004,42 @@ class AbstractArenaContext:
             [*self.method_metadata_collection.method_metadata_lst, *new_methods],
         )
         self._new_method_names.update(m.method for m in new_methods)
+        self._warn_on_custom_validation_protocol(new_methods)
         if scope_to_valid_tasks:
             self.only_valid_tasks = True
             self._scope_to_valid_tasks()
+
+    def validation_protocol_status(
+        self, method: MethodMetadata
+    ) -> Literal["official", "custom", "system", "recorded", "unrecorded"]:
+        """How a method's recorded validation protocol relates to this arena's official one.
+
+        ``official`` (the arena's protocol key), ``custom`` (another recorded protocol, including the
+        holdout / outer / full-predictor flavours and ``mixed``), ``system`` (systems own their
+        validation), ``recorded`` (a protocol is recorded but this context declares none to compare
+        with) or ``unrecorded`` (results that predate the record).
+        """
+        value = method.validation_protocol
+        if value is None:
+            return "unrecorded"
+        if value == "system" or (method.method_class == "system" and method.method_type != "portfolio"):
+            return "system"
+        reference = type(self).OFFICIAL_VALIDATION_PROTOCOL or self.validation_protocol
+        if reference is None:
+            return "recorded"
+        return "official" if value == reference.key() else "custom"
+
+    def _warn_on_custom_validation_protocol(self, methods: list[MethodMetadata]) -> None:
+        """Warn once when registered methods ran outside this arena's official validation protocol."""
+        custom = [m.method for m in methods if self.validation_protocol_status(m) == "custom"]
+        if not custom:
+            return
+        reference = type(self).OFFICIAL_VALIDATION_PROTOCOL or self.validation_protocol
+        warnings.warn(
+            f"{self.benchmark_name}: {len(custom)} registered method(s) ran outside the official validation protocol "
+            f"[{reference.key()}] and count as custom: {custom}. Compare them with that in mind.",
+            stacklevel=3,
+        )
 
     def _scope_to_valid_tasks(self) -> None:
         """Pre-filter :attr:`task_metadata_collection` to the registered new methods' tasks.
@@ -1999,6 +2033,10 @@ class AbstractArenaContext:
             method=new_config_type,
             suite=ta_suite,
             config_type=new_config_type,
+            # The pooled family ran under its constituents' protocol (`mixed` when they disagree).
+            validation_protocol=infer_validation_protocol(
+                self.method_metadata(m).validation_protocol if isinstance(m, str) else None for m in methods
+            ),
         )
 
     def run_hpo(

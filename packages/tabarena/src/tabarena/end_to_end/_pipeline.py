@@ -26,8 +26,9 @@ from tabarena.benchmark.result.config_result import ConfigResult
 from tabarena.benchmark.result.raw_loading import fetch_raw_result_paths, load_all_artifacts
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
 from tabarena.benchmark.task.metadata.fetch_metadata import task_metadata_collection_from_openml
+from tabarena.benchmark.validation_protocol import validation_protocol_key
 from tabarena.end_to_end.method_results import MethodResults
-from tabarena.models._method_metadata import MethodMetadata
+from tabarena.models._method_metadata import MethodMetadata, infer_validation_protocol
 from tabarena.models._method_simulator import MethodSimulator
 from tabarena.utils.ray_utils import ray_map_list
 
@@ -265,6 +266,12 @@ def process_results_in_memory(
             configs = repo.configs()
             if len(configs) == 1:
                 cur_metadata.config_default = configs[0]
+        # Likewise a pinned metadata may leave `validation_protocol` unset: the raw results record the
+        # protocol they were fit under, so the cached metadata.yaml carries it.
+        if cur_metadata.validation_protocol is None:
+            cur_metadata.validation_protocol = infer_validation_protocol(
+                validation_protocol_key(r.result.get("validation_protocol")) for r in group
+            )
         hpo_results, model_results = MethodSimulator(cur_metadata).generate_results(
             repo=repo,
             cache=False,

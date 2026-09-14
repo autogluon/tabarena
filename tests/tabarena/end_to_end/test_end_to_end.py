@@ -124,3 +124,33 @@ class TestConcatPartialResults:
             ],
         )
         assert merged.method_metadata.config_default == "TA-TabPFN-3_c1_BAG_L1"
+
+
+def _method_results_with_protocol(validation_protocol: str | None) -> MethodResults:
+    results = _method_results_for_config("TA-TabPFN-3_c1_BAG_L1")
+    results.method_metadata.validation_protocol = validation_protocol
+    return results
+
+
+class TestConcatValidationProtocol:
+    """Per-task inference of the validation protocol is reconciled like ``config_default``."""
+
+    def test_agreeing_records_keep_their_key(self):
+        merged = MethodResults.concat([_method_results_with_protocol("8x1"), _method_results_with_protocol("8x1")])
+        assert merged.method_metadata.validation_protocol == "8x1"
+
+    def test_a_task_without_record_yields_to_a_recorded_one(self):
+        merged = MethodResults.concat([_method_results_with_protocol(None), _method_results_with_protocol("8x1")])
+        assert merged.method_metadata.validation_protocol == "8x1"
+        merged = MethodResults.concat([_method_results_with_protocol("8x1"), _method_results_with_protocol(None)])
+        assert merged.method_metadata.validation_protocol == "8x1"
+
+    def test_disagreeing_records_make_the_method_mixed(self):
+        merged = MethodResults.concat(
+            [
+                _method_results_with_protocol("8x1"),
+                _method_results_with_protocol("holdout:8x1"),
+                _method_results_with_protocol("8x1"),
+            ]
+        )
+        assert merged.method_metadata.validation_protocol == "mixed"

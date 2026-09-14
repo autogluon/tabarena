@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from tabarena.benchmark.validation_protocol import TABARENA_V0PT1_VALIDATION_PROTOCOL
 from tabarena.contexts.tabarena._tabarena_method_metadata_2025_06_12 import (
     methods_2025_06_12,
     methods_gpu_ablation,
@@ -35,7 +36,7 @@ from tabarena.contexts.tabarena._tabarena_method_metadata_misc import (
     gbm_aio_0808_metadata,
     # prep_gbm_v6_metadata,
 )
-from tabarena.models._method_metadata_collection import MethodMetadataCollection
+from tabarena.models._method_metadata_collection import MethodMetadataCollection, declare_validation_protocol
 
 # Per-model `info.py` is the canonical source for each method's `MethodMetadata`; the collection
 # below references these directly. (Some keep their historical alias, used by the per-suite full
@@ -238,6 +239,19 @@ methods_historical = [
 ]
 tabarena_method_metadata_complete_collection = tabarena_method_metadata_collection.with_additional_methods(
     methods_historical,
+)
+
+# Every hosted TabArena result was produced under TabArena-v0.1's protocol (8 folds x 1 set; the
+# cluster runs used `TabArenaV0pt1ExperimentBundle`, the 2025-06-12 runner baked the same counts), and
+# systems own their validation. Declared once here for every roster entry that leaves it unset, so
+# legacy methods never read as unknown next to newly processed ones.
+declare_validation_protocol(
+    [
+        *tabarena_method_metadata_complete_collection.method_metadata_lst,
+        *methods_2025_06_12,
+        *methods_2025_10_20_camera_ready,
+    ],
+    model_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL.key(),
 )
 
 # All historical results for each method
