@@ -18,6 +18,7 @@ xrfm_method_metadata = MethodMetadata.config(
     date="2025-09-03",
     date_introduced="2025-08",
     reference_url="https://arxiv.org/abs/2508.10053",
+    license="MIT",
     display_name="xRFM",
 )
 

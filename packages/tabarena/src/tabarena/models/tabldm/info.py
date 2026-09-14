@@ -24,6 +24,7 @@ tabldm_method_metadata = MethodMetadata.config(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     reference_url="https://huggingface.co/occams/Xiaomi-TabLDM",
+    license="Apache-2.0",
 )
 
 

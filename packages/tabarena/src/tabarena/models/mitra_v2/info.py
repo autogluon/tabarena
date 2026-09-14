@@ -17,6 +17,7 @@ mitra_v2_method_metadata = MethodMetadata.config(
     date="2026-09-12",
     date_introduced="2026-09-03",  # technical report date
     reference_url="https://arxiv.org/abs/2609.04540",
+    license="Apache-2.0",
     display_name="Mitra-v2",
     verified=True,
     cache_type="r2",

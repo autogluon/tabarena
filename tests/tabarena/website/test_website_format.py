@@ -113,3 +113,27 @@ def test_add_metadata_returns_the_same_keys_when_the_method_is_missing():
     present = add_metadata(pd.Series({"method": "M"}), metadata_df=metadata)
     missing = add_metadata(pd.Series({"method": "Unknown"}), metadata_df=metadata)
     assert set(present.index) == set(missing.index)
+
+
+def test_add_metadata_emits_the_license_columns():
+    out = add_metadata(
+        pd.Series({"method": "M"}),
+        metadata_df=_metadata_frame(commercial_use=False, license="CC-BY-NC-4.0"),
+    )
+    assert out["Commercial"] is False or out["Commercial"] == False  # noqa: E712
+    assert out["License"] == "CC-BY-NC-4.0"
+
+
+def test_add_metadata_treats_missing_license_columns_as_commercial():
+    """Metadata frames written before the license fields existed carry neither column, and a
+    method that never declared them round-trips through the CSV as NaN; both mean unrestricted.
+    """
+    without_columns = add_metadata(pd.Series({"method": "M"}), metadata_df=_metadata_frame())
+    assert bool(without_columns["Commercial"]) is True
+    assert without_columns["License"] == ""
+    with_nan = add_metadata(
+        pd.Series({"method": "M"}),
+        metadata_df=_metadata_frame(commercial_use=float("nan"), license=float("nan")),
+    )
+    assert bool(with_nan["Commercial"]) is True
+    assert with_nan["License"] == ""

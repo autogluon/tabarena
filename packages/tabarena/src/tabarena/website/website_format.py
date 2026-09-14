@@ -258,6 +258,8 @@ def add_metadata(
                 "TypeName": Constants.other,
                 "MethodClass": "model",
                 "Tags": "",
+                "Commercial": True,
+                "License": "",
             },
         )
     metadata = metadata_df.loc[method]
@@ -277,6 +279,14 @@ def add_metadata(
         model_family = Constants.system
     else:
         model_family = get_model_family(config_type if not pd.isna(config_type) else method)
+    # Metadata frames written before the license fields existed carry neither column; a
+    # missing or NaN value means "no restriction declared", which is the field's default.
+    commercial_use = metadata.get("commercial_use", True)
+    if commercial_use is None or pd.isna(commercial_use):
+        commercial_use = True
+    license_name = metadata.get("license", None)
+    if license_name is None or pd.isna(license_name):
+        license_name = ""
 
     # Add Model Family Information
     out_dict = {
@@ -286,6 +296,8 @@ def add_metadata(
         # Semicolon-joined so the CSV stays one cell per row; the leaderboard splits it back
         # out into chips.
         "Tags": ";".join(tags),
+        "Commercial": bool(commercial_use),
+        "License": str(license_name),
     }
 
     display_name = MethodMetadata.compute_method_name(
@@ -325,6 +337,8 @@ def legacy_formatting(df_leaderboard: pd.DataFrame) -> pd.DataFrame:
     # Without a metadata frame there is nothing to declare a system, so every row is a model.
     df_leaderboard["MethodClass"] = "model"
     df_leaderboard["Tags"] = ""
+    df_leaderboard["Commercial"] = True
+    df_leaderboard["License"] = ""
 
     # Add Model Family Information
     df_leaderboard["Type"] = df_leaderboard.loc[:, "method"].apply(
@@ -360,12 +374,12 @@ def format_leaderboard(
             df_leaderboard, method_metadata_info.drop(columns=["method_type"]), on=["ta_name", "ta_suite"]
         )
         method_info_map = method_info_map.set_index("method")
-        df_leaderboard[["method", "Hardware", "Verified", "Type", "TypeName", "MethodClass", "Tags"]] = (
-            df_leaderboard.apply(
-                partial(add_metadata, metadata_df=method_info_map, include_url=include_url),
-                result_type="expand",
-                axis=1,
-            )
+        df_leaderboard[
+            ["method", "Hardware", "Verified", "Type", "TypeName", "MethodClass", "Tags", "Commercial", "License"]
+        ] = df_leaderboard.apply(
+            partial(add_metadata, metadata_df=method_info_map, include_url=include_url),
+            result_type="expand",
+            axis=1,
         )
 
     # elo,elo+,elo-,mrr
@@ -424,6 +438,8 @@ def format_leaderboard(
             "Hardware",
             "MethodClass",
             "Tags",
+            "Commercial",
+            "License",
         ],
     ]
 
@@ -443,7 +459,9 @@ def format_leaderboard(
     df_leaderboard = df_leaderboard.reset_index(names="#")
 
     if not include_type:
-        df_leaderboard = df_leaderboard.drop(columns=["Type", "TypeName", "MethodClass", "Tags"])
+        df_leaderboard = df_leaderboard.drop(
+            columns=["Type", "TypeName", "MethodClass", "Tags", "Commercial", "License"]
+        )
 
     if compact:
         df_leaderboard = df_leaderboard[

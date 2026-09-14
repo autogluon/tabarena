@@ -18,6 +18,7 @@ tabpfnwide_method_metadata = MethodMetadata.config(
     date="2026-05-13",
     date_introduced="2025-10",
     reference_url="https://arxiv.org/abs/2510.06162",
+    license="Prior Labs License v1.1 (Apache-2.0 with attribution)",
     display_name="TabPFN-Wide",
     verified=False,
 )

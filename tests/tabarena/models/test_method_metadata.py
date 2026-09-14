@@ -251,3 +251,41 @@ def test_legacy_yaml_without_the_new_fields_still_loads(tmp_path):
     loaded = MethodMetadata.from_yaml(path=path)
     assert loaded.method_class == "model"
     assert loaded.tags == ()
+
+
+def test_license_fields_default_to_commercial_and_round_trip_through_yaml():
+    """``commercial_use`` defaults to True so a method without a declared restriction is shown
+    everywhere; a declared restriction and its license name survive the YAML round trip that
+    the cached ``metadata.yaml`` goes through.
+    """
+    assert MethodMetadata(method="M", suite="s").commercial_use is True
+    assert MethodMetadata(method="M", suite="s").license is None
+    mm = MethodMetadata(method="M", suite="s", commercial_use=False, license="CC-BY-NC-SA-4.0")
+    info = mm.to_info_dict()
+    assert info["commercial_use"] is False
+    assert info["license"] == "CC-BY-NC-SA-4.0"
+    loaded = MethodMetadata(**yaml.safe_load(mm.to_yaml_fileobj()))
+    assert loaded.commercial_use is False
+    assert loaded.license == "CC-BY-NC-SA-4.0"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"commercial_use": "no"}, "commercial_use must be a bool"),
+        ({"license": ""}, "license must be a non-empty string"),
+    ],
+)
+def test_invalid_license_fields_are_rejected(kwargs, match):
+    with pytest.raises(AssertionError, match=match):
+        MethodMetadata(method="M", suite="s", **kwargs)
+
+
+def test_descriptor_forwards_the_license_fields():
+    from tabarena.models._method_metadata import ModelDescriptor
+
+    descriptor = ModelDescriptor(display_name="M", commercial_use=False, license="CC-BY-NC-4.0")
+    mm = descriptor.method_metadata(method="M", suite="s")
+    assert mm.commercial_use is False
+    assert mm.license == "CC-BY-NC-4.0"
+    assert ModelDescriptor(display_name="M").method_metadata(method="M", suite="s").commercial_use is True

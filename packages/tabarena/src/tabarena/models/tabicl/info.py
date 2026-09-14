@@ -13,6 +13,7 @@ tabicl_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2502.05564",
+    license="BSD-3-Clause",
     date_introduced="2025-02",
 )
 
@@ -21,6 +22,7 @@ tabiclv2_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2602.11139",
+    license="BSD-3-Clause",
     date_introduced="2026-02-12",  # embedded in the default checkpoint filename
 )
 

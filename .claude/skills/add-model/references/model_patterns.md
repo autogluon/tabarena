@@ -600,6 +600,12 @@ from tabarena.models.{ModelKey}.model import {ClassName}Model
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     verified=False,                         # flip to True once benchmark run is signed off
     reference_url="{doc_url}",
+    # The license that governs *using* the model: the pretrained weights for a foundation model
+    # (check the Hugging Face model card, not just the repo), else the library. SPDX id where one
+    # exists. `commercial_use=False` for research-only / non-commercial weights; the leaderboard's
+    # "Include non-commercial methods" toggle and its $ marker read it.
+    license="Apache-2.0",
+    commercial_use=True,
 )
 
 

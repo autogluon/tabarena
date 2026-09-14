@@ -11,6 +11,7 @@ catboost_descriptor = ModelDescriptor(
     compute="cpu",
     is_bag=True,
     reference_url="https://arxiv.org/abs/1706.09516",
+    license="Apache-2.0",
     date_introduced="2017-06",
 )
 

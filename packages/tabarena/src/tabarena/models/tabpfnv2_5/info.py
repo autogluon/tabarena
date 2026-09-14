@@ -14,6 +14,8 @@ realtabpfnv25_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2511.08667",
+    commercial_use=False,
+    license="TabPFN-2.5 License v1.1 (non-commercial)",
     date_introduced="2025-11",
 )
 
@@ -22,6 +24,8 @@ tabpfnv26_descriptor = ModelDescriptor(
     compute="gpu",
     is_bag=False,
     reference_url="https://arxiv.org/abs/2511.08667",
+    commercial_use=False,
+    license="TabPFN-2.6 License v1.0 (non-commercial)",
     date_introduced="2026-03",
 )
 

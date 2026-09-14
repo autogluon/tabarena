@@ -19,6 +19,7 @@ perpetual_booster_method_metadata = MethodMetadata.config(
     date="2026-03-06",
     date_introduced="2024-05",
     reference_url="https://perpetual-ml.com/",
+    license="Apache-2.0",
     display_name="PerpetualBooster",
 )
 

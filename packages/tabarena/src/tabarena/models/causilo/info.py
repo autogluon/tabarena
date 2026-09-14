@@ -25,6 +25,8 @@ causilo_method_metadata = MethodMetadata.config(
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
     reference_url="https://github.com/nums-ai/causilo",
+    commercial_use=False,
+    license="Causilo License v1.0 (non-commercial weights)",
 )
 
 causilo_info = ModelInfo(

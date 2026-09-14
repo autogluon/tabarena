@@ -33,6 +33,7 @@ mitra_method_metadata = MethodMetadata.config(
     date="2025-09-03",
     date_introduced="2025-07",
     reference_url="https://arxiv.org/abs/2510.21204",
+    license="Apache-2.0",
     display_name="Mitra",
 )
 
