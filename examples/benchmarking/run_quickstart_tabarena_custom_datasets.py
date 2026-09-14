@@ -27,7 +27,7 @@ from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
 from tabarena.benchmark.task import UserTask
 from tabarena.benchmark.task.metadata import TabArenaTaskMetadata, TaskMetadataCollection
 from tabarena.benchmark.task.user_task import from_sklearn_splits_to_user_task_splits
-from tabarena.contexts import AbstractArenaContext
+from tabarena.contexts import TABARENA_V0PT1_VALIDATION_PROTOCOL, AbstractArenaContext
 
 
 def _toy_frame(*, classification: bool) -> pd.DataFrame:
@@ -121,8 +121,15 @@ if __name__ == "__main__":
     ).build_experiments()
 
     # 5: a generic arena context over the custom collection. `methods=[]` -> no TabArena presets /
-    #    baselines, so the leaderboard is computed purely from our own results.
-    context = AbstractArenaContext(task_metadata=task_collection, methods=[])
+    #    baselines, so the leaderboard is computed purely from our own results. A bare context declares
+    #    no validation protocol of its own, so we hand it TabArena's official one (8 folds x 1 set): it
+    #    is enforced and stamped onto the bagged experiments at build time, exactly as `TabArenaContext`
+    #    does for the TabArena suite.
+    context = AbstractArenaContext(
+        task_metadata=task_collection,
+        methods=[],
+        validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL,
+    )
 
     # 6: build the jobs (experiments x the collection's splits) and run + register them.
     context.build_and_run_jobs(

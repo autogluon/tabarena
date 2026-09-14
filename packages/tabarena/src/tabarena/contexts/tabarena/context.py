@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import copy
 from functools import lru_cache
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 import pandas as pd
 
 from tabarena.benchmark.task.subset_predicate import SubsetPredicate
+from tabarena.benchmark.validation_protocol import TABARENA_V0PT1_VALIDATION_PROTOCOL
 from tabarena.contexts import AbstractArenaContext
 from tabarena.contexts.tabarena.methods import tabarena_method_metadata_collection
 from tabarena.evaluation.eval_all import evaluate_all
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from tabarena.benchmark.task.metadata.collection import TaskMetadataCollection
+    from tabarena.benchmark.validation_protocol import ValidationProtocol
     from tabarena.caching import CacheConfig
     from tabarena.models._method_metadata import MethodMetadata
 
@@ -94,10 +96,14 @@ class TabArenaContext(AbstractArenaContext):
 
     Implements the :class:`AbstractArenaContext` hooks against the committed TabArena v0.1
     suite and the paper's method metadata (so :meth:`load_results` loads the paper baseline
-    results), and adds the paper's ``evaluate_all`` reproduction workflow.
+    results), and adds the paper's ``evaluate_all`` reproduction workflow. Its official inner
+    validation protocol is TabArena-v0.1's 8 folds x 1 set (plain stratified splits), enforced on the
+    bagged experiments it runs unless built with ``official_validation_protocol=False``.
     """
 
     benchmark_name: str = "TabArena"
+    OFFICIAL_VALIDATION_PROTOCOL: ClassVar[ValidationProtocol | None] = TABARENA_V0PT1_VALIDATION_PROTOCOL
+    OFFICIAL_BUNDLE_HINT: ClassVar[str | None] = "TabArenaV0pt1ExperimentBundle"
 
     SUBSET_PREDICATES: dict[str, SubsetPredicate] = {
         "all": SubsetPredicate(lambda df: pd.Series(True, index=df.index)),
@@ -175,6 +181,8 @@ class TabArenaContext(AbstractArenaContext):
         calibration_method: str | None = "RF (default)",
         only_valid_tasks: bool = False,
         cache_config: CacheConfig | None = None,
+        validation_protocol: ValidationProtocol | dict | None = None,
+        official_validation_protocol: bool = True,
     ):
         super().__init__(
             methods=methods,
@@ -185,7 +193,14 @@ class TabArenaContext(AbstractArenaContext):
             calibration_method=calibration_method,
             only_valid_tasks=only_valid_tasks,
             cache_config=cache_config,
+            validation_protocol=validation_protocol,
+            official_validation_protocol=official_validation_protocol,
         )
+
+    def _official_task_metadata_collection(self) -> TaskMetadataCollection:
+        from tabarena.benchmark.task.metadata import TaskMetadataCollection
+
+        return TaskMetadataCollection.from_preset("TabArena-v0.1")
 
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
         if name != "tabarena":

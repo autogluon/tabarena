@@ -17,6 +17,10 @@ nothing from ``TabArenaContext``, whose only addition over the base is the TabAr
 * **Method metadata** — the ``"BeyondArena"`` preset selects the Beyond-IID benchmark's method
   collection (artifact ``beyond_iid_benchmark_2026``; see
   :mod:`tabarena.contexts.beyondarena.methods`).
+* **Validation protocol** — 8 folds x 1 set with 5x5 at or below 500 training group instances,
+  task-specific (group / time-aware) inner splits and class-adaptive folds
+  (:data:`~tabarena.benchmark.validation_protocol.BEYONDARENA_VALIDATION_PROTOCOL`), enforced on the
+  bagged experiments the context runs unless built with ``official_validation_protocol=False``.
 
 Everything else (method handling, plotting, leaderboard logic) is inherited unchanged.
 """
@@ -26,15 +30,17 @@ from __future__ import annotations
 import copy
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import pandas as pd
 
 from tabarena.benchmark.task.subset_predicate import SubsetPredicate, tasks_in_frame
+from tabarena.benchmark.validation_protocol import BEYONDARENA_VALIDATION_PROTOCOL
 from tabarena.contexts import AbstractArenaContext
 
 if TYPE_CHECKING:
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
+    from tabarena.benchmark.validation_protocol import ValidationProtocol
     from tabarena.caching import CacheConfig
     from tabarena.models._method_metadata import MethodMetadata
 
@@ -54,6 +60,8 @@ class BeyondArenaContext(AbstractArenaContext):
     """Evaluation context for the data-foundry BeyondArena benchmark."""
 
     benchmark_name: str = "BeyondArena"
+    OFFICIAL_VALIDATION_PROTOCOL: ClassVar[ValidationProtocol | None] = BEYONDARENA_VALIDATION_PROTOCOL
+    OFFICIAL_BUNDLE_HINT: ClassVar[str | None] = "BeyondArenaExperimentBundle"
 
     SUBSET_PREDICATES: dict[str, SubsetPredicate] = {
         "all": SubsetPredicate(lambda df: pd.Series(True, index=df.index)),
@@ -148,6 +156,8 @@ class BeyondArenaContext(AbstractArenaContext):
         calibration_method: str | None = "XGB (default)",
         only_valid_tasks: bool = False,
         cache_config: CacheConfig | None = None,
+        validation_protocol: ValidationProtocol | dict | None = None,
+        official_validation_protocol: bool = True,
     ) -> None:
         """Build a BeyondArena context.
 
@@ -170,6 +180,12 @@ class BeyondArenaContext(AbstractArenaContext):
                 downloads its raw datasets from HuggingFace into the data-foundry cache (honoring
                 ``cache_config.data_foundry``, i.e. ``DATA_FOUNDRY_CACHE`` — not ``HF_HOME``) before
                 converting them into the OpenML cache.
+            validation_protocol: The inner validation protocol to run experiments under. ``None`` (the
+                default) is BeyondArena's official protocol; another one is refused unless
+                ``official_validation_protocol`` is ``False``.
+            official_validation_protocol: Whether to assert the protocol on every bagged experiment run
+                through this context (the default). ``False`` allows custom protocols at the context,
+                bundle or experiment level; such results are recorded and marked as a custom protocol.
         """
         super().__init__(
             methods=methods,
@@ -180,7 +196,14 @@ class BeyondArenaContext(AbstractArenaContext):
             calibration_method=calibration_method,
             only_valid_tasks=only_valid_tasks,
             cache_config=cache_config,
+            validation_protocol=validation_protocol,
+            official_validation_protocol=official_validation_protocol,
         )
+
+    def _official_task_metadata_collection(self) -> TaskMetadataCollection:
+        from tabarena.benchmark.task.metadata import TaskMetadataCollection
+
+        return TaskMetadataCollection.from_preset("BeyondArena")
 
     def _resolve_task_metadata_preset(self, name: str) -> TaskMetadataCollection:
         """``"BeyondArena"`` -> the committed reference CSV, with a Data Foundry source retained.

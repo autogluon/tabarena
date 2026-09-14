@@ -3,6 +3,7 @@ from __future__ import annotations
 from autogluon.tabular import TabularPredictor
 
 from tabarena.benchmark.task.openml import OpenMLTaskWrapper
+from tabarena.benchmark.validation_protocol import TABARENA_V0PT1_VALIDATION_PROTOCOL
 from tabarena.export.autogluon import AutoGluonExporter
 from tabarena.models.catboost.hpo import gen_catboost
 from tabarena.models.lightgbm.hpo import gen_lightgbm
@@ -33,7 +34,10 @@ predictor = TabularPredictor(
 predictor = predictor.fit(
     train_data=train_data,
     hyperparameters=ag_hyperparameters,
-    num_bag_folds=8,
+    # TabArena's official bagging (8 folds x 1 set); `exporter.export_fit_kwargs(validation_protocol=...)`
+    # exports the same counts together with the experiments' shared fit kwargs.
+    num_bag_folds=TABARENA_V0PT1_VALIDATION_PROTOCOL.num_bag_folds,
+    num_bag_sets=TABARENA_V0PT1_VALIDATION_PROTOCOL.num_bag_sets,
 )
 
 leaderboard = predictor.leaderboard(test_data, display=True)
