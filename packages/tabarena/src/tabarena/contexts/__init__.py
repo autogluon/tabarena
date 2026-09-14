@@ -14,6 +14,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+# The validation protocol module is stdlib-only, so re-exporting it here is equally cheap.
+from tabarena.benchmark.validation_protocol import (
+    BEYONDARENA_VALIDATION_PROTOCOL,
+    TABARENA_V0PT1_VALIDATION_PROTOCOL,
+    ValidationProtocol,
+    ValidationProtocolError,
+)
+
 # CacheConfig lives in the lightweight top-level `tabarena.caching` module (only `os` + deferred
 # imports), so re-exporting it here is cheap and does not pull in the heavy context modules.
 from tabarena.caching import CacheConfig
@@ -23,7 +31,16 @@ if TYPE_CHECKING:
     from .beyondarena.context import BeyondArenaContext
     from .tabarena.context import TabArenaContext
 
-__all__ = ["AbstractArenaContext", "BeyondArenaContext", "CacheConfig", "TabArenaContext"]
+__all__ = [
+    "BEYONDARENA_VALIDATION_PROTOCOL",
+    "TABARENA_V0PT1_VALIDATION_PROTOCOL",
+    "AbstractArenaContext",
+    "BeyondArenaContext",
+    "CacheConfig",
+    "TabArenaContext",
+    "ValidationProtocol",
+    "ValidationProtocolError",
+]
 
 _EXPORTS = {
     "AbstractArenaContext": "abstract_arena_context",

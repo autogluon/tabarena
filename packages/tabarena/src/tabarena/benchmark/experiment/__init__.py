@@ -35,8 +35,16 @@ from tabarena.benchmark.experiment.job import (
     filter_jobs_by_constraints,
 )
 from tabarena.benchmark.experiment.model_constraints import ModelConstraints
+from tabarena.benchmark.validation_protocol import (
+    BEYONDARENA_VALIDATION_PROTOCOL,
+    TABARENA_V0PT1_VALIDATION_PROTOCOL,
+    ValidationProtocol,
+    ValidationProtocolError,
+)
 
 __all__ = [
+    "BEYONDARENA_VALIDATION_PROTOCOL",
+    "TABARENA_V0PT1_VALIDATION_PROTOCOL",
     "AGExperiment",
     "AGModelBagExperiment",
     "AGModelExperiment",
@@ -53,6 +61,8 @@ __all__ = [
     "TabArenaExperimentBundle",
     "TabArenaV0pt1ExperimentBundle",
     "Task",
+    "ValidationProtocol",
+    "ValidationProtocolError",
     "YamlExperimentSerializer",
     "build_jobs",
     "filter_jobs_by_constraints",
