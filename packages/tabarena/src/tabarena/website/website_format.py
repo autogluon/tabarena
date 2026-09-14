@@ -167,7 +167,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "XIAOMI-TABLDM",
         ],
         Constants.baseline: ["KNN", "LR", "LINEAR"],
-        Constants.other: ["XRFM"],
+        Constants.other: ["XRFM", "APLR"],
     }
 
     def _strip_ta(name: str) -> str:

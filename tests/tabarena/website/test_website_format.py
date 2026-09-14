@@ -24,6 +24,7 @@ from tabarena.website.website_format import (
         ("RandomForest", Constants.tree),
         ("ExtraTrees", Constants.tree),
         ("PerpetualBooster", Constants.tree),
+        ("APLR", Constants.other),
         ("ModernNCA", Constants.neural_network),
         ("TorchMLP", Constants.neural_network),
         ("OrionMSP", Constants.foundational),
