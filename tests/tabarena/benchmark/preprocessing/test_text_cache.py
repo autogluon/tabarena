@@ -168,3 +168,26 @@ def test_import_text_cache_noop_when_container_has_none(cache_root, tmp_path):
             return False
 
     assert import_text_cache_from_container(_NoExtra(), "ds-x") is None
+
+
+def test_use_text_cache_sets_encodes_at_fit_flag(cache_root, monkeypatch):
+    gen = _gen()
+    assert gen.encodes_at_fit is False
+    # mode off + text: the fit encodes on the fly.
+    with tc.use_text_cache_for_task(_UT(), has_text=True, mode="off"):
+        assert gen.encodes_at_fit is True
+    assert gen.encodes_at_fit is False
+    # auto + cache miss: encodes on the fly.
+    with tc.use_text_cache_for_task(_UT(), has_text=True, mode="auto"):
+        assert gen.encodes_at_fit is True
+    assert gen.encodes_at_fit is False
+    # auto + cache hit: nothing is encoded at fit.
+    tc.save_text_cache({"hi": np.ones(3, dtype=np.float32)}, tc.text_cache_path("ds-ctx"))
+    with tc.use_text_cache_for_task(_UT(), has_text=True, mode="auto"):
+        assert gen.encodes_at_fit is False and gen.only_load_from_cache is True
+    with tc.use_text_cache_for_task(_UT(), has_text=True, mode="require"):
+        assert gen.encodes_at_fit is False
+    # No text: unchanged in every mode.
+    for mode in ("off", "auto", "require"):
+        with tc.use_text_cache_for_task(_UT(), has_text=False, mode=mode):
+            assert gen.encodes_at_fit is False

@@ -1,18 +1,25 @@
-"""Validation-split logic for the AutoGluon exec-model wrappers.
+"""Plain-function helpers for the AutoGluon exec-model wrappers.
 
-The AutoGluon wrappers adapt their internal validation splitting to a task's structure
-(group-wise / time-based splits) and to the experiment's
-:class:`~tabarena.benchmark.validation_protocol.ValidationProtocol` (fold and repeat counts, the
-tiny-data regime). That logic lives here as a set of plain functions keyed off a
+Two groups live here. The validation-split logic lets the wrappers adapt their internal
+validation splitting to a task's structure (group-wise / time-based splits) and to the
+experiment's :class:`~tabarena.benchmark.validation_protocol.ValidationProtocol` (fold and
+repeat counts, the tiny-data regime), keyed off a
 :class:`~tabarena.benchmark.task.metadata.ValidationMetadata` (the task-derived split structure)
-and the protocol, rather than as a mixin on the wrapper. There are two entry points:
+and the protocol, rather than a mixin on the wrapper. Its two entry points are
 :func:`resolve_validation_splits` for the bagged path (``k`` cross-validation folds) and
-:func:`resolve_holdout_split` for the non-bagged path (a single train/validation split);
-everything else is a helper they call.
+:func:`resolve_holdout_split` for the non-bagged path (a single train/validation split).
+
+The second group resolves what a ``TabularPredictor.fit(**fit_kwargs)`` call will train before any
+data is seen: :func:`resolve_effective_fit_kwargs` applies AutoGluon's presets the way the
+predictor does, :func:`iter_configured_model_classes` and :func:`configured_model_classes` turn a
+``hyperparameters`` argument (a dict, a named config or presets) into model classes, and
+:func:`preset_uses_bagging` reads the bagging decision. The warm-up uses them to know which model
+classes to warm; the result is never passed to ``fit``, so AutoGluon still resolves presets itself.
 """
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -22,8 +29,125 @@ from loguru import logger
 from tabarena.benchmark.task.metadata import GroupLabelTypes
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from autogluon.core.models import AbstractModel
+
     from tabarena.benchmark.task.metadata import ValidationMetadata
     from tabarena.benchmark.validation_protocol import ValidationProtocol
+
+
+# --- Configured model classes (what a predictor fit will train) ---------------------------
+
+
+def resolve_model_cls(model_cls: str | type) -> type[AbstractModel]:
+    """The AutoGluon model class for ``model_cls``, resolving a registry key string when needed.
+
+    Raises whatever the registry raises for an unknown key; callers that resolve best effort catch
+    that themselves.
+    """
+    if not isinstance(model_cls, str):
+        return model_cls
+    from autogluon.tabular.registry import ag_model_registry
+
+    return ag_model_registry.key_to_cls(key=model_cls)
+
+
+def resolve_effective_fit_kwargs(fit_kwargs: dict | None) -> dict:
+    """The ``TabularPredictor.fit`` keyword arguments after AutoGluon's presets are applied.
+
+    Uses ``autogluon.common.utils.decorators._apply_presets`` with the tabular preset tables, the
+    same code path ``TabularPredictor.fit`` runs, so explicit arguments win over preset values and
+    presets are applied first to last. A ``hyperparameters`` value that is ``None`` resolves to the
+    ``"default"`` hyperparameter config and a config name resolves to its dict, both deep-copied.
+    Works on a shallow copy; the caller's ``fit_kwargs`` is never modified. On any failure inside
+    AutoGluon the presets are left unapplied and a copy of the input is returned (best effort).
+    """
+    kwargs = dict(fit_kwargs or {})
+    try:
+        from autogluon.common.utils.decorators import _apply_presets
+        from autogluon.tabular.configs.presets_configs import tabular_presets_alias, tabular_presets_dict
+
+        _args, kwargs = _apply_presets(tabular_presets_dict, tabular_presets_alias, **kwargs)
+        hyperparameters = kwargs.get("hyperparameters")
+        if hyperparameters is None or isinstance(hyperparameters, str):
+            from autogluon.tabular.configs.hyperparameter_configs import get_hyperparameter_config
+
+            kwargs["hyperparameters"] = get_hyperparameter_config(hyperparameters or "default")
+    except Exception as exc:
+        logger.debug(f"Could not resolve the effective fit kwargs ({exc!r}); using them as given.")
+    return kwargs
+
+
+def iter_configured_model_classes(
+    hyperparameters: dict | str | None,
+) -> Iterator[tuple[type[AbstractModel], dict | None]]:
+    """Yield ``(model_cls, hyperparameters)`` for every model a ``hyperparameters`` argument configures.
+
+    Accepts the dict form (``{key_or_class: config | [configs]}``), the stack-level form
+    (``{1: {...}, "default": {...}}``), a hyperparameter config name (resolved through
+    ``get_hyperparameter_config``) or ``None`` (nothing). String keys are resolved via the AutoGluon
+    registry; unresolvable entries are skipped with a debug log because the consumers are best
+    effort. A key configured with a list of configs yields the first as representative; the yielded
+    config is ``None`` when it is not a dict. Row-count gates (``ag.min_rows`` / ``ag.max_rows``) are
+    ignored because they depend on the data.
+    """
+    if hyperparameters is None:
+        return
+    if isinstance(hyperparameters, str):
+        try:
+            from autogluon.tabular.configs.hyperparameter_configs import get_hyperparameter_config
+
+            hyperparameters = get_hyperparameter_config(hyperparameters)
+        except Exception as exc:
+            logger.debug(f"Skipping unresolvable hyperparameter config {hyperparameters!r} ({exc})")
+            return
+    if not isinstance(hyperparameters, dict):
+        return
+    seen: set[type] = set()
+    for key, configs in hyperparameters.items():
+        if isinstance(configs, dict) and (isinstance(key, int) or key == "default") and not isinstance(key, type):
+            # Stack-level form: the value is itself a {model: config} mapping.
+            for model_cls, config in iter_configured_model_classes(configs):
+                if model_cls not in seen:
+                    seen.add(model_cls)
+                    yield model_cls, config
+            continue
+        try:
+            model_cls = resolve_model_cls(key)
+        except Exception as exc:
+            logger.debug(f"Skipping unresolvable model key {key!r} ({exc})")
+            continue
+        from autogluon.core.models import AbstractModel
+
+        if not (isinstance(model_cls, type) and issubclass(model_cls, AbstractModel)) or model_cls in seen:
+            continue
+        seen.add(model_cls)
+        config = configs[0] if isinstance(configs, list) and configs else configs
+        yield model_cls, copy.deepcopy(config) if isinstance(config, dict) else None
+
+
+def configured_model_classes(fit_kwargs: dict | None) -> list[tuple[type[AbstractModel], dict | None]]:
+    """``(model_cls, hyperparameters)`` for every model a ``TabularPredictor.fit(**fit_kwargs)`` trains.
+
+    Presets, config names and ``None`` are resolved through :func:`resolve_effective_fit_kwargs`
+    first, so a preset-driven fit resolves to its model classes as well. Best effort, for warm-up
+    and audits only.
+    """
+    effective = resolve_effective_fit_kwargs(fit_kwargs)
+    return list(iter_configured_model_classes(effective.get("hyperparameters")))
+
+
+def preset_uses_bagging(fit_kwargs: dict | None) -> bool:
+    """Whether the effective fit kwargs configure a bagged fit (``num_bag_folds > 1`` or ``auto_stack``)."""
+    effective = resolve_effective_fit_kwargs(fit_kwargs)
+    num_bag_folds = effective.get("num_bag_folds")
+    if isinstance(num_bag_folds, int | float) and num_bag_folds > 1:
+        return True
+    return bool(effective.get("auto_stack"))
+
+
+# --- Validation splits ------------------------------------------------------------------
 
 
 def resolve_validation_splits(

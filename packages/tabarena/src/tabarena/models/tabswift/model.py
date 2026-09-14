@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 from autogluon.common.utils.resource_utils import ResourceManager
@@ -34,6 +34,11 @@ class TabSwiftModel(AbstractTorchModel):
     """
 
     ag_key = "TA-TABSWIFT"
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "tabarena.models.tabswift._vendor.classifier",
+        "tabarena.models.tabswift._vendor.regressor",
+        "huggingface_hub",
+    )
     ag_name = "TA-TabSwift"
     ag_priority = 65
     seed_name = "random_state"

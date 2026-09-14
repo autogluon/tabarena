@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import pandas as pd
 from autogluon.common.features.types import (
@@ -40,6 +40,34 @@ if TYPE_CHECKING:
 # TODO: we likely need some kind of off-loading logic for text features
 class TabArenaModelAgnosticPreprocessing(AutoMLPipelineFeatureGenerator):
     """TabArena Model Agnostic Preprocessing."""
+
+    warmup_modules: ClassVar[tuple[str, ...]] = ("skrub",)
+    """Modules the pipeline imports lazily during ``fit_transform``, warmed untimed by the exec models.
+
+    ``DateTimeFeatureGenerator`` and ``StatisticalTextFeatureGenerator`` import skrub inside
+    ``_fit_transform`` (0.7 to 0.9 s cold once sklearn and pandas are loaded). It is imported
+    unconditionally because whether a task has datetime columns is only known after feature-type
+    inference inside the fit."""
+
+    @classmethod
+    def warmup(cls, *, feature_generator_kwargs: dict | None = None, **kwargs) -> None:
+        """Import the text encoder stack only when this fit will embed text on the fly.
+
+        Nothing happens when semantic text features are disabled or when
+        ``SemanticTextFeatureGenerator.encodes_at_fit`` is False (the flag ``use_text_cache_for_task``
+        sets while a text task runs without a loaded embedding cache). Only the ``torch`` and
+        ``sentence_transformers`` imports move out of the timed fit; the encoder weights are not
+        loaded, because that would change the memory protocol. Under the bundle default
+        ``text_cache_mode="require"`` the flag is never set, so cluster jobs pay nothing extra.
+        """
+        kwargs_ = feature_generator_kwargs or {}
+        if not kwargs_.get("enable_sematic_text_features", True):
+            return
+        if not SemanticTextFeatureGenerator.encodes_at_fit:
+            return
+        from tabarena.models.warmup import warmup_imports_best_effort
+
+        warmup_imports_best_effort("torch", "sentence_transformers")
 
     def __init__(
         self,

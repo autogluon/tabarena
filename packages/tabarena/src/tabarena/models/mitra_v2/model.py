@@ -6,7 +6,7 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 import pandas as pd
@@ -89,6 +89,11 @@ class MitraV2Model(MitraModel):
     """
 
     ag_key = "TA-MITRA-V2"
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "autogluon.tabular.models.mitra.sklearn_interface",
+        "tabarena.models.mitra_v2._internal.estimators",
+        "huggingface_hub",
+    )
     ag_name = "TA-Mitra-v2"
     ag_priority = 65
     minimum_num_gpus = 1
@@ -344,16 +349,18 @@ class MitraV2Model(MitraModel):
 
     @classmethod
     def warmup(cls, *, num_gpus: float | None = None, **kwargs) -> None:
-        """Warm torch (plus the CUDA context) and the heavy Mitra imports, untimed and data-free.
+        """Configure the CUDA allocator before the CUDA context exists, then create that context.
 
-        AutoGluon's Mitra interface pulls in ``transformers`` (through its scheduler helpers),
-        ``loguru`` and ``einops``, which take seconds on a cold process.
+        The allocator reads ``PYTORCH_CUDA_ALLOC_CONF`` when it first runs, so this classmethod runs
+        before the generic torch layer of ``warmup_model_cls`` and calls :func:`warmup_torch` itself
+        (idempotent, the generic layer repeats it harmlessly). The heavy Mitra imports
+        (``transformers`` through AutoGluon's scheduler helpers, ``loguru``, ``einops``) are declared
+        in ``warmup_modules`` and imported by the generic layer.
         """
-        from tabarena.models.warmup import warmup_imports, warmup_torch
+        from tabarena.models.warmup import warmup_torch
 
         configure_cuda_allocator()
         warmup_torch(cuda=None if num_gpus is None else num_gpus > 0)
-        warmup_imports("autogluon.tabular.models.mitra.sklearn_interface")
 
 
 #: Allocator settings :func:`configure_cuda_allocator` applies when the environment sets none.

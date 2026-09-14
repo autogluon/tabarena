@@ -9,7 +9,7 @@ file (not the run script) because TabArena pickles it.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.core.models import AbstractModel
 
@@ -21,6 +21,7 @@ class ChimeraBoostModel(AbstractModel):
     """ChimeraBoost as an AutoGluon/TabArena model (scikit-learn style API)."""
 
     ag_key = "CHIMERA"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("chimeraboost",)
     ag_name = "ChimeraBoost"
     seed_name = "random_state"  # AutoGluon injects the framework seed here
     _supported_problem_types = ["binary", "multiclass", "regression"]

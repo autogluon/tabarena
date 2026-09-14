@@ -32,6 +32,8 @@ if TYPE_CHECKING:
 
     from autogluon.tabular import TabularPredictor
 
+    from tabarena.models.warmup import WarmupReport
+
 
 class AGWrapper(AbstractExecModel):
     """An AutoGluon ``TabularPredictor`` wrapped as an exec model.
@@ -130,47 +132,135 @@ class AGWrapper(AbstractExecModel):
 
     # --- Warm-up (untimed) --------------------------------------------------------------
     @property
-    def warmup_fn(self) -> Callable[[], None] | None:
-        """Warm the AutoGluon stack and every model class configured in ``fit_kwargs``."""
+    def warmup_fn(self) -> Callable[[], WarmupReport] | None:
+        """Warm the AutoGluon stack, every configured model class and the feature generator (untimed).
+
+        Configured classes come from ``fit_kwargs`` (a ``hyperparameters`` dict, a config name or
+        presets); the resolution is for warm-up only and nothing is passed into the fit. Returns a
+        ``WarmupReport``.
+        """
         return self._warmup
 
-    def _warmup(self) -> None:
-        from tabarena.models.warmup import warmup_imports, warmup_model_cls
+    def _warmup_cuda(self) -> bool | None:
+        num_gpus = self.fit_kwargs.get("num_gpus")
+        return None if num_gpus is None else num_gpus > 0
 
-        warmup_imports("autogluon.tabular")
-        for model_cls, hyperparameters in self._configured_model_classes():
-            warmup_model_cls(
-                model_cls,
-                problem_type=self.problem_type,
-                num_cpus=self.fit_kwargs.get("num_cpus"),
-                num_gpus=self.fit_kwargs.get("num_gpus"),
-                hyperparameters=hyperparameters,
+    def _warmup(self) -> WarmupReport:
+        from tabarena.benchmark.exec_models.autogluon_utils import configured_model_classes
+        from tabarena.models.warmup import warmup_ag_stack, warmup_feature_generator_cls, warmup_model_classes
+
+        report = self._declared_warmup()
+        warmup_ag_stack(report=report)
+        configured = configured_model_classes(self.fit_kwargs)
+        warmup_model_classes(
+            configured,
+            problem_type=self.problem_type,
+            num_cpus=self.fit_kwargs.get("num_cpus"),
+            num_gpus=self.fit_kwargs.get("num_gpus"),
+            report=report,
+            dummy_fit=self.warmup_dummy_fit,
+        )
+        # ``feature_generator_cls`` is still on ``self.fit_kwargs`` here: ``_build_predictor_args``
+        # pops it from a deep copy at fit time.
+        warmup_feature_generator_cls(
+            self.fit_kwargs.get("feature_generator_cls"),
+            self.fit_kwargs.get("feature_generator_kwargs"),
+            report=report,
+        )
+        self._warmup_ray(configured, report)
+        return report
+
+    def _warmup_ray(self, configured: list[tuple[type[AbstractModel], dict | None]], report: WarmupReport) -> None:
+        """Start Ray (and optionally an import-only worker pool) for a CPU bag with parallel fold fitting.
+
+        AutoGluon's ``ParallelLocalFoldFittingStrategy`` starts Ray inside the timed fit when it is
+        not running; starting it here with the same ``num_cpus`` / ``num_gpus`` moves that runtime
+        startup out of the timer without changing fold scheduling. Only CPU bags qualify
+        (``num_gpus == 0`` and ``num_bag_folds > 1`` after presets, and at least one configured class
+        resolving to ``parallel_local``); GPU bags and fits with an unknown GPU count are left to
+        AutoGluon. The worker pool is opt-in via ``TABARENA_RAY_WORKER_WARMUP`` and everything obeys
+        the ``TABARENA_DISABLE_RAY_WARMUP`` kill switch. Outcomes land in ``report.ray``.
+        """
+        from tabarena.benchmark.exec_models.autogluon_utils import resolve_effective_fit_kwargs
+        from tabarena.models.warmup import ray_worker_warmup_modules
+        from tabarena.utils.ray_utils import (
+            ensure_ray_initialized,
+            plan_ray_worker_pool,
+            ray_worker_warmup_enabled,
+            warmup_ray_workers,
+        )
+
+        effective = resolve_effective_fit_kwargs(self.fit_kwargs)
+        num_bag_folds = effective.get("num_bag_folds")
+        num_cpus = effective.get("num_cpus")
+        num_gpus = effective.get("num_gpus")
+        skipped = self._ray_warmup_skip_reason(configured, report, num_bag_folds=num_bag_folds, num_gpus=num_gpus)
+        if skipped is not None:
+            report.ray["skipped"] = skipped
+            return
+        try:
+            report.ray.update(ensure_ray_initialized(num_cpus=num_cpus, num_gpus=num_gpus))
+            report.step("ray:init")
+        except Exception as exc:
+            logger.warning(f"Warm-up could not start Ray ({exc!r}); AutoGluon starts it inside the fit.")
+            report.step("ray:init", failed=True, error=exc)
+            return
+        if not ray_worker_warmup_enabled():
+            return
+        try:
+            num_workers, cpus_per_worker = plan_ray_worker_pool(
+                num_cpus=int(num_cpus or 0), num_jobs=int(num_bag_folds)
             )
+            modules: list[str] = []
+            for cls, _hps in configured:
+                modules.extend(ray_worker_warmup_modules(cls))
+            report.ray["pool"] = warmup_ray_workers(modules, num_workers, cpus_per_worker=cpus_per_worker)
+            report.step("ray:pool")
+        except Exception as exc:
+            logger.warning(f"Warm-up of the Ray worker pool failed ({exc!r}); folds start cold.")
+            report.step("ray:pool", failed=True, error=exc)
+
+    def _ray_warmup_skip_reason(
+        self,
+        configured: list[tuple[type[AbstractModel], dict | None]],
+        report: WarmupReport,
+        *,
+        num_bag_folds: int | float | None,
+        num_gpus: int | float | None,
+    ) -> str | None:
+        """Why ``_warmup_ray`` must not start Ray for this fit, or ``None`` when it may.
+
+        Records the resolved fold fitting strategies on ``report.ray`` when it gets that far.
+        """
+        from tabarena.models.warmup import resolve_fold_fitting_strategy
+        from tabarena.utils.ray_utils import DISABLE_RAY_WARMUP_ENV, ray_warmup_disabled
+
+        if ray_warmup_disabled():
+            return DISABLE_RAY_WARMUP_ENV
+        if not (isinstance(num_bag_folds, int | float) and num_bag_folds > 1):
+            return "not a bagged fit"
+        if num_gpus is None:
+            return "num_gpus unknown"
+        if num_gpus > 0:
+            return "GPU bag; AutoGluon starts Ray itself"
+        strategies = {
+            resolve_fold_fitting_strategy(cls, hps, problem_type=self.problem_type, num_gpus=num_gpus)
+            for cls, hps in configured
+        }
+        report.ray["fold_fitting_strategies"] = sorted(strategies)
+        if "parallel_local" not in strategies:
+            return "no configured class uses parallel fold fitting"
+        return None
 
     def _configured_model_classes(self) -> Iterator[tuple[type[AbstractModel], dict | None]]:
         """Yield ``(model_cls, hyperparameters)`` for each model configured in ``fit_kwargs``.
 
-        String keys are resolved via the AutoGluon registry; unresolvable entries are skipped
-        (warm-up is best-effort). A key configured with a list of configs yields the first as
-        representative. A preset-driven fit (no ``hyperparameters`` dict) yields nothing.
+        Delegates to ``autogluon_utils.configured_model_classes``: a ``hyperparameters`` dict, a
+        config name and presets all resolve (best effort; unresolvable keys are skipped).
         """
-        hyperparameters = self.fit_kwargs.get("hyperparameters")
-        if not isinstance(hyperparameters, dict):
-            return
-        for key, configs in hyperparameters.items():
-            model_cls = key
-            if isinstance(key, str):
-                try:
-                    from autogluon.tabular.registry import ag_model_registry
+        from tabarena.benchmark.exec_models.autogluon_utils import configured_model_classes
 
-                    model_cls = ag_model_registry.key_to_cls(key=key)
-                except Exception as exc:
-                    logger.debug(f"Warm-up: skipping unresolvable model key {key!r} ({exc})")
-                    continue
-            if not (isinstance(model_cls, type) and issubclass(model_cls, AbstractModel)):
-                continue
-            config = configs[0] if isinstance(configs, list) and configs else configs
-            yield model_cls, config if isinstance(config, dict) else None
+        yield from configured_model_classes(self.fit_kwargs)
 
     def _build_predictor_args(
         self,
@@ -1022,20 +1112,34 @@ class AGModelWrapper(AbstractExecModel):
         self.hyperparameters = pipeline.apply_model_specific(hyperparameters)
 
     @property
-    def warmup_fn(self) -> Callable[[], None] | None:
-        """Warm this model class's environment (imports / kernels / CUDA context)."""
+    def warmup_fn(self) -> Callable[[], WarmupReport] | None:
+        """Warm this model class's environment (imports, kernels, CUDA context, shared weights, dummy fit).
+
+        No AutoGluon-stack or Ray warm-up on this path (no trainer, no parallel folds). Returns a
+        ``WarmupReport``.
+        """
         return self._warmup
 
-    def _warmup(self) -> None:
-        from tabarena.models.warmup import warmup_model_cls
+    def _warmup_cuda(self) -> bool | None:
+        num_gpus = self.fit_kwargs.get("num_gpus")
+        return None if num_gpus is None else num_gpus > 0
 
+    def _warmup(self) -> WarmupReport:
+        from tabarena.models.warmup import warmup_feature_generator_cls, warmup_model_cls
+
+        report = self._declared_warmup()
         warmup_model_cls(
             self.model_cls,
             problem_type=self.problem_type,
             num_cpus=self.fit_kwargs.get("num_cpus"),
             num_gpus=self.fit_kwargs.get("num_gpus"),
             hyperparameters=self.hyperparameters,
+            report=report,
+            dummy_fit=self.warmup_dummy_fit,
         )
+        if self.preprocess_data:
+            warmup_feature_generator_cls(self._feature_generator_cls, self._feature_generator_kwargs, report=report)
+        return report
 
     def _make_feature_generator(self):
         """Build the pipeline's model-agnostic feature generator (shared with ``AGWrapper``).
