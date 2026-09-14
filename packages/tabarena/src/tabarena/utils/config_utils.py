@@ -35,7 +35,7 @@ from tabarena.benchmark.experiment import (
     AGModelOuterExperiment,
     ExternalSystemExperiment,
 )
-from tabarena.benchmark.task.metadata import AUTO_NUM_SPLITS, ValidationMetadata
+from tabarena.benchmark.validation_protocol import DEFAULT_SEED_BLOCK_SIZE
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from autogluon.core.models import AbstractModel
 
     from tabarena.benchmark.exec_models.external import ExternalSystemModel
-    from tabarena.benchmark.task.metadata import NumSplits
+    from tabarena.benchmark.validation_protocol import ValidationProtocol
 
 AddSeed = Literal["static", "fold-wise", "fold-config-wise", "config-wise"]
 
@@ -206,7 +206,7 @@ class AGConfigGenerator:
             workers — recommended for local / debugger runs.
         **kwargs:
             Forwarded to :func:`generate_bag_experiments` (e.g. ``time_limit``,
-            ``preprocessing_pipeline``, ``dynamic_tabarena_validation_protocol``).
+            ``preprocessing_pipeline``, ``validation_protocol``).
         """
         configs = self.generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
         return generate_bag_experiments(
@@ -231,8 +231,8 @@ class AGConfigGenerator:
 
         Each config becomes a single model fit through ``TabularPredictor`` with a real
         train/val split but no bagging or weighted ensemble — same code path as the bagged
-        flavour, minus the bagging. Pair with ``dynamic_tabarena_validation_protocol=True``
-        (forwarded via ``**kwargs``) to adapt the holdout split to the task at run time.
+        flavour, minus the bagging. A task-specific ``validation_protocol`` (forwarded via
+        ``**kwargs``, or stamped by the arena context) adapts the holdout split to the task at run time.
 
         Parameters
         ----------
@@ -245,8 +245,7 @@ class AGConfigGenerator:
             Hyperparameters merged into every model's hyperparameters (they must not collide).
         **kwargs:
             Forwarded to :func:`generate_holdout_experiments` / :class:`AGModelExperiment`
-            (e.g. ``time_limit``, ``preprocessing_pipeline``,
-            ``dynamic_tabarena_validation_protocol``).
+            (e.g. ``time_limit``, ``preprocessing_pipeline``, ``validation_protocol``).
         """
         configs = self.generate_all_configs_lst(num_random_configs=num_random_configs, name_id_suffix=name_id_suffix)
         return generate_holdout_experiments(
@@ -465,23 +464,26 @@ def _apply_seed_to_bag_configs(
     configs: list[dict],
     add_seed: AddSeed,
     *,
-    num_bag_folds: NumSplits,
-    num_bag_sets: NumSplits,
+    validation_protocol: ValidationProtocol | None = None,
 ) -> list[dict]:
     """Tag each bagged config with a ``model_random_seed`` according to ``add_seed``.
 
     * ``"static"`` — every config (and fold) uses seed 0.
     * ``"fold-wise"`` — seed 0, varied across the folds of each bag.
-    * ``"fold-config-wise"`` — additionally offset each config's seed by ``num_bag_sets * num_bag_folds``
-      so different configs explore disjoint seed ranges. An ``"auto"`` count is not known until
-      the task is, so it counts as the benchmark default here (``ValidationMetadata``'s
-      ``default_num_folds`` / ``default_num_repeats``).
+    * ``"fold-config-wise"`` — additionally offset each config's seed by a block of
+      ``num_bag_sets * num_bag_folds`` so different configs explore disjoint seed ranges. The block
+      is sized from ``validation_protocol`` when one is known at generation time; the official
+      bundles leave the protocol to the arena context, which stamps it later, so their block is the
+      fixed :data:`~tabarena.benchmark.validation_protocol.DEFAULT_SEED_BLOCK_SIZE` (8, the TabArena
+      protocol's children, and what every official run used). A tiny-data regime with more children
+      than the block overlaps neighbouring configs' seed ranges; this is kept deliberately so the
+      seeds of official configs never move.
     * ``"config-wise"`` — per-config seeds ``0, 1, 2, ...``, held constant across a config's folds.
       Use when configs should not all explore the same randomness, yet a config's folds should
       differ only in their data split — which makes the bag a cleaner estimate of that config,
-      at the cost of not averaging seed noise within it. The offset is 1 rather than
-      ``num_bag_sets * num_bag_folds``: that block reservation exists so fold-varying seeds get
-      disjoint ranges, and a config that does not vary its seed across folds consumes only one.
+      at the cost of not averaging seed noise within it. The offset is 1 rather than a block:
+      that block reservation exists so fold-varying seeds get disjoint ranges, and a config that
+      does not vary its seed across folds consumes only one.
     """
     if add_seed == "static":
         return [add_seed_logic(config, random_seed=0, vary_seed_across_folds=False) for config in configs]
@@ -489,12 +491,13 @@ def _apply_seed_to_bag_configs(
         return [add_seed_logic(config, random_seed=0, vary_seed_across_folds=True) for config in configs]
     if add_seed in ("fold-config-wise", "config-wise"):
         vary_seed_across_folds = add_seed == "fold-config-wise"
-        # Fold-varying seeds consume `num_bag_folds` seeds per config, so they need that much
-        # space between configs to stay disjoint; a config-wise seed consumes exactly one.
-        defaults = ValidationMetadata()
-        folds = defaults.default_num_folds if num_bag_folds == AUTO_NUM_SPLITS else num_bag_folds
-        sets = defaults.default_num_repeats if num_bag_sets == AUTO_NUM_SPLITS else num_bag_sets
-        offset_between_configs = sets * folds if vary_seed_across_folds else 1
+        # Fold-varying seeds consume one seed per child, so configs need that much space between
+        # them to stay disjoint; a config-wise seed consumes exactly one.
+        if validation_protocol is not None:
+            seed_block = validation_protocol.num_bag_folds * validation_protocol.num_bag_sets
+        else:
+            seed_block = DEFAULT_SEED_BLOCK_SIZE
+        offset_between_configs = seed_block if vary_seed_across_folds else 1
         return [
             add_seed_logic(
                 config,
@@ -513,8 +516,7 @@ def generate_bag_experiments(
     model_cls: type[AbstractModel],
     configs: list[dict],
     time_limit: float | None = 3600,
-    num_bag_folds: NumSplits = AUTO_NUM_SPLITS,
-    num_bag_sets: NumSplits = AUTO_NUM_SPLITS,
+    validation_protocol: ValidationProtocol | None = None,
     name_suffix_from_ag_args: bool = False,
     name_id_prefix: str = "r",
     name_id_suffix: str = "",
@@ -524,26 +526,27 @@ def generate_bag_experiments(
     fold_fitting_strategy: Literal["sequential_local"] | None = None,
     **kwargs,
 ) -> list[AGModelBagExperiment]:
-    """Build a bagged :class:`AGModelBagExperiment` per config (``num_bag_folds`` x ``num_bag_sets`` children).
+    """Build a bagged :class:`AGModelBagExperiment` per config.
 
-    The counts default to ``"auto"``, the benchmark protocol resolved per task at fit time; a
-    number is fit as given (see :class:`AGModelBagExperiment`). Each config is first tagged with its random seed (``add_seed``, see
-    :func:`_apply_seed_to_bag_configs`) and any ``fold_fitting_strategy``; experiments are then named
-    ``{ag_name}{name_suffix}{name_bag_suffix}`` and built. ``**kwargs`` are forwarded to
-    :class:`AGModelBagExperiment` (e.g. ``preprocessing_pipeline``,
-    ``dynamic_tabarena_validation_protocol``).
+    How many children each bag fits is the experiment's ``validation_protocol``: pass one here to
+    fix it for these experiments, or leave it ``None`` and let the arena context stamp its official
+    protocol at ``build_jobs`` / ``run_jobs`` (see :class:`AGModelBagExperiment`). Each config is first
+    tagged with its random seed (``add_seed``, see :func:`_apply_seed_to_bag_configs`) and any
+    ``fold_fitting_strategy``; experiments are then named ``{ag_name}{name_suffix}{name_bag_suffix}``
+    and built. ``**kwargs`` are forwarded to :class:`AGModelBagExperiment` (e.g.
+    ``preprocessing_pipeline``).
     """
-    configs = _apply_seed_to_bag_configs(configs, add_seed, num_bag_folds=num_bag_folds, num_bag_sets=num_bag_sets)
+    configs = _apply_seed_to_bag_configs(configs, add_seed, validation_protocol=validation_protocol)
     if fold_fitting_strategy is not None:
         configs = [add_fold_fitting_strategy(config, fold_fitting_strategy=fold_fitting_strategy) for config in configs]
+    if validation_protocol is not None:
+        kwargs["validation_protocol"] = validation_protocol
 
     def build_experiment(name: str, config: dict) -> AGModelBagExperiment:
         return AGModelBagExperiment(
             name=name,
             model_cls=model_cls,
             model_hyperparameters=config,
-            num_bag_folds=num_bag_folds,
-            num_bag_sets=num_bag_sets,
             time_limit=time_limit,
             **kwargs,
         )
@@ -581,7 +584,7 @@ def generate_holdout_experiments(
     ``_BAG_L1`` so holdout methods are distinguishable from bagged / outer ones. Each config's
     ``ag_args`` is kept (``TabularPredictor`` consumes it for naming); ``extra_model_hyperparameters``
     are merged into the model hyperparameters (they must not collide). ``**kwargs`` are forwarded to
-    :class:`AGModelExperiment` (e.g. ``preprocessing_pipeline``, ``dynamic_tabarena_validation_protocol``,
+    :class:`AGModelExperiment` (e.g. ``preprocessing_pipeline``, ``validation_protocol``,
     ``time_limit_with_preprocessing``).
     """
     extra_model_hyperparameters = extra_model_hyperparameters or {}

@@ -5,8 +5,9 @@ bagging fold and repeat counts, an optional tiny-data regime with its own counts
 splits follow the task's group / time structure, and whether AutoGluon may shrink the fold count to
 the minority-class count. It is the only place these numbers live:
 
-* an arena context declares its official protocol (``TabArenaContext`` -> :data:`TABARENA_V0PT1_VALIDATION_PROTOCOL`,
-  ``BeyondArenaContext`` -> :data:`BEYONDARENA_VALIDATION_PROTOCOL`) and stamps it onto the experiments it runs,
+* an arena context declares its official protocol (:data:`TABARENA_V0PT1_VALIDATION_PROTOCOL` for
+  ``TabArenaContext``, :data:`BEYONDARENA_VALIDATION_PROTOCOL` for ``BeyondArenaContext``) and stamps it onto
+  the experiments it runs,
   asserting that every bagged experiment agrees with it unless the context was built with
   ``official_validation_protocol=False``;
 * a bundle, a ``ModelJob`` or a single experiment may carry an explicit protocol (the opt-out at group or config

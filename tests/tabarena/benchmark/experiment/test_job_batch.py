@@ -28,13 +28,13 @@ from tabarena.utils.cache import CacheFunctionPickle
 def _make_experiment(name: str = "lgbm_test", *, hp: dict | None = None, constraints: ModelConstraints | None = None):
     from autogluon.tabular.models import LGBModel
 
-    from tabarena.benchmark.experiment import AGModelBagExperiment
+    from tabarena.benchmark.experiment import AGModelBagExperiment, ValidationProtocol
 
     return AGModelBagExperiment(
         name=name,
         model_cls=LGBModel,
         model_hyperparameters=hp or {},
-        num_bag_folds=2,
+        validation_protocol=ValidationProtocol.custom(2),
         time_limit=60,
         model_constraints=constraints,
     )

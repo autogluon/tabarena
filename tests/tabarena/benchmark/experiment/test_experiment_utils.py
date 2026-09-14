@@ -74,13 +74,13 @@ class _IdentityHitCache(AbstractCacheFunction):
 def _make_minimal_experiment(name: str = "lgbm_test"):
     from autogluon.tabular.models import LGBModel
 
-    from tabarena.benchmark.experiment import AGModelBagExperiment
+    from tabarena.benchmark.experiment import AGModelBagExperiment, ValidationProtocol
 
     return AGModelBagExperiment(
         name=name,
         model_cls=LGBModel,
         model_hyperparameters={},
-        num_bag_folds=2,
+        validation_protocol=ValidationProtocol.custom(2),
         time_limit=60,
     )
 
@@ -89,13 +89,13 @@ def _make_experiment_variant(name: str, *, hp: dict):
     """An experiment with a given name and hyperparameters (to build name collisions)."""
     from autogluon.tabular.models import LGBModel
 
-    from tabarena.benchmark.experiment import AGModelBagExperiment
+    from tabarena.benchmark.experiment import AGModelBagExperiment, ValidationProtocol
 
     return AGModelBagExperiment(
         name=name,
         model_cls=LGBModel,
         model_hyperparameters=hp,
-        num_bag_folds=2,
+        validation_protocol=ValidationProtocol.custom(2),
         time_limit=60,
     )
 

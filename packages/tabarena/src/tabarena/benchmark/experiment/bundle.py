@@ -14,6 +14,7 @@ from tabarena.benchmark.experiment.model_constraints import (
     TABPFNV2_CONSTRAINTS,
     ModelConstraints,
 )
+from tabarena.benchmark.validation_protocol import ValidationProtocol
 
 if TYPE_CHECKING:
     from tabarena.benchmark.preprocessing.text_cache import TextCacheMode
@@ -81,14 +82,15 @@ class TabArenaExperimentBundle:
           `config_generator` is an `AGConfigGenerator` (e.g. `ConfigGenerator`)
           wrapping your `model_cls`. This goes through the same path as a registry
           name, so the bundle bakes in ALL its settings — compute resources,
-          `preprocessing_pipeline`, `dynamic_tabarena_validation_protocol`,
-          `time_limit`, fold-fitting strategy — exactly as for registry models. Use
-          `manual_configs=[{}]` (+ `n_configs=0`) for a default-only run, or a real
-          search space with `n_configs > 0` for HPO.
+          `preprocessing_pipeline`, `validation_protocol`, `time_limit`, fold-fitting
+          strategy — exactly as for registry models. Use `manual_configs=[{}]`
+          (+ `n_configs=0`) for a default-only run, or a real search space with
+          `n_configs > 0` for HPO.
         - Full manual control: pass a fully-built `Experiment` (e.g. an
           `AGModelBagExperiment`) directly. It is used *verbatim* — the bundle does
           NOT bake its resources / preprocessing / validation protocol into it, so
-          set those on the experiment yourself.
+          set those on the experiment yourself (the arena context still checks its
+          validation protocol against the official one and stamps it when absent).
       Either way, dataset-compatibility constraints are still resolved/attached like
       any other (see `_attach_model_constraints`).
 
@@ -160,11 +162,12 @@ class TabArenaExperimentBundle:
     """If True, build holdout experiments instead of bagged ones: each model is fit once
     through ``TabularPredictor`` (``AGSingleWrapper``) on a real train/val split, with no
     bagging or weighted ensemble. Same code path and bundle settings as the bagged flavour,
-    minus the bagging — so it pairs with ``dynamic_tabarena_validation_protocol``, which adapts
-    the single holdout split to the task: a group-disjoint / forward-in-time / stratified split
-    (built by ``resolve_holdout_split`` and fed to ``TabularPredictor`` as ``tuning_data``),
-    matching the grouped/temporal protocol the bagged folds use. Useful for a faster, single-fit
-    alternative to bagging that (unlike ``outer_experiments``) still keeps a validation split.
+    minus the bagging — so a task-specific validation protocol adapts the single holdout split to
+    the task: a group-disjoint / forward-in-time / stratified split (built by
+    ``resolve_holdout_split`` and fed to ``TabularPredictor`` as ``tuning_data``), matching the
+    grouped/temporal structure the bagged folds use. Useful for a faster, single-fit alternative to
+    bagging that (unlike ``outer_experiments``) still keeps a validation split. Not an official
+    flavour of the arena contexts: holdout results are recorded as such.
     A pre-built ``Experiment`` passed in ``models`` is still used verbatim.
     Mutually exclusive with ``outer_experiments``."""
     system_experiments: bool = False
@@ -187,17 +190,18 @@ class TabArenaExperimentBundle:
     """Verbosity level passed to the model via model_hyperparameters['verbose'].
     Controls model-level logging (e.g. CatBoost iteration logs, LightGBM verbosity)
     independently of AutoGluon's overall verbosity. If None, no model-level verbosity is set."""
-    adapt_num_folds_to_n_classes: bool = True
-    """Whether to adapt the number of folds to the number of classes for classification tasks.
-    Ensures that each fold has at least one sample of each class.
-    """
     shuffle_features: bool = True
     """Whether to shuffle the features of the datasets. Only here for backward compatibility
     with the original TabArena setup, but not recommended to change."""
-    dynamic_tabarena_validation_protocol: bool = True
-    """If True, experiments built by this bundle adapt their validation data
-    dynamically based on the task at run time (handled by the run engine).
-    WARNING: this can overwrite the configured validation of a configuration!"""
+    validation_protocol: ValidationProtocol | dict | None = None
+    """The :class:`~tabarena.benchmark.validation_protocol.ValidationProtocol` baked into the bagged,
+    holdout and full-AutoGluon experiments this bundle builds (fold and repeat counts, tiny-data
+    regime, task-specific splits, class-adaptive folds). ``None`` (the default, also for the official
+    bundles) leaves it to the arena context, which stamps its official protocol at ``build_jobs`` /
+    ``run_jobs``; that is the one correct pipeline for a submission. Set it to run every experiment of
+    this bundle under another protocol, which an enforcing context refuses unless it was built with
+    ``official_validation_protocol=False``. On the cluster path this is also the per-job override
+    (``ModelJob.experiment={"validation_protocol": ...}``). A dict is normalized in ``__post_init__``."""
     text_cache_mode: TextCacheMode = "require"
     """How a text task's semantic-embedding cache is treated at fit time, enforced on *every*
     experiment this bundle builds (bagged, holdout, and outer alike): ``require`` (default) fails
@@ -234,6 +238,11 @@ class TabArenaExperimentBundle:
                 "exclusive (a model is fit as exactly one of bagged / holdout / outer / system); "
                 "set at most one.",
             )
+        self.validation_protocol = ValidationProtocol.from_config(self.validation_protocol)
+
+    def _validation_protocol_kwargs(self) -> dict:
+        """The ``validation_protocol=`` kwarg for the experiments this bundle builds (empty when inherited)."""
+        return {} if self.validation_protocol is None else {"validation_protocol": self.validation_protocol}
 
     @property
     def model_constraints(self) -> dict[str, ModelConstraints]:
@@ -415,8 +424,6 @@ class TabArenaExperimentBundle:
             mk["init_kwargs"]["default_base_path"] = self.model_artifacts_base_path
         if not self.model_agnostic_preprocessing:
             mk["fit_kwargs"]["feature_generator"] = None
-        if self.adapt_num_folds_to_n_classes:
-            mk["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"] = True
         if self.max_predict_batch_size is not None:
             mk["extra_model_hyperparameters"]["ag.max_batch_size"] = self.max_predict_batch_size
         if self.model_verbosity is not None:
@@ -527,7 +534,7 @@ class TabArenaExperimentBundle:
 
         Unlike the per-config path, the entry's ``agexp_kwargs`` are passed to ``AGExperiment``
         more or less verbatim (with the bundle's ``init_kwargs`` / ``fit_kwargs`` and ``time_limit``
-        merged in). The bundle's ``dynamic_tabarena_validation_protocol`` and the active
+        merged in). The bundle's ``validation_protocol`` (when set) and the active
         ``preprocessing_pipeline`` are forwarded too (each overridable per-entry), so a
         full-AutoGluon run gets the SAME grouped/temporal validation-split handling AND the same
         preprocessing as the config experiments — ``AGExperiment._apply_preprocessing`` applies the
@@ -547,9 +554,10 @@ class TabArenaExperimentBundle:
             if key in pipeline_method_kwargs:
                 agexp_kwargs[key].update(pipeline_method_kwargs[key])
         agexp_kwargs["fit_kwargs"]["time_limit"] = time_limit
-        # Apply the bundle's non-IID validation protocol + preprocessing pipeline (same handling as
-        # the config experiments) unless the entry set them explicitly.
-        agexp_kwargs.setdefault("dynamic_tabarena_validation_protocol", self.dynamic_tabarena_validation_protocol)
+        # Apply the bundle's validation protocol + preprocessing pipeline (same handling as the
+        # config experiments) unless the entry set them explicitly.
+        if self.validation_protocol is not None:
+            agexp_kwargs.setdefault("validation_protocol", self.validation_protocol)
         if preprocessing_pipeline is not None:
             agexp_kwargs.setdefault("preprocessing_pipeline", preprocessing_pipeline)
 
@@ -670,9 +678,9 @@ class TabArenaExperimentBundle:
             # Holdout path: one ``AGSingleWrapper`` fit per config through ``TabularPredictor`` with a
             # real train/val split, but no bagging / weighted ensemble. Same code path as the bagged
             # flavour — the bundle's compute resources, preprocessing, shuffle_features and validation
-            # protocol all apply identically; we just drop the bagging knobs (num_bag_folds/sets,
-            # seed/fold-fitting). ``extra_model_hyperparameters`` is consumed by the generator (merged
-            # into each model's hyperparameters), so it is not forwarded as a wrapper kwarg.
+            # protocol all apply identically; we just drop the bagging knobs (seed / fold-fitting).
+            # ``extra_model_hyperparameters`` is consumed by the generator (merged into each model's
+            # hyperparameters), so it is not forwarded as a wrapper kwarg.
             holdout_method_kwargs = {
                 key: value for key, value in pipeline_method_kwargs.items() if key != "extra_model_hyperparameters"
             }
@@ -683,8 +691,8 @@ class TabArenaExperimentBundle:
                 time_limit=time_limit,
                 time_limit_with_preprocessing=time_limit_with_preprocessing,
                 preprocessing_pipeline=preprocessing_pipeline,
-                dynamic_tabarena_validation_protocol=self.dynamic_tabarena_validation_protocol,
                 extra_model_hyperparameters=extra_model_hyperparameters or None,
+                **self._validation_protocol_kwargs(),
             )
 
         # The bagged path consumes ``extra_model_hyperparameters`` via ``method_kwargs``; replace the
@@ -699,24 +707,25 @@ class TabArenaExperimentBundle:
             time_limit_with_preprocessing=time_limit_with_preprocessing,
             preprocessing_pipeline=preprocessing_pipeline,
             fold_fitting_strategy="sequential_local" if self.sequential_local_fold_fitting else None,
-            dynamic_tabarena_validation_protocol=self.dynamic_tabarena_validation_protocol,
+            **self._validation_protocol_kwargs(),
         )
 
 
 @dataclass(kw_only=True)
 class TabArenaV0pt1ExperimentBundle(TabArenaExperimentBundle):
-    """The original TabArena-v0.1 experiment bundle, for backward compatibility."""
+    """The TabArena-v0.1 experiment bundle: 200 configs per model, AutoGluon's default preprocessing.
+
+    The inner validation protocol (8 folds x 1 set, plain stratified splits) is not set here: it is
+    ``TabArenaContext``'s official protocol, stamped onto the experiments when they are run through
+    the context.
+    """
 
     n_random_configs: int = 200
     """TabArena-v0.1 used 200 configs per model."""
     shuffle_features: bool = False
     """TabArena-v0.1 default"""
-    dynamic_tabarena_validation_protocol: bool = False
-    """Only used in v0.2 or larger with new data foundry task metadata integration."""
     preprocessing_pipelines: list[str] = field(default_factory=lambda: ["default"])
     """Use AutoGluon default preprocessing only."""
-    adapt_num_folds_to_n_classes: bool = False
-    """TabArena-v0.1 did not adapt the number of folds to the number of classes."""
     text_cache_mode: TextCacheMode = "off"
     """TabArena-v0.1 uses AutoGluon default preprocessing (no semantic-text embeddings) and ships
     no text caches, so the embedding cache is ignored rather than required."""
@@ -724,8 +733,11 @@ class TabArenaV0pt1ExperimentBundle(TabArenaExperimentBundle):
 
 @dataclass(kw_only=True)
 class BeyondArenaExperimentBundle(TabArenaExperimentBundle):
-    """Experiment bundle for the BeyondArena paper.
-    It used the current defaults, 25 configs, and the new TabArena preprocessing.
+    """Experiment bundle for the BeyondArena paper: 25 configs and the TabArena preprocessing.
+
+    The inner validation protocol (8x1 with 5x5 on tiny data, task-specific splits, class-adaptive
+    folds) is ``BeyondArenaContext``'s official protocol, stamped onto the experiments when they are
+    run through the context.
     """
 
     n_random_configs: int = 25

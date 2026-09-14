@@ -84,11 +84,22 @@ class AbstractExecModel:
     the experiment runner populates it from the task at fit time.
 
     This is read-only *data*: holding it does not change behavior. Whether a method
-    *acts* on it is the method's own decision (e.g. the AutoGluon wrappers gate task-specific
-    validation splits on ``use_task_specific_validation``; an external system reads whatever fields
-    it needs in ``_fit``). The shared evaluation protocol (splits, feature names, test-row shuffle,
-    scoring) is fixed upstream by the task and runner regardless of this object.
+    *acts* on it is the method's own decision (e.g. the AutoGluon wrappers build task-specific
+    validation splits from it when their ``validation_protocol`` says so; an external system reads
+    whatever fields it needs in ``_fit``). The shared evaluation protocol (splits, feature names,
+    test-row shuffle, scoring) is fixed upstream by the task and runner regardless of this object.
     """
+
+    def get_validation_record(self) -> dict:
+        """What this method resolved and fitted for its inner validation, for the result record.
+
+        Read by the experiment runner after the fit and stored under ``results["validation_protocol"]``
+        next to the experiment's static part (flavour and protocol). The base returns an empty dict:
+        a method that does not run the benchmark's bagging protocol has nothing to add. The AutoGluon
+        wrappers report the resolved and fitted fold / repeat counts, the data-dependent clamps and
+        the effective split structure.
+        """
+        return {}
 
     # --- Preprocessing / inference-shuffle config (class-level defaults) ---------------
     # These are plain class attributes so a subclass can change a default by simply

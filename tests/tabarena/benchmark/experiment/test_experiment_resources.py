@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from autogluon.tabular.models import LGBModel
 
-from tabarena.benchmark.experiment import AGExperiment, AGModelBagExperiment
+from tabarena.benchmark.experiment import AGExperiment, AGModelBagExperiment, ValidationProtocol
 from tabarena.benchmark.experiment.experiment_constructor import Experiment
 
 
@@ -47,7 +47,7 @@ def _bag_experiment(model_hyperparameters: dict | None = None) -> AGModelBagExpe
         name="lgbm",
         model_cls=LGBModel,
         model_hyperparameters=model_hyperparameters or {},
-        num_bag_folds=2,
+        validation_protocol=ValidationProtocol.custom(2),
     )
 
 
@@ -74,8 +74,8 @@ def test_init_method_kwargs_applies_debug_fold_fitting_only_when_debug():
     from tabarena.benchmark.task.metadata import ValidationMetadata
 
     class _Task:
-        # Validation metadata is now requested for every experiment (injected uniformly as
-        # read-only data); the dynamic protocol is still off here, so it is not acted upon.
+        # Validation metadata is requested for every experiment (injected uniformly as read-only
+        # data); the protocol here is not task-specific, so it is not acted upon.
         def get_validation_metadata(self):
             return ValidationMetadata()
 

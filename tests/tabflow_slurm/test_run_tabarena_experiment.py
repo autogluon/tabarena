@@ -108,14 +108,14 @@ def _save_minimal_batch(path) -> None:
     import pandas as pd
     from autogluon.tabular.models import LGBModel
 
-    from tabarena.benchmark.experiment import AGModelBagExperiment, Job, JobBatch
+    from tabarena.benchmark.experiment import AGModelBagExperiment, Job, JobBatch, ValidationProtocol
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
 
     experiment = AGModelBagExperiment(
         name="exp_a",
         model_cls=LGBModel,
         model_hyperparameters={},
-        num_bag_folds=2,
+        validation_protocol=ValidationProtocol.custom(2),
         time_limit=60,
     )
     collection = TaskMetadataCollection.from_legacy_df(

@@ -6,7 +6,7 @@ import importlib
 import inspect
 import traceback
 import warnings
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 import numpy as np
 import yaml
@@ -20,7 +20,11 @@ from tabarena.benchmark.exec_models.autogluon import (
 from tabarena.benchmark.exec_models.registry import infer_model_cls
 from tabarena.benchmark.experiment.experiment_runner import ExperimentRunner, OOFExperimentRunner
 from tabarena.benchmark.experiment.model_constraints import ModelConstraints
-from tabarena.benchmark.task.metadata import AUTO_NUM_SPLITS
+from tabarena.benchmark.validation_protocol import (
+    ValidationProtocol,
+    ValidationProtocolError,
+    validation_protocol_key,
+)
 from tabarena.utils.cache import AbstractCacheFunction, CacheFunctionDummy
 
 if TYPE_CHECKING:
@@ -31,7 +35,8 @@ if TYPE_CHECKING:
     from tabarena.benchmark.exec_models.base import AbstractExecModel
     from tabarena.benchmark.preprocessing.text_cache import TextCacheMode
     from tabarena.benchmark.task import TaskWrapper
-    from tabarena.benchmark.task.metadata import NumSplits, ValidationMetadata
+    from tabarena.benchmark.task.metadata import ValidationMetadata
+    from tabarena.benchmark.validation_protocol import ValidationFlavour
 
 
 class Experiment:
@@ -57,10 +62,13 @@ class Experiment:
     preprocessing_pipeline: str | None, default None
         Name of an optional preprocessing pipeline to apply (e.g. ``"tabarena_default"``).
         Applied lazily at run time via ``_apply_preprocessing``; ``None`` applies none.
-    dynamic_tabarena_validation_protocol: bool, default False
-        If True, this experiment's validation split is configured dynamically from the
-        task (type and dataset metadata) at run time, via ``init_method_kwargs``. Only
-        supported for ``AGWrapper``-based experiments (see ``_validate_dynamic_protocol_supported``).
+    validation_protocol: ValidationProtocol | dict | None, default None
+        The :class:`~tabarena.benchmark.validation_protocol.ValidationProtocol` this experiment's
+        inner validation follows (fold and repeat counts, tiny-data regime, task-specific splits,
+        class-adaptive folds). A dict is accepted for the YAML round-trip and normalized. ``None``
+        until an arena context stamps its protocol at ``build_jobs`` / ``run_jobs`` (see
+        ``set_validation_protocol``); a bagged or holdout experiment cannot fit without one. Only
+        ``AGWrapper``-based experiments act on it; an outer fit or a system ignores it.
     text_cache_mode: {"require", "auto", "off"}, default "off"
         How a text task's semantic-embedding cache is treated at fit time (see
         ``task_cache_scope``): ``require`` = the cache must be present (raise if missing),
@@ -83,6 +91,11 @@ class Experiment:
     # model registry, with ``ag_args_fit`` string-eval); when False, from ``method_cls``.
     _yaml_resolves_model_cls: bool = False
 
+    #: How this experiment validates (see ``ValidationFlavour``). ``None`` for a bare experiment
+    #: over a custom exec model; subclasses declare ``bagged`` / ``holdout`` / ``outer`` /
+    #: ``system`` / ``predictor``. Arena contexts treat ``bagged`` and ``system`` as official.
+    VALIDATION_FLAVOUR: ClassVar[ValidationFlavour | None] = None
+
     # --- Construction ----------------------------------------------------------------
     def __init__(
         self,
@@ -93,9 +106,9 @@ class Experiment:
         experiment_cls: type[ExperimentRunner] = OOFExperimentRunner,
         experiment_kwargs: dict | None = None,
         preprocessing_pipeline: str | None = None,
-        dynamic_tabarena_validation_protocol: bool = False,
         text_cache_mode: TextCacheMode = "off",
         model_constraints: ModelConstraints | dict | None = None,
+        validation_protocol: ValidationProtocol | dict | None = None,
     ):
         if experiment_kwargs is None:
             experiment_kwargs = {}
@@ -113,15 +126,17 @@ class Experiment:
         # Name of an optional preprocessing pipeline to apply, applied lazily at
         # run time via `_apply_preprocessing` (see that method).
         self.preprocessing_pipeline = preprocessing_pipeline
-        # Whether `run` should adapt this experiment's validation data dynamically
-        # based on the task it runs on (task-dependent, so applied at run time rather
-        # than baked into method_kwargs).
-        self.dynamic_tabarena_validation_protocol = dynamic_tabarena_validation_protocol
         # How a text task's semantic-embedding cache is treated at fit time (require/auto/off),
         # independent of the validation protocol (see `task_cache_scope`). No-op for non-text tasks.
         self.text_cache_mode = text_cache_mode
         # Dataset-compatibility constraints of this experiment's model (None = unconstrained).
         self.model_constraints = self._normalize_model_constraints(model_constraints)
+        # The validation protocol this experiment runs under (None until an arena context stamps
+        # its own, or for flavours without inner validation). `_locals` keeps the normalized object
+        # so the YAML round trip reproduces the experiment exactly.
+        self.validation_protocol = ValidationProtocol.from_config(validation_protocol)
+        if "validation_protocol" in self._locals:
+            self._locals["validation_protocol"] = self.validation_protocol
 
     def __new__(cls, *args, **kwargs):
         """Capture the constructor arguments on ``self._locals`` for YAML round-tripping.
@@ -177,6 +192,32 @@ class Experiment:
         """
         self.text_cache_mode = text_cache_mode
         self._locals["text_cache_mode"] = text_cache_mode
+
+    def set_validation_protocol(self, validation_protocol: ValidationProtocol | dict | None) -> None:
+        """Set the validation protocol after construction (kept in sync for YAML).
+
+        Equivalent to passing ``validation_protocol`` to the constructor. Used by the arena context,
+        which stamps its protocol onto the experiments it runs (``AbstractArenaContext.build_jobs`` /
+        ``run_jobs``), so the protocol travels with the experiment into the ``JobBatch`` and to the
+        compute node.
+        """
+        self.validation_protocol = ValidationProtocol.from_config(validation_protocol)
+        if self.validation_protocol is None:
+            self._locals.pop("validation_protocol", None)
+        else:
+            self._locals["validation_protocol"] = self.validation_protocol
+
+    def validation_record(self) -> dict:
+        """The static part of a result's ``validation_protocol`` record: flavour, protocol and key.
+
+        The runner merges the fitted part (what the wrapper resolved and fitted) on top; the
+        ``key`` is the composite identity :func:`~tabarena.benchmark.validation_protocol.validation_protocol_key`
+        computes for the record, so a holdout or outer fit never reads as the bagged protocol.
+        """
+        protocol = None if self.validation_protocol is None else self.validation_protocol.to_dict()
+        record: dict[str, Any] = {"flavour": self.VALIDATION_FLAVOUR, "protocol": protocol}
+        record["key"] = validation_protocol_key(record)
+        return record
 
     # --- Execution (fit / run) -------------------------------------------------------
     def run(
@@ -261,7 +302,7 @@ class Experiment:
             with task_cache_cm:
                 fit_args = self.init_method_kwargs(task=task, debug_mode=bool(experiment_kwargs.get("debug_mode")))
                 out = cacher.cache(
-                    fun=self.experiment_cls.init_and_run,
+                    fun=self._init_and_run_recorded,
                     fun_kwargs=dict(
                         method_cls=self.method_cls,
                         task=task,
@@ -286,6 +327,17 @@ class Experiment:
 
         return out
 
+    def _init_and_run_recorded(self, **kwargs) -> dict:
+        """Run ``experiment_cls.init_and_run`` and complete the result's ``validation_protocol`` record.
+
+        The runner writes what the fitted method reports (``get_validation_record``); this adds the
+        experiment's static part (flavour, protocol, key; see ``validation_record``) underneath it, so
+        the pickled result carries the whole record.
+        """
+        out = self.experiment_cls.init_and_run(**kwargs)
+        out["validation_protocol"] = {**self.validation_record(), **(out.get("validation_protocol") or {})}
+        return out
+
     def task_cache_scope(
         self,
         *,
@@ -298,11 +350,12 @@ class Experiment:
         (``off`` for a standalone experiment, ``require`` when built by a TabArena bundle),
         independent of the validation protocol.
 
-        When the dynamic validation protocol is enabled, this *also* validates *eagerly* (when
-        called, not on ``__enter__``) that the protocol is supported for this task/experiment, so a
-        misconfiguration surfaces immediately at the call site. The validation metadata itself is
-        applied later, in ``init_method_kwargs``. This is part of the fit flow, so a task object is
-        required.
+        This *also* validates *eagerly* (when called, not on ``__enter__``) that the experiment's
+        validation protocol can run on this task: a bagged or holdout experiment must carry one, and a
+        task-specific protocol needs a task wrapper that exposes the split structure. So a
+        misconfiguration surfaces immediately at the call site, before any fit. The validation
+        metadata itself is applied later, in ``init_method_kwargs``. This is part of the fit flow, so a
+        task object is required.
 
         Parameters
         ----------
@@ -320,9 +373,8 @@ class Experiment:
         """
         from contextlib import nullcontext
 
-        # Validation-protocol support is checked eagerly when enabled.
-        if self.dynamic_tabarena_validation_protocol:
-            self._validate_dynamic_protocol_supported(task)
+        # The validation protocol is checked eagerly, before any fit.
+        self._validate_validation_protocol(task)
 
         # Non-text tasks have no embedding cache to load.
         if not task.has_text:
@@ -348,21 +400,20 @@ class Experiment:
         (possibly new) ``method_kwargs``:
 
         1. the task's validation metadata, injected uniformly for *every* method as read-only data
-           (``_apply_validation_metadata``); when the dynamic protocol is enabled this additionally
-           turns on ``use_task_specific_validation`` so the AutoGluon wrappers *act* on it;
-        2. any preprocessing pipeline (``_apply_preprocessing``);
-        3. any auto-detected compute resources (``_apply_resources``);
-        4. in-process fold fitting when ``debug_mode`` (``_apply_debug_fold_fitting``).
+           (``_apply_validation_metadata``);
+        2. the experiment's validation protocol, injected for the ``AGWrapper`` family, which acts on
+           the metadata according to it (fold counts, task-specific splits);
+        3. any preprocessing pipeline (``_apply_preprocessing``);
+        4. any auto-detected compute resources (``_apply_resources``);
+        5. in-process fold fitting when ``debug_mode`` (``_apply_debug_fold_fitting``).
         """
         method_kwargs = copy.deepcopy(self.method_kwargs)
         # Uniform: hand every method the task's validation metadata (read-only data), layering any
         # user-provided value over the task-derived base. Every ``AbstractExecModel`` accepts it.
         method_kwargs = self._apply_validation_metadata(method_kwargs, task_metadata=task.get_validation_metadata())
-        # Policy: the AutoGluon-validation family additionally *acts* on it (task-aware splits /
-        # group-aware features) only when the dynamic protocol is enabled for this experiment.
-        if self.dynamic_tabarena_validation_protocol:
-            method_kwargs.setdefault("use_task_specific_validation", True)
-            print(f"Loading validation metadata into experiment:\n\t{method_kwargs['validation_metadata']}")
+        # Policy: the AutoGluon wrappers act on the metadata according to the experiment's protocol.
+        if self.validation_protocol is not None and issubclass(self.method_cls, AGWrapper):
+            method_kwargs["validation_protocol"] = self.validation_protocol
         method_kwargs = self._apply_preprocessing(method_kwargs)
         method_kwargs = self._apply_resources(method_kwargs)
         if debug_mode:
@@ -474,8 +525,8 @@ class Experiment:
         The task-derived ``task_metadata`` is the base, with any value already present in
         ``method_kwargs`` layered over it (per-key for a dict; see ``ValidationMetadata.from_config``).
         This runs uniformly for *every* experiment and only provides the metadata as read-only data;
-        the decision to *act* on it (``use_task_specific_validation``) is made separately by the
-        caller. Every ``AbstractExecModel`` accepts ``validation_metadata`` (handled by the base).
+        whether and how a method acts on it is decided by its validation protocol. Every
+        ``AbstractExecModel`` accepts ``validation_metadata`` (handled by the base).
         """
         from tabarena.benchmark.task.metadata import ValidationMetadata
 
@@ -508,14 +559,34 @@ class Experiment:
                 cacher.delete_cache()
                 raise RuntimeError(f"Non-finite metric error detected for key {metric_error_key!r}.")
 
-    def _validate_dynamic_protocol_supported(self, task: TaskWrapper) -> None:
-        """Assert the dynamic validation protocol is supported for ``task`` and this experiment.
+    def _validate_validation_protocol(self, task: TaskWrapper) -> None:
+        """Assert this experiment's validation protocol can run on ``task``.
+
+        A bagged or holdout experiment needs a protocol (an arena context stamps its official one; a
+        standalone run passes ``validation_protocol=`` explicitly). A task-specific protocol
+        additionally needs a task wrapper whose ``get_validation_metadata`` carries the real split
+        structure (see ``_validate_task_specific_validation_supported``). Flavours without inner
+        validation (outer fits, systems) have nothing to check.
+        """
+        protocol = self.validation_protocol
+        if protocol is None:
+            if self.VALIDATION_FLAVOUR in ("bagged", "holdout"):
+                raise ValidationProtocolError(
+                    f"Experiment {self.name!r} has no validation protocol. Run it through an arena context "
+                    "(TabArenaContext / BeyondArenaContext supply their official protocol) or pass "
+                    "validation_protocol=ValidationProtocol(...) to the experiment or its bundle.",
+                )
+            return
+        if protocol.task_specific_validation:
+            self._validate_task_specific_validation_supported(task)
+
+    def _validate_task_specific_validation_supported(self, task: TaskWrapper) -> None:
+        """Assert task-specific validation is supported for ``task`` and this experiment.
 
         Requires a task wrapper whose ``get_validation_metadata`` carries the real split
-        configuration — an ``InMemoryTaskWrapper`` (projected from its task metadata) or an
-        ``OpenMLTaskWrapper`` around a ``TabArenaOpenMLSupervisedTask`` — and an
-        ``AGWrapper``-based ``method_cls`` (which accepts ``validation_metadata`` /
-        ``use_task_specific_validation``).
+        structure, an ``InMemoryTaskWrapper`` (projected from its task metadata) or an
+        ``OpenMLTaskWrapper`` around a ``TabArenaOpenMLSupervisedTask``, and an
+        ``AGWrapper``-based ``method_cls`` (the family that builds task-specific splits).
         """
         from tabarena.benchmark.task.in_memory import InMemoryTaskWrapper
         from tabarena.benchmark.task.openml import OpenMLTaskWrapper, TabArenaOpenMLSupervisedTask
@@ -525,15 +596,15 @@ class Experiment:
         )
         if not supported:
             raise ValueError(
-                "`dynamic_tabarena_validation_protocol` requires a task wrapper with split-aware "
-                "validation metadata: an `InMemoryTaskWrapper` or an `OpenMLTaskWrapper` around a "
+                "A validation protocol with `task_specific_validation=True` requires a task wrapper with "
+                "split-aware validation metadata: an `InMemoryTaskWrapper` or an `OpenMLTaskWrapper` around a "
                 f"`TabArenaOpenMLSupervisedTask`; got {type(task).__name__}.",
             )
 
         if not issubclass(self.method_cls, AGWrapper):
             raise NotImplementedError(
-                "`dynamic_tabarena_validation_protocol` requires an `AGWrapper`-based method_cls, "
-                f"got {self.method_cls.__name__}.",
+                "A validation protocol with `task_specific_validation=True` requires an `AGWrapper`-based "
+                f"method_cls, got {self.method_cls.__name__}.",
             )
 
     # --- (De)serialization -----------------------------------------------------------
@@ -563,8 +634,8 @@ class Experiment:
     def _to_yaml_dict(self, locals: dict) -> dict:
         """Convert captured constructor args to YAML-friendly values.
 
-        Classes become import paths; a ``ModelConstraints`` value becomes its plain field
-        dict (``__init__`` normalizes it back on load).
+        Classes become import paths; a ``ModelConstraints`` or ``ValidationProtocol`` value becomes
+        its plain field dict (``__init__`` normalizes it back on load).
         """
         locals_new = {}
         for k, v in locals.items():
@@ -572,6 +643,8 @@ class Experiment:
                 v = class_to_path(v)
             elif isinstance(v, ModelConstraints):
                 v = dataclasses.asdict(v)
+            elif isinstance(v, ValidationProtocol):
+                v = v.to_dict()
             locals_new[k] = v
         return locals_new
 
@@ -589,9 +662,12 @@ class Experiment:
 
         ``from_yaml`` is always invoked with keyword arguments (see
         ``YamlSingleExperimentSerializer.parse_method``), so the class field arrives in ``kwargs``.
+        Experiments serialized before the validation protocol existed are migrated first (see
+        :func:`_migrate_legacy_validation_kwargs`).
         """
         if _context is None:
             _context = globals()
+        kwargs = _migrate_legacy_validation_kwargs(cls, kwargs)
 
         if cls._yaml_resolves_model_cls:
             kwargs["model_cls"] = resolve_class(
@@ -620,18 +696,22 @@ class AGExperiment(Experiment):
         Extra ``TabularPredictor(...)`` constructor kwargs (stored as ``method_kwargs["init_kwargs"]``).
     fit_kwargs: dict, optional
         Extra ``TabularPredictor.fit(...)`` kwargs (stored as ``method_kwargs["fit_kwargs"]``);
-        e.g. ``hyperparameters`` / ``num_bag_folds`` / ``num_bag_sets``.
+        e.g. ``hyperparameters`` / ``presets`` / ``num_bag_folds`` / ``num_bag_sets``. A full
+        predictor is the one experiment whose bagging AutoGluon (presets or these counts) decides;
+        it is therefore not an official flavour of the arena contexts (see ``VALIDATION_FLAVOUR``).
     method_kwargs: dict, optional
         Extra kwargs for ``AGWrapper(...)`` — see that class for accepted keys (e.g.
-        ``validation_metadata`` / ``use_task_specific_validation`` / ``persist``). Must not
-        contain ``init_kwargs`` / ``fit_kwargs`` (pass those directly).
+        ``validation_metadata`` / ``persist``). Must not contain ``init_kwargs`` / ``fit_kwargs``
+        (pass those directly).
     experiment_kwargs: dict, optional
         Runner kwargs, merged over the default ``{"compute_simulation_artifacts": False}``.
     **kwargs:
         Forwarded to ``Experiment.__init__`` (e.g. ``preprocessing_pipeline``,
-        ``dynamic_tabarena_validation_protocol``).
+        ``validation_protocol``, which a task-specific protocol uses for the task-aware holdout or
+        custom splits of explicit counts).
     """
 
+    VALIDATION_FLAVOUR: ClassVar[ValidationFlavour | None] = "predictor"
     _method_cls = AGWrapper
     _experiment_cls = OOFExperimentRunner
 
@@ -683,6 +763,7 @@ class AGExperiment(Experiment):
     def from_yaml(cls, _context=None, **kwargs) -> Self:
         if _context is None:
             _context = globals()
+        kwargs = _migrate_legacy_validation_kwargs(cls, kwargs)
         from tabarena.benchmark.exec_models.registry import tabarena_model_registry
 
         tabarena_model_keys = tabarena_model_registry.keys
@@ -746,15 +827,24 @@ class AGModelExperiment(Experiment):
         inside ``fit_kwargs``.
     method_kwargs: dict, optional
         Extra kwargs for ``AGSingleWrapper(...)`` — see that class for accepted keys (e.g.
-        ``init_kwargs`` / ``fit_kwargs`` / ``validation_metadata`` / ``use_task_specific_validation``).
+        ``init_kwargs`` / ``fit_kwargs`` / ``validation_metadata``). ``fit_kwargs`` must not carry
+        ``num_bag_folds`` / ``num_bag_sets`` / ``adapt_num_bag_folds_to_n_classes`` (the validation
+        protocol owns them), and ``model_hyperparameters["ag_args_ensemble"]`` must not rewrite the
+        bagging structure (``num_folds`` / ``max_sets`` / ``custom_splits``).
     **kwargs:
         Forwarded to ``Experiment.__init__`` (e.g. ``experiment_kwargs``,
-        ``preprocessing_pipeline``, ``dynamic_tabarena_validation_protocol``).
+        ``preprocessing_pipeline``, ``validation_protocol``).
     """
 
+    VALIDATION_FLAVOUR: ClassVar[ValidationFlavour | None] = "holdout"
     _method_cls = AGSingleWrapper
     _experiment_cls = OOFExperimentRunner
     _yaml_resolves_model_cls = True
+
+    #: Whether the fit ``time_limit`` bounds the whole bag (``ag_args_ensemble``) or the single model.
+    _time_limit_on_bag: ClassVar[bool] = False
+    #: ``ag_args_ensemble`` keys that rewrite the bagging structure the validation protocol owns.
+    _BAGGING_STRUCTURE_KEYS: ClassVar[tuple[str, ...]] = ("num_folds", "max_sets", "custom_splits")
 
     def __init__(
         self,
@@ -773,6 +863,10 @@ class AGModelExperiment(Experiment):
         self._validate_time_limit(time_limit)
         # These have dedicated constructor arguments; they must not be nested in fit_kwargs.
         self._reject_in_fit_kwargs(method_kwargs, "time_limit", "raise_on_model_failure")
+        # The validation protocol owns the bagging: counts and class adaptation are resolved from it at
+        # fit time, and no ag_args_ensemble key may rewrite the bag's structure.
+        self._reject_in_fit_kwargs(method_kwargs, "num_bag_folds", "num_bag_sets", "adapt_num_bag_folds_to_n_classes")
+        self._reject_bagging_structure_overrides(model_hyperparameters)
 
         fit_kwargs = method_kwargs.setdefault("fit_kwargs", {})
         if time_limit is not None:
@@ -780,7 +874,7 @@ class AGModelExperiment(Experiment):
                 fit_kwargs["time_limit"] = time_limit
             else:
                 model_hyperparameters = self._insert_time_limit(
-                    model_hyperparameters=model_hyperparameters, time_limit=time_limit, method_kwargs=method_kwargs
+                    model_hyperparameters=model_hyperparameters, time_limit=time_limit
                 )
         fit_kwargs["raise_on_model_failure"] = raise_on_model_failure
         super().__init__(
@@ -820,22 +914,29 @@ class AGModelExperiment(Experiment):
         for key in keys:
             assert key not in fit_kwargs, (
                 f"Set `{key}` directly in {self.__class__.__name__} rather than in `fit_kwargs`"
+                if key in ("time_limit", "raise_on_model_failure")
+                else f"`{key}` is owned by the validation protocol; pass `validation_protocol=` to "
+                f"{self.__class__.__name__} rather than `{key}` in `fit_kwargs`"
             )
 
-    def _insert_time_limit(self, model_hyperparameters: dict, time_limit: float | None, method_kwargs: dict) -> dict:
+    def _reject_bagging_structure_overrides(self, model_hyperparameters: dict) -> None:
+        """Assert no ``ag_args_ensemble`` key rewrites the bagging structure the protocol owns."""
+        ensemble_args = model_hyperparameters.get("ag_args_ensemble") or {}
+        offending = [key for key in self._BAGGING_STRUCTURE_KEYS if key in ensemble_args]
+        assert not offending, (
+            f"ag_args_ensemble {offending} rewrite the bagging structure; the validation protocol owns it "
+            f"(pass `validation_protocol=ValidationProtocol(...)` to {self.__class__.__name__} instead)"
+        )
+
+    def _insert_time_limit(self, model_hyperparameters: dict, time_limit: float | None) -> dict:
         """Return ``model_hyperparameters`` with the fit ``time_limit`` injected.
 
-        For a bagged fit (``num_bag_folds > 1``) the limit goes under
-        ``ag_args_ensemble["ag.max_time_limit"]``; otherwise under top-level
-        ``ag.max_time_limit``. Asserts the key isn't already set (it must be passed via the
+        For a bagged experiment (``_time_limit_on_bag``) the limit goes under
+        ``ag_args_ensemble["ag.max_time_limit"]``, so the whole bag shares it; otherwise under
+        top-level ``ag.max_time_limit``. Asserts the key isn't already set (it must be passed via the
         experiment's ``time_limit`` argument).
         """
-        is_bag = False
-        if "fit_kwargs" in method_kwargs and "num_bag_folds" in method_kwargs["fit_kwargs"]:
-            num_bag_folds = method_kwargs["fit_kwargs"]["num_bag_folds"]
-            # "auto" resolves to the protocol's bagged count at fit time
-            if num_bag_folds == AUTO_NUM_SPLITS or num_bag_folds > 1:
-                is_bag = True
+        is_bag = self._time_limit_on_bag
         model_hyperparameters = copy.deepcopy(model_hyperparameters)
         if is_bag:
             if "ag_args_ensemble" in model_hyperparameters:
@@ -857,8 +958,11 @@ class AGModelBagExperiment(AGModelExperiment):
     """Fit a single *bagged* AutoGluon model (fixes ``method_cls=AGSingleBagWrapper``).
 
     All models fit this way generate out-of-fold predictions on the entire training set and
-    are compatible with ensemble simulations in TabArena. Fits ``num_bag_folds`` folds x
-    ``num_bag_sets`` repeats = ``num_bag_folds * num_bag_sets`` models in the bag.
+    are compatible with ensemble simulations in TabArena. The bag fits ``num_bag_folds`` x
+    ``num_bag_sets`` children, both taken from the experiment's validation protocol (see
+    ``validation_protocol`` on ``Experiment``): an arena context stamps its official protocol at
+    ``build_jobs`` / ``run_jobs``, or a caller passes one explicitly. This is the official flavour
+    of the TabArena and BeyondArena leaderboards for models.
 
     Parameters
     ----------
@@ -868,14 +972,6 @@ class AGModelBagExperiment(AGModelExperiment):
         AutoGluon model class to fit.
     model_hyperparameters: dict
         AutoGluon model hyperparameters (see ``AGModelExperiment``).
-    num_bag_folds: int | "auto", default "auto"
-        Number of bagging folds (>= 2), or ``"auto"`` for the benchmark protocol's count,
-        resolved against the task at fit time (``ValidationMetadata.resolve_number_of_splits``:
-        with ``"auto"`` repeats too, 5x5 on tiny data and 8x1 otherwise). A number is fit as
-        given. Baked into ``fit_kwargs["num_bag_folds"]``; must not be set inside ``fit_kwargs``.
-    num_bag_sets: int | "auto", default "auto"
-        Number of bagging repeats (>= 1), or ``"auto"`` as for ``num_bag_folds``. Baked into
-        ``fit_kwargs["num_bag_sets"]``; must not be set inside ``fit_kwargs``.
     extra_model_hyperparameters: dict, optional
         Hyperparameters merged into ``model_hyperparameters`` (must not share keys with it).
     method_kwargs: dict, optional
@@ -883,10 +979,12 @@ class AGModelBagExperiment(AGModelExperiment):
     **kwargs:
         Forwarded to ``AGModelExperiment.__init__`` (e.g. ``time_limit``,
         ``time_limit_with_preprocessing``, ``raise_on_model_failure``, ``experiment_kwargs``,
-        ``preprocessing_pipeline``, ``dynamic_tabarena_validation_protocol``).
+        ``preprocessing_pipeline``, ``validation_protocol``).
     """
 
+    VALIDATION_FLAVOUR: ClassVar[ValidationFlavour | None] = "bagged"
     _method_cls = AGSingleBagWrapper
+    _time_limit_on_bag: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -894,31 +992,16 @@ class AGModelBagExperiment(AGModelExperiment):
         model_cls: type[AbstractModel],
         model_hyperparameters: dict,
         *,
-        num_bag_folds: NumSplits = AUTO_NUM_SPLITS,
-        num_bag_sets: NumSplits = AUTO_NUM_SPLITS,
         extra_model_hyperparameters: dict | None = None,
         method_kwargs: dict | None = None,
         **kwargs,
     ):
         method_kwargs = copy.deepcopy(method_kwargs) if method_kwargs else {}
-        if num_bag_folds != AUTO_NUM_SPLITS:
-            assert isinstance(num_bag_folds, int), num_bag_folds
-            assert num_bag_folds >= 2, num_bag_folds
-        if num_bag_sets != AUTO_NUM_SPLITS:
-            assert isinstance(num_bag_sets, int), num_bag_sets
-            assert num_bag_sets >= 1, num_bag_sets
-
         extra_model_hyperparameters = self._resolve_extra_model_hyperparameters(
             extra_model_hyperparameters, method_kwargs
         )
         self._warn_if_nested_model_hyperparameters(method_kwargs)
         model_hyperparameters = self._merge_model_hyperparameters(model_hyperparameters, extra_model_hyperparameters)
-
-        # num_bag_folds / num_bag_sets have dedicated arguments; bake them into fit_kwargs.
-        self._reject_in_fit_kwargs(method_kwargs, "num_bag_folds", "num_bag_sets")
-        fit_kwargs = method_kwargs.setdefault("fit_kwargs", {})
-        fit_kwargs["num_bag_folds"] = num_bag_folds
-        fit_kwargs["num_bag_sets"] = num_bag_sets
 
         super().__init__(
             name=name,
@@ -1000,9 +1083,12 @@ class AGModelOuterExperiment(Experiment):
     experiment_kwargs: dict, optional
         The kwargs passed to the runner (``experiment_cls``).
     **kwargs:
-        Forwarded to ``Experiment.__init__`` (e.g. ``model_constraints``).
+        Forwarded to ``Experiment.__init__`` (e.g. ``model_constraints``). An outer fit has no inner
+        validation, so it runs outside the arena's validation protocol and its results are recorded
+        as such (flavour ``outer``).
     """
 
+    VALIDATION_FLAVOUR: ClassVar[ValidationFlavour | None] = "outer"
     _method_cls = AGModelWrapper
     _experiment_cls = OOFExperimentRunner
     _yaml_resolves_model_cls = True
@@ -1052,9 +1138,12 @@ class ExternalSystemExperiment(Experiment):
     experiment_kwargs: dict, optional
         The kwargs passed to the runner (``experiment_cls``).
     **kwargs:
-        Forwarded to ``Experiment.__init__`` (e.g. ``model_constraints``, ``text_cache_mode``).
+        Forwarded to ``Experiment.__init__`` (e.g. ``model_constraints``, ``text_cache_mode``). A
+        system owns its validation, so the arena's validation protocol is not applied to it; systems
+        are an official flavour of the arena contexts and their results are recorded as ``system``.
     """
 
+    VALIDATION_FLAVOUR: ClassVar[ValidationFlavour | None] = "system"
     _experiment_cls = OOFExperimentRunner
 
     def __init__(
@@ -1086,6 +1175,7 @@ class ExternalSystemExperiment(Experiment):
         """
         if _context is None:
             _context = globals()
+        kwargs = _migrate_legacy_validation_kwargs(cls, kwargs)
         kwargs["system_cls"] = resolve_class(kwargs["system_cls"], context=_context)
         return cls(**kwargs)
 
@@ -1175,6 +1265,57 @@ def _eval_ag_args_fit_strings(model_hyperparameters: dict | None, context: dict)
                 model_hyperparameters["ag_args_fit"][key] = eval(value, context)  # noqa: S307
             except NameError:
                 pass  # If eval fails (e.g. unknown name), keep the original string value
+
+
+def _migrate_legacy_validation_kwargs(cls: type[Experiment], kwargs: dict) -> dict:
+    """Translate the pre-protocol YAML knobs of an experiment into ``validation_protocol`` (in place).
+
+    Experiments serialized before the protocol object existed carried
+    ``dynamic_tabarena_validation_protocol`` (task-specific inner splits), ``num_bag_folds`` /
+    ``num_bag_sets`` (ints or ``"auto"``) and ``method_kwargs["fit_kwargs"]["adapt_num_bag_folds_to_n_classes"]``.
+    They map onto one :class:`ValidationProtocol` named ``"legacy"``: explicit counts become the
+    protocol's counts (no tiny-data regime); ``"auto"`` or absent counts under task-specific validation
+    become the pre-protocol policy (8x1 with 5x5 at or below 500 training group instances), and 8x1
+    otherwise. Flavours without inner validation only drop the knobs, as does a YAML that already names
+    ``validation_protocol``. A YAML without any of the knobs is returned untouched.
+    """
+    dynamic = kwargs.pop("dynamic_tabarena_validation_protocol", None)
+    num_bag_folds = kwargs.pop("num_bag_folds", None)
+    num_bag_sets = kwargs.pop("num_bag_sets", None)
+    fit_kwargs = (kwargs.get("method_kwargs") or {}).get("fit_kwargs")
+    adapt = fit_kwargs.pop("adapt_num_bag_folds_to_n_classes", None) if isinstance(fit_kwargs, dict) else None
+    if dynamic is None and num_bag_folds is None and num_bag_sets is None and adapt is None:
+        return kwargs
+    if kwargs.get("validation_protocol") is not None or cls.VALIDATION_FLAVOUR not in (
+        "bagged",
+        "holdout",
+        "predictor",
+    ):
+        return kwargs
+
+    task_specific = bool(dynamic)
+    adapt = bool(adapt)
+    if isinstance(num_bag_folds, int) and not isinstance(num_bag_folds, bool):
+        protocol = ValidationProtocol(
+            num_bag_folds=num_bag_folds,
+            num_bag_sets=num_bag_sets if isinstance(num_bag_sets, int) and not isinstance(num_bag_sets, bool) else 1,
+            task_specific_validation=task_specific,
+            adapt_num_folds_to_n_classes=adapt,
+            name="legacy",
+        )
+    elif task_specific:
+        protocol = ValidationProtocol(
+            tiny_num_bag_folds=5,
+            tiny_num_bag_sets=5,
+            tiny_max_group_instances=500,
+            task_specific_validation=True,
+            adapt_num_folds_to_n_classes=adapt,
+            name="legacy",
+        )
+    else:
+        protocol = ValidationProtocol(adapt_num_folds_to_n_classes=adapt, name="legacy")
+    kwargs["validation_protocol"] = protocol
+    return kwargs
 
 
 class YamlSingleExperimentSerializer:

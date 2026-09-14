@@ -14,6 +14,7 @@ import copy
 from tabarena.benchmark.experiment import (
     ModelConstraints,
     TabArenaExperimentBundle,
+    ValidationProtocol,
     YamlExperimentSerializer,
 )
 from tabarena.benchmark.preprocessing.model_agnostic_default_preprocessing import (
@@ -144,21 +145,20 @@ def test_from_yaml_config_index_filters(tmp_path):
     assert len(methods) == 1
 
 
-def test_build_bakes_dynamic_validation_protocol_and_round_trips(tmp_path):
-    # The bundle default (True) is baked into each experiment and survives YAML round-trip.
+def test_build_leaves_the_validation_protocol_to_the_context_and_round_trips(tmp_path):
+    # The bundle bakes no protocol by default (the arena context stamps its official one at build_jobs),
+    # and the YAML round trip keeps the experiment unstamped.
     configs_path = _generate_yaml(tmp_path, models=[("RealMLP", 0)])
     exp = YamlExperimentSerializer.from_yaml(path=configs_path, config_index=None)[0]
-    assert exp.dynamic_tabarena_validation_protocol is True
+    assert exp.validation_protocol is None
+    assert "num_bag_folds" not in exp.method_kwargs["fit_kwargs"]
 
 
-def test_build_can_disable_dynamic_validation_protocol(tmp_path):
-    configs_path = _generate_yaml(
-        tmp_path,
-        models=[("RealMLP", 0)],
-        dynamic_tabarena_validation_protocol=False,
-    )
+def test_build_bakes_a_bundle_validation_protocol_and_round_trips(tmp_path):
+    protocol = ValidationProtocol.custom(3, 2)
+    configs_path = _generate_yaml(tmp_path, models=[("RealMLP", 0)], validation_protocol=protocol)
     exp = YamlExperimentSerializer.from_yaml(path=configs_path, config_index=None)[0]
-    assert exp.dynamic_tabarena_validation_protocol is False
+    assert exp.validation_protocol == protocol
 
 
 def test_bundle_model_constraints_merges_defaults_and_custom():

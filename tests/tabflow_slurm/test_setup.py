@@ -366,13 +366,13 @@ def _two_dataset_collection() -> TaskMetadataCollection:
 def _passthrough_experiment(name: str):
     from autogluon.tabular.models import LGBModel
 
-    from tabarena.benchmark.experiment import AGModelBagExperiment
+    from tabarena.benchmark.experiment import AGModelBagExperiment, ValidationProtocol
 
     return AGModelBagExperiment(
         name=name,
         model_cls=LGBModel,
         model_hyperparameters={},
-        num_bag_folds=2,
+        validation_protocol=ValidationProtocol.custom(2),
         time_limit=60,
     )
 

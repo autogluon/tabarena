@@ -16,7 +16,9 @@ from tabarena.benchmark.experiment import (
     AGModelExperiment,
     AGModelOuterExperiment,
     BeyondArenaExperimentBundle,
+    ValidationProtocol,
 )
+from tabarena.benchmark.validation_protocol import BEYONDARENA_VALIDATION_PROTOCOL
 from tabarena.utils.config_utils import ConfigGenerator, generate_holdout_experiments
 
 
@@ -33,7 +35,7 @@ class TestGenerateHoldoutExperiments:
             configs,
             name_suffix_from_ag_args=True,
             preprocessing_pipeline="tabarena_default",
-            dynamic_tabarena_validation_protocol=True,
+            validation_protocol=BEYONDARENA_VALIDATION_PROTOCOL,
         )
         assert len(experiments) == 1
         exp = experiments[0]
@@ -42,7 +44,7 @@ class TestGenerateHoldoutExperiments:
         assert not isinstance(exp, (AGModelBagExperiment, AGModelOuterExperiment))
         assert exp.name == "DummyTestModel_c1_HOLDOUT"
         assert exp.preprocessing_pipeline == "tabarena_default"
-        assert exp.dynamic_tabarena_validation_protocol is True
+        assert exp.validation_protocol == BEYONDARENA_VALIDATION_PROTOCOL
 
     def test_keeps_ag_args_in_model_hyperparameters(self):
         # Unlike the outer flavour, holdout goes through `TabularPredictor`, which consumes
@@ -85,9 +87,10 @@ class TestBundleHoldoutMode:
         assert not isinstance(exp, (AGModelBagExperiment, AGModelOuterExperiment))
         # Single model -> tagged `_HOLDOUT` rather than the bagged `_BAG_L1`.
         assert exp.name == "DummyTestModel_c1_HOLDOUT"
-        # The bundle's preprocessing + shuffle_features + validation protocol all still apply.
+        # The bundle's preprocessing + shuffle_features still apply; the validation protocol is left to the
+        # arena context, which stamps its own at build_jobs.
         assert exp.preprocessing_pipeline == "tabarena_default"
-        assert exp.dynamic_tabarena_validation_protocol is True
+        assert exp.validation_protocol is None
         assert exp.method_kwargs["shuffle_features"] is True
         # Compute resources are baked into the predictor fit kwargs (None == auto-detect at run time).
         fit_kwargs = exp.method_kwargs["fit_kwargs"]
@@ -96,6 +99,14 @@ class TestBundleHoldoutMode:
         model_hyperparameters = exp.method_kwargs["model_hyperparameters"]
         assert model_hyperparameters["ag.max_time_limit"] == bundle.DEFAULT_TIME_LIMIT
         assert model_hyperparameters["ag.verbosity"] == bundle.model_verbosity
+
+    def test_bundle_protocol_reaches_holdout_experiments(self):
+        generator = ConfigGenerator(search_space={}, model_cls=_DummyModel, manual_configs=[{}])
+        protocol = ValidationProtocol.custom(3)
+        bundle = BeyondArenaExperimentBundle(
+            models=[(generator, 0)], holdout_experiments=True, validation_protocol=protocol
+        )
+        assert bundle.build_experiments()[0].validation_protocol == protocol
 
     def test_bagged_mode_is_unaffected(self):
         generator = ConfigGenerator(search_space={}, model_cls=_DummyModel, manual_configs=[{}])

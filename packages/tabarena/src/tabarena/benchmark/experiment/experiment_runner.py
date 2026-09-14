@@ -313,6 +313,10 @@ class ExperimentRunner:
         out["simulation_artifacts"] = None
         if hasattr(self.model, "get_metadata"):
             out["method_metadata"] = self.model.get_metadata()
+        # The fitted part of the validation-protocol record (resolved / fitted fold counts, clamps,
+        # split structure); the experiment adds the static part (flavour, protocol) around this.
+        get_validation_record = getattr(self.model, "get_validation_record", None)
+        out["validation_protocol"] = get_validation_record() if get_validation_record is not None else {}
         if self.model.can_get_error_val:
             out["metric_error_val"] = self.model.get_metric_error_val()
         return out
