@@ -45,6 +45,16 @@ class MethodSimulator:
             config_type = mm.config_type
         return RepoSimulator(repo=repo)._config_default(config_type=config_type, use_first_if_missing=True)
 
+    def resolve_config_default(self, repo: EvaluationRepository | None = None) -> str:
+        """The method's default config: the declared ``config_default``, else resolved from ``repo``.
+
+        A single-config method needs no declaration (its lone config is the default); an HPO method
+        without one falls back to the ``_c1_`` convention of :meth:`get_config_default`.
+        """
+        if self.method_metadata.config_default is not None:
+            return self.method_metadata.config_default
+        return self.get_config_default(repo=repo)
+
     def generate_results(
         self,
         repo: EvaluationRepository | None = None,
@@ -196,8 +206,9 @@ class MethodSimulator:
         if repo is None:
             repo = mm.load_processed()
 
+        config_default = self.resolve_config_default(repo=repo)
         # FIXME: Needed for TabPFN-2.5
-        repo.set_config_fallback(config_fallback=mm.config_default)
+        repo.set_config_fallback(config_fallback=config_default)
 
         n_config_total = repo.n_configs()
 
@@ -206,8 +217,6 @@ class MethodSimulator:
         n_configs = sorted(set(n_configs))
 
         if always_include_default and fixed_configs is None:
-            config_default = mm.config_default
-            assert config_default is not None
             fixed_configs = [config_default]
 
         # Build the full (n_config, seed) pass list up front; all passes run in one sweep over

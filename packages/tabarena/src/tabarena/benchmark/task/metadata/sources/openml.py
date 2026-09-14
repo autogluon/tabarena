@@ -72,6 +72,6 @@ class OpenMLTaskMetadataSource(TaskMetadataSource):
             openml.tasks.get_task(
                 task_id,
                 download_data=True,
-                download_qualities=True,
+                download_qualities=False,  # nothing in tabarena reads dataset qualities
                 download_splits=True,
             )

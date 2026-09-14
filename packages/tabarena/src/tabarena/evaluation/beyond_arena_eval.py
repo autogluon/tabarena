@@ -144,6 +144,7 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
         init_caches,
         post_process_to_results,
         resolve_ag_name,
+        resolve_display_name,
     )
     from tabarena.evaluation.beyond_metadata import load_beyond_task_metadata_collection
 
@@ -167,6 +168,11 @@ def run_beyond_arena_eval(config: BeyondArenaEvalConfig) -> dict[str, pd.DataFra
             suite=run.benchmark_name,
             result_suffix=run.result_suffix,
             only_load_cache=run.loads_from_cache(model),
+            display_name=resolve_display_name(
+                model,
+                result_suffix=run.result_suffix,
+                ag_name_override=(run.ag_name_overrides or {}).get(model),
+            ),
         )
         for run in config.runs
         for model in run.models

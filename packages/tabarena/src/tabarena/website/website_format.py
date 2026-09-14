@@ -140,12 +140,14 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "CTB",
         ],
         Constants.foundational: [
+            "CAUSILO",
             "TABDPT",
             "TABDPT_TURBO",
             "TABICL",
             "TABPFN",
             "REALTABPFN",
             "MITRA",
+            "MITRA_V2",
             "LIMIX",
             "TA-LIMIX",
             "BETA",
@@ -162,6 +164,7 @@ def get_model_family(model_name: str, system_names: Container[str] = frozenset()
             "TA-NORI",
             "TABSWIFT",
             "EXAONE",
+            "XIAOMI-TABLDM",
         ],
         Constants.baseline: ["KNN", "LR", "LINEAR"],
         Constants.other: ["XRFM", "APLR"],
@@ -215,6 +218,7 @@ def get_rename_map() -> dict[str, str]:
         "KNN": "KNN",
         "LR": "Linear",
         "MITRA": "Mitra",
+        "MITRA_V2": "Mitra-v2",
         "LIMIX": "LimiX",
         "XRFM": "xRFM",
         "TABFLEX": "TabFlex",
@@ -222,6 +226,7 @@ def get_rename_map() -> dict[str, str]:
         "REALTABPFN-V2.5": "RealTabPFN-v2.5",
         "SAP-RPT-OSS": "SAP-RPT-OSS",
         "TABSWIFT": "TabSwift",
+        "XIAOMI-TABLDM": "Xiaomi-TabLDM",
     }
 
 

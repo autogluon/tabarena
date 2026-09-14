@@ -298,7 +298,7 @@ register_model_info(ModelInfo(
     model_cls=SpectralCNNModel,
     search_space=gen_spectral_cnn,
     method_metadata=spectral_cnn.method_metadata(
-        method="SpectralCNN", ag_key="SPECCNN", config_default="SpectralCNN_c1_BAG_L1",
+        method="SpectralCNN", ag_key="SPECCNN", config_default="SpectralCNN_c1_default_BAG_L1",
         suite="ramanbench-2026-09",
     ),
     pip_extra=("ramanbench[cnn]",),
@@ -311,10 +311,14 @@ Build the model class the way TabArena builds its own: an AutoGluon `AbstractMod
 untimed one-off costs such as imports, JIT and CUDA context (the fairness contract in
 `tabarena/models/warmup.py` says a warm-up may never touch task data). The `add-model` skill in
 this repo describes the wrapper anatomy and points at reference models per family; it applies
-unchanged to a model living in another package, minus the `pyproject.toml` edit. Config names
-follow `{ag_name}_c1_BAG_L1` for the default and `_r{i}` for random configs; `config_default`
-must match. Mirror `tests/tabarena/models/test_all_models.py` for a registry-driven smoke test of
-your own models.
+unchanged to a model living in another package, minus the `pyproject.toml` edit. Config names are
+`{method}_c{i}<suffix>_BAG_L1` for curated configs and `_r{i}<suffix>` for random ones, where the
+bundle appends the preprocessing pipeline name as the suffix (`_default` for the AutoGluon `"default"`
+pipeline used above, none for `"tabarena_default"`, see `_build_experiments_for_pipeline` in
+`benchmark/experiment/bundle.py`); a declared `config_default` must match the post-rename name, so read it
+off `scripts/run_process_method.py <run>/data` once results exist instead of authoring it by hand, and a
+single-config model (`can_hpo=False`) can leave it unset (processing records the lone config). Mirror
+`tests/tabarena/models/test_all_models.py` for a registry-driven smoke test of your own models.
 
 Two things bite here. A model class must live in an importable module, never in `__main__`: Ray
 workers cannot unpickle it otherwise (`debug_mode=True` runs in-process and hides this). And a

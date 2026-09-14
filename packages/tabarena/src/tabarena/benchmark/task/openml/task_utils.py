@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import openml
@@ -10,16 +11,22 @@ from openml.exceptions import OpenMLServerException
 
 if TYPE_CHECKING:
     import pandas as pd
+    from openml import OpenMLDataset
 
 logger = logging.getLogger(__name__)
 
 
 def get_task(task_id: int) -> OpenMLSupervisedTask:
+    """The OpenML task with its dataset (parquet + feature metadata) cached; splits load on first use.
+
+    Dataset qualities are not fetched: nothing in tabarena reads them, and each fetch is one
+    more cache-directory round trip per task.
+    """
     task = openml.tasks.get_task(
         task_id,
         download_splits=False,
         download_data=True,
-        download_qualities=True,
+        download_qualities=False,
         download_features_meta_data=True,
     )
     if isinstance(task, OpenMLSupervisedTask):
@@ -55,6 +62,28 @@ def get_task_with_retry(task_id: int, max_delay_exp: int = 8) -> OpenMLSupervise
             continue
 
 
+def use_cached_pickle(dataset: OpenMLDataset) -> None:
+    """Point ``dataset`` at the pickle cache openml wrote for it on an earlier load.
+
+    openml registers ``dataset_<id>.pkl.py3`` on the dataset object only when the dataset
+    was constructed from an ARFF file. With a parquet-backed cache (the default since
+    openml-python 0.14) the pickle path stays ``None``, so every ``get_data`` call re-parses
+    the parquet and rewrites the pickle instead of loading it. Registering the existing
+    pickle makes ``get_data`` load it directly; a missing or unreadable pickle falls back
+    to openml's own parquet path.
+    """
+    if dataset.cache_format != "pickle" or dataset.data_pickle_file is not None:
+        return
+    source = dataset.parquet_file or dataset.data_file
+    if source is None:
+        return
+    pickle_file = Path(source).with_suffix(".pkl.py3")
+    if pickle_file.exists():
+        dataset.data_pickle_file = str(pickle_file)
+
+
 def get_task_data(task: OpenMLSupervisedTask) -> tuple[pd.DataFrame, pd.Series]:
-    X, y, _, _ = task.get_dataset().get_data(task.target_name)
+    dataset = task.get_dataset(download_data=True)
+    use_cached_pickle(dataset)
+    X, y, _, _ = dataset.get_data(task.target_name)
     return X, y

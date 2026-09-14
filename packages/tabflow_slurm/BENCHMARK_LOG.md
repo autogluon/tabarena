@@ -33,6 +33,65 @@ run against `main`. To reproduce an entry, check out its recorded **git SHA**.
 
 ---
 
+## 2026-09-13 — causilo_13092026
+
+- **Model(s):** Causilo (default config only, `NUM_CONFIGS=0`)
+- **Git SHA:** `d5f45677` (PR #536 head, branch `pr-536-add-causilo`)
+- **Purpose:** Maintainer re-run of the Causilo 1.0.0 submission (Nums AI pretrained ICL foundation
+  model, https://github.com/nums-ai/causilo, PR https://github.com/autogluon/tabarena/pull/536) on the
+  full TabArena-v0.1 task set to verify the self-reported leaderboard numbers.
+- **Notes:** GPU model on `gpurtxpro6000flex` (RTX PRO 6000, 96 GB) with
+  `fake_memory_for_estimates=96`; the wrapper fits folds `sequential_local` with `refit_folds=True`, so
+  folds never share the card. Fixed recipe `n_estimators=8`, `random_state=42`, no search space. Extra dep
+  in the run venv (`~/.venvs/tabarena_mitra_v2_10092026`): `causilo==1.0.0`; torch 2.13.0+cu130 was
+  already present. Weights pinned to HF commit `94f2bd91` and prefetched on the head node. Launched first
+  as job 1153347 with `bundle_size=1` (816 tasks, `--time=2:00:00`); per-task Ray/venv setup (~20 s)
+  dwarfed the second-long fits, so the maintainer cancelled its pending tasks after ~40 had started and
+  the remaining 791 items were relaunched as job 1153391 with `bundle_size=10` (80 tasks,
+  `--time=11:00:00`), cache-aware. Wall time 2026-09-13 11:15 to 11:54 UTC; 816 result files, no failed
+  task, no imputation. Longest single fit about 130 s (GiveMeSomeCredit, customer_satisfaction_in_airline
+  about 100 s). PyTorch allocator OOM warnings on the wide datasets (Bioresponse, hiva_agnostic,
+  kddcup09_appetency, QSAR-TID-11) are the library's own chunk-shrinking retry loop; all of them recovered.
+  Result: #3/88 overall (Elo 1794 +90/-58) behind the systems TabFM+ and AutoGluon 1.6 (noncommercial),
+  #1/86 multiclass, #3/85 regression, #5/86 binary; matches the PR's self-reported Elo of 1792.9.
+  Processed and uploaded as suite `tabarena-2026-09-13` (`causilo_method_metadata`), registered in the
+  arena collection as a verified model.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="causilo_13092026",
+    model_jobs=[
+        ModelJob(
+            models=("Causilo", 0),
+            name="gpu",
+            resources={"num_gpus": 1, "fake_memory_for_estimates": 96},
+        ),
+    ],
+    task_subset=TaskSubset(),  # the full task set, all splits
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_mitra_v2_10092026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    # First launch (job 1153347) used bundle_size=1; relaunched as job 1153391 with bundle_size=10.
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000flex", bundle_size=10),
+)
+plan.setup_jobs()
+```
+
+---
+
 ## 2026-09-13 — aplr_10092026 (time-limit rerun)
 
 - **Model(s):** APLR (all configs; the 1255 items still missing)
@@ -102,6 +161,223 @@ def setup() -> None:
         ),
     )
     plan.setup_jobs()
+```
+
+---
+
+## 2026-09-12 — mitrav2_12092026
+
+- **Model(s):** Mitra-v2 (0 — single default config, no HPO: the frozen fine-tuning recipe is the method)
+- **Git SHA:** `c71945a3`
+- **Purpose:** Second TabArena-v0.1 benchmark of Mitra-v2 on the revised wrapper (cheaper fine-tuning loop,
+  16,384-row prediction chunks, and the fine-tuning context of the first bag child reused by the other
+  children; commits `2d0b267a`, `4a2dc589`, `c71945a3` on PR #520). Same task set and resources as
+  `mitrav2_10092026`, written to a fresh output folder so the two runs can be compared split by split.
+- **Notes:** GPU partition `gpurtxpro6000flex` (RTX PRO 6000, 96 GB VRAM), 1 GPU, exclusive node,
+  `fake_memory_for_estimates=96`, 1 h fit budget per config, full task set (816 splits). This time
+  `bundle_size=5`: 164 array tasks (163 of five splits, one of a single split) with `--time=6:00:00`
+  (5 x 1 h plus the 1 h overhead) instead of the first run's 816 single-split tasks at 2 h. The
+  scheduler's large-dataset rule caught no TabArena-v0.1 dataset, so the bundles are contiguous runs of
+  the same dataset. Flagged at launch: on the first run's code APSFailure took about 80 min per
+  split (fit plus inference) and kddcup09_appetency about 73 min, so the all-same-dataset bundles
+  20 (5 x APSFailure) and 101 (5 x kddcup09_appetency) would have exceeded 6 h. The revised wrapper
+  halved both (APSFailure 41 min, kddcup09_appetency 43 min per split at most), so bundle 20 ran
+  3 h 47 min and bundle 101, the longest array task, 4 h 04 min. Outcome: SLURM array 1150009
+  (submitted 2026-09-12 17:55) completed 164/164 tasks with 816/816 results and no failures, first
+  task start 18:00, last task end 05:40 the next day (about 11.7 h wall); 108 GPU-hours of measured
+  fit plus inference against 139 for the first run. Each split is its own python process writing its
+  own `results.pkl`, so a timed-out bundle would only have lost its remaining splits;
+  `bundle_size_per_dataset` is the escape hatch for slower models. Launched from
+  `tmp_scripts/run_mitra_v2.py setup` in the tabarena-edit-copy clone; venv
+  `tabarena_mitra_v2_10092026` imports the `add-mitra-v2` checkout. Eval on
+  `[[], ["binary"], ["multiclass"], ["regression"]]` (2026-09-13): Elo 1770 (position 3) on the full
+  leaderboard against 1766 for the first run, normalized error 0.214 against 0.224; binary 1746,
+  multiclass 1826, regression 1985. Mean train time 762 s and test inference 20 s per task against
+  930 s and 92 s. Result processing printed one bag-consistency warning (hiva_agnostic split 1:
+  stored bagged test predictions and the mean of the per-child predictions differ beyond rtol 5e-4
+  on 64% of rows). Benign: the absolute gap is at most 7e-4 (mean 1e-4), the log loss agrees to four
+  decimals, and the first run showed the same warning on five of the nine hiva_agnostic splits;
+  near-zero probabilities fail a relative tolerance on GPU-level noise. The leaderboard uses the
+  child-averaged predictions. Extra dep in the run venv: `autogluon.tabular[mitra]>=1.6,<1.7`;
+  `flash-attn` not installed. Processed and uploaded 2026-09-13 as suite `tabarena-2026-09-12`
+  (`mitra_v2_method_metadata`, r2://tabarena/cache/artifacts/tabarena-2026-09-12/methods/Mitra-v2) and
+  registered in the arena collection next to Mitra v1 as a verified model.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="mitrav2_12092026",
+    model_jobs=[
+        ModelJob(
+            models=("Mitra-v2", 0),
+            name="gpu",
+            resources={
+                "num_gpus": 1,
+                # The gpu_partition's VRAM in GB (gpurtxpro6000flex -> RTX PRO 6000 -> 96).
+                "fake_memory_for_estimates": 96,
+            },
+        ),
+    ],
+    task_subset=TaskSubset(),  # full task set (all splits)
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_mitra_v2_10092026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000flex", bundle_size=5),
+)
+plan.setup_jobs()
+```
+
+---
+
+## 2026-09-11 — xiaomitabldm_11092026
+
+- **Model(s):** Xiaomi-TabLDM (default config only, no HPO configs)
+- **Git SHA:** `fbfc63f0`
+- **Purpose:** First full TabArena-v0.1 run of Xiaomi-TabLDM (tabular foundation model with a
+  dual-stream column embedder and MoE backbone, https://huggingface.co/occams/Xiaomi-TabLDM) for its
+  integration on branch `feature/add-TabLDM`, pinned to commit `6773a30d` of
+  https://github.com/xiaomi-research/xiaomi-tabldm (not on PyPI, installed through the `tabldm` extra).
+- **Notes:** Full task set (all splits), default config only: `gen_tabldm` has an empty search space,
+  so the frozen in-context-learning recipe is the method (`n_estimators=8` forward passes per fold).
+  GPU partition `gpurtxpro6000flex` (RTX PRO 6000, 96 GB), `fake_memory_for_estimates=96`,
+  `memory_limit`/`num_cpus` left `None` so node values are picked up, bundle size 10 (82 array tasks,
+  11 h wall each, 100 concurrent). A first bundle-size-1 array (1142547, 816 tasks) was cancelled
+  minutes after launch at the maintainer's request before any result was written; the run is array
+  1142639. Run venv `tabarena_mitra_v2_10092026` (this clone's venv). Both checkpoints
+  (`clf_default.ckpt`, `reg_default.ckpt`) were prefetched on the head node by `setup`. The wrapper pins
+  `fold_fitting_strategy="sequential_local"` and `refit_folds=True`, has no static memory estimate, and
+  ignores `X_val`/`time_limit` (no training loop), so the 1 h per-config budget was never approached:
+  the slowest split took 97 s for fit plus prediction and the longest task 30 min. All 816 splits
+  completed without a failure. Wall span 16:52 to 19:41; the last hour was spent waiting for flex
+  nodes to boot (partition-wide `NOT_RESPONDING+POWERING_UP` limbo affecting every user's new tasks):
+  six tasks sat in CONFIGURING on nodes that never came up and were requeued by hand with
+  `scontrol requeue`, one of them twice. The CPU smoke fit on the head node passed in 100 s.
+  Eval: #8/88 overall (Elo 1588 +69/-61), #9/86 binary, #10/86 multiclass, #8/85 regression.
+  Processed and uploaded 2026-09-14 as suite `tabarena-2026-09-11` (`tabldm_method_metadata`,
+  r2://tabarena/cache/artifacts/tabarena-2026-09-11/methods/Xiaomi-TabLDM) and registered in the
+  arena collection as a verified model.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="xiaomitabldm_11092026",
+    model_jobs=[
+        ModelJob(
+            models=("Xiaomi-TabLDM", 0),
+            name="gpu",
+            resources={
+                "num_gpus": 1,
+                # The gpu_partition's VRAM in GB (gpurtxpro6000flex -> RTX PRO 6000 -> 96).
+                # AutoGluon budgets parallel bagging folds against this figure instead of the
+                # node RAM, so the check reflects the card the tensors actually live on.
+                "fake_memory_for_estimates": 96,
+            },
+        ),
+    ],
+    task_subset=TaskSubset(),  # the full task set (all splits)
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_mitra_v2_10092026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),  # override: log model fits
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),  # override: auto-detect on node
+    # bundle_size=10: ten fits per SLURM array task (maintainer's choice on 2026-09-11, replacing the
+    # bundle_size=1 array 1142547 cancelled minutes after launch); fewer, longer tasks amortize node
+    # provisioning on the flex partition.
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000flex", bundle_size=10),
+)
+plan.setup_jobs()
+```
+
+---
+
+## 2026-09-10 — mitrav2_10092026
+
+- **Model(s):** Mitra-v2 (0 — single default config, no HPO: the frozen fine-tuning recipe is the method)
+- **Git SHA:** `52fb5e2f` for 807 of the 816 splits; the 9 `hiva_agnostic` splits ran on `f795c3cc` plus
+  the `configure_cuda_allocator` change of the same PR (#520), see notes.
+- **Purpose:** First TabArena-v0.1 benchmark of Mitra-v2 (arXiv:2609.04540), Amazon's second-generation
+  Mitra tabular foundation model, fine-tuned per bag child under the reference recipe. Supports binary,
+  multiclass and regression, so all problem types are included.
+- **Notes:** GPU partition `gpurtxpro6000flex` (RTX PRO 6000, 96 GB VRAM, 24 vCPUs per node), 1 GPU,
+  `bundle_size=1`, full task set (`TaskSubset()`, all splits: 816 array tasks). `fake_memory_for_estimates=96`
+  so the wrapper's static memory estimate is read against VRAM; the wrapper itself pins
+  `fold_fitting_strategy="sequential_local"`, so the 8 bag children run one after another on the card.
+  The v0.1 default fit budget of 1 h per config was kept: the recipe's 250 s per-child fine-tuning budget
+  was designed for it. A first submission on `gpurtxpro6000spotinteractive` was cancelled minutes after
+  launch in favour of the flex partition. Main array 16:23 to 02:50 (about 10.5 h wall); throughput was
+  bounded by flex node provisioning at about 32 concurrent tasks, with node boots regularly stalling for
+  20 to 50 min. APSFailure (50,666 rows, 170 features) is the slowest task: about 3270 s fit (every
+  child's fine-tune hits the 250 s budget, two out-of-memory support halvings per child from 16384 to
+  4096 rows) plus about 1500 s of test inference, finishing 14 min under the 2 h SLURM wall time.
+  `hiva_agnostic` (1413 mostly binary columns, kept in full by the recipe's continuous-fraction gate)
+  failed at prediction on all 9 splits, on two attempts: a 13.9 GiB feed-forward activation could not
+  be allocated with 59.5 GiB live and 32.8 GiB reserved but fragmented. Fixed without touching the
+  recipe by enabling `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` from the wrapper's warm-up
+  (`configure_cuda_allocator` in `mitra_v2/model.py`); the 9 splits were resubmitted through the same
+  `setup()` (the cache check re-approved exactly those) and completed in 49 to 51 min each (log loss
+  0.174 to 0.176, about 2470 s fit). 127 GPU-hours of measured training time in total. Eval on
+  `[[], ["binary"], ["multiclass"], ["regression"]]`: Elo 1766 (position 3) on the full leaderboard
+  against 1314 for Mitra (v1). Extra dep in the run venv: `autogluon.tabular[mitra]>=1.6,<1.7`;
+  `flash-attn` not installed (the reference numbers were calibrated without it). Venv
+  `tabarena_mitra_v2_10092026` imports the `add-mitra-v2` checkout of this clone.
+
+```python
+from tabarena.benchmark.experiment import TabArenaV0pt1ExperimentBundle
+from tabarena.benchmark.task.metadata import TaskSubset
+from tabflow_slurm import (
+    GCPSlurmSetup,
+    ModelJob,
+    PathSetup,
+    TabArenaV0pt1BenchmarkPlan,
+    TabArenaV0pt1ResourcesSetup,
+)
+
+plan = TabArenaV0pt1BenchmarkPlan(
+    benchmark_name="mitrav2_10092026",
+    model_jobs=[
+        ModelJob(
+            models=("Mitra-v2", 0),
+            name="gpu",
+            resources={
+                "num_gpus": 1,
+                # The gpu_partition's VRAM in GB (gpurtxpro6000flex -> RTX PRO 6000 -> 96).
+                "fake_memory_for_estimates": 96,
+            },
+        ),
+    ],
+    task_subset=TaskSubset(),  # full task set (all splits)
+    path_setup=PathSetup(
+        workspace="/home/lennart_priorlabs_ai/workspace/benchmarking/tabarena_workspace",
+        python_path="/home/lennart_priorlabs_ai/.venvs/tabarena_mitra_v2_10092026/bin/python",
+    ),
+    experiment_bundle=TabArenaV0pt1ExperimentBundle(model_verbosity=2),
+    resources_setup=TabArenaV0pt1ResourcesSetup(num_cpus=None, memory_limit=None),
+    # bundle_size=1: one fit per SLURM array task (each is ~8 fine-tunes).
+    scheduler_setup=GCPSlurmSetup(gpu_partition="gpurtxpro6000flex", bundle_size=1),
+)
+plan.setup_jobs()
 ```
 
 ---
