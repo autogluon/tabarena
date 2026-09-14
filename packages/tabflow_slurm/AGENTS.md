@@ -60,12 +60,23 @@ tabflow_slurm/                      ← this folder (docs, examples, history, py
 4. `scheduler.get_run_commands()` writes the job JSON (splitting at `max_array_size`) and returns the
    `sbatch` command(s). The plan prints one consolidated summary.
 
-Then: `sbatch … submit_template.sh <job.json>` → array task picks `jobs[SLURM_ARRAY_TASK_ID]` → runs
-`run_tabarena_experiment.py` per item → `setup_slurm_job()` + `JobBatch.load()` +
-`ExperimentBatchRunner.run_jobs()` (the exact same execution path as a local benchmark run).
+Then: `sbatch … submit_template.sh <job.json>` → array task picks `jobs[SLURM_ARRAY_TASK_ID]`,
+creates its node-local scratch (below), optionally stages the run's weights and pre-touches the
+libraries, then runs `python -P run_tabarena_experiment.py` per item. The runner aligns the thread
+variables to the CPU affinity, applies the offline-weights environment, loads the `JobBatch` and the
+job (which applies the batch's cache config), and only then calls `setup_slurm_job()`, with Ray
+started only when `Experiment.uses_ray` says the fit can reach it; the fit itself goes through
+`ExperimentBatchRunner.run_jobs()` (the same execution path as a local benchmark run).
 A method whose warm-up raised or left steps failed is aborted before its timed fit (`require_warmup`,
 true in the job defaults and the runner CLI); `TabArenaBenchmarkPlan(require_warmup=False)` or
 `--require_warmup false` records the report and fits cold instead.
+
+Job scratch layout (`submit_template.sh`): `${TMPDIR:-/tmp}/tj_<SLURM_JOB_ID>/` holds `tmp/`
+(the job's `TMPDIR`), `ag/` (`TABARENA_MODEL_ARTIFACTS_BASE_PATH`, the predictor artifacts of every
+item), `stage/` (the node-local copy of the weights, `HF_HOME` and `TABPFN_MODEL_CACHE_DIR` when
+staging succeeded) and `ray/` (`--ray_temp_root`). The script `cd`s into it before the first
+python starts and an `EXIT` trap removes the whole tree. JIT caches (numba, Triton, NVIDIA) live
+outside it, keyed per node, user and venv, so later jobs on a warm node reuse them.
 
 ## Conventions
 
@@ -99,6 +110,30 @@ true in the job defaults and the runner CLI); `TabArenaBenchmarkPlan(require_war
 - **Time budget** for `--time` = `ResourcesSetup.time_limit_per_config × configs_per_job +
   time_limit_overhead` (hours). `configs_per_job` is the worst-case bundle size from
   `bundle_items()`.
+- **Load before Ray.** The runner loads the batch and the job before `setup_slurm_job()` so that
+  `Experiment.uses_ray(problem_type=...)` can decide whether a Ray runtime is started at all; a fit
+  that never reaches Ray (a foundation model, a sequential bag) runs without the daemons and their
+  0.5 to 1.5 GB RSS. Keep that order when editing the runner, and never write `os.environ` at
+  module import time in a model module: the thread variables and the offline-weights environment
+  are set once by the runner before any heavy import.
+- **`offline_weights`** (`TabArenaBenchmarkPlan`, default `"auto"`): jobs export `HF_HUB_OFFLINE=1`,
+  `HF_HUB_DISABLE_PROGRESS_BARS=1` and `AG_FETCH_PRETRAINED_WEIGHTS=false` when the head-node prefetch
+  covered every selected model (`PrefetchReport.complete`), no system is selected (a system fetches
+  its own checkpoints at fit time) and no run encodes text at fit time. A cache miss is then a failed item, never a download inside the timed fit. The HF cache
+  must be shared between the head node and the compute nodes.
+- **Node staging defaults** (`NodeStagingSetup` on `SlurmSetup`): `stage_weights=True` copies the
+  run's HF `models--*` repo dirs and TabPFN checkpoints (enumerated by
+  `tabarena.models.staging.collect_weight_paths` from the prefetchers' return values) into the job
+  scratch with an rsync, keeping `reserve_bytes` (10 GB) free and falling back to the shared
+  filesystem on any error; non-staged repo dirs are overlaid as symlinks so unenumerated assets still
+  resolve. `pretouch_libs=True` reads the job's model libraries into the page cache once per node
+  boot (`node_prep.py`, `pretouch_max_bytes` 2 GB). Everything lands in `defaults.staging` of the
+  job JSON; a job JSON without the block runs without staging.
+- **Continue on failure.** A failing item does not abort its bundle: the template logs `##### item
+  FAILED (exit N)`, keeps going (stopping only after three consecutive failures) and exits non-zero
+  at the end, so `sacct` still shows `FAILED` while the successful items' `results.pkl` are on disk.
+  The runner cleans up after a failed item (`cleanup_on_failure=True`) and copies the Ray worker
+  logs of that item to `slurm_out/<benchmark>/<ARRAY_JOB_ID>/ray_logs/task_<i>/`.
 - **`fake_memory_for_estimates`** intentionally lies to a model's memory estimator; it does not
   change the SLURM `--mem`. Set it to the GPU's VRAM in GB for every GPU model — AutoGluon budgets
   parallel bagging folds against the reported memory limit (node RAM by default) and never accounts

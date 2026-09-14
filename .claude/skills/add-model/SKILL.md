@@ -158,47 +158,73 @@ a speed-up: add one entry to `SMOKE_OVERRIDES`, keyed by the model's `MethodMeta
 `ModelSmokeTest(problem_types=("regression",))` for a regression-only model. If the model
 fits fine with default hyperparameters on all problem types, add nothing.
 
-### 3g. Warm-up (untimed environment warm-up) — decide, don't skip
+### 3g. Warm-up (untimed environment warm-up): decide, don't skip
 
-TabArena runs an untimed warm-up before every timed fit (`AbstractExecModel.warmup_fn` →
-`tabarena.models.warmup.warmup_model_cls`), so one-time per-environment costs — heavy imports,
-JIT/kernel compilation, CUDA context creation — don't inflate the measured `time_train_s` /
-`time_infer_s` or eat into the fit time limit. Decide what the new model needs (code template
-in `references/model_patterns.md` → "Warm-up classmethod"):
+TabArena runs an untimed warm-up before every timed fit (`AbstractExecModel.warmup_fn`, dispatched
+per model class by `tabarena.models.warmup.warmup_model_cls`), so one-time per-environment costs
+(library imports, JIT and kernel compilation, the CUDA context, pretrained weights) stay out of
+`time_train_s` / `time_infer_s` and the fit time limit. The layers are additive and run in this
+order for every model; a new model declares only what the generic layers cannot see:
 
-| Situation | Warm-up |
+1. An optional `warmup` classmethod, `warmup(cls, *, problem_type=None, num_cpus=None,
+   num_gpus=None, hyperparameters=None, **kwargs) -> None`, for work the declarative layers cannot
+   express (a library's own kernel pre-compilation, allocator settings that must precede the CUDA
+   context). References: `chimeraboost`, `mitra_v2`.
+2. Torch import plus CUDA context for `AbstractTorchModel` subclasses (automatic).
+3. `warmup_modules: ClassVar[tuple[str, ...]] = ("yourlib", "yourlib.submodule")`: the modules
+   `_fit` and `_predict` import lazily, merged over the MRO. A `"torch"` entry also creates the CUDA
+   context for a torch-backed model on plain `AbstractModel`.
+4. The `ag_key` map in `warmup.py` for AutoGluon built-ins (LightGBM, CatBoost, XGBoost, ...).
+5. Shared checkpoint weights, when the class implements the convention below.
+6. A dummy fit and predict on a small synthetic dataset (`make_synthetic_frames`, fixed seed, no
+   task data), which triggers the lazy imports, library caches and kernel loads a first fit pays.
+   Opt-outs on the class: `warmup_dummy_fit = False`, `warmup_dummy_fit_kwargs` (`n_rows`,
+   `n_features`, `n_categorical`, `time_limit`) and `warmup_dummy_fit_hyperparameters` (cheapness
+   knobs such as `n_estimators=1`; never a checkpoint-relevant key).
+
+| Situation | Declare |
 |---|---|
-| Torch model on `AbstractTorchModel` | **Automatic** (generic torch import + CUDA context). Add a `warmup` classmethod only for *extra* one-time costs (a heavy library import like `transformers`, kernel pre-compilation). |
-| Torch-backed model on `AbstractModel` | Declare a `warmup` classmethod calling `warmup_torch(...)` — the generic torch fallback doesn't reach non-`AbstractTorchModel` classes. References: `modernnca`, `xrfm`, `tabstar`. |
-| Library JIT-compiles kernels (numba, JAX, custom CUDA) | Call the library's own warm-up / pre-compile entry point if one exists (reference: `chimeraboost`, which requires `chimeraboost>=0.14.1` for its `warmup()`). Disk-cached compilation is the most valuable kind (see limitation below). |
-| Heavy compiled-CPU import only | `warmup_imports("<lib>")` in a small `warmup` classmethod (AG built-ins like LightGBM/CatBoost/XGBoost are already covered by the `ag_key` map in `warmup.py`). |
-| sklearn-like / lightweight | Nothing. |
+| sklearn-like or lightweight | Nothing; the dummy fit covers it. |
+| Torch model on `AbstractTorchModel` | `warmup_modules` with the heavy extra imports (`transformers`, ...). |
+| Torch-backed model on `AbstractModel` | `warmup_modules = ("torch", "yourlib")`. References: `modernnca`, `xrfm`, `tabstar`. |
+| Library JIT-compiles kernels (numba, JAX, custom CUDA) | A `warmup` classmethod calling the library's pre-compile entry point when one exists (`chimeraboost`, whose `warmup()` needs `chimeraboost>=0.14.1`). Ask the user for the entry point and minimum version when the docs do not say. |
+| Foundation model with pretrained weights | `SharedWeightsModelMixin` plus a `SharedWeightsSpec` (below), plus `warmup_modules`. |
 
-Classmethod convention (dispatched by `warmup_model_cls`):
-`warmup(cls, *, problem_type=None, num_cpus=None, num_gpus=None, hyperparameters=None, **kwargs) -> None`
-— keyword-only, accept `**kwargs`, read only what you need. **Fairness contract**: data-independent
-work only; never touch task data or carry task-/data-specific state into the fit.
+Fairness contract (the `tabarena/models/warmup.py` module docstring is the reference): data-independent
+work only; never task data, never task- or data-specific state carried into the fit, never a global
+random number generator advanced.
 
-**This step may need the user's input — ask instead of guessing**: whether the library exposes a
-warm-up / pre-compile function (and from which version), and whether its kernel cache persists to
-disk, is usually not in the docs you fetched. If unclear, ask the user before inventing one.
+**Foundation models share one network.** One immutable network per (checkpoint, estimator variant,
+device, dtype) per process, primed by the warm-up and shared by the fold children and the refit child.
+The wrapper inherits `SharedWeightsModelMixin` as its first base (`tabarena/models/_shared_weights_model.py`;
+the module docstring is the how-to) and declares a `SharedWeightsSpec`: the library name, `CheckpointSpec`
+coordinates or a resolver hook, the variant per problem type, dtype, key flags, opt-out conditions with
+examples, and the estimator attribute that holds the network. The one mandatory hook is
+`_build_shared_weights(key)`; the mixin implements key derivation, priming, weightless pickling, device
+swaps, `prepare_for_inference`, memory size, class tags, `prefetch_weights` and the
+`get_info()["shared_weights"]` block once. A library estimator that loads its network in a
+`_load_model`-style method gets a derived class from `derive_shared_estimator`
+(`tabarena/models/_shared_estimators.py`); a fine-tuning model uses `mode="state_dict"`. References:
+`tabicl` (load-model seam), `tabpfn_3` (the TabPFN preset in `tabpfnv2_5/_shared.py`), `mitra_v2`
+(state dict). Sharing is off for a configuration when `shared_weights_key` returns `None` (the spec's
+`disable_when`) and per class through `model_class_settings={"<ag_key>": {"share_weights": False}}`.
+The single test file `tests/tabarena/models/test_shared_weights_models.py` discovers the wrapper from
+the registry; fill its block in the per-wrapper fake table there instead of writing a per-model test.
 
-**Always raise the limitation to the user (in the Step 8 report)**: warm-up warms the *main job
-process* and *disk-backed caches* only. Bagged fits with parallel (Ray) fold fitting spawn fresh
-worker processes whose imports / CUDA init still land in the measured fit time — only disk-backed
-compile caches (e.g. numba's) carry over to workers. See the `tabarena/models/warmup.py` module
-docstring for the authoritative scope.
+**Inference side.** The exec model persists the fitted model in memory around the predict timer
+(`AGWrapper.persist`, through `persist_inference.persist_for_inference`) and calls an optional
+instance method `prepare_for_inference(self) -> None` on every persisted object, bagged children
+included. Its contract is written once, in `AbstractExecModel.pre_predict` (`exec_models/base.py`);
+refer to it instead of restating it. Data-dependent first-predict work (`torch.compile` on the real
+batch, kernel dispatch for the real shapes) is measured by design.
 
-**Inference-side (untimed predict prep)**: the exec model persists the fitted model in memory
-around the inference timer by default (`AGWrapper.persist`, memory-guarded), so model loading
-from disk is untimed when it fits in memory. A model wrapper can additionally declare an
-**instance** method `prepare_for_inference(self) -> None` — called untimed on every persisted
-model object (including bagged children) right before the inference timer — for model-only prep
-such as moving weights offloaded at the end of `_fit` back to the inference device. It must never
-touch test data. The hook is dispatched on every fit path: bagged/holdout via persist, and
-outer/direct fits (`AGModelWrapper`, whose model is already in memory) directly. Beyond that: do **not** defer heavy one-time work to the first `_predict` when
-it can live in `_fit` or `warmup`; data-dependent first-predict work (e.g. `torch.compile` on the
-real batch) is deliberately measured — don't try to warm it.
+**Check it.** `python -P -m tabarena.tools.audit_warmup --model <Method>` (from the repo root) runs
+the warm-up, then a fit and predict on synthetic data, and prints the warm-up report and the packages
+each timed section still imported. `pytest -m models tests/tabarena/models/test_warmup_coverage.py -k <Method>`
+asserts the same per registered model; `allowed_lazy_imports` on `ModelSmokeTest` is the escape
+hatch and needs a comment. Both see the main process only: parallel Ray fold workers start cold, and
+code vendored under `tabarena.models` is invisible to the diff. Report the warm-up decision and this
+limitation in Step 8.
 
 ## Step 4: Edit existing files
 

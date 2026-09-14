@@ -196,18 +196,28 @@ collection to the jobs' tasks and `materialize()` them (download only those) →
 `JobBatch` artifact (experiments.yaml + task_metadata.csv + jobs.json) → bundle.
 
 ### Runtime (what runs on the node)
-- **`run_tabarena_experiment.py`** — the runner a single array task invokes per item. Loads the
-  shipped `JobBatch`, looks the item's `(experiment, dataset, fold, repeat)` coordinates up in the
-  batch's serialized job list (stale coordinates fail loudly), calls `setup_slurm_job()`, then runs
-  that job through `ExperimentBatchRunner.run_jobs` — the exact same execution path (task
-  resolution, results naming, cache layout) as a local benchmark run. Results cache under
-  `output/<benchmark_name>/`.
-- **`submit_template.sh`** — the `sbatch` array script. Reads `defaults` + the array index's `items`
-  from the job JSON (with `jq`) and runs the runner once per item.
+- **`run_tabarena_experiment.py`** — the runner a single array task invokes per item (with
+  `python -P`). Aligns the thread variables to the CPU affinity, applies the offline-weights
+  environment, loads the shipped `JobBatch`, looks the item's `(experiment, dataset, fold, repeat)`
+  coordinates up in the batch's serialized job list (stale coordinates fail loudly), then calls
+  `setup_slurm_job()` (Ray is started only when the experiment's fit can reach it) and runs the job
+  through `ExperimentBatchRunner.run_jobs` — the exact same execution path (task resolution,
+  results naming, cache layout) as a local benchmark run. Results cache under
+  `output/<benchmark_name>/`. A failed item is cleaned up and its Ray worker logs are copied next to
+  the SLURM output.
+- **`submit_template.sh`** — the `sbatch` array script. Creates a per-job node-local scratch
+  directory (`${TMPDIR:-/tmp}/tj_<job id>/` with `tmp/`, `ag/` for the predictor artifacts, `stage/`
+  for staged weights, `ray/`), optionally copies the run's foundation-model weights into it and
+  pre-touches the model libraries (`defaults.staging`), reads the array index's `items` from the job
+  JSON (with `jq`) and runs the runner once per item. A failing item is logged (`##### item FAILED`)
+  and its siblings still run; the task exits non-zero at the end. An `EXIT` trap removes the scratch
+  directory.
 - **`slurm_utils.py::setup_slurm_job`** — per-node setup: initializes Ray for a **shared-filesystem**
-  SLURM environment (unique temp dir, plasma store sizing, forkserver) so parallel workers don't
-  collide. (Caches are configured separately, by `run_experiment` applying the `JobBatch`'s
-  `cache_config`.)
+  SLURM environment (unique temp dir under the job scratch, plasma store sizing, forkserver) so
+  parallel workers don't collide. (Caches are configured separately, by `run_experiment` applying
+  the `JobBatch`'s `cache_config`.)
+- **`node_prep.py`** — the once-per-node-boot page-cache pre-touch of the job's libraries, invoked by
+  the template.
 
 ---
 
@@ -224,7 +234,12 @@ collection to the jobs' tasks and `materialize()` them (download only those) →
     "output_dir": ".../output/<benchmark_name>",
     "num_cpus": 8, "num_gpus": 0, "memory_limit": 32,
     "ignore_cache": false,
-    "setup_ray_for_slurm_shared_resources_environment": true
+    "offline_weights": true,
+    "setup_ray_for_slurm_shared_resources_environment": true,
+    "slurm_log_dir": ".../slurm_out/<benchmark_name>",
+    "staging": {"stage_weights": true, "hf_repo_dirs": ["..."], "tabpfn_files": [], "reserve_bytes": 10737418240,
+                "pretouch_libs": true, "pretouch_packages": ["..."], "pretouch_max_bytes": 2147483648,
+                "jit_cache_max_mb": 2048}
   },
   "jobs": [
     {"items": [{"experiment": "LightGBM_c1", "dataset": "anneal", "fold": 0, "repeat": 0}, ...]},
@@ -234,7 +249,11 @@ collection to the jobs' tasks and `materialize()` them (download only those) →
 ```
 
 `SLURM_ARRAY_TASK_ID` selects `jobs[i]`; the submit script runs the runner once per `items` entry,
-using `defaults` for everything shared.
+using `defaults` for everything shared. `offline_weights` (decided by the plan from the head-node
+prefetch) makes the jobs resolve checkpoints from the shared cache only, so a miss fails the item
+instead of downloading inside the timed fit; `staging` (from `NodeStagingSetup`, on by default) lists
+the weight files copied onto node-local scratch and the pre-touch budget. Older job JSONs without
+these keys still run.
 
 ---
 
@@ -261,3 +280,8 @@ using `defaults` for everything shared.
   splits them — that's how GPU vs CPU models become separate `sbatch` commands.
 - **Re-running is cache-aware.** A second `setup_jobs()` only emits the items still missing from
   `output/<benchmark_name>/`; pass `ignore_cache=True` (on a `ModelJob`) to force a rerun.
+- **A `FAILED` array task is a bundle with at least one failed item**, not a lost bundle: the other
+  items' `results.pkl` are on disk, the log names each failed item, and a second `setup_jobs()`
+  re-emits only what is missing.
+- **Run setup and `run_local` from the repo root.** Ray puts the driver's cwd on every worker's
+  `sys.path`; a cwd that contains an `autogluon/` checkout shadows the installed AutoGluon.

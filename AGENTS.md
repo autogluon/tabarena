@@ -84,8 +84,20 @@ The default `pytest` deselects two slow/fragile groups via `addopts`
   models whose optional deps aren't installed (`ImportError`) or that need a GPU
   (`compute='gpu'`, no CUDA). Run one model with `pytest -m models -k TabM`, or
   the whole sweep with `pytest -m models` (needs `tabarena[benchmark]`).
+  `test_warmup_coverage.py` carries the same marker and runs the warm-up audit per model
+  in a fresh `python -P` subprocess.
 
-Both groups run in the nightly workflow. CI's per-PR job (`.github/workflows/pytest-pytest.yml`)
+Both groups run in the nightly workflow.
+
+Run `python -m ...` and `python -c ...` from the repo root, never from the workspace directory
+that holds the editable `autogluon/` checkout: with that directory on `sys.path[0]`,
+`autogluon.tabular` resolves to an empty namespace package, every model `info.py` fails to
+import, and the registry comes out empty. `get_model_registry()` raises in that case
+(`assert_autogluon_resolves`), `registry_or_fail()` in `tests/tabarena/models/smoke_configs.py`
+fails collection instead of parametrizing a registry-driven test over nothing, and `python -P`
+(or `PYTHONSAFEPATH=1`) makes the interpreter safe from any cwd. The `pytest` console script is
+safe from any cwd. `setup`, `sbatch` and `python -m tabflow_slurm.run_local` are run from the repo
+root too: Ray puts the driver's cwd on every worker's `sys.path`, which `-P` does not cover. CI's per-PR job (`.github/workflows/pytest-pytest.yml`)
 runs `pytest` on Python 3.11 against `./packages/tabarena[plot,preprocessing,data-foundry]`
 plus the editable `tabflow_slurm` package (so its tests and the data_foundry-gated tests run),
 but **not** `[text]`/`[benchmark]` — so it stays fast (no model fitting, no torch).
@@ -138,12 +150,13 @@ One coupling to know about when you register a system: `eval_all.get_pool_refere
 
 ### Data caching
 
-TabArena uses five independent caches. Configure them all at once with `tabarena.caching.CacheConfig` — the single, documented surface (`TabArenaContext(cache_config=CacheConfig.from_root(...))`; the context applies it on construction and re-applies it inside `run_jobs`, so distributed workers inherit it). The SLURM path uses the **same** object: the setup embeds `context.cache_config` in the `JobBatch`, and each worker applies it (no `--openml_cache_dir` wiring). See the `CacheConfig` docstring for the authoritative per-cache reference.
+TabArena uses six independent caches. Configure them all at once with `tabarena.caching.CacheConfig` — the single, documented surface (`TabArenaContext(cache_config=CacheConfig.from_root(...))`; the context applies it on construction and re-applies it inside `run_jobs`, so distributed workers inherit it). The SLURM path uses the **same** object: the setup embeds `context.cache_config` in the `JobBatch`, and each worker applies it (no `--openml_cache_dir` wiring). See the `CacheConfig` docstring for the authoritative per-cache reference.
 
 | Cache | `CacheConfig` field | Holds | Set via | Default |
 |---|---|---|---|---|
 | OpenML (most important) | `openml` | Materialized datasets + CV splits + all TabArena-derived task artifacts (`tabarena_tasks/`, `tabarena_text_cache/`, `tabarena_metadata_cache/`, `local/datasets/`) | `openml.config.set_root_cache_directory` (no env var) | `~/.cache/openml` |
-| HuggingFace | `huggingface` | Foundation-model weights (TabPFN / Mitra / LimiX / ... + text-embedding models) | `HF_HOME` | `~/.cache/huggingface/hub` |
+| HuggingFace | `huggingface` | Foundation-model weights (Mitra / LimiX / ... + text-embedding models) | `HF_HOME` | `~/.cache/huggingface/hub` |
+| TabPFN | `tabpfn` | TabPFN `.ckpt` checkpoints (the `tabpfn` package keeps its own cache, not `HF_HOME`); `from_root` now derives `<root>/tabpfn`, so copy `~/.cache/tabpfn/*.ckpt` there or pass `tabpfn=None` | `TABPFN_MODEL_CACHE_DIR` | `~/.cache/tabpfn` |
 | Data Foundry | `data_foundry` | The one-time raw dataset download (data_foundry/BeyondArena), later materialized into the OpenML cache. **Not** `HF_HOME` — data_foundry passes an explicit `cache_dir` to `snapshot_download` | `DATA_FOUNDRY_CACHE` | `~/.cache/data_foundry` |
 | TabArena | `tabarena` | Results / baselines / leaderboard artifacts (~100 GB raw, ~10 GB processed, <1 MB results per method) | `set_tabarena_cache_root` / `TABARENA_CACHE` | `~/.cache/tabarena` |
 | Results (run output) | `results` | The runner's `expname` (`{expname}/data/{method}/{task}/{repeat}_{fold}/results.pkl`) | `run_jobs(expname=...)` | throwaway temp dir |
@@ -201,7 +214,9 @@ One-time setup, and who can do it:
 
 ## Conventions
 
-- **Add a new model**: create one folder `packages/tabarena/src/tabarena/models/<model>/` (`model.py`, `hpo.py`, `info.py`, `__init__.py`), then edit `models/__init__.py` (lazy class entry), `packages/tabarena/pyproject.toml` (a per-model extra), and `website/website_format.py` (the leaderboard family); `models/utils.py` needs no edit (auto-registry). The registry auto-discovers the model from its `info.py`, and `tests/tabarena/models/test_all_models.py` then fits it automatically — there is **no per-model test file**. Only add an entry to `tests/tabarena/models/smoke_configs.py` if the smoke fit needs faster toy hyperparameters or a restricted problem-type set (keyed by the model's `MethodMetadata.method`). **Use the `add-model` skill**, which encodes this and points to reference implementations (foundation / torch / sklearn).
+- **Add a new model**: create one folder `packages/tabarena/src/tabarena/models/<model>/` (`model.py`, `hpo.py`, `info.py`, `__init__.py`), then edit `models/__init__.py` (lazy class entry), `packages/tabarena/pyproject.toml` (a per-model extra), and `website/website_format.py` (the leaderboard family); `models/utils.py` needs no edit (auto-registry). The registry auto-discovers the model from its `info.py`, and `tests/tabarena/models/test_all_models.py` then fits it automatically — there is **no per-model fit test file** (a model may still have a unit-test file for wrapper logic that a fit does not reach). Only add an entry to `tests/tabarena/models/smoke_configs.py` if the smoke fit needs faster toy hyperparameters or a restricted problem-type set (keyed by the model's `MethodMetadata.method`). **Use the `add-model` skill**, which encodes this and points to reference implementations (foundation / torch / sklearn).
+- **Warm-up and the timing audit**: every timed fit is preceded by an untimed environment warm-up (`AbstractExecModel.warmup_fn`, layered per model class in `tabarena/models/warmup.py`: an optional `warmup` classmethod, torch and the CUDA context, the class's `warmup_modules`, the shared checkpoint weights of a foundation model from `tabarena/models/_weights.py`, a dummy fit on synthetic data). A wrapper declares its lazy imports in `warmup_modules` and, for a foundation model, inherits `SharedWeightsModelMixin` (`tabarena/models/_shared_weights_model.py`, whose module docstring is the how-to) and declares a `SharedWeightsSpec`; the fairness contract (data-independent work only) is in the `warmup.py` docstring. Check a model with `python -P -m tabarena.tools.audit_warmup --model <Method>` from the repo root (the timed fit and predict should import no new package), a finished run with `--results <output dir>`; `tests/tabarena/models/test_warmup_coverage.py` (marker `models`) asserts it per registered model. Both see the main process only: parallel Ray fold workers start cold. A warm-up that raised or left steps failed aborts the run before the timed fit (`ExperimentRunner(require_warmup=True)`, the default; the SLURM runner's `--require_warmup false` or `TabArenaBenchmarkPlan(require_warmup=False)` bypasses it), so a cold timed fit is never recorded silently.
+- **Result metadata**: on top of the timing and memory keys, a `results.pkl` carries `experiment_metadata["warmup_report"]`, `["timing_audit"]`, `["cpu_thread_info"]` and `["time_warmup_s"]`, and the method metadata `shared_weights`, `persisted_models`, `prepared_for_inference` and `per_child_test_source`. Results written before a key existed lack it, so consumers read these with `.get` (the `_collect_memory_usage` docstring in `exec_models/base.py` lists the baseline shifts of the memory keys).
 - **Add a new system**: create one folder `packages/tabarena/src/tabarena/systems/<system>/` (`system.py` with the `ExternalSystemModel` subclass, `hpo.py` with the `SystemConfigGenerator`, `info.py` with the `SystemInfo` + `MethodMetadata.system(...)`, `__init__.py`) and add the extra to `packages/tabarena/pyproject.toml`. `discover_systems()` picks it up from `info.py`; `pytest tests/tabarena/systems/` checks the registration, and there is no per-system fit test (verify with `examples/benchmarking/run_quickstart_tabarena_system.py`). `tags` decide the entrant pools (see "Systems" above). **Use the `add-system` skill.**
 - **Imports**: `from __future__ import annotations` must be the first import in every `.py` file. Use absolute imports rooted at the package (e.g., `from tabarena.repository import EvaluationRepository`).
 - **Optional dependencies**: each model has its own pyproject extra under `packages/tabarena/pyproject.toml`; the `benchmark` extra is the union. Heavy/optional libs must never be imported at module top-level in core paths — import inside the model wrapper.
