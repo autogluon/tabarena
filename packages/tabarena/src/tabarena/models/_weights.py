@@ -334,6 +334,29 @@ def _rng_guard(*, cuda: bool) -> Iterator[None]:
             np_module.random.set_state(np_state)
 
 
+@contextmanager
+def rng_guard(*, cuda: bool | None = None) -> Iterator[None]:
+    """Run a block with the Python, NumPy and torch random states saved and restored around it.
+
+    The public form of the guard every registry loader runs under, for callers that build or fit a
+    network outside the registry (the warm-up's dummy fit). ``cuda=None`` forks the CUDA generators
+    whenever torch is importable and CUDA is available, so a block that creates the CUDA context
+    itself is covered too; ``True`` and ``False`` force the choice. Forking the CUDA generators
+    reads their state through ``torch.cuda.get_rng_state``, which creates the CUDA context on every
+    visible device when none exists yet, so pass ``False`` (or ``torch.cuda.is_initialized()``) for
+    a block that must stay off the GPU on a CUDA host.
+    """
+    if cuda is None:
+        try:
+            import torch
+        except ImportError:
+            cuda = False
+        else:
+            cuda = bool(torch.cuda.is_available())
+    with _rng_guard(cuda=cuda):
+        yield
+
+
 def _run_loader(key: WeightsKey, loader: Callable[[], Any]) -> tuple[Any, float]:
     """Run ``loader`` under the RNG guard; returns the value and the load time in seconds."""
     torch_module = sys.modules.get("torch")

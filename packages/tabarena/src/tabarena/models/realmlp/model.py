@@ -4,7 +4,7 @@ import copy
 import logging
 import time
 from contextlib import contextmanager
-from typing import Literal
+from typing import ClassVar, Literal
 
 import numpy as np
 import pandas as pd
@@ -40,6 +40,7 @@ class RealMLPModel(AbstractTorchModel):
     """
 
     ag_key = "TA-REALMLP"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("pytabkit",)
     ag_name = "TA-RealMLP"
     ag_priority = 75
     seed_name = "random_state"

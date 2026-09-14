@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import ClassVar
 
 import pandas as pd
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
@@ -30,6 +31,7 @@ class TabMModel(AbstractTorchModel):
     """
 
     ag_key = "TA-TABM"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("tabarena.models.tabm._internal._tabm_internal",)
     ag_name = "TA-TabM"
     ag_priority = 85
     _supported_problem_types = ["binary", "multiclass", "regression"]

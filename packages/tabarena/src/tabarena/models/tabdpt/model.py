@@ -39,6 +39,7 @@ class TabDPTModelBase(AbstractTorchModel):
     """
 
     ag_key = "NOTSET"
+    warmup_modules: ClassVar[tuple[str, ...]] = ("tabdpt", "huggingface_hub")
     ag_name = "NOTSET"
     ag_priority = 65
     seed_name = "seed"

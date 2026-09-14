@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import numpy as np
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
@@ -35,6 +35,11 @@ class NoriModel(AbstractTorchModel):
     """
 
     ag_key = "TA-NORI"
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "synthefy_nori",
+        "synthefy_nori.hf",
+        "synthefy_nori.inference.predictor",
+    )
     ag_name = "TA-Nori"
     ag_priority = 65
     _supported_problem_types = ["regression"]

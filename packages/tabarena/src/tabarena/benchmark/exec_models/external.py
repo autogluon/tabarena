@@ -7,7 +7,7 @@ and prediction — for example an AutoML tool or an LLM-driven agent. See
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from tabarena.benchmark.exec_models.base import AbstractExecModel
 
@@ -37,14 +37,17 @@ class ExternalSystemModel(AbstractExecModel):
     Your system is handed the raw data and does its own preprocessing and label handling; TabArena
     fixes the data splits and scoring, so results stay comparable to the leaderboard. Add ``__init__``
     arguments for your system's settings (forward ``**kwargs`` to ``super().__init__``) and a
-    ``cleanup`` method to free files / memory. Two optional untimed hooks are available as no-op
-    stubs on the base class: override the ``warmup_fn`` property to warm your system's environment
-    (imports, JIT/kernel compilation, runtime startup) before the timed fit — it must stay
-    data-independent — and/or override ``pre_predict`` / ``post_predict`` for inference-side
-    preparation around the timed predict (e.g. bringing your fitted system into serving state /
-    releasing it): they may touch the fitted system but never the test data. See
-    ``AbstractExecModel`` for the contracts and
-    ``examples/benchmarking/run_quickstart_tabarena_system.py`` for a runnable example.
+    ``cleanup`` method to free files / memory. Two optional untimed hooks are available. For the
+    warm-up before the timed fit, declare ``warmup_modules = ("yourlib",)`` and/or
+    ``warmup_torch_device = True`` on the subclass for an import-plus-CUDA warm-up (the CUDA
+    decision follows ``num_gpus`` from ``fit_kwargs``), or override the ``warmup_fn`` property for
+    anything else (runtime startup, kernel compilation); it must stay data-independent, should
+    start from ``self._declared_warmup()`` and return the ``WarmupReport``. The synthetic dummy fit
+    is off for systems (``warmup_dummy_fit = False``): fitting a whole pipeline is too heavy for a
+    warm-up. For inference-side preparation around the timed predict, override ``pre_predict`` /
+    ``post_predict`` (e.g. bringing your fitted system into serving state / releasing it): they may
+    touch the fitted system but never the test data. See ``AbstractExecModel`` for the contracts
+    and ``examples/benchmarking/run_quickstart_tabarena_system.py`` for a runnable example.
     """
 
     # An external system gets the raw data and does its own preprocessing, label handling, and
@@ -53,6 +56,11 @@ class ExternalSystemModel(AbstractExecModel):
     preprocess_label = False
     can_get_oof = False
     can_get_error_val = False
+
+    # Declarative warm-up defaults (see the class docstring and ``AbstractExecModel.warmup_fn``).
+    warmup_modules: ClassVar[tuple[str, ...]] = ()
+    warmup_torch_device: ClassVar[bool] = False
+    warmup_dummy_fit: ClassVar[bool] = False
 
     def __init__(self, *, fit_kwargs: dict | None = None, **kwargs):
         super().__init__(**kwargs)
