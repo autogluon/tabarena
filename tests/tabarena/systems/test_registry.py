@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import types
+from importlib.machinery import ModuleSpec
 
 import pytest
 
+from tabarena.models import _registry as _models_registry
 from tabarena.models._method_metadata import MethodMetadata
 from tabarena.systems import _registry
 from tabarena.systems._registry import discover_systems, get_system_registry
@@ -41,9 +43,15 @@ def patched_discovery(monkeypatch, fresh_registry):
 
     Tests populate `state["submodules"]` with `(name, is_pkg)` tuples and
     `state["info_modules"]` with `name -> module-or-exception` to control exactly what the
-    discovery walk sees. Mirrors the models registry's fixture.
+    discovery walk sees. Mirrors the models registry's fixture, including the `find_spec` stub
+    (patched on the models module, where `assert_autogluon_resolves` looks it up).
     """
     state = {"submodules": [], "info_modules": {}}
+    monkeypatch.setattr(
+        _models_registry,
+        "find_spec",
+        lambda name: ModuleSpec(name, None, origin="/fake/autogluon/tabular/__init__.py"),
+    )
 
     def fake_iter_modules(_path):
         for name, is_pkg in state["submodules"]:
@@ -88,6 +96,14 @@ def test_discover_systems_skips_packages_whose_info_fails_to_import(patched_disc
 
     assert discover_systems() == {"Works": info_ok}
     assert "tabarena.systems.broken" in caplog.text
+
+
+def test_discover_systems_raises_when_every_package_is_skipped(patched_discovery):
+    patched_discovery["submodules"] = [("broken1", True), ("broken2", True)]
+    patched_discovery["info_modules"] = {"broken1": ImportError("x"), "broken2": ImportError("y")}
+
+    with pytest.raises(RuntimeError, match="tabarena.systems registry is empty"):
+        discover_systems()
 
 
 def test_discover_systems_rejects_duplicate_method_keys(patched_discovery):
