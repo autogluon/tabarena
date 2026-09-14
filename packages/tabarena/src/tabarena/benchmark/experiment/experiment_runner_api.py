@@ -396,6 +396,24 @@ def _load_sweep(
     return results
 
 
+def _model_identity(experiment) -> tuple:
+    """Identity of the model an experiment fits: its exec-model class and the wrapped `model_cls`.
+
+    Used by `_run_sweep` to decide when the shared-weights registry is released between items. A
+    class-valued `model_cls` is compared by the class object, a registry key by its string; an
+    experiment without one (a system) is identified by its exec-model class alone.
+    """
+    method_kwargs = getattr(experiment, "method_kwargs", None) or {}
+    return (getattr(experiment, "method_cls", None), method_kwargs.get("model_cls"))
+
+
+def _release_shared_weights() -> None:
+    """Drop every entry of the process-wide shared-weights registry (see `_run_sweep`)."""
+    from tabarena.models import _weights
+
+    _weights.release()
+
+
 def _run_sweep(
     jobs: Iterable[_Job],
     *,
@@ -414,9 +432,20 @@ def _run_sweep(
     any, is reused), hands off to `run`, and tracks success/fail + (non-`ignore`) hits. Each
     successful result is paired with its job's `input_index` so the caller can restore input
     order.
+
+    Between two items that fit different model classes the process-wide shared-weights registry
+    (`tabarena.models._weights`) is released, so a sweep over several foundation models does not
+    keep the previous model's network resident (on the GPU) while the next one fits; consecutive
+    items of one model keep hitting the primed entries. A SLURM job fits one item per process and
+    never reaches this.
     """
     results: list[tuple[int, dict]] = []
+    previous_identity = None
     for job in jobs:
+        identity = _model_identity(job.model_experiment)
+        if previous_identity is not None and identity != previous_identity:
+            _release_shared_weights()
+        previous_identity = identity
         if ignore_cache or not job.cache_existed:
             task, eval_metric_name, task_name = job.lazy_task.materialize()
         else:

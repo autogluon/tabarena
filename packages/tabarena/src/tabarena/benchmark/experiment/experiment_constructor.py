@@ -220,6 +220,23 @@ class Experiment:
         record["key"] = validation_protocol_key(record)
         return record
 
+    def uses_ray(self, *, problem_type: str | None = None) -> bool:
+        """Whether a fit of this experiment may start or use a Ray runtime.
+
+        Consulted by the SLURM worker to decide whether to start Ray before the fit (see
+        ``AbstractExecModel.uses_ray``). Delegates to ``method_cls.uses_ray`` with a deep copy of
+        ``method_kwargs`` (the experiment is never mutated) and answers True on any error, the safe
+        default: Ray started up front rather than cold inside the timed fit.
+
+        Args:
+            problem_type: The task's problem type when known; a model's default ensemble arguments
+                may depend on it.
+        """
+        try:
+            return bool(self.method_cls.uses_ray(copy.deepcopy(self.method_kwargs), problem_type=problem_type))
+        except Exception:
+            return True
+
     # --- Execution (fit / run) -------------------------------------------------------
     def run(
         self,
