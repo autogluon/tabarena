@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from tabarena.models._method_metadata import MethodMetadata
@@ -151,9 +152,17 @@ def dataset_records(
         "domain": "domain",
         "source": "source",
         "dataset_year": "year",
+        "target_imbalance_ratio": "imbalance_ratio",
+        "target_skewness": "target_skew",
     }
     available = {src: dst for src, dst in columns.items() if src in dataset_metadata.columns}
     meta = dataset_metadata[["dataset", *available]].rename(columns=available)
+    # The balanced / imbalanced verdict, as the arena's subset predicates draw it, so the
+    # browser's filter and a "balanced" leaderboard agree on every dataset.
+    if "target_imbalanced" in dataset_metadata.columns:
+        meta["balance"] = dataset_metadata["target_imbalanced"].map(
+            lambda v: None if v is None or pd.isna(v) else ("imbalanced" if bool(v) else "balanced"),
+        )
     merged = from_results.merge(meta, on="dataset", how="left")
     if "name" in merged.columns:
         merged["name"] = merged["name"].fillna(merged["dataset"])
@@ -162,30 +171,103 @@ def dataset_records(
     return merged
 
 
+def measured_results(results_per_split: pd.DataFrame) -> pd.DataFrame:
+    """The per-split results a method actually produced on a dataset.
+
+    An imputed score is a stand-in (a default RandomForest's result) for a model that could not
+    run on this dataset at all. It is a fair penalty in a leaderboard averaged over datasets, but
+    here it would claim the model was measured on this one, so those pairs are dropped before
+    anything is computed from them: the best error, the ranks, the gaps and the significance
+    tests are all over the methods that actually ran here.
+    """
+    df = results_per_split.copy()
+    if "imputed" in df.columns:
+        df = df[~df["imputed"].fillna(False).astype(bool)]
+    return df
+
+
 def per_dataset_points(results_per_split: pd.DataFrame) -> pd.DataFrame:
     """One row per (dataset, method): how that method did on that dataset alone.
 
     ``rank`` and ``imp`` are computed per split and then averaged, matching how the leaderboard
     aggregates them (:meth:`bencheval.evaluator.BenchmarkEvaluator.compute_improvability_per`),
-    so a dataset's numbers here are the per-dataset terms of the leaderboard's averages.
+    so a dataset's numbers here are the per-dataset terms of the leaderboard's averages. ``std``
+    is the standard deviation of the error over the splits (``NaN`` with a single split) and
+    ``tied`` whether the method is statistically tied with the dataset's best method, see
+    :func:`tied_with_best`.
     """
-    df = results_per_split.copy()
-    # An imputed score is a stand-in (a default RandomForest's result) for a model that could not
-    # run on this dataset at all. It is a fair penalty in a leaderboard averaged over datasets,
-    # but here it would claim the model was measured on this one, so those pairs are dropped
-    # before anything is computed from them: the best error, the ranks and the gaps are all over
-    # the methods that actually ran here.
-    if "imputed" in df.columns:
-        df = df[~df["imputed"].fillna(False).astype(bool)]
+    df = measured_results(results_per_split)
     best_per_split = df.groupby(["dataset", "fold"])["metric_error"].transform("min")
     df["_imp"] = (1 - best_per_split / df["metric_error"]).fillna(0.0) * 100
     df["_rank"] = df.groupby(["dataset", "fold"])["metric_error"].rank(method="average")
-    return df.groupby(["dataset", "method"], as_index=False).agg(
+    points = df.groupby(["dataset", "method"], as_index=False).agg(
         err=("metric_error", "mean"),
+        std=("metric_error", "std"),
         rank=("_rank", "mean"),
         imp=("_imp", "mean"),
         train_s=("time_train_s", "mean"),
     )
+    points = points.merge(tied_with_best(df), on=["dataset", "method"], how="left")
+    # A left merge fills unmatched rows with NaN; keep the column's `None`-or-bool contract.
+    points["tied"] = pd.Series([None if pd.isna(v) else bool(v) for v in points["tied"]], dtype=object)
+    return points
+
+
+#: Significance level of the per-dataset "tied with the best" test.
+SIGNIFICANCE_ALPHA = 0.05
+#: Fewest paired splits the test is run on. A one-sided Wilcoxon signed-rank test over ``n``
+#: pairs cannot go below ``p = 1 / 2**n``, so with four or fewer splits it can never reject at
+#: alpha = 0.05 and "tied" would be vacuous; those datasets report no verdict instead.
+MIN_PAIRED_SPLITS = 5
+
+
+def tied_with_best(results_per_split: pd.DataFrame, *, alpha: float = SIGNIFICANCE_ALPHA) -> pd.DataFrame:
+    """Per (dataset, method), whether the method is statistically tied with that dataset's best.
+
+    The best method is the one with the lowest mean error over the splits. Every other method is
+    compared to it with a one-sided Wilcoxon signed-rank test over the paired splits (is its
+    error higher?), and is *tied* when the test does not reject at ``alpha``. This is the test
+    behind the bold entries of the paper's per-dataset tables, so the browser and the tables
+    agree on who is tied. The p-values are not corrected for the number of methods: with 80-odd
+    methods and nine splits a Holm correction can never reject, which would call every method
+    tied on every medium-sized dataset.
+
+    Columns: ``dataset``, ``method``, ``tied`` (``True`` / ``False`` / ``None``) and ``p`` (the
+    one-sided p-value; ``None`` for the best method and untested ones). ``None`` when the test
+    cannot run: fewer than :data:`MIN_PAIRED_SPLITS` paired splits, which is what the Lite
+    leaderboard and TabArena's largest datasets come down to. The best method is tied with
+    itself by definition. ``results_per_split`` should already have its imputed rows dropped
+    (see :func:`measured_results`).
+    """
+    from scipy import stats
+
+    records: list[dict] = []
+    for dataset, group in results_per_split.groupby("dataset"):
+        errors = group.pivot_table(index="fold", columns="method", values="metric_error", aggfunc="mean")
+        if errors.empty:
+            continue
+        best = errors.mean().idxmin()
+        records.append({"dataset": dataset, "method": best, "tied": True, "p": None})
+        for method in errors.columns:
+            if method == best:
+                continue
+            paired = errors[[best, method]].dropna()
+            if len(paired) < MIN_PAIRED_SPLITS:
+                records.append({"dataset": dataset, "method": method, "tied": None, "p": None})
+                continue
+            diff = paired[method].to_numpy() - paired[best].to_numpy()
+            if np.all(diff == 0):
+                p_value = 1.0
+            else:
+                # `zsplit` keeps zero differences in the ranking rather than raising on them.
+                p_value = float(stats.wilcoxon(diff, alternative="greater", zero_method="zsplit").pvalue)
+            records.append({"dataset": dataset, "method": method, "tied": p_value >= alpha, "p": p_value})
+    frame = pd.DataFrame(records, columns=["dataset", "method", "tied", "p"])
+    # Plain Python values, so a caller can test `tied is True` / `is None` and JSON sees `null`
+    # rather than a numpy scalar. The constructor above turns a `None` among floats into NaN.
+    frame["tied"] = pd.Series([None if pd.isna(v) else bool(v) for v in frame["tied"]], dtype=object)
+    frame["p"] = pd.Series([None if pd.isna(v) else float(v) for v in frame["p"]], dtype=object)
+    return frame
 
 
 def imputed_counts(results_per_split: pd.DataFrame) -> pd.Series:
@@ -264,6 +346,10 @@ def build_per_dataset_explorer_html(
             "r": [_round(v, 2) for v in points["rank"]],
             "i": [_round(v, 3) for v in points["imp"]],
             "t": [_significant(v, 4) for v in points["train_s"]],
+            # The spread over the splits, and whether the method is statistically tied with the
+            # dataset's best (1 / 0; absent when the test could not run, see `tied_with_best`).
+            "s": [_significant(v, 3) for v in points["std"]],
+            "b": [None if pd.isna(v) else int(bool(v)) for v in points["tied"]],
         },
     )
 
@@ -307,6 +393,12 @@ def build_per_dataset_explorer_html(
         ],
         "metricDisplay": _METRIC_DISPLAY,
         "defaultContender": int(contender_index),
+        # What the `b` flag on a point means, for the page's tooltips and legend.
+        "significance": {
+            "alpha": SIGNIFICANCE_ALPHA,
+            "test": "one-sided Wilcoxon signed-rank test over the paired splits, uncorrected",
+            "minSplits": MIN_PAIRED_SPLITS,
+        },
     }
     html = render_explorer_html(PER_DATASET_TEMPLATE, page_title=page_title, config=config, points=records)
 
