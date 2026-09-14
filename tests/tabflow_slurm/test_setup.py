@@ -26,6 +26,7 @@ from tabarena.contexts import AbstractArenaContext
 # package, so `importorskip("tabflow_slurm")` would NOT skip. A submodule does.
 pytest.importorskip("tabflow_slurm.setup", reason="tabflow_slurm is not installed")
 
+from tabarena.benchmark.validation_protocol import ValidationProtocolError
 from tabflow_slurm.setup.benchmark import TabArenaBenchmarkSetup
 from tabflow_slurm.setup.paths import PathSetup
 from tabflow_slurm.setup.resources import ResourcesSetup
@@ -366,13 +367,13 @@ def _two_dataset_collection() -> TaskMetadataCollection:
 def _passthrough_experiment(name: str):
     from autogluon.tabular.models import LGBModel
 
-    from tabarena.benchmark.experiment import AGModelBagExperiment
+    from tabarena.benchmark.experiment import AGModelBagExperiment, ValidationProtocol
 
     return AGModelBagExperiment(
         name=name,
         model_cls=LGBModel,
         model_hyperparameters={},
-        num_bag_folds=2,
+        validation_protocol=ValidationProtocol.custom(num_bag_folds=2),
         time_limit=60,
     )
 
@@ -411,6 +412,99 @@ class TestGetJobsToRun:
 
         # The per-job defaults point the runner at the batch.
         assert bs._build_default_args()["job_batch_dir"] == bs._job_batch_dir
+
+        # A bare context without a protocol ships no validation expectation.
+        assert batch.validation_expectation is None
+
+    def test_batch_carries_the_context_validation_expectation(self, tmp_path):
+        from tabarena.benchmark.experiment import JobBatch, ValidationProtocol
+
+        protocol = ValidationProtocol.custom(num_bag_folds=2)
+        context = AbstractArenaContext(
+            methods=[], task_metadata=_two_dataset_collection(), validation_protocol=protocol
+        )
+        bs = _benchmark_setup(
+            context=context,
+            experiment_bundle=TabArenaExperimentBundle(
+                models=[_passthrough_experiment("exp_a")],
+                n_random_configs=0,
+                preprocessing_pipelines=["default"],
+            ),
+            path_setup=PathSetup(workspace=str(tmp_path), python_path="/py"),
+            scheduler_setup=_slurm(bundle_size=2),
+            ignore_cache=True,
+        )
+        bs.get_jobs_to_run()
+        batch = JobBatch.load(bs._job_batch_dir)
+        assert batch.validation_expectation.enforced is True
+        assert batch.validation_expectation.protocol == protocol
+        assert batch.validation_expectation.arena == "Arena"
+        assert batch.validation_expectation.official_flavours == ("bagged", "system")
+        # The shipped experiment carries the enforced stamp the context gave it.
+        assert batch.experiments[0].validation_protocol == protocol
+        assert batch.experiments[0].validation_protocol.enforced is True
+
+
+class TestDropCacheHits:
+    """The head-node cache filter drops hits and legacy results and refuses results under another protocol."""
+
+    @staticmethod
+    def _run_inline(monkeypatch):
+        """Run the Ray fan-out in-process."""
+        import tabflow_slurm.setup.benchmark as benchmark_mod
+
+        def _inline(list_to_map, func, func_element_key_string, func_kwargs, **_kwargs):
+            return [func(**{func_element_key_string: batch}, **func_kwargs) for batch in list_to_map]
+
+        monkeypatch.setattr(benchmark_mod, "ray_map_list", _inline)
+        monkeypatch.setattr(benchmark_mod.ray, "is_initialized", lambda: False)
+        monkeypatch.setattr(benchmark_mod.ray, "init", lambda **_kwargs: None)
+
+    @staticmethod
+    def _write_cached_result(output_dir: str, collection, dataset: str, fold: int, aux: dict | None) -> None:
+        from tabarena.benchmark.experiment import task_cache_key_from_task_id_str
+        from tabarena.utils.cache import CacheFunctionPickle
+
+        task_id_str = next(t.task_id_str for t in collection if t.tabarena_task_name == dataset)
+        key = task_cache_key_from_task_id_str(task_id_str)
+        cacher = CacheFunctionPickle(cache_name="results", cache_path=f"{output_dir}/data/exp_a/{key}/0_{fold}")
+        cacher.save_cache({"metric_error": 0.1})
+        if aux is not None:
+            cacher.save_aux("validation_protocol", aux)
+
+    def _setup(self, tmp_path) -> TabArenaBenchmarkSetup:
+        return _benchmark_setup(
+            context=_context(_two_dataset_collection()),
+            experiment_bundle=TabArenaExperimentBundle(
+                models=[_passthrough_experiment("exp_a")],
+                n_random_configs=0,
+                preprocessing_pipelines=["default"],
+            ),
+            path_setup=PathSetup(workspace=str(tmp_path), python_path="/py"),
+            scheduler_setup=_slurm(bundle_size=2),
+            num_ray_cpus=1,
+        )
+
+    def test_hits_and_legacy_results_are_dropped(self, tmp_path, monkeypatch):
+        self._run_inline(monkeypatch)
+        bs = self._setup(tmp_path)
+        bs.path_setup.ensure_runtime_dirs(bs.benchmark_name)
+        collection = _two_dataset_collection()
+        output_dir = bs.path_setup.get_output_path(bs.benchmark_name)
+        self._write_cached_result(output_dir, collection, "ds_a", 0, {"key": "2x1", "flavour": "bagged"})  # hit
+        self._write_cached_result(output_dir, collection, "ds_a", 1, None)  # legacy
+        jobs, _ = bs.get_jobs_to_run()
+        items = [(i["dataset"], i["fold"]) for job in jobs for i in job["items"]]
+        assert items == [("ds_b", 0)]
+
+    def test_a_result_under_another_protocol_stops_the_setup(self, tmp_path, monkeypatch):
+        self._run_inline(monkeypatch)
+        bs = self._setup(tmp_path)
+        bs.path_setup.ensure_runtime_dirs(bs.benchmark_name)
+        output_dir = bs.path_setup.get_output_path(bs.benchmark_name)
+        self._write_cached_result(output_dir, _two_dataset_collection(), "ds_a", 0, {"key": "8x1", "flavour": "bagged"})
+        with pytest.raises(ValidationProtocolError, match=r"(?s)exp_a on ds_a.*ignore_cache=True"):
+            bs.get_jobs_to_run()
 
 
 # ---------------------------------------------------------------------------

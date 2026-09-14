@@ -14,10 +14,19 @@ from tabarena.models.knn._internal.knn_preprocessing import KNNPreprocessor
 
 
 class KNNNewModel(KNNModel):
-    """KNearestNeighbors model (scikit-learn): https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsClassifier.html."""
+    """KNearestNeighbors model (scikit-learn): https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsClassifier.html.
+
+    Inside a bag, KNN fits a single child whose out-of-fold predictions are the leave-one-out
+    estimates (``use_child_oof``, AutoGluon's default for KNN) instead of the protocol's ``k`` children:
+    a bag of nearest-neighbour models buys nothing over the exact leave-one-out estimate. TabArena keeps
+    this deliberately, so KNN is the one declared outlier of the official bagging protocol: the pre-fit
+    protocol check passes (the requested protocol is the official one) and the result record marks the
+    fit with ``child_oof=True`` and one child, which processing lists as such rather than as a deviation.
+    """
 
     ag_key = "TA-KNN"
     ag_name = "KNeighbors"
+    _default_ag_args_ensemble_extra = {"use_child_oof": True}
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

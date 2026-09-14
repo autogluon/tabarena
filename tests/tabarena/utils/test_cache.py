@@ -37,3 +37,19 @@ def test_cache_dummy():
         data = cacher.cache(fun=f, ignore_cache=ignore_cache)
         assert not cacher.exists
         assert data == [1, 2, 3]
+
+
+def test_cache_pickle_aux_record_round_trip(tmp_path):
+    cacher = CacheFunctionPickle(cache_name="results", cache_path=str(tmp_path / "a"))
+    assert cacher.load_aux("validation_protocol") is None
+    cacher.save_aux("validation_protocol", {"key": "8x1", "flavour": "bagged"})
+    assert cacher.load_aux("validation_protocol") == {"key": "8x1", "flavour": "bagged"}
+    # The side record lives next to the cache file and is independent of the results pickle.
+    assert (tmp_path / "a" / "validation_protocol.json").exists()
+    assert not cacher.exists
+
+
+def test_cache_dummy_has_no_aux_records():
+    cacher = CacheFunctionDummy()
+    cacher.save_aux("validation_protocol", {"key": "8x1"})
+    assert cacher.load_aux("validation_protocol") is None

@@ -123,6 +123,7 @@ class InMemoryMethodMetadata(MethodMetadata):
         hpo_trajectories: pd.DataFrame | None = None,
         display_name: str | None = None,
         can_hpo: bool = True,
+        validation_protocol: str | None = None,
     ) -> Self:
         """Wrap an already-computed results frame as a registerable in-memory method.
 
@@ -141,6 +142,8 @@ class InMemoryMethodMetadata(MethodMetadata):
         ``hpo_trajectories`` is an optional tuning-trajectory frame (e.g. from
         :meth:`~tabarena.contexts.abstract_arena_context.AbstractArenaContext.generate_portfolio_trajectories`),
         served by :meth:`load_hpo_trajectories` and picked up by the tuning-trajectory plots.
+        ``validation_protocol`` is the protocol key of the results the frame was derived from (see
+        :attr:`MethodMetadata.validation_protocol`); ``None`` when unknown.
         """
         # A frame-built method never has a raw artifact, and only has a "processed" repo when one
         # is supplied (and must genuinely belong to this method — i.e. hold its config_type's
@@ -161,6 +164,7 @@ class InMemoryMethodMetadata(MethodMetadata):
                 display_name=display_name,
                 has_raw=False,
                 has_processed=has_processed,
+                validation_protocol=validation_protocol,
             )
         return cls(
             results=results,
@@ -172,6 +176,7 @@ class InMemoryMethodMetadata(MethodMetadata):
             display_name=display_name,
             has_raw=False,
             has_processed=has_processed,
+            validation_protocol=validation_protocol,
         )
 
     # ------------------------------------------------------------------ serialization

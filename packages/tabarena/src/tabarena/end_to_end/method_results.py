@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Self
 import pandas as pd
 from autogluon.common.savers import save_pd
 
+from tabarena.models._method_metadata import infer_validation_protocol
+
 if TYPE_CHECKING:
     from tabarena.models._method_metadata import MethodMetadata
     from tabarena.repository import EvaluationRepository
@@ -137,6 +139,16 @@ class MethodResults:
                 method_metadata.is_bag = True
                 method_metadata_other = copy.deepcopy(method_metadata_other)
                 method_metadata_other.is_bag = True
+
+            # The protocol is inferred per task: a task without a record (None) yields to a recorded one,
+            # agreeing records keep their key, disagreeing records make the method `mixed`.
+            if method_metadata.validation_protocol != method_metadata_other.validation_protocol:
+                merged = infer_validation_protocol(
+                    [method_metadata.validation_protocol, method_metadata_other.validation_protocol]
+                )
+                method_metadata.validation_protocol = merged
+                method_metadata_other = copy.deepcopy(method_metadata_other)
+                method_metadata_other.validation_protocol = merged
 
             if method_metadata.config_default != method_metadata_other.config_default:
                 # The two sides disagree on the default config. Either one already spans multiple

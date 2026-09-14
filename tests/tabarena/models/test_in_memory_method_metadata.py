@@ -754,6 +754,22 @@ def test_from_results_df_keys_config_family_and_flags():
     pd.testing.assert_frame_equal(m.load_results(), df)
 
 
+def test_from_results_df_forwards_the_validation_protocol():
+    df = _results_frame("Fam (default)", config_type="FAM")
+    assert (
+        InMemoryMethodMetadata.from_results_df(df, method="MyFam", suite="s", config_type="FAM").validation_protocol
+        is None
+    )
+    m = InMemoryMethodMetadata.from_results_df(
+        df, method="MyFam", suite="s", config_type="FAM", validation_protocol="8x1"
+    )
+    assert m.validation_protocol == "8x1"
+    baseline = InMemoryMethodMetadata.from_results_df(
+        df, method="B", suite="s", method_type="baseline", validation_protocol="system"
+    )
+    assert baseline.validation_protocol == "system"
+
+
 def test_to_dir_from_dir_round_trip_results_only(tmp_path):
     """``to_dir`` persists a results-only method in the standard layout; ``from_dir`` lifts it back
     into memory (no ``processed/`` => ``repo`` is None), and the same dir loads as a disk-backed

@@ -103,19 +103,21 @@ class TestParseIntOrNone:
 # ---------------------------------------------------------------------------
 
 
-def _save_minimal_batch(path) -> None:
+def _save_minimal_batch(path, *, validation_expectation=None, experiment_protocol=None) -> None:
     """Write a one-experiment, one-dataset JobBatch to `path`."""
     import pandas as pd
     from autogluon.tabular.models import LGBModel
 
-    from tabarena.benchmark.experiment import AGModelBagExperiment, Job, JobBatch
+    from tabarena.benchmark.experiment import AGModelBagExperiment, Job, JobBatch, ValidationProtocol
     from tabarena.benchmark.task.metadata import TaskMetadataCollection
 
     experiment = AGModelBagExperiment(
         name="exp_a",
         model_cls=LGBModel,
         model_hyperparameters={},
-        num_bag_folds=2,
+        validation_protocol=experiment_protocol
+        if experiment_protocol is not None
+        else ValidationProtocol.custom(num_bag_folds=2),
         time_limit=60,
     )
     collection = TaskMetadataCollection.from_legacy_df(
@@ -134,7 +136,11 @@ def _save_minimal_batch(path) -> None:
             },
         ),
     )
-    JobBatch(jobs=[Job.create(experiment, "ds_a", fold=0)], task_metadata=collection).save(path)
+    JobBatch(
+        jobs=[Job.create(experiment, "ds_a", fold=0)],
+        task_metadata=collection,
+        validation_expectation=validation_expectation,
+    ).save(path)
 
 
 class TestRunExperimentResolution:
@@ -242,3 +248,73 @@ class TestRunExperimentAppliesCacheConfig:
             assert get_tabarena_cache_root() == tmp_path / "tab"  # batch's cache_config was applied
         finally:
             set_tabarena_cache_root(None)
+
+
+class TestRunExperimentValidationExpectation:
+    """The worker re-checks the experiment against the batch's validation expectation before fitting."""
+
+    @staticmethod
+    def _run(batch_dir, tmp_path):
+        return run_experiment(
+            job_batch_dir=str(batch_dir),
+            experiment_name="exp_a",
+            dataset="ds_a",
+            fold=0,
+            repeat=0,
+            output_dir=str(tmp_path / "out"),
+            ignore_cache=False,
+        )
+
+    @staticmethod
+    def _fake_runner(monkeypatch):
+        import tabarena.benchmark.experiment as exp_mod
+
+        class _FakeRunner:
+            def __init__(self, **kwargs):
+                pass
+
+            def run_jobs(self, jobs):
+                return [{"metric_error": 0.1}]
+
+        monkeypatch.setattr(exp_mod, "ExperimentBatchRunner", _FakeRunner)
+
+    def test_a_foreign_experiment_in_an_enforced_batch_is_refused(self, tmp_path, monkeypatch):
+        from tabarena.benchmark.experiment import ValidationExpectation, ValidationProtocol
+        from tabarena.benchmark.validation_protocol import ValidationProtocolError
+
+        self._fake_runner(monkeypatch)
+        batch_dir = tmp_path / "batch"
+        expectation = ValidationExpectation(protocol=ValidationProtocol(), enforced=True, arena="TabArena")
+        _save_minimal_batch(batch_dir, validation_expectation=expectation)  # experiment runs 2x1, arena wants 8x1
+        with pytest.raises(ValidationProtocolError, match="exp_a"):
+            self._run(batch_dir, tmp_path)
+
+    def test_a_matching_experiment_in_an_enforced_batch_runs(self, tmp_path, monkeypatch):
+        from tabarena.benchmark.experiment import ValidationExpectation, ValidationProtocol
+
+        self._fake_runner(monkeypatch)
+        batch_dir = tmp_path / "batch"
+        protocol = ValidationProtocol().with_origin(arena="TabArena", enforced=True)
+        expectation = ValidationExpectation(protocol=protocol, enforced=True, arena="TabArena")
+        _save_minimal_batch(batch_dir, validation_expectation=expectation, experiment_protocol=protocol)
+        assert self._run(batch_dir, tmp_path) == [{"metric_error": 0.1}]
+
+    def test_an_enforced_stamp_without_expectation_is_refused(self, tmp_path, monkeypatch):
+        from tabarena.benchmark.experiment import ValidationProtocol
+        from tabarena.benchmark.validation_protocol import ValidationProtocolError
+
+        self._fake_runner(monkeypatch)
+        batch_dir = tmp_path / "batch"
+        stamped = ValidationProtocol().with_origin(arena="TabArena", enforced=True)
+        _save_minimal_batch(batch_dir, experiment_protocol=stamped)  # no validation_protocol.json in the batch
+        with pytest.raises(ValidationProtocolError, match="no enforced expectation"):
+            self._run(batch_dir, tmp_path)
+
+    def test_an_opted_out_batch_runs_any_protocol(self, tmp_path, monkeypatch):
+        from tabarena.benchmark.experiment import ValidationExpectation, ValidationProtocol
+
+        self._fake_runner(monkeypatch)
+        batch_dir = tmp_path / "batch"
+        expectation = ValidationExpectation(protocol=ValidationProtocol(), enforced=False, arena="TabArena")
+        _save_minimal_batch(batch_dir, validation_expectation=expectation)
+        assert self._run(batch_dir, tmp_path) == [{"metric_error": 0.1}]

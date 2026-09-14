@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from contextlib import contextmanager
@@ -104,6 +105,18 @@ class AbstractCacheFunction(Generic[T]):
     def load_cache(self) -> T:
         raise NotImplementedError
 
+    def save_aux(self, name: str, data: dict) -> None:
+        """Store a small JSON side record ``{name}.json`` next to the cache file.
+
+        Side records carry facts about how the cached data was produced (e.g. the validation protocol
+        a result was fit under) that a later run checks before trusting the cache. The base does
+        nothing: a cacher without a location has nowhere to put it.
+        """
+
+    def load_aux(self, name: str) -> dict | None:
+        """Read the side record written by :meth:`save_aux`, or ``None`` when there is none."""
+        return None
+
 
 # TODO: Avoid storing results as pickle for safety
 class CacheFunctionDummy(AbstractCacheFunction[object]):
@@ -206,6 +219,35 @@ class CacheFunctionPickle(AbstractCacheFunction[object]):
     def load_cache(self) -> object:
         # Transparently handles both raw and gzip-compressed ``.pkl`` files.
         return load_pickle(self.cache_file)
+
+    def _aux_file(self, name: str) -> str:
+        if self.is_s3:
+            return f"{self.cache_path}/{name}.json"
+        return str(Path(self.cache_path) / f"{name}.json")
+
+    def save_aux(self, name: str, data: dict) -> None:
+        body = json.dumps(data, indent=2, sort_keys=True)
+        if self.is_s3:
+            s3 = boto3.client("s3")
+            bucket, key = s3_utils.s3_path_to_bucket_prefix(self._aux_file(name))
+            s3.put_object(Bucket=bucket, Key=key, Body=body.encode())
+            return
+        aux_file = Path(self._aux_file(name))
+        aux_file.parent.mkdir(parents=True, exist_ok=True)
+        aux_file.write_text(body)
+
+    def load_aux(self, name: str) -> dict | None:
+        if self.is_s3:
+            s3 = boto3.client("s3")
+            bucket, key = s3_utils.s3_path_to_bucket_prefix(self._aux_file(name))
+            try:
+                return json.loads(s3.get_object(Bucket=bucket, Key=key)["Body"].read())
+            except s3.exceptions.ClientError as e:
+                if e.response["Error"]["Code"] in ("404", "NoSuchKey"):
+                    return None
+                raise
+        aux_file = Path(self._aux_file(name))
+        return json.loads(aux_file.read_text()) if aux_file.exists() else None
 
 
 class CacheFunctionDF(AbstractCacheFunction[pd.DataFrame]):

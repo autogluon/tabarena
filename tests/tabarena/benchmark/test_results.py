@@ -241,3 +241,68 @@ def test_generate_repo_from_results_lst_collection_tid_filter_drops_unknown():
     coll = TaskMetadataCollection.from_legacy_df(_legacy_df_d1())  # tid 0 only
     with pytest.raises(ValueError, match="No results found after filtering"):
         generate_repo_from_results_lst([_baseline_result_on_tid(999)], task_metadata=coll)
+
+
+# -- validation_protocol record ----------------------------------------------------------------
+
+
+def _bagged_record() -> dict:
+    return {
+        "flavour": "bagged",
+        "protocol": {
+            "num_bag_folds": 8,
+            "num_bag_sets": 1,
+            "name": "TabArena-v0.1",
+            "arena": "TabArena",
+            "enforced": True,
+        },
+        "key": "8x1",
+        "regime": "default",
+        "num_bag_folds_resolved": 8,
+        "num_bag_sets_resolved": 1,
+        "num_bag_folds_fitted": 8,
+        "num_bag_sets_fitted": 1,
+        "num_child_models": 8,
+        "child_oof": False,
+    }
+
+
+def test_df_result_lifts_the_validation_protocol_columns():
+    result = _make_result_baseline()
+    result["validation_protocol"] = _bagged_record()
+    row = BaselineResult(result=result).compute_df_result().iloc[0]
+    assert row["vp_key"] == "8x1"
+    assert row["vp_flavour"] == "bagged"
+    assert row["vp_enforced"] is True or row["vp_enforced"] == True  # noqa: E712 (numpy bool)
+    assert (row["vp_num_bag_folds"], row["vp_num_bag_sets"]) == (8, 1)
+    assert (row["vp_num_bag_folds_fitted"], row["vp_num_bag_sets_fitted"]) == (8, 1)
+
+
+def test_df_result_without_record_has_no_vp_columns():
+    df = BaselineResult(result=_make_result_baseline()).compute_df_result()
+    assert not [c for c in df.columns if c.startswith("vp_")]
+
+
+def test_info_from_result_carries_the_protocol_key():
+    from tabarena.benchmark.result.raw_loading import get_info_from_result
+
+    result = _make_result_baseline()
+    assert get_info_from_result(BaselineResult(result=result))["validation_protocol_key"] is None
+    result["validation_protocol"] = {**_bagged_record(), "flavour": "system", "protocol": None}
+    info = get_info_from_result(BaselineResult(result=result))
+    assert info["validation_protocol_key"] == "system"
+    assert info["validation_flavour"] == "system"
+
+
+def test_bag_artifacts_rewrite_the_record_of_the_derived_holdout():
+    result = _make_result_ag_bag()
+    result["validation_protocol"] = _bagged_record()
+    (holdout,) = AGBagResult(result=result).bag_artifacts()
+    record = holdout.result["validation_protocol"]
+    assert record["flavour"] == "bag-child-holdout"
+    assert record["key"] == "bag-child-holdout:8x1"
+    assert record["derived_from"] == "m1"
+    assert record["child_index"] == 0
+    assert (record["num_bag_folds_fitted"], record["num_bag_sets_fitted"], record["num_child_models"]) == (1, 1, 1)
+    # The parent keeps its own record.
+    assert result["validation_protocol"]["flavour"] == "bagged"

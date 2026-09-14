@@ -27,6 +27,11 @@ from tabarena.benchmark.task.metadata.sources import (
     TaskMetadataSource,
     resolve_source,
 )
+from tabarena.benchmark.validation_protocol import (
+    BEYONDARENA_VALIDATION_PROTOCOL,
+    TABARENA_V0PT1_VALIDATION_PROTOCOL,
+    ValidationProtocol,
+)
 
 
 def default_task_metadata_collection() -> TaskMetadataCollection:
@@ -39,6 +44,8 @@ def default_task_metadata_collection() -> TaskMetadataCollection:
 
 
 __all__ = [
+    "BEYONDARENA_VALIDATION_PROTOCOL",
+    "TABARENA_V0PT1_VALIDATION_PROTOCOL",
     "BeyondArenaTaskMetadataCollection",
     "DataFoundryTaskMetadataSource",
     "GroupLabelTypes",
@@ -55,6 +62,7 @@ __all__ = [
     "TaskMetadataSource",
     "TaskSubset",
     "ValidationMetadata",
+    "ValidationProtocol",
     "compute_task_metadata",
     "default_task_metadata_collection",
     "resolve_source",

@@ -89,7 +89,8 @@ re-runs it for the final entry. The details:
 <summary><b>🧭 Model or system?</b> — the difference, and where each lives in the code</summary>
 
 A **model** is one method that TabArena tunes under its shared protocol: shared preprocessing, a
-validation split provided by TabArena, a search space of up to 200 configurations, bagging, and the
+validation split provided by TabArena, a search space of up to 200 configurations, bagging under the
+arena's official validation protocol (TabArena: 8 folds x 1 set, asserted by the context), and the
 default / tuned / tuned + ensembled variants on the leaderboard. A **system** owns its whole pipeline
 (preprocessing, validation, tuning, ensembling) inside the budget TabArena hands it: AutoML frameworks
 such as AutoGluon, TabFM+, LLM agents, hosted APIs. If you would have to invent a search space for
@@ -116,7 +117,9 @@ results by re-running them.
 2. Integrate it following the guide above and run the quick start.
 3. Evaluate it yourself on TabArena-Lite (`subset="lite"`, the first split of every dataset) with HPO
    where applicable (the default plus about 25 random configurations), or on the BeyondArena `core`
-   subset.
+   subset. The quick starts run the official validation protocol by default; every result records
+   the protocol it ran under, and a run made with `official_validation_protocol=False` is declared in
+   the pull request.
 4. Open a pull request; the template asks for the expected files, the results, the hardware and the
    entry-point script. You can also share the run's output directory (the `expname` folder with the
    `results.pkl` files) so we can verify and integrate the results directly.

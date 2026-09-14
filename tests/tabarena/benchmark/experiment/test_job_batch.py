@@ -12,12 +12,17 @@ from tabarena.benchmark.experiment import (
     Job,
     JobBatch,
     ModelConstraints,
+    ValidationExpectation,
+    ValidationProtocol,
     build_jobs,
     filter_jobs_by_constraints,
     job_cache_exists,
+    job_cache_status,
+    job_cache_status_batch,
     task_cache_key_from_task_id_str,
 )
 from tabarena.benchmark.task.metadata import TaskMetadataCollection
+from tabarena.benchmark.validation_protocol import TABARENA_V0PT1_VALIDATION_PROTOCOL
 from tabarena.utils.cache import CacheFunctionPickle
 
 # ---------------------------------------------------------------------------
@@ -28,13 +33,13 @@ from tabarena.utils.cache import CacheFunctionPickle
 def _make_experiment(name: str = "lgbm_test", *, hp: dict | None = None, constraints: ModelConstraints | None = None):
     from autogluon.tabular.models import LGBModel
 
-    from tabarena.benchmark.experiment import AGModelBagExperiment
+    from tabarena.benchmark.experiment import AGModelBagExperiment, ValidationProtocol
 
     return AGModelBagExperiment(
         name=name,
         model_cls=LGBModel,
         model_hyperparameters=hp or {},
-        num_bag_folds=2,
+        validation_protocol=ValidationProtocol.custom(num_bag_folds=2),
         time_limit=60,
         model_constraints=constraints,
     )
@@ -191,6 +196,27 @@ class TestJobCacheExists:
         # A different coordinate still misses.
         assert not job_cache_exists(**{**kwargs, "fold": 0})
 
+    def test_status_tracks_the_recorded_protocol(self, tmp_path):
+        kwargs = {
+            "output_dir": str(tmp_path),
+            "method_name": "exp_a",
+            "task_id_str": "42",
+            "fold": 1,
+            "repeat": 0,
+        }
+        assert job_cache_status(**kwargs, expected_key="8x1") == "missing"
+        cacher = CacheFunctionPickle(cache_name="results", cache_path=str(tmp_path / "data" / "exp_a" / "42" / "0_1"))
+        cacher.save_cache({"metric_error": 0.1})
+        # A result without a side record predates protocol recording and is trusted as is.
+        assert job_cache_status(**kwargs, expected_key="8x1") == "legacy"
+        cacher.save_aux("validation_protocol", {"key": "8x1", "flavour": "bagged"})
+        assert job_cache_status(**kwargs, expected_key="8x1") == "hit"
+        assert job_cache_status(**kwargs, expected_key="3x1") == "mismatch"
+        assert job_cache_status_batch(
+            items=[("exp_a", "42", 1, 0, "8x1"), ("exp_a", "42", 1, 0, "3x1"), ("exp_a", "42", 0, 0, "8x1")],
+            output_dir=str(tmp_path),
+        ) == ["hit", "mismatch", "missing"]
+
 
 # ---------------------------------------------------------------------------
 # JobBatch — validation + directory round trip
@@ -254,6 +280,34 @@ class TestJobBatch:
     def test_no_cache_config_loads_as_none(self, tmp_path):
         loaded = JobBatch.load(self._batch().save(tmp_path / "batch"))
         assert loaded.cache_config is None
+
+    def test_validation_expectation_round_trip(self, tmp_path):
+        expectation = ValidationExpectation(
+            protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL.with_origin(arena="TabArena", enforced=True),
+            enforced=True,
+            arena="TabArena",
+        )
+        base = self._batch()
+        batch = JobBatch(jobs=base.jobs, task_metadata=base.task_metadata, validation_expectation=expectation)
+        path = batch.save(tmp_path / "batch")
+        assert (path / "validation_protocol.json").exists()
+        loaded = JobBatch.load(path)
+        assert loaded.validation_expectation == expectation
+        assert loaded.validation_expectation.protocol.enforced is True
+
+    def test_no_expectation_loads_as_none_and_removes_a_stale_file(self, tmp_path):
+        base = self._batch()
+        expectation = ValidationExpectation(
+            protocol=ValidationProtocol.custom(num_bag_folds=3), enforced=False, arena="Arena"
+        )
+        path = JobBatch(jobs=base.jobs, task_metadata=base.task_metadata, validation_expectation=expectation).save(
+            tmp_path / "batch"
+        )
+        assert (path / "validation_protocol.json").exists()
+        # Re-saving the same directory without an expectation must not leave the old record behind.
+        JobBatch(jobs=base.jobs, task_metadata=base.task_metadata).save(path)
+        assert not (path / "validation_protocol.json").exists()
+        assert JobBatch.load(path).validation_expectation is None
 
     def test_load_with_unknown_experiment_reference_raises(self, tmp_path):
         batch = self._batch()

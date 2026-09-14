@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from tabarena.benchmark.validation_protocol import BEYONDARENA_VALIDATION_PROTOCOL
 from tabarena.models._method_metadata_collection import MethodMetadataCollection
 from tabarena.models.catboost.info import catboost_descriptor
 from tabarena.models.extra_trees.info import extra_trees_descriptor
@@ -39,6 +40,9 @@ _common_kwargs = dict(
     suite="beyond_iid_benchmark_2026",
     cache_type="r2",
     cache_kwargs={"bucket": "tabarena", "prefix": "cache"},
+    # The hosted BeyondArena results ran the arena's official protocol: 8x1 with the 5x5 tiny regime,
+    # task-specific inner splits and class-adaptive folds.
+    validation_protocol=BEYONDARENA_VALIDATION_PROTOCOL.key(),
 )
 
 # Bagged (HPO-able) and foundation-model presets. ``compute`` / ``is_bag`` are *not* set here:

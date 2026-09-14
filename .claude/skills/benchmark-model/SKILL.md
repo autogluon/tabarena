@@ -272,7 +272,8 @@ Report to the maintainer, in this order:
 ## Step 8: Record the run and hand over
 
 Append the run to `packages/tabflow_slurm/BENCHMARK_LOG.md` (newest first, template at the top of
-that file): model and config count, the git SHA the jobs ran on, the purpose, the notes (partition,
+that file): model and config count, the git SHA the jobs ran on, the validation protocol key the
+context enforced (`8x1` for TabArena), the purpose, the notes (partition,
 bundle size, VRAM setting, wall time, failures and their fixes, extra deps, the venv), and the
 verbatim `setup()` plan as run. The log is committed even though the script is not. In hand-off mode
 offer the entry; in end-to-end mode write it.
@@ -286,7 +287,11 @@ Next in the lifecycle is the `upload-method` skill, pointed at `<WORKSPACE>/outp
   `BeyondArenaEvalConfig`, `BenchmarkRun` comparisons); adapt
   `packages/tabflow_slurm/experiments/run_beyondarena.py` for that instead.
 - `benchmark_name` is a cache key: reuse it unchanged across relaunches and `eval`; change it only
-  for a genuinely new run.
+  for a genuinely new run. The setup refuses a `benchmark_name` whose cached results were fit under
+  another validation protocol than the context enforces; that is a new run, not a relaunch.
+- The context asserts the arena's validation protocol (TabArena: 8 folds x 1 set) on every bagged
+  experiment; a plan never needs to set fold counts, and a custom protocol is a deliberate
+  `official_validation_protocol=False` run that must be named in the log entry and the PR.
 - `ModelJob(name=...)` groups jobs by hardware; models sharing a `name` and identical settings share
   one `sbatch` command. Give GPU and CPU models different names to split them.
 - `"all"` configs on a CPU model is about 200 configs across 816 splits; `setup` splits the array at

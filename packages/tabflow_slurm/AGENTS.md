@@ -109,8 +109,10 @@ Then: `sbatch … submit_template.sh <job.json>` → array task picks `jobs[SLUR
   (bundle iteration); these two move together.
 - New hardware preset → a `ResourcesSetup` subclass in `setup/resources.py`.
 - The model **selection / config counts / preprocessing / constraints** come from `tabarena`'s
-  `TabArenaExperimentBundle`, and the tasks from an **arena context** (`TabArenaContext` /
-  `BeyondArenaContext`) scoped by a `TaskSubset`, **not** here — this package only schedules. The
+  `TabArenaExperimentBundle`, and the tasks and the **inner validation protocol** from an **arena
+  context** (`TabArenaContext` / `BeyondArenaContext`) scoped by a `TaskSubset`, **not** here — this
+  package only schedules (and ships the context's protocol expectation in the `JobBatch` for the
+  compute node's re-check). The
   scope filters are defined once on `tabarena`'s `TaskSubset` (the source of truth for
   `subset_tasks` / `build_jobs`); don't re-declare them in this package.
 

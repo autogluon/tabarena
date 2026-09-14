@@ -1,9 +1,11 @@
 """Validation-split logic for the AutoGluon exec-model wrappers.
 
-The AutoGluon wrappers can adapt their internal validation splitting to a task's structure
-(tiny-data fold counts, group-wise / time-based splits). That logic lives here as a set of
-plain functions keyed off a :class:`~tabarena.benchmark.task.metadata.ValidationMetadata`
-(the task-derived config), rather than as a mixin on the wrapper. There are two entry points:
+The AutoGluon wrappers adapt their internal validation splitting to a task's structure
+(group-wise / time-based splits) and to the experiment's
+:class:`~tabarena.benchmark.validation_protocol.ValidationProtocol` (fold and repeat counts, the
+tiny-data regime). That logic lives here as a set of plain functions keyed off a
+:class:`~tabarena.benchmark.task.metadata.ValidationMetadata` (the task-derived split structure)
+and the protocol, rather than as a mixin on the wrapper. There are two entry points:
 :func:`resolve_validation_splits` for the bagged path (``k`` cross-validation folds) and
 :func:`resolve_holdout_split` for the non-bagged path (a single train/validation split);
 everything else is a helper they call.
@@ -21,19 +23,25 @@ from tabarena.benchmark.task.metadata import GroupLabelTypes
 
 if TYPE_CHECKING:
     from tabarena.benchmark.task.metadata import ValidationMetadata
+    from tabarena.benchmark.validation_protocol import ValidationProtocol
 
 
 def resolve_validation_splits(
     metadata: ValidationMetadata,
+    protocol: ValidationProtocol,
     *,
     X: pd.DataFrame,
     y: pd.Series,
-    num_folds: int | None,
-    num_repeats: int | None,
-) -> tuple[list[tuple[np.ndarray, np.ndarray]] | None, int | None, int | None]:
-    """Determine which splits setting to use, and if needed, which custom splits.
+    clamps: list[str] | None = None,
+) -> tuple[list[tuple[np.ndarray, np.ndarray]] | None, int, int]:
+    """Resolve the bagging folds / repeats and, if the task needs them, the custom splits.
 
-    Assumes task-specific validation is wanted (callers gate on ``use_task_specific_validation``).
+    Used for task-specific validation (``protocol.task_specific_validation``): the protocol's counts
+    are resolved for the training split's (group) instance count, then reduced where the task's
+    structure demands it (a temporal task fits one repeat over at most as many folds as there are
+    time intervals; a grouped task fits at most as many folds as groups; a stratified task at most as
+    many folds as its minority class has samples). The reductions are appended to ``clamps`` when a
+    list is given, so callers can record them.
 
     Returns:
     -------
@@ -42,22 +50,14 @@ def resolve_validation_splits(
         Otherwise, a list of tuples of train/test indices (as np.ndarrays) to use
         for validation splitting.
         IMPORTANT: the split will return the index of the input data X!
-    num_folds: int or None
+    num_folds: int
         The number of folds to use for validation.
-        This may be updated based on the number of group instances in the data.
-    num_repeats: int or None
+    num_repeats: int
         The number of repeats to use for validation.
-        This may be updated based on the number of group instances in the data.
     """
     custom_splits = None
-
-    # Stop early if the model does not want to do any validation.
-    if (num_folds is None) or (num_folds <= 1):
-        logger.info(
-            "\nnum_folds is None or <= 1, skipping validation splitting logic."
-            "\n\t The model is configured to do not validation at all!",
-        )
-        return custom_splits, num_folds, num_repeats
+    if clamps is None:
+        clamps = []
 
     num_group_instances = get_num_group_instances(metadata, X=X)
     logger.info(
@@ -72,11 +72,8 @@ def resolve_validation_splits(
         f"\n\tSplit_time_horizon_unit: {metadata.split_time_horizon_unit}",
     )
 
-    num_folds, num_repeats = metadata.resolve_number_of_splits(
-        num_folds=num_folds,
-        num_repeats=num_repeats,
-        num_group_instances=num_group_instances,
-    )
+    num_folds, num_repeats = protocol.resolve_num_splits(num_group_instances)
+    logger.info(f"\n\tProtocol {protocol.describe()}: num_bag_folds={num_folds}, num_bag_sets={num_repeats}.")
 
     stratify_on_data = None
     if metadata.stratify_on is not None:
@@ -91,10 +88,14 @@ def resolve_validation_splits(
 
     if metadata.time_on is not None:
         groups_data, num_folds_new = time_on_to_groups_data(X=X, time_on=metadata.time_on, num_folds=num_folds)
+        if num_repeats != 1:
+            clamps.append("time_on_single_repeat")
         num_repeats = 1
         logger.info(
             f"\n\tFolds time-based grouping: before={num_folds}; after={num_folds_new}\n\tnum_repeats set to 1!",
         )
+        if num_folds_new != num_folds:
+            clamps.append("folds_capped_by_time_intervals")
         num_folds = num_folds_new
         # Set group labels as needed for time split
         group_labels = GroupLabelTypes.PER_SAMPLE
@@ -104,9 +105,6 @@ def resolve_validation_splits(
         group_labels = metadata.group_labels
 
     if groups_data is not None:
-        if num_repeats is None:
-            num_repeats = 1
-
         n_groups = groups_data.nunique()
         if n_groups < num_folds:
             logger.info(
@@ -116,6 +114,7 @@ def resolve_validation_splits(
             )
             num_folds = n_groups
             num_repeats = 1
+            clamps.append("folds_capped_by_n_groups")
 
         if stratify_on_data is not None:
             n_samples_minority_class = int(stratify_on_data.value_counts().min())
@@ -127,6 +126,7 @@ def resolve_validation_splits(
                 )
                 num_folds = n_samples_minority_class
                 num_repeats = 1
+                clamps.append("folds_capped_by_minority_class")
 
         custom_splits = _resolve_group_splits(
             metadata=metadata,
@@ -147,6 +147,7 @@ def resolve_validation_splits(
 
 def resolve_holdout_split(
     metadata: ValidationMetadata,
+    protocol: ValidationProtocol,
     *,
     X: pd.DataFrame,
     y: pd.Series,
@@ -158,21 +159,21 @@ def resolve_holdout_split(
     still respects the task's structure:
 
     - ``group_on``: a group-disjoint split (no group spans train and validation), optionally
-      stratified — via ``data_foundry``'s single grouped split.
-    - ``time_on``: a *forward* holdout — the latest contiguous block of time (~one fold's worth)
+      stratified, via ``data_foundry``'s single grouped split.
+    - ``time_on``: a *forward* holdout: the latest contiguous block of time (about one fold's worth)
       is held out for validation and everything earlier is used for training. This mirrors the
-      benchmark's train->test temporal gap (the test set is the latest time horizon); a random
-      fold would instead leak future information into training.
-    - neither (plain IID, with or without stratification): returns ``None`` — the caller leaves
+      benchmark's temporal gap between train and test (the test set is the latest time horizon); a
+      random fold would instead leak future information into training.
+    - neither (plain IID, with or without stratification): returns ``None``, and the caller leaves
       AutoGluon's built-in (label-stratified) holdout untouched, as there is no leakage to fix.
 
-    The validation size targets ``1 / num_folds`` of the data, reusing the same fold-count policy
-    (:meth:`ValidationMetadata.resolve_number_of_splits`) as the bagged path, so a holdout
-    validation set is sized like a single bagging fold. Indices are positional into the given
-    (reset-index) ``X`` — assumed to be a ``RangeIndex`` (the wrapper resets it before calling).
+    The validation size targets ``1 / num_folds`` of the data, with ``num_folds`` resolved by the
+    protocol for the training split's size (:meth:`ValidationProtocol.resolve_num_splits`), so a
+    holdout validation set is sized like a single bagging fold of the same protocol. Indices are
+    positional into the given (reset-index) ``X``, assumed to be a ``RangeIndex`` (the wrapper resets
+    it before calling).
 
-    Assumes task-specific validation is wanted (the caller gates on ``use_task_specific_validation``
-    and on this being the non-bagged path).
+    Used for task-specific validation (``protocol.task_specific_validation``) on the non-bagged path.
     """
     if (metadata.time_on is not None) and (metadata.group_on is not None):
         raise NotImplementedError
@@ -182,11 +183,7 @@ def resolve_holdout_split(
         return None
 
     num_group_instances = get_num_group_instances(metadata, X=X)
-    num_folds, _ = metadata.resolve_number_of_splits(
-        num_folds=metadata.default_num_folds,
-        num_repeats=metadata.default_num_repeats,
-        num_group_instances=num_group_instances,
-    )
+    num_folds, _ = protocol.resolve_num_splits(num_group_instances)
     val_size = max(1, round(len(X) / num_folds))
     logger.info(
         "\n=== Building task-specific holdout split!"

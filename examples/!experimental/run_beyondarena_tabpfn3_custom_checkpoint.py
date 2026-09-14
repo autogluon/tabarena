@@ -43,7 +43,7 @@ if __name__ == "__main__":
     #    (no bagging) for each model.
     experiments = BeyondArenaExperimentBundle(
         models=[(tabpfn3, 0)],
-        outer_experiments=True,
+        outer_experiments=True,  # no inner validation: runs outside the official protocol, recorded as such
     ).build_experiments()
 
     # 4: build_and_run_jobs scopes the context's BeyondArena task metadata to `subset`, pairs each

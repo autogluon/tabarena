@@ -23,7 +23,7 @@ TabArena is not a benchmarking service. We accept methods their authors have alr
 
 A submission reaches the leaderboard in five stages. This pull request is stage 1; maintainers drive the other four and post in the PR as each one completes, so this thread is the record of the submission.
 
-1. Pull request with the method. You integrate the model or system, run the quick start and the TabArena-Lite evaluation, and open this PR with the checklists below filled in. Reviewers check the wrapper against the protocol (the validation split TabArena passes, time limits, resources, seeds), the dependency pin and license, and the Lite results, and help fix what the review finds.
+1. Pull request with the method. You integrate the model or system, run the quick start and the TabArena-Lite evaluation, and open this PR with the checklists below filled in. Reviewers check the wrapper against the protocol (the validation split TabArena passes, time limits, resources, seeds), the validation protocol the results record (the official one unless the PR declares otherwise), the dependency pin and license, and the Lite results, and help fix what the review finds.
 2. Benchmark run. Once the review is through, a maintainer runs the method on the full TabArena task set on the benchmark hardware: all splits of every dataset, and for a model the default configuration plus the full search space. Every entrant is measured this way, so your run from stage 1 is never the final entry. The run is recorded in `packages/tabflow_slurm/BENCHMARK_LOG.md` and the maintainer posts the resulting leaderboard position here.
 3. Verification and sign-off. Maintainers compare the run with the Lite results from stage 1 and look into failed splits and time-limit hits; a mismatch goes back to stage 1 or 2 with a fix. Then the person named under "Results" below confirms in the PR that the run reflects the method as intended (the right version, checkpoint and hyperparameters). That confirmation marks the entry as verified on the leaderboard. Without it the entry is still listed, but as unverified.
 4. Upload and merge. The maintainer processes the raw results, hosts the artifacts (results, processed predictions and raw predictions), records the hosted locations and the verification status in the method's `info.py`, registers the method in the arena's method collection, and merges the PR. A merged method therefore always has hosted results behind it.
@@ -45,7 +45,7 @@ Kind: <!-- model or system; if it replaces an entrant already on the leaderboard
 
 **Results** (we need these before we re-run the method)
 
-- [ ] TabArena-Lite (`subset="lite"`) with the official pipeline: the default plus about 25 random HPO configurations where the method has a search space; or the BeyondArena `core` subset.
+- [ ] TabArena-Lite (`subset="lite"`) with the official pipeline: the default plus about 25 random HPO configurations where the method has a search space; or the BeyondArena `core` subset. The run used the arena's official validation protocol (the default); a run made with `official_validation_protocol=False` says so here and why.
 - [ ] The hardware (CPU, GPU, RAM) and the entry-point script are stated below.
 - [ ] Optional: a link to the run's output directory (the `expname` folder with the `results.pkl` files, zipped or as a GitHub / Hugging Face release) so we can verify and integrate the results directly.
 - [ ] Who signs off on the maintainer re-run on behalf of the authors: <!-- GitHub handle -->

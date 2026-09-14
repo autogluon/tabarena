@@ -14,7 +14,7 @@ from tabarena.benchmark.experiment import (
     build_jobs,
 )
 from tabarena.benchmark.task.metadata.fetch_metadata import task_metadata_collection_from_openml
-from tabarena.contexts import AbstractArenaContext
+from tabarena.contexts import TABARENA_V0PT1_VALIDATION_PROTOCOL, AbstractArenaContext
 from tabarena.end_to_end import EndToEnd
 
 if __name__ == "__main__":
@@ -39,11 +39,14 @@ if __name__ == "__main__":
 
     # 2: models to run, each at its default config. See `run_quickstart_tabarena_model.py` for
     #    custom models + HPO. Registry names: `tabarena.models.utils.get_configs_generator_from_name`.
+    #    No arena context runs these jobs (the runner is used directly below), so the bundle carries the
+    #    inner validation protocol itself; TabArena's official 8 folds x 1 set here.
     bundle = TabArenaV0pt1ExperimentBundle(
         models=[
             ("LightGBM", 0),
             ("XGBoost", 0),
         ],
+        validation_protocol=TABARENA_V0PT1_VALIDATION_PROTOCOL,
     )
     experiments = bundle.build_experiments()
 
