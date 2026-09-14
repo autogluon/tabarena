@@ -52,9 +52,12 @@ def process_one_folder(
     """
     base_output_path.mkdir(parents=True, exist_ok=True)
 
-    # N datasets file
+    # N datasets file. A re-conversion into an existing folder must not leave the previous
+    # count behind: the website reads the first marker it finds.
     results_per_split = pd.read_csv(base_input_path / "results_per_split.csv", low_memory=False)
     n_datasets = len(results_per_split["dataset"].unique())
+    for stale in base_output_path.glob("n_datasets_*"):
+        stale.unlink()
     (base_output_path / f"n_datasets_{n_datasets}").touch()
 
     for file_name in [
