@@ -16,8 +16,11 @@ Two execution modes (``--execution_mode``):
 
 Invoke it via the command emitted by ``LocalSequentialSetup.get_run_commands``:
 
-    <python> -m tabflow_slurm.run_local <job.json> [--continue_on_error True]
-                                                   [--execution_mode in_process]
+    <python> -P -m tabflow_slurm.run_local <job.json> [--continue_on_error True]
+                                                      [--execution_mode in_process]
+
+Subprocess mode mirrors the SLURM template's environment: ``python -P``, the thread-count
+variables unset (see ``HYGIENE_ENV_VARS``) and ``--offline_weights`` from the job defaults.
 
 The job JSON has the same ``{"defaults": {...}, "jobs": [{"items": [...]}, ...]}``
 shape produced by ``TabArenaBenchmarkSetup.get_jobs_dict`` — every runtime arg the
@@ -33,16 +36,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tabflow_slurm.run_tabarena_experiment import _str2bool
 
-def _str2bool(v: str | bool) -> bool:
-    """Parse a CLI boolean (mirrors ``run_tabarena_experiment._str2bool``)."""
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ("yes", "true", "t", "1"):
-        return True
-    if v.lower() in ("no", "false", "f", "0"):
-        return False
-    raise argparse.ArgumentTypeError("Boolean value expected.")
+#: Thread-pool and OpenMP placement variables a login shell may carry; the models and Ray size
+#: their pools themselves, so the item processes start without them (same as ``submit_template.sh``).
+HYGIENE_ENV_VARS = (
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "NUMEXPR_MAX_THREADS",
+    "OMP_PROC_BIND",
+    "OMP_PLACES",
+)
 
 
 def _build_item_command(defaults: dict, item: dict) -> list[str]:
@@ -55,6 +60,7 @@ def _build_item_command(defaults: dict, item: dict) -> list[str]:
     """
     return [
         str(defaults["python"]),
+        "-P",
         str(defaults["run_script"]),
         "--job_batch_dir",
         str(defaults["job_batch_dir"]),
@@ -79,6 +85,13 @@ def _build_item_command(defaults: dict, item: dict) -> list[str]:
         "False",
         "--ignore_cache",
         str(defaults["ignore_cache"]),
+        "--offline_weights",
+        str(bool(defaults.get("offline_weights", False))),
+        # Local machines rarely confine the process to num_cpus CPUs; report the mismatch instead.
+        "--cpu_budget_check",
+        "warn",
+        "--require_warmup",
+        str(bool(defaults.get("require_warmup", True))),
     ]
 
 
@@ -95,9 +108,10 @@ def _setup_in_process(defaults: dict) -> None:
     shared-resources Ray setup disabled. Cache configuration is not done here — each item's
     ``run_experiment`` applies the ``JobBatch``'s ``cache_config`` before its fit.
     """
-    from tabflow_slurm.slurm_utils import setup_slurm_job
+    from tabflow_slurm.slurm_utils import apply_offline_weights_env, setup_slurm_job
 
     os.environ.setdefault("TABPFN_DISABLE_TELEMETRY", "1")
+    apply_offline_weights_env(bool(defaults.get("offline_weights", False)))
     setup_slurm_job(
         num_cpus=defaults["num_cpus"],
         num_gpus=defaults["num_gpus"],
@@ -123,6 +137,9 @@ def _run_item_in_process(defaults: dict, item: dict) -> int:
             repeat=item["repeat"],
             output_dir=str(defaults["output_dir"]),
             ignore_cache=bool(defaults["ignore_cache"]),
+            cleanup_on_failure=False,
+            cpu_budget_check="warn",
+            require_warmup=bool(defaults.get("require_warmup", True)),
         )
     except Exception as exc:
         print(f"  in-process item raised: {exc!r}", flush=True)
@@ -147,7 +164,9 @@ def run(json_path: str, *, continue_on_error: bool, execution_mode: str = "subpr
     # Subprocess mode: match the env the SLURM submit template exports to each job.
     env = os.environ.copy()
     env["TABPFN_DISABLE_TELEMETRY"] = "1"
-    env["PYTHONUNBUFFERED"] = "1"
+    env["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+    for name in HYGIENE_ENV_VARS:
+        env.pop(name, None)
 
     if execution_mode == "in_process":
         _setup_in_process(defaults)
@@ -192,6 +211,8 @@ def run(json_path: str, *, continue_on_error: bool, execution_mode: str = "subpr
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(description="Run a benchmark job JSON locally and sequentially.")
     parser.add_argument("json_path", type=str, help="Path to the generated job JSON file.")
     parser.add_argument(

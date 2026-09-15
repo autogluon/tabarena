@@ -16,15 +16,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def get_task(task_id: int) -> OpenMLSupervisedTask:
+def get_task(task_id: int, *, download_splits: bool = False) -> OpenMLSupervisedTask:
     """The OpenML task with its dataset (parquet + feature metadata) cached; splits load on first use.
 
     Dataset qualities are not fetched: nothing in tabarena reads them, and each fetch is one
-    more cache-directory round trip per task.
+    more cache-directory round trip per task. ``download_splits`` fetches the split file too (the
+    head-node materialization does, so compute nodes never contact the server).
     """
     task = openml.tasks.get_task(
         task_id,
-        download_splits=False,
+        download_splits=download_splits,
         download_data=True,
         download_qualities=False,
         download_features_meta_data=True,
@@ -44,13 +45,12 @@ def get_ag_problem_type(task: OpenMLSupervisedTask) -> str:
     return problem_type
 
 
-def get_task_with_retry(task_id: int, max_delay_exp: int = 8) -> OpenMLSupervisedTask:
+def get_task_with_retry(task_id: int, max_delay_exp: int = 8, *, download_splits: bool = False) -> OpenMLSupervisedTask:
+    """:func:`get_task` with exponential backoff on ``OpenMLServerException`` (up to ``max_delay_exp`` retries)."""
     delay_exp = 0
     while True:
         try:
-            # print(f'Getting task {task_id}')
-            return get_task(task_id=task_id)
-            # print(f'Got task {task_id}')
+            return get_task(task_id=task_id, download_splits=download_splits)
         except OpenMLServerException as e:
             delay = 2**delay_exp
             delay_exp += 1

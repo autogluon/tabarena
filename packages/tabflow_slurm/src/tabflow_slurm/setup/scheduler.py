@@ -3,17 +3,77 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from tabarena.utils.ray_utils import to_batch_list
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from tabarena.benchmark.experiment import Job
     from tabarena.benchmark.task.metadata import SplitMetadata, TaskMetadataCollection
     from tabflow_slurm.setup.paths import PathSetup
     from tabflow_slurm.setup.resources import ResourcesSetup
+
+
+#: Libraries every item process and Ray fold worker imports; pre-read on a fresh node.
+PRETOUCH_BASE_PACKAGES: tuple[str, ...] = (
+    "ray",
+    "numpy",
+    "pandas",
+    "scipy",
+    "sklearn",
+    "autogluon.common",
+    "autogluon.core",
+    "autogluon.features",
+    "autogluon.tabular",
+    "tabarena",
+)
+#: Site-packages-relative paths pre-read for torch models (the shared libraries torch loads).
+PRETOUCH_TORCH_PATHS: tuple[str, ...] = ("torch/lib", "nvidia/cudnn/lib", "nvidia/cublas/lib")
+
+
+def pretouch_targets(model_classes: Iterable[type]) -> tuple[list[str], list[str]]:
+    """Packages and site-packages-relative paths to pre-read for these model classes.
+
+    The base set plus each class's Ray-worker warm-up modules (their top-level packages); a
+    ``torch`` entry adds :data:`PRETOUCH_TORCH_PATHS`. Missing packages are skipped by the pre-touch.
+    """
+    from tabarena.models.warmup import ray_worker_warmup_modules
+
+    packages = list(PRETOUCH_BASE_PACKAGES)
+    paths: list[str] = []
+    for model_cls in model_classes:
+        for module in ray_worker_warmup_modules(model_cls):
+            top = module.split(".")[0]
+            if top == "torch":
+                paths = list(PRETOUCH_TORCH_PATHS)
+            elif top not in packages:
+                packages.append(top)
+    return packages, paths
+
+
+@dataclass(frozen=True)
+class NodeStagingSetup:
+    """Node-local staging knobs shipped to ``submit_template.sh`` as ``defaults.staging``.
+
+    ``stage_weights`` (opt-in) copies the run's foundation-model weights (HF ``models--*`` repo dirs
+    and TabPFN checkpoints) onto the node before the first fit. It is off by default because the
+    warm-up already pre-loads the weights untimed, so the copy only saves job wall-clock on a cold
+    node (3 to 36 s) at the price of a per-node rsync (13 GB for TabFM); turn it on for campaigns
+    where that trade is worth it. ``pretouch_libs`` reads the job's model libraries into the page
+    cache once per node boot and stays on. Both are skipped by the template when the node lacks
+    the space (``reserve_bytes`` kept free) or the tools, so the shared filesystem stays the
+    fallback.
+    """
+
+    stage_weights: bool = False
+    pretouch_libs: bool = True
+    pretouch_max_bytes: int = 2 * 1024**3
+    reserve_bytes: int = 10 * 1024**3
+    jit_cache_max_mb: int = 2048
 
 
 @dataclass(kw_only=True)
@@ -90,6 +150,14 @@ class SchedulerSetup:
         Subclasses override this to surface scheduler-specific runtime flags
         (e.g. SLURM Ray-shared-resources hints) without coupling the caller
         to a specific scheduler. Default: no extras.
+        """
+        return {}
+
+    def get_staging_defaults(self, weight_plan: dict | None, *, model_classes: Iterable[type] = ()) -> dict:
+        """Node-staging entries for the per-job ``defaults`` dict (``{"staging": {...}}``).
+
+        ``weight_plan`` is the dict from ``tabarena.models.staging.collect_weight_paths`` (or
+        ``None``); ``model_classes`` drive the pre-touch package list. Default: no staging.
         """
         return {}
 
@@ -246,7 +314,7 @@ class LocalSequentialSetup(SchedulerSetup):
         with Path(json_path).open("w") as f:
             json.dump({"defaults": jobs_dict["defaults"], "jobs": all_jobs}, f)
 
-        command = f"{jobs_dict['defaults']['python']} -m tabflow_slurm.run_local {json_path}"
+        command = f"{jobs_dict['defaults']['python']} -P -m tabflow_slurm.run_local {json_path}"
         if self.continue_on_error:
             command += " --continue_on_error True"
         if self.execution_mode != "subprocess":
@@ -295,13 +363,41 @@ class SlurmSetup(SchedulerSetup):
     Passed as the `%N` suffix to `sbatch --array=0-K%N`."""
 
     setup_ray_for_slurm_shared_resources_environment: bool = True
-    """Prepare Ray for a SLURM shared resource environment.
-    Recommended to set to True if sequential_local_fold_fitting is False."""
+    """Prepare Ray for a SLURM shared resource environment. The runner starts Ray only for
+    experiments whose fit can reach it (``Experiment.uses_ray``)."""
+
+    node_staging: NodeStagingSetup = field(default_factory=NodeStagingSetup)
+    """Node-local weight staging and library pre-touch (see :class:`NodeStagingSetup`)."""
 
     def get_extra_default_args(self) -> dict:
         """Surface the SLURM-specific Ray-shared-resources hint to the per-job defaults."""
         return {
             "setup_ray_for_slurm_shared_resources_environment": self.setup_ray_for_slurm_shared_resources_environment,
+        }
+
+    def get_staging_defaults(self, weight_plan: dict | None, *, model_classes: Iterable[type] = ()) -> dict:
+        """The ``staging`` block of the per-job defaults, read by ``submit_template.sh``.
+
+        Weight staging is enabled only when :attr:`node_staging` asks for it and the plan holds
+        something to copy; models the plan could not enumerate are listed under ``unresolved`` and
+        keep resolving through the template's symlink overlay to the shared cache.
+        """
+        from tabarena.models.staging import empty_plan
+
+        plan = dict(weight_plan) if weight_plan is not None else empty_plan()
+        stage = self.node_staging.stage_weights and bool(plan["hf_repo_dirs"] or plan["tabpfn_files"])
+        packages, paths = pretouch_targets(model_classes)
+        return {
+            "staging": {
+                **plan,
+                "stage_weights": stage,
+                "reserve_bytes": self.node_staging.reserve_bytes,
+                "pretouch_libs": self.node_staging.pretouch_libs,
+                "pretouch_packages": packages,
+                "pretouch_paths": paths,
+                "pretouch_max_bytes": self.node_staging.pretouch_max_bytes,
+                "jit_cache_max_mb": self.node_staging.jit_cache_max_mb,
+            },
         }
 
     def get_run_commands(
@@ -413,8 +509,10 @@ class SlurmSetup(SchedulerSetup):
                 # Drop the scheduling-only `bundle_size` hint so the shipped JSON
                 # keeps the `{"items": [...]}` shape the node runner expects.
                 shipped_jobs = [{"items": job["items"]} for job in batch_jobs]
+                # The template derives the Ray-log destination of a failed item from the log dir.
+                shipped_defaults = {**defaults, "slurm_log_dir": slurm_log_output}
                 with Path(json_path).open("w") as f:
-                    json.dump({"defaults": defaults, "jobs": shipped_jobs}, f)
+                    json.dump({"defaults": shipped_defaults, "jobs": shipped_jobs}, f)
 
                 run_commands.append(
                     f"sbatch --array=0-{len(batch_jobs) - 1}%{self.array_job_limit} {base_command} {json_path}",

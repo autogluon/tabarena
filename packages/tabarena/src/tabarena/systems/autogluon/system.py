@@ -25,6 +25,14 @@ class AutoGluonSystemModel(ExternalSystemModel):
     The compute and time budgets are not init knobs: the runner passes them per split into
     :meth:`_fit_system`, so every system on the leaderboard is held to the same constraints.
 
+    Environment work is the system's own: TabArena runs no warm-up, checkpoint prefetch or
+    persist step for it, so the preset's foundation models (TabICL, TabDPT, Nori, TabPFN-3)
+    download on a cold Hugging Face cache inside the timed fit and the timed predict loads the
+    ensemble from disk the way ``TabularPredictor`` ships. A maintainer who wants those costs out
+    of the timers warms the cache on the head node before the campaign (fit the preset once on a
+    small dataset) and uses a preset that persists; the benchmark setup's ``offline_weights="auto"``
+    stays off while a system is selected.
+
     Codebase: https://github.com/autogluon/autogluon
     """
 
