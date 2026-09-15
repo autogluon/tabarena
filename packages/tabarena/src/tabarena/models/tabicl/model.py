@@ -5,6 +5,7 @@ import tempfile
 from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular import __version__
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -38,6 +39,19 @@ class TabICLModelBase(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: TabICL builds its network inside ``_load_model``, which ``fit`` calls. The first fit of a
+    #: checkpoint in the process builds it; every later estimator of that checkpoint and device
+    #: reuses it. A key-value cache writes the training context into the network, so that
+    #: configuration builds its own.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader=("tabicl:TabICLClassifier._load_model", "tabicl:TabICLRegressor._load_model"),
+        key=("checkpoint_version", "model_path"),
+        disabled_by=("kv_cache",),
+    )
+    #: TabICL v1.1 and v2 are registered separately; each owns its ``share_weights`` class setting.
+    class_settings_per_subclass = True
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
 
     def get_model_cls(self):
         if self.problem_type in ["binary", "multiclass"]:

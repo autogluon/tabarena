@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, ClassVar
 
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
 if TYPE_CHECKING:
@@ -112,6 +113,13 @@ class TabFMModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: The estimator takes the network ``tabfm_v1_0_0_pytorch.load`` returns; one build per model
+    #: type, checkpoint path, dtype and device per process.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader="tabfm.src.pytorch.tabfm_v1_0_0:load", key=("model_type", "checkpoint_path", "dtype")
+    )
+    #: Knobs that make the warm-up's dummy fit cheap without touching the network.
+    cheap_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
     # Set fold_fitting_strategy to sequential_local,
     # as parallel folding crashes if model weights aren't pre-downloaded.
     # refit_folds avoids storing one in-context model per fold (each carries the

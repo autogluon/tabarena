@@ -12,6 +12,7 @@ from autogluon.core.constants import (
     BINARY,
     MULTICLASS,
 )
+from autogluon.core.models.abstract import SharedWeights
 from autogluon.features.generators import LabelEncoderFeatureGenerator
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
@@ -32,6 +33,14 @@ _DEFAULT_HF_FILENAME = "LimiX-16M.ckpt"
 _DEFAULT_HF_REVISION = "da5f3072bf3633c70d957c02518c30d461007764"
 _DEFAULT_CLS_CONFIG = "cls_default_16M_retrieval.json"
 _DEFAULT_REG_CONFIG = "reg_default_16M_retrieval.json"
+#: The retrieval-free classification pipeline: the cheap configuration of the warm-up's dummy fit.
+_NORETRIEVAL_CLS_CONFIG = "cls_default_noretrieval.json"
+
+
+def _load_bundled_config(filename: str) -> list:
+    cfg_path = _CONFIG_DIR / filename
+    with cfg_path.open("r") as f:
+        return json.load(f)
 
 
 class LimiXModel(AbstractTorchModel):
@@ -66,6 +75,20 @@ class LimiXModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+    #: The vendored predictor and its retrieval steps load the network through the vendored
+    #: ``load_model``; one build per checkpoint file and device per process, shared by the predictor
+    #: and every ``InferenceAttentionMap`` step. The loader has no device input, so ``_fit`` records
+    #: the device on ``self.device`` before constructing the predictor.
+    shared_weights: ClassVar[SharedWeights] = SharedWeights(
+        loader=(
+            "tabarena.models.limix._vendor.inference.predictor:load_model",
+            "tabarena.models.limix._vendor.inference.inference_method:load_model",
+        ),
+        key=("model_path", "mask_prediction"),
+    )
+    #: A single retrieval-free pipeline keeps the warm-up's dummy fit cheap, and runs on a CPU too
+    #: (the retrieval pipelines raise there); ``inference_config`` never touches the network.
+    cheap_hyperparameters: ClassVar[dict] = {"inference_config": _load_bundled_config(_NORETRIEVAL_CLS_CONFIG)[:1]}
     # Sequential fold fitting avoids contention on the shared HF checkpoint cache.
     _default_ag_args_ensemble_extra = {
         "fold_fitting_strategy": "sequential_local",
@@ -181,6 +204,7 @@ class LimiXModel(AbstractTorchModel):
                 f"LimiX: subsampling train from {n_full} to {target} rows to bound VRAM at predict time",
             )
 
+        self.device = device_str  # keys the shared network; the vendored loader names no device
         self.model = LimiXPredictor(
             device=torch.device(device_str),
             model_path=str(model_path),
@@ -285,12 +309,6 @@ class LimiXModel(AbstractTorchModel):
                 filename=_DEFAULT_HF_FILENAME,
                 revision=_DEFAULT_HF_REVISION,
             )
-
-
-def _load_bundled_config(filename: str) -> list:
-    cfg_path = _CONFIG_DIR / filename
-    with cfg_path.open("r") as f:
-        return json.load(f)
 
 
 def _download_default_checkpoint() -> str:
