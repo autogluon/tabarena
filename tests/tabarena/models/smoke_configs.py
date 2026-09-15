@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
-from tabarena.models import get_model_registry
+import pytest
+
+from tabarena.models import ModelInfo, get_model_registry
 
 
 @dataclass(frozen=True)
@@ -23,12 +25,18 @@ class ModelSmokeTest:
             that row's value from a batched predict (AutoGluon's default is True, at
             ``atol=1e-5``). Set False only for a model shown to satisfy it on CPU and to
             miss it on GPU, and say so in a comment.
+        allowed_lazy_imports: top-level packages the timed fit or predict may import cold
+            (``test_warmup_coverage.py``). Empty for every model by default; an entry needs a
+            comment saying why the import cannot move to the warm-up (``warmup_modules`` covers
+            the ordinary case). Only whole packages can be listed: the audit diffs top-level
+            packages, so submodules of already-imported packages never count.
     """
 
     hyperparameters: dict = field(default_factory=dict)
     problem_types: tuple[str, ...] | None = None
     use_larger_toy_datasets: bool = False
     verify_single_prediction_equivalent_to_multi: bool = True
+    allowed_lazy_imports: tuple[str, ...] = ()
 
 
 # Keyed by the registry method name (``MethodMetadata.method`` -- the same key
@@ -89,3 +97,21 @@ def smoke_for(method: str) -> ModelSmokeTest:
     if override is None:
         return ModelSmokeTest(hyperparameters=cheap)
     return replace(override, hyperparameters={**cheap, **override.hyperparameters})
+
+
+def registry_or_fail() -> dict[str, ModelInfo]:
+    """Return the model registry, failing collection instead of parametrizing over nothing.
+
+    ``get_model_registry()`` already raises when ``autogluon.tabular`` is shadowed or every
+    package was skipped; this covers any other way of ending up empty so a registry-driven test
+    module can never pass with zero cases.
+    """
+    registry = get_model_registry()
+    if not registry:
+        pytest.fail(
+            "get_model_registry() returned no models, so this module would collect zero cases and "
+            "pass vacuously. See the RuntimeError or the 'Skipping tabarena.models.<key>' warnings "
+            "from get_model_registry().",
+            pytrace=False,
+        )
+    return registry

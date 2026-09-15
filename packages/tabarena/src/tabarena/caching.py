@@ -1,6 +1,6 @@
 """A single place to declare every cache directory TabArena uses.
 
-TabArena reads and writes five independent caches. Historically each was process-global
+TabArena reads and writes six independent caches. Historically each was process-global
 state a user had to configure by hand on *every* process — the driver and every distributed
 worker — because the runner API exposed no cache parameter. :class:`CacheConfig` collapses
 that into one object you declare once and :meth:`CacheConfig.apply` wherever a process needs
@@ -23,7 +23,7 @@ __all__ = ["CacheConfig"]
 
 # The path-valued fields (vs. the policy flags `apply_on_run` / `scope_openml`); used by
 # `from_root` to lay each cache out under a single parent directory.
-_LOCATION_FIELDS = ("openml", "huggingface", "data_foundry", "tabarena", "results")
+_LOCATION_FIELDS = ("openml", "huggingface", "tabpfn", "data_foundry", "tabarena", "results")
 # All constructor fields; used by `from_dict` to ignore any unknown keys.
 _CONFIG_FIELDS = (*_LOCATION_FIELDS, "apply_on_run", "scope_openml")
 
@@ -43,7 +43,7 @@ class CacheConfig:
     default stays in effect. :meth:`apply` is idempotent and creates no directories (the
     underlying libraries create them lazily on first write).
 
-    The five caches and their roles:
+    The six caches and their roles:
 
     openml:
         **The most important cache.** OpenML's root cache directory, set via
@@ -57,13 +57,23 @@ class CacheConfig:
         set ``scope_openml=True`` (or use :meth:`scoped_openml`) to point TabArena at it only for
         the duration of a run and restore any pre-existing ``openml.config`` location after.
     huggingface:
-        The HuggingFace Hub cache for foundation-model **weights** — TabPFN / Mitra / LimiX /
-        OrionMSP / SAP-RPT (and the text-embedding models) call ``hf_hub_download`` with no
-        explicit ``cache_dir``, so their weights land under ``HF_HOME``. Set via the ``HF_HOME``
+        The HuggingFace Hub cache for foundation-model **weights** — Mitra / LimiX / OrionMSP /
+        SAP-RPT (and the text-embedding models) call ``hf_hub_download`` with no explicit
+        ``cache_dir``, so their weights land under ``HF_HOME``. Set via the ``HF_HOME``
         environment variable; library default ``~/.cache/huggingface/hub``. This does **not**
         cover the data-foundry / BeyondArena raw *dataset* download: data-foundry passes an
         explicit ``cache_dir`` to ``snapshot_download`` (which overrides ``HF_HOME``), so those
-        containers go to the separate ``data_foundry`` cache below — not here.
+        containers go to the separate ``data_foundry`` cache below — not here. TabPFN checkpoints
+        do not live here either; see ``tabpfn``.
+    tabpfn:
+        The TabPFN checkpoint directory: the ``tabpfn`` package downloads its ``.ckpt`` files
+        into its own cache, not into ``HF_HOME``. This is the shared source of truth the
+        head-node prefetch fills and every worker reads. Set via the ``TABPFN_MODEL_CACHE_DIR``
+        environment variable (read when ``tabpfn.settings`` is imported); when that module is
+        already imported, :meth:`apply` also repoints ``settings.tabpfn.model_cache_dir`` in place.
+        Library default ``~/.cache/tabpfn``. Only the process :meth:`apply` runs in (and children
+        started afterwards) see the variable; the tabpfn wrappers fit their folds sequentially in
+        that process.
     data_foundry:
         The data-foundry **dataset download** cache — where BeyondArena (and any other
         data-foundry collection) downloads its raw containers from HuggingFace, into a
@@ -81,7 +91,7 @@ class CacheConfig:
     results:
         The benchmark *run-output* cache, used as the default ``expname`` for ``run_jobs`` —
         under which the runner writes ``{expname}/data/{method}/{task}/{repeat}_{fold}/results.pkl``
-        (``cache_mode`` controls resume/skip). Unlike the other three this is **not** global
+        (``cache_mode`` controls resume/skip). Unlike the others this is **not** global
         process state, so :meth:`apply` does not touch it. It is used *only* when ``run_jobs`` is
         called without an ``expname`` argument; it does not change the meaning of an explicit
         ``expname=None`` (still a throwaway temp dir). ``None`` here means "no default" (``run_jobs``
@@ -106,6 +116,7 @@ class CacheConfig:
 
     openml: str | Path | None = None
     huggingface: str | Path | None = None
+    tabpfn: str | Path | None = None
     data_foundry: str | Path | None = None
     tabarena: str | Path | None = None
     results: str | Path | None = None
@@ -117,10 +128,13 @@ class CacheConfig:
         """Put every cache under a single parent directory ``root``.
 
         ``CacheConfig.from_root("/scratch/me")`` resolves to ``/scratch/me/openml``,
-        ``/scratch/me/huggingface``, ``/scratch/me/tabarena`` and ``/scratch/me/results``.
-        Handy when one large/shared disk should hold everything. Any field can be pinned via
-        a keyword override (e.g. ``from_root(root, results=None)`` to keep run outputs in a
-        throwaway temp dir, or ``from_root(root, scope_openml=True)`` to set a policy flag).
+        ``/scratch/me/huggingface``, ``/scratch/me/tabpfn``, ``/scratch/me/data_foundry``,
+        ``/scratch/me/tabarena`` and ``/scratch/me/results``. Handy when one large/shared disk
+        should hold everything. Any field can be pinned via a keyword override (e.g.
+        ``from_root(root, results=None)`` to keep run outputs in a throwaway temp dir, or
+        ``from_root(root, scope_openml=True)`` to set a policy flag). ``<root>/tabpfn`` starts
+        empty: copy ``~/.cache/tabpfn/*.ckpt`` there, let the prefetch fill it, or pass
+        ``tabpfn=None`` to keep TabPFN's default cache.
         """
         root = Path(root)
         base: dict = {name: root / name for name in _LOCATION_FIELDS}
@@ -133,15 +147,13 @@ class CacheConfig:
         Used to persist the config alongside a sweep (e.g. in a ``JobBatch``) so a compute node
         can reconstruct and :meth:`apply` it. Round-trips with :meth:`from_dict`.
         """
-        return {
-            "openml": None if self.openml is None else str(self.openml),
-            "huggingface": None if self.huggingface is None else str(self.huggingface),
-            "data_foundry": None if self.data_foundry is None else str(self.data_foundry),
-            "tabarena": None if self.tabarena is None else str(self.tabarena),
-            "results": None if self.results is None else str(self.results),
-            "apply_on_run": self.apply_on_run,
-            "scope_openml": self.scope_openml,
-        }
+        out: dict = {}
+        for name in _LOCATION_FIELDS:
+            value = getattr(self, name)
+            out[name] = None if value is None else str(value)
+        out["apply_on_run"] = self.apply_on_run
+        out["scope_openml"] = self.scope_openml
+        return out
 
     @classmethod
     def from_dict(cls, data: dict) -> CacheConfig:
@@ -153,10 +165,11 @@ class CacheConfig:
 
         Applies ``openml`` via ``openml.config.set_root_cache_directory``, ``tabarena`` via
         ``tabarena.loaders.set_tabarena_cache_root``, ``huggingface`` via the ``HF_HOME``
-        environment variable (see :meth:`_apply_huggingface` for the import-timing handling), and
-        ``data_foundry`` via the ``DATA_FOUNDRY_CACHE`` environment variable (honored by
-        data-foundry's ``resolve_cache_dir``). ``results`` is intentionally not applied — it is a
-        ``run_jobs`` default, not global state.
+        environment variable (see :meth:`_apply_huggingface` for the import-timing handling),
+        ``tabpfn`` via the ``TABPFN_MODEL_CACHE_DIR`` environment variable (see
+        :meth:`_apply_tabpfn`), and ``data_foundry`` via the ``DATA_FOUNDRY_CACHE`` environment
+        variable (honored by data-foundry's ``resolve_cache_dir``). ``results`` is intentionally
+        not applied — it is a ``run_jobs`` default, not global state.
 
         Args:
             openml: When ``False``, skip the OpenML field. Used by callers that want to set the
@@ -174,6 +187,8 @@ class CacheConfig:
             set_tabarena_cache_root(Path(self.tabarena).expanduser())
         if self.huggingface is not None:
             self._apply_huggingface(Path(self.huggingface).expanduser())
+        if self.tabpfn is not None:
+            self._apply_tabpfn(Path(self.tabpfn).expanduser())
         if self.data_foundry is not None:
             os.environ["DATA_FOUNDRY_CACHE"] = str(Path(self.data_foundry).expanduser())
 
@@ -200,6 +215,8 @@ class CacheConfig:
         * **data_foundry** is a plain ``DATA_FOUNDRY_CACHE`` env var, re-read on each
           ``resolve_cache_dir`` call (so it *could* be scoped), but for consistency it is left
           applied alongside HuggingFace/TabArena.
+        * **tabpfn** is frozen into ``tabpfn.settings`` at import time like HuggingFace, so it is
+          left applied as well.
         """
         import openml as openml_lib
 
@@ -233,3 +250,21 @@ class CacheConfig:
             for attr in ("HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE"):
                 if hasattr(constants, attr):
                     setattr(constants, attr, hub_cache)
+
+    @staticmethod
+    def _apply_tabpfn(path: Path) -> None:
+        """Point the TabPFN checkpoint cache at ``path`` via ``TABPFN_MODEL_CACHE_DIR``.
+
+        ``tabpfn.settings`` reads the variable once, when it is imported, so setting it before the
+        first tabpfn import is sufficient. If the module is *already* imported, its
+        ``settings.tabpfn.model_cache_dir`` is repointed in place as a ``Path`` (the loader joins
+        checkpoint names onto it). The module is never force-imported.
+        """
+        os.environ["TABPFN_MODEL_CACHE_DIR"] = str(path)
+
+        settings_module = sys.modules.get("tabpfn.settings")
+        if settings_module is None:
+            return
+        tabpfn_settings = getattr(getattr(settings_module, "settings", None), "tabpfn", None)
+        if tabpfn_settings is not None:
+            tabpfn_settings.model_cache_dir = path
