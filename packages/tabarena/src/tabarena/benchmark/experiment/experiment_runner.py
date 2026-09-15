@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import datetime
+import traceback
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -54,6 +55,7 @@ class ExperimentRunner:
         eval_metric_name: str | None = None,
         require_warmup: bool = True,
         warmup: bool = True,
+        cleanup_on_failure: bool = False,
     ):
         """Configure the runner and load the split for ``(fold, repeat, sample)``.
 
@@ -95,6 +97,11 @@ class ExperimentRunner:
         warmup: bool, default True
             If True, run the method's untimed environment warm-up before fitting
             (see ``run_warmup``).
+        cleanup_on_failure: bool, default False
+            If True, call the model's ``cleanup`` also when the run fails (after ``handle_failure``
+            wrote the failure artifact), so a multi-item worker does not leak predictor
+            directories or served GPU models. Off by default so local debugging keeps the
+            artifacts of a failed fit; the SLURM runner turns it on.
         """
         if eval_metric_name is None:
             eval_metric_name = default_eval_metric(task.problem_type)
@@ -118,8 +125,12 @@ class ExperimentRunner:
         self.debug_mode = debug_mode
         self.require_warmup = require_warmup
         self.warmup = warmup
+        self.cleanup_on_failure = cleanup_on_failure
         self.time_warmup_s: float | None = None
         self.warmup_report: WarmupReport | None = None
+        self.timing_audit: dict | None = None
+        # Post-fit memo of the lazily loaded ``(X_test, y_test)``; see ``_reload_post_fit_split``.
+        self._post_fit_split: tuple[pd.DataFrame, pd.Series] | None = None
 
         # When lazy-loading, keep the split frames as None and (re)load them on demand; we only
         # materialize ``y`` here to fit the label cleaner.
@@ -175,16 +186,30 @@ class ExperimentRunner:
         return self.task.get_train_test_split(fold=self.fold, repeat=self.repeat, sample=self.sample)
 
     def _load_y_test(self) -> pd.Series:
-        """Return the test labels, (re)loading them on demand when data is lazy-loaded."""
+        """Return the test labels, from the post-fit memo when data is lazy-loaded."""
         if self.task.lazy_load_data:
-            return self._train_test_split()[3]
+            return self._reload_post_fit_split()[1]
         return self.y_test
 
     def _load_x_test(self) -> pd.DataFrame:
-        """Return the test features, (re)loading them on demand when data is lazy-loaded."""
+        """Return the test features, from the post-fit memo when data is lazy-loaded."""
         if self.task.lazy_load_data:
-            return self._train_test_split()[2]
+            return self._reload_post_fit_split()[0]
         return self.X_test
+
+    def _reload_post_fit_split(self) -> tuple[pd.DataFrame, pd.Series]:
+        """The lazily loaded ``(X_test, y_test)`` after the fit, loaded once and kept until ``_run`` ends.
+
+        ``evaluate``, ``post_evaluate`` and ``bag_artifact`` all read the test split after the fit;
+        the memo loads it once instead of once per reader. It is filled on first use after the fit
+        (never during the timed fit, whose own reload lives in ``fit_custom``; ``run_model_fit`` clears
+        it first) and dropped in ``_run`` after ``post_evaluate``, so the peak memory of the timed fit
+        is unchanged. Only the test half is kept.
+        """
+        if self._post_fit_split is None:
+            _, _, X_test, y_test = self._train_test_split()
+            self._post_fit_split = (X_test, y_test)
+        return self._post_fit_split
 
     @property
     def split_seed(self):
@@ -239,6 +264,7 @@ class ExperimentRunner:
         Passes the loaded frames directly, or a lazy-load callback when the task lazy-loads
         its data (so the large arrays are only materialized inside ``fit_custom``).
         """
+        self._post_fit_split = None
         if self.task.lazy_load_data:
             lazy_load_function = self._lazy_load_for_run_model_fit
             X, y, X_test = None, None, None
@@ -255,14 +281,29 @@ class ExperimentRunner:
         return X, y, X_test
 
     def run(self) -> dict:
-        """Run the full fit -> evaluate flow and return the result dict (cleaning up if enabled)."""
-        out = self._run()
+        """Run the full fit and evaluate flow and return the result dict (cleaning up if enabled).
+
+        The model's ``cleanup`` runs after a successful ``_run`` when ``cleanup`` is set. After a
+        failure it runs only when ``cleanup_on_failure`` is set, after ``handle_failure`` inside
+        ``_run`` wrote the failure artifact; an error from that cleanup is printed and the original
+        exception propagates.
+        """
+        try:
+            out = self._run()
+        except Exception:
+            if self.cleanup_on_failure:
+                self._cleanup_after_failure()
+            raise
         if self.cleanup:
             self._cleanup()
         return out
 
     def _run(self) -> dict:
-        """Instantiate, fit, evaluate, and assemble the result dict for this split."""
+        """Instantiate, fit, evaluate, and assemble the result dict for this split.
+
+        The served model stays resident through ``evaluate`` and ``post_evaluate`` (metadata, OOF and
+        bag artifacts reuse it); ``run`` releases it afterwards through ``_cleanup``.
+        """
         utc_time = datetime.datetime.now(datetime.UTC)
         time_start_str = utc_time.strftime("%Y-%m-%d %H:%M:%S")
         time_start = utc_time.timestamp()
@@ -277,20 +318,32 @@ class ExperimentRunner:
                 # Only do this in benchmark mode, since it could mess with a local debugger.
                 self.handle_failure(exc=exc)
             raise
+        # The environment audit of the timed sections belongs to the experiment metadata, not to the
+        # method's result keys.
+        self.timing_audit = out.pop("timing_audit", None)
         out = self.post_fit(out=out)
 
-        y_test = self._load_y_test()
         out["metric_error"] = self.evaluate(
-            y_true=y_test,
+            y_true=self._load_y_test(),
             y_pred=out["predictions"],
             y_pred_proba=out["probabilities"],
         )
-        if self.task.lazy_load_data:
-            del y_test  # free the reloaded labels before the (potentially heavy) post-evaluate
 
         out = self.post_evaluate(out=out)
+        self._post_fit_split = None  # the memoized test split is not needed past post_evaluate
         out["experiment_metadata"] = self._experiment_metadata(time_start=time_start, time_start_str=time_start_str)
         return self.convert_to_output(out=out)
+
+    def _cleanup_after_failure(self) -> None:
+        """Best-effort ``cleanup`` of the model after a failed run; never raises."""
+        model = self.model
+        if model is None:
+            return
+        try:
+            model.cleanup()
+        except Exception:
+            print("Cleanup after the failed run raised; the original exception is re-raised:")
+            traceback.print_exc()
 
     def handle_failure(self, exc: Exception):
         """Persist any per-model failure artifacts to the cache (benchmark mode only).
@@ -346,7 +399,8 @@ class ExperimentRunner:
         ``total_duration`` includes the warm-up; ``time_warmup_s`` records it separately
         (None = nothing was warmed) so the untimed share stays auditable, and ``warmup_report``
         lists what the warm-up imported, primed and dummy-fitted (``None`` when the runner never
-        got to the warm-up).
+        got to the warm-up). ``timing_audit`` is the environment audit ``fit_custom`` took around the
+        fit and predict timers (``None`` when the method's ``fit_custom`` returned none).
         """
         time_end = datetime.datetime.now(datetime.UTC).timestamp()
         return {
@@ -358,6 +412,7 @@ class ExperimentRunner:
             "time_start_str": time_start_str,
             "time_warmup_s": self.time_warmup_s,
             "warmup_report": self.warmup_report.to_dict() if self.warmup_report is not None else None,
+            "timing_audit": getattr(self, "timing_audit", None),
         }
 
     def convert_to_output(self, out: dict) -> dict:
@@ -424,7 +479,11 @@ class OOFExperimentRunner(ExperimentRunner):
         """Attach the ensemble-simulation artifact (OOF + test predictions) to ``out``.
 
         Built only when simulation artifacts are requested and the model can produce OOF
-        predictions; otherwise ``simulation_artifacts`` stays ``None`` (set by the base).
+        predictions; otherwise ``simulation_artifacts`` stays ``None`` (set by the base). The timed
+        test predictions are handed to ``bag_artifact`` so a bag whose output equals its single
+        child's can reuse them instead of predicting again; the path the model took is then written
+        to ``method_metadata["per_child_test_source"]`` (the metadata was collected before the
+        artifact).
         """
         out = super().post_evaluate(out=out)
         if not (self.compute_simulation_artifacts and self.model.can_get_oof):
@@ -451,7 +510,14 @@ class OOFExperimentRunner(ExperimentRunner):
         simulation_artifact["metric"] = self.eval_metric_name
 
         if self.compute_bag_info and self.model.can_get_per_child_oof and self.model.can_get_per_child_val_idx:
-            simulation_artifact["bag_info"] = self.model.bag_artifact(X_test=self._load_x_test())
+            simulation_artifact["bag_info"] = self.model.bag_artifact(
+                X_test=self._load_x_test(),
+                y_pred=out["predictions"],
+                y_pred_proba=out["probabilities"],
+            )
+            source = getattr(self.model, "per_child_test_source", None)
+            if source is not None and isinstance(out.get("method_metadata"), dict):
+                out["method_metadata"]["per_child_test_source"] = source
 
         simulation_artifact["pred_proba_dict_val"] = {self.method: simulation_artifact["pred_proba_dict_val"]}
         simulation_artifact["pred_proba_dict_test"] = {self.method: simulation_artifact["pred_proba_dict_test"]}
