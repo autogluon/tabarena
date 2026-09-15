@@ -6,23 +6,52 @@ import logging
 import os
 import random
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 import pandas as pd
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
+from autogluon.common.utils.pretrained_weights import (
+    PretrainedWeightsUnavailableError,
+    fetch_allowed,
+    unavailable_message,
+)
 from autogluon.tabular.models.mitra.mitra_model import MitraModel
 
+from tabarena.models._shared_weights_model import CheckpointSpec, SharedWeightsModelMixin, SharedWeightsSpec
 from tabarena.models.mitra_v2._internal import recipe
+from tabarena.models.prefetch import WeightsUnavailableError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
+
+    import torch
 
 logger = logging.getLogger(__name__)
 _BAG_RNG_STATE: tuple[str, tuple] | None = None
 
+CONFIG_FILE, WEIGHTS_FILE = recipe.CHECKPOINT_FILES
 
-class MitraV2Model(MitraModel):
+
+def _checkpoint_spec(repo_id: str, revision: str) -> CheckpointSpec:
+    """The pinned ``Tab2D.save_pretrained`` snapshot of one checkpoint repository; a user ``hf_model`` directory replaces it."""
+    return CheckpointSpec(
+        repo_id=repo_id,
+        revision=revision,
+        kind="snapshot",
+        required_files=recipe.CHECKPOINT_FILES,
+        weights_file=WEIGHTS_FILE,
+        user_path_param="hf_model",
+    )
+
+
+def _hf_model_is_not_a_checkpoint_dir(hyperparameters: Mapping[str, Any]) -> bool:
+    """True for an ``hf_model`` that is not a local checkpoint directory (a Hugging Face repo id), which the stock loader resolves."""
+    hf_model = hyperparameters.get("hf_model")
+    return hf_model is not None and not os.path.isfile(os.path.join(str(hf_model), WEIGHTS_FILE))
+
+
+class MitraV2Model(SharedWeightsModelMixin, MitraModel):
     """Mitra-v2: the second-generation Mitra tabular foundation model, fine-tuned per bag child.
 
     Mitra-v2 keeps Mitra's 12-layer 2D-attention backbone (77M parameters) and is pretrained on
@@ -60,11 +89,23 @@ class MitraV2Model(MitraModel):
     * Fine-tuning loop cost: the validation pass after every step runs in one wide query chunk
       instead of 1,024-row chunks with a fresh support draw each, over arrays transformed once per
       fit rather than once per step; a throw-away forward and backward pass at the context size
-      precedes the first validation pass so a context that does not fit the GPU fails in seconds;
-      the loop's attention runs on PyTorch's fused kernel; and the best-weights checkpoint stays on
-      the GPU instead of being copied to the host at every improving step. None of these changes
-      what a step computes; they decide how many of the 50 steps fit the 250 s budget on a given
-      GPU.
+      precedes the first validation pass so a context that does not fit the GPU fails in seconds
+      (skipped for a child whose table shape already fitted at the requested caps earlier in the
+      process, and re-armed after any out-of-memory error); the loop's attention runs on PyTorch's
+      fused kernel; and the best-weights checkpoint stays on the GPU instead of being copied to the
+      host at every improving step. None of these changes what a step computes; they decide how
+      many of the 50 steps fit the 250 s budget on a given GPU.
+    * Backbone construction: the pinned checkpoint's fp32 state dict is shared through the weights
+      registry (:mod:`tabarena.models._shared_weights_model`, ``mode="state_dict"``) in pinned host
+      memory, and every bag child builds its Tab2D on the meta device and copies the cached tensors
+      into its own storage on the fit device (``_internal/estimators.py``). The copy is bit-exact
+      and the fine-tuning is unchanged; a child never reads the checkpoint files or random-initializes
+      77M parameters it then discards. Skipping that initialization leaves torch's CPU generator
+      where the stock path would have advanced it, and nothing in the fine-tuning or prediction path
+      reads that generator in an output-relevant way (Tab2D has no dropout or random operation, the
+      training loader permutes a single batch, the DataLoader base seed is unused without workers),
+      so predictions are identical. An ``hf_model`` that is a Hugging Face repo id keeps the stock
+      ``Tab2D.from_pretrained`` load; a local checkpoint directory is shared under its own path.
     * Heldout in support: after its out-of-fold predictions, a bag child predicts with its fit
       fold plus its held-out fold as support, so the bag needs no refit. The held-out labels are
       used only as fine-tuning validation and as support rows, never for test information.
@@ -89,14 +130,40 @@ class MitraV2Model(MitraModel):
     """
 
     ag_key = "TA-MITRA-V2"
+    #: Every module the timed fit would otherwise import for the first time: AutoGluon's Mitra
+    #: sklearn interface (transformers through the scheduler helpers, loguru, einx, einops, Tab2D
+    #: and flash-attn when present), the wrapper's own fit-path modules, the Hub client and the
+    #: safetensors reader of the shared state dict.
     warmup_modules: ClassVar[tuple[str, ...]] = (
         "autogluon.tabular.models.mitra.sklearn_interface",
         "tabarena.models.mitra_v2._internal.estimators",
+        "tabarena.models.mitra_v2._internal.trainer",
         "huggingface_hub",
+        "safetensors.torch",
     )
+    #: Cheapness knob for the warm-up dummy fit: one fine-tuning step instead of fifty. Never a
+    #: checkpoint-relevant key, so the primed registry key is the one the real fit uses.
+    warmup_dummy_fit_hyperparameters: ClassVar[dict] = {"fine_tune_steps": 1}
     ag_name = "TA-Mitra-v2"
     ag_priority = 65
     minimum_num_gpus = 1
+
+    #: The shared payload is the checkpoint's fp32 state dict on the CPU whatever device the fit
+    #: runs on; binary and multiclass fine-tune the classifier checkpoint, regression the regressor.
+    shared_weights_spec: ClassVar[SharedWeightsSpec] = SharedWeightsSpec(
+        library="mitra_v2",
+        mode="state_dict",
+        checkpoint={
+            "classifier": _checkpoint_spec(recipe.HF_CLASSIFIER_REPO, recipe.HF_CLASSIFIER_REVISION),
+            "regressor": _checkpoint_spec(recipe.HF_REGRESSOR_REPO, recipe.HF_REGRESSOR_REVISION),
+        },
+        default_params={"hf_model": None},
+        disable_when=(_hf_model_is_not_a_checkpoint_dir,),
+        unshareable_examples=({"hf_model": recipe.HF_CLASSIFIER_REPO},),
+        cache_device="cpu",
+        state_dict_format="safetensors",
+        pin_memory=True,
+    )
 
     #: Lifts the stock Mitra caps (10,000 rows, 500 features): the recipe subsamples the support
     #: and reduces wide tables itself. The class cap is the checkpoint's head width.
@@ -179,14 +246,15 @@ class MitraV2Model(MitraModel):
 
         The reduction is fit on the training rows only and applied unchanged afterwards. It is
         skipped on tables with categorical columns, as in the reference pipeline, which only
-        reduces tables it can read as a float matrix.
+        reduces tables it can read as a float matrix, and on tables within the feature budget,
+        where ``WideTableReducer.fit`` would return ``None`` after a float64 copy of the table.
         """
         X = super()._preprocess(X, is_train=is_train, **kwargs)
         if is_train:
             self._wide_table_reducer = None
             budget = self.params.get("max_features_budget")
             has_categoricals = bool(self._label_encoder is not None and self._label_encoder.features_in)
-            if budget and y is not None and not has_categoricals:
+            if budget and y is not None and not has_categoricals and X.shape[1] > budget:
                 self._wide_table_reducer = recipe.WideTableReducer.fit(
                     X.to_numpy(dtype=float),
                     np.asarray(y),
@@ -228,7 +296,17 @@ class MitraV2Model(MitraModel):
         if self.problem_type == "binary" and n_outer_rows <= wrapper_params["small_binary_max_rows"]:
             hyp["lr"] = wrapper_params["small_binary_lr"]
 
-        checkpoint_dir = hyp.pop("hf_model", None) or resolve_checkpoint_dir(self.problem_type)
+        # Resolved local-first before the library runs, so no Hub request lands in the timed fit; a
+        # fetch the ``ag.fetch_pretrained_weights`` policy forbids raises here.
+        allow_fetch = fetch_allowed(self.aux_params.fetch_pretrained_weights, stage="fit")
+        try:
+            checkpoint_dir = hyp.pop("hf_model", None) or resolve_checkpoint_dir(
+                self.problem_type, allow_download=allow_fetch
+            )
+        except WeightsUnavailableError as exc:
+            raise PretrainedWeightsUnavailableError(
+                unavailable_message(model_name=self.name, stage="fit", location=str(exc))
+            ) from exc
         hyp["hf_model"] = checkpoint_dir
         for deprecated_key in ["hf_cls_model", "hf_reg_model", "hf_general_model"]:
             hyp.pop(deprecated_key, None)
@@ -260,6 +338,9 @@ class MitraV2Model(MitraModel):
             finetune_attention_backend=wrapper_params["finetune_attention_backend"],
             n_bins=_head_width(checkpoint_dir) if self.problem_type == "regression" else None,
         )
+        # The registry's CPU state dict: a hit after the warm-up (or after the first child), one
+        # read otherwise. The estimator borrows it for this fit and copies it into each backbone.
+        key, shared_state_dict = self._acquire_shared_weights(device=hyp["device"])
 
         bagged_child = recipe.is_bagged_child_name(self.name)
         seed = hyp.get(self.seed_name)
@@ -271,6 +352,7 @@ class MitraV2Model(MitraModel):
                     torch.set_num_threads(int(num_cpus))
                 self.model = model_cls(**hyp)
                 self.model.configure_recipe(settings)
+                self.model.configure_shared_weights(shared_state_dict)
 
                 use_outer_preprocessing = (
                     X_val is not None
@@ -294,6 +376,24 @@ class MitraV2Model(MitraModel):
                     trainer.post_fit_optimize()
             finally:
                 torch.set_num_threads(torch_threads)
+                if self.model is not None:
+                    self.model.configure_shared_weights(None)
+
+    def _shared_modules(self) -> list[torch.nn.Module]:
+        """The fine-tuned backbone of every trainer (``prepare_for_inference`` puts them in eval mode)."""
+        trainers = getattr(self.model, "trainers", None) or []
+        return [trainer.model for trainer in trainers if trainer.model is not None]
+
+    def prepare_for_inference(self) -> None:
+        """Untimed inference preparation of a persisted child; a template or a child without attached weights is left alone.
+
+        ``MitraModel.save`` detaches the backbones from their trainers while the pickle is written,
+        so the device swap and the eval-mode pass run only when every trainer holds its network.
+        """
+        trainers = getattr(self.model, "trainers", None) or []
+        if not trainers or any(trainer.model is None for trainer in trainers):
+            return
+        super().prepare_for_inference()
 
     def reduce_memory_size(
         self, remove_fit: bool = True, remove_info: bool = False, requires_save: bool = True, **kwargs
@@ -330,7 +430,8 @@ class MitraV2Model(MitraModel):
         reduced, so the dominant term is the activations over the capped support: about eight
         live ``rows x features x 512`` bf16 tensors. Plus the data, and a flat 3 GB for the
         weights, AdamW state, and the CUDA context. TabArena runs pass the GPU's memory as the
-        available memory, so this is read against VRAM in practice.
+        available memory, so this is read against VRAM in practice. The shared checkpoint state
+        dict lives in host memory (about 308 MB, pinned), not on the GPU, so it adds nothing here.
         """
         hyperparameters = hyperparameters or {}
         cap = hyperparameters.get("predict_support_cap") or (
@@ -355,7 +456,8 @@ class MitraV2Model(MitraModel):
         before the generic torch layer of ``warmup_model_cls`` and calls :func:`warmup_torch` itself
         (idempotent, the generic layer repeats it harmlessly). The heavy Mitra imports
         (``transformers`` through AutoGluon's scheduler helpers, ``loguru``, ``einops``) are declared
-        in ``warmup_modules`` and imported by the generic layer.
+        in ``warmup_modules`` and imported by the generic layer, which also primes the shared
+        checkpoint state dict under the key :meth:`shared_weights_key` derives.
         """
         from tabarena.models.warmup import warmup_torch
 
@@ -400,43 +502,25 @@ def configure_cuda_allocator() -> None:
         logger.log(20, f"\tCould not apply {CUDA_ALLOC_CONF!r} to the running CUDA allocator: {exc}")
 
 
-def resolve_checkpoint_dir(problem_type: str) -> str:
-    """Local directory of the pinned Mitra-v2 checkpoint for a task (downloaded if missing)."""
-    if problem_type == "regression":
-        return _download_checkpoint(recipe.HF_REGRESSOR_REPO, recipe.HF_REGRESSOR_REVISION)
-    return _download_checkpoint(recipe.HF_CLASSIFIER_REPO, recipe.HF_CLASSIFIER_REVISION)
+def resolve_checkpoint_dir(problem_type: str, *, allow_download: bool = True) -> str:
+    """Local snapshot directory (``config.json`` plus ``model.safetensors``) of the pinned checkpoint a task fine-tunes.
 
+    The same coordinates the shared-weights key resolves, read from the Hugging Face cache first
+    and from the Hub only when ``allow_download`` permits. The estimator's ``hf_model`` takes this
+    directory whether or not the fit shares its weights.
 
-def prefetch_weights() -> None:
-    """Pre-download both Mitra-v2 checkpoints (classifier and regressor) at their pinned revisions."""
-    _download_checkpoint(recipe.HF_CLASSIFIER_REPO, recipe.HF_CLASSIFIER_REVISION)
-    _download_checkpoint(recipe.HF_REGRESSOR_REPO, recipe.HF_REGRESSOR_REVISION)
-
-
-def _download_checkpoint(repo_id: str, revision: str) -> str:
-    """Fetch a checkpoint's files at ``revision`` into the Hugging Face cache; return their directory.
-
-    Tries the local cache first so offline compute nodes skip the etag request that
-    ``hf_hub_download`` otherwise makes.
+    Raises:
+        WeightsUnavailableError: The snapshot is not cached and ``allow_download`` is False.
     """
-    from huggingface_hub import hf_hub_download
-    from huggingface_hub.errors import LocalEntryNotFoundError
-
-    paths = []
-    for filename in recipe.CHECKPOINT_FILES:
-        try:
-            path = hf_hub_download(repo_id=repo_id, filename=filename, revision=revision, local_files_only=True)
-        except LocalEntryNotFoundError:
-            path = hf_hub_download(repo_id=repo_id, filename=filename, revision=revision)
-        paths.append(Path(path).parent)
-    if len(set(paths)) != 1:
-        raise RuntimeError(f"Checkpoint files of {repo_id}@{revision} resolved to different directories: {paths}")
-    return str(paths[0])
+    spec = MitraV2Model.shared_weights_spec
+    variant = spec.variant_for(problem_type)
+    resolved = spec.checkpoint_for(variant).resolve(hyperparameters={}, variant=variant, allow_download=allow_download)
+    return str(Path(resolved.path).parent)
 
 
 def _head_width(checkpoint_dir: str) -> int:
     """The output width (``dim_output``) recorded in a checkpoint directory's ``config.json``."""
-    with open(Path(checkpoint_dir) / "config.json") as f:
+    with open(Path(checkpoint_dir) / CONFIG_FILE) as f:
         return int(json.load(f)["dim_output"])
 
 

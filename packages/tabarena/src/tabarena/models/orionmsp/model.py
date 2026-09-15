@@ -1,17 +1,29 @@
 from __future__ import annotations
 
+import importlib
 import logging
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
+from autogluon.common.utils.pretrained_weights import (
+    PretrainedWeightsUnavailableError,
+    fetch_allowed,
+    unavailable_message,
+)
 from autogluon.common.utils.resource_utils import ResourceManager
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.models._shared_weights_model import CheckpointSpec, SharedWeightsModelMixin, SharedWeightsSpec
+from tabarena.models.prefetch import WeightsUnavailableError
+
 if TYPE_CHECKING:
+    from types import ModuleType
+
     import pandas as pd
+
+    from tabarena.models._weights import WeightsKey
 
 
 logger = logging.getLogger(__name__)
-
 
 _HF_REPO_ID = "Lexsi/Orion-MSP"
 _DEFAULT_CHECKPOINT_FILE = "OrionMSP-classifier-v1.5-202603.ckpt"
@@ -19,9 +31,53 @@ _DEFAULT_CHECKPOINT_FILE = "OrionMSP-classifier-v1.5-202603.ckpt"
 #: repo's default branch moves. Bump deliberately (with a note on what
 #: changed) when picking up newer checkpoints.
 _HF_REVISION = "8b712f6ff699750f7ac5825f31e89e6f6f161577"
+#: The checkpoint-relevant literals of ``_set_default_params``.
+DEFAULT_PARAMS: dict[str, Any] = {
+    "checkpoint_version": _DEFAULT_CHECKPOINT_FILE,
+    "allow_auto_download": True,
+}
+#: ``inference_config`` switches that make the module-held ``InferenceManager`` cache training data.
+_KV_CACHE_KEYS: tuple[str, ...] = ("enable_kv_cache", "cache_trainset_representation")
+_ESTIMATORS_MODULE = "tabarena.models.orionmsp._estimators"
 
 
-class OrionMSPModel(AbstractTorchModel):
+def _estimators() -> ModuleType:
+    """The library-importing half of the wrapper, imported on first use."""
+    return importlib.import_module(_ESTIMATORS_MODULE)
+
+
+def uses_kv_cache(inference_config: Any) -> bool:
+    """Whether an ``inference_config`` hyperparameter turns on training-data caching in the network.
+
+    ``enable_kv_cache`` and ``cache_trainset_representation`` make the ``InferenceManager`` objects
+    that live on the module keep KV pairs of the support set, which would leak one child's data into
+    every other holder of a shared network. A dict form is inspected per sub-config; a prebuilt
+    ``InferenceConfig`` object cannot be inspected without the library and is treated as caching.
+    """
+    if inference_config is None:
+        return False
+    if not isinstance(inference_config, dict):
+        return True
+    for sub_config in inference_config.values():
+        if isinstance(sub_config, dict) and any(sub_config.get(key) for key in _KV_CACHE_KEYS):
+            return True
+    return False
+
+
+def _clear_transient_state(network: Any) -> None:
+    """Drop the hierarchical class tree a many-class forward leaves on ``icl_predictor``.
+
+    Above the checkpoint's ``max_classes`` the library builds a ``ClassNode`` tree holding the
+    support representations and labels on the module and reads it in the same forward; it is rebuilt
+    before every use, so clearing it after a predict changes nothing and keeps one child's data off a
+    module other children share.
+    """
+    icl = getattr(network, "icl_predictor", None)
+    if icl is not None and getattr(icl, "root", None) is not None:
+        icl.root = None
+
+
+class OrionMSPModel(SharedWeightsModelMixin, AbstractTorchModel):
     """Orion-MSP v1.5: Multi-Scale Sparse Attention for Tabular In-Context Learning.
 
     We have to use the code from TabTune, as the standalone package does not support the newest
@@ -37,11 +93,6 @@ class OrionMSPModel(AbstractTorchModel):
     """
 
     ag_key = "TA-ORION-MSP"
-    warmup_modules: ClassVar[tuple[str, ...]] = (
-        "tabtune.models.orionmsp_v15.sklearn.classifier",
-        "tabtune.models.orionmsp_v15.model.embedding",
-        "huggingface_hub",
-    )
     ag_name = "TA-OrionMSP"
     ag_priority = 65
     seed_name = "random_state"
@@ -49,6 +100,88 @@ class OrionMSPModel(AbstractTorchModel):
     default_num_gpus = 1
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
+
+    #: Modules the timed fit would otherwise import for the first time: the library classifier and
+    #: the embedding module the class patch touches (both pulled in by ``_estimators``), the seam
+    #: module itself and the Hub client the resolver uses.
+    warmup_modules: ClassVar[tuple[str, ...]] = (
+        "tabtune.models.orionmsp_v15.sklearn.classifier",
+        "tabtune.models.orionmsp_v15.model.embedding",
+        _ESTIMATORS_MODULE,
+        "huggingface_hub",
+        "huggingface_hub.errors",
+    )
+    #: Cheapness knob for the warm-up dummy fit; the ensemble size never touches the network, so the
+    #: primed key is unaffected.
+    warmup_dummy_fit_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
+
+    shared_weights_spec: ClassVar[SharedWeightsSpec] = SharedWeightsSpec(
+        library="orionmsp",
+        checkpoint=CheckpointSpec(
+            repo_id=_HF_REPO_ID,
+            filename_param="checkpoint_version",
+            revision=_HF_REVISION,
+            default_filename=_DEFAULT_CHECKPOINT_FILE,
+        ),
+        # The module is built in fp32 whatever the file stores (``use_amp`` is an autocast at
+        # forward time) and the architecture comes from the checkpoint, so there are no flags.
+        variant="classifier",
+        default_params=DEFAULT_PARAMS,
+        # A user ``model_path`` selects custom weights and keeps the library loader; an
+        # ``inference_config`` that caches training data would store one child's support set on
+        # the shared module.
+        disable_when=("model_path", lambda hps: uses_kv_cache(hps.get("inference_config"))),
+        unshareable_examples=(
+            {"inference_config": {"ICL_CONFIG": {"enable_kv_cache": True}}},
+            {"inference_config": {"COL_CONFIG": {"cache_trainset_representation": True}}},
+        ),
+        download_param="allow_auto_download",
+        network_attr="model_",
+        seam="load_model",
+        # The library captures ``device_`` into the three ``InferenceManager`` configs at fit time
+        # and reads them on every forward, so a device change has to update all of them.
+        device_attrs=(
+            ("device_", "torch"),
+            ("device", "str"),
+            ("inference_config_.COL_CONFIG.device", "torch"),
+            ("inference_config_.ROW_CONFIG.device", "torch"),
+            ("inference_config_.ICL_CONFIG.device", "torch"),
+        ),
+    )
+    # Refitting one model on all data gives faster inference at similar quality for an in-context model.
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"refit_folds": True}
+
+    @classmethod
+    def _build_shared_weights(cls, key: WeightsKey) -> Any:
+        """Build the network for ``key`` exactly as the library's ``_load_model`` does.
+
+        The class-level positional-embedding patch is installed first so a network primed by the
+        warm-up runs the same embedding code as one built inside a fit.
+        """
+        est = _estimators()
+        est.patch_col_embedder_pos_emb()
+        return est.build_network(key.checkpoint, key.device)
+
+    def _checkpoint_path_for_fit(self, hyperparameters: dict) -> str:
+        """Local path of the pinned checkpoint for a fit that loads its own network.
+
+        Pre-resolving keeps the library off the network when the file is cached and pins the
+        revision; a download needs both ``ag.fetch_pretrained_weights`` and the configuration's
+        ``allow_auto_download``.
+        """
+        spec = self.shared_weights_spec
+        hps = spec.overlay(type(self), hyperparameters)
+        allow = fetch_allowed(self.aux_params.fetch_pretrained_weights, stage="fit") and bool(
+            hps.get("allow_auto_download", True)
+        )
+        try:
+            return spec.checkpoint.resolve(
+                hyperparameters=hps, variant="classifier", allow_download=allow, cls=type(self)
+            ).path
+        except WeightsUnavailableError as exc:
+            raise PretrainedWeightsUnavailableError(
+                unavailable_message(model_name=self.name, stage="fit", location=str(exc))
+            ) from exc
 
     def _fit(
         self,
@@ -73,40 +206,29 @@ class OrionMSPModel(AbstractTorchModel):
                 "Please switch to CPU usage instead.",
             )
 
-        from tabtune.models.orionmsp_v15.sklearn.classifier import (
-            OrionMSPv15Classifier,
-        )
+        est = _estimators()
+        # See `_estimators.patch_col_embedder_pos_emb`: works around an upstream shape-discriminator
+        # bug that breaks inference whenever H != T.
+        est.patch_col_embedder_pos_emb()
 
-        # See `_patch_col_embedder_pos_emb_class` docstring: works around an
-        # upstream shape-discriminator bug that breaks inference whenever H != T.
-        _patch_col_embedder_pos_emb_class()
-
-        if self.problem_type in ["binary", "multiclass"]:
-            model_cls = OrionMSPv15Classifier
-        else:
+        if self.problem_type not in ["binary", "multiclass"]:
             raise AssertionError(f"Unsupported problem_type: {self.problem_type}")
 
         hps = self._get_model_params()
-
-        # Pre-resolve the checkpoint locally so we skip the network entirely when
-        # it's already cached. TabTune's loader will then read directly from
-        # `model_path` instead of re-querying HuggingFace.
-        allow_download = hps.get("allow_auto_download", True)
-        if hps.get("model_path") is None:
-            hps["model_path"] = _resolve_checkpoint(
-                filename=hps.get("checkpoint_version", _DEFAULT_CHECKPOINT_FILE),
-                allow_auto_download=allow_download,
-            )
 
         # Needs up to 400GB VRAM for datasets with 1k features.
         # Adjust batch size as needed.
         if X.shape[1] > 500:
             hps["batch_size"] = 1  # avoid OOM for wide datasets; can be slow but is a fallback
 
-        self.model = model_cls(
-            **hps,
-            device=device,
-        )
+        key, payload = self._acquire_shared_weights(device=device)
+        if key is not None:
+            hps["model_path"] = key.checkpoint
+        elif hps.get("model_path") is None:
+            hps["model_path"] = self._checkpoint_path_for_fit(hps)
+        self.model = est.SharedOrionMSPv15Classifier(**hps, device=device)
+        if key is not None:
+            self.model.use_shared_weights(key, payload, type(self)._load_shared_weights)
 
         X = self.preprocess(X, y=y)
         self.model = self.model.fit(
@@ -114,10 +236,16 @@ class OrionMSPModel(AbstractTorchModel):
             y=y,
         )
 
+    def _predict_proba(self, X, **kwargs):
+        try:
+            return super()._predict_proba(X, **kwargs)
+        finally:
+            if self._shared_key is not None and self._network_attached():
+                _clear_transient_state(self.model.model_)
+
     def _set_default_params(self):
         default_params = {
-            "checkpoint_version": _DEFAULT_CHECKPOINT_FILE,
-            "allow_auto_download": True,
+            **DEFAULT_PARAMS,
             # AMP introduces ~1e-4 fp16 jitter between single-row and batch
             # predict_proba calls, which breaks AutoGluon's determinism check.
             # "use_amp": False, # disabled for now due to VRAM issues
@@ -125,136 +253,5 @@ class OrionMSPModel(AbstractTorchModel):
         for param, val in default_params.items():
             self._set_default_param_value(param, val)
 
-    def get_device(self) -> str:
-        return self.model.device
-
-    def _set_device(self, device: str):
-        self.model.device = device
-        if hasattr(self.model, "to"):
-            self.model.to(device)
-
-    @classmethod
-    def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
-        """Set fold_fitting_strategy to sequential_local,
-        as parallel folding crashes if model weights aren't pre-downloaded.
-        """
-        default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
-        extra_ag_args_ensemble = {
-            "fold_fitting_strategy": "sequential_local",
-            "refit_folds": True,
-        }
-        default_ag_args_ensemble.update(extra_ag_args_ensemble)
-        return default_ag_args_ensemble
-
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
-
-
-def _resolve_checkpoint(filename: str, allow_auto_download: bool = True) -> str:
-    """Return a local path for `filename`, downloading from HF only if not cached."""
-    from huggingface_hub import hf_hub_download
-    from huggingface_hub.errors import LocalEntryNotFoundError
-
-    try:
-        return hf_hub_download(
-            repo_id=_HF_REPO_ID,
-            filename=filename,
-            revision=_HF_REVISION,
-            local_files_only=True,
-        )
-    except LocalEntryNotFoundError:
-        if not allow_auto_download:
-            raise ValueError(
-                f"Checkpoint '{filename}' not cached locally and "
-                f"allow_auto_download=False. Pre-download it via "
-                f"`prefetch_weights(filename='{filename}')` or set "
-                f"allow_auto_download=True.",
-            ) from None
-        logger.info(
-            "Orion-MSP checkpoint '%s' not cached; downloading from %s.",
-            filename,
-            _HF_REPO_ID,
-        )
-        return hf_hub_download(repo_id=_HF_REPO_ID, filename=filename, revision=_HF_REVISION)
-
-
-def prefetch_weights(filename: str = _DEFAULT_CHECKPOINT_FILE) -> str:
-    # Defaults to the latest v1.5 checkpoint we use in TabArena. Skips the
-    # network call if the file is already present in the HF cache.
-    return _resolve_checkpoint(filename=filename, allow_auto_download=True)
-
-
-def _orionmsp_fixed_pos_emb(self, embeddings, feature_indices=None):
-    """Layout-robust replacement for `ColEmbedding._add_feature_pos_emb`.
-
-    Upstream TabTune (v0.1.16) discriminates between `(B, H+C, T, E)` and
-    `(B, T, H+C, E)` via `shape[1] == reserve_cls_tokens + shape[2]`, which
-    is only true when `H == T`. For any other shape (e.g. 1 feature with
-    multiple rows) it picks the wrong branch and crashes with a shape
-    mismatch. The sole caller in `_inference_forward` always passes
-    `(B, H+C, T, E)`, so we unconditionally apply that branch's logic.
-    """
-    import torch
-    from torch.nn import functional as F
-
-    if self.feature_pos_emb is None or embeddings.dim() != 4:
-        return embeddings
-
-    _B, HC, _T, _E = embeddings.shape
-    H = HC - self.reserve_cls_tokens
-    if H <= 0:
-        return embeddings
-
-    if self.feature_pos_emb == "subspace":
-        base_seed = self.col_embedding_seed.to(embeddings.device)
-        if base_seed.shape[0] < H:
-            generator = torch.Generator(device=embeddings.device).manual_seed(42)
-            additional_seed = torch.randn(
-                H - base_seed.shape[0],
-                base_seed.shape[1],
-                device=embeddings.device,
-                dtype=base_seed.dtype,
-                generator=generator,
-            )
-            full_seed = torch.cat([base_seed, additional_seed], dim=0)
-        else:
-            full_seed = base_seed[:H]
-
-        proj = self.feature_pos_proj
-        if full_seed.device != proj.weight.device:
-            W = proj.weight.to(full_seed.device)
-            b = proj.bias.to(full_seed.device) if proj.bias is not None else None
-            pos_emb = F.linear(full_seed, W, b)
-        else:
-            pos_emb = proj(full_seed)
-        embeddings[:, self.reserve_cls_tokens :, :, :] += pos_emb[None, :, None, :]
-    elif self.feature_pos_emb == "learned":
-        if feature_indices is not None:
-            idx = feature_indices.to(device=embeddings.device).long()
-        else:
-            idx = torch.arange(H, device=embeddings.device).long()
-        emb_w = self.feature_pos_embeddings.weight
-        if idx.device != emb_w.device:
-            pos_emb = F.embedding(idx, emb_w.to(idx.device))
-        else:
-            pos_emb = self.feature_pos_embeddings(idx)
-        embeddings[:, self.reserve_cls_tokens :, :, :] += pos_emb[None, :, None, :]
-    return embeddings
-
-
-_ORIONMSP_POS_EMB_PATCHED = False
-
-
-def _patch_col_embedder_pos_emb_class() -> None:
-    """Patch `ColEmbedding._add_feature_pos_emb` at the class level (idempotent).
-
-    Done at the class so picklable model instances inherit the fix without
-    storing a closure on the instance.
-    """
-    global _ORIONMSP_POS_EMB_PATCHED
-    if _ORIONMSP_POS_EMB_PATCHED:
-        return
-    from tabtune.models.orionmsp_v15.model.embedding import ColEmbedding
-
-    ColEmbedding._add_feature_pos_emb = _orionmsp_fixed_pos_emb
-    _ORIONMSP_POS_EMB_PATCHED = True

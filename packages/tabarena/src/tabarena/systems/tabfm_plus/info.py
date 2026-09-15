@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from tabarena.models._method_metadata import MethodMetadata
-from tabarena.models.tabfm.model import prefetch_weights
+from tabarena.models.tabfm.model import TabFMModel
 from tabarena.systems._system_info import SystemInfo
 from tabarena.systems.tabfm_plus.hpo import gen_tabfm_plus
 from tabarena.systems.tabfm_plus.system import TabFMPlusSystemModel
@@ -34,5 +34,5 @@ tabfm_plus_info = SystemInfo(
     pip_extra=(
         "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git@633cd265f498e1d20c9625be0639f6305d8e2541",
     ),
-    prefetch_weights=prefetch_weights,
+    prefetch_weights=TabFMModel.prefetch_weights,
 )

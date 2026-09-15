@@ -138,7 +138,10 @@ class MitraV2Trainer(TrainerFinetune):
        stays on the GPU (:class:`DeviceCheckpoint`).
     4. Before the first validation pass, one throw-away forward and backward pass at the fine-tuning
        context size (:meth:`_memory_preflight`) makes a context that does not fit the GPU fail in
-       seconds instead of after a full validation pass at that size.
+       seconds instead of after a full validation pass at that size. The pass is skipped
+       (``skip_preflight``) for a child whose table shape already fitted at the requested caps
+       earlier in the process (the out-of-memory memo in ``MitraV2Mixin._train_ensemble``), and
+       only on that child's first attempt: the ratchet re-arms it after any out-of-memory error.
     5. The fine-tuning loop runs attention on ``torch.nn.functional.scaled_dot_product_attention``
        (:func:`set_attention_backend`), which matches flash-attn 2 to bf16 rounding and is as fast
        per step on an H100 and 1.3 to 1.7 times faster on an RTX PRO 6000 Blackwell; prediction
@@ -150,10 +153,22 @@ class MitraV2Trainer(TrainerFinetune):
     """
 
     def __init__(
-        self, cfg, model, n_classes: int, device: str, rng=None, verbose: bool = True, *, recipe: RecipeSettings
+        self,
+        cfg,
+        model,
+        n_classes: int,
+        device: str,
+        rng=None,
+        verbose: bool = True,
+        *,
+        recipe: RecipeSettings,
+        skip_preflight: bool = False,
     ):
         super().__init__(cfg, model, n_classes=n_classes, device=device, rng=rng, verbose=verbose)
         self.recipe = recipe
+        # Stored under the parameter's name: ``TrainerFinetune`` is an sklearn ``BaseEstimator`` whose
+        # ``get_params`` (and so ``repr``) reads an attribute per ``__init__`` argument.
+        self.skip_preflight = skip_preflight
         self.checkpoint = DeviceCheckpoint()
         self._eval_arrays: tuple | None = None
 
@@ -198,7 +213,11 @@ class MitraV2Trainer(TrainerFinetune):
         restore = set_attention_backend(self.model, self.recipe.finetune_attention_backend)
         self._eval_arrays = None
         try:
-            if self.recipe.finetune_memory_preflight and str(self.device).startswith("cuda"):
+            if (
+                self.recipe.finetune_memory_preflight
+                and not self.skip_preflight
+                and str(self.device).startswith("cuda")
+            ):
                 self._memory_preflight(x_train)
             return super().train(x_train, y_train, x_val, y_val)
         finally:
@@ -215,8 +234,13 @@ class MitraV2Trainer(TrainerFinetune):
         of a training step on synthetic data: the loop's 80/20 support and query split, capped as
         the loop caps them, over the training table's non-constant columns (the preprocessor drops
         constant ones). A context that cannot fit fails here in seconds. The model is left as it
-        was: no optimizer step, gradients cleared, and neither the trainer's RNG nor the global
-        RNGs are drawn from, so a fit that goes on is the same fit as without the pass.
+        was: no optimizer step, gradients cleared, and the trainer's RNG and the NumPy global RNG
+        are not drawn from. Creating the DataLoader iterator draws one 64-bit value from torch's
+        global CPU generator for its worker base seed, which is unused with ``num_workers=0``. No
+        consumer of that generator in the fine-tuning or prediction path affects outputs (Tab2D has
+        no dropout or random operation; the training loader's RandomSampler permutes a length-1
+        dataset), so a fit that goes on, and a fit for which the pass is skipped, is the same fit as
+        without the pass.
         """
         hp = self.cfg.hyperparams
         x = np.asarray(x_train, dtype=np.float32)

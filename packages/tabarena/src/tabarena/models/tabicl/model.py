@@ -2,24 +2,35 @@ from __future__ import annotations
 
 import logging
 import tempfile
+from dataclasses import replace
 from typing import TYPE_CHECKING, ClassVar
 
 from autogluon.common.utils.pandas_utils import get_approximate_df_mem_usage
 from autogluon.tabular import __version__
 from autogluon.tabular.models.abstract.abstract_torch_model import AbstractTorchModel
 
+from tabarena.models._shared_weights_model import CheckpointSpec, SharedWeightsModelMixin, SharedWeightsSpec
+
 if TYPE_CHECKING:
     import pandas as pd
+
+    from tabarena.models._weights import WeightsKey
 
 logger = logging.getLogger(__name__)
 
 
-class TabICLModelBase(AbstractTorchModel):
+class TabICLModelBase(SharedWeightsModelMixin, AbstractTorchModel):
     """TabICL is a foundation model for tabular data using in-context learning
     that is scalable to larger datasets than TabPFNv2. It is pretrained purely on synthetic data.
     TabICL currently only supports classification tasks.
 
     TabICL is one of the top performing methods overall on TabArena-v0.1: https://tabarena.ai
+
+    The checkpoint's network is shared through the weights registry (see
+    :mod:`tabarena.models._shared_weights_model`). Configurations with ``kv_cache`` (the module-level
+    KV cache written by ``forward_with_cache`` is per estimator) or a user ``model_path`` keep the
+    library's own per-estimator load. The module's inference managers are reconfigured from the
+    calling estimator on every forward, so the children of a bag use it one after another.
 
     Paper: TabICL: A Tabular Foundation Model for In-Context Learning on Large Data
     Authors: Jingang Qu, David Holzmüller, Gaël Varoquaux, Marine Le Morvan
@@ -28,7 +39,11 @@ class TabICLModelBase(AbstractTorchModel):
     """
 
     ag_key = "NOTSET"
-    warmup_modules: ClassVar[tuple[str, ...]] = ("tabicl",)
+    #: ``import tabicl`` pulls in both estimators, torch, sklearn and the Hub client; the second entry
+    #: is TabArena's registry-aware estimator module, imported lazily by the fit.
+    warmup_modules: ClassVar[tuple[str, ...]] = ("tabicl", "tabarena.models.tabicl._estimators")
+    #: Cheapness knob for the warm-up dummy fit; the number of ensemble views never touches the network.
+    warmup_dummy_fit_hyperparameters: ClassVar[dict] = {"n_estimators": 1}
     ag_name = "NOTSET"
     ag_priority = 65
     seed_name = "random_state"
@@ -39,16 +54,39 @@ class TabICLModelBase(AbstractTorchModel):
     default_resources_physical_cores_only = True
     minimum_num_gpus = 1
 
+    shared_weights_spec: ClassVar[SharedWeightsSpec] = SharedWeightsSpec(
+        library="tabicl",
+        checkpoint=CheckpointSpec(repo_id="jingang/TabICL", filename_param="checkpoint_version"),
+        default_params=lambda cls: {
+            "checkpoint_version": (cls.default_classification_model, cls.default_regression_model)
+        },
+        disable_when=("kv_cache", "model_path"),
+        download_param="allow_auto_download",
+        network_attr="model_",
+        detach_attr="library",
+        seam="load_model",
+        post_attach_calls=("_build_inference_config",),
+        device_attrs=(
+            ("device_", "torch"),
+            ("device", "str"),
+            ("inference_config_.COL_CONFIG.device", "torch"),
+            ("inference_config_.ROW_CONFIG.device", "torch"),
+            ("inference_config_.ICL_CONFIG.device", "torch"),
+        ),
+    )
+    # Better to refit the model for faster inference and similar quality as the bag.
+    _default_ag_args_ensemble_extra: ClassVar[dict] = {"refit_folds": True}
+
+    @classmethod
+    def _build_shared_weights(cls, key: WeightsKey):
+        from tabarena.models.tabicl._estimators import build_module
+
+        return build_module(key.checkpoint, key.device)
+
     def get_model_cls(self):
-        if self.problem_type in ["binary", "multiclass"]:
-            from tabicl import TabICLClassifier
+        from tabarena.models.tabicl._estimators import estimator_cls
 
-            model_cls = TabICLClassifier
-        else:
-            from tabicl import TabICLRegressor
-
-            model_cls = TabICLRegressor
-        return model_cls
+        return estimator_cls(self.shared_weights_spec.variant_for(self.problem_type))
 
     def get_checkpoint_version(self, hyperparameter: dict) -> str:
         clf_checkpoint = self.default_classification_model
@@ -108,15 +146,7 @@ class TabICLModelBase(AbstractTorchModel):
             )
             raise err
 
-        from torch.cuda import is_available
-
-        device = "cuda" if num_gpus != 0 else "cpu"
-        if (device == "cuda") and (not is_available()):
-            # FIXME: warn instead and switch to CPU.
-            raise AssertionError(
-                "Fit specified to use GPU, but CUDA is not available on this machine. "
-                "Please switch to CPU usage instead.",
-            )
+        device = self._resolve_fit_device(num_gpus)
 
         model_cls = self.get_model_cls()
         hyp = self._get_model_params()
@@ -135,6 +165,7 @@ class TabICLModelBase(AbstractTorchModel):
         # the empty dir is left to the OS tempdir reaper.
         disk_offload_dir = tempfile.mkdtemp(prefix="tabicl_")
 
+        key, payload = self._acquire_shared_weights(device=device)
         self.model = model_cls(
             **hyp,
             device=device,
@@ -143,6 +174,8 @@ class TabICLModelBase(AbstractTorchModel):
             verbose=X.shape[0] > 250_000,
             inference_config=dict(COL_CONFIG=dict(cpu_safety_factor=0.75)),
         )
+        if key is not None:
+            self.model.use_shared_weights(key, payload, type(self)._load_shared_weights)
         X = self.preprocess(X, y=y)
         self.model = self.model.fit(
             X=X,
@@ -184,51 +217,13 @@ class TabICLModelBase(AbstractTorchModel):
 
         return model_mem_estimate + dataset_size_mem_est + baseline_overhead_mem_est
 
-    @classmethod
-    def _get_default_ag_args_ensemble(cls, **kwargs) -> dict:
-        """Set fold_fitting_strategy to sequential_local,
-        as parallel folding crashes if model weights aren't pre-downloaded.
-        """
-        default_ag_args_ensemble = super()._get_default_ag_args_ensemble(**kwargs)
-        extra_ag_args_ensemble = {
-            "fold_fitting_strategy": "sequential_local",
-            "refit_folds": True,  # Better to refit the model for faster inference and similar quality as the bag.
-        }
-        default_ag_args_ensemble.update(extra_ag_args_ensemble)
-        return default_ag_args_ensemble
-
     def _more_tags(self) -> dict:
         return {"can_refit_full": True}
 
-    @staticmethod
-    def checkpoint_search_space() -> list[str | tuple[str, str]]:
-        raise NotImplementedError("This method must be implemented in the subclass.")
-
     @classmethod
-    def prefetch_weights(cls) -> None:
-        """Pre-download this variant's checkpoint(s) by loading each from its search space.
-
-        Self-describing: iterates ``cls.checkpoint_search_space()`` (so the v1 and v2 wrappers each
-        warm their own checkpoints) and triggers the classifier weight download for each.
-        """
-        from tabicl import TabICLClassifier
-
-        for entry in cls.checkpoint_search_space():
-            clf_checkpoint = entry[0] if isinstance(entry, tuple) else entry
-            TabICLClassifier(checkpoint_version=clf_checkpoint)._load_model()
-
-    def get_device(self) -> str:
-        return self.model.device_.type
-
-    # TODO: Better to have an official TabICL method for this
-    def _set_device(self, device: str):
-        device = self.to_torch_device(device)
-        self.model.device_ = device
-        self.model.device = self.model.device_.type
-        self.model.model_ = self.model.model_.to(self.model.device_)
-        self.model.inference_config_.COL_CONFIG.device = self.model.device_
-        self.model.inference_config_.ROW_CONFIG.device = self.model.device_
-        self.model.inference_config_.ICL_CONFIG.device = self.model.device_
+    def checkpoint_search_space(cls) -> list[str | tuple[str, str]]:
+        """The checkpoint alternatives of this variant's search space, default first (from the spec)."""
+        return list(cls.shared_weights_spec.checkpoint_choices["checkpoint_version"])
 
 
 class TabICLModel(TabICLModelBase):
@@ -240,12 +235,15 @@ class TabICLModel(TabICLModelBase):
     default_classification_model: str | None = "tabicl-classifier-v1.1-20250506.ckpt"
     _supported_problem_types = ["binary", "multiclass"]
 
-    @staticmethod
-    def checkpoint_search_space() -> list[str]:
-        return [
-            "tabicl-classifier-v1.1-20250506.ckpt",
-            "tabicl-classifier-v1-20250208.ckpt",
-        ]
+    shared_weights_spec: ClassVar[SharedWeightsSpec] = replace(
+        TabICLModelBase.shared_weights_spec,
+        checkpoint_choices={
+            "checkpoint_version": (
+                "tabicl-classifier-v1.1-20250506.ckpt",
+                "tabicl-classifier-v1-20250208.ckpt",
+            )
+        },
+    )
 
     def _set_default_params(self):
         default_params = {
@@ -266,14 +264,17 @@ class TabICLv2Model(TabICLModelBase):
     _supported_problem_types = ["binary", "multiclass", "regression"]
 
     # TODO: search over v1 checkpoints too?
-    @staticmethod
-    def checkpoint_search_space() -> list[tuple[str, str]]:
-        return [
-            (
-                "tabicl-classifier-v2-20260212.ckpt",
-                "tabicl-regressor-v2-20260212.ckpt",
-            ),
-        ]
+    shared_weights_spec: ClassVar[SharedWeightsSpec] = replace(
+        TabICLModelBase.shared_weights_spec,
+        checkpoint_choices={
+            "checkpoint_version": (
+                (
+                    "tabicl-classifier-v2-20260212.ckpt",
+                    "tabicl-regressor-v2-20260212.ckpt",
+                ),
+            )
+        },
+    )
 
     @classmethod
     def _estimate_memory_usage_static(
